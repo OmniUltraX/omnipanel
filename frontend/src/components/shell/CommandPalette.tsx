@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAiStore } from "../../stores/aiStore";
 
 interface CommandItem {
   id: string;
@@ -27,6 +28,8 @@ const commands: CommandItem[] = [
   { id: "new-query", label: "New SQL Query", category: "Actions" },
   { id: "toggle-theme", label: "Toggle Theme", category: "Actions" },
   { id: "clear-cache", label: "Clear Cache", category: "Actions" },
+  { id: "open-ai", label: "Open AI Chat", shortcut: "⌘L", action: () => useAiStore.getState().openDrawer(), category: "AI" },
+  { id: "new-ai-conv", label: "New AI Conversation", action: () => { useAiStore.getState().createConversation(); useAiStore.getState().openDrawer(); }, category: "AI" },
 ];
 
 export function CommandPalette() {
@@ -54,6 +57,14 @@ export function CommandPalette() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Don't intercept shortcuts when typing in terminal
+      const target = e.target as HTMLElement;
+      if (target?.closest?.(".xterm")) {
+        if (e.key === "Escape" && isOpen) {
+          setIsOpen(false);
+        }
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         toggle();

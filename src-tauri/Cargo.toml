@@ -15,7 +15,9 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+portable-pty = "0.8"
 omnipanel-core = { path = "../crates/omnipanel-core" }
+omnipanel-ai = { path = "../crates/omnipanel-ai" }
 omnipanel-renderer = { path = "../crates/omnipanel-renderer" }
 tokio.workspace = true
 serde.workspace = true
@@ -23,3 +25,13 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+futures = "0.3"
+
+# Protocol Lab
+reqwest.workspace = true
+serialport.workspace = true
+rumqttc.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+url.workspace = true

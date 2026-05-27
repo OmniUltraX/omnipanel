@@ -52,4 +52,7 @@
   /* Sidebar */
   --sidebar-w: 56px;
   --sidebar-expanded: 220px;
+
+  /* Topbar */
+  --topbar-h: 44px;
 }

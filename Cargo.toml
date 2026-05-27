@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/omnipanel-core",
+    "crates/omnipanel-ai",
     "crates/omnipanel-renderer",
 ]
 
@@ -25,6 +26,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Terminal
 alacritty_terminal = "0.25"
+portable-pty = "0.8"
 
 # GUI (kept for omnipanel-renderer, will be replaced by wgpu in Phase 2)
 egui = "0.31"
@@ -32,3 +34,12 @@ egui = "0.31"
 # Error handling
 anyhow = "1"
 thiserror = "2"
+
+# Protocol Lab
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+serialport = "4"
+rumqttc = "0.24"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+hex = "0.4"
+url = "2"

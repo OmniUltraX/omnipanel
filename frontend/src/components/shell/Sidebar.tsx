@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
+import { useAiStore } from "../../stores/aiStore";
 
 const navItems = [
   { path: "/", label: "Workspace", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
@@ -90,6 +91,28 @@ export function Sidebar() {
 
       {/* Settings */}
       <div className="flex flex-col items-center gap-1 py-3 border-t border-border">
+        {/* AI Button */}
+        <button
+          onClick={() => useAiStore.getState().toggleDrawer()}
+          className={`relative w-10 h-10 flex items-center justify-center rounded-lg transition-colors group ${
+            useAiStore.getState().drawerOpen
+              ? "bg-surface text-accent"
+              : "text-muted hover:text-fg hover:bg-surface-hover"
+          }`}
+          title="AI Assistant (Ctrl+L)"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
+            <circle cx="18" cy="14" r="0.5" fill="currentColor" />
+            <circle cx="6" cy="14" r="0.5" fill="currentColor" />
+            <path d="M12 17v4" />
+            <path d="M8 21h8" />
+          </svg>
+          <div className="absolute left-full ml-2 px-2 py-1 bg-surface border border-border rounded-md text-xs text-fg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+            AI Assistant
+          </div>
+        </button>
+
         <button
           onClick={() => navigate("/settings")}
           className={`relative w-10 h-10 flex items-center justify-center rounded-lg transition-colors group ${

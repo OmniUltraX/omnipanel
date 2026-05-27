@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useAiStore } from "../../stores/aiStore";
 
 interface Tab {
   id: string;
@@ -34,6 +35,12 @@ export function Topbar({ title, tabs, children, onTabClose }: TopbarProps) {
     window.dispatchEvent(new CustomEvent("toggle-notif-drawer"));
   };
 
+  const handleAi = () => {
+    useAiStore.getState().toggleDrawer();
+  };
+
+  const aiDrawerOpen = useAiStore((s) => s.drawerOpen);
+
   return (
     <div className="topbar" data-tauri-drag-region>
       <span className="topbar-title">{title}</span>
@@ -64,16 +71,19 @@ export function Topbar({ title, tabs, children, onTabClose }: TopbarProps) {
       )}
 
       {/* Draggable spacer */}
-      <div className="topbar-spacer" />
+      <div className="topbar-spacer" data-tauri-drag-region />
 
       {/* Actions — NOT draggable */}
-      <div className="topbar-actions">
+      <div className="topbar-actions" data-tauri-drag-region="false">
         {children && (
           <div className="topbar-page-actions">
             {children}
           </div>
         )}
 
+        <button className={`topbar-btn${aiDrawerOpen ? " active" : ""}`} title="AI Assistant (Ctrl+L)" onClick={handleAi}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" /><circle cx="18" cy="14" r="0.5" fill="currentColor" /><circle cx="6" cy="14" r="0.5" fill="currentColor" /><path d="M12 17v4" /><path d="M8 21h8" /></svg>
+        </button>
         <button className="topbar-btn" title="Notifications" onClick={handleNotifications}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></svg>
           <span className="notif-badge">3</span>

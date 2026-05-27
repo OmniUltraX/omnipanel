@@ -13,6 +13,9 @@
     "core:window:allow-set-focus",
     "core:window:allow-is-maximized",
     "core:webview:default",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
     "shell:default",
     "dialog:default",
     "fs:default"

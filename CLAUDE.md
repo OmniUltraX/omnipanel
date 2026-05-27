@@ -6,15 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OmniPanel is an AI-native cross-platform engineering workstation for developers. It unifies terminal, SSH, database, Docker, server management, and AI assistance into a single desktop application.
 
-**Status:** Pre-implementation. Only `PRD.md` (product requirements document, in Chinese) exists. No source code yet.
+**Status:** Phase 0 complete — Tauri + React framework skeleton搭建完成，Shell 组件（Sidebar、Topbar、StatusBar、CommandPalette）就位，所有功能面板 UI 骨架就位。下一步聚焦终端和 SSH 模块的真实后端实现。
 
 ## Technology Stack
 
-- **Language:** Rust (single binary, zero runtime dependencies)
-- **Terminal core:** alacritty_terminal (VT parsing engine)
-- **GPU rendering:** wgpu (Vulkan/Metal/DX12 abstraction)
-- **GUI framework:** egui (immediate-mode GUI)
-- **Window management:** winit
+- **App framework:** Tauri 2.x (Rust backend + WebView frontend)
+- **Frontend:** React 18 + TypeScript + Vite + React Router
+- **Terminal (frontend):** xterm.js (planned, not yet integrated)
+- **Terminal (backend):** alacritty_terminal crate (planned) / portable-pty
 - **SSH:** russh + russh-sftp (preferred) or ssh2-rs (fallback)
 - **Database drivers:** sqlx (MySQL/PostgreSQL/SQLite), tiberius (SQL Server), redis-rs, mongodb
 - **Docker:** bollard
@@ -27,35 +26,52 @@ OmniPanel is an AI-native cross-platform engineering workstation for developers.
 
 ```
 omnipanel/
+├── src-tauri/                    # Tauri backend (Rust)
+│   ├── src/
+│   │   ├── main.rs               # App entry
+│   │   ├── lib.rs                # Tauri Builder, plugin registration
+│   │   ├── state.rs              # Global app state
+│   │   ├── commands/             # Tauri Commands (callable from frontend)
+│   │   └── terminal/             # Terminal core logic
+│   └── Cargo.toml
+├── frontend/                     # Frontend (React + TypeScript)
+│   ├── src/
+│   │   ├── App.tsx               # Routes & Shell layout
+│   │   ├── components/
+│   │   │   ├── shell/            # Sidebar, Topbar, StatusBar, CommandPalette
+│   │   │   ├── panels/           # Feature panels (Terminal, SSH, DB, Docker, etc.)
+│   │   │   └── ui/               # Shared UI components (Icons)
+│   │   └── styles.css            # Global styles & theme variables
+│   ├── package.json
+│   └── vite.config.ts
+├── crates/                       # Shared Rust core libraries (progressive migration)
+│   ├── omnipanel-core/           # Core engine (terminal, storage)
+│   ├── omnipanel-renderer/       # GPU rendering (future phase)
+│   └── omnipanel-ui/             # egui UI (future phase, optional)
+├── design/                       # Design assets
 ├── Cargo.toml                    # Rust workspace
-├── crates/
-│   ├── omnipanel-core/           # Core engine (terminal, SSH, DB, Docker, AI, storage)
-│   ├── omnipanel-ui/             # egui-based UI (panels, widgets, theme)
-│   └── omnipanel-renderer/       # GPU rendering (wgpu glyph cache, terminal pass)
-├── src/
-│   └── main.rs                   # Application entry point
-└── docs/
-    └── PRD.md                    # Product requirements
+└── PRD.md                        # Product requirements document
 ```
-
-## Crate Responsibilities
-
-**omnipanel-core** — All non-UI logic: terminal emulation, SSH connections, database connectors, Docker API client, server monitoring, panel API adapters (宝塔/1Panel), AI module (cloud API / local model / CLI agent), encrypted storage.
-
-**omnipanel-ui** — egui panels (terminal, SSH, database, Docker, server, AI chat), custom widgets, theme system. Entry point: `app.rs`.
-
-**omnipanel-renderer** — wgpu-based GPU rendering: glyph cache, terminal rendering pipeline, text renderer.
 
 ## Build Commands
 
 ```bash
-# Build the workspace
+# Install frontend dependencies
+cd frontend && npm install
+
+# Run in development mode (Tauri dev)
+npm run tauri dev
+
+# Build for production
+npm run tauri build
+
+# Run frontend only (no Tauri)
+cd frontend && npm run dev
+
+# Build Rust workspace only
 cargo build
 
-# Run the application
-cargo run
-
-# Run tests
+# Run Rust tests
 cargo test
 
 # Run a single crate's tests
@@ -78,13 +94,14 @@ cargo clippy -- -D warnings
 
 ## Development Phases
 
-| Phase | Scope |
-|-------|-------|
-| 1 (Month 1-4) | MVP: GPU terminal + SSH client + basic AI |
-| 2 (Month 5-7) | Database management (MySQL, PostgreSQL) |
-| 3 (Month 8-10) | Docker + server management + panel integration |
-| 4 (Month 11-13) | Blocks terminal, workflows, protocol debugging, AI agent chains |
-| 5 (Month 14-15) | Polish and release v1.0 |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 0 | Framework skeleton (Tauri + React + Shell) | Done |
+| 1 (Month 1-4) | MVP: Terminal + SSH client + basic AI | In progress |
+| 2 (Month 5-7) | Database management (MySQL, PostgreSQL) | — |
+| 3 (Month 8-10) | Docker + server management + panel integration | — |
+| 4 (Month 11-13) | Blocks terminal, workflows, protocol debugging, AI agent chains | — |
+| 5 (Month 14-15) | Polish and release v1.0 | — |
 
 ## Cross-Platform Targets
 
@@ -98,3 +115,18 @@ cargo clippy -- -D warnings
 - Input latency: <5ms (keystroke to screen)
 - Memory per terminal tab: <20MB
 - VT emulation compatibility: >98% (VT100/VT220)
+
+## Tauri IPC Pattern
+
+Frontend calls Rust backend via `invoke`:
+```typescript
+import { invoke } from "@tauri-apps/api/core";
+const id = await invoke<string>("create_terminal", { cols: 80, rows: 24 });
+```
+
+Backend sends events to frontend via `app.emit()`:
+```rust
+app.emit("terminal-output", payload)?;
+```
+
+Tauri Commands are defined in `src-tauri/src/commands/` and registered in `src-tauri/src/lib.rs`.
