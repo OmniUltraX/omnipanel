@@ -35,8 +35,8 @@ export function Topbar({ title, tabs, children, onTabClose }: TopbarProps) {
   };
 
   return (
-    <div className="topbar">
-      <span className="topbar-title" data-tauri-drag-region>{title}</span>
+    <div className="topbar" data-tauri-drag-region>
+      <span className="topbar-title">{title}</span>
 
       {/* Tabs (e.g. terminal) */}
       {tabs && tabs.length > 0 && (
@@ -64,7 +64,7 @@ export function Topbar({ title, tabs, children, onTabClose }: TopbarProps) {
       )}
 
       {/* Draggable spacer */}
-      <div className="topbar-spacer" data-tauri-drag-region />
+      <div className="topbar-spacer" />
 
       {/* Actions — NOT draggable */}
       <div className="topbar-actions">
@@ -84,9 +84,15 @@ export function Topbar({ title, tabs, children, onTabClose }: TopbarProps) {
 
         {/* Window Controls */}
         <div className="win-controls">
-          <button className="win-btn minimize" title="Minimize" onClick={handleMinimize} />
-          <button className="win-btn maximize" title="Maximize" onClick={handleMaximize} />
-          <button className="win-btn close" title="Close" onClick={handleClose} />
+          <button className="win-btn minimize" title="Minimize" onClick={handleMinimize}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M0 5h10" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
+          <button className="win-btn maximize" title="Maximize" onClick={handleMaximize}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
+          <button className="win-btn close" title="Close" onClick={handleClose}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
         </div>
       </div>
     </div>

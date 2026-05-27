@@ -1,0 +1,1515 @@
+
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OmniPanel — 设计系统 & 开发指南</title>
+  <style>
+    /* ─── OpenCode Design System Tokens ──────────────────────────────── */
+    :root {
+      --bg: #201d1d;
+      --bg-deeper: #1a1717;
+      --surface: #302c2c;
+      --surface-hover: #3a3636;
+      --surface-active: #444040;
+      --fg: #fdfcfc;
+      --fg-2: #c8c6c4;
+      --muted: #9a9898;
+      --meta: #6e6e73;
+      --border: #464343;
+      --border-soft: #302c2c;
+      --accent: #007aff;
+      --accent-on: #ffffff;
+      --accent-hover: #0056b3;
+      --accent-active: #004085;
+      --accent-soft: rgba(0, 122, 255, 0.12);
+      --success: #30d158;
+      --success-soft: rgba(48, 209, 88, 0.12);
+      --warn: #ff9f0a;
+      --warn-soft: rgba(255, 159, 10, 0.12);
+      --danger: #ff3b30;
+      --danger-soft: rgba(255, 59, 48, 0.12);
+      --font: "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --r-sm: 4px;
+      --r-md: 6px;
+      --r-lg: 8px;
+      --sp-1: 4px;
+      --sp-2: 8px;
+      --sp-3: 12px;
+      --sp-4: 16px;
+      --sp-5: 20px;
+      --sp-6: 24px;
+      --sp-8: 32px;
+      --sp-10: 40px;
+      --sp-12: 48px;
+      --sp-16: 64px;
+      --sp-20: 80px;
+      --sp-24: 96px;
+      --container: 1080px;
+      --gutter: 24px;
+    }
+
+    /* ─── Reset ────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font-family: var(--font); cursor: pointer; border: none; background: none; color: var(--fg); }
+    input, select, textarea { font-family: var(--font); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    h1, h2, h3, h4, h5 { margin: 0; font-weight: 700; }
+    p { margin: 0; }
+
+    /* ─── Layout ───────────────────────────────────────────────────── */
+    .container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .section {
+      padding-block: clamp(48px, 8vw, var(--sp-24));
+    }
+    .section + .section { border-top: 1px solid var(--border); }
+    .section-header {
+      margin-bottom: var(--sp-12);
+    }
+    .section-header h2 {
+      font-size: clamp(24px, 3vw, 32px);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      margin-bottom: var(--sp-2);
+    }
+    .section-header p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 60ch;
+    }
+
+    /* ─── Nav ──────────────────────────────────────────────────────── */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-block: 12px;
+    }
+    .topnav .logo {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+    }
+    .topnav nav {
+      display: flex;
+      gap: var(--sp-6);
+    }
+    .topnav nav a {
+      font-size: 13px;
+      color: var(--muted);
+      transition: color 0.12s;
+    }
+    .topnav nav a:hover {
+      color: var(--fg);
+      text-decoration: none;
+    }
+
+    /* ─── Eyebrow ──────────────────────────────────────────────────── */
+    .eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: var(--sp-3);
+    }
+
+    /* ─── Hero ─────────────────────────────────────────────────────── */
+    .hero {
+      padding-block: clamp(64px, 10vw, 120px);
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 48px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: var(--sp-4);
+    }
+    .hero .lead {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.6;
+      max-width: 50ch;
+      margin: 0 auto;
+    }
+
+    /* ─── Grid helpers ─────────────────────────────────────────────── */
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-6); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-6); }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sp-4); }
+    .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--sp-4); }
+    .grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: var(--sp-12); align-items: start; }
+    .grid-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: var(--sp-12); align-items: start; }
+    @media (max-width: 768px) {
+      .grid-2, .grid-3, .grid-4, .grid-5, .grid-6, .grid-2-1, .grid-1-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ─── Token display cards ──────────────────────────────────────── */
+    .token-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+    .token-swatch {
+      height: 72px;
+      display: flex;
+      align-items: flex-end;
+      padding: var(--sp-2) var(--sp-3);
+    }
+    .token-swatch .hex {
+      font-size: 11px;
+      color: rgba(255,255,255,0.8);
+      background: rgba(0,0,0,0.35);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .token-info {
+      padding: var(--sp-3);
+    }
+    .token-info .name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 2px;
+    }
+    .token-info .var {
+      font-size: 11px;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+    .token-info .desc {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    /* ─── Type specimen ────────────────────────────────────────────── */
+    .type-row {
+      display: flex;
+      align-items: baseline;
+      gap: var(--sp-6);
+      padding: var(--sp-4) 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .type-row:last-child { border-bottom: none; }
+    .type-meta {
+      min-width: 140px;
+      flex-shrink: 0;
+    }
+    .type-meta .label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 2px;
+    }
+    .type-meta .spec {
+      font-size: 11px;
+      color: var(--accent);
+    }
+    .type-sample {
+      flex: 1;
+      min-width: 0;
+      color: var(--fg);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ─── Component showcase ───────────────────────────────────────── */
+    .comp-showcase {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--sp-6);
+    }
+    .comp-showcase .comp-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: var(--sp-4);
+    }
+    .comp-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--sp-3);
+    }
+
+    /* ─── Buttons (spec) ───────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: 6px 14px;
+      border-radius: var(--r-sm);
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+    .btn-primary { background: var(--accent); color: var(--accent-on); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { background: var(--surface-hover); border-color: var(--muted); }
+    .btn-ghost { color: var(--muted); padding: 4px 8px; }
+    .btn-ghost:hover { color: var(--fg); background: var(--surface); }
+    .btn-danger { background: var(--danger-soft); color: var(--danger); }
+    .btn-danger:hover { background: var(--danger); color: #fff; }
+    .btn-sm { padding: 3px 10px; font-size: 11px; }
+    .btn-icon {
+      width: 28px; height: 28px;
+      padding: 0;
+      display: grid; place-items: center;
+      border-radius: var(--r-sm);
+      color: var(--muted);
+      transition: background 0.12s, color 0.12s;
+    }
+    .btn-icon:hover { background: var(--surface); color: var(--fg); }
+
+    /* ─── Input (spec) ─────────────────────────────────────────────── */
+    .input {
+      padding: 6px 10px;
+      background: var(--bg-deeper);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--fg);
+      font-size: 13px;
+      transition: border-color 0.12s;
+      width: 100%;
+      max-width: 280px;
+    }
+    .input:focus { border-color: var(--accent); outline: none; }
+    .input::placeholder { color: var(--meta); }
+
+    /* ─── Badge (spec) ─────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .badge-success { background: var(--success-soft); color: var(--success); }
+    .badge-warn { background: var(--warn-soft); color: var(--warn); }
+    .badge-danger { background: var(--danger-soft); color: var(--danger); }
+    .badge-accent { background: var(--accent-soft); color: var(--accent); }
+    .badge-muted { background: var(--surface); color: var(--muted); }
+
+    /* ─── Tag (spec) ───────────────────────────────────────────────── */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--meta);
+    }
+
+    /* ─── Table (spec) ─────────────────────────────────────────────── */
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .spec-table th {
+      text-align: left;
+      padding: var(--sp-2) var(--sp-3);
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--meta);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .spec-table td {
+      padding: var(--sp-2) var(--sp-3);
+      border-bottom: 1px solid var(--border-soft);
+      color: var(--fg-2);
+    }
+    .spec-table td code {
+      padding: 1px 5px;
+      background: var(--surface);
+      border-radius: 3px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+
+    /* ─── Code block ───────────────────────────────────────────────── */
+    .code-block {
+      background: var(--bg-deeper);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: var(--sp-4);
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--fg-2);
+    }
+    .code-block .kw { color: var(--accent); }
+    .code-block .str { color: var(--success); }
+    .code-block .cmt { color: var(--meta); }
+    .code-block .tag { color: var(--warn); border: none; padding: 0; border-radius: 0; font-size: 13px; }
+    .code-block .attr { color: var(--danger); }
+
+    /* ─── Spacing visualizer ───────────────────────────────────────── */
+    .sp-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-4);
+      padding: var(--sp-2) 0;
+    }
+    .sp-bar {
+      height: 20px;
+      background: var(--accent);
+      border-radius: 2px;
+      opacity: 0.7;
+    }
+    .sp-label {
+      min-width: 120px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .sp-value {
+      font-size: 12px;
+      color: var(--accent);
+      min-width: 60px;
+    }
+
+    /* ─── Radius visualizer ────────────────────────────────────────── */
+    .radius-demo {
+      width: 64px;
+      height: 64px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ─── Rule card ────────────────────────────────────────────────── */
+    .rule-card {
+      padding: var(--sp-4);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-sm);
+    }
+    .rule-card h4 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: var(--sp-1);
+    }
+    .rule-card p {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* ─── Logo showcase ────────────────────────────────────────────── */
+    .logo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--sp-6);
+    }
+    .logo-cell {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--sp-8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--sp-4);
+      min-height: 200px;
+    }
+    .logo-cell.dark-bg {
+      background: var(--bg);
+    }
+    .logo-cell.light-bg {
+      background: #fdfcfc;
+    }
+    .logo-cell-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    @media (max-width: 768px) {
+      .logo-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Do / Don't ───────────────────────────────────────────────── */
+    .do-dont {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-4);
+    }
+    .do-card, .dont-card {
+      border-radius: var(--r-md);
+      padding: var(--sp-4);
+      border: 1px solid;
+    }
+    .do-card {
+      border-color: var(--success);
+      background: var(--success-soft);
+    }
+    .dont-card {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+    }
+    .do-card .label, .dont-card .label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: var(--sp-2);
+    }
+    .do-card .label { color: var(--success); }
+    .dont-card .label { color: var(--danger); }
+    .do-card p, .dont-card p {
+      font-size: 13px;
+      color: var(--fg-2);
+      line-height: 1.5;
+    }
+    @media (max-width: 768px) {
+      .do-dont { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Sidebar nav (TOC) ────────────────────────────────────────── */
+    .page-toc {
+      position: fixed;
+      right: var(--sp-6);
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+    .page-toc a {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.15s, transform 0.15s;
+    }
+    .page-toc a:hover, .page-toc a.active {
+      background: var(--accent);
+      transform: scale(1.3);
+    }
+    @media (max-width: 1200px) {
+      .page-toc { display: none; }
+    }
+
+    /* ─── Footer ───────────────────────────────────────────────────── */
+    .pagefoot {
+      padding-block: var(--sp-12);
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    /* ─── Utility ──────────────────────────────────────────────────── */
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: var(--sp-2); }
+    .gap-3 { gap: var(--sp-3); }
+    .gap-4 { gap: var(--sp-4); }
+    .gap-6 { gap: var(--sp-6); }
+    .mt-2 { margin-top: var(--sp-2); }
+    .mt-4 { margin-top: var(--sp-4); }
+    .mt-6 { margin-top: var(--sp-6); }
+    .mb-4 { margin-bottom: var(--sp-4); }
+    .mb-6 { margin-bottom: var(--sp-6); }
+    .text-muted { color: var(--muted); }
+    .text-accent { color: var(--accent); }
+    .text-sm { font-size: 13px; }
+    .text-xs { font-size: 11px; }
+    .w-full { width: 100%; }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="topnav">
+    <div class="container topnav-inner">
+      <span class="logo">OmniPanel Design System</span>
+      <nav>
+        <a href="#logo">Logo</a>
+        <a href="#colors">色彩</a>
+        <a href="#typography">字体</a>
+        <a href="#spacing">间距</a>
+        <a href="#components">组件</a>
+        <a href="#guidelines">开发规范</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- TOC dots -->
+  <div class="page-toc">
+    <a href="#logo" title="Logo"></a>
+    <a href="#colors" title="色彩"></a>
+    <a href="#typography" title="字体"></a>
+    <a href="#spacing" title="间距"></a>
+    <a href="#components" title="组件"></a>
+    <a href="#guidelines" title="开发规范"></a>
+  </div>
+
+  <main>
+    <!-- ═══════════════════════════════════════════════════════════════
+         HERO
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section hero" data-od-id="hero">
+      <div class="container">
+        <p class="eyebrow">Design System v1.0</p>
+        <h1>OmniPanel 设计语言 & 开发指南</h1>
+        <p class="lead">终端原生、单字体、扁平深度。基于 OpenCode 设计系统构建的统一视觉语言，覆盖色彩、字体、组件、间距与开发规范。</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         LOGO
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="logo" id="logo">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Brand Identity</p>
+          <h2>Logo</h2>
+          <p>OmniPanel 标识由等宽字标 + 几何符号组成。终端光标「_」与方括号「[ ]」融合，象征命令行原生与面板化工作区。所有变体保持单色，不使用渐变。</p>
+        </div>
+
+        <div class="logo-grid">
+          <!-- Primary logo on dark -->
+          <div class="logo-cell">
+            <svg width="180" height="48" viewBox="0 0 180 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="4" width="40" height="40" rx="4" fill="#007aff"/>
+              <text x="20" y="32" text-anchor="middle" font-family="monospace" font-size="24" font-weight="700" fill="#ffffff">O</text>
+              <text x="52" y="34" font-family="monospace" font-size="22" font-weight="700" fill="#fdfcfc">OmniPanel</text>
+            </svg>
+            <span class="logo-cell-label">主标识 · 暗色背景</span>
+          </div>
+
+          <!-- Monochrome on dark -->
+          <div class="logo-cell">
+            <svg width="180" height="48" viewBox="0 0 180 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <text x="4" y="34" font-family="monospace" font-size="22" font-weight="700" fill="#fdfcfc">[O]</text>
+              <text x="62" y="34" font-family="monospace" font-size="22" font-weight="700" fill="#fdfcfc">OmniPanel</text>
+            </svg>
+            <span class="logo-cell-label">单色变体 · 暗色背景</span>
+          </div>
+
+          <!-- Icon only -->
+          <div class="logo-cell">
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="64" height="64" rx="8" fill="#007aff"/>
+              <text x="32" y="44" text-anchor="middle" font-family="monospace" font-size="36" font-weight="700" fill="#ffffff">O</text>
+              <rect x="12" y="48" width="40" height="3" rx="1.5" fill="#ffffff" opacity="0.4"/>
+            </svg>
+            <span class="logo-cell-label">图标 · App / Favicon</span>
+          </div>
+
+          <!-- On light bg -->
+          <div class="logo-cell light-bg">
+            <svg width="180" height="48" viewBox="0 0 180 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="4" width="40" height="40" rx="4" fill="#201d1d"/>
+              <text x="20" y="32" text-anchor="middle" font-family="monospace" font-size="24" font-weight="700" fill="#fdfcfc">O</text>
+              <text x="52" y="34" font-family="monospace" font-size="22" font-weight="700" fill="#201d1d">OmniPanel</text>
+            </svg>
+            <span class="logo-cell-label" style="color: #6e6e73;">反色标识 · 浅色背景</span>
+          </div>
+
+          <!-- Stacked -->
+          <div class="logo-cell">
+            <svg width="120" height="80" viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="36" y="0" width="48" height="48" rx="6" fill="#007aff"/>
+              <text x="60" y="34" text-anchor="middle" font-family="monospace" font-size="28" font-weight="700" fill="#ffffff">O</text>
+              <text x="60" y="70" text-anchor="middle" font-family="monospace" font-size="16" font-weight="700" fill="#fdfcfc">OmniPanel</text>
+            </svg>
+            <span class="logo-cell-label">竖排组合</span>
+          </div>
+
+          <!-- Minimum size -->
+          <div class="logo-cell">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="24" height="24" rx="4" fill="#007aff"/>
+              <text x="12" y="17" text-anchor="middle" font-family="monospace" font-size="14" font-weight="700" fill="#ffffff">O</text>
+            </svg>
+            <span class="logo-cell-label">最小尺寸 24×24</span>
+          </div>
+        </div>
+
+        <!-- Logo rules -->
+        <div class="do-dont mt-6">
+          <div class="do-card">
+            <div class="label">Do</div>
+            <p>保持 logo 周围至少 1.5 倍图标宽度的留白区域。在深色背景上使用白色或蓝色变体。</p>
+          </div>
+          <div class="dont-card">
+            <div class="label">Don't</div>
+            <p>不要对 logo 添加阴影、渐变、旋转或拉伸。不要在复杂背景上使用低对比度变体。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         COLORS
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="colors" id="colors">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Color System</p>
+          <h2>色彩系统</h2>
+          <p>暖色调暗色主题，基于 rgb(32, 29, 29) 的近黑色背景。所有颜色均为语义化设计，不使用纯黑纯白。边框使用暖色透明 rgba(15, 0, 0, 0.12)。</p>
+        </div>
+
+        <!-- Surface colors -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">表面色 Surface</h3>
+        <div class="grid-4 mb-6">
+          <div class="token-card">
+            <div class="token-swatch" style="background: #201d1d; border-bottom: 1px solid var(--border);">
+              <span class="hex">#201d1d</span>
+            </div>
+            <div class="token-info">
+              <div class="name">BG</div>
+              <div class="var">--bg</div>
+              <div class="desc">页面背景，暖色近黑</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #1a1717;">
+              <span class="hex">#1a1717</span>
+            </div>
+            <div class="token-info">
+              <div class="name">BG Deeper</div>
+              <div class="var">--bg-deeper</div>
+              <div class="desc">更深背景，终端/输入区</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #302c2c;">
+              <span class="hex">#302c2c</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Surface</div>
+              <div class="var">--surface</div>
+              <div class="desc">卡片、面板、浮层</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #3a3636;">
+              <span class="hex">#3a3636</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Surface Hover</div>
+              <div class="var">--surface-hover</div>
+              <div class="desc">悬停状态表面</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Foreground colors -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">前景色 Foreground</h3>
+        <div class="grid-4 mb-6">
+          <div class="token-card">
+            <div class="token-swatch" style="background: #fdfcfc;">
+              <span class="hex" style="color: rgba(0,0,0,0.6);">#fdfcfc</span>
+            </div>
+            <div class="token-info">
+              <div class="name">FG</div>
+              <div class="var">--fg</div>
+              <div class="desc">主文字，暖色近白</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #c8c6c4;">
+              <span class="hex" style="color: rgba(0,0,0,0.6);">#c8c6c4</span>
+            </div>
+            <div class="token-info">
+              <div class="name">FG-2</div>
+              <div class="var">--fg-2</div>
+              <div class="desc">次要文字</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #9a9898;">
+              <span class="hex" style="color: rgba(0,0,0,0.6);">#9a9898</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Muted</div>
+              <div class="var">--muted</div>
+              <div class="desc">弱化文字、链接</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #6e6e73;">
+              <span class="hex">#6e6e73</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Meta</div>
+              <div class="var">--meta</div>
+              <div class="desc">禁用文字、占位符</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Accent & Semantic -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">强调色 & 语义色</h3>
+        <div class="grid-4 mb-6">
+          <div class="token-card">
+            <div class="token-swatch" style="background: #007aff;">
+              <span class="hex">#007aff</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Accent</div>
+              <div class="var">--accent</div>
+              <div class="desc">主强调色，Apple 系统蓝</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #30d158;">
+              <span class="hex">#30d158</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Success</div>
+              <div class="var">--success</div>
+              <div class="desc">成功状态</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #ff9f0a;">
+              <span class="hex">#ff9f0a</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Warn</div>
+              <div class="var">--warn</div>
+              <div class="desc">警告状态</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: #ff3b30;">
+              <span class="hex">#ff3b30</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Danger</div>
+              <div class="var">--danger</div>
+              <div class="desc">危险/错误状态</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Border -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">边框色 Border</h3>
+        <div class="grid-3 mb-6">
+          <div class="token-card">
+            <div class="token-swatch" style="background: var(--bg); border-bottom: 1px solid #464343;">
+              <span class="hex">#464343</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Border</div>
+              <div class="var">--border</div>
+              <div class="desc">主要边框，可见分隔线</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: var(--bg); border-bottom: 1px solid #302c2c;">
+              <span class="hex">#302c2c</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Border Soft</div>
+              <div class="var">--border-soft</div>
+              <div class="desc">柔和边框，内部分隔</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-swatch" style="background: var(--bg); border-bottom: 2px solid #007aff;">
+              <span class="hex">#007aff</span>
+            </div>
+            <div class="token-info">
+              <div class="name">Border Focus</div>
+              <div class="var">--border-focus</div>
+              <div class="desc">焦点状态边框</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Color rules -->
+        <div class="do-dont mt-4">
+          <div class="do-card">
+            <div class="label">Do</div>
+            <p>使用 CSS 变量引用颜色：<code style="color: var(--accent);">var(--accent)</code>。使用 <code style="color: var(--accent);">color-mix()</code> 派生透明度变体。</p>
+          </div>
+          <div class="dont-card">
+            <div class="label">Don't</div>
+            <p>不要在组件中直接使用 hex 值。不要引入设计系统之外的新颜色。不要使用纯黑 #000 或纯白 #fff。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         TYPOGRAPHY
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="typography" id="typography">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Typography</p>
+          <h2>字体系统</h2>
+          <p>全局使用 Berkeley Mono 等宽字体，无衬线/衬线变体。「一切皆代码」哲学 —— 层级通过字号和字重区分，而非字体切换。</p>
+        </div>
+
+        <!-- Type scale -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">字阶 Type Scale</h3>
+        <div class="comp-showcase mb-6">
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Heading 1</div>
+              <div class="spec">38px · 700 · 1.50</div>
+            </div>
+            <div class="type-sample" style="font-size: 38px; font-weight: 700; line-height: 1.5;">OmniPanel</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Heading 2</div>
+              <div class="spec">16px · 700 · 1.50</div>
+            </div>
+            <div class="type-sample" style="font-size: 16px; font-weight: 700; line-height: 1.5;">核心模块概览</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Body</div>
+              <div class="spec">16px · 400 · 1.50</div>
+            </div>
+            <div class="type-sample" style="font-size: 16px; font-weight: 400; line-height: 1.5;">OmniPanel 是你的个人工程操作系统 —— 终端、SSH、数据库、Docker、监控和 AI 在同一个工作台中无缝协作。</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Body Medium</div>
+              <div class="spec">16px · 500 · 1.50</div>
+            </div>
+            <div class="type-sample" style="font-size: 16px; font-weight: 500; line-height: 1.5;">链接文字、按钮文字、导航项</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Body Tight</div>
+              <div class="spec">16px · 500 · 1.00</div>
+            </div>
+            <div class="type-sample" style="font-size: 16px; font-weight: 500; line-height: 1.0;">紧凑标签 · Tab 项</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Caption</div>
+              <div class="spec">14px · 400 · 2.00</div>
+            </div>
+            <div class="type-sample" style="font-size: 14px; font-weight: 400; line-height: 2.0; color: var(--muted);">脚注、元数据、小标签</div>
+          </div>
+          <div class="type-row">
+            <div class="type-meta">
+              <div class="label">Mono Small</div>
+              <div class="spec">11px · 400 · 1.50</div>
+            </div>
+            <div class="type-sample" style="font-size: 11px; font-weight: 400; line-height: 1.5; color: var(--meta);">v2.1.0 · 2026-05-27 · 128ms</div>
+          </div>
+        </div>
+
+        <!-- Weight scale -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">字重 Weight Scale</h3>
+        <div class="grid-3 mb-6">
+          <div class="comp-showcase">
+            <div class="comp-label">400 Regular</div>
+            <p style="font-size: 18px; font-weight: 400;">正文文本标准字重</p>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">500 Medium</div>
+            <p style="font-size: 18px; font-weight: 500;">链接、按钮、导航</p>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">700 Bold</div>
+            <p style="font-size: 18px; font-weight: 700;">标题、强调</p>
+          </div>
+        </div>
+
+        <!-- Type rules -->
+        <div class="do-dont">
+          <div class="do-card">
+            <div class="label">Do</div>
+            <p>标题使用 <code style="color: var(--accent);">font-weight: 700</code>。正文使用 400 或 500。数字使用 <code style="color: var(--accent);">font-variant-numeric: tabular-nums</code>。</p>
+          </div>
+          <div class="dont-card">
+            <div class="label">Don't</div>
+            <p>不要引入第二字体（Inter、Roboto 等）。不要在标题上使用 letter-spacing 负值以外的装饰。不要使用 300 以下的字重。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         SPACING & LAYOUT
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="spacing" id="spacing">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Spacing & Layout</p>
+          <h2>间距 & 布局系统</h2>
+          <p>8px 基础网格单位。微调使用 4px。段落间距独立于组件内 padding。所有圆角只有三级：4px / 6px / 8px。</p>
+        </div>
+
+        <!-- Spacing scale -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">间距比例 Spacing Scale</h3>
+        <div class="comp-showcase mb-6">
+          <div class="sp-row">
+            <span class="sp-label">--sp-1</span>
+            <span class="sp-value">4px</span>
+            <div class="sp-bar" style="width: 4px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-2</span>
+            <span class="sp-value">8px</span>
+            <div class="sp-bar" style="width: 8px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-3</span>
+            <span class="sp-value">12px</span>
+            <div class="sp-bar" style="width: 12px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-4</span>
+            <span class="sp-value">16px</span>
+            <div class="sp-bar" style="width: 16px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-5</span>
+            <span class="sp-value">20px</span>
+            <div class="sp-bar" style="width: 20px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-6</span>
+            <span class="sp-value">24px</span>
+            <div class="sp-bar" style="width: 24px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-8</span>
+            <span class="sp-value">32px</span>
+            <div class="sp-bar" style="width: 32px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-12</span>
+            <span class="sp-value">48px</span>
+            <div class="sp-bar" style="width: 48px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-16</span>
+            <span class="sp-value">64px</span>
+            <div class="sp-bar" style="width: 64px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-20</span>
+            <span class="sp-value">80px</span>
+            <div class="sp-bar" style="width: 80px;"></div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">--sp-24</span>
+            <span class="sp-value">96px</span>
+            <div class="sp-bar" style="width: 96px;"></div>
+          </div>
+        </div>
+
+        <!-- Radius -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">圆角 Border Radius</h3>
+        <div class="grid-3 mb-6">
+          <div class="comp-showcase" style="text-align: center;">
+            <div class="flex items-center" style="justify-content: center; margin-bottom: var(--sp-3);">
+              <div class="radius-demo" style="border-radius: 4px;">4px</div>
+            </div>
+            <div class="comp-label">--r-sm · 按钮、徽章</div>
+          </div>
+          <div class="comp-showcase" style="text-align: center;">
+            <div class="flex items-center" style="justify-content: center; margin-bottom: var(--sp-3);">
+              <div class="radius-demo" style="border-radius: 6px;">6px</div>
+            </div>
+            <div class="comp-label">--r-md · 输入框、面板</div>
+          </div>
+          <div class="comp-showcase" style="text-align: center;">
+            <div class="flex items-center" style="justify-content: center; margin-bottom: var(--sp-3);">
+              <div class="radius-demo" style="border-radius: 8px;">8px</div>
+            </div>
+            <div class="comp-label">--r-lg · 大容器、弹窗</div>
+          </div>
+        </div>
+
+        <!-- Layout -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">布局约束 Layout</h3>
+        <div class="grid-2">
+          <div class="rule-card">
+            <h4>最大内容宽度</h4>
+            <p><code style="color: var(--accent);">--container: 1080px</code> — 窄阅读列，单栏居中，聚焦注意力。</p>
+          </div>
+          <div class="rule-card">
+            <h4>内边距</h4>
+            <p><code style="color: var(--accent);">--gutter: 24px</code> — 桌面端两侧留白。移动端缩减至 16px。</p>
+          </div>
+          <div class="rule-card">
+            <h4>段落间距</h4>
+            <p>Section 之间使用 <code style="color: var(--accent);">clamp(48px, 8vw, 96px)</code> 垂直间距，不使用装饰分隔线。</p>
+          </div>
+          <div class="rule-card">
+            <h4>响应式断点</h4>
+            <p>≤768px 单栏。≤920px 网格折叠。≤640px 隐藏导航、缩小终端字体。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         COMPONENTS
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="components" id="components">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Component Library</p>
+          <h2>组件库</h2>
+          <p>所有组件均使用设计系统 token，不引入独立样式。交互状态遵循三级序列：default → hover → active。</p>
+        </div>
+
+        <!-- Buttons -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">按钮 Buttons</h3>
+        <div class="grid-2 mb-6">
+          <div class="comp-showcase">
+            <div class="comp-label">Primary</div>
+            <div class="comp-row">
+              <button class="btn btn-primary">Download</button>
+              <button class="btn btn-primary" style="background: var(--accent-hover);">Hover</button>
+              <button class="btn btn-primary btn-sm">Small</button>
+            </div>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">Secondary</div>
+            <div class="comp-row">
+              <button class="btn btn-secondary">View on GitHub</button>
+              <button class="btn btn-secondary" style="background: var(--surface-hover); border-color: var(--muted);">Hover</button>
+            </div>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">Ghost</div>
+            <div class="comp-row">
+              <button class="btn btn-ghost">Learn more</button>
+              <button class="btn btn-ghost" style="color: var(--fg); background: var(--surface);">Hover</button>
+            </div>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">Danger</div>
+            <div class="comp-row">
+              <button class="btn btn-danger">Delete</button>
+              <button class="btn btn-danger" style="background: var(--danger); color: #fff;">Hover</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inputs -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">输入框 Inputs</h3>
+        <div class="grid-2 mb-6">
+          <div class="comp-showcase">
+            <div class="comp-label">Default</div>
+            <input class="input" type="text" placeholder="输入服务器地址..." />
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">Focus</div>
+            <input class="input" type="text" value="root@prod-web-01" style="border-color: var(--accent);" />
+          </div>
+        </div>
+
+        <!-- Badges & Tags -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">徽章 & 标签</h3>
+        <div class="grid-2 mb-6">
+          <div class="comp-showcase">
+            <div class="comp-label">Badges</div>
+            <div class="comp-row">
+              <span class="badge badge-success">Online</span>
+              <span class="badge badge-warn">Warning</span>
+              <span class="badge badge-danger">Error</span>
+              <span class="badge badge-accent">New</span>
+              <span class="badge badge-muted">Draft</span>
+            </div>
+          </div>
+          <div class="comp-showcase">
+            <div class="comp-label">Tags</div>
+            <div class="comp-row">
+              <span class="tag">Docker</span>
+              <span class="tag">PostgreSQL</span>
+              <span class="tag">Redis</span>
+              <span class="tag">Kubernetes</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">表格 Tables</h3>
+        <div class="comp-showcase mb-6">
+          <div class="comp-label">Data Table</div>
+          <div style="overflow-x: auto;">
+            <table class="spec-table">
+              <thead>
+                <tr>
+                  <th>容器名称</th>
+                  <th>状态</th>
+                  <th>端口</th>
+                  <th>CPU</th>
+                  <th>内存</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>nginx-proxy</td>
+                  <td><span class="badge badge-success">Running</span></td>
+                  <td><code>443/tcp</code></td>
+                  <td>2.3%</td>
+                  <td>128 MB</td>
+                </tr>
+                <tr>
+                  <td>app-backend</td>
+                  <td><span class="badge badge-success">Running</span></td>
+                  <td><code>8080/tcp</code></td>
+                  <td>12.8%</td>
+                  <td>512 MB</td>
+                </tr>
+                <tr>
+                  <td>redis-cache</td>
+                  <td><span class="badge badge-warn">High Memory</span></td>
+                  <td><code>6379/tcp</code></td>
+                  <td>0.8%</td>
+                  <td>2.1 GB</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Terminal -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">终端 Terminal</h3>
+        <div class="comp-showcase mb-6" style="background: var(--bg-deeper); padding: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border);">
+            <div style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f57;"></div>
+            <div style="width: 10px; height: 10px; border-radius: 50%; background: #febc2e;"></div>
+            <div style="width: 10px; height: 10px; border-radius: 50%; background: #28c840;"></div>
+            <span style="flex: 1; text-align: center; font-size: 12px; color: var(--muted);">OmniPanel Terminal</span>
+          </div>
+          <div style="padding: 16px; font-size: 13px; line-height: 1.6;">
+            <div><span style="color: var(--success);">root@prod:~$</span> <span style="color: var(--fg);">docker ps --format "table"</span></div>
+            <div style="color: var(--fg-2); margin-top: 8px;">NAMES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;STATUS&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PORTS</div>
+            <div style="color: var(--fg-2);">nginx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Up 3 days&nbsp;&nbsp;0.0.0.0:443→443</div>
+            <div style="color: var(--fg-2);">app-backend&nbsp;&nbsp;Up 3 days&nbsp;&nbsp;0.0.0.0:8080→8080</div>
+            <div style="margin-top: 12px;"><span style="color: var(--success);">root@prod:~$</span> <span style="color: var(--accent);">_</span></div>
+          </div>
+        </div>
+
+        <!-- Keyboard hints -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">键盘提示 Kbd</h3>
+        <div class="comp-showcase">
+          <div class="comp-label">Keyboard Hints</div>
+          <div class="comp-row" style="gap: 8px;">
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">⌘</kbd>
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">K</kbd>
+            <span style="font-size: 12px; color: var(--meta); margin: 0 8px;">命令面板</span>
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">⌘</kbd>
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">T</kbd>
+            <span style="font-size: 12px; color: var(--meta); margin: 0 8px;">新建标签</span>
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">Ctrl</kbd>
+            <kbd style="padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; color: var(--muted);">C</kbd>
+            <span style="font-size: 12px; color: var(--meta); margin: 0 8px;">中断命令</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         DEVELOPMENT GUIDELINES
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="section" data-od-id="guidelines" id="guidelines">
+      <div class="container">
+        <div class="section-header">
+          <p class="eyebrow">Development Guidelines</p>
+          <h2>开发规范</h2>
+          <p>面向开发者的编码约定、组件用法、响应式策略和无障碍实践。</p>
+        </div>
+
+        <!-- CSS Token Usage -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">CSS Token 引用规范</h3>
+        <div class="code-block mb-6">
+<span class="cmt">/* ✅ 正确 — 使用 CSS 变量 */</span>
+.<span class="kw">card</span> {
+  <span class="attr">background</span>: <span class="str">var(--surface)</span>;
+  <span class="attr">border</span>: <span class="str">1px solid var(--border)</span>;
+  <span class="attr">border-radius</span>: <span class="str">var(--r-md)</span>;
+  <span class="attr">color</span>: <span class="str">var(--fg)</span>;
+}
+
+<span class="cmt">/* ❌ 错误 — 直接使用 hex */</span>
+.<span class="kw">card</span> {
+  <span class="attr">background</span>: <span class="str">#302c2c</span>;   <span class="cmt">/* 应该用 var(--surface) */</span>
+  <span class="attr">color</span>: <span class="str">#fdfcfc</span>;       <span class="cmt">/* 应该用 var(--fg) */</span>
+}
+
+<span class="cmt">/* ✅ 使用 color-mix 派生透明度 */</span>
+.<span class="kw">card</span>:<span class="kw">hover</span> {
+  <span class="attr">background</span>: <span class="str">color-mix(in oklch, var(--fg) 3%, var(--surface))</span>;
+}
+        </div>
+
+        <!-- Component Pattern -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">组件编写模式</h3>
+        <div class="code-block mb-6">
+<span class="cmt">&lt;!-- ✅ 正确的按钮结构 --&gt;</span>
+<span class="tag">&lt;button</span> <span class="attr">class</span>=<span class="str">"btn btn-primary"</span><span class="tag">&gt;</span>
+  Download
+<span class="tag">&lt;/button&gt;</span>
+
+<span class="cmt">&lt;!-- ✅ 带图标的按钮 --&gt;</span>
+<span class="tag">&lt;button</span> <span class="attr">class</span>=<span class="str">"btn btn-secondary"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;svg</span> <span class="attr">viewBox</span>=<span class="str">"0 0 24 24"</span> <span class="attr">fill</span>=<span class="str">"none"</span> <span class="attr">stroke</span>=<span class="str">"currentColor"</span> <span class="attr">stroke-width</span>=<span class="str">"1.6"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;path</span> <span class="attr">d</span>=<span class="str">"M4 17l6-6-6-6M12 19h8"</span><span class="tag">/&gt;</span>
+  <span class="tag">&lt;/svg&gt;</span>
+  View on GitHub
+<span class="tag">&lt;/button&gt;</span>
+
+<span class="cmt">&lt;!-- ✅ 状态徽章 --&gt;</span>
+<span class="tag">&lt;span</span> <span class="attr">class</span>=<span class="str">"badge badge-success"</span><span class="tag">&gt;</span>Online<span class="tag">&lt;/span&gt;</span>
+<span class="tag">&lt;span</span> <span class="attr">class</span>=<span class="str">"badge badge-danger"</span><span class="tag">&gt;</span>Error<span class="tag">&lt;/span&gt;</span>
+
+<span class="cmt">&lt;!-- ✅ 数据表格 --&gt;</span>
+<span class="tag">&lt;table</span> <span class="attr">class</span>=<span class="str">"spec-table"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;thead&gt;</span>
+    <span class="tag">&lt;tr&gt;</span>
+      <span class="tag">&lt;th&gt;</span>名称<span class="tag">&lt;/th&gt;</span>
+      <span class="tag">&lt;th&gt;</span>状态<span class="tag">&lt;/th&gt;</span>
+    <span class="tag">&lt;/tr&gt;</span>
+  <span class="tag">&lt;/thead&gt;</span>
+  <span class="tag">&lt;tbody&gt;</span>
+    <span class="tag">&lt;tr&gt;</span>
+      <span class="tag">&lt;td&gt;</span>nginx<span class="tag">&lt;/td&gt;</span>
+      <span class="tag">&lt;td&gt;&lt;span</span> <span class="attr">class</span>=<span class="str">"badge badge-success"</span><span class="tag">&gt;</span>Running<span class="tag">&lt;/span&gt;&lt;/td&gt;</span>
+    <span class="tag">&lt;/tr&gt;</span>
+  <span class="tag">&lt;/tbody&gt;</span>
+<span class="tag">&lt;/table&gt;</span>
+        </div>
+
+        <!-- Responsive -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">响应式策略 Responsive</h3>
+        <div class="grid-2 mb-6">
+          <div class="rule-card">
+            <h4>断点 Breakpoints</h4>
+            <p>≤640px 移动端 · ≤768px 平板 · ≤920px 网格折叠 · ≤1024px 笔记本 · ≥1440px 桌面</p>
+          </div>
+          <div class="rule-card">
+            <h4>网格折叠</h4>
+            <p><code style="color: var(--accent);">grid-2</code> / <code style="color: var(--accent);">grid-3</code> / <code style="color: var(--accent);">grid-4</code> 在 ≤920px 时自动折叠为单栏。不要手动覆盖。</p>
+          </div>
+          <div class="rule-card">
+            <h4>字体缩放</h4>
+            <p>标题使用 <code style="color: var(--accent);">clamp()</code> 流式缩放。正文保持 16px 不变。终端字号 ≤640px 降至 12px。</p>
+          </div>
+          <div class="rule-card">
+            <h4>触摸目标</h4>
+            <p>按钮最小 28×28px。输入框 padding ≥6px。可点击区域不小于 44×44px（移动端）。</p>
+          </div>
+        </div>
+
+        <!-- Interaction States -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">交互状态 Interaction States</h3>
+        <div class="comp-showcase mb-6">
+          <table class="spec-table">
+            <thead>
+              <tr>
+                <th>状态</th>
+                <th>颜色变化</th>
+                <th>过渡时间</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Default</td>
+                <td><code>--accent</code> (#007aff)</td>
+                <td>—</td>
+                <td>默认状态</td>
+              </tr>
+              <tr>
+                <td>Hover</td>
+                <td><code>--accent-hover</code> (#0056b3)</td>
+                <td>120ms</td>
+                <td>鼠标悬停</td>
+              </tr>
+              <tr>
+                <td>Active</td>
+                <td><code>--accent-active</code> (#004085)</td>
+                <td>即时</td>
+                <td>按下状态</td>
+              </tr>
+              <tr>
+                <td>Focus</td>
+                <td><code>outline: 2px solid var(--accent)</code></td>
+                <td>—</td>
+                <td>键盘焦点</td>
+              </tr>
+              <tr>
+                <td>Disabled</td>
+                <td><code>--meta</code> (#6e6e73)</td>
+                <td>—</td>
+                <td>禁用状态，opacity 0.5</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Accessibility -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">无障碍 Accessibility</h3>
+        <div class="grid-2 mb-6">
+          <div class="rule-card">
+            <h4>对比度</h4>
+            <p>主文字 #fdfcfc 在 #201d1d 上对比度 15.8:1，远超 WCAG AAA 标准。强调色 #007aff 在暗色背景上对比度 7.2:1。</p>
+          </div>
+          <div class="rule-card">
+            <h4>焦点指示器</h4>
+            <p>所有可交互元素必须有 <code style="color: var(--accent);">:focus-visible</code> 样式。使用 2px 蓝色 outline，offset 2px。</p>
+          </div>
+          <div class="rule-card">
+            <h4>语义化 HTML</h4>
+            <p>使用 <code style="color: var(--accent);">&lt;button&gt;</code> 而非 <code style="color: var(--accent);">&lt;div onclick&gt;</code>。使用 <code style="color: var(--accent);">&lt;nav&gt;</code> / <code style="color: var(--accent);">&lt;main&gt;</code> / <code style="color: var(--accent);">&lt;section&gt;</code> 语义标签。</p>
+          </div>
+          <div class="rule-card">
+            <h4>图标可访问性</h4>
+            <p>纯图标按钮必须有 <code style="color: var(--accent);">aria-label</code>。SVG 使用 <code style="color: var(--accent);">stroke="currentColor"</code> 继承文字颜色。</p>
+          </div>
+        </div>
+
+        <!-- Shadow & Depth -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">深度系统 Depth</h3>
+        <div class="comp-showcase mb-6">
+          <p style="font-size: 14px; color: var(--muted); margin-bottom: var(--sp-4);">OmniPanel 的深度系统是<strong style="color: var(--fg);">完全扁平</strong>的 —— 零 box-shadow。深度通过边框和背景色变化表达，与终端美学一致。</p>
+          <table class="spec-table">
+            <thead>
+              <tr>
+                <th>层级</th>
+                <th>处理方式</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Level 0 · Flat</td>
+                <td>无边框无阴影</td>
+                <td>默认元素</td>
+              </tr>
+              <tr>
+                <td>Level 1 · Subtle</td>
+                <td><code>1px solid var(--border)</code></td>
+                <td>卡片、输入框、分隔线</td>
+              </tr>
+              <tr>
+                <td>Level 2 · Tab</td>
+                <td><code>2px solid var(--muted) bottom</code></td>
+                <td>Tab 活跃指示器</td>
+              </tr>
+              <tr>
+                <td>Level 3 · Outline</td>
+                <td><code>1px solid var(--border) + bg shift</code></td>
+                <td>浮层、弹窗</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- File naming -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">文件命名约定</h3>
+        <div class="code-block mb-6">
+<span class="cmt">/* 项目文件结构 */</span>
+├── index.html          <span class="cmt">← 入口 / 路由页面</span>
+├── landing.html        <span class="cmt">← 营销落地页</span>
+├── terminal.html       <span class="cmt">← 终端模块页面</span>
+├── ssh.html            <span class="cmt">← SSH 管理页面</span>
+├── database.html       <span class="cmt">← 数据库页面</span>
+├── docker.html         <span class="cmt">← Docker 页面</span>
+├── css/
+│   └── omnipanel.css   <span class="cmt">← 共享 token + 组件样式</span>
+└── js/
+    └── shared.js       <span class="cmt">← 共享交互逻辑</span>
+
+<span class="cmt">/* 命名规则 */</span>
+<span class="cmt">/* - kebab-case 文件名 */</span>
+<span class="cmt">/* - 模块名即文件名 */</span>
+<span class="cmt">/* - CSS class 使用 BEM 或简洁命名 */</span>
+<span class="cmt">/* - data-od-id 用于 section 定位 */</span>
+        </div>
+
+        <!-- Anti-patterns -->
+        <h3 style="font-size: 16px; margin-bottom: var(--sp-4);">反模式 Anti-patterns</h3>
+        <div class="do-dont">
+          <div class="dont-card">
+            <div class="label">禁止</div>
+            <p>在组件中直接写 hex 颜色值</p>
+            <p>引入 Inter / Roboto 等第二字体</p>
+            <p>使用 box-shadow 创建深度</p>
+            <p>使用渐变背景（除非品牌要求）</p>
+            <p>使用通用 emoji 作为功能图标</p>
+            <p>在暗色背景上使用纯黑 #000</p>
+          </div>
+          <div class="do-card">
+            <div class="label">推荐</div>
+            <p>始终使用 var(--token) 引用颜色</p>
+            <p>全局 Berkeley Mono，层级靠 size/weight</p>
+            <p>使用 border + bg shift 表达深度</p>
+            <p>单色强调色，最多使用两次</p>
+            <p>使用 inline SVG 单线图标</p>
+            <p>使用暖色近黑 #201d1d 作为背景</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pagefoot">
+    <div class="container">
+      <span>OmniPanel Design System v1.0 · 基于 OpenCode 设计系统 · 2026</span>
+    </div>
+  </footer>
+
+</body>
+</html>

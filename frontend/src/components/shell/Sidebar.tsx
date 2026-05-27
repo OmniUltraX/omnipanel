@@ -28,14 +28,11 @@ export function Sidebar() {
   return (
     <aside className="flex flex-col w-14 h-full bg-bg-deeper border-r border-border select-none">
       {/* Logo */}
-      <div className="flex items-center justify-center h-14 border-b border-border">
-        <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-        </div>
+      <div className="flex items-center justify-center h-14 border-b border-border" title="OmniPanel">
+        <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+          <rect width="64" height="64" rx="8" fill="#007aff"/>
+          <text x="32" y="44" textAnchor="middle" fontFamily="monospace" fontSize="36" fontWeight="700" fill="#ffffff">O</text>
+        </svg>
       </div>
 
       {/* Navigation Items */}

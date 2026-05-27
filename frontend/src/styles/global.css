@@ -161,14 +161,14 @@
   .topbar-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
   .topbar-page-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
 
-  /* Window controls (traffic light style) */
-  .win-controls { display: flex; align-items: center; gap: 6px; margin-left: var(--sp-2); padding-left: var(--sp-2); border-left: 1px solid var(--border); }
-  .win-btn { width: 12px; height: 12px; border-radius: 50%; border: none; cursor: pointer; transition: opacity 0.12s, transform 0.1s; opacity: 0.8; }
-  .win-btn:hover { opacity: 1; }
-  .win-btn:active { transform: scale(0.85); opacity: 0.6; }
-  .win-btn.close { background: #ff5f57; }
-  .win-btn.minimize { background: #ffbd2e; }
-  .win-btn.maximize { background: #28c840; }
+  /* Window controls (Windows style) */
+  .win-controls { display: flex; align-items: center; margin-left: var(--sp-2); }
+  .win-btn { width: 46px; height: 32px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; background: transparent; color: var(--muted); transition: background 0.1s, color 0.1s; }
+  .win-btn:hover { background: var(--surface-hover); color: var(--fg); }
+  .win-btn:active { background: var(--surface-active); }
+  .win-btn.close:hover { background: #e81123; color: #fff; }
+  .win-btn.close:active { background: #b2001d; color: #fff; }
+  .win-btn svg { width: 10px; height: 10px; }
 
   /* Topbar button */
   .topbar-btn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--muted); cursor: pointer; transition: border-color 0.12s, color 0.12s, background 0.12s; position: relative; flex-shrink: 0; }
