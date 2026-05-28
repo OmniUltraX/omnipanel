@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { WorkspaceContextSnapshot } from "./workspaceStore";
+import { useWorkspaceStore } from "./workspaceStore";
 
 export interface ToolCallState {
   id: string;
@@ -27,6 +29,7 @@ export interface AiConversation {
   createdAt: number;
   updatedAt: number;
   context?: { type: string; label: string }[];
+  contextSnapshot?: WorkspaceContextSnapshot;
 }
 
 interface AiStore {
@@ -94,14 +97,22 @@ export const useAiStore = create<AiStore>()(
       createConversation: (provider, model) => {
         const id = genId("conv");
         const state = get();
+        const snapshot = useWorkspaceStore.getState().getSnapshot();
         const conv: AiConversation = {
           id,
-          title: "New Conversation",
+          title: "新的对话",
           messages: [],
           provider: provider || state.currentProvider,
           model: model || state.currentModel,
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          contextSnapshot: snapshot,
+          context: [
+            { type: "workspace", label: snapshot.workspace.name },
+            ...(snapshot.activeResource
+              ? [{ type: "resource", label: snapshot.activeResource.name }]
+              : []),
+          ],
         };
         set((s) => ({
           conversations: [conv, ...s.conversations],
@@ -140,7 +151,7 @@ export const useAiStore = create<AiStore>()(
             const messages = [...c.messages, fullMsg];
             // Auto-title from first user message
             const title =
-              c.title === "New Conversation" && msg.role === "user"
+              c.title === "新的对话" && msg.role === "user"
                 ? msg.content.slice(0, 50) + (msg.content.length > 50 ? "..." : "")
                 : c.title;
             return {
@@ -200,7 +211,7 @@ export const useAiStore = create<AiStore>()(
           conversations: state.conversations.map((c) => {
             if (c.id !== conversationId) return c;
             const existing = c.context || [];
-            if (existing.some((ch) => ch.type === chip.type)) return c;
+            if (existing.some((ch) => ch.type === chip.type && ch.label === chip.label)) return c;
             return { ...c, context: [...existing, chip] };
           }),
         })),

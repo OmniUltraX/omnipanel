@@ -1,8 +1,16 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { PaneRenderer } from "../../components/terminal/PaneRenderer";
 import { TerminalSearch } from "../../components/terminal/TerminalSearch";
 import { BlockContextMenu } from "../../components/terminal/BlockContextMenu";
+import { DockWorkspace } from "../../components/dock";
+import { ResourceRail } from "../../components/workspace/ResourceRail";
+import { workspaceResources, getResourceById } from "../../lib/resourceRegistry";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import { useI18n } from "../../i18n";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { Terminal } from "@xterm/xterm";
@@ -10,12 +18,19 @@ import type { Terminal } from "@xterm/xterm";
 let tabCounter = 0;
 
 export function TerminalPanel() {
+  const { t } = useI18n();
+  const location = useLocation();
+  const isActiveRoute = location.pathname === "/terminal";
   const tabs = useTerminalStore((s) => s.tabs);
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const layout = useTerminalStore((s) => s.layout);
   const addTab = useTerminalStore((s) => s.addTab);
   const removeTab = useTerminalStore((s) => s.removeTab);
   const setActiveTab = useTerminalStore((s) => s.setActiveTab);
+  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const activeResource = getResourceById(activeResourceId);
+  const actions = useActionStore((s) => s.actions);
+  const enqueueAction = useActionStore((s) => s.enqueueAction);
 
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchTerminal, setSearchTerminal] = useState<Terminal | null>(null);
@@ -25,13 +40,18 @@ export function TerminalPanel() {
     position: { x: number; y: number };
   } | null>(null);
 
-  // Initialize with one local terminal tab
   useEffect(() => {
     if (tabs.length === 0) {
       const id = `tab-${tabCounter++}`;
       addTab({ id, title: "local", type: "local" });
       setActiveTab(id);
     }
+  }, [tabs.length, addTab, setActiveTab]);
+
+  useEffect(() => {
+    const handler = () => setSearchVisible((v) => !v);
+    window.addEventListener("toggle-terminal-search", handler);
+    return () => window.removeEventListener("toggle-terminal-search", handler);
   }, []);
 
   const handleAddTab = useCallback(() => {
@@ -41,12 +61,33 @@ export function TerminalPanel() {
   }, [addTab, setActiveTab]);
 
   const handleCloseTab = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+    (id: string) => {
       if (tabs.length <= 1) return;
       removeTab(id);
     },
     [tabs.length, removeTab]
+  );
+
+  const topbarTabs = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        id: tab.id,
+        label: tab.title,
+        active: tab.id === activeTabId,
+        closable: tabs.length > 1,
+        status: tab.status === "disconnected" ? "offline" as const : tab.status,
+      })),
+    [tabs, activeTabId]
+  );
+
+  useTopbarTabs(
+    topbarTabs,
+    {
+      onSelect: setActiveTab,
+      onClose: handleCloseTab,
+      onAdd: handleAddTab,
+    },
+    { mode: "session", showAddTab: true, enabled: isActiveRoute }
   );
 
   const handleTerminalReady = useCallback(
@@ -57,9 +98,19 @@ export function TerminalPanel() {
     []
   );
 
-  const handleCommand = useCallback((_command: string) => {
-    // Future: wire command detection to AI context
-  }, []);
+  const handleCommand = useCallback(
+    (command: string) => {
+      enqueueAction({
+        type: "terminal",
+        title: t("terminal.actions.command"),
+        description: command,
+        command,
+        resourceId: activeResource?.id ?? "local-terminal",
+        source: "用户",
+      });
+    },
+    [activeResource?.id, enqueueAction, t]
+  );
 
   const handleBlockRightClick = useCallback(
     (block: TerminalBlock, position: { x: number; y: number }) => {
@@ -71,161 +122,78 @@ export function TerminalPanel() {
   if (!layout || tabs.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {/* Tab bar */}
-      <div
-        className="term-tab-bar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          background: "var(--bg-deeper)",
-          borderBottom: "1px solid var(--border)",
-          height: 32,
-          flexShrink: 0,
-          padding: "0 4px",
-          gap: 0,
-        }}
-      >
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 12px",
-              fontSize: 12,
-              cursor: "pointer",
-              borderBottom:
-                activeTabId === tab.id
-                  ? "2px solid var(--accent)"
-                  : "2px solid transparent",
-              color: activeTabId === tab.id ? "var(--fg)" : "var(--muted)",
-              background: activeTabId === tab.id ? "var(--bg)" : "transparent",
-              userSelect: "none",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {/* Icon: local vs remote */}
-            <span style={{ fontSize: 10, opacity: 0.6 }}>
-              {tab.type === "remote" ? "\u2192" : "\u25b6"}
-            </span>
-            <span>{tab.title}</span>
-            {/* Status dot */}
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background:
-                  tab.status === "connected"
-                    ? "var(--success)"
-                    : tab.status === "connecting"
-                    ? "var(--warn)"
-                    : "var(--meta)",
-                flexShrink: 0,
-              }}
+    <DockWorkspace
+      leftPreset="default"
+      left={
+        <ResourceRail
+          title={t("terminal.sidebar.title")}
+          resources={workspaceResources.filter((r) => ["terminal", "ssh", "server"].includes(r.type))}
+        />
+      }
+      main={
+        <div className="term-workspace">
+          {searchVisible && searchTerminal && searchAddon && (
+            <TerminalSearch
+              terminal={searchTerminal}
+              searchAddon={searchAddon}
+              onClose={() => setSearchVisible(false)}
             />
-            <span
-              onClick={(e) => handleCloseTab(tab.id, e)}
-              style={{
-                width: 16,
-                height: 16,
-                display: "grid",
-                placeItems: "center",
-                borderRadius: 2,
-                fontSize: 11,
-                color: "var(--meta)",
-                opacity: 0,
-                transition: "opacity 0.12s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
-            >
-              \u2715
-            </span>
+          )}
+          <div className="term-panes">
+            <PaneRenderer
+              layout={layout}
+              activeTabId={activeTabId}
+              suspended={!isActiveRoute}
+              onTerminalReady={handleTerminalReady}
+              onCommand={handleCommand}
+              onBlockRightClick={handleBlockRightClick}
+            />
           </div>
-        ))}
-        <button
-          onClick={handleAddTab}
-          style={{
-            width: 24,
-            height: 24,
-            display: "grid",
-            placeItems: "center",
-            background: "transparent",
-            border: "none",
-            color: "var(--muted)",
-            cursor: "pointer",
-            fontSize: 16,
-            borderRadius: 4,
-            marginLeft: 4,
-          }}
-        >
-          +
-        </button>
-        {/* Search toggle */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+          {contextMenu && (
+            <BlockContextMenu
+              block={contextMenu.block}
+              position={contextMenu.position}
+              onClose={() => setContextMenu(null)}
+            />
+          )}
+        </div>
+      }
+      right={
+        <div className="context-panel">
+          <div className="panel-title">{t("terminal.context.title")}</div>
+          <div className="context-card">
+            <span className="context-label">{t("terminal.context.resource")}</span>
+            <strong>{activeResource?.name ?? "local"}</strong>
+            <span>{activeResource?.subtitle ?? t("terminal.context.localSession")}</span>
+          </div>
           <button
-            onClick={() => setSearchVisible((v) => !v)}
-            style={{
-              width: 24,
-              height: 24,
-              display: "grid",
-              placeItems: "center",
-              background: searchVisible ? "var(--surface)" : "transparent",
-              border: "none",
-              color: searchVisible ? "var(--fg)" : "var(--muted)",
-              cursor: "pointer",
-              fontSize: 12,
-              borderRadius: 4,
-            }}
-            title="Search (Ctrl+Shift+F)"
+            className="btn btn-danger btn-sm"
+            onClick={() =>
+              enqueueAction({
+                type: "terminal",
+                title: t("terminal.actions.dangerDemo"),
+                description: t("terminal.actions.dangerDemoDesc"),
+                command: "sudo rm -rf /var/log/nginx/*.old",
+                resourceId: activeResource?.id ?? "local-terminal",
+                source: "用户",
+              })
+            }
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
-            </svg>
+            {t("terminal.context.dangerConfirm")}
           </button>
         </div>
-      </div>
-
-      {/* Search bar */}
-      {searchVisible && searchTerminal && searchAddon && (
-        <TerminalSearch
-          terminal={searchTerminal}
-          searchAddon={searchAddon}
-          onClose={() => setSearchVisible(false)}
-        />
-      )}
-
-      {/* Terminal panes */}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <PaneRenderer
-          layout={layout}
-          activeTabId={activeTabId}
-          onTerminalReady={handleTerminalReady}
-          onCommand={handleCommand}
-          onBlockRightClick={handleBlockRightClick}
-        />
-      </div>
-
-      {/* Block context menu */}
-      {contextMenu && (
-        <BlockContextMenu
-          block={contextMenu.block}
-          position={contextMenu.position}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-    </div>
+      }
+      bottom={
+        <div className="bottom-feed">
+          <div className="panel-title">{t("terminal.feed.title")}</div>
+          {actions.slice(0, 4).map((action) => (
+            <div key={action.id} className="feed-row">
+              <span>{action.title}</span>
+              <span>{action.status}</span>
+            </div>
+          ))}
+        </div>
+      }
+    />
   );
 }

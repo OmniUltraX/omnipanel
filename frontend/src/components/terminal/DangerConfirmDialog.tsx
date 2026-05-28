@@ -26,14 +26,14 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
             {style.icon}
           </div>
           <div>
-            <div className="text-sm font-medium text-fg">Dangerous Command Detected</div>
-            <div className="text-xs text-muted capitalize">{result.level} risk</div>
+            <div className="text-sm font-medium text-fg">检测到高风险操作</div>
+            <div className="text-xs text-muted capitalize">风险等级：{result.level}</div>
           </div>
         </div>
 
         {/* Command */}
         <div className="px-4 py-3">
-          <div className="text-xs text-meta mb-1">Command:</div>
+          <div className="text-xs text-meta mb-1">操作内容：</div>
           <pre className="bg-bg rounded-md px-3 py-2 text-sm text-fg font-mono overflow-x-auto break-all">
             {command}
           </pre>
@@ -56,13 +56,13 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
             onClick={onCancel}
             className="px-3 py-1.5 text-xs text-fg-2 hover:text-fg bg-surface hover:bg-surface-hover border border-border rounded-md transition-colors"
           >
-            Cancel
+            取消
           </button>
           <button
             onClick={onConfirm}
             className="px-3 py-1.5 text-xs text-white bg-danger hover:bg-danger/80 rounded-md transition-colors"
           >
-            Run Anyway
+            确认执行
           </button>
         </div>
       </div>

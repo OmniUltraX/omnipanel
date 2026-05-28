@@ -1,215 +1,279 @@
+import { useMemo, useState } from "react";
+import { useActionStore, type WorkspaceAction } from "../../stores/actionStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import { useI18n } from "../../i18n";
+
+type TaskTab = "active" | "drafts" | "history";
+
+const TASK_TABS: TaskTab[] = ["active", "drafts", "history"];
+
+const DEMO_ACTIVE = [
+  {
+    id: "demo-upload",
+    title: "Upload backup to S3",
+    status: "running" as const,
+    progress: 67,
+    progressColor: "var(--accent)",
+    meta: ["67% · 2.1 GB / 3.2 GB", "Speed: 12 MB/s", "ETA: 1m 32s", "Target: s3://backups/prod-db/"],
+    steps: [
+      { name: "Compress database dump", status: "Done · 45s", done: true },
+      { name: "Generate checksum", status: "Done · 12s", done: true },
+      { name: "Upload to S3", status: "Uploading...", active: true },
+      { name: "Verify integrity", status: "Pending", pending: true },
+    ],
+  },
+  {
+    id: "demo-docker",
+    title: "Pull nginx:1.25-alpine image",
+    status: "running" as const,
+    progress: 34,
+    progressColor: "var(--warn)",
+    meta: ["34% · 8.2 MB / 24.1 MB", "Layer 3/7", "Target: prod-web-01"],
+  },
+  {
+    id: "demo-patrol",
+    title: "Daily server patrol",
+    status: "queued" as const,
+    meta: ["Scheduled: 08:00 daily", "Targets: All Servers"],
+  },
+];
+
+const DEMO_HISTORY = [
+  { task: "DB Backup & Verify", type: "Workflow", status: "Success", duration: "4m 12s", target: "prod-db-master", time: "Today 08:00" },
+  { task: "Restart nginx", type: "SSH", status: "Success", duration: "3s", target: "prod-web-01", time: "Yesterday 22:14" },
+  { task: "DELETE FROM sessions", type: "SQL", status: "Failed", duration: "—", target: "prod-db-master", time: "Yesterday 18:02" },
+];
+
+function draftIconStyle(type: WorkspaceAction["type"]) {
+  switch (type) {
+    case "terminal":
+    case "ssh":
+      return { background: "var(--danger-soft)", color: "var(--danger)" };
+    case "sql":
+      return { background: "var(--accent-soft)", color: "var(--accent)" };
+    case "docker":
+      return { background: "var(--success-soft)", color: "var(--success)" };
+    default:
+      return { background: "var(--warn-soft)", color: "var(--warn)" };
+  }
+}
+
+function statusBadge(status: WorkspaceAction["status"], t: (k: string) => string) {
+  const map: Record<string, { label: string; tone: string }> = {
+    draft: { label: t("tasks.status.draft"), tone: "muted" },
+    blocked: { label: t("tasks.status.blocked"), tone: "warn" },
+    confirmed: { label: t("tasks.status.confirmed"), tone: "accent" },
+    running: { label: t("tasks.status.running"), tone: "accent" },
+    completed: { label: t("tasks.status.completed"), tone: "success" },
+    failed: { label: t("tasks.status.failed"), tone: "danger" },
+    cancelled: { label: t("tasks.status.cancelled"), tone: "muted" },
+  };
+  const item = map[status] ?? { label: status, tone: "muted" };
+  return <span className={`badge badge-${item.tone}`}>{item.label}</span>;
+}
+
 export function TasksPanel() {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<TaskTab>("active");
+  const actions = useActionStore((s) => s.actions);
+  const confirmAction = useActionStore((s) => s.confirmAction);
+  const cancelAction = useActionStore((s) => s.cancelAction);
+  const completeAction = useActionStore((s) => s.completeAction);
+  const clearCompleted = useActionStore((s) => s.clearCompleted);
+
+  const activeActions = useMemo(
+    () => actions.filter((a) => ["running", "confirmed"].includes(a.status)),
+    [actions]
+  );
+  const draftActions = useMemo(
+    () => actions.filter((a) => ["draft", "blocked"].includes(a.status)),
+    [actions]
+  );
+  const historyActions = useMemo(
+    () => actions.filter((a) => ["completed", "failed", "cancelled"].includes(a.status)),
+    [actions]
+  );
+
+  const topbarTabs = useMemo(
+    () =>
+      TASK_TABS.map((id) => ({
+        id,
+        label: t(`tasks.tabs.${id}`),
+        active: tab === id,
+        badge:
+          id === "active"
+            ? { text: activeActions.length + DEMO_ACTIVE.length, tone: "accent" as const }
+            : id === "drafts"
+              ? { text: draftActions.length, tone: "warn" as const }
+              : undefined,
+      })),
+    [tab, t, activeActions.length, draftActions.length]
+  );
+
+  useTopbarTabs(topbarTabs, {
+    onSelect: (id) => setTab(id as TaskTab),
+  }, { mode: "segment" });
+
   return (
     <div className="tasks-content">
-      {/* Active Tasks */}
-      <div className="task-panel active" id="panel-active">
-        <div className="task-card">
-          <div className="task-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" width="18" height="18"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-            <h3>Upload backup to S3</h3>
-            <span className="badge badge-accent">Running</span>
-          </div>
-          <div className="task-progress">
-            <div className="task-progress-fill" style={{width: "67%", background: "var(--accent)"}}></div>
-          </div>
-          <div className="task-meta">
-            <span>67% {"·"} 2.1 GB / 3.2 GB</span>
-            <span>Speed: 12 MB/s</span>
-            <span>ETA: 1m 32s</span>
-            <span>Target: s3://backups/prod-db/</span>
-          </div>
-          <div className="task-steps">
-            <div className="task-step">
-              <span className="step-icon text-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg></span>
-              <span className="step-name">Compress database dump</span>
-              <span className="step-status text-success">Done {"·"} 45s</span>
+      {tab === "active" && (
+        <div className="task-panel active">
+          {DEMO_ACTIVE.map((task) => (
+            <div key={task.id} className="task-card">
+              <div className="task-header">
+                <h3>{task.title}</h3>
+                <span className={`badge badge-${task.status === "queued" ? "warn" : "accent"}`}>
+                  {task.status === "queued" ? t("tasks.status.queued") : t("tasks.status.running")}
+                </span>
+              </div>
+              {task.progress !== undefined && (
+                <div className="task-progress">
+                  <div className="task-progress-fill" style={{ width: `${task.progress}%`, background: task.progressColor }} />
+                </div>
+              )}
+              <div className="task-meta">
+                {task.meta.map((line) => (
+                  <span key={line}>{line}</span>
+                ))}
+              </div>
+              {task.steps && (
+                <div className="task-steps">
+                  {task.steps.map((step) => (
+                    <div key={step.name} className="task-step">
+                      <span className={`step-icon ${step.done ? "text-success" : step.active ? "text-accent" : "text-muted"}`}>
+                        {step.done ? "✓" : step.active ? "↻" : "○"}
+                      </span>
+                      <span className="step-name">{step.name}</span>
+                      <span className={`step-status ${step.done ? "text-success" : step.active ? "text-accent" : "text-muted"}`}>
+                        {step.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="task-actions">
+                <button type="button" className="btn btn-ghost btn-sm">{t("tasks.actions.pause")}</button>
+                <button type="button" className="btn btn-danger btn-sm">{t("common.cancel")}</button>
+              </div>
             </div>
-            <div className="task-step">
-              <span className="step-icon text-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg></span>
-              <span className="step-name">Generate checksum</span>
-              <span className="step-status text-success">Done {"·"} 12s</span>
+          ))}
+
+          {activeActions.map((action) => (
+            <div key={action.id} className="task-card">
+              <div className="task-header">
+                <h3>{action.title}</h3>
+                {statusBadge(action.status, t)}
+              </div>
+              <p className="task-desc">{action.description}</p>
+              {action.command && <pre className="command-preview">{action.command}</pre>}
+              <div className="task-meta">
+                <span>{t("tasks.meta.resource")}: {action.resourceName ?? t("shell.nav.workspace")}</span>
+                <span>{t("tasks.meta.source")}: {action.source}</span>
+              </div>
+              <div className="task-actions">
+                {action.status === "running" && (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => completeAction(action.id)}>
+                    {t("tasks.actions.markDone")}
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="task-step">
-              <span className="step-icon text-accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></span>
-              <span className="step-name">Upload to S3</span>
-              <span className="step-status text-accent">Uploading...</span>
+          ))}
+        </div>
+      )}
+
+      {tab === "drafts" && (
+        <div className="task-panel active">
+          <div style={{ marginBottom: "var(--sp-4)" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{t("tasks.drafts.title")}</h2>
+            <p className="text-muted" style={{ fontSize: 12 }}>{t("tasks.drafts.desc")}</p>
+          </div>
+
+          {draftActions.length === 0 ? (
+            <div className="empty-state compact">{t("tasks.drafts.empty")}</div>
+          ) : (
+            draftActions.map((action) => (
+              <div key={action.id} className="draft-item">
+                <div className="draft-icon" style={draftIconStyle(action.type)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </div>
+                <div className="draft-body">
+                  <div className="draft-title">{action.title}</div>
+                  <div className="draft-desc">
+                    {action.description} · {action.resourceName ?? t("shell.nav.workspace")}
+                  </div>
+                </div>
+                <div className="draft-actions">
+                  {action.status === "blocked" && (
+                    <>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmAction(action.id)}>
+                        {t("common.execute")}
+                      </button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => cancelAction(action.id)}>
+                        {t("common.cancel")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === "history" && (
+        <div className="task-panel active">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("tasks.history.task")}</th>
+                  <th>{t("tasks.history.type")}</th>
+                  <th>{t("tasks.history.status")}</th>
+                  <th>{t("tasks.history.duration")}</th>
+                  <th>{t("tasks.history.target")}</th>
+                  <th>{t("tasks.history.time")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyActions.map((action) => (
+                  <tr key={action.id}>
+                    <td style={{ fontWeight: 500 }}>{action.title}</td>
+                    <td><span className="badge badge-accent">{action.type}</span></td>
+                    <td>{statusBadge(action.status, t)}</td>
+                    <td>—</td>
+                    <td>{action.resourceName ?? "—"}</td>
+                    <td>{new Date(action.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {DEMO_HISTORY.map((row) => (
+                  <tr key={row.task}>
+                    <td style={{ fontWeight: 500 }}>{row.task}</td>
+                    <td><span className="badge badge-accent">{row.type}</span></td>
+                    <td>
+                      <span className={`badge badge-${row.status === "Success" ? "success" : "danger"}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td>{row.duration}</td>
+                    <td>{row.target}</td>
+                    <td>{row.time}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {historyActions.length > 0 && (
+            <div style={{ marginTop: "var(--sp-3)" }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={clearCompleted}>
+                {t("tasks.actions.clearCompleted")}
+              </button>
             </div>
-            <div className="task-step">
-              <span className="step-icon text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/></svg></span>
-              <span className="step-name">Verify integrity</span>
-              <span className="step-status text-muted">Pending</span>
-            </div>
-          </div>
-          <div className="task-actions">
-            <button className="btn btn-ghost btn-sm">Pause</button>
-            <button className="btn btn-danger btn-sm">Cancel</button>
-          </div>
+          )}
         </div>
-
-        <div className="task-card">
-          <div className="task-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--warn)" strokeWidth="2" width="18" height="18"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/><rect x="18" y="7" width="4" height="5" rx="1"/></svg>
-            <h3>Pull nginx:1.25-alpine image</h3>
-            <span className="badge badge-accent">Running</span>
-          </div>
-          <div className="task-progress">
-            <div className="task-progress-fill" style={{width: "34%", background: "var(--warn)"}}></div>
-          </div>
-          <div className="task-meta">
-            <span>34% {"·"} 8.2 MB / 24.1 MB</span>
-            <span>Layer 3/7</span>
-            <span>Target: prod-web-01</span>
-          </div>
-          <div className="task-actions">
-            <button className="btn btn-ghost btn-sm">Pause</button>
-            <button className="btn btn-danger btn-sm">Cancel</button>
-          </div>
-        </div>
-
-        <div className="task-card">
-          <div className="task-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <h3>Daily server patrol</h3>
-            <span className="badge badge-warn">Queued</span>
-          </div>
-          <div className="task-meta">
-            <span>Scheduled: 08:00 daily</span>
-            <span>Targets: All Servers</span>
-          </div>
-          <div className="task-actions">
-            <button className="btn btn-primary btn-sm">Run Now</button>
-            <button className="btn btn-ghost btn-sm">Edit Schedule</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Draft Box */}
-      <div className="task-panel" id="panel-drafts">
-        <div style={{marginBottom: "var(--sp-4)"}}>
-          <h2 style={{fontSize: "16px", fontWeight: 700, marginBottom: "4px"}}>Draft Box</h2>
-          <p className="text-muted" style={{fontSize: "12px"}}>{"AI 生成或用户准备的命令、SQL、脚本先进入草稿箱，确认后执行"}</p>
-        </div>
-
-        <div className="draft-item">
-          <div className="draft-icon" style={{background: "var(--danger-soft)", color: "var(--danger)"}}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-          </div>
-          <div className="draft-body">
-            <div className="draft-title">{"Block IP range 45.33.32.0/24"}</div>
-            <div className="draft-desc">{"AI suggested: nginx.conf deny rule to block flood source · prod-web-01"}</div>
-          </div>
-          <div className="draft-actions">
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Execute</button>
-            <button className="btn btn-ghost btn-sm" style={{color: "var(--danger)"}}>Discard</button>
-          </div>
-        </div>
-
-        <div className="draft-item">
-          <div className="draft-icon" style={{background: "var(--accent-soft)", color: "var(--accent)"}}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
-          </div>
-          <div className="draft-body">
-            <div className="draft-title">{"CREATE INDEX idx_orders_status_created"}</div>
-            <div className="draft-desc">{"AI suggested: add composite index for dashboard query optimization · prod-db-master"}</div>
-          </div>
-          <div className="draft-actions">
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Execute</button>
-            <button className="btn btn-ghost btn-sm" style={{color: "var(--danger)"}}>Discard</button>
-          </div>
-        </div>
-
-        <div className="draft-item">
-          <div className="draft-icon" style={{background: "var(--success-soft)", color: "var(--success)"}}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-          </div>
-          <div className="draft-body">
-            <div className="draft-title">{"docker system prune -af --volumes"}</div>
-            <div className="draft-desc">{"User prepared: clean all unused Docker resources · staging-api"}</div>
-          </div>
-          <div className="draft-actions">
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Execute</button>
-            <button className="btn btn-ghost btn-sm" style={{color: "var(--danger)"}}>Discard</button>
-          </div>
-        </div>
-
-        <div className="draft-item">
-          <div className="draft-icon" style={{background: "var(--accent-soft)", color: "var(--accent)"}}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-          </div>
-          <div className="draft-body">
-            <div className="draft-title">{"SELECT * FROM users WHERE last_login < NOW() - INTERVAL '90 days'"}</div>
-            <div className="draft-desc">{"AI generated: find inactive users for cleanup · prod-db-master"}</div>
-          </div>
-          <div className="draft-actions">
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Execute</button>
-            <button className="btn btn-ghost btn-sm" style={{color: "var(--danger)"}}>Discard</button>
-          </div>
-        </div>
-
-        <div className="draft-item">
-          <div className="draft-icon" style={{background: "var(--warn-soft)", color: "var(--warn)"}}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          </div>
-          <div className="draft-body">
-            <div className="draft-title">{"ufw allow from 10.0.0.0/8 to any port 5432"}</div>
-            <div className="draft-desc">{"User prepared: allow internal network access to PostgreSQL · prod-db-master"}</div>
-          </div>
-          <div className="draft-actions">
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Execute</button>
-            <button className="btn btn-ghost btn-sm" style={{color: "var(--danger)"}}>Discard</button>
-          </div>
-        </div>
-      </div>
-
-      {/* History */}
-      <div className="task-panel" id="panel-history">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Task</th><th>Type</th><th>Status</th><th>Duration</th><th>Target</th><th>Time</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={{fontWeight: 500}}>DB Backup &amp; Verify</td>
-                <td><span className="badge badge-accent">Workflow</span></td>
-                <td><span className="badge badge-success">Success</span></td>
-                <td>1m 15s</td>
-                <td>prod-db-master</td>
-                <td className="text-muted">6h ago</td>
-              </tr>
-              <tr>
-                <td style={{fontWeight: 500}}>Docker Cleanup</td>
-                <td><span className="badge badge-accent">Script</span></td>
-                <td><span className="badge badge-success">Success</span></td>
-                <td>28s</td>
-                <td>staging-api</td>
-                <td className="text-muted">1d ago</td>
-              </tr>
-              <tr>
-                <td style={{fontWeight: 500}}>Export users table</td>
-                <td><span className="badge badge-warn">SQL</span></td>
-                <td><span className="badge badge-success">Success</span></td>
-                <td>45s</td>
-                <td>prod-db-master</td>
-                <td className="text-muted">2d ago</td>
-              </tr>
-              <tr>
-                <td style={{fontWeight: 500}}>Image pull: redis:7-alpine</td>
-                <td><span className="badge badge-accent">Docker</span></td>
-                <td><span className="badge badge-success">Success</span></td>
-                <td>12s</td>
-                <td>prod-web-01</td>
-                <td className="text-muted">3d ago</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

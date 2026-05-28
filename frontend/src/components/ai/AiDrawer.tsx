@@ -3,9 +3,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAiStore } from "../../stores/aiStore";
 import { useTerminalStore } from "../../stores/terminalStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { getResourceById } from "../../lib/resourceRegistry";
 import type { AiMessage, ToolCallState } from "../../stores/aiStore";
 import { IconRobot } from "../ui/Icons";
 import { CommandSuggestion, isShellLanguage } from "./CommandSuggestion";
+import { useI18n } from "../../i18n";
 
 function extractText(node: unknown): string {
   if (typeof node === "string") return node;
@@ -23,10 +27,10 @@ function ToolCallView({ tc }: { tc: ToolCallState }) {
   const [expanded, setExpanded] = useState(false);
 
   const statusIcon = {
-    pending: "⏳",
-    running: "▶️",
-    completed: "✅",
-    failed: "❌",
+    pending: "待处理",
+    running: "执行中",
+    completed: "完成",
+    failed: "失败",
   }[tc.status];
 
   return (
@@ -35,7 +39,7 @@ function ToolCallView({ tc }: { tc: ToolCallState }) {
         className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-fg-2 hover:bg-surface-hover transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <span>{statusIcon}</span>
+        <span className="text-[10px] text-meta">{statusIcon}</span>
         <span className="font-mono text-accent">{tc.name}</span>
         <span className="text-muted truncate flex-1 text-left">
           {tc.arguments.slice(0, 60)}
@@ -45,13 +49,13 @@ function ToolCallView({ tc }: { tc: ToolCallState }) {
       </button>
       {expanded && (
         <div className="border-t border-border px-3 py-2 text-xs">
-          <div className="text-meta mb-1">Arguments:</div>
+          <div className="text-meta mb-1">参数：</div>
           <pre className="bg-bg-deeper rounded p-2 overflow-x-auto text-fg-2 whitespace-pre-wrap break-all">
             {tc.arguments}
           </pre>
           {tc.result && (
             <>
-              <div className="text-meta mt-2 mb-1">Result:</div>
+              <div className="text-meta mt-2 mb-1">结果：</div>
               <pre className="bg-bg-deeper rounded p-2 overflow-x-auto text-fg-2 whitespace-pre-wrap break-all">
                 {tc.result}
               </pre>
@@ -159,6 +163,7 @@ function MessageBubble({ msg }: { msg: AiMessage }) {
 // ─── Conversation Switcher ───
 
 function ConversationSwitcher() {
+  const { t } = useI18n();
   const conversations = useAiStore((s) => s.conversations);
   const activeId = useAiStore((s) => s.activeConversationId);
   const setActive = useAiStore((s) => s.setActiveConversation);
@@ -176,12 +181,12 @@ function ConversationSwitcher() {
           className="flex-1 flex items-center gap-2 text-xs text-fg-2 hover:text-fg transition-colors truncate"
           onClick={() => setShowList(!showList)}
         >
-          <span className="truncate">{active?.title || "No conversation"}</span>
+          <span className="truncate">{active?.title || t("ai.noConversation")}</span>
           <span className="text-muted">{showList ? "▾" : "▸"}</span>
         </button>
         <button
           className="w-6 h-6 flex items-center justify-center rounded text-muted hover:text-fg hover:bg-surface-hover transition-colors"
-          title="New conversation"
+          title={t("ai.newConversation")}
           onClick={() => createConversation()}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -193,7 +198,7 @@ function ConversationSwitcher() {
       {showList && (
         <div className="absolute top-full left-0 right-0 z-50 bg-bg-deeper border border-border rounded-b-md shadow-lg max-h-48 overflow-y-auto">
           {conversations.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted">No conversations</div>
+            <div className="px-3 py-2 text-xs text-muted">{t("ai.noConversation")}</div>
           ) : (
             conversations.map((c) => (
               <div
@@ -218,7 +223,7 @@ function ConversationSwitcher() {
                     e.stopPropagation();
                     deleteConversation(c.id);
                   }}
-                  title="Delete"
+                  title="删除"
                 >
                   &times;
                 </button>
@@ -335,7 +340,7 @@ function useAiChat() {
                 updateMessage(convId!, assistantMsgId, { isStreaming: false });
                 break;
               case "error":
-                appendStreamContent(convId!, assistantMsgId, `\n\n⚠️ Error: ${evt.message}`);
+          appendStreamContent(convId!, assistantMsgId, `\n\n错误：${evt.message}`);
                 updateMessage(convId!, assistantMsgId, { isStreaming: false });
                 break;
             }
@@ -350,7 +355,7 @@ function useAiChat() {
         unlistenFn?.();
       }
     } catch (err) {
-      appendStreamContent(convId, assistantMsgId, `\n\n⚠️ Failed to send message: ${err}`);
+      appendStreamContent(convId, assistantMsgId, `\n\n发送失败：${err}`);
       updateMessage(convId, assistantMsgId, { isStreaming: false });
     } finally {
       setIsGenerating(false);
@@ -395,6 +400,7 @@ function AiPanelHeader({ onPinToggle, onClose, isPinned }: {
   onClose: () => void;
   isPinned: boolean;
 }) {
+  const { t } = useI18n();
   const currentModel = useAiStore((s) => s.currentModel);
 
   return (
@@ -403,13 +409,13 @@ function AiPanelHeader({ onPinToggle, onClose, isPinned }: {
       onDoubleClick={onPinToggle}
     >
       <IconRobot size={16} className="text-accent shrink-0" />
-      <span className="text-sm font-medium text-fg flex-1">AI Assistant</span>
+      <span className="text-sm font-medium text-fg flex-1">{t("ai.title")}</span>
       <span className="text-[10px] text-muted bg-surface px-1.5 py-0.5 rounded">
         {currentModel}
       </span>
       <button
         className="w-6 h-6 flex items-center justify-center rounded text-muted hover:text-fg hover:bg-surface-hover transition-colors"
-        title={isPinned ? "Unpin (drawer mode)" : "Pin (fixed panel)"}
+        title={isPinned ? "取消固定" : "固定到右侧"}
         onClick={onPinToggle}
       >
         <svg
@@ -425,7 +431,7 @@ function AiPanelHeader({ onPinToggle, onClose, isPinned }: {
       </button>
       <button
         className="w-6 h-6 flex items-center justify-center rounded text-muted hover:text-fg hover:bg-surface-hover transition-colors"
-        title="Close (Ctrl+L)"
+        title="关闭 (Ctrl+L)"
         onClick={onClose}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -437,6 +443,7 @@ function AiPanelHeader({ onPinToggle, onClose, isPinned }: {
 }
 
 function AiPanelBody() {
+  const { t } = useI18n();
   const {
     input,
     setInput,
@@ -450,19 +457,51 @@ function AiPanelBody() {
     addContext,
     removeContext,
   } = useAiChat();
+  const workspace = useWorkspaceStore((s) => s.workspace);
+  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const actions = useActionStore((s) => s.actions);
+  const activeResource = getResourceById(activeResourceId);
+  const environment = activeResource?.environment ?? "unknown";
+  const recentActions = actions.slice(0, 3);
 
   return (
     <>
       <ConversationSwitcher />
+
+      <div className="ai-context-strip">
+        <div className="ai-context-row">
+          <span className="ai-context-label">{t("ai.currentContext")}</span>
+          <span className={`env-badge env-${environment}`}>
+            {t(`env.${environment}`)}
+          </span>
+        </div>
+        <div className="ai-context-main">
+          <span>{activeResource ? activeResource.name : workspace.name}</span>
+          {activeResource && (
+            <span className="text-meta">
+              {t(`resourceType.${activeResource.type}`)} · {activeResource.subtitle}
+            </span>
+          )}
+        </div>
+        {recentActions.length > 0 && (
+          <div className="ai-action-preview">
+            {recentActions.map((action) => (
+              <span key={action.id} className={`action-chip action-${action.status}`}>
+                {action.title}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
         {!activeConversation || activeConversation.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <IconRobot size={32} className="text-muted mb-3" />
-            <p className="text-sm text-muted mb-1">How can I help?</p>
+            <p className="text-sm text-muted mb-1">{t("ai.emptyTitle")}</p>
             <p className="text-xs text-meta">
-              Ask anything about your project, code, or infrastructure.
+              {t("ai.emptyHint")}
             </p>
           </div>
         ) : (
@@ -498,7 +537,7 @@ function AiPanelBody() {
           }}
           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] text-muted hover:text-fg transition-colors"
         >
-          + context
+          添加上下文
         </button>
       </div>
 
@@ -510,7 +549,7 @@ function AiPanelBody() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask AI anything..."
+            placeholder="询问当前资源、命令、SQL 或排障流程..."
             rows={1}
             className="flex-1 bg-transparent text-sm text-fg placeholder:text-muted outline-none resize-none min-h-[20px] max-h-[100px]"
           />
@@ -525,8 +564,8 @@ function AiPanelBody() {
           </button>
         </div>
         <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-meta">Shift+Enter for new line</span>
-          <span className="text-[10px] text-meta">Ctrl+L to toggle</span>
+          <span className="text-[10px] text-meta">Shift+Enter 换行</span>
+          <span className="text-[10px] text-meta">Ctrl+L 切换</span>
         </div>
       </div>
     </>

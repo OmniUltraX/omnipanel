@@ -8,7 +8,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
+export function TerminalSearch({ terminal: _terminal, searchAddon, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [matchCount, setMatchCount] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -84,7 +84,7 @@ export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
           doSearch(e.target.value);
         }}
         onKeyDown={handleKeyDown}
-        placeholder="Search terminal..."
+        placeholder="搜索终端..."
         style={{
           flex: 1,
           background: "var(--surface)",
@@ -97,7 +97,7 @@ export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
         }}
       />
       <span style={{ fontSize: 11, color: "var(--meta)", minWidth: 40 }}>
-        {matchCount > 0 ? `${currentIndex}/${matchCount}` : query ? "No results" : ""}
+        {matchCount > 0 ? `${currentIndex}/${matchCount}` : query ? "无结果" : ""}
       </span>
       <button
         onClick={findPrevious}
@@ -110,7 +110,7 @@ export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
           padding: 2,
           opacity: matchCount === 0 ? 0.4 : 1,
         }}
-        title="Previous (Shift+Enter)"
+        title="上一个 (Shift+Enter)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M18 15l-6-6-6 6" />
@@ -127,7 +127,7 @@ export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
           padding: 2,
           opacity: matchCount === 0 ? 0.4 : 1,
         }}
-        title="Next (Enter)"
+        title="下一个 (Enter)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M6 9l6 6 6-6" />
@@ -142,7 +142,7 @@ export function TerminalSearch({ terminal, searchAddon, onClose }: Props) {
           cursor: "pointer",
           padding: 2,
         }}
-        title="Close (Escape)"
+        title="关闭 (Escape)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M18 6L6 18M6 6l12 12" />

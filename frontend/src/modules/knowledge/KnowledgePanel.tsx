@@ -2,20 +2,20 @@ export function KnowledgePanel() {
   return (
     <div className="kb-workspace">
       <div className="kb-sidebar">
-        <div className="kb-section-title">Categories</div>
+        <div className="kb-section-title">分类</div>
         <div className="kb-nav-item active" data-kb="snippets">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-          Command Snippets
+          命令片段
         </div>
         <div className="kb-nav-item" data-kb="cases">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-          Incident Cases
+          故障案例
         </div>
         <div className="kb-nav-item" data-kb="ai">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M12 17v4M8 21h8"/></svg>
-          AI Summaries
+          AI 总结
         </div>
-        <div className="kb-section-title" style={{marginTop: "var(--sp-3)"}}>Tags</div>
+        <div className="kb-section-title" style={{marginTop: "var(--sp-3)"}}>标签</div>
         <div className="kb-nav-item"><span className="tag" style={{width: "100%", justifyContent: "center"}}>nginx</span></div>
         <div className="kb-nav-item"><span className="tag" style={{width: "100%", justifyContent: "center"}}>docker</span></div>
         <div className="kb-nav-item"><span className="tag" style={{width: "100%", justifyContent: "center"}}>postgresql</span></div>
@@ -28,13 +28,13 @@ export function KnowledgePanel() {
           {/* Command Snippets */}
           <div className="kb-panel active" id="panel-snippets">
             <div style={{marginBottom: "var(--sp-4)"}}>
-              <h2 style={{fontSize: "16px", fontWeight: 700, marginBottom: "4px"}}>Command Snippets</h2>
+              <h2 style={{fontSize: "16px", fontWeight: 700, marginBottom: "4px"}}>命令片段</h2>
               <p className="text-muted" style={{fontSize: "12px"}}>{"常用命令、SQL、Docker 操作和说明"}</p>
             </div>
 
             <div className="snippet-card">
               <div className="snippet-header">
-                <h3>Find Large Files</h3>
+                <h3>查找大文件</h3>
                 <span className="tag">linux</span>
                 <span className="tag">disk</span>
               </div>
@@ -47,15 +47,15 @@ export function KnowledgePanel() {
 <span className="cmd">{"find ~ -type f -size +1G -printf '%s %p\\n' | sort -rn | head -20"}</span>
               </div>
               <div className="snippet-meta">
-                <span className="badge badge-success">Read-only</span>
-                <span>Used 12 times</span>
-                <span>Last: 2 days ago</span>
+                <span className="badge badge-success">只读</span>
+                <span>使用 12 次</span>
+                <span>最近：2 天前</span>
               </div>
             </div>
 
             <div className="snippet-card">
               <div className="snippet-header">
-                <h3>Docker Container Stats</h3>
+                <h3>Docker 容器资源</h3>
                 <span className="tag">docker</span>
                 <span className="tag">monitoring</span>
               </div>
@@ -68,15 +68,15 @@ export function KnowledgePanel() {
 <span className="cmd">{'docker stats nginx-proxy --no-stream --format "CPU: {{.CPUPerc}} | MEM: {{.MemUsage}}"'}</span>
               </div>
               <div className="snippet-meta">
-                <span className="badge badge-success">Read-only</span>
-                <span>Used 28 times</span>
-                <span>Last: 1 hour ago</span>
+                <span className="badge badge-success">只读</span>
+                <span>使用 28 次</span>
+                <span>最近：1 小时前</span>
               </div>
             </div>
 
             <div className="snippet-card">
               <div className="snippet-header">
-                <h3>PostgreSQL Slow Query Analysis</h3>
+                <h3>PostgreSQL 慢查询分析</h3>
                 <span className="tag">postgresql</span>
                 <span className="tag">performance</span>
               </div>
@@ -92,9 +92,9 @@ export function KnowledgePanel() {
 <span className="cmd">{"FROM pg_stat_activity WHERE state != 'idle' ORDER BY duration DESC;"}</span>
               </div>
               <div className="snippet-meta">
-                <span className="badge badge-success">Read-only</span>
-                <span>Used 15 times</span>
-                <span>Last: 3 days ago</span>
+                <span className="badge badge-success">只读</span>
+                <span>使用 15 次</span>
+                <span>最近：3 天前</span>
               </div>
             </div>
 
@@ -116,9 +116,9 @@ export function KnowledgePanel() {
 <span className="cmd">{"ls -la /etc/nginx/sites-enabled/"}</span>
               </div>
               <div className="snippet-meta">
-                <span className="badge badge-warn">Medium Risk</span>
-                <span>Used 8 times</span>
-                <span>Last: 1 week ago</span>
+                <span className="badge badge-warn">中风险</span>
+                <span>使用 8 次</span>
+                <span>最近：1 周前</span>
               </div>
             </div>
           </div>
@@ -193,7 +193,7 @@ export function KnowledgePanel() {
               <p className="text-muted" style={{fontSize: "12px"}}>{"AI 对终端输出、日志分析、SQL 查询结果的总结"}</p>
             </div>
             <div className="snippet-card">
-              <div className="snippet-header"><h3>prod-web-01 Log Analysis</h3><span className="badge badge-accent">AI Generated</span></div>
+              <div className="snippet-header"><h3>prod-web-01 日志分析</h3><span className="badge badge-accent">AI 生成</span></div>
               <div className="snippet-desc">{"AI 分析 nginx 错误日志后的摘要"}</div>
               <div className="snippet-code">
 <span className="comment">{"Summary: Past 24h nginx error analysis"}</span>
@@ -206,7 +206,7 @@ export function KnowledgePanel() {
               <div className="snippet-meta"><span>Generated 2h ago</span><span>From: terminal.html AI panel</span></div>
             </div>
             <div className="snippet-card">
-              <div className="snippet-header"><h3>Database Schema Explanation</h3><span className="badge badge-accent">AI Generated</span></div>
+              <div className="snippet-header"><h3>数据库结构解释</h3><span className="badge badge-accent">AI 生成</span></div>
               <div className="snippet-desc">{"AI 解释 orders 表结构设计"}</div>
               <div className="snippet-code">
 <span className="comment">{"The orders table uses a denormalized design with:"}</span>

@@ -1,49 +1,64 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAiStore } from "../../stores/aiStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useI18n } from "../../i18n";
 
 interface CommandItem {
   id: string;
-  label: string;
+  labelKey: string;
   shortcut?: string;
   path?: string;
   action?: () => void;
-  category: string;
+  categoryKey: string;
 }
 
-const commands: CommandItem[] = [
-  { id: "workspace", label: "Go to Workspace", shortcut: "⌘1", path: "/", category: "Navigation" },
-  { id: "terminal", label: "Go to Terminal", shortcut: "⌘2", path: "/terminal", category: "Navigation" },
-  { id: "ssh", label: "Go to SSH Manager", shortcut: "⌘3", path: "/ssh", category: "Navigation" },
-  { id: "database", label: "Go to Database", shortcut: "⌘4", path: "/database", category: "Navigation" },
-  { id: "docker", label: "Go to Docker", shortcut: "⌘5", path: "/docker", category: "Navigation" },
-  { id: "server", label: "Go to Server", shortcut: "⌘6", path: "/server", category: "Navigation" },
-  { id: "protocol", label: "Go to Protocol Lab", path: "/protocol", category: "Navigation" },
-  { id: "workflow", label: "Go to Workflow", path: "/workflow", category: "Navigation" },
-  { id: "knowledge", label: "Go to Knowledge Base", path: "/knowledge", category: "Navigation" },
-  { id: "tasks", label: "Go to Tasks", path: "/tasks", category: "Navigation" },
-  { id: "settings", label: "Open Settings", shortcut: "⌘,", path: "/settings", category: "Navigation" },
-  { id: "new-terminal", label: "New Terminal", shortcut: "⌘T", category: "Actions" },
-  { id: "new-ssh", label: "New SSH Connection", category: "Actions" },
-  { id: "new-query", label: "New SQL Query", category: "Actions" },
-  { id: "toggle-theme", label: "Toggle Theme", category: "Actions" },
-  { id: "clear-cache", label: "Clear Cache", category: "Actions" },
-  { id: "open-ai", label: "Open AI Chat", shortcut: "⌘L", action: () => useAiStore.getState().openDrawer(), category: "AI" },
-  { id: "new-ai-conv", label: "New AI Conversation", action: () => { useAiStore.getState().createConversation(); useAiStore.getState().openDrawer(); }, category: "AI" },
+const COMMAND_DEFS: CommandItem[] = [
+  { id: "workspace", labelKey: "shell.commandPalette.commands.workspace", shortcut: "⌘1", path: "/", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "terminal", labelKey: "shell.commandPalette.commands.terminal", shortcut: "⌘2", path: "/terminal", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "ssh", labelKey: "shell.commandPalette.commands.ssh", shortcut: "⌘3", path: "/ssh", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "database", labelKey: "shell.commandPalette.commands.database", shortcut: "⌘4", path: "/database", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "docker", labelKey: "shell.commandPalette.commands.docker", shortcut: "⌘5", path: "/docker", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "server", labelKey: "shell.commandPalette.commands.server", shortcut: "⌘6", path: "/server", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "protocol", labelKey: "shell.commandPalette.commands.protocol", path: "/protocol", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "workflow", labelKey: "shell.commandPalette.commands.workflow", path: "/workflow", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "knowledge", labelKey: "shell.commandPalette.commands.knowledge", path: "/knowledge", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "tasks", labelKey: "shell.commandPalette.commands.tasks", path: "/tasks", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "settings", labelKey: "shell.commandPalette.commands.settings", shortcut: "⌘,", path: "/settings", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "new-terminal", labelKey: "shell.commandPalette.commands.newTerminal", shortcut: "⌘T", categoryKey: "shell.commandPalette.categories.action" },
+  { id: "new-ssh", labelKey: "shell.commandPalette.commands.newSsh", categoryKey: "shell.commandPalette.categories.action" },
+  { id: "new-query", labelKey: "shell.commandPalette.commands.newQuery", categoryKey: "shell.commandPalette.categories.action" },
+  { id: "risk-check", labelKey: "shell.commandPalette.commands.riskCheck", path: "/tasks", categoryKey: "shell.commandPalette.categories.security" },
+  { id: "open-ai", labelKey: "shell.commandPalette.commands.openAi", shortcut: "⌘L", action: () => useAiStore.getState().openDrawer(), categoryKey: "shell.commandPalette.categories.ai" },
+  { id: "new-ai-conv", labelKey: "shell.commandPalette.commands.newAiConv", action: () => { useAiStore.getState().createConversation(); useAiStore.getState().openDrawer(); }, categoryKey: "shell.commandPalette.categories.ai" },
 ];
 
 export function CommandPalette() {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
+  const blockedCount = useActionStore((s) => s.actions.filter((a) => a.status === "blocked").length);
+
+  const commands = useMemo(
+    () =>
+      COMMAND_DEFS.map((cmd) => ({
+        ...cmd,
+        label: t(cmd.labelKey),
+        category: t(cmd.categoryKey),
+      })),
+    [t]
+  );
 
   const filtered = commands.filter((cmd) =>
     cmd.label.toLowerCase().includes(query.toLowerCase())
   );
 
-  const grouped = filtered.reduce<Record<string, CommandItem[]>>((acc, cmd) => {
+  const grouped = filtered.reduce<Record<string, typeof filtered>>((acc, cmd) => {
     if (!acc[cmd.category]) acc[cmd.category] = [];
     acc[cmd.category].push(cmd);
     return acc;
@@ -57,7 +72,6 @@ export function CommandPalette() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't intercept shortcuts when typing in terminal
       const target = e.target as HTMLElement;
       if (target?.closest?.(".xterm")) {
         if (e.key === "Escape" && isOpen) {
@@ -92,8 +106,9 @@ export function CommandPalette() {
     setSelectedIndex(0);
   }, [query]);
 
-  const execute = (cmd: CommandItem) => {
+  const execute = (cmd: (typeof commands)[number]) => {
     if (cmd.path) {
+      setActivePath(cmd.path);
       navigate(cmd.path);
     }
     if (cmd.action) {
@@ -126,7 +141,6 @@ export function CommandPalette() {
         className="relative w-[520px] bg-bg-deeper border border-border rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Search Input */}
         <div className="flex items-center gap-3 px-4 h-12 border-b border-border">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted shrink-0">
             <circle cx="11" cy="11" r="8" />
@@ -138,13 +152,12 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command or search..."
+            placeholder={t("shell.commandPalette.placeholder")}
             className="flex-1 bg-transparent text-sm text-fg placeholder:text-muted outline-none"
           />
           <kbd className="px-1.5 py-0.5 text-[10px] text-meta bg-surface border border-border rounded font-mono">ESC</kbd>
         </div>
 
-        {/* Results */}
         <div className="max-h-[320px] overflow-y-auto py-2">
           {Object.entries(grouped).map(([category, items]) => (
             <div key={category}>
@@ -176,28 +189,14 @@ export function CommandPalette() {
           ))}
           {filtered.length === 0 && (
             <div className="px-4 py-8 text-center text-sm text-muted">
-              No commands found
+              {t("shell.commandPalette.noResults")}
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2 border-t border-border text-[11px] text-meta">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono">↑↓</kbd>
-              navigate
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono">↵</kbd>
-              select
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 bg-surface border border-border rounded font-mono">esc</kbd>
-              close
-            </span>
-          </div>
-          <span>{filtered.length} results</span>
+          <span>{t("shell.commandPalette.hint")}</span>
+          <span>{t("shell.commandPalette.pendingActions", { count: blockedCount })}</span>
         </div>
       </div>
     </div>

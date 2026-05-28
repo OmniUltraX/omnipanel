@@ -1,88 +1,208 @@
-import { DockLayout, DockPanel } from "../../components/dock";
+import { useMemo, useState } from "react";
+import { DockWorkspace } from "../../components/dock";
+import { workspaceResources, getResourceById } from "../../lib/resourceRegistry";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import { useI18n } from "../../i18n";
+
+const containers = [
+  { name: "nginx-proxy", image: "nginx:1.25-alpine", statusKey: "running" as const, cpu: "34%", ports: "80 / 443" },
+  { name: "app-backend", image: "app/api:2.1.0", statusKey: "running" as const, cpu: "12%", ports: "8080" },
+  { name: "redis-cache", image: "redis:7-alpine", statusKey: "running" as const, cpu: "2%", ports: "6379" },
+  { name: "old-worker", image: "app/worker:1.8.0", statusKey: "stopped" as const, cpu: "-", ports: "-" },
+];
+
+type Filter = "all" | "running" | "stopped";
 
 export function DockerPanel() {
+  const { t } = useI18n();
+  const [filter, setFilter] = useState<Filter>("all");
+  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const selectResource = useWorkspaceStore((s) => s.selectResource);
+  const activeResource = getResourceById(activeResourceId);
+  const enqueueAction = useActionStore((s) => s.enqueueAction);
+  const actions = useActionStore((s) => s.actions);
+
+  const dockerResources = useMemo(
+    () => workspaceResources.filter((resource) => resource.type === "docker"),
+    []
+  );
+
+  const topbarTabs = useMemo(
+    () =>
+      dockerResources.map((resource) => ({
+        id: resource.id,
+        label: resource.name,
+        active: resource.id === (activeResourceId ?? dockerResources[0]?.id),
+      })),
+    [dockerResources, activeResourceId]
+  );
+
+  useTopbarTabs(topbarTabs, {
+    onSelect: (id) => selectResource(id),
+  }, { mode: "connection", showAddTab: true, addTabTitle: t("shell.topbar.addHost") });
+
+  const filteredContainers = useMemo(() => {
+    if (filter === "all") return containers;
+    return containers.filter((c) => c.statusKey === filter);
+  }, [filter]);
+
+  const dockerActions = useMemo(
+    () => actions.filter((action) => action.type === "docker").slice(0, 4),
+    [actions]
+  );
+
   return (
-    <DockLayout>
-      <DockPanel>
-        <div className="docker-stats" style={{display:"flex", gap:"var(--sp-3)", padding:"var(--sp-3) var(--sp-6)", borderBottom:"1px solid var(--border)", flexShrink:0}}>
-          <div className="docker-stat" style={{display:"flex", alignItems:"center", gap:"var(--sp-3)", padding:"var(--sp-2) var(--sp-4)", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", minWidth:"140px"}}>
-            <div className="stat-icon" style={{background: "var(--success-soft)", color: "var(--success)", width:"32px", height:"32px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
+    <DockWorkspace
+      main={
+        <div className="docker-layout">
+          <div className="docker-stats">
+            <div className="docker-stat">
+              <div className="stat-info">
+                <span className="stat-val">3</span>
+                <span className="stat-label">{t("docker.stats.running")}</span>
+              </div>
             </div>
-            <div className="stat-info"><span className="stat-val" style={{display:"block", fontSize:"16px", fontWeight:700}}>4</span><span className="stat-label" style={{fontSize:"10px", color:"var(--meta)"}}>Running</span></div>
+            <div className="docker-stat">
+              <div className="stat-info">
+                <span className="stat-val">1</span>
+                <span className="stat-label">{t("docker.stats.stopped")}</span>
+              </div>
+            </div>
+            <div className="docker-stat">
+              <div className="stat-info">
+                <span className="stat-val">12</span>
+                <span className="stat-label">{t("docker.stats.images")}</span>
+              </div>
+            </div>
+            <div className="docker-stat">
+              <div className="stat-info">
+                <span className="stat-val">3</span>
+                <span className="stat-label">{t("docker.stats.volumes")}</span>
+              </div>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ marginLeft: "auto", alignSelf: "center" }}
+              onClick={() =>
+                enqueueAction({
+                  type: "docker",
+                  title: t("docker.actions.refresh"),
+                  description: t("docker.actions.refreshDesc"),
+                  resourceId: activeResource?.id ?? "docker-local",
+                  source: "用户",
+                })
+              }
+            >
+              {t("common.refresh")}
+            </button>
           </div>
-          <div className="docker-stat" style={{display:"flex", alignItems:"center", gap:"var(--sp-3)", padding:"var(--sp-2) var(--sp-4)", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", minWidth:"140px"}}>
-            <div className="stat-icon" style={{background: "var(--muted)", color: "var(--bg)", width:"32px", height:"32px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-            </div>
-            <div className="stat-info"><span className="stat-val" style={{display:"block", fontSize:"16px", fontWeight:700}}>2</span><span className="stat-label" style={{fontSize:"10px", color:"var(--meta)"}}>Stopped</span></div>
+
+          <div className="docker-filters">
+            {(["all", "running", "stopped"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`filter-tab${filter === key ? " active" : ""}`}
+                onClick={() => setFilter(key)}
+              >
+                {t(`docker.filters.${key}`)}
+                <span className="count">
+                  {key === "all"
+                    ? containers.length
+                    : containers.filter((c) => c.statusKey === key).length}
+                </span>
+              </button>
+            ))}
           </div>
-          <div className="docker-stat" style={{display:"flex", alignItems:"center", gap:"var(--sp-3)", padding:"var(--sp-2) var(--sp-4)", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", minWidth:"140px"}}>
-            <div className="stat-icon" style={{background: "var(--accent-soft)", color: "var(--accent)", width:"32px", height:"32px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+
+          <div className="container-list">
+            <div className="list-header">
+              <span>{t("docker.list.container")}</span>
+              <span>{t("docker.list.status")}</span>
+              <span>{t("docker.list.cpu")}</span>
+              <span>{t("docker.list.ports")}</span>
+              <span>{t("docker.list.actions")}</span>
             </div>
-            <div className="stat-info"><span className="stat-val" style={{display:"block", fontSize:"16px", fontWeight:700}}>12</span><span className="stat-label" style={{fontSize:"10px", color:"var(--meta)"}}>Images</span></div>
-          </div>
-          <div className="docker-stat" style={{display:"flex", alignItems:"center", gap:"var(--sp-3)", padding:"var(--sp-2) var(--sp-4)", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", minWidth:"140px"}}>
-            <div className="stat-icon" style={{background: "var(--warn-soft)", color: "var(--warn)", width:"32px", height:"32px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            </div>
-            <div className="stat-info"><span className="stat-val" style={{display:"block", fontSize:"16px", fontWeight:700}}>3</span><span className="stat-label" style={{fontSize:"10px", color:"var(--meta)"}}>Volumes</span></div>
+            {filteredContainers.map((container) => (
+              <div key={container.name} className="container-card">
+                <div className="container-name">
+                  <div className="container-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                      <rect x="2" y="7" width="6" height="5" rx="1" />
+                      <rect x="10" y="7" width="6" height="5" rx="1" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="container-title">{container.name}</div>
+                    <div className="container-image">{container.image}</div>
+                  </div>
+                </div>
+                <div className="container-status">
+                  <span className={`status-dot ${container.statusKey === "running" ? "online" : "offline"}`} />
+                  {t(`docker.status.${container.statusKey}`)}
+                </div>
+                <span>{container.cpu}</span>
+                <span>{container.ports}</span>
+                <div className="container-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      enqueueAction({
+                        type: "docker",
+                        title: t("docker.actions.restart", { name: container.name }),
+                        description: t("docker.actions.restartDesc", { name: container.name }),
+                        command: `docker restart ${container.name}`,
+                        resourceId: activeResource?.id ?? "docker-local",
+                        source: "用户",
+                      })
+                    }
+                  >
+                    {t("common.restart")}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-
-        <div className="docker-filters" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-4)", borderBottom:"1px solid var(--border)", flexShrink:0}}>
-          <span className="filter-tab active" style={{display:"inline-flex", alignItems:"center", gap:"var(--sp-1)", padding:"var(--sp-1) var(--sp-2)", borderRadius:"var(--r-sm)", fontSize:"11px", cursor:"pointer", background:"var(--accent-soft)", color:"var(--accent)"}}>All <span className="count" style={{fontSize:"10px", padding:"0 5px", background:"var(--surface)", borderRadius:"999px"}}>6</span></span>
-          <span className="filter-tab" style={{display:"inline-flex", alignItems:"center", gap:"var(--sp-1)", padding:"var(--sp-1) var(--sp-2)", borderRadius:"var(--r-sm)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>Running <span className="count" style={{fontSize:"10px", padding:"0 5px", background:"var(--surface)", borderRadius:"999px"}}>4</span></span>
-          <span className="filter-tab" style={{display:"inline-flex", alignItems:"center", gap:"var(--sp-1)", padding:"var(--sp-1) var(--sp-2)", borderRadius:"var(--r-sm)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>Stopped <span className="count" style={{fontSize:"10px", padding:"0 5px", background:"var(--surface)", borderRadius:"999px"}}>2</span></span>
-          <span style={{marginLeft: "auto"}}>
-            <input className="input input-search" placeholder="Filter containers..." style={{fontSize: "11px", width: "200px"}} />
-          </span>
-        </div>
-
-        <div className="container-list" style={{flex:1, overflowY:"auto", padding:"var(--sp-2)"}}>
-          <div className="list-header" style={{display:"grid", gridTemplateColumns:"1fr 120px 100px 140px 100px 80px", padding:"var(--sp-1) var(--sp-3)", fontSize:"11px", color:"var(--meta)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em", borderBottom:"1px solid var(--border)"}}>
-            <span>Container</span><span>Status</span><span>CPU</span><span>Ports</span><span>Network</span><span></span>
+      }
+      right={
+        <div className="context-panel">
+          <div className="panel-title">{t("docker.context.title")}</div>
+          <div className="context-card">
+            <span className="context-label">{t("docker.context.linkage")}</span>
+            <span>{t("docker.context.linkageDesc")}</span>
           </div>
-
-          {[
-            {name:"nginx-proxy", img:"nginx:1.25-alpine", status:"Running", duration:"3 days", cpu:"34%", ports:"0.0.0.0:443->443/tcp<br/>0.0.0.0:80->80/tcp", net:"bridge", running:true},
-            {name:"app-backend", img:"app/api:2.1.0", status:"Running", duration:"3 days", cpu:"12%", ports:"0.0.0.0:8080->8080/tcp", net:"bridge", running:true},
-            {name:"redis-cache", img:"redis:7-alpine", status:"Running", duration:"3 days", cpu:"2%", ports:"6379/tcp", net:"bridge", running:true},
-            {name:"postgres-main", img:"postgres:16-alpine", status:"Running", duration:"3 days", cpu:"8%", ports:"5432/tcp", net:"bridge", running:true},
-            {name:"old-worker", img:"app/worker:1.8.0", status:"Exited", duration:"2 days ago", cpu:"-", ports:"-", net:"-", running:false},
-            {name:"temp-debug", img:"ubuntu:22.04", status:"Exited", duration:"5 hours ago", cpu:"-", ports:"-", net:"-", running:false},
-          ].map((c) => (
-            <div key={c.name} className="container-card" style={{display:"grid", gridTemplateColumns:"1fr 120px 100px 140px 100px 80px", padding:"var(--sp-2) var(--sp-3)", fontSize:"12px", alignItems:"center", borderBottom:"1px solid var(--border)", opacity:c.running?1:0.6}}>
-              <div className="container-name" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)"}}>
-                <div className="container-icon" style={{width:"28px", height:"28px", display:"grid", placeItems:"center", background:"var(--surface)", borderRadius:"var(--r-sm)", color: c.running ? "var(--success)" : "var(--muted)"}}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-                </div>
-                <div>
-                  <div className="container-title" style={{fontWeight:500}}>{c.name}</div>
-                  <div className="container-image" style={{fontSize:"10px", color:"var(--meta)"}}>{c.img}</div>
-                </div>
-              </div>
-              <div className="container-status" style={{display:"flex", alignItems:"center", gap:"var(--sp-1)"}}>
-                <span className="status-dot" style={{width:"6px", height:"6px", borderRadius:"50%", background: c.running ? "var(--success)" : "var(--muted)"}}></span>
-                <span style={{color: c.running ? "var(--success)" : "var(--muted)", fontSize:"12px"}}>{c.status}</span>
-                <span style={{fontSize:"10px", color:"var(--meta)", marginLeft:"2px"}}>{c.duration}</span>
-              </div>
-              <div><span style={c.cpu !== "-" ? {color:"var(--warn)"} : {color:"var(--meta)"}}>{c.cpu}</span></div>
-              <div className="text-sm" style={{fontSize:"11px"}} dangerouslySetInnerHTML={{__html:c.ports}} />
-              <div className="text-sm text-muted" style={{fontSize:"11px", color:"var(--meta)"}}>{c.net}</div>
-              <div className="container-actions" style={{display:"flex", gap:"var(--sp-1)"}}>
-                <button className="btn-icon" title={c.running ? "Restart" : "Start"} style={{width:"28px", height:"28px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)", color:"var(--muted)", cursor:"pointer"}}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">{c.running ? <><path d="M23 4v6h-6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></> : <polygon points="5 3 19 12 5 21 5 3"/>}</svg>
-                </button>
-                <button className="btn-icon" title={c.running ? "Stop" : "Remove"} style={{width:"28px", height:"28px", display:"grid", placeItems:"center", borderRadius:"var(--r-sm)", color:"var(--danger)", cursor:"pointer"}}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">{c.running ? <rect x="6" y="6" width="12" height="12" rx="1"/> : <><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></>}</svg>
-                </button>
-              </div>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() =>
+              enqueueAction({
+                type: "docker",
+                title: t("docker.actions.prune"),
+                description: t("docker.actions.pruneDesc"),
+                command: "docker system prune -af",
+                resourceId: activeResource?.id ?? "docker-local",
+                source: "AI",
+              })
+            }
+          >
+            {t("docker.context.pruneConfirm")}
+          </button>
+        </div>
+      }
+      bottom={
+        <div className="bottom-feed">
+          <div className="panel-title">{t("docker.feed.title")}</div>
+          {dockerActions.map((action) => (
+            <div key={action.id} className="feed-row">
+              <span>{action.title}</span>
+              <span>{action.status}</span>
             </div>
           ))}
         </div>
-      </DockPanel>
-    </DockLayout>
+      }
+    />
   );
 }

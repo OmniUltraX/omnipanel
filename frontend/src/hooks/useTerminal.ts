@@ -38,9 +38,18 @@ export function useTerminal(
   onTerminalReady?: (terminal: Terminal, searchAddon: SearchAddon) => void,
   onCommand?: (command: string) => void,
   onBlockRightClick?: (block: TerminalBlock, position: { x: number; y: number }) => void,
+  suspended = false,
 ) {
   const termRef = useRef<Terminal | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const suspendedRef = useRef(suspended);
+  suspendedRef.current = suspended;
+  const runtimeRef = useRef<{
+    resizeObserver: ResizeObserver | null;
+    fitAddon: FitAddon | null;
+    container: HTMLDivElement | null;
+    outputBuffer: Uint8Array[];
+  }>({ resizeObserver: null, fitAddon: null, container: null, outputBuffer: [] });
   const setTerminal = useTerminalStore((s) => s.setTerminal);
   const setStatus = useTerminalStore((s) => s.setStatus);
 
@@ -189,6 +198,10 @@ export function useTerminal(
           if (destroyed) return;
           try {
             const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as number[]);
+            if (suspendedRef.current) {
+              runtimeRef.current.outputBuffer.push(bytes);
+              return;
+            }
             term!.write(bytes);
           } catch (e) {
             console.error(`[Terminal ${sessionId}] onOutput error:`, e, "data:", data);
@@ -242,11 +255,11 @@ export function useTerminal(
 
         // Handle resize with debounce
         resizeObserver = new ResizeObserver(() => {
-          if (!fitAddon || !term) return;
+          if (suspendedRef.current || !fitAddon || !term) return;
           fitAddon.fit();
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
-            if (destroyed || !backendSid) return;
+            if (destroyed || !backendSid || suspendedRef.current) return;
             invoke("resize_terminal", {
               id: backendSid,
               cols: term!.cols,
@@ -255,6 +268,9 @@ export function useTerminal(
           }, 100);
         });
         resizeObserver.observe(container!);
+        runtimeRef.current.resizeObserver = resizeObserver;
+        runtimeRef.current.fitAddon = fitAddon;
+        runtimeRef.current.container = container!;
 
         // Listen for process exit
         unlistenPromise = listen<{ session_id: string; event: string }>(
@@ -264,7 +280,9 @@ export function useTerminal(
             if (ev.payload.session_id === backendSid) {
               if (ev.payload.event === "exited") {
                 setStatus(sessionId, "disconnected");
-                term!.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
+                if (!suspendedRef.current) {
+                  term!.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
+                }
               }
             }
           }
@@ -330,12 +348,12 @@ export function useTerminal(
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) {
+          if (entry.isIntersecting && !suspendedRef.current) {
             if (!term) {
               initTerminal();
             } else {
               requestAnimationFrame(() => {
-                if (destroyed) return;
+                if (destroyed || suspendedRef.current) return;
                 fitAddon?.fit();
                 term?.focus();
               });
@@ -373,6 +391,26 @@ export function useTerminal(
       searchAddonRef.current = null;
     };
   }, [containerRef, onBlockRightClick, onCommand, onTerminalReady, sessionId, setStatus, setTerminal]);
+
+  useEffect(() => {
+    const rt = runtimeRef.current;
+    if (suspended) {
+      rt.resizeObserver?.disconnect();
+      return;
+    }
+
+    const term = termRef.current;
+    if (rt.container && rt.resizeObserver) {
+      rt.resizeObserver.observe(rt.container);
+    }
+    if (term && rt.outputBuffer.length > 0) {
+      for (const bytes of rt.outputBuffer) {
+        term.write(bytes);
+      }
+      rt.outputBuffer = [];
+    }
+    requestAnimationFrame(() => rt.fitAddon?.fit());
+  }, [suspended]);
 
   return { termRef, searchAddonRef };
 }

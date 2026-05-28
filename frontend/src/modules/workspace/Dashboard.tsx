@@ -1,215 +1,323 @@
 import { useNavigate } from "react-router-dom";
+import { workspaceResources, type ResourceType, type WorkspaceResource } from "../../lib/resourceRegistry";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useI18n } from "../../i18n";
+
+const RESOURCE_ICON: Record<ResourceType, { bg: string; color: string; path: string }> = {
+  terminal: {
+    bg: "var(--success-soft)",
+    color: "var(--success)",
+    path: "M4 17l6-6-6-6 M12 19h8",
+  },
+  database: {
+    bg: "var(--warn-soft)",
+    color: "var(--warn)",
+    path: "M12 5a9 3 0 110 6 9 3 0 110-6z M3 5v14c0 3 4 5 9 5s9-2 9-5V5",
+  },
+  ssh: {
+    bg: "var(--accent-soft)",
+    color: "var(--accent)",
+    path: "M2 3h20v14H2z M8 21h8 M12 17v4",
+  },
+  docker: {
+    bg: "var(--accent-soft)",
+    color: "var(--accent)",
+    path: "M2 7h6v5H2z M10 7h6v5h-6z M18 7h4v5h-4z",
+  },
+  server: {
+    bg: "var(--success-soft)",
+    color: "var(--success)",
+    path: "M2 2h20v8H2z M2 14h20v8H2z",
+  },
+  workspace: {
+    bg: "var(--surface)",
+    color: "var(--muted)",
+    path: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z",
+  },
+  protocol: {
+    bg: "var(--surface)",
+    color: "var(--muted)",
+    path: "M22 12h-4l-3 9L9 3l-3 9H2",
+  },
+};
+
+const QUICK_LINKS: { path: string; type: ResourceType; label: string; hint: string }[] = [
+  { path: "/terminal", type: "terminal", label: "Terminal", hint: "Local" },
+  { path: "/ssh", type: "ssh", label: "prod-web-01", hint: "SSH" },
+  { path: "/database", type: "database", label: "prod-db", hint: "PostgreSQL" },
+  { path: "/docker", type: "docker", label: "Containers", hint: "Docker" },
+];
+
+const RESOURCE_BARS = [
+  { name: "prod-web-01 — CPU", value: "23%", width: "23%", color: "var(--success)" },
+  { name: "prod-web-01 — Memory", value: "1.0 GB / 4 GB", width: "25%", color: "var(--success)" },
+  { name: "prod-db — CPU", value: "67%", width: "67%", color: "var(--warn)" },
+  { name: "prod-db — Memory", value: "3.2 GB / 4 GB", width: "80%", color: "var(--warn)" },
+  { name: "staging-worker — Disk", value: "92% · WAL logs", width: "92%", color: "var(--danger)" },
+  { name: "staging-api — CPU", value: "12%", width: "12%", color: "var(--success)" },
+];
+
+const DOCKER_MINI = [
+  { name: "nginx-proxy", status: "Up 3d", dot: "var(--success)" },
+  { name: "app-backend", status: "Up 3d", dot: "var(--success)" },
+  { name: "redis-cache", status: "Up 3d", dot: "var(--success)" },
+  { name: "postgres-main", status: "Up 3d", dot: "var(--success)" },
+  { name: "celery-worker", status: "Restart", dot: "var(--warn)" },
+  { name: "redis-staging", status: "Stopped", dot: "var(--meta)" },
+];
+
+const SERVER_MINI = [
+  { name: "prod-web-01", type: "23%", dot: "var(--success)" },
+  { name: "prod-web-02", type: "18%", dot: "var(--success)" },
+  { name: "prod-db", type: "67%", dot: "var(--warn)" },
+  { name: "staging-api", type: "12%", dot: "var(--success)" },
+  { name: "staging-wk", type: "Disk 92%", dot: "var(--danger)" },
+  { name: "dev-local", type: "8%", dot: "var(--success)" },
+];
+
+function draftDot(risk: string) {
+  if (risk === "high" || risk === "critical") return "var(--danger)";
+  if (risk === "medium") return "var(--accent)";
+  return "var(--success)";
+}
+
+function WsIcon({ type }: { type: ResourceType }) {
+  const icon = RESOURCE_ICON[type];
+  return (
+    <div className="ws-icon" style={{ background: icon.bg, color: icon.color }}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d={icon.path} />
+      </svg>
+    </div>
+  );
+}
 
 export function Dashboard() {
+  const { t } = useI18n();
   const navigate = useNavigate();
+  const selectResource = useWorkspaceStore((s) => s.selectResource);
+  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
+  const actions = useActionStore((s) => s.actions);
+
+  const openResource = (resource: WorkspaceResource) => {
+    selectResource(resource.id);
+    setActivePath(resource.modulePath);
+    navigate(resource.modulePath);
+  };
+
+  const recentResources = workspaceResources.slice(0, 3);
+  const runningActions = actions.filter((a) => a.status === "running");
+  const blockedActions = actions.filter((a) => a.status === "blocked");
+  const draftActions = blockedActions.length > 0 ? blockedActions : actions.slice(0, 3);
 
   return (
-    <div className="dash-grid" style={{flex: 1, overflow: "hidden", padding: "var(--sp-4) var(--sp-6)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--sp-4)"}}>
-      <div className="dash-col" style={{display: "flex", flexDirection: "column", gap: "var(--sp-3)", minHeight: 0, overflowY: "auto"}}>
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            {"最近工作区"}
-            <a onClick={() => navigate("/terminal")} className="qa-btn" style={{marginLeft: "auto"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-              {"新建"}
-            </a>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:"var(--sp-2)"}}>
-            <div className="ws-card" onClick={() => navigate("/terminal")}>
-              <div className="ws-icon" style={{background: "var(--success-soft)", color: "var(--success)"}}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
+    <div className="dashboard">
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div className="dash-grid">
+          <div className="dash-col">
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+                {t("dashboard.recentWorkspaces")}
+                <button type="button" className="qa-btn" style={{ marginLeft: "auto" }} onClick={() => navigate("/terminal")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  {t("dashboard.new")}
+                </button>
               </div>
-              <div className="ws-body">
-                <div className="ws-name">prod-web-01 Terminal</div>
-                <div className="ws-meta"><span>2 tabs, 1 split</span><span>10 min ago</span></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+                {recentResources.map((resource) => (
+                  <div
+                    key={resource.id}
+                    className="ws-card"
+                    onClick={() => openResource(resource)}
+                    onKeyDown={(e) => e.key === "Enter" && openResource(resource)}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <WsIcon type={resource.type} />
+                    <div className="ws-body">
+                      <div className="ws-name">{resource.name}</div>
+                      <div className="ws-meta">
+                        <span>{t(`resourceType.${resource.type}`)}</span>
+                        <span>{resource.subtitle}</span>
+                      </div>
+                    </div>
+                    <button type="button" className="btn btn-primary btn-sm">{t("dashboard.open")}</button>
+                  </div>
+                ))}
               </div>
-              <button className="btn btn-primary btn-sm">Open</button>
             </div>
-            <div className="ws-card" onClick={() => navigate("/database")}>
-              <div className="ws-icon" style={{background: "var(--warn-soft)", color: "var(--warn)"}}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
-              </div>
-              <div className="ws-body">
-                <div className="ws-name">prod-db-master Query</div>
-                <div className="ws-meta"><span>3 queries saved</span><span>1h ago</span></div>
-              </div>
-              <button className="btn btn-primary btn-sm">Open</button>
-            </div>
-            <div className="ws-card" onClick={() => navigate("/ssh")}>
-              <div className="ws-icon" style={{background: "var(--accent-soft)", color: "var(--accent)"}}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-              </div>
-              <div className="ws-body">
-                <div className="ws-name">staging-api SSH</div>
-                <div className="ws-meta"><span>SFTP active</span><span>3h ago</span></div>
-              </div>
-              <button className="btn btn-primary btn-sm">Open</button>
-            </div>
-          </div>
-        </div>
 
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-            {"快捷连接"}
-          </div>
-          <div className="qc-grid">
-            <a className="qc-btn" onClick={() => navigate("/terminal")}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-              <span className="qc-label">Terminal</span>
-              <span className="qc-hint">Local</span>
-            </a>
-            <a className="qc-btn" onClick={() => navigate("/ssh")}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-              <span className="qc-label">prod-web-01</span>
-              <span className="qc-hint">SSH</span>
-            </a>
-            <a className="qc-btn" onClick={() => navigate("/database")}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
-              <span className="qc-label">prod-db</span>
-              <span className="qc-hint">PostgreSQL</span>
-            </a>
-            <a className="qc-btn" onClick={() => navigate("/docker")}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-              <span className="qc-label">Containers</span>
-              <span className="qc-hint">Docker</span>
-            </a>
-          </div>
-        </div>
-
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-            {"活跃任务"}
-            <a onClick={() => navigate("/tasks")} className="qa-btn" style={{marginLeft: "auto"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              {"全部"}
-            </a>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:0}}>
-            <div className="task-row">
-              <span className="task-dot" style={{background:"var(--accent)"}}></span>
-              <span className="task-name">Upload backup to S3</span>
-              <span className="task-info">67% {"·"} ETA 1m32s</span>
-              <span className="badge badge-accent">Running</span>
-            </div>
-            <div className="task-row">
-              <span className="task-dot" style={{background:"var(--warn)"}}></span>
-              <span className="task-name">Pull nginx:1.25-alpine</span>
-              <span className="task-info">34% {"·"} Layer 3/7</span>
-              <span className="badge badge-accent">Running</span>
-            </div>
-            <div className="task-row">
-              <span className="task-dot" style={{background:"var(--meta)"}}></span>
-              <span className="task-name">Daily server patrol</span>
-              <span className="task-info">08:00 daily</span>
-              <span className="badge badge-warn">Queued</span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
-            {"草稿箱"}
-            <span className="badge badge-warn" style={{marginLeft: "auto"}}>3</span>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:"var(--sp-1)"}}>
-            <div className="alert-card">
-              <span className="alert-dot" style={{background:"var(--danger)"}}></span>
-              <div className="alert-body">
-                <div className="alert-title">Block IP 45.33.32.0/24</div>
-                <div className="alert-time">nginx deny {"·"} prod-web-01</div>
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+                {t("dashboard.quickConnect")}
+              </div>
+              <div className="qc-grid">
+                {QUICK_LINKS.map((link) => {
+                  const icon = RESOURCE_ICON[link.type];
+                  return (
+                    <button
+                      key={link.path}
+                      type="button"
+                      className="qc-btn"
+                      onClick={() => navigate(link.path)}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d={icon.path} />
+                      </svg>
+                      <span className="qc-label">{link.label}</span>
+                      <span className="qc-hint">{link.hint}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <div className="alert-card">
-              <span className="alert-dot" style={{background:"var(--accent)"}}></span>
-              <div className="alert-body">
-                <div className="alert-title">CREATE INDEX idx_orders_status</div>
-                <div className="alert-time">Composite index {"·"} prod-db</div>
+
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+                {t("dashboard.activeTasks")}
+                <button type="button" className="qa-btn" style={{ marginLeft: "auto" }} onClick={() => navigate("/tasks")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                  {t("dashboard.viewAll")}
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {(runningActions.length > 0 ? runningActions : actions).slice(0, 3).map((action) => (
+                  <div key={action.id} className="task-row">
+                    <span className="task-dot" style={{ background: "var(--accent)" }} />
+                    <span className="task-name">{action.title}</span>
+                    <span className="task-info">{action.resourceName ?? action.status}</span>
+                    <span className="badge badge-accent">{t("dashboard.running")}</span>
+                  </div>
+                ))}
+                {actions.length === 0 && (
+                  <div className="empty-state compact">{t("common.noResources")}</div>
+                )}
               </div>
             </div>
-            <div className="alert-card">
-              <span className="alert-dot" style={{background:"var(--success)"}}></span>
-              <div className="alert-body">
-                <div className="alert-title">docker system prune -af</div>
-                <div className="alert-time">Clean resources {"·"} staging-api</div>
+
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+                {t("dashboard.draftBox")}
+                {blockedActions.length > 0 && (
+                  <span className="badge badge-warn" style={{ marginLeft: "auto" }}>
+                    {blockedActions.length}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}>
+                {draftActions.map((action) => (
+                  <div key={action.id} className="alert-card">
+                    <span className="alert-dot" style={{ background: draftDot(action.risk) }} />
+                    <div className="alert-body">
+                      <div className="alert-title">{action.title}</div>
+                      <div className="alert-time">{action.description}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="dash-col" style={{display: "flex", flexDirection: "column", gap: "var(--sp-3)", minHeight: 0, overflowY: "auto"}}>
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            {"系统资源概览"}
-          </div>
-          <div style={{background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-md)", padding:"var(--sp-3) var(--sp-4)"}}>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>prod-web-01 {"—"} CPU</span><span>23%</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"23%", background:"var(--success)"}}></div></div>
+          <div className="dash-col">
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+                {t("dashboard.systemResources")}
+              </div>
+              <div
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                  padding: "var(--sp-3) var(--sp-4)",
+                }}
+              >
+                {RESOURCE_BARS.map((bar) => (
+                  <div key={bar.name} className="res-bar-group">
+                    <div className="res-bar-label">
+                      <span>{bar.name}</span>
+                      <span>{bar.value}</span>
+                    </div>
+                    <div className="res-bar">
+                      <div className="res-bar-fill" style={{ width: bar.width, background: bar.color }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>prod-web-01 {"—"} Memory</span><span>1.0 GB / 4 GB</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"25%", background:"var(--success)"}}></div></div>
-            </div>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>prod-db {"—"} CPU</span><span>67%</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"67%", background:"var(--warn)"}}></div></div>
-            </div>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>prod-db {"—"} Memory</span><span>3.2 GB / 4 GB</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"80%", background:"var(--warn)"}}></div></div>
-            </div>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>staging-worker {"—"} Disk</span><span>92% {"·"} WAL logs</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"92%", background:"var(--danger)"}}></div></div>
-            </div>
-            <div className="res-bar-group">
-              <div className="res-bar-label"><span>staging-api {"—"} CPU</span><span>12%</span></div>
-              <div className="res-bar"><div className="res-bar-fill" style={{width:"12%", background:"var(--success)"}}></div></div>
-            </div>
-          </div>
-        </div>
 
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/><rect x="18" y="7" width="4" height="5" rx="1"/><rect x="6" y="2" width="6" height="5" rx="1"/><path d="M2 17h20c0 2.76-4.48 5-10 5S2 19.76 2 17z"/></svg>
-            {"容器状态"}
-            <a onClick={() => navigate("/docker")} className="qa-btn" style={{marginLeft: "auto"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              {"全部"}
-            </a>
-          </div>
-          <div className="docker-mini-grid">
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--success)"}}></span><span className="dm-name">nginx-proxy</span><span className="dm-status">Up 3d</span></div>
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--success)"}}></span><span className="dm-name">app-backend</span><span className="dm-status">Up 3d</span></div>
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--success)"}}></span><span className="dm-name">redis-cache</span><span className="dm-status">Up 3d</span></div>
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--success)"}}></span><span className="dm-name">postgres-main</span><span className="dm-status">Up 3d</span></div>
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--warn)"}}></span><span className="dm-name">celery-worker</span><span className="dm-status">Restart</span></div>
-            <div className="docker-mini-item" onClick={() => navigate("/docker")}><span className="dm-dot" style={{background:"var(--meta)"}}></span><span className="dm-name">redis-staging</span><span className="dm-status">Stopped</span></div>
-          </div>
-        </div>
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="7" width="6" height="5" rx="1" />
+                  <rect x="10" y="7" width="6" height="5" rx="1" />
+                  <rect x="18" y="7" width="4" height="5" rx="1" />
+                </svg>
+                {t("dashboard.containers")}
+                <button type="button" className="qa-btn" style={{ marginLeft: "auto" }} onClick={() => navigate("/docker")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                  {t("dashboard.viewAll")}
+                </button>
+              </div>
+              <div className="docker-mini-grid">
+                {DOCKER_MINI.map((item) => (
+                  <button key={item.name} type="button" className="docker-mini-item" onClick={() => navigate("/docker")}>
+                    <span className="dm-dot" style={{ background: item.dot }} />
+                    <span className="dm-name">{item.name}</span>
+                    <span className="dm-status">{item.status}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div>
-          <div className="dash-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/></svg>
-            {"服务器状态"}
-            <a onClick={() => navigate("/server")} className="qa-btn" style={{marginLeft: "auto"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              {"全部"}
-            </a>
-          </div>
-          <div className="conn-grid">
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--success)"}}></span><span className="conn-name">prod-web-01</span><span className="conn-type">23%</span></div>
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--success)"}}></span><span className="conn-name">prod-web-02</span><span className="conn-type">18%</span></div>
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--warn)"}}></span><span className="conn-name">prod-db</span><span className="conn-type">67%</span></div>
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--success)"}}></span><span className="conn-name">staging-api</span><span className="conn-type">12%</span></div>
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--danger)"}}></span><span className="conn-name">staging-wk</span><span className="conn-type">Disk 92%</span></div>
-            <div className="conn-item" onClick={() => navigate("/server")}><span className="conn-dot" style={{background:"var(--success)"}}></span><span className="conn-name">dev-local</span><span className="conn-type">8%</span></div>
+            <div>
+              <div className="dash-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="2" width="20" height="8" rx="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" />
+                </svg>
+                {t("dashboard.servers")}
+                <button type="button" className="qa-btn" style={{ marginLeft: "auto" }} onClick={() => navigate("/server")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                  {t("dashboard.viewAll")}
+                </button>
+              </div>
+              <div className="conn-grid">
+                {SERVER_MINI.map((item) => (
+                  <button key={item.name} type="button" className="conn-item" onClick={() => navigate("/server")}>
+                    <span className="conn-dot" style={{ background: item.dot }} />
+                    <span className="conn-name">{item.name}</span>
+                    <span className="conn-type">{item.type}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

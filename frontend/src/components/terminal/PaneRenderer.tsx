@@ -8,6 +8,7 @@ import type { Terminal } from "@xterm/xterm";
 interface PaneRendererProps {
   layout: PaneLayout;
   activeTabId: string | null;
+  suspended?: boolean;
   onTerminalReady: (tabId: string, terminal: Terminal, searchAddon: SearchAddon) => void;
   onCommand?: (command: string) => void;
   onBlockRightClick?: (block: TerminalBlock, position: { x: number; y: number }) => void;
@@ -21,6 +22,7 @@ function getLayoutKey(layout: PaneLayout): string {
 export function PaneRenderer({
   layout,
   activeTabId,
+  suspended = false,
   onTerminalReady,
   onCommand,
   onBlockRightClick,
@@ -30,6 +32,7 @@ export function PaneRenderer({
       <TerminalTabContent
         sessionId={layout.tabId}
         active={layout.tabId === activeTabId}
+        suspended={suspended}
         onTerminalReady={(term, sa) => onTerminalReady(layout.tabId, term, sa)}
         onCommand={onCommand}
         onBlockRightClick={onBlockRightClick}
@@ -46,6 +49,7 @@ export function PaneRenderer({
           key={getLayoutKey(child)}
           layout={child}
           activeTabId={activeTabId}
+          suspended={suspended}
           onTerminalReady={onTerminalReady}
           onCommand={onCommand}
           onBlockRightClick={onBlockRightClick}

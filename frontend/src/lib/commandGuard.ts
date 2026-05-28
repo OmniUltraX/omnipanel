@@ -68,6 +68,11 @@ const DANGEROUS_PATTERNS: DangerPattern[] = [
     level: "high",
     desc: "SQL TRUNCATE table",
   },
+  {
+    pattern: /\b(UPDATE|INSERT|DELETE|ALTER)\b/i,
+    level: "medium",
+    desc: "SQL write operation",
+  },
 
   // Medium — risky operations
   {
@@ -93,6 +98,28 @@ const DANGEROUS_PATTERNS: DangerPattern[] = [
     level: "medium",
     desc: "Flush all firewall rules",
     platform: "unix",
+  },
+  {
+    pattern: /\bkill\s+-9\b/i,
+    level: "high",
+    desc: "Force kill process",
+    platform: "unix",
+  },
+  {
+    pattern: /\bsystemctl\s+(restart|stop)\b/i,
+    level: "medium",
+    desc: "Restart or stop system service",
+    platform: "unix",
+  },
+  {
+    pattern: /\bdocker\s+system\s+prune\b.*(-a|--all|-f|--force)/i,
+    level: "high",
+    desc: "Remove unused Docker resources",
+  },
+  {
+    pattern: /\bdocker\s+(restart|stop|rm)\b/i,
+    level: "medium",
+    desc: "Change Docker container state",
   },
 
   // Low — worth noting

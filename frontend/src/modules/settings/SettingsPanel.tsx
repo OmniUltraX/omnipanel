@@ -1,14 +1,16 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAiStore } from "../../stores/aiStore";
 import { useThemeStore } from "../../store/theme";
+import { useSettingsStore, LOCALE_OPTIONS, type Locale } from "../../stores/settingsStore";
+import { useI18n } from "../../i18n";
 
 type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "data";
 
 interface NavItem {
   id: Section;
   label: string;
-  icon: JSX.Element;
+  icon: ReactNode;
 }
 
 interface UpdateInfo {
@@ -20,7 +22,7 @@ interface UpdateInfo {
 const NAV_ITEMS: NavItem[] = [
   {
     id: "general",
-    label: "General",
+    label: "通用",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3" />
@@ -30,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "appearance",
-    label: "Appearance",
+    label: "外观",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="5" />
@@ -40,7 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "keybindings",
-    label: "Keybindings",
+    label: "快捷键",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="2" y="4" width="20" height="16" rx="2" />
@@ -50,7 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "ai",
-    label: "AI Models",
+    label: "AI 模型",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
@@ -60,7 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "security",
-    label: "Security",
+    label: "安全",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -69,7 +71,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "terminal",
-    label: "Terminal",
+    label: "终端",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M4 17l6-6-6-6" />
@@ -79,7 +81,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "data",
-    label: "Data & Backup",
+    label: "数据与备份",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -121,10 +123,11 @@ function SettingSelect({
 }
 
 export function SettingsPanel() {
+  const { t } = useI18n();
   const [activeSection, setActiveSection] = useState<Section>("general");
 
-  // General settings state
-  const [language, setLanguage] = useState("中文");
+  const locale = useSettingsStore((s) => s.locale);
+  const setLocale = useSettingsStore((s) => s.setLocale);
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
   const [restoreSession, setRestoreSession] = useState(true);
   const [checkUpdates, setCheckUpdates] = useState(true);
@@ -132,22 +135,21 @@ export function SettingsPanel() {
 
   // Appearance settings state
   const { theme, setTheme } = useThemeStore();
-  const [uiDensity, setUiDensity] = useState("Standard");
-  const [sidebarPos, setSidebarPos] = useState("Left");
+  const [uiDensity, setUiDensity] = useState("标准");
+  const [sidebarPos, setSidebarPos] = useState("左侧");
 
   // AI settings — connected to aiStore
   const currentProvider = useAiStore((s) => s.currentProvider);
-  const currentModel = useAiStore((s) => s.currentModel);
   const setCurrentProvider = useAiStore((s) => s.setCurrentProvider);
   const [streamResponses, setStreamResponses] = useState(true);
   const [preferLocal, setPreferLocal] = useState(true);
 
   // Security settings state
-  const [credentialStorage, setCredentialStorage] = useState("System Keychain");
+  const [credentialStorage, setCredentialStorage] = useState("系统钥匙串");
   const [prodConfirm, setProdConfirm] = useState(true);
   const [dangerDetection, setDangerDetection] = useState(true);
   const [aiApproval, setAiApproval] = useState(true);
-  const [dataSentToAi, setDataSentToAi] = useState("Minimal (sanitized)");
+  const [dataSentToAi, setDataSentToAi] = useState("最小化（已脱敏）");
   const [auditLog, setAuditLog] = useState(true);
   const [sensitiveMask, setSensitiveMask] = useState(true);
 
@@ -215,44 +217,54 @@ export function SettingsPanel() {
         {activeSection === "general" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>General</h2>
-              <p className="section-desc">Application behavior and startup settings</p>
+              <h2>通用</h2>
+              <p className="section-desc">应用行为、启动和会话恢复设置</p>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Language</h4>
-                  <p>Interface display language</p>
+                  <h4>{t("settings.language.label")}</h4>
+                  <p>{t("settings.language.desc")}</p>
                 </div>
-                <SettingSelect value={language} onChange={setLanguage} options={["English", "中文", "日本語"]} />
+                <select
+                  className="setting-select"
+                  value={locale}
+                  onChange={(e) => setLocale(e.target.value as Locale)}
+                >
+                  {LOCALE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {t(opt.labelKey)}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Launch on startup</h4>
-                  <p>Start OmniPanel when your computer starts</p>
+                  <h4>开机启动</h4>
+                  <p>系统启动后自动打开 OmniPanel</p>
                 </div>
                 <Toggle value={launchOnStartup} onChange={setLaunchOnStartup} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Restore last session</h4>
-                  <p>Reopen tabs, layouts and connections from last session</p>
+                  <h4>恢复上次会话</h4>
+                  <p>重新打开上次的标签、布局和连接</p>
                 </div>
                 <Toggle value={restoreSession} onChange={setRestoreSession} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Check for updates</h4>
-                  <p>Automatically check for new versions</p>
+                  <h4>检查更新</h4>
+                  <p>自动检查新版本</p>
                 </div>
                 <Toggle value={checkUpdates} onChange={setCheckUpdates} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Software Update</h4>
+                  <h4>软件更新</h4>
                   <p>
-                    Current version: v0.1.0
+                    当前版本：v0.1.0
                     {updateInfo?.available && (
                       <span style={{ color: "var(--accent)", marginLeft: "var(--sp-2)" }}>
-                        New version available: v{updateInfo.version}
+                        发现新版本：v{updateInfo.version}
                       </span>
                     )}
                   </p>
@@ -263,7 +275,7 @@ export function SettingsPanel() {
                     onClick={checkUpdate}
                     disabled={checking}
                   >
-                    {checking ? "Checking..." : "Check for Updates"}
+                    {checking ? "检查中..." : "检查更新"}
                   </button>
                   {updateInfo?.available && (
                     <button
@@ -271,15 +283,15 @@ export function SettingsPanel() {
                       onClick={installUpdate}
                       disabled={updating}
                     >
-                      {updating ? "Updating..." : "Update Now"}
+                      {updating ? "更新中..." : "立即更新"}
                     </button>
                   )}
                 </div>
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Telemetry</h4>
-                  <p>Send anonymous usage data (no personal data collected)</p>
+                  <h4>遥测</h4>
+                  <p>发送匿名使用数据，不收集个人信息</p>
                 </div>
                 <Toggle value={telemetry} onChange={setTelemetry} />
               </div>
@@ -291,27 +303,27 @@ export function SettingsPanel() {
         {activeSection === "appearance" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>Appearance</h2>
-              <p className="section-desc">Theme, font, and density settings</p>
+              <h2>外观</h2>
+              <p className="section-desc">主题、字体和界面密度设置</p>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Theme</h4>
-                  <p>Application color scheme</p>
+                  <h4>主题</h4>
+                  <p>应用配色方案</p>
                 </div>
                 <select
                   className="setting-select"
                   value={theme}
                   onChange={(e) => setTheme(e.target.value as "system" | "light" | "dark")}
                 >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
+                  <option value="system">跟随系统</option>
+                  <option value="light">浅色</option>
+                  <option value="dark">深色</option>
                 </select>
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Accent Color</h4>
-                  <p>Primary accent color for highlights and actions</p>
+                  <h4>强调色</h4>
+                  <p>用于高亮和主要操作的颜色</p>
                 </div>
                 <div style={{ display: "flex", gap: "var(--sp-2)" }}>
                   {["var(--accent)", "#30d158", "#ff9f0a", "#ff3b30", "#bf5af2"].map((color) => (
@@ -331,17 +343,17 @@ export function SettingsPanel() {
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>UI Density</h4>
-                  <p>Controls spacing and element size</p>
+                  <h4>界面密度</h4>
+                  <p>控制间距和元素尺寸</p>
                 </div>
-                <SettingSelect value={uiDensity} onChange={setUiDensity} options={["Compact", "Standard", "Comfortable"]} />
+                <SettingSelect value={uiDensity} onChange={setUiDensity} options={["紧凑", "标准", "舒适"]} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Sidebar position</h4>
-                  <p>Left or right side of the window</p>
+                  <h4>侧栏位置</h4>
+                  <p>显示在窗口左侧或右侧</p>
                 </div>
-                <SettingSelect value={sidebarPos} onChange={setSidebarPos} options={["Left", "Right"]} />
+                <SettingSelect value={sidebarPos} onChange={setSidebarPos} options={["左侧", "右侧"]} />
               </div>
             </div>
           </div>
@@ -351,20 +363,20 @@ export function SettingsPanel() {
         {activeSection === "keybindings" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>Keybindings</h2>
-              <p className="section-desc">Keyboard shortcuts for all major actions</p>
+              <h2>快捷键</h2>
+              <p className="section-desc">主要操作的键盘快捷方式</p>
               {[
-                ["New Terminal Tab", "Ctrl", "T"],
-                ["Close Tab", "Ctrl", "W"],
-                ["Switch Tab", "Ctrl", "Tab"],
-                ["Command Palette", "Ctrl", "K"],
-                ["Toggle AI Panel", "Ctrl", "L"],
-                ["Vertical Split", "Ctrl", "\\"],
-                ["Horizontal Split", "Ctrl", "Shift", "\\"],
-                ["Search in Terminal", "Ctrl", "F"],
-                ["New SSH Connection", "Ctrl", "N"],
-                ["Settings", "Ctrl", ","],
-                ["Toggle Tab N", "Ctrl", "1-9"],
+                ["新建终端标签", "Ctrl", "T"],
+                ["关闭标签", "Ctrl", "W"],
+                ["切换标签", "Ctrl", "Tab"],
+                ["命令面板", "Ctrl", "K"],
+                ["切换 AI 面板", "Ctrl", "L"],
+                ["垂直分屏", "Ctrl", "\\"],
+                ["水平分屏", "Ctrl", "Shift", "\\"],
+                ["搜索终端", "Ctrl", "F"],
+                ["新建 SSH 连接", "Ctrl", "N"],
+                ["设置", "Ctrl", ","],
+                ["切换到第 N 个标签", "Ctrl", "1-9"],
               ].map(([label, ...keys]) => (
                 <div key={label} className="setting-row">
                   <div className="setting-label">
@@ -388,11 +400,11 @@ export function SettingsPanel() {
         {activeSection === "ai" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>AI Models</h2>
-              <p className="section-desc">Configure AI providers and model preferences</p>
+              <h2>AI 模型</h2>
+              <p className="section-desc">配置 AI 提供商和模型偏好</p>
 
               <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: "var(--sp-3)" }}>
-                Cloud API Providers
+                云端 API 提供商
               </h3>
               {[
                 { id: "anthropic", icon: "C", name: "Claude API", desc: "Anthropic Claude · claude-sonnet-4-6", color: "var(--accent-soft)", textColor: "var(--accent)", provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -408,19 +420,19 @@ export function SettingsPanel() {
                     <div className="provider-desc">{p.desc}</div>
                   </div>
                   <span className={`badge ${currentProvider === p.provider ? "badge-success" : "badge-muted"}`}>
-                    {currentProvider === p.provider ? "Active" : "Inactive"}
+                    {currentProvider === p.provider ? "使用中" : "未启用"}
                   </span>
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => setCurrentProvider(p.provider, p.model)}
                   >
-                    {currentProvider === p.provider ? "Selected" : "Select"}
+                    {currentProvider === p.provider ? "已选择" : "选择"}
                   </button>
                 </div>
               ))}
 
               <h3 style={{ fontSize: 13, fontWeight: 600, margin: "var(--sp-4) 0 var(--sp-3)" }}>
-                Local Models
+                本地模型
               </h3>
               <div className="provider-card">
                 <div className="provider-icon" style={{ background: "var(--surface)", color: "var(--fg-2)" }}>O</div>
@@ -428,26 +440,26 @@ export function SettingsPanel() {
                   <div className="provider-name">Ollama</div>
                   <div className="provider-desc">localhost:11434 · codellama:34b</div>
                 </div>
-                <span className="badge badge-success">Connected</span>
+                <span className="badge badge-success">已连接</span>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => setCurrentProvider("ollama", "codellama:34b")}
                 >
-                  {currentProvider === "ollama" ? "Selected" : "Select"}
+                  {currentProvider === "ollama" ? "已选择" : "选择"}
                 </button>
               </div>
 
               <div className="setting-row" style={{ marginTop: "var(--sp-4)" }}>
                 <div className="setting-label">
-                  <h4>Stream responses</h4>
-                  <p>Show AI responses as they are generated</p>
+                  <h4>流式响应</h4>
+                  <p>生成过程中实时显示 AI 回复</p>
                 </div>
                 <Toggle value={streamResponses} onChange={setStreamResponses} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Prefer local models for sensitive data</h4>
-                  <p>Automatically use local models when connected to production</p>
+                  <h4>敏感数据优先本地模型</h4>
+                  <p>连接生产环境时优先使用本地模型</p>
                 </div>
                 <Toggle value={preferLocal} onChange={setPreferLocal} />
               </div>
@@ -459,54 +471,54 @@ export function SettingsPanel() {
         {activeSection === "security" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>Security</h2>
-              <p className="section-desc">Credential storage, AI safety, and operation policies</p>
+              <h2>安全</h2>
+              <p className="section-desc">凭据存储、AI 安全和操作策略</p>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Credential Storage</h4>
-                  <p>Where SSH keys, DB passwords, and API keys are stored</p>
+                  <h4>凭据存储</h4>
+                  <p>SSH Key、数据库密码和 API Key 的存储位置</p>
                 </div>
-                <SettingSelect value={credentialStorage} onChange={setCredentialStorage} options={["System Keychain", "Encrypted SQLite"]} />
+                <SettingSelect value={credentialStorage} onChange={setCredentialStorage} options={["系统钥匙串", "加密 SQLite"]} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Production environment confirmation</h4>
-                  <p>Require confirmation before executing commands on prod servers</p>
+                  <h4>生产环境确认</h4>
+                  <p>在生产服务器执行操作前必须确认</p>
                 </div>
                 <Toggle value={prodConfirm} onChange={setProdConfirm} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Dangerous command detection</h4>
-                  <p>Warn before executing rm -rf, DROP TABLE, docker rm, etc.</p>
+                  <h4>危险命令检测</h4>
+                  <p>执行 rm -rf、DROP TABLE、docker rm 等操作前发出警告</p>
                 </div>
                 <Toggle value={dangerDetection} onChange={setDangerDetection} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>AI operation approval</h4>
-                  <p>Require user confirmation before AI executes any write operation</p>
+                  <h4>AI 操作审批</h4>
+                  <p>AI 执行任何写操作前必须由用户确认</p>
                 </div>
                 <Toggle value={aiApproval} onChange={setAiApproval} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Data sent to AI</h4>
-                  <p>What context is included when sending to AI providers</p>
+                  <h4>发送给 AI 的数据</h4>
+                  <p>发送给 AI 提供商时包含哪些上下文</p>
                 </div>
-                <SettingSelect value={dataSentToAi} onChange={setDataSentToAi} options={["Minimal (sanitized)", "Full context", "None"]} />
+                <SettingSelect value={dataSentToAi} onChange={setDataSentToAi} options={["最小化（已脱敏）", "完整上下文", "不发送"]} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Audit logging</h4>
-                  <p>Record all high-risk operations, AI actions, and data modifications</p>
+                  <h4>审计日志</h4>
+                  <p>记录所有高风险操作、AI 动作和数据修改</p>
                 </div>
                 <Toggle value={auditLog} onChange={setAuditLog} />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
-                  <h4>Sensitive data masking</h4>
-                  <p>Automatically mask emails, phones, tokens, and passwords in display</p>
+                  <h4>敏感数据脱敏</h4>
+                  <p>自动隐藏邮箱、手机号、Token 和密码</p>
                 </div>
                 <Toggle value={sensitiveMask} onChange={setSensitiveMask} />
               </div>
@@ -518,8 +530,8 @@ export function SettingsPanel() {
         {activeSection === "terminal" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>Terminal</h2>
-              <p className="section-desc">Terminal emulator settings</p>
+              <h2>终端</h2>
+              <p className="section-desc">终端模拟器设置</p>
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>Font Family</h4>

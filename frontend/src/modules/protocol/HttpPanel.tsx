@@ -298,7 +298,7 @@ export function HttpPanel() {
             <textarea
               className="body-editor"
               style={{ minHeight: "80px" }}
-              placeholder="// Execute before request..."
+              placeholder="// 请求前执行..."
             />
           </div>
           <div>

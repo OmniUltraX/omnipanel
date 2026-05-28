@@ -1,144 +1,229 @@
-import { DockLayout, DockPanel, DockHandle } from "../../components/dock";
+import { useMemo, useState } from "react";
+import { DockWorkspace } from "../../components/dock";
+import { HostListPanel } from "../../components/workspace/HostListPanel";
+import { workspaceResources, getResourceById } from "../../lib/resourceRegistry";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useActionStore } from "../../stores/actionStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import { useI18n } from "../../i18n";
+
+type ModuleTab = "hosts" | "tunnels" | "keys";
+type DetailTab = "overview" | "terminal" | "sftp" | "tunnels" | "monitoring";
+
+const MODULE_TABS: ModuleTab[] = ["hosts", "tunnels", "keys"];
+const DETAIL_TABS: DetailTab[] = ["overview", "terminal", "sftp", "tunnels", "monitoring"];
 
 export function SshManager() {
+  const { t } = useI18n();
+  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const activeResource = getResourceById(activeResourceId);
+  const enqueueAction = useActionStore((s) => s.enqueueAction);
+  const actions = useActionStore((s) => s.actions);
+
+  const [moduleTab, setModuleTab] = useState<ModuleTab>("hosts");
+  const [detailTab, setDetailTab] = useState<DetailTab>("overview");
+
+  const sshResources = useMemo(
+    () => workspaceResources.filter((resource) => resource.type === "ssh"),
+    []
+  );
+
+  const remoteActions = useMemo(
+    () => actions.filter((action) => ["ssh", "terminal"].includes(action.type)).slice(0, 4),
+    [actions]
+  );
+
+  const topbarTabs = useMemo(
+    () =>
+      MODULE_TABS.map((tab) => ({
+        id: tab,
+        label: t(`ssh.tabs.${tab}`),
+        active: moduleTab === tab,
+      })),
+    [moduleTab, t]
+  );
+
+  useTopbarTabs(topbarTabs, {
+    onSelect: (id) => setModuleTab(id as ModuleTab),
+  }, { mode: "segment" });
+
+  const hostDetail = moduleTab === "hosts" && (
+    <div className="ssh-detail">
+      <div className="ssh-detail-header">
+        <div>
+          <div className="host-title">{activeResource?.name ?? "prod-web-01"}</div>
+          <div className="host-addr-detail">{activeResource?.subtitle ?? "deploy@192.168.1.100:22"}</div>
+        </div>
+        <span className="badge badge-success" style={{ marginLeft: "auto" }}>Online</span>
+        <span className="badge badge-danger env-badge env-prod">{t("env.prod")}</span>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() =>
+            enqueueAction({
+              type: "ssh",
+              title: t("ssh.actions.openSession"),
+              description: t("ssh.actions.openSessionDesc"),
+              resourceId: activeResource?.id ?? "prod-web-01",
+              source: "用户",
+            })
+          }
+        >
+          {t("ssh.connect")}
+        </button>
+      </div>
+
+      <div className="ssh-detail-tabs">
+        {DETAIL_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={`ssh-detail-tab${detailTab === tab ? " active" : ""}`}
+            onClick={() => setDetailTab(tab)}
+          >
+            {t(`ssh.detailTabs.${tab}`)}
+          </button>
+        ))}
+      </div>
+
+      <div className="ssh-detail-body">
+        {detailTab === "overview" && (
+          <>
+            <div className="quick-stats">
+              <div className="quick-stat">
+                <span className="stat-label">{t("ssh.overview.auth")}</span>
+                <span className="stat-value">{t("ssh.overview.authValue")}</span>
+              </div>
+              <div className="quick-stat">
+                <span className="stat-label">{t("ssh.overview.lastConnect")}</span>
+                <span className="stat-value">{t("ssh.overview.lastConnectValue")}</span>
+              </div>
+              <div className="quick-stat">
+                <span className="stat-label">{t("ssh.overview.policy")}</span>
+                <span className="stat-value" style={{ fontSize: 14 }}>{t("ssh.overview.policyValue")}</span>
+              </div>
+              <div className="quick-stat">
+                <span className="stat-label">{t("ssh.overview.context")}</span>
+                <span className="stat-value" style={{ fontSize: 14 }}>{t("ssh.overview.contextValue")}</span>
+              </div>
+            </div>
+
+            <section className="panel">
+              <div className="panel-header">
+                <h3>{t("ssh.capabilities.title")}</h3>
+              </div>
+              <div className="panel-body action-list">
+                <button type="button" className="action-row">
+                  <span className="action-title">{t("ssh.capabilities.terminal")}</span>
+                  <span className="action-meta">{t("ssh.capabilities.terminalDesc")}</span>
+                </button>
+                <button type="button" className="action-row">
+                  <span className="action-title">{t("ssh.capabilities.sftp")}</span>
+                  <span className="action-meta">{t("ssh.capabilities.sftpDesc")}</span>
+                </button>
+                <button type="button" className="action-row">
+                  <span className="action-title">{t("ssh.capabilities.tunnel")}</span>
+                  <span className="action-meta">{t("ssh.capabilities.tunnelDesc")}</span>
+                </button>
+              </div>
+            </section>
+          </>
+        )}
+        {detailTab !== "overview" && (
+          <div className="empty-state">
+            <span>{t(`ssh.detailTabs.${detailTab}`)}</span>
+            <span className="text-muted">{t("ssh.overview.contextValue")}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const tunnelsView = moduleTab === "tunnels" && (
+    <div className="ssh-detail">
+      <div className="panel">
+        <div className="panel-header"><h3>{t("ssh.tabs.tunnels")}</h3></div>
+        <div className="panel-body">
+          <div className="feed-row">
+            <span>localhost:5432 → prod-db-master:5432</span>
+            <span className="badge badge-success">Active</span>
+          </div>
+          <div className="feed-row">
+            <span>localhost:6379 → redis-cache:6379</span>
+            <span className="badge badge-muted">Idle</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const keysView = moduleTab === "keys" && (
+    <div className="ssh-detail">
+      <div className="panel">
+        <div className="panel-header"><h3>{t("ssh.tabs.keys")}</h3></div>
+        <div className="panel-body action-list">
+          <div className="action-row">
+            <span className="action-title">id_ed25519</span>
+            <span className="action-meta">ED25519 · Added 2025-12-01</span>
+          </div>
+          <div className="action-row">
+            <span className="action-title">deploy_rsa</span>
+            <span className="action-meta">RSA 4096 · Added 2024-08-15</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <DockLayout>
-      <DockPanel defaultSize={20} minSize={12} maxSize={40}>
-        <div className="host-list-header" style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"var(--sp-3) var(--sp-4)", borderBottom:"1px solid var(--border)"}}>
-          <span style={{fontSize:"12px", fontWeight:600}}>SSH Hosts</span>
-          <button className="btn btn-primary btn-sm">+</button>
+    <DockWorkspace
+      leftPreset="host"
+      left={moduleTab === "hosts" ? <HostListPanel resources={sshResources} /> : undefined}
+      main={hostDetail ?? tunnelsView ?? keysView}
+      right={
+        <div className="context-panel">
+          <div className="panel-title">{t("ssh.context.title")}</div>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() =>
+              enqueueAction({
+                type: "terminal",
+                title: t("ssh.actions.restartNginx"),
+                description: t("ssh.actions.restartNginxDesc"),
+                command: "sudo systemctl restart nginx",
+                resourceId: activeResource?.id ?? "prod-web-01",
+                source: "AI",
+              })
+            }
+          >
+            {t("ssh.context.restartConfirm")}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() =>
+              enqueueAction({
+                type: "ssh",
+                title: t("ssh.actions.testConnection"),
+                description: t("ssh.actions.testConnectionDesc"),
+                resourceId: activeResource?.id ?? "prod-web-01",
+                source: "用户",
+              })
+            }
+          >
+            {t("ssh.context.testConnection")}
+          </button>
         </div>
-        <div className="host-list-search" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderBottom:"1px solid var(--border)"}}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input placeholder="Search hosts..." type="text" style={{border:"none", outline:"none", background:"transparent", color:"var(--fg)", fontSize:"12px", width:"100%"}} />
+      }
+      bottom={
+        <div className="bottom-feed">
+          <div className="panel-title">{t("ssh.feed.title")}</div>
+          {remoteActions.map((action) => (
+            <div key={action.id} className="feed-row">
+              <span>{action.title}</span>
+              <span>{action.status}</span>
+            </div>
+          ))}
         </div>
-        <div style={{flex:1, overflowY:"auto", padding:"var(--sp-2)"}}>
-          <div className="host-group-title" style={{fontSize:"10px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", color:"var(--meta)", padding:"var(--sp-2) var(--sp-2)"}}>Production</div>
-          <div className="host-item active" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer", background:"var(--accent-soft)"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>Web Server 01</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>deploy@192.168.1.100</div>
-            </div>
-          </div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>Web Server 02</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>deploy@192.168.1.101</div>
-            </div>
-          </div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>DB Primary</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>postgres@192.168.1.200</div>
-            </div>
-          </div>
-          <div className="host-group-title" style={{fontSize:"10px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", color:"var(--meta)", padding:"var(--sp-2) var(--sp-2)"}}>Staging</div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>Staging Server</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>deploy@10.0.1.50</div>
-            </div>
-          </div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot warning" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--warn)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>Staging DB</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>postgres@10.0.1.51</div>
-            </div>
-          </div>
-          <div className="host-group-title" style={{fontSize:"10px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", color:"var(--meta)", padding:"var(--sp-2) var(--sp-2)"}}>Development</div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>Dev Machine</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>dev@172.16.0.10</div>
-            </div>
-          </div>
-          <div className="host-item" style={{display:"flex", alignItems:"center", gap:"var(--sp-2)", padding:"var(--sp-2) var(--sp-3)", borderRadius:"var(--r-sm)", cursor:"pointer"}}>
-            <span className="status-dot offline" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--meta)", flexShrink:0}}></span>
-            <div>
-              <div className="host-name" style={{fontSize:"12px", fontWeight:500}}>CI Runner</div>
-              <div className="host-addr" style={{fontSize:"10px", color:"var(--meta)"}}>ci@172.16.0.20</div>
-            </div>
-          </div>
-        </div>
-      </DockPanel>
-      <DockHandle />
-      <DockPanel>
-        <div className="ssh-detail-header" style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"var(--sp-3) var(--sp-4)", borderBottom:"1px solid var(--border)"}}>
-          <div style={{display: "flex", alignItems: "center", gap: "var(--sp-3)"}}>
-            <span className="status-dot online" style={{width:"8px", height:"8px", borderRadius:"50%", background:"var(--success)", flexShrink:0}}></span>
-            <div>
-              <h2 style={{fontSize: "14px", fontWeight: 600}}>Web Server 01</h2>
-              <span style={{fontSize: "11px", color: "var(--muted)", fontFamily: "var(--font-mono)"}}>deploy@192.168.1.100:22</span>
-            </div>
-            <span className="badge badge-danger">prod</span>
-          </div>
-          <div style={{display: "flex", gap: "var(--sp-2)"}}>
-            <button className="btn btn-ghost btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Connect</button>
-          </div>
-        </div>
-
-        <div className="ssh-detail-tabs" style={{display:"flex", borderBottom:"1px solid var(--border)", padding:"0 var(--sp-3)", flexShrink:0}}>
-          <div className="ssh-detail-tab active" style={{padding:"var(--sp-2) var(--sp-3)", fontSize:"11px", cursor:"pointer", borderBottom:"2px solid var(--accent)", color:"var(--fg)", fontWeight:500}}>Overview</div>
-          <div className="ssh-detail-tab" style={{padding:"var(--sp-2) var(--sp-3)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>Terminal</div>
-          <div className="ssh-detail-tab" style={{padding:"var(--sp-2) var(--sp-3)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>SFTP</div>
-          <div className="ssh-detail-tab" style={{padding:"var(--sp-2) var(--sp-3)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>Tunnels</div>
-          <div className="ssh-detail-tab" style={{padding:"var(--sp-2) var(--sp-3)", fontSize:"11px", cursor:"pointer", color:"var(--meta)"}}>Monitoring</div>
-        </div>
-
-        <div className="ssh-detail-body" style={{flex:1, overflowY:"auto", padding:"var(--sp-4)", display:"flex", flexDirection:"column", gap:"var(--sp-4)"}}>
-          <div className="quick-stats" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:"var(--sp-3)"}}>
-            <div className="stat" style={{background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"var(--sp-2) var(--sp-3)"}}><span className="stat-label" style={{display:"block", fontSize:"10px", color:"var(--meta)", marginBottom:"2px"}}>Status</span><span className="stat-value" style={{fontSize:"13px", fontWeight:600, color: "var(--success)"}}>Online</span></div>
-            <div className="stat" style={{background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"var(--sp-2) var(--sp-3)"}}><span className="stat-label" style={{display:"block", fontSize:"10px", color:"var(--meta)", marginBottom:"2px"}}>Last Connected</span><span className="stat-value" style={{fontSize:"13px", fontWeight:600}}>2 min ago</span></div>
-            <div className="stat" style={{background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"var(--sp-2) var(--sp-3)"}}><span className="stat-label" style={{display:"block", fontSize:"10px", color:"var(--meta)", marginBottom:"2px"}}>Key Type</span><span className="stat-value" style={{fontSize:"13px", fontWeight:600, fontFamily: "var(--font-mono)"}}>ED25519</span></div>
-            <div className="stat" style={{background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", padding:"var(--sp-2) var(--sp-3)"}}><span className="stat-label" style={{display:"block", fontSize:"10px", color:"var(--meta)", marginBottom:"2px"}}>Fingerprint</span><span className="stat-value" style={{fontSize:"13px", fontWeight:600, fontFamily: "var(--font-mono)"}}>SHA256:xR3m9...</span></div>
-          </div>
-
-          <div className="form-grid" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"var(--sp-3)", maxWidth:"640px"}}>
-            <div className="form-field"><label style={{display:"block", fontSize:"11px", color:"var(--meta)", marginBottom:"4px"}}>Host</label><input type="text" value="192.168.1.100" readOnly style={{width:"100%", padding:"6px 10px", background:"var(--bg-deeper)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", color:"var(--fg)", fontSize:"12px"}} /></div>
-            <div className="form-field"><label style={{display:"block", fontSize:"11px", color:"var(--meta)", marginBottom:"4px"}}>Port</label><input type="text" value="22" readOnly style={{width:"100%", padding:"6px 10px", background:"var(--bg-deeper)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", color:"var(--fg)", fontSize:"12px"}} /></div>
-            <div className="form-field"><label style={{display:"block", fontSize:"11px", color:"var(--meta)", marginBottom:"4px"}}>Username</label><input type="text" value="deploy" readOnly style={{width:"100%", padding:"6px 10px", background:"var(--bg-deeper)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", color:"var(--fg)", fontSize:"12px"}} /></div>
-            <div className="form-field"><label style={{display:"block", fontSize:"11px", color:"var(--meta)", marginBottom:"4px"}}>Auth Method</label><input type="text" value="SSH Key" readOnly style={{width:"100%", padding:"6px 10px", background:"var(--bg-deeper)", border:"1px solid var(--border)", borderRadius:"var(--r-sm)", color:"var(--fg)", fontSize:"12px"}} /></div>
-          </div>
-
-          <div className="conn-actions" style={{display:"flex", gap:"var(--sp-2)"}}>
-            <button className="btn btn-primary">Open Terminal</button>
-            <button className="btn btn-ghost">SFTP Browser</button>
-            <button className="btn btn-ghost">Setup Tunnel</button>
-            <button className="btn btn-ghost">Test Connection</button>
-          </div>
-
-          <div>
-            <h3 style={{fontSize: "13px", fontWeight: 600, marginBottom: "var(--sp-3)"}}>Recent Activity</h3>
-            <div className="table-wrap" style={{overflowX:"auto"}}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>Host</th>
-                    <th>User</th>
-                    <th>Duration</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td>10:32</td><td>Connected</td><td>Web Server 01</td><td>deploy</td><td>45 min</td></tr>
-                  <tr><td>09:15</td><td>File upload</td><td>Staging Server</td><td>deploy</td><td>{"—"}</td></tr>
-                  <tr><td>08:45</td><td>Disconnected</td><td>Dev Machine</td><td>dev</td><td>2h 15m</td></tr>
-                  <tr><td>Yesterday</td><td>Key rotated</td><td>DB Primary</td><td>postgres</td><td>{"—"}</td></tr>
-                  <tr><td>Yesterday</td><td>Connected</td><td>CI Runner</td><td>ci</td><td>5h 30m</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </DockPanel>
-    </DockLayout>
+      }
+    />
   );
 }

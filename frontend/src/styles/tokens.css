@@ -32,7 +32,9 @@
   --danger-soft: rgba(255, 59, 48, 0.12);
 
   /* Typography */
-  --font: "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "Berkeley Mono", "IBM Plex Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  --font: var(--font-ui);
 
   /* Spacing */
   --sp-1: 4px;
@@ -55,6 +57,20 @@
 
   /* Topbar */
   --topbar-h: 44px;
+
+  /* Workbench layout (design/database.html, ssh.html, server.html) */
+  --resource-rail-w: 260px;
+  --resource-rail-min-w: 220px;
+  --schema-panel-w: 240px;
+  --host-list-w: 280px;
+  --server-sidebar-w: 220px;
+  --context-panel-w: 340px;
+  --result-panel-min-h: 180px;
+  --rail-w: var(--resource-rail-w);
+  --right-context-w: var(--context-panel-w);
+  --bottom-feed-h: 220px;
+  --anim-fast: 120ms;
+  --anim-normal: 200ms;
 }
 
 /* Light theme */
