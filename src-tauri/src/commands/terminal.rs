@@ -1,13 +1,17 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use tauri::{Emitter, State};
 
+use crate::output_buffer;
 use crate::state::AppState;
 use omnipanel_core::terminal::{Terminal, TerminalConfig};
 
 static TERMINAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
+#[specta::specta]
 pub async fn create_terminal(
     state: State<'_, AppState>,
     cols: u16,
@@ -20,8 +24,8 @@ pub async fn create_terminal(
         rows,
         ..Default::default()
     };
-    let mut session = Terminal::new(config)
-        .map_err(|e| format!("Failed to spawn terminal: {e}"))?;
+    let mut session =
+        Terminal::new(config).map_err(|e| format!("Failed to spawn terminal: {e}"))?;
 
     // Take the reader and spawn a background thread to forward output via events.
     // Events survive React remounts unlike Tauri Channels.
@@ -31,6 +35,7 @@ pub async fn create_terminal(
 
     let session_id = id.clone();
     let app_handle = state.app_handle.clone();
+    let buffers = state.output_buffers.clone();
 
     std::thread::spawn(move || {
         use std::io::Read;
@@ -40,12 +45,14 @@ pub async fn create_terminal(
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
+                    let chunk = &buf[..n];
+                    output_buffer::append(&buffers, &session_id, chunk);
                     if app_handle
                         .emit(
                             "terminal-output",
                             serde_json::json!({
                                 "session_id": session_id,
-                                "data": &buf[..n],
+                                "data": STANDARD.encode(chunk),
                             }),
                         )
                         .is_err()
@@ -74,6 +81,7 @@ pub async fn create_terminal(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn write_terminal(
     state: State<'_, AppState>,
     id: String,
@@ -90,6 +98,7 @@ pub async fn write_terminal(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn resize_terminal(
     state: State<'_, AppState>,
     id: String,
@@ -107,15 +116,23 @@ pub async fn resize_terminal(
 }
 
 #[tauri::command]
-pub async fn close_terminal(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+#[specta::specta]
+pub async fn close_terminal(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut sessions = state.terminal_sessions.lock().await;
     if let Some(mut session) = sessions.remove(&id) {
         session
             .kill()
             .map_err(|e| format!("Failed to kill terminal: {e}"))?;
     }
+    output_buffer::remove(&state.output_buffers, &id);
     Ok(())
+}
+
+/// 返回会话当前 scrollback 快照（base64）。前端重连/remount 时用于重建屏幕，
+/// 对本地终端与远程 SSH 会话通用（按 backend session id 索引）。
+#[tauri::command]
+#[specta::specta]
+pub async fn terminal_snapshot(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    let bytes = output_buffer::snapshot(&state.output_buffers, &id).unwrap_or_default();
+    Ok(STANDARD.encode(bytes))
 }

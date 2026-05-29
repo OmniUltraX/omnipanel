@@ -2,7 +2,7 @@ pub mod client;
 pub mod translate;
 pub mod types;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
@@ -74,10 +74,7 @@ impl AcpProvider {
         };
 
         let result = client
-            .request(
-                "initialize",
-                Some(serde_json::to_value(&init_params)?),
-            )
+            .request("initialize", Some(serde_json::to_value(&init_params)?))
             .await?;
 
         let init_result: InitializeResult = serde_json::from_value(result)?;
@@ -102,17 +99,17 @@ impl AcpProvider {
         }
 
         // Authenticate if needed
-        if let Some(auth_methods) = init_result.auth_methods {
-            if !auth_methods.is_empty() {
-                let _ = client
-                    .request(
-                        "authenticate",
-                        Some(serde_json::to_value(&AuthenticateParams {
-                            method_id: auth_methods[0].id.clone(),
-                        })?),
-                    )
-                    .await;
-            }
+        if let Some(auth_methods) = init_result.auth_methods
+            && !auth_methods.is_empty()
+        {
+            let _ = client
+                .request(
+                    "authenticate",
+                    Some(serde_json::to_value(&AuthenticateParams {
+                        method_id: auth_methods[0].id.clone(),
+                    })?),
+                )
+                .await;
         }
 
         // Install notification handler for session/update
@@ -248,14 +245,13 @@ impl AiProvider for AcpProvider {
             let client = self.client.lock().await;
             client
                 .set_notification_handler(Arc::new(move |method, params| {
-                    if method == "session/update" {
-                        if let Ok(update) =
+                    if method == "session/update"
+                        && let Ok(update) =
                             serde_json::from_value::<SessionUpdateParams>(params.clone())
-                        {
-                            let events = translate_session_update(&update.session_update);
-                            for event in events {
-                                let _ = event_tx.blocking_send(Ok(event));
-                            }
+                    {
+                        let events = translate_session_update(&update.session_update);
+                        for event in events {
+                            let _ = event_tx.blocking_send(Ok(event));
                         }
                     }
                 }))
@@ -312,9 +308,7 @@ impl AiProvider for AcpProvider {
             match result {
                 Ok(val) => {
                     let prompt_result: PromptResult =
-                        serde_json::from_value(val).unwrap_or(PromptResult {
-                            stop_reason: None,
-                        });
+                        serde_json::from_value(val).unwrap_or(PromptResult { stop_reason: None });
                     let stop = match prompt_result.stop_reason.as_deref() {
                         Some("tool_use") => StopReason::ToolUse,
                         Some("max_tokens") => StopReason::MaxTokens,

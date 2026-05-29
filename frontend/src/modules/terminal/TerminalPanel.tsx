@@ -190,7 +190,7 @@ function seedMockTerminal(term: Terminal, resource: WorkspaceResource | null, st
   [
     `\x1b[90mWorkspace attached: ${resource?.name ?? "omnipanel"}\x1b[0m`,
     ...startup.map((line) => `\x1b[36m${line}\x1b[0m`),
-    `\x1b[32m${prompt}\x1b[0m docker ps --format \"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\"`,
+    `\x1b[32m${prompt}\x1b[0m docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"`,
     "NAMES            STATUS       PORTS",
     "nginx-proxy      Up 3 days    0.0.0.0:443->443/tcp",
     "app-backend      Up 3 days    0.0.0.0:8080->8080/tcp",
@@ -1091,7 +1091,7 @@ export function TerminalPanel() {
   const handleModuleNavigate = useCallback(
     (path: string, resourceId?: string) => {
       if (resourceId) {
-        selectResource(resourceId);
+        selectResource(resourceId, path);
       }
       setActivePath(path);
       navigate(path);

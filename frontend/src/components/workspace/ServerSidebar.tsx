@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   type EnvironmentTag,
   type WorkspaceResource,
 } from "../../lib/resourceRegistry";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+
+const SERVER_PATH = "/server";
 
 interface ServerSidebarProps {
   resources: WorkspaceResource[];
@@ -19,10 +20,9 @@ function statusDotClass(status: WorkspaceResource["status"]) {
 
 export function ServerSidebar({ resources }: ServerSidebarProps) {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const selectedResourceByPath = useWorkspaceStore((s) => s.selectedResourceByPath);
   const selectResource = useWorkspaceStore((s) => s.selectResource);
-  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
+  const activeServerId = selectedResourceByPath[SERVER_PATH];
 
   const grouped = useMemo(() => {
     const order: EnvironmentTag[] = ["prod", "staging", "dev", "local", "unknown"];
@@ -36,9 +36,7 @@ export function ServerSidebar({ resources }: ServerSidebarProps) {
   }, [resources, t]);
 
   const selectServer = (resource: WorkspaceResource) => {
-    selectResource(resource.id);
-    setActivePath(resource.modulePath);
-    navigate(resource.modulePath);
+    selectResource(resource.id, SERVER_PATH);
   };
 
   return (
@@ -57,7 +55,7 @@ export function ServerSidebar({ resources }: ServerSidebarProps) {
               <button
                 key={server.id}
                 type="button"
-                className={`server-item${activeResourceId === server.id ? " active" : ""}`}
+                className={`server-item${activeServerId === server.id ? " active" : ""}`}
                 onClick={() => selectServer(server)}
               >
                 <span className={`status-dot ${statusDotClass(server.status)}`} />

@@ -63,11 +63,11 @@ pub async fn serial_open(
         }
     });
 
-    state
-        .serial_sessions
-        .lock()
-        .await
-        .insert(id.clone(), serial::SerialSession::open(&config).map_err(|e| format!("Re-open for storage failed: {e}"))?);
+    state.serial_sessions.lock().await.insert(
+        id.clone(),
+        serial::SerialSession::open(&config)
+            .map_err(|e| format!("Re-open for storage failed: {e}"))?,
+    );
 
     tracing::info!("Opened serial port {id} on {}", config.port_name);
     Ok(id)

@@ -88,7 +88,10 @@ pub async fn execute_request(config: HttpRequestConfig) -> Result<HttpResponse, 
     }
 
     let start = std::time::Instant::now();
-    let resp = req.send().await.map_err(|e| format!("HTTP request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
     let elapsed = start.elapsed().as_millis() as u64;
 
     let status = resp.status().as_u16();

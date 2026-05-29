@@ -1,5 +1,8 @@
 pub mod ai;
+pub mod connection;
 pub mod database;
+pub mod exec;
 pub mod protocol;
+pub mod ssh;
 pub mod terminal;
 pub mod updater;

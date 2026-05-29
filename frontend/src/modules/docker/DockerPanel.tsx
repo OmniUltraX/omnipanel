@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
-import { workspaceResources, getResourceById } from "../../lib/resourceRegistry";
+import { useEffect, useMemo, useState } from "react";
+import { useWorkspaceResources } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
 
 type Filter = "all" | "running" | "stopped";
+
+const DOCKER_PATH = "/docker";
 
 type ContainerItem = {
   name: string;
@@ -154,12 +156,28 @@ export function DockerPanel() {
   const { t } = useI18n();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const allResources = useWorkspaceResources();
+  const getResourceForPath = useWorkspaceStore((s) => s.getResourceForPath);
   const selectResource = useWorkspaceStore((s) => s.selectResource);
-  const activeResource = getResourceById(activeResourceId) ?? workspaceResources.find((resource) => resource.type === "docker") ?? null;
+  const activeResource = getResourceForPath(DOCKER_PATH);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
 
-  const dockerResources = useMemo(() => workspaceResources.filter((resource) => resource.type === "docker"), []);
+  const dockerResources = useMemo(
+    () => allResources.filter((resource) => resource.type === "docker"),
+    [allResources]
+  );
+
+  useEffect(() => {
+    if (!useWorkspaceStore.getState().selectedResourceByPath[DOCKER_PATH] && dockerResources[0]) {
+      selectResource(dockerResources[0].id, DOCKER_PATH);
+    }
+  }, [dockerResources, selectResource]);
+
+  const [drawerContainerName, setDrawerContainerName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDrawerContainerName(null);
+  }, [activeResource?.id]);
   const topbarTabs = useMemo(
     () =>
       dockerResources.map((resource) => ({
@@ -170,7 +188,11 @@ export function DockerPanel() {
     [activeResource?.id, dockerResources]
   );
 
-  useTopbarTabs(topbarTabs, { onSelect: (id) => selectResource(id) }, { mode: "connection", showAddTab: true, addTabTitle: t("shell.topbar.addHost") });
+  useTopbarTabs(
+    topbarTabs,
+    { onSelect: (id) => selectResource(id, DOCKER_PATH) },
+    { mode: "connection", showAddTab: true, addTabTitle: t("shell.topbar.addHost") }
+  );
 
   const scopedContainers = useMemo(() => {
     if (!activeResource) return containers;
@@ -197,8 +219,6 @@ export function DockerPanel() {
     });
   }, [filter, query, scopedContainers]);
 
-  const selectedContainer = filteredContainers[0] ?? scopedContainers[0] ?? null;
-  const [drawerContainerName, setDrawerContainerName] = useState<string | null>(selectedContainer?.name ?? null);
   const drawerContainer = scopedContainers.find((container) => container.name === drawerContainerName) ?? null;
 
   const openDrawer = (container: ContainerItem) => setDrawerContainerName(container.name);

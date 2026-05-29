@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{ipc::Channel, State};
+use tauri::{State, ipc::Channel};
 
 use crate::state::AppState;
 use omnipanel_ai::ir::StreamEvent;
@@ -112,10 +112,7 @@ pub async fn ai_list_providers(state: State<'_, AppState>) -> Result<Vec<Provide
         .map(|name| ProviderInfo {
             id: name.to_string(),
             name: name.to_string(),
-            models: registry
-                .get(name)
-                .map(|p| p.models())
-                .unwrap_or_default(),
+            models: registry.get(name).map(|p| p.models()).unwrap_or_default(),
         })
         .collect();
     Ok(providers)
@@ -128,16 +125,10 @@ pub async fn ai_add_acp_agent(
     binary_path: String,
     name: String,
 ) -> Result<(), String> {
-    use omnipanel_ai::providers::acp::types::AcpProfile;
     use omnipanel_ai::providers::acp::AcpProvider;
+    use omnipanel_ai::providers::acp::types::AcpProfile;
 
-    let mut provider = AcpProvider::new(
-        &name,
-        &binary_path,
-        vec![],
-        AcpProfile::ClientTools,
-        None,
-    );
+    let mut provider = AcpProvider::new(&name, &binary_path, vec![], AcpProfile::ClientTools, None);
 
     provider
         .initialize()

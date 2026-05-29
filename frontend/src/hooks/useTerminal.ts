@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { useTerminalStore } from "../stores/terminalStore";
-import { getResourceById } from "../lib/resourceRegistry";
+import { useConnectionStore } from "../stores/connectionStore";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
 
 const TERMINAL_THEME: ITheme = {
@@ -47,7 +47,16 @@ function toBytes(data: string): number[] {
   return Array.from(new TextEncoder().encode(data));
 }
 
+function decodeBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
 function decodeOutput(data: unknown): Uint8Array | null {
+  // 后端统一以 base64 字符串传输（terminal-output / terminal_snapshot）。
+  if (typeof data === "string") return data.length === 0 ? new Uint8Array(0) : decodeBase64(data);
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (Array.isArray(data)) return new Uint8Array(data);
@@ -64,17 +73,45 @@ function findPaneById(sessionId: string) {
     .find((pane) => pane.id === sessionId);
 }
 
+function isRemotePane(sessionId: string): boolean {
+  return findPaneById(sessionId)?.type === "remote";
+}
+
+/** 远程 pane 走 SSH（ssh_connect），本地 pane 走本地 PTY（create_terminal）。 */
+async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
+  const pane = findPaneById(sessionId);
+  if (pane?.type === "remote") {
+    const conn = useConnectionStore.getState().connections.find((c) => c.id === pane.resourceId);
+    if (!conn) {
+      throw new Error("未找到对应的 SSH 连接配置，请先在 SSH 管理中添加连接");
+    }
+    let config: unknown;
+    try {
+      config = JSON.parse(conn.config || "{}");
+    } catch {
+      throw new Error("SSH 连接配置解析失败");
+    }
+    return invoke<string>("ssh_connect", { config, cols, rows });
+  }
+  return invoke<string>("create_terminal", { cols, rows });
+}
+
+function disposeBackendSession(sessionId: string, backendSid: string) {
+  const cmd = isRemotePane(sessionId) ? "ssh_disconnect" : "close_terminal";
+  invoke(cmd, { id: backendSid }).catch(() => {});
+}
+
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const existingSid = findPaneById(sessionId)?.backendSessionId;
   if (existingSid) return existingSid;
 
   let pending = pendingBackendSessions.get(sessionId);
   if (!pending) {
-    pending = invoke<string>("create_terminal", { cols, rows })
+    pending = createBackendSession(sessionId, cols, rows)
       .then((sid) => {
         const pane = findPaneById(sessionId);
         if (pane?.backendSessionId) {
-          invoke("close_terminal", { id: sid }).catch(() => {});
+          disposeBackendSession(sessionId, sid);
           return pane.backendSessionId;
         }
         useTerminalStore.getState().setBackendSessionId(sessionId, sid);
@@ -133,6 +170,11 @@ export function useTerminal(
     let unlistenOutput: UnlistenFn | null = null;
     let unlistenEvent: UnlistenFn | null = null;
     const disposables: IDisposable[] = [];
+    const remote = isRemotePane(sessionId);
+    const writeCmd = remote ? "ssh_write" : "write_terminal";
+    const resizeCmd = remote ? "ssh_resize" : "resize_terminal";
+    // 重连恢复期间由后端快照统一重建屏幕，期间丢弃增量事件以避免重复。
+    let restoring = false;
 
     // Shell integration state
     let pendingBlock: {
@@ -146,11 +188,11 @@ export function useTerminal(
     function flushPendingInput() {
       if (!backendSid) return;
       for (const data of pendingInput) {
-        invoke("write_terminal", {
+        invoke(writeCmd, {
           id: backendSid,
           data: toBytes(data),
         }).catch((err) => {
-          console.error(`[Terminal ${sessionId}] write_terminal failed:`, err);
+          console.error(`[Terminal ${sessionId}] ${writeCmd} failed:`, err);
         });
       }
       pendingInput = [];
@@ -161,26 +203,16 @@ export function useTerminal(
         pendingInput.push(data);
         return;
       }
-      invoke("write_terminal", {
+      invoke(writeCmd, {
         id: backendSid,
         data: toBytes(data),
       }).catch((err) => {
-        console.error(`[Terminal ${sessionId}] write_terminal failed:`, err);
+        console.error(`[Terminal ${sessionId}] ${writeCmd} failed:`, err);
       });
     }
 
     function sendCommand(cmd: string) {
       writeToBackend(`${cmd}\r`);
-    }
-
-    function writeSessionBanner() {
-      const pane = useTerminalStore
-        .getState()
-        .tabs.flatMap((tab) => tab.panes)
-        .find((item) => item.id === sessionId);
-      if (pane?.type !== "remote" || !term) return;
-      const host = getResourceById(pane.resourceId);
-      term.writeln(`\r\n\x1b[33m[SSH] ${host?.name ?? pane.resourceId} · ${host?.subtitle ?? ""}\x1b[0m\r\n`);
     }
 
     sendCommandRef.current = sendCommand;
@@ -270,6 +302,7 @@ export function useTerminal(
         "terminal-output",
         (ev) => {
           if (destroyed || ev.payload.session_id !== backendSid) return;
+          if (restoring) return;
           try {
             const bytes = decodeOutput(ev.payload.data);
             if (!bytes) return;
@@ -300,13 +333,30 @@ export function useTerminal(
       );
     }
 
+    // 复用已有后端会话（前端 remount / 切回标签）时，用后端 scrollback 快照重建屏幕。
+    async function restoreSnapshot() {
+      if (!backendSid || !term) return;
+      restoring = true;
+      try {
+        const b64 = await invoke<string>("terminal_snapshot", { id: backendSid });
+        if (destroyed || !term) return;
+        const bytes = decodeOutput(b64);
+        term.reset();
+        if (bytes && bytes.length > 0) term.write(bytes);
+      } catch (err) {
+        console.error(`[Terminal ${sessionId}] terminal_snapshot failed:`, err);
+      } finally {
+        restoring = false;
+      }
+    }
+
     async function ensureBackendSession(cols: number, rows: number) {
       const existingSid = findPaneById(sessionId)?.backendSessionId;
 
       if (existingSid) {
         backendSid = existingSid;
         useTerminalStore.getState().setStatus(sessionId, "connected");
-        writeSessionBanner();
+        void restoreSnapshot();
         flushPendingInput();
         return;
       }
@@ -317,12 +367,11 @@ export function useTerminal(
         if (destroyed) return;
         backendSid = sid;
         useTerminalStore.getState().setStatus(sessionId, "connected");
-        writeSessionBanner();
         flushPendingInput();
       } catch (err) {
         if (destroyed) return;
-        console.error(`[Terminal ${sessionId}] create_terminal failed:`, err);
-        term?.writeln(`\r\n\x1b[31mFailed to create terminal: ${err}\x1b[0m`);
+        console.error(`[Terminal ${sessionId}] backend session failed:`, err);
+        term?.writeln(`\r\n\x1b[31m${remote ? "SSH 连接失败" : "终端创建失败"}: ${err}\x1b[0m`);
         useTerminalStore.getState().setStatus(sessionId, "disconnected");
         pendingInput = [];
       }
@@ -383,7 +432,7 @@ export function useTerminal(
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             if (destroyed || !backendSid || suspendedRef.current) return;
-            invoke("resize_terminal", {
+            invoke(resizeCmd, {
               id: backendSid,
               cols: term!.cols,
               rows: term!.rows,
@@ -497,7 +546,7 @@ export function useTerminal(
           .find((item) => item.id === sessionId);
         const sid = pane?.backendSessionId;
         if (sid) {
-          invoke("close_terminal", { id: sid }).catch(() => {});
+          disposeBackendSession(sessionId, sid);
         }
         term.dispose();
       }

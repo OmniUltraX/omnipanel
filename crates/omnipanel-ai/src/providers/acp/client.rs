@@ -1,26 +1,21 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, Mutex, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::providers::acp::types::*;
 
 /// Handler callback for ACP notifications (session/update, etc.)
-pub type NotificationHandler =
-    Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync + 'static>;
+pub type NotificationHandler = Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync + 'static>;
 
 /// Handler callback for server-initiated requests (session/request_permission, etc.)
-pub type ServerRequestHandler = Arc<
-    dyn Fn(u64, &str, &serde_json::Value) -> Option<serde_json::Value>
-        + Send
-        + Sync
-        + 'static,
->;
+pub type ServerRequestHandler =
+    Arc<dyn Fn(u64, &str, &serde_json::Value) -> Option<serde_json::Value> + Send + Sync + 'static>;
 
 /// Long-lived ACP subprocess client.
 ///
@@ -84,11 +79,7 @@ impl AcpClient {
             .stderr(Stdio::piped());
 
         let mut child = cmd.spawn().map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to spawn ACP agent '{}': {}",
-                self.binary_path,
-                e
-            )
+            anyhow::anyhow!("Failed to spawn ACP agent '{}': {}", self.binary_path, e)
         })?;
 
         let stdin = child.stdin.take().expect("stdin should be piped");
@@ -137,23 +128,30 @@ impl AcpClient {
                     if let Some(id) = extract_server_request_id(&line) {
                         // Server-initiated request — needs a response
                         let handler = req_handler.lock().await;
-                        if let Some(ref h) = *handler {
-                            if let Some(result) = h(id, &notif.method, notif.params.as_ref().unwrap_or(&serde_json::Value::Null)) {
-                                let _response = JsonRpcResponse {
-                                    jsonrpc: "2.0".to_string(),
-                                    id,
-                                    result: Some(result),
-                                    error: None,
-                                };
-                                // We need to send this back via stdin, but we don't have direct access
-                                // This is handled by the caller through the server request handler
-                            }
+                        if let Some(ref h) = *handler
+                            && let Some(result) = h(
+                                id,
+                                &notif.method,
+                                notif.params.as_ref().unwrap_or(&serde_json::Value::Null),
+                            )
+                        {
+                            let _response = JsonRpcResponse {
+                                jsonrpc: "2.0".to_string(),
+                                id,
+                                result: Some(result),
+                                error: None,
+                            };
+                            // We need to send this back via stdin, but we don't have direct access
+                            // This is handled by the caller through the server request handler
                         }
                     } else {
                         // Regular notification
                         let handler = notif_handler.lock().await;
                         if let Some(ref h) = *handler {
-                            h(&notif.method, notif.params.as_ref().unwrap_or(&serde_json::Value::Null));
+                            h(
+                                &notif.method,
+                                notif.params.as_ref().unwrap_or(&serde_json::Value::Null),
+                            );
                         }
                     }
                 }
@@ -167,7 +165,11 @@ impl AcpClient {
     }
 
     /// Send a JSON-RPC request and wait for the response.
-    pub async fn request(&self, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+    pub async fn request(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -192,7 +194,9 @@ impl AcpClient {
             bail!("ACP client not started");
         }
 
-        let response = rx.await.map_err(|_| anyhow::anyhow!("Response channel dropped"))?;
+        let response = rx
+            .await
+            .map_err(|_| anyhow::anyhow!("Response channel dropped"))?;
 
         if let Some(error) = response.error {
             bail!("ACP error {}: {}", error.code, error.message);

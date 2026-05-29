@@ -101,7 +101,7 @@ export function Dashboard() {
   const actions = useActionStore((s) => s.actions);
 
   const openResource = (resource: WorkspaceResource) => {
-    selectResource(resource.id);
+    selectResource(resource.id, resource.modulePath);
     setActivePath(resource.modulePath);
     navigate(resource.modulePath);
   };

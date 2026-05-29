@@ -1,0 +1,17 @@
+[package]
+name = "omnipanel-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+serde.workspace = true
+specta.workspace = true
+tracing.workspace = true
+tokio = { workspace = true }
+russh.workspace = true
+russh-sftp.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -28,7 +28,7 @@ export function ResourceRail({ title, resources, emptyText, onResourceSelect }: 
       onResourceSelect(resource);
       return;
     }
-    selectResource(resource.id);
+    selectResource(resource.id, resource.modulePath);
     setActivePath(resource.modulePath);
     navigate(resource.modulePath);
   };

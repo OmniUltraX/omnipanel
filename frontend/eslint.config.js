@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // dist 为构建产物；bindings.ts 由 tauri-specta 自动生成，均不参与 lint
+  globalIgnores(['dist', 'src/ipc/bindings.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -17,6 +18,24 @@ export default defineConfig([
     ],
     languageOptions: {
       globals: globals.browser,
+    },
+    rules: {
+      // 终端/协议需处理 ANSI 等控制字符，正则中出现控制字符是本质需求
+      'no-control-regex': 'off',
+      // 下划线前缀表示有意忽略的变量/参数
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      // react-hooks v7 新增的实验性最佳实践规则：保留为提示，不阻断既有合理用法
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      // 组件文件附带导出常量很常见，HMR 提示降为 warning
+      'react-refresh/only-export-components': 'warn',
     },
   },
 ])

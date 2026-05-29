@@ -2,9 +2,13 @@
 resolver = "2"
 members = [
     "src-tauri",
+    "crates/omnipanel-error",
+    "crates/omnipanel-store",
+    "crates/omnipanel-exec",
+    "crates/omnipanel-ssh",
+    "crates/omnipanel-db",
     "crates/omnipanel-core",
     "crates/omnipanel-ai",
-    "crates/omnipanel-renderer",
 ]
 
 [workspace.package]
@@ -24,15 +28,19 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# GUI (kept for omnipanel-renderer, will be replaced by wgpu in Phase 2)
-egui = "0.31"
-
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "postgres", "sqlite"] }
+# SQLite 统一由 rusqlite 承担（本地库 + 用户 SQLite 连接）；sqlx 仅负责远程网络数据库
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "mysql", "postgres"] }
 
 # Error handling
 anyhow = "1"
 thiserror = "2"
+
+# Async trait（执行引擎 Executor 扩展点）
+async-trait = "0.1"
+
+# IPC type generation
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
 # Protocol Lab
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
@@ -42,6 +50,11 @@ tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 hex = "0.4"
 url = "2"
+base64 = "0.22"
 
 # Terminal
 portable-pty = "0.8"
+
+# SSH（用 ring 后端，避免 aws-lc-rs 在 Windows 需要 NASM 构建链）
+russh = { version = "0.54", default-features = false, features = ["flate2", "ring", "rsa"] }
+russh-sftp = "2"

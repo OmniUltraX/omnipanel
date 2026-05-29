@@ -1,0 +1,14 @@
+[package]
+name = "omnipanel-db"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tracing = { workspace = true }

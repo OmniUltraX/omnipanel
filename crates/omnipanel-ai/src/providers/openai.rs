@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::Stream;
 use reqwest::Client;
@@ -255,19 +255,19 @@ fn parse_sse_chunk(raw: &str) -> Option<Result<StreamEvent>> {
         match serde_json::from_str::<StreamChunk>(data) {
             Ok(chunk) => {
                 for choice in chunk.choices {
-                    if let Some(reason) = &choice.finish_reason {
-                        if reason == "tool_calls" {
-                            result = Some(Ok(StreamEvent::Done {
-                                stop_reason: StopReason::ToolUse,
-                            }));
-                        }
+                    if let Some(reason) = &choice.finish_reason
+                        && reason == "tool_calls"
+                    {
+                        result = Some(Ok(StreamEvent::Done {
+                            stop_reason: StopReason::ToolUse,
+                        }));
                     }
-                    if let Some(content) = &choice.delta.content {
-                        if !content.is_empty() {
-                            result = Some(Ok(StreamEvent::ContentDelta {
-                                text: content.clone(),
-                            }));
-                        }
+                    if let Some(content) = &choice.delta.content
+                        && !content.is_empty()
+                    {
+                        result = Some(Ok(StreamEvent::ContentDelta {
+                            text: content.clone(),
+                        }));
                     }
                     if let Some(tool_calls) = &choice.delta.tool_calls {
                         for tc in tool_calls {

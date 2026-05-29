@@ -215,14 +215,34 @@ function TreeNode({
   );
 }
 
-interface SchemaBrowserProps {
-  onCreateConnection?: () => void;
+/** 后端真实连接（轻量结构：仅连接名 + 引擎 + 表名列表）。 */
+export interface BackendConnection {
+  id: string;
+  name: string;
+  engine: string;
+  tables: string[];
 }
 
-export function SchemaBrowser({ onCreateConnection }: SchemaBrowserProps) {
+interface SchemaBrowserProps {
+  onCreateConnection?: () => void;
+  /** 传入即进入后端数据模式（替代演示数据）；空数组表示后端无连接。 */
+  connections?: BackendConnection[];
+  activeConnId?: string | null;
+  onSelectConnection?: (id: string) => void;
+  onRefresh?: () => void;
+}
+
+export function SchemaBrowser({
+  onCreateConnection,
+  connections,
+  activeConnId,
+  onSelectConnection,
+  onRefresh,
+}: SchemaBrowserProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["conn:prod-db-master"]));
+  const backendMode = connections !== undefined;
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
@@ -276,7 +296,7 @@ export function SchemaBrowser({ onCreateConnection }: SchemaBrowserProps) {
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
-        <button className="btn-icon" title={t("database.sidebar.refresh")}>
+        <button className="btn-icon" title={t("database.sidebar.refresh")} onClick={onRefresh}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
             <path d="M23 4v6h-6M1 20v-6h6" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
@@ -293,7 +313,54 @@ export function SchemaBrowser({ onCreateConnection }: SchemaBrowserProps) {
         />
       </div>
       <div className="schema-tree">
-        {filtered.map((conn) => {
+        {backendMode ? (
+          connections!.length === 0 ? (
+            <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
+              {t("database.sidebar.empty")}
+            </div>
+          ) : (
+            connections!.map((conn) => {
+              const connId = `conn:${conn.id}`;
+              const connExpanded = expanded.has(connId) || conn.id === activeConnId;
+              const q = search.trim().toLowerCase();
+              const tables = q
+                ? conn.tables.filter((tbl) => tbl.toLowerCase().includes(q))
+                : conn.tables;
+              return (
+                <div key={conn.id}>
+                  <TreeNode
+                    id={connId}
+                    label={conn.name}
+                    type="connection"
+                    depth={0}
+                    expanded={connExpanded}
+                    onToggle={() => {
+                      onSelectConnection?.(conn.id);
+                      toggle(connId);
+                    }}
+                    meta={conn.engine}
+                    hasChildren={conn.tables.length > 0}
+                    active={conn.id === activeConnId}
+                  />
+                  {connExpanded &&
+                    tables.map((tbl) => (
+                      <TreeNode
+                        key={tbl}
+                        id={`tbl:${conn.id}:${tbl}`}
+                        label={tbl}
+                        type="table"
+                        depth={1}
+                        expanded={false}
+                        onToggle={() => {}}
+                        hasChildren={false}
+                      />
+                    ))}
+                </div>
+              );
+            })
+          )
+        ) : (
+          filtered.map((conn) => {
           const connId = `conn:${conn.id}`;
           const connExpanded = expanded.has(connId);
           return (
@@ -364,7 +431,8 @@ export function SchemaBrowser({ onCreateConnection }: SchemaBrowserProps) {
                 })}
             </div>
           );
-        })}
+          })
+        )}
       </div>
     </div>
   );

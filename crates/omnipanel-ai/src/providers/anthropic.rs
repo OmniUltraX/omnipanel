@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use futures::Stream;
 use reqwest::Client;
@@ -264,12 +264,12 @@ fn parse_anthropic_sse(raw: &str) -> Option<Result<StreamEvent>> {
 
         match event_type {
             "content_block_delta" => {
-                if let Some(delta) = evt.get("delta") {
-                    if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
-                        result = Some(Ok(StreamEvent::ContentDelta {
-                            text: text.to_string(),
-                        }));
-                    }
+                if let Some(delta) = evt.get("delta")
+                    && let Some(text) = delta.get("text").and_then(|v| v.as_str())
+                {
+                    result = Some(Ok(StreamEvent::ContentDelta {
+                        text: text.to_string(),
+                    }));
                 }
             }
             "message_stop" => {
@@ -278,31 +278,29 @@ fn parse_anthropic_sse(raw: &str) -> Option<Result<StreamEvent>> {
                 }));
             }
             "message_delta" => {
-                if let Some(delta) = evt.get("delta") {
-                    if let Some(reason) = delta.get("stop_reason").and_then(|v| v.as_str()) {
-                        let stop = match reason {
-                            "tool_use" => StopReason::ToolUse,
-                            "max_tokens" => StopReason::MaxTokens,
-                            _ => StopReason::EndTurn,
-                        };
-                        result = Some(Ok(StreamEvent::Done {
-                            stop_reason: stop,
-                        }));
-                    }
+                if let Some(delta) = evt.get("delta")
+                    && let Some(reason) = delta.get("stop_reason").and_then(|v| v.as_str())
+                {
+                    let stop = match reason {
+                        "tool_use" => StopReason::ToolUse,
+                        "max_tokens" => StopReason::MaxTokens,
+                        _ => StopReason::EndTurn,
+                    };
+                    result = Some(Ok(StreamEvent::Done { stop_reason: stop }));
                 }
             }
             "message_start" => {
-                if let Some(message) = evt.get("message") {
-                    if let Some(usage) = message.get("usage") {
-                        let input = usage
-                            .get("input_tokens")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u32;
-                        result = Some(Ok(StreamEvent::Usage {
-                            input_tokens: input,
-                            output_tokens: 0,
-                        }));
-                    }
+                if let Some(message) = evt.get("message")
+                    && let Some(usage) = message.get("usage")
+                {
+                    let input = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    result = Some(Ok(StreamEvent::Usage {
+                        input_tokens: input,
+                        output_tokens: 0,
+                    }));
                 }
             }
             _ => {}

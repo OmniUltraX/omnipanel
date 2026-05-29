@@ -3,9 +3,13 @@ import { createRoot } from "react-dom/client";
 import "@xterm/xterm/css/xterm.css";
 import "./styles/global.css";
 import App from "./App";
-import { initTheme } from "./store/theme";
+import { initSettings } from "./stores/settingsStore";
+import { initConnections } from "./stores/connectionStore";
+import { initActionListener } from "./stores/actionStore";
 
-initTheme();
+initSettings();
+initConnections();
+initActionListener();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

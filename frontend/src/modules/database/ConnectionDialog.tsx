@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { commands } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 
 type DbEngine = "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb";
@@ -41,6 +42,8 @@ export function ConnectionDialog({ open, onClose, onSave }: ConnectionDialogProp
     password: "",
     ssl: false,
   });
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   if (!open) return null;
 
@@ -61,8 +64,32 @@ export function ConnectionDialog({ open, onClose, onSave }: ConnectionDialogProp
     onClose();
   };
 
-  const handleTest = () => {
-    // TODO: implement connection test
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await commands.dbTestConnection({
+        id: "",
+        name: form.name,
+        db_type: form.engine,
+        host: form.host,
+        port: Number(form.port) || 0,
+        user: form.username,
+        password: form.password,
+        database: form.database,
+        group: "",
+        status: "",
+      });
+      if (res.status === "ok") {
+        setTestResult({ ok: true, msg: res.data });
+      } else {
+        setTestResult({ ok: false, msg: res.error });
+      }
+    } catch (e) {
+      setTestResult({ ok: false, msg: String(e) });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const isFileBased = form.engine === "sqlite";
@@ -191,14 +218,23 @@ export function ConnectionDialog({ open, onClose, onSave }: ConnectionDialogProp
           )}
         </div>
 
+        {testResult && (
+          <div
+            className={`form-field ${testResult.ok ? "text-success" : "text-danger"}`}
+            style={{ padding: "0 var(--sp-4)", fontSize: 12, wordBreak: "break-all" }}
+          >
+            {testResult.ok ? `连接成功：${testResult.msg}` : `连接失败：${testResult.msg}`}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>
             {t("database.dialog.cancel")}
           </button>
           <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost" onClick={handleTest}>
-            {t("database.dialog.test")}
+          <button className="btn btn-ghost" onClick={handleTest} disabled={testing}>
+            {testing ? t("database.dialog.testing") : t("database.dialog.test")}
           </button>
           <button className="btn btn-primary" onClick={handleSave}>
             {t("database.dialog.save")}

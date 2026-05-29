@@ -31,6 +31,12 @@ pub struct AiProviderRegistry {
     providers: Vec<Box<dyn AiProvider>>,
 }
 
+impl Default for AiProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AiProviderRegistry {
     pub fn new() -> Self {
         Self {
@@ -43,7 +49,10 @@ impl AiProviderRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn AiProvider> {
-        self.providers.iter().find(|p| p.name() == name).map(|p| &**p)
+        self.providers
+            .iter()
+            .find(|p| p.name() == name)
+            .map(|p| &**p)
     }
 
     pub fn list(&self) -> Vec<&str> {

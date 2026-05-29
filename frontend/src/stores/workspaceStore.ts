@@ -27,13 +27,10 @@ interface WorkspaceState {
   activePath: string;
   activeResourceId: string | null;
   selectedResourceByPath: Record<string, string>;
-  rightPanelOpen: boolean;
-  bottomPanelOpen: boolean;
 
   setActivePath: (path: string) => void;
-  selectResource: (resourceId: string) => void;
-  setRightPanelOpen: (open: boolean) => void;
-  setBottomPanelOpen: (open: boolean) => void;
+  selectResource: (resourceId: string, contextPath?: string) => void;
+  getResourceForPath: (path: string) => WorkspaceResource | null;
   getActiveResource: () => WorkspaceResource | null;
   getSnapshot: () => WorkspaceContextSnapshot;
 }
@@ -55,8 +52,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activePath: "/",
       activeResourceId: "local-terminal",
       selectedResourceByPath: {},
-      rightPanelOpen: true,
-      bottomPanelOpen: true,
 
       setActivePath: (path) =>
         set((state) => {
@@ -66,21 +61,28 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           return { activePath: path, activeResourceId };
         }),
 
-      selectResource: (resourceId) =>
+      selectResource: (resourceId, contextPath) =>
         set((state) => {
           const resource = getResourceById(resourceId);
           if (!resource) return state;
+          const pathKey = contextPath ?? state.activePath;
           return {
             activeResourceId: resourceId,
             selectedResourceByPath: {
               ...state.selectedResourceByPath,
-              [resource.modulePath]: resourceId,
+              [pathKey]: resourceId,
             },
           };
         }),
 
-      setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
-      setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
+      getResourceForPath: (path) => {
+        const state = get();
+        const remembered = state.selectedResourceByPath[path];
+        if (remembered) {
+          return getResourceById(remembered);
+        }
+        return getDefaultResourceForPath(path);
+      },
 
       getActiveResource: () => getResourceById(get().activeResourceId),
 
@@ -105,8 +107,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         activePath: state.activePath,
         activeResourceId: state.activeResourceId,
         selectedResourceByPath: state.selectedResourceByPath,
-        rightPanelOpen: state.rightPanelOpen,
-        bottomPanelOpen: state.bottomPanelOpen,
       }),
     }
   )

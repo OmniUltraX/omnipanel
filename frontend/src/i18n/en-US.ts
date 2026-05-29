@@ -1,6 +1,183 @@
 import type { TranslationDict } from "./zh-CN";
 
 export const enUS: TranslationDict = {
+  knowledge: {
+    categories: "Categories",
+    tags: "Tags",
+    nav: {
+      snippets: "Snippets",
+      cases: "Incident Cases",
+      ai: "AI Summaries",
+    },
+    snippets: {
+      title: "Command Snippets",
+      desc: "Common commands, SQL, Docker operations and notes",
+    },
+    cases: {
+      title: "Incident Cases",
+      desc: "Incident cases: symptom, root cause, resolution, prevention",
+    },
+    ai: {
+      title: "AI Summaries",
+      desc: "AI summaries of terminal output, log analysis and SQL results",
+    },
+    risk: {
+      readonly: "Read-only",
+      medium: "Medium risk",
+    },
+    meta: {
+      used: "Used {count} times",
+      recent: "Recent: {time}",
+    },
+    aiGenerated: "AI generated",
+    caseSections: {
+      symptom: "Symptom",
+      rootCause: "Root Cause",
+      resolution: "Resolution",
+      prevention: "Prevention",
+    },
+    envBadge: {
+      production: "Production",
+      staging: "Staging",
+    },
+    aiMeta: {
+      generated: "Generated {time}",
+      from: "From: {source}",
+    },
+    relativeTime: {
+      days2: "2 days ago",
+      days3: "3 days ago",
+      hour1: "1 hour ago",
+      week1: "1 week ago",
+      hours2: "2 hours ago",
+      day1: "1 day ago",
+    },
+    aiSources: {
+      terminalAi: "Terminal AI panel",
+      database: "Database panel",
+    },
+    demo: {
+      snippets: {
+        findLargeFiles: {
+          title: "Find Large Files",
+          desc: "Quickly find files above a size threshold for disk cleanup",
+          comment1: "# Find files larger than 100MB in /var",
+          comment2: "# Find files larger than 1GB in home directory",
+        },
+        dockerStats: {
+          title: "Docker Container Resources",
+          desc: "View resource usage of all running containers",
+          comment1: "# All containers resource usage",
+          comment2: "# Specific container with custom format",
+        },
+        pgSlowQuery: {
+          title: "PostgreSQL Slow Query Analysis",
+          desc: "Analyze PostgreSQL slow queries to find SQL needing optimization",
+          comment1: "-- Enable pg_stat_statements extension first",
+          comment2: "-- Check current running queries",
+        },
+        nginxReload: {
+          title: "Nginx Config Test & Reload",
+          desc: "Safely test and reload Nginx configuration",
+          comment1: "# Test config syntax",
+          comment2: "# Graceful reload (no downtime)",
+          comment3: "# Check which sites are enabled",
+        },
+      },
+      cases: {
+        nginxCpu: {
+          title: "Nginx CPU Spike Due to Rate Limit Flood",
+          symptom:
+            "nginx-proxy container CPU jumped from 5% to 85%. Upstream timeout logs spiked and API latency grew from 12ms to 2000ms+.",
+          rootCause:
+            "Subnet 45.33.32.0/24 sent 2,847 requests in 5 minutes, triggering rate limiting. TLS handshake overhead spiked CPU; upstream queueing caused timeouts.",
+          resolution:
+            "Added deny 45.33.32.0/24; to nginx.conf and restarted nginx-proxy. CPU returned to normal within 30 seconds.",
+          prevention:
+            "Configure fail2ban to auto-block high-frequency IPs; add WAF rules at Cloudflare to filter abnormal traffic.",
+        },
+        diskFull: {
+          title: "Disk Space Exhaustion on Database Server",
+          symptom:
+            'staging-worker disk hit 98%. PostgreSQL WAL backlog caused write failures with "could not write to file" errors.',
+          rootCause:
+            "pg_repack on a large table generated excessive WAL; archiving lagged. Docker logs without rotation consumed 15GB.",
+          resolution:
+            "Manually cleaned Docker logs, configured logrotate, ran pg_archivecleanup on WAL — disk dropped to 62%.",
+        },
+      },
+      ai: {
+        nginxLogs: {
+          title: "prod-web-01 Log Analysis",
+          desc: "AI summary of nginx error logs",
+          summary: "Summary: Past 24h nginx error analysis",
+          line1: "- 847 upstream timeout warnings (98% from 45.33.32.x)",
+          line2: "- 12 connection refused errors (redis-cache restart at 03:00)",
+          line3: "- 3 SSL handshake failures (expired intermediate cert)",
+          line4: "- Rate limit triggered 45 times for 3 unique IPs",
+          recommendation: "Recommendation: Block 45.33.32.0/24 at firewall level",
+        },
+        dbSchema: {
+          title: "Database Schema Explanation",
+          desc: "AI explanation of orders table design",
+          summary: "The orders table uses a denormalized design with:",
+          line1: "- id: UUID primary key (distributed-friendly)",
+          line2: "- user_id: FK to users (indexed)",
+          line3: "- status: enum (pending, paid, shipped, completed, cancelled)",
+          line4: "- items: JSONB array (flexible schema for order items)",
+          line5: "- total_amount: DECIMAL(10,2) (precise currency)",
+          line6: "- created_at/updated_at: timestamps with timezone",
+          recommendation: "Missing indexes: consider adding (status, created_at) for dashboard queries",
+        },
+      },
+    },
+  },
+  notifications: {
+    title: "Notifications",
+    close: "Close",
+    groups: {
+      urgent: "Urgent",
+      today: "Today",
+      yesterday: "Yesterday",
+    },
+    items: {
+      disk: {
+        title: "Low disk space — staging-worker",
+        desc: "WAL logs keep growing, currently at 92% usage. Cleanup or scale up needed.",
+        time: "30 minutes ago",
+      },
+      ssl: {
+        title: "SSL certificate expiring soon",
+        desc: "Certificate for prod-web-01 · api.example.com expires in 14 days.",
+        time: "1 hour ago",
+      },
+      cpu: {
+        title: "prod-db high CPU usage",
+        desc: "CPU held at 67% over the last 15 minutes, possible slow queries.",
+        time: "2 hours ago",
+      },
+      backup: {
+        title: "Database backup completed",
+        desc: "prod-db-master auto backup finished and verified. Size 2.3 GB.",
+        time: "6 hours ago",
+      },
+      container: {
+        title: "Container celery-worker auto-restarted",
+        desc: "celery-worker was OOM-killed then auto-restarted, now running normally.",
+        time: "8 hours ago",
+      },
+      inspect: {
+        title: "All server inspections passed",
+        desc: "Routine inspection of 6 servers completed, no issues found.",
+        time: "10 hours ago",
+      },
+      ratelimit: {
+        title: "Rate limit triggered",
+        desc: "Subnet 45.33.32.0/24 sent 2,847 requests in 5 minutes, rate limiting applied.",
+        time: "Yesterday 15:42",
+      },
+    },
+  },
   common: {
     noResources: "No resources",
     execute: "Run",
@@ -126,6 +303,7 @@ export const enUS: TranslationDict = {
       search: "Search tables…",
       refresh: "Refresh",
       createConnection: "Create Connection",
+      empty: "No connections yet, click + to add",
     },
     dialog: {
       title: "Create Database Connection",
@@ -140,16 +318,21 @@ export const enUS: TranslationDict = {
       ssl: "Enable SSL",
       cancel: "Cancel",
       test: "Test Connection",
+      testing: "Testing…",
       save: "Save",
     },
     toolbar: {
       hint: "Write operations and production DB actions go through unified risk confirmation.",
     },
     runSql: "Run SQL",
+    running: "Running…",
     results: {
       title: "Results",
       preview: "Result Preview",
       meta: "{rows} rows · {ms}ms · {mode}",
+      noConnection: "Select a database connection first",
+      runHint: "Run SQL to see results",
+      affected: "Success, {rows} rows affected",
     },
     context: {
       title: "Database Context",
@@ -368,6 +551,7 @@ export const enUS: TranslationDict = {
       failed: "Failed",
       cancelled: "Cancelled",
     },
+    active: { empty: "No running tasks" },
     drafts: {
       title: "Draft Box",
       desc: "AI-generated or user-prepared commands, SQL and scripts wait here for confirmation",
@@ -381,6 +565,7 @@ export const enUS: TranslationDict = {
       duration: "Duration",
       target: "Target",
       time: "Time",
+      empty: "No history yet",
     },
     actions: {
       pause: "Pause",
@@ -398,6 +583,238 @@ export const enUS: TranslationDict = {
       addTopic: "Add Topic",
     },
     actions: { newRequest: "New Request", importCurl: "Import cURL", newTab: "New Tab" },
+    common: {
+      connect: "Connect",
+      disconnect: "Disconnect",
+      connecting: "Connecting…",
+      connected: "Connected",
+      disconnected: "Disconnected",
+      send: "Send",
+      sending: "Sending…",
+      save: "Save",
+      key: "Key",
+      value: "Value",
+      addParam: "Add Parameter",
+      addHeader: "Add Header",
+      noMessages: "No messages",
+      messages: "Messages: {count}",
+      retain: "Retain",
+    },
+    http: {
+      urlPlaceholder: "https://api.example.com/v1/users",
+      tabs: { params: "Params", headers: "Headers", body: "Body", auth: "Auth", scripts: "Scripts" },
+      requestBody: "Request body…",
+      preRequestScript: "Pre-request Script",
+      testScript: "Test Script",
+      preRequestPlaceholder: "// Runs before request…",
+      testPlaceholder: "// Validate response…",
+      token: "Token",
+      bodyTypes: {
+        JSON: "JSON",
+        Form: "Form",
+        Multipart: "Multipart",
+        Raw: "Raw",
+        Binary: "Binary",
+      },
+      authTypes: {
+        bearerToken: "Bearer Token",
+        basicAuth: "Basic Auth",
+        apiKey: "API Key",
+        oauth2: "OAuth 2.0",
+      },
+    },
+    ws: {
+      urlPlaceholder: "wss://echo.websocket.org",
+      inputPlaceholder: '{"type":"subscribe","channel":"..."}',
+      formats: {
+        JSON: "JSON",
+        Text: "Text",
+        Binary: "Binary",
+      },
+    },
+    mqtt: {
+      brokerPlaceholder: "mqtt://broker.example.com:1883",
+      clientId: "Client ID",
+      subscriptions: "Subscriptions",
+      subscribeTopic: "Topic to subscribe…",
+      subscribe: "Subscribe",
+      noMessages: "No messages received",
+      topic: "Topic",
+      publishPayload: '{"action":"reboot"}',
+      publish: "Publish",
+    },
+    serial: {
+      port: "Port",
+      baudRate: "Baud Rate",
+      dataBits: "Data Bits",
+      stopBits: "Stop Bits",
+      parity: "Parity",
+      flowControl: "Flow Control",
+      encoding: "Encoding",
+      scanPorts: "Scan ports",
+      noRxData: "No data received",
+      noTxData: "No data sent",
+      sendPlaceholder: "Send data…",
+      periodicSend: "Periodic Send",
+      intervalMs: "Interval (ms)",
+      periodicPayload: '{"cmd":"read_sensor"}',
+      start: "Start",
+      stop: "Stop",
+      received: "Received",
+      sent: "Sent",
+      showTimestamp: "Show timestamp",
+      showHex: "HEX view",
+      autoScroll: "Auto-scroll",
+      rxTx: "RX: {rx} · TX: {tx}",
+    },
+  },
+  workflow: {
+    sections: {
+      scripts: { group: "Scripts", label: "Quick Scripts" },
+      templates: { group: "Scripts", label: "Command Templates" },
+      deploy: { group: "Workflows", label: "Deploy Flows" },
+      patrol: { group: "Workflows", label: "Patrol Templates" },
+      data: { group: "Workflows", label: "Data Workflows" },
+      history: { group: "History", label: "Execution Log" },
+    },
+    panels: {
+      scripts: {
+        title: "Quick Scripts",
+        desc: "One-click scripts for high-frequency ops with parameterization and batch execution",
+        search: "Search scripts…",
+      },
+      deploy: {
+        title: "Deploy Flows",
+        desc: "Step-by-step approval and rollback entry points",
+        run: "Run",
+        runDesc: "Approval-based execution",
+      },
+      history: {
+        title: "Execution History",
+        desc: "Execution records for all scripts and workflows",
+        columns: {
+          name: "Name",
+          type: "Type",
+          target: "Target",
+          status: "Status",
+          duration: "Duration",
+          triggeredBy: "Triggered By",
+          time: "Time",
+        },
+      },
+      templates: {
+        title: "Command Templates",
+        desc: "Parameterized templates with pre-execution review",
+      },
+      patrol: {
+        title: "Patrol Templates",
+        desc: "Scheduled patrol templates for server health checks",
+        dailyTitle: "Daily Server Patrol",
+        schedule: "Schedule: Daily 08:00",
+        runNow: "Run Now",
+        runDesc: "Read-only patrol",
+        stepDesc: "Collect metrics automatically; anomalies enter the confirmation queue",
+        steps: {
+          cpuMemory: "CPU & Memory Check",
+          disk: "Disk Space Check",
+          service: "Service Status",
+          ssl: "SSL Certificate",
+          security: "Security Updates",
+          report: "Generate Report",
+        },
+      },
+      data: {
+        title: "Data Workflows",
+        desc: "Database investigation, repair, sync and export workflows",
+      },
+    },
+    risk: {
+      high: "High Risk",
+      medium: "Medium",
+      low: "Low",
+      readonly: "Read-only",
+    },
+    status: {
+      passed: "Passed",
+      ready: "Ready",
+      success: "Success",
+      warning: "Warning",
+    },
+    types: {
+      shell: "Shell",
+      sql: "SQL",
+      docker: "Docker",
+      workflow: "Workflow",
+    },
+    demo: {
+      scripts: {
+        deployProd: {
+          name: "Deploy to Production",
+          desc: "Pull latest code, build image, update Compose, health check and deployment summary.",
+        },
+        dbBackup: {
+          name: "DB Backup & Verify",
+          desc: "Backup production DB, verify integrity, upload to remote storage and notify.",
+        },
+        dockerCleanup: {
+          name: "Docker Cleanup",
+          desc: "Remove dangling images, stopped containers, unused volumes and networks.",
+        },
+        healthCheck: {
+          name: "Server Health Check",
+          desc: "Batch check CPU, memory, disk, services, cert expiry and security updates.",
+        },
+        logRotation: {
+          name: "Log Rotation",
+          desc: "Archive logs older than 7 days, purge 30-day archives, report freed space.",
+        },
+        sslRenew: {
+          name: "SSL Cert Renew",
+          desc: "Check expiry, renew Let's Encrypt certs and reload Nginx.",
+        },
+      },
+      flows: {
+        prodDeploy: {
+          name: "Production Deploy",
+          meta: "Last run: 2h ago · 3m 42s",
+          steps: {
+            gitPull: { title: "Git Pull", desc: "Pull latest main branch to production servers" },
+            buildImage: { title: "Build Docker Image", desc: "Build image tagged with git commit SHA" },
+            runTests: { title: "Run Tests", desc: "Run smoke tests and key integration checks" },
+            composeUp: { title: "Docker Compose Up", desc: "Rolling update application containers" },
+            healthCheck: { title: "Health Check", desc: "Check /health and core APIs" },
+            notify: { title: "Notify", desc: "Send deployment result to notification channel" },
+          },
+        },
+        stagingDeploy: {
+          name: "Staging Deploy",
+          meta: "Last run: 1d ago · 2m 18s",
+          steps: {
+            gitPull: { title: "Git Pull (develop)", desc: "Pull develop branch code" },
+            buildPush: { title: "Build & Push", desc: "Build and push to staging registry" },
+            deploy: { title: "Deploy to Staging", desc: "Update staging environment containers" },
+          },
+        },
+      },
+      templates: {
+        tailLogs: { name: "Tail Service Logs", command: 'tail -f /var/log/{{service}}/error.log | grep "{{keyword}}"' },
+        queryUser: { name: "Query User by Email", command: "SELECT * FROM users WHERE email = '{{email}}' LIMIT 10;" },
+        restartContainer: { name: "Restart Container", command: "docker restart {{container_name}}" },
+      },
+      dataFlows: {
+        investigation: { name: "Data Investigation", desc: "Multi-step queries with AI analysis summary" },
+        repair: { name: "Data Repair", desc: "Scope query → fix SQL + rollback SQL → execute after confirm" },
+        sync: { name: "Data Sync", desc: "Read, validate, transform, write target DB with diff report" },
+      },
+      history: {
+        prodDeploy: { name: "Production Deploy", triggeredBy: "chaoj", time: "2h ago" },
+        dbBackup: { name: "DB Backup & Verify", triggeredBy: "Scheduled", time: "6h ago" },
+        dockerCleanup: { name: "Docker Cleanup", triggeredBy: "chaoj", time: "1d ago" },
+        healthCheck: { name: "Server Health Check", triggeredBy: "Scheduled", time: "1d ago" },
+        stagingDeploy: { name: "Staging Deploy", triggeredBy: "CI/CD", time: "1d ago" },
+      },
+    },
+    targets: { allServers: "All Servers" },
   },
   ai: {
     title: "AI Assistant",

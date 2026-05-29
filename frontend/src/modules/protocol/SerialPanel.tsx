@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { useI18n } from "../../i18n";
 
 type SerialStatus = "disconnected" | "connecting" | "connected";
 type Encoding = "UTF-8" | "ASCII" | "HEX";
@@ -36,6 +37,7 @@ function nowTime(): string {
 }
 
 export function SerialPanel() {
+  const { t } = useI18n();
   const [portName, setPortName] = useState("COM3");
   const [baudRate, setBaudRate] = useState(115200);
   const [dataBits, setDataBits] = useState(8);
@@ -167,7 +169,7 @@ export function SerialPanel() {
       {/* Config grid */}
       <div className="serial-config">
         <div className="serial-field">
-          <label>Port</label>
+          <label>{t("protocol.serial.port")}</label>
           <select
             value={portName}
             onChange={(e) => setPortName(e.target.value)}
@@ -189,7 +191,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Baud Rate</label>
+          <label>{t("protocol.serial.baudRate")}</label>
           <select
             value={baudRate}
             onChange={(e) => setBaudRate(Number(e.target.value))}
@@ -203,7 +205,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Data Bits</label>
+          <label>{t("protocol.serial.dataBits")}</label>
           <select
             value={dataBits}
             onChange={(e) => setDataBits(Number(e.target.value))}
@@ -214,7 +216,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Stop Bits</label>
+          <label>{t("protocol.serial.stopBits")}</label>
           <select
             value={stopBits}
             onChange={(e) => setStopBits(Number(e.target.value))}
@@ -225,7 +227,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Parity</label>
+          <label>{t("protocol.serial.parity")}</label>
           <select
             value={parity}
             onChange={(e) => setParity(e.target.value)}
@@ -237,7 +239,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Flow Control</label>
+          <label>{t("protocol.serial.flowControl")}</label>
           <select
             value={flowControl}
             onChange={(e) => setFlowControl(e.target.value)}
@@ -249,7 +251,7 @@ export function SerialPanel() {
           </select>
         </div>
         <div className="serial-field">
-          <label>Encoding</label>
+          <label>{t("protocol.serial.encoding")}</label>
           <select value={encoding} onChange={(e) => setEncoding(e.target.value as Encoding)}>
             <option>UTF-8</option>
             <option>ASCII</option>
@@ -264,9 +266,13 @@ export function SerialPanel() {
               style={{ flex: 1 }}
               onClick={handleConnect}
             >
-              {status === "connected" ? "Disconnect" : status === "connecting" ? "..." : "Connect"}
+              {status === "connected"
+                ? t("protocol.common.disconnect")
+                : status === "connecting"
+                  ? "…"
+                  : t("protocol.common.connect")}
             </button>
-            <button className="btn btn-ghost" onClick={handleScanPorts} title="Scan ports">
+            <button className="btn btn-ghost" onClick={handleScanPorts} title={t("protocol.serial.scanPorts")}>
               &#x21bb;
             </button>
           </div>
@@ -285,16 +291,16 @@ export function SerialPanel() {
       >
         <span className={`badge ${status === "connected" ? "badge-success" : "badge-muted"}`}>
           {status === "connecting"
-            ? "Connecting..."
+            ? t("protocol.common.connecting")
             : status === "connected"
-              ? "Connected"
-              : "Disconnected"}
+              ? t("protocol.common.connected")
+              : t("protocol.common.disconnected")}
         </span>
         {status === "connected" && (
           <>
             <span className="text-muted">{configSummary}</span>
             <span className="text-muted">
-              RX: {rxLines.length} · TX: {txLines.length}
+              {t("protocol.serial.rxTx", { rx: rxLines.length, tx: txLines.length })}
             </span>
           </>
         )}
@@ -314,7 +320,7 @@ export function SerialPanel() {
               onChange={(e) => setShowTimestamp(e.target.checked)}
               style={{ accentColor: "var(--accent)" }}
             />{" "}
-            Timestamp
+            {t("protocol.serial.showTimestamp")}
           </label>
           <label
             style={{
@@ -331,7 +337,7 @@ export function SerialPanel() {
               onChange={(e) => setShowHex(e.target.checked)}
               style={{ accentColor: "var(--accent)" }}
             />{" "}
-            HEX
+            {t("protocol.serial.showHex")}
           </label>
           <label
             style={{
@@ -348,7 +354,7 @@ export function SerialPanel() {
               onChange={(e) => setAutoScroll(e.target.checked)}
               style={{ accentColor: "var(--accent)" }}
             />{" "}
-            Auto-scroll
+            {t("protocol.serial.autoScroll")}
           </label>
         </div>
       </div>
@@ -356,11 +362,11 @@ export function SerialPanel() {
       {/* Serial I/O */}
       <div className="serial-io">
         <div className="serial-panel">
-          <div className="serial-panel-header">Received</div>
+          <div className="serial-panel-header">{t("protocol.serial.received")}</div>
           <div className="serial-panel-body">
             {rxLines.length === 0 ? (
               <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
-                No data received
+                {t("protocol.serial.noRxData")}
               </div>
             ) : (
               rxLines.map((line, i) => (
@@ -373,7 +379,7 @@ export function SerialPanel() {
           </div>
           <div className="serial-panel-input">
             <input
-              placeholder="Send data..."
+              placeholder={t("protocol.serial.sendPlaceholder")}
               value={sendValue}
               onChange={(e) => setSendValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -384,15 +390,15 @@ export function SerialPanel() {
               onClick={handleSend}
               disabled={status !== "connected"}
             >
-              Send
+              {t("protocol.common.send")}
             </button>
           </div>
         </div>
         <div className="serial-panel">
-          <div className="serial-panel-header">Sent</div>
+          <div className="serial-panel-header">{t("protocol.serial.sent")}</div>
           <div className="serial-panel-body">
             {txLines.length === 0 ? (
-              <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>No data sent</div>
+              <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>{t("protocol.serial.noTxData")}</div>
             ) : (
               txLines.map((line, i) => (
                 <div key={i}>
@@ -436,24 +442,24 @@ export function SerialPanel() {
             onChange={togglePeriodic}
             style={{ accentColor: "var(--accent)" }}
           />{" "}
-          Periodic Send
+          {t("protocol.serial.periodicSend")}
         </label>
         <input
           className="input"
-          placeholder="Interval (ms)"
+          placeholder={t("protocol.serial.intervalMs")}
           value={periodicInterval}
           onChange={(e) => setPeriodicInterval(e.target.value)}
           style={{ width: "80px", fontSize: "11px" }}
         />
         <input
           className="input"
-          placeholder='{"cmd":"read_sensor"}'
+          placeholder={t("protocol.serial.periodicPayload")}
           value={periodicCmd}
           onChange={(e) => setPeriodicCmd(e.target.value)}
           style={{ flex: 1, fontSize: "11px" }}
         />
         <button className="btn btn-ghost btn-sm" onClick={togglePeriodic}>
-          {periodicEnabled ? "Stop" : "Start"}
+          {periodicEnabled ? t("protocol.serial.stop") : t("protocol.serial.start")}
         </button>
       </div>
     </div>

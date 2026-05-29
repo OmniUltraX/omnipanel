@@ -7,43 +7,6 @@ type TaskTab = "active" | "drafts" | "history";
 
 const TASK_TABS: TaskTab[] = ["active", "drafts", "history"];
 
-const DEMO_ACTIVE = [
-  {
-    id: "demo-upload",
-    title: "Upload backup to S3",
-    status: "running" as const,
-    progress: 67,
-    progressColor: "var(--accent)",
-    meta: ["67% · 2.1 GB / 3.2 GB", "Speed: 12 MB/s", "ETA: 1m 32s", "Target: s3://backups/prod-db/"],
-    steps: [
-      { name: "Compress database dump", status: "Done · 45s", done: true },
-      { name: "Generate checksum", status: "Done · 12s", done: true },
-      { name: "Upload to S3", status: "Uploading...", active: true },
-      { name: "Verify integrity", status: "Pending", pending: true },
-    ],
-  },
-  {
-    id: "demo-docker",
-    title: "Pull nginx:1.25-alpine image",
-    status: "running" as const,
-    progress: 34,
-    progressColor: "var(--warn)",
-    meta: ["34% · 8.2 MB / 24.1 MB", "Layer 3/7", "Target: prod-web-01"],
-  },
-  {
-    id: "demo-patrol",
-    title: "Daily server patrol",
-    status: "queued" as const,
-    meta: ["Scheduled: 08:00 daily", "Targets: All Servers"],
-  },
-];
-
-const DEMO_HISTORY = [
-  { task: "DB Backup & Verify", type: "Workflow", status: "Success", duration: "4m 12s", target: "prod-db-master", time: "Today 08:00" },
-  { task: "Restart nginx", type: "SSH", status: "Success", duration: "3s", target: "prod-web-01", time: "Yesterday 22:14" },
-  { task: "DELETE FROM sessions", type: "SQL", status: "Failed", duration: "—", target: "prod-db-master", time: "Yesterday 18:02" },
-];
-
 function draftIconStyle(type: WorkspaceAction["type"]) {
   switch (type) {
     case "terminal":
@@ -76,9 +39,9 @@ export function TasksPanel() {
   const { t } = useI18n();
   const [tab, setTab] = useState<TaskTab>("active");
   const actions = useActionStore((s) => s.actions);
+  const logs = useActionStore((s) => s.logs);
   const confirmAction = useActionStore((s) => s.confirmAction);
   const cancelAction = useActionStore((s) => s.cancelAction);
-  const completeAction = useActionStore((s) => s.completeAction);
   const clearCompleted = useActionStore((s) => s.clearCompleted);
 
   const activeActions = useMemo(
@@ -102,7 +65,7 @@ export function TasksPanel() {
         active: tab === id,
         badge:
           id === "active"
-            ? { text: activeActions.length + DEMO_ACTIVE.length, tone: "accent" as const }
+            ? { text: activeActions.length, tone: "accent" as const }
             : id === "drafts"
               ? { text: draftActions.length, tone: "warn" as const }
               : undefined,
@@ -118,67 +81,29 @@ export function TasksPanel() {
     <div className="tasks-content">
       {tab === "active" && (
         <div className="task-panel active">
-          {DEMO_ACTIVE.map((task) => (
-            <div key={task.id} className="task-card">
-              <div className="task-header">
-                <h3>{task.title}</h3>
-                <span className={`badge badge-${task.status === "queued" ? "warn" : "accent"}`}>
-                  {task.status === "queued" ? t("tasks.status.queued") : t("tasks.status.running")}
-                </span>
-              </div>
-              {task.progress !== undefined && (
-                <div className="task-progress">
-                  <div className="task-progress-fill" style={{ width: `${task.progress}%`, background: task.progressColor }} />
+          {activeActions.length === 0 ? (
+            <div className="empty-state compact">{t("tasks.active.empty")}</div>
+          ) : (
+            activeActions.map((action) => (
+              <div key={action.id} className="task-card">
+                <div className="task-header">
+                  <h3>{action.title}</h3>
+                  {statusBadge(action.status, t)}
                 </div>
-              )}
-              <div className="task-meta">
-                {task.meta.map((line) => (
-                  <span key={line}>{line}</span>
-                ))}
-              </div>
-              {task.steps && (
-                <div className="task-steps">
-                  {task.steps.map((step) => (
-                    <div key={step.name} className="task-step">
-                      <span className={`step-icon ${step.done ? "text-success" : step.active ? "text-accent" : "text-muted"}`}>
-                        {step.done ? "✓" : step.active ? "↻" : "○"}
-                      </span>
-                      <span className="step-name">{step.name}</span>
-                      <span className={`step-status ${step.done ? "text-success" : step.active ? "text-accent" : "text-muted"}`}>
-                        {step.status}
-                      </span>
-                    </div>
-                  ))}
+                <p className="task-desc">{action.description}</p>
+                {action.command && <pre className="command-preview">{action.command}</pre>}
+                <div className="task-meta">
+                  <span>{t("tasks.meta.resource")}: {action.resourceName ?? t("shell.nav.workspace")}</span>
+                  <span>{t("tasks.meta.source")}: {action.source}</span>
                 </div>
-              )}
-              <div className="task-actions">
-                <button type="button" className="btn btn-ghost btn-sm">{t("tasks.actions.pause")}</button>
-                <button type="button" className="btn btn-danger btn-sm">{t("common.cancel")}</button>
-              </div>
-            </div>
-          ))}
-
-          {activeActions.map((action) => (
-            <div key={action.id} className="task-card">
-              <div className="task-header">
-                <h3>{action.title}</h3>
-                {statusBadge(action.status, t)}
-              </div>
-              <p className="task-desc">{action.description}</p>
-              {action.command && <pre className="command-preview">{action.command}</pre>}
-              <div className="task-meta">
-                <span>{t("tasks.meta.resource")}: {action.resourceName ?? t("shell.nav.workspace")}</span>
-                <span>{t("tasks.meta.source")}: {action.source}</span>
-              </div>
-              <div className="task-actions">
-                {action.status === "running" && (
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => completeAction(action.id)}>
-                    {t("tasks.actions.markDone")}
-                  </button>
+                {(logs[action.id]?.length ?? 0) > 0 && (
+                  <pre className="command-preview" style={{ maxHeight: 160, overflow: "auto" }}>
+                    {logs[action.id].join("\n")}
+                  </pre>
                 )}
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 
@@ -238,30 +163,24 @@ export function TasksPanel() {
                 </tr>
               </thead>
               <tbody>
-                {historyActions.map((action) => (
-                  <tr key={action.id}>
-                    <td style={{ fontWeight: 500 }}>{action.title}</td>
-                    <td><span className="badge badge-accent">{action.type}</span></td>
-                    <td>{statusBadge(action.status, t)}</td>
-                    <td>—</td>
-                    <td>{action.resourceName ?? "—"}</td>
-                    <td>{new Date(action.createdAt).toLocaleString()}</td>
-                  </tr>
-                ))}
-                {DEMO_HISTORY.map((row) => (
-                  <tr key={row.task}>
-                    <td style={{ fontWeight: 500 }}>{row.task}</td>
-                    <td><span className="badge badge-accent">{row.type}</span></td>
-                    <td>
-                      <span className={`badge badge-${row.status === "Success" ? "success" : "danger"}`}>
-                        {row.status}
-                      </span>
+                {historyActions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-muted" style={{ textAlign: "center", padding: "var(--sp-4)" }}>
+                      {t("tasks.history.empty")}
                     </td>
-                    <td>{row.duration}</td>
-                    <td>{row.target}</td>
-                    <td>{row.time}</td>
                   </tr>
-                ))}
+                ) : (
+                  historyActions.map((action) => (
+                    <tr key={action.id}>
+                      <td style={{ fontWeight: 500 }}>{action.title}</td>
+                      <td><span className="badge badge-accent">{action.type}</span></td>
+                      <td>{statusBadge(action.status, t)}</td>
+                      <td>—</td>
+                      <td>{action.resourceName ?? "—"}</td>
+                      <td>{new Date(action.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

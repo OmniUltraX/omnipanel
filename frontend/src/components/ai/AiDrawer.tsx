@@ -113,8 +113,10 @@ function MessageBubble({ msg }: { msg: AiMessage }) {
                 components={{
                   pre({ children, ...props }) {
                     const codeChild = Array.isArray(children)
-                      ? children.find((c: any) => c?.type === "code" || c?.props?.className)
+                      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any -- react-markdown 节点为复杂联合类型，此处互操作
+                        children.find((c: any) => c?.type === "code" || c?.props?.className)
                       : children;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，react-markdown 节点互操作
                     const codeProps = (codeChild as any)?.props;
                     const className = codeProps?.className || "";
                     const lang = className.replace(/^language-/, "");
@@ -303,6 +305,7 @@ function useAiChat() {
       let unlistenFn: (() => void) | null = null;
 
       try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI 流式事件 payload 为后端动态联合类型
         unlistenFn = await listen<any>(
           `ai-stream-${convId}`,
           (event) => {

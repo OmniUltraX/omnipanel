@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "../../i18n";
 
 interface KVPair {
   key: string;
@@ -10,7 +11,14 @@ interface KVPair {
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 type BodyType = "JSON" | "Form" | "Multipart" | "Raw" | "Binary";
 type AuthType = "Bearer Token" | "Basic Auth" | "API Key" | "OAuth 2.0";
-type ReqTab = "Params" | "Headers" | "Body" | "Auth" | "Scripts";
+type ReqTab = "params" | "headers" | "body" | "auth" | "scripts";
+
+const AUTH_TYPE_KEYS: Record<AuthType, "bearerToken" | "basicAuth" | "apiKey" | "oauth2"> = {
+  "Bearer Token": "bearerToken",
+  "Basic Auth": "basicAuth",
+  "API Key": "apiKey",
+  "OAuth 2.0": "oauth2",
+};
 
 interface HttpResponse {
   status: number;
@@ -23,9 +31,10 @@ interface HttpResponse {
 }
 
 export function HttpPanel() {
+  const { t } = useI18n();
   const [method, setMethod] = useState<HttpMethod>("GET");
   const [url, setUrl] = useState("https://api.example.com/v1/users");
-  const [activeTab, setActiveTab] = useState<ReqTab>("Params");
+  const [activeTab, setActiveTab] = useState<ReqTab>("params");
   const [bodyType, setBodyType] = useState<BodyType>("JSON");
   const [authType, setAuthType] = useState<AuthType>("Bearer Token");
   const [sending, setSending] = useState(false);
@@ -113,7 +122,7 @@ export function HttpPanel() {
     }
   }, [method, url, params, headers, body, bodyType, authType]);
 
-  const tabs: ReqTab[] = ["Params", "Headers", "Body", "Auth", "Scripts"];
+  const tabs: ReqTab[] = ["params", "headers", "body", "auth", "scripts"];
 
   return (
     <div className="http-panel">
@@ -134,14 +143,14 @@ export function HttpPanel() {
         </select>
         <input
           className="url-input"
-          placeholder="https://api.example.com/v1/users"
+          placeholder={t("protocol.http.urlPlaceholder")}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
         <button className="btn btn-primary" onClick={handleSend} disabled={sending}>
-          {sending ? "Sending..." : "Send"}
+          {sending ? t("protocol.common.sending") : t("protocol.common.send")}
         </button>
-        <button className="btn btn-secondary">Save</button>
+        <button className="btn btn-secondary">{t("protocol.common.save")}</button>
       </div>
 
       {/* Request tabs */}
@@ -152,13 +161,13 @@ export function HttpPanel() {
             className={`req-tab${activeTab === tab ? " active" : ""}`}
             onClick={() => setActiveTab(tab)}
           >
-            {tab}
+            {t(`protocol.http.tabs.${tab}`)}
           </span>
         ))}
       </div>
 
       {/* Params panel */}
-      {activeTab === "Params" && (
+      {activeTab === "params" && (
         <div className="req-panel active">
           <div className="kv-editor">
             {params.map((p, i) => (
@@ -170,12 +179,12 @@ export function HttpPanel() {
                   onChange={(e) => updateKv(params, setParams, i, "enabled", e.target.checked)}
                 />
                 <input
-                  placeholder="Key"
+                  placeholder={t("protocol.common.key")}
                   value={p.key}
                   onChange={(e) => updateKv(params, setParams, i, "key", e.target.value)}
                 />
                 <input
-                  placeholder="Value"
+                  placeholder={t("protocol.common.value")}
                   value={p.value}
                   onChange={(e) => updateKv(params, setParams, i, "value", e.target.value)}
                 />
@@ -186,13 +195,13 @@ export function HttpPanel() {
             ))}
           </div>
           <button className="btn btn-ghost btn-sm" onClick={() => addKv(params, setParams)}>
-            + Add Parameter
+            + {t("protocol.common.addParam")}
           </button>
         </div>
       )}
 
       {/* Headers panel */}
-      {activeTab === "Headers" && (
+      {activeTab === "headers" && (
         <div className="req-panel active">
           <div className="kv-editor">
             {headers.map((h, i) => (
@@ -204,12 +213,12 @@ export function HttpPanel() {
                   onChange={(e) => updateKv(headers, setHeaders, i, "enabled", e.target.checked)}
                 />
                 <input
-                  placeholder="Key"
+                  placeholder={t("protocol.common.key")}
                   value={h.key}
                   onChange={(e) => updateKv(headers, setHeaders, i, "key", e.target.value)}
                 />
                 <input
-                  placeholder="Value"
+                  placeholder={t("protocol.common.value")}
                   value={h.value}
                   onChange={(e) => updateKv(headers, setHeaders, i, "value", e.target.value)}
                 />
@@ -220,33 +229,33 @@ export function HttpPanel() {
             ))}
           </div>
           <button className="btn btn-ghost btn-sm" onClick={() => addKv(headers, setHeaders)}>
-            + Add Header
+            + {t("protocol.common.addHeader")}
           </button>
         </div>
       )}
 
       {/* Body panel */}
-      {activeTab === "Body" && (
+      {activeTab === "body" && (
         <div className="req-panel active">
           <div style={{ marginBottom: "var(--sp-2)", display: "flex", gap: "var(--sp-2)" }}>
-            {(["JSON", "Form", "Multipart", "Raw", "Binary"] as BodyType[]).map((t) => (
+            {(["JSON", "Form", "Multipart", "Raw", "Binary"] as BodyType[]).map((bt) => (
               <span
-                key={t}
+                key={bt}
                 className="tag"
                 style={{
                   cursor: "pointer",
-                  borderColor: bodyType === t ? "var(--accent)" : undefined,
-                  color: bodyType === t ? "var(--accent)" : undefined,
+                  borderColor: bodyType === bt ? "var(--accent)" : undefined,
+                  color: bodyType === bt ? "var(--accent)" : undefined,
                 }}
-                onClick={() => setBodyType(t)}
+                onClick={() => setBodyType(bt)}
               >
-                {t}
+                {t(`protocol.http.bodyTypes.${bt}`)}
               </span>
             ))}
           </div>
           <textarea
             className="body-editor"
-            placeholder="Request body..."
+            placeholder={t("protocol.http.requestBody")}
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
@@ -254,23 +263,23 @@ export function HttpPanel() {
       )}
 
       {/* Auth panel */}
-      {activeTab === "Auth" && (
+      {activeTab === "auth" && (
         <div className="req-panel active">
           <div style={{ marginBottom: "var(--sp-3)" }}>
             <div style={{ display: "flex", gap: "var(--sp-2)", marginBottom: "var(--sp-3)" }}>
               {(["Bearer Token", "Basic Auth", "API Key", "OAuth 2.0"] as AuthType[]).map(
-                (t) => (
+                (auth) => (
                   <span
-                    key={t}
+                    key={auth}
                     className="tag"
                     style={{
                       cursor: "pointer",
-                      borderColor: authType === t ? "var(--accent)" : undefined,
-                      color: authType === t ? "var(--accent)" : undefined,
+                      borderColor: authType === auth ? "var(--accent)" : undefined,
+                      color: authType === auth ? "var(--accent)" : undefined,
                     }}
-                    onClick={() => setAuthType(t)}
+                    onClick={() => setAuthType(auth)}
                   >
-                    {t}
+                    {t(`protocol.http.authTypes.${AUTH_TYPE_KEYS[auth]}`)}
                   </span>
                 )
               )}
@@ -278,7 +287,7 @@ export function HttpPanel() {
             <div className="kv-editor">
               <div className="kv-row">
                 <input
-                  placeholder="Token"
+                  placeholder={t("protocol.http.token")}
                   defaultValue="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                   style={{ flex: 3 }}
                 />
@@ -289,26 +298,26 @@ export function HttpPanel() {
       )}
 
       {/* Scripts panel */}
-      {activeTab === "Scripts" && (
+      {activeTab === "scripts" && (
         <div className="req-panel active">
           <div style={{ marginBottom: "var(--sp-2)" }}>
             <h4 style={{ fontSize: "12px", fontWeight: 600, marginBottom: "var(--sp-2)" }}>
-              Pre-request Script
+              {t("protocol.http.preRequestScript")}
             </h4>
             <textarea
               className="body-editor"
               style={{ minHeight: "80px" }}
-              placeholder="// 请求前执行..."
+              placeholder={t("protocol.http.preRequestPlaceholder")}
             />
           </div>
           <div>
             <h4 style={{ fontSize: "12px", fontWeight: 600, marginBottom: "var(--sp-2)" }}>
-              Test Script
+              {t("protocol.http.testScript")}
             </h4>
             <textarea
               className="body-editor"
               style={{ minHeight: "80px" }}
-              placeholder="// Validate response..."
+              placeholder={t("protocol.http.testPlaceholder")}
             />
           </div>
         </div>

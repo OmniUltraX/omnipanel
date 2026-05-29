@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ServerSidebar } from "../../components/workspace/ServerSidebar";
-import { workspaceResources, getResourceById, type WorkspaceResource } from "../../lib/resourceRegistry";
+import { getServerMonitorResources, type WorkspaceResource } from "../../lib/resourceRegistry";
+import { useWorkspaceResources } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
@@ -113,7 +114,11 @@ const SERVER_PROFILES: Record<string, {
 
 function getProfile(resource: WorkspaceResource | null) {
   if (!resource) return SERVER_PROFILES.default;
-  return SERVER_PROFILES[resource.id] ?? SERVER_PROFILES.default;
+  return (
+    SERVER_PROFILES[resource.id] ??
+    SERVER_PROFILES[resource.name] ??
+    SERVER_PROFILES.default
+  );
 }
 
 function serviceBadge(status: "active" | "failed" | "degraded") {
@@ -122,18 +127,26 @@ function serviceBadge(status: "active" | "failed" | "degraded") {
   return "badge badge-danger";
 }
 
+const SERVER_PATH = "/server";
+
 export function ServerPanel() {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<ServerTab>("monitor");
   const [processQuery, setProcessQuery] = useState("");
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
-  const activeResource = getResourceById(activeResourceId) ?? workspaceResources.find((resource) => ["server", "ssh"].includes(resource.type)) ?? null;
+  const allResources = useWorkspaceResources();
+  const getResourceForPath = useWorkspaceStore((s) => s.getResourceForPath);
+  const selectResource = useWorkspaceStore((s) => s.selectResource);
+  const activeResource = getResourceForPath(SERVER_PATH);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
 
-  const serverResources = useMemo(
-    () => workspaceResources.filter((resource) => resource.type === "server" || resource.type === "ssh"),
-    []
-  );
+  const serverResources = useMemo(() => getServerMonitorResources(allResources), [allResources]);
+
+  // 首次进入服务器页时，为 /server 路径写入默认选中项
+  useEffect(() => {
+    if (!useWorkspaceStore.getState().selectedResourceByPath[SERVER_PATH] && serverResources[0]) {
+      selectResource(serverResources[0].id, SERVER_PATH);
+    }
+  }, [serverResources, selectResource]);
   const profile = getProfile(activeResource);
 
   const topbarTabs = useMemo(

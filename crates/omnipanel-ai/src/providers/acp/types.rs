@@ -170,30 +170,14 @@ pub struct SessionUpdateParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionUpdate {
-    UserMessageChunk {
-        content: serde_json::Value,
-    },
-    AgentMessageChunk {
-        content: serde_json::Value,
-    },
-    AgentThoughtChunk {
-        content: serde_json::Value,
-    },
-    ToolCall {
-        content: serde_json::Value,
-    },
-    ToolCallUpdate {
-        content: serde_json::Value,
-    },
-    Plan {
-        content: serde_json::Value,
-    },
-    AvailableCommandsUpdate {
-        content: serde_json::Value,
-    },
-    CurrentModeUpdate {
-        content: serde_json::Value,
-    },
+    UserMessageChunk { content: serde_json::Value },
+    AgentMessageChunk { content: serde_json::Value },
+    AgentThoughtChunk { content: serde_json::Value },
+    ToolCall { content: serde_json::Value },
+    ToolCallUpdate { content: serde_json::Value },
+    Plan { content: serde_json::Value },
+    AvailableCommandsUpdate { content: serde_json::Value },
+    CurrentModeUpdate { content: serde_json::Value },
 }
 
 // ─── session/request_permission ───

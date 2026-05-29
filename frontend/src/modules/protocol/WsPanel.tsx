@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useI18n } from "../../i18n";
 
 type WsStatus = "disconnected" | "connecting" | "connected";
 type WsMsgFormat = "JSON" | "Text" | "Binary";
@@ -25,6 +26,7 @@ function nowTime(): string {
 }
 
 export function WsPanel() {
+  const { t } = useI18n();
   const [url, setUrl] = useState("wss://api.example.com/ws");
   const [status, setStatus] = useState<WsStatus>("disconnected");
   const [msgFormat, setMsgFormat] = useState<WsMsgFormat>("JSON");
@@ -109,7 +111,7 @@ export function WsPanel() {
       <div style={{ display: "flex", gap: "var(--sp-2)", marginBottom: "var(--sp-4)" }}>
         <input
           className="url-input"
-          placeholder="wss://echo.websocket.org"
+          placeholder={t("protocol.ws.urlPlaceholder")}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           style={{ flex: 1 }}
@@ -119,7 +121,11 @@ export function WsPanel() {
           className={`btn ${status === "connected" ? "btn-danger" : "btn-primary"}`}
           onClick={handleConnect}
         >
-          {status === "connected" ? "Disconnect" : status === "connecting" ? "..." : "Connect"}
+          {status === "connected"
+            ? t("protocol.common.disconnect")
+            : status === "connecting"
+              ? "…"
+              : t("protocol.common.connect")}
         </button>
       </div>
 
@@ -135,13 +141,13 @@ export function WsPanel() {
       >
         <span className={`badge ${status === "connected" ? "badge-success" : "badge-muted"}`}>
           {status === "connecting"
-            ? "Connecting..."
+            ? t("protocol.common.connecting")
             : status === "connected"
-              ? "Connected"
-              : "Disconnected"}
+              ? t("protocol.common.connected")
+              : t("protocol.common.disconnected")}
         </span>
         {status === "connected" && (
-          <span className="text-muted">Messages: {messages.length}</span>
+          <span className="text-muted">{t("protocol.common.messages", { count: messages.length })}</span>
         )}
       </div>
 
@@ -149,7 +155,7 @@ export function WsPanel() {
       <div className="ws-messages">
         {messages.length === 0 ? (
           <div style={{ color: "var(--text-muted)", fontStyle: "italic", padding: "var(--sp-4)" }}>
-            No messages
+            {t("protocol.common.noMessages")}
           </div>
         ) : (
           messages.map((msg, i) => (
@@ -172,12 +178,12 @@ export function WsPanel() {
           value={msgFormat}
           onChange={(e) => setMsgFormat(e.target.value as WsMsgFormat)}
         >
-          <option>JSON</option>
-          <option>Text</option>
-          <option>Binary</option>
+          <option value="JSON">{t("protocol.ws.formats.JSON")}</option>
+          <option value="Text">{t("protocol.ws.formats.Text")}</option>
+          <option value="Binary">{t("protocol.ws.formats.Binary")}</option>
         </select>
         <input
-          placeholder={'{"type":"subscribe","channel":"..."}'}
+          placeholder={t("protocol.ws.inputPlaceholder")}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -188,7 +194,7 @@ export function WsPanel() {
           onClick={handleSend}
           disabled={status !== "connected"}
         >
-          Send
+          {t("protocol.common.send")}
         </button>
       </div>
     </div>

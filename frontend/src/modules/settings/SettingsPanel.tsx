@@ -1,7 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAiStore } from "../../stores/aiStore";
-import { useThemeStore } from "../../store/theme";
 import { useSettingsStore, LOCALE_OPTIONS, type Locale } from "../../stores/settingsStore";
 import { useI18n } from "../../i18n";
 
@@ -134,7 +133,7 @@ export function SettingsPanel() {
   const [telemetry, setTelemetry] = useState(false);
 
   // Appearance settings state
-  const { theme, setTheme } = useThemeStore();
+  const { theme, setTheme } = useSettingsStore();
   const [uiDensity, setUiDensity] = useState("标准");
   const [sidebarPos, setSidebarPos] = useState("左侧");
 

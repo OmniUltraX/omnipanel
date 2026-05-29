@@ -239,7 +239,9 @@ fn which(name: &str) -> Option<String> {
 
     let direct = Path::new(name);
     if direct.components().count() > 1 || direct.is_absolute() {
-        return direct.exists().then(|| direct.to_string_lossy().to_string());
+        return direct
+            .exists()
+            .then(|| direct.to_string_lossy().to_string());
     }
 
     let pathext = std::env::var_os("PATHEXT")
@@ -252,7 +254,12 @@ fn which(name: &str) -> Option<String> {
                 .collect::<Vec<_>>()
         })
         .filter(|items| !items.is_empty())
-        .unwrap_or_else(|| vec![".COM", ".EXE", ".BAT", ".CMD"].into_iter().map(OsString::from).collect());
+        .unwrap_or_else(|| {
+            vec![".COM", ".EXE", ".BAT", ".CMD"]
+                .into_iter()
+                .map(OsString::from)
+                .collect()
+        });
 
     let path_dirs = std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())

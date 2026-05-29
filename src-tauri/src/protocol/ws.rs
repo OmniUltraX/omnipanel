@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 /// WebSocket connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,15 +45,13 @@ impl WsSession {
 
         // Add custom headers
         for (key, value) in &config.headers {
-            request
-                .headers_mut()
-                .insert(
-                    key.parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
-                        .map_err(|e| format!("Invalid header name {key}: {e}"))?,
-                    value
-                        .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
-                        .map_err(|e| format!("Invalid header value for {key}: {e}"))?,
-                );
+            request.headers_mut().insert(
+                key.parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
+                    .map_err(|e| format!("Invalid header name {key}: {e}"))?,
+                value
+                    .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
+                    .map_err(|e| format!("Invalid header value for {key}: {e}"))?,
+            );
         }
 
         let (ws_stream, _) = connect_async(request)

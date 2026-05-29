@@ -6,13 +6,31 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
-    ContentDelta { text: String },
-    ReasoningDelta { text: String },
-    ToolCall { id: String, name: String, arguments: String },
-    ToolCallUpdate { id: String, status: ToolStatus },
-    Usage { input_tokens: u32, output_tokens: u32 },
-    Done { stop_reason: StopReason },
-    Error { message: String },
+    ContentDelta {
+        text: String,
+    },
+    ReasoningDelta {
+        text: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        arguments: String,
+    },
+    ToolCallUpdate {
+        id: String,
+        status: ToolStatus,
+    },
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+    },
+    Done {
+        stop_reason: StopReason,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

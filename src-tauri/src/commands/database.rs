@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
+use omnipanel_db::{DbParams, QueryResult};
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
-use sqlx::{Column, Row, TypeInfo, ValueRef};
 use tauri::State;
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DbConnectionConfig {
     pub id: String,
     pub name: String,
@@ -28,8 +27,23 @@ pub struct TableInfo {
     pub columns: Vec<String>,
 }
 
+/// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
+fn to_params(c: &DbConnectionConfig) -> DbParams {
+    DbParams {
+        db_type: c.db_type.clone(),
+        host: c.host.clone(),
+        port: c.port,
+        user: c.user.clone(),
+        password: c.password.clone(),
+        database: c.database.clone(),
+    }
+}
+
 #[tauri::command]
-pub async fn db_list_connections(state: State<'_, AppState>) -> Result<Vec<DbConnectionConfig>, String> {
+#[specta::specta]
+pub async fn db_list_connections(
+    state: State<'_, AppState>,
+) -> Result<Vec<DbConnectionConfig>, String> {
     let store = state.db_connections.lock().await;
     let mut list: Vec<_> = store.values().cloned().collect();
     list.sort_by(|a, b| a.name.cmp(&b.name));
@@ -37,6 +51,7 @@ pub async fn db_list_connections(state: State<'_, AppState>) -> Result<Vec<DbCon
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn db_save_connection(
     state: State<'_, AppState>,
     connection: DbConnectionConfig,
@@ -53,6 +68,7 @@ pub async fn db_save_connection(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn db_delete_connection(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut store = state.db_connections.lock().await;
     store.remove(&id);
@@ -60,30 +76,21 @@ pub async fn db_delete_connection(state: State<'_, AppState>, id: String) -> Res
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String, String> {
-    let pool = connect(&connection).await?;
-    let row = sqlx::query("SELECT VERSION() AS version")
-        .fetch_one(&pool)
+    let driver = omnipanel_db::connect(&to_params(&connection))
         .await
-        .map_err(|e| format!("Query failed: {e}"))?;
-    let version: String = row.get("version");
-    pool.close().await;
-    Ok(version)
+        .map_err(|e| e.to_string())?;
+    driver.version().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn db_list_tables(connection: DbConnectionConfig) -> Result<Vec<String>, String> {
-    let pool = connect(&connection).await?;
-    let rows = sqlx::query(
-        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
-    )
-    .bind(&connection.database)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("Query failed: {e}"))?;
-    let tables: Vec<String> = rows.iter().map(|r| r.get::<String, _>(0)).collect();
-    pool.close().await;
-    Ok(tables)
+    let driver = omnipanel_db::connect(&to_params(&connection))
+        .await
+        .map_err(|e| e.to_string())?;
+    driver.list_tables().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -92,90 +99,46 @@ pub async fn db_preview_table(
     table: String,
     limit: u32,
 ) -> Result<TableInfo, String> {
-    let pool = connect(&connection).await?;
-    let sql = format!("SELECT * FROM `{}` LIMIT ?", table);
-    let query_result = sqlx::query(&sql)
-        .bind(limit as i64)
-        .fetch_all(&pool)
+    let driver = omnipanel_db::connect(&to_params(&connection))
         .await
-        .map_err(|e| format!("Query failed: {e}"))?;
-    let columns: Vec<String> = if query_result.is_empty() {
-        let row = sqlx::query(&format!("SELECT * FROM `{}` LIMIT 1", table))
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| format!("Query failed: {e}"))?;
-        match row {
-            Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
-            None => return Ok(TableInfo { name: table, rows: vec![], columns: vec![] }),
-        }
-    } else {
-        query_result[0].columns().iter().map(|c| c.name().to_string()).collect()
-    };
-    let rows: Vec<HashMap<String, serde_json::Value>> = query_result
-        .iter()
-        .map(|r| {
-            let mut map = HashMap::new();
-            for (i, col) in columns.iter().enumerate() {
-                let val = extract_value(r, i);
-                map.insert(col.clone(), val);
-            }
-            map
+        .map_err(|e| e.to_string())?;
+    let result = driver
+        .preview(&table, limit as i64)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(to_table_info(table, result))
+}
+
+/// 执行任意 SQL（SELECT 返回行集，DML 返回影响行数）。高风险写操作由前端经执行引擎确认后调用。
+#[tauri::command]
+pub async fn db_execute_query(
+    connection: DbConnectionConfig,
+    sql: String,
+) -> Result<QueryResult, String> {
+    let driver = omnipanel_db::connect(&to_params(&connection))
+        .await
+        .map_err(|e| e.to_string())?;
+    driver.execute(&sql).await.map_err(|e| e.to_string())
+}
+
+/// 将列式 QueryResult 转换为前端预览用的 TableInfo（行为 列名→值 的 map）。
+fn to_table_info(name: String, result: QueryResult) -> TableInfo {
+    let rows = result
+        .rows
+        .into_iter()
+        .map(|record| {
+            result
+                .columns
+                .iter()
+                .cloned()
+                .zip(record)
+                .collect::<HashMap<String, serde_json::Value>>()
         })
         .collect();
-    pool.close().await;
-    Ok(TableInfo {
-        name: table,
+    TableInfo {
+        name,
         rows,
-        columns,
-    })
-}
-
-async fn connect(conn: &DbConnectionConfig) -> Result<sqlx::MySqlPool, String> {
-    let opts = MySqlConnectOptions::new()
-        .host(&conn.host)
-        .port(conn.port)
-        .username(&conn.user)
-        .password(&conn.password)
-        .database(&conn.database);
-    MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
-        .await
-        .map_err(|e| format!("Connection failed: {e}"))
-}
-
-fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize) -> serde_json::Value {
-    match row.try_get_raw(index) {
-        Ok(raw) => {
-            if raw.is_null() {
-                return serde_json::Value::Null;
-            }
-            let type_name = raw.type_info().name().to_lowercase();
-            if type_name.contains("int") || type_name.contains("tinyint") {
-                if let Ok(v) = row.try_get::<i64, _>(index) {
-                    return serde_json::json!(v);
-                }
-            }
-            if type_name.contains("float") || type_name.contains("double") || type_name.contains("decimal") {
-                if let Ok(v) = row.try_get::<f64, _>(index) {
-                    return serde_json::json!(v);
-                }
-            }
-            if type_name.contains("char") || type_name.contains("text") || type_name.contains("varchar") {
-                if let Ok(v) = row.try_get::<String, _>(index) {
-                    return serde_json::Value::String(v);
-                }
-            }
-            if type_name.contains("blob") || type_name.contains("binary") {
-                return serde_json::Value::String("[BLOB]".to_string());
-            }
-            if let Ok(v) = row.try_get::<String, _>(index) {
-                serde_json::Value::String(v)
-            } else {
-                serde_json::Value::Null
-            }
-        }
-        Err(_) => serde_json::Value::Null,
+        columns: result.columns,
     }
 }
 

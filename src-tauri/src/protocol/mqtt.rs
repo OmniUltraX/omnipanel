@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 /// MQTT broker connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]

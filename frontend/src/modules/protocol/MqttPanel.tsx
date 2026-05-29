@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useI18n } from "../../i18n";
 
 type MqttQos = 0 | 1 | 2;
 type MqttStatus = "disconnected" | "connecting" | "connected";
@@ -27,6 +28,7 @@ interface MqttIpcMessage {
 }
 
 export function MqttPanel() {
+  const { t } = useI18n();
   const [brokerUrl, setBrokerUrl] = useState("mqtt://broker.hivemq.com:1883");
   const [clientId, setClientId] = useState("omnipanel-001");
   const [status, setStatus] = useState<MqttStatus>("disconnected");
@@ -155,7 +157,7 @@ export function MqttPanel() {
       <div style={{ display: "flex", gap: "var(--sp-2)", marginBottom: "var(--sp-4)" }}>
         <input
           className="url-input"
-          placeholder="mqtt://broker.example.com:1883"
+          placeholder={t("protocol.mqtt.brokerPlaceholder")}
           value={brokerUrl}
           onChange={(e) => setBrokerUrl(e.target.value)}
           style={{ flex: 1 }}
@@ -163,7 +165,7 @@ export function MqttPanel() {
         />
         <input
           className="input"
-          placeholder="Client ID"
+          placeholder={t("protocol.mqtt.clientId")}
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
           style={{ width: "140px" }}
@@ -173,7 +175,11 @@ export function MqttPanel() {
           className={`btn ${status === "connected" ? "btn-danger" : "btn-primary"}`}
           onClick={handleConnect}
         >
-          {status === "connected" ? "Disconnect" : status === "connecting" ? "..." : "Connect"}
+          {status === "connected"
+            ? t("protocol.common.disconnect")
+            : status === "connecting"
+              ? "…"
+              : t("protocol.common.connect")}
         </button>
       </div>
 
@@ -189,13 +195,13 @@ export function MqttPanel() {
       >
         <span className={`badge ${status === "connected" ? "badge-success" : "badge-muted"}`}>
           {status === "connecting"
-            ? "Connecting..."
+            ? t("protocol.common.connecting")
             : status === "connected"
-              ? "Connected"
-              : "Disconnected"}
+              ? t("protocol.common.connected")
+              : t("protocol.common.disconnected")}
         </span>
         {status === "connected" && (
-          <span className="text-muted">Messages: {messages.length}</span>
+          <span className="text-muted">{t("protocol.common.messages", { count: messages.length })}</span>
         )}
       </div>
 
@@ -209,10 +215,10 @@ export function MqttPanel() {
             marginBottom: "var(--sp-2)",
           }}
         >
-          <span style={{ fontSize: "11px", fontWeight: 600 }}>Subscriptions</span>
+          <span style={{ fontSize: "11px", fontWeight: 600 }}>{t("protocol.mqtt.subscriptions")}</span>
           <input
             className="input"
-            placeholder="Topic to subscribe..."
+            placeholder={t("protocol.mqtt.subscribeTopic")}
             value={newTopic}
             onChange={(e) => setNewTopic(e.target.value)}
             style={{ width: "240px", fontSize: "11px" }}
@@ -233,7 +239,7 @@ export function MqttPanel() {
             onClick={handleSubscribe}
             disabled={status !== "connected"}
           >
-            Subscribe
+            {t("protocol.mqtt.subscribe")}
           </button>
         </div>
         <div className="mqtt-topics">
@@ -252,7 +258,7 @@ export function MqttPanel() {
       <div className="mqtt-messages">
         {messages.length === 0 ? (
           <div style={{ color: "var(--text-muted)", fontStyle: "italic", padding: "var(--sp-4)" }}>
-            No messages received
+            {t("protocol.mqtt.noMessages")}
           </div>
         ) : (
           messages.map((msg, i) => (
@@ -261,7 +267,7 @@ export function MqttPanel() {
               <span className="mqtt-payload">{msg.payload}</span>
               <span className="mqtt-meta">
                 QoS {msg.qos}
-                {msg.retain ? " · Retain" : ""} · {msg.time}
+                {msg.retain ? ` · ${t("protocol.common.retain")}` : ""} · {msg.time}
               </span>
             </div>
           ))
@@ -272,7 +278,7 @@ export function MqttPanel() {
       <div style={{ display: "flex", gap: "var(--sp-2)" }}>
         <input
           className="input"
-          placeholder="Topic"
+          placeholder={t("protocol.mqtt.topic")}
           value={pubTopic}
           onChange={(e) => setPubTopic(e.target.value)}
           style={{ width: "200px" }}
@@ -290,7 +296,7 @@ export function MqttPanel() {
         </select>
         <input
           className="input"
-          placeholder='{"action":"reboot"}'
+          placeholder={t("protocol.mqtt.publishPayload")}
           value={pubPayload}
           onChange={(e) => setPubPayload(e.target.value)}
           style={{ flex: 1 }}
@@ -301,7 +307,7 @@ export function MqttPanel() {
           onClick={handlePublish}
           disabled={status !== "connected"}
         >
-          Publish
+          {t("protocol.mqtt.publish")}
         </button>
       </div>
     </div>

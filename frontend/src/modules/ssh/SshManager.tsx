@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { HostListPanel } from "../../components/workspace/HostListPanel";
-import { workspaceResources, getResourceById, type WorkspaceResource } from "../../lib/resourceRegistry";
+import { type WorkspaceResource } from "../../lib/resourceRegistry";
+import { useWorkspaceResources } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
@@ -261,10 +262,12 @@ function presetBadgeClass(tone: LaunchPreset["tone"]) {
   return "badge badge-accent";
 }
 
+const SSH_PATH = "/ssh";
+
 export function SshManager() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const getResourceForPath = useWorkspaceStore((s) => s.getResourceForPath);
   const selectResource = useWorkspaceStore((s) => s.selectResource);
   const setActivePath = useWorkspaceStore((s) => s.setActivePath);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
@@ -275,10 +278,10 @@ export function SshManager() {
   const [moduleTab, setModuleTab] = useState<ModuleTab>("hosts");
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
 
-  const sshResources = useMemo(() => workspaceResources.filter((resource) => resource.type === "ssh"), []);
-  const selectedResource = getResourceById(activeResourceId);
-  const fallbackSshResource = sshResources[0] ?? null;
-  const activeResource = selectedResource?.type === "ssh" ? selectedResource : fallbackSshResource;
+  const allResources = useWorkspaceResources();
+  const sshResources = useMemo(() => allResources.filter((resource) => resource.type === "ssh"), [allResources]);
+  const resolvedSsh = getResourceForPath(SSH_PATH);
+  const activeResource = resolvedSsh?.type === "ssh" ? resolvedSsh : sshResources[0] ?? null;
   const profile = getProfile(activeResource);
   const onlineHosts = useMemo(() => sshResources.filter((resource) => resource.status !== "offline").length, [sshResources]);
   const offlineHosts = useMemo(() => sshResources.filter((resource) => resource.status === "offline").length, [sshResources]);
@@ -339,10 +342,10 @@ export function SshManager() {
   useTopbarTabs(topbarTabs, { onSelect: (id) => setModuleTab(id as ModuleTab) }, { mode: "segment" });
 
   useEffect(() => {
-    if (activeResource && selectedResource?.id !== activeResource.id) {
-      selectResource(activeResource.id);
+    if (!useWorkspaceStore.getState().selectedResourceByPath[SSH_PATH] && sshResources[0]) {
+      selectResource(sshResources[0].id, SSH_PATH);
     }
-  }, [activeResource, selectResource, selectedResource?.id]);
+  }, [sshResources, selectResource]);
 
   useEffect(() => {
     setDetailTab("overview");
@@ -366,7 +369,7 @@ export function SshManager() {
   const openModule = useCallback(
     (path: string, resourceId?: string) => {
       if (resourceId) {
-        selectResource(resourceId);
+        selectResource(resourceId, path);
       }
       setActivePath(path);
       navigate(path);

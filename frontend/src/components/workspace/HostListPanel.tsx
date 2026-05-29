@@ -20,13 +20,16 @@ interface HostListPanelProps {
   onConnect?: (hostId: string) => void;
 }
 
+const SSH_PATH = "/ssh";
+
 export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
+  const selectedResourceByPath = useWorkspaceStore((s) => s.selectedResourceByPath);
   const selectResource = useWorkspaceStore((s) => s.selectResource);
   const setActivePath = useWorkspaceStore((s) => s.setActivePath);
+  const activeHostId = selectedResourceByPath[SSH_PATH];
 
   const grouped = useMemo(() => {
     const filtered = resources.filter(
@@ -45,9 +48,9 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   }, [resources, query, t]);
 
   const selectHost = (resource: WorkspaceResource) => {
-    selectResource(resource.id);
-    setActivePath(resource.modulePath);
-    navigate(resource.modulePath);
+    selectResource(resource.id, SSH_PATH);
+    setActivePath(SSH_PATH);
+    navigate(SSH_PATH);
   };
 
   return (
@@ -75,7 +78,7 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
               {group.items.map((host) => (
                 <div
                   key={host.id}
-                  className={`host-item-row${activeResourceId === host.id ? " active" : ""}`}
+                  className={`host-item-row${activeHostId === host.id ? " active" : ""}`}
                 >
                   <button
                     type="button"

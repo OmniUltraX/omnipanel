@@ -119,9 +119,7 @@ pub fn scan_ports() -> Result<Vec<PortInfo>, String> {
                 serialport::SerialPortType::BluetoothPort => {
                     ("Bluetooth".to_string(), None, None, None, None)
                 }
-                serialport::SerialPortType::PciPort => {
-                    ("PCI".to_string(), None, None, None, None)
-                }
+                serialport::SerialPortType::PciPort => ("PCI".to_string(), None, None, None, None),
                 _ => ("Unknown".to_string(), None, None, None, None),
             };
 

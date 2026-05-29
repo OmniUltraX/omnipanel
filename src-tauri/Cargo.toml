@@ -19,7 +19,11 @@ tauri-plugin-fs = "2"
 tauri-plugin-updater = "2"
 omnipanel-core = { path = "../crates/omnipanel-core" }
 omnipanel-ai = { path = "../crates/omnipanel-ai" }
-omnipanel-renderer = { path = "../crates/omnipanel-renderer" }
+omnipanel-error = { path = "../crates/omnipanel-error" }
+omnipanel-store = { path = "../crates/omnipanel-store" }
+omnipanel-exec = { path = "../crates/omnipanel-exec" }
+omnipanel-ssh = { path = "../crates/omnipanel-ssh" }
+omnipanel-db = { path = "../crates/omnipanel-db" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -39,3 +43,7 @@ futures-util.workspace = true
 # Terminal
 hex.workspace = true
 url.workspace = true
+base64.workspace = true
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta.workspace = true
+specta-typescript = "=0.0.12"
