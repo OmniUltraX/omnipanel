@@ -1,10 +1,8 @@
 import { Fragment, useEffect, useCallback, useState, useMemo, useRef, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Channel, invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { createTerminalTabId, useTerminalStore, type PaneLayout, type TerminalPane, type TerminalTab } from "../../stores/terminalStore";
+import { useTerminal } from "../../hooks/useTerminal";
 import { getResourceById, getSshHosts, type WorkspaceResource } from "../../lib/resourceRegistry";
 import { openSshTerminalSession } from "../../lib/terminalSession";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -223,16 +221,30 @@ function TerminalView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const backendSidRef = useRef<string | null>(null);
+  const sendRef = useRef<((cmd: string) => void) | null>(null);
   const setStatus = useTerminalStore((state) => state.setStatus);
 
+  useTerminal(sessionId, containerRef, undefined, undefined, undefined, !isTauriRuntime, {
+    inputMode: "external",
+    sendRef,
+    active: true,
+  });
+
   useEffect(() => {
+    if (!isTauriRuntime) return;
+    onSenderChange(sessionId, sendRef.current);
+    return () => {
+      onSenderChange(sessionId, null);
+    };
+  }, [onSenderChange, sessionId]);
+
+  useEffect(() => {
+    if (isTauriRuntime) return;
     const container = containerRef.current;
     if (!container) return;
 
     const prompt = getPromptPrefix(resource);
     const resourceName = resource?.name ?? "omnipanel";
-
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -247,95 +259,18 @@ function TerminalView({
       allowTransparency: false,
     });
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
     term.open(container);
     term.attachCustomKeyEventHandler(() => false);
-
-    const observer = new ResizeObserver(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        undefined;
-      }
-    });
-    observer.observe(container);
-
-    const fitTimer = setTimeout(() => fitAddon.fit(), 50);
     termRef.current = term;
-
-    if (!isTauriRuntime) {
-      seedMockTerminal(term, resource, startup);
-      setStatus(sessionId, "connected");
-      onSenderChange(sessionId, (cmd: string) => {
-        term.writeln("");
-        term.writeln(`\x1b[32m${prompt}\x1b[0m ${cmd}`);
-        getMockCommandOutput(cmd, resourceName).forEach((line) => term.writeln(line));
-      });
-
-      return () => {
-        clearTimeout(fitTimer);
-        observer.disconnect();
-        onSenderChange(sessionId, null);
-        setStatus(sessionId, "disconnected");
-        term.dispose();
-        termRef.current = null;
-      };
-    }
-
-    const onOutput = new Channel((data: unknown) => {
-      try {
-        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as number[]);
-        term.write(bytes);
-      } catch (error) {
-        console.error("[Terminal] onOutput error:", error);
-      }
-    });
-
-    invoke<string>("create_terminal", {
-      cols: term.cols,
-      rows: term.rows,
-      onOutput,
-    })
-      .then((sid) => {
-        backendSidRef.current = sid;
-        useTerminalStore.getState().setBackendSessionId(sessionId, sid);
-        setStatus(sessionId, "connected");
-      })
-      .catch((error) => {
-        console.error("[Terminal] create_terminal failed:", error);
-        setStatus(sessionId, "disconnected");
-        term.writeln(`\r\n\x1b[31mFailed to create terminal: ${error}\x1b[0m`);
-      });
-
-    const unlisten = listen<{ session_id: string; event: string }>("terminal-event", (event) => {
-      if (event.payload.session_id === backendSidRef.current && event.payload.event === "exited") {
-        setStatus(sessionId, "disconnected");
-        term.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
-      }
-    });
-
-    onSenderChange(sessionId, async (cmd: string) => {
-      term.write(`\r\n\x1b[36m${cmd}\x1b[0m\r\n`);
-      if (backendSidRef.current) {
-        try {
-          await invoke("write_terminal", {
-            id: backendSidRef.current,
-            data: Array.from(new TextEncoder().encode(cmd + "\n")),
-          });
-        } catch (error) {
-          term.writeln(`\x1b[31mFailed to send: ${error}\x1b[0m`);
-        }
-      }
+    seedMockTerminal(term, resource, startup);
+    setStatus(sessionId, "connected");
+    onSenderChange(sessionId, (cmd: string) => {
+      term.writeln("");
+      term.writeln(`\x1b[32m${prompt}\x1b[0m ${cmd}`);
+      getMockCommandOutput(cmd, resourceName).forEach((line) => term.writeln(line));
     });
 
     return () => {
-      clearTimeout(fitTimer);
-      observer.disconnect();
-      unlisten.then((fn) => fn()).catch(() => undefined);
-      if (backendSidRef.current) {
-        invoke("close_terminal", { id: backendSidRef.current }).catch(() => undefined);
-      }
       onSenderChange(sessionId, null);
       setStatus(sessionId, "disconnected");
       term.dispose();

@@ -4,11 +4,14 @@ import { TerminalTabContent } from "./TerminalTabContent";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { Terminal } from "@xterm/xterm";
+import type { TerminalInputMode } from "../../hooks/useTerminal";
 
 interface PaneRendererProps {
   layout: PaneLayout;
   activeTabId: string | null;
   suspended?: boolean;
+  inputMode?: TerminalInputMode;
+  sendRef?: React.RefObject<((cmd: string) => void) | null>;
   onTerminalReady: (tabId: string, terminal: Terminal, searchAddon: SearchAddon) => void;
   onCommand?: (command: string) => void;
   onBlockRightClick?: (block: TerminalBlock, position: { x: number; y: number }) => void;
@@ -23,6 +26,8 @@ export function PaneRenderer({
   layout,
   activeTabId,
   suspended = false,
+  inputMode = "interactive",
+  sendRef,
   onTerminalReady,
   onCommand,
   onBlockRightClick,
@@ -50,6 +55,8 @@ export function PaneRenderer({
           layout={child}
           activeTabId={activeTabId}
           suspended={suspended}
+          inputMode={inputMode}
+          sendRef={sendRef}
           onTerminalReady={onTerminalReady}
           onCommand={onCommand}
           onBlockRightClick={onBlockRightClick}
@@ -134,7 +141,7 @@ function SplitContainer({ direction, children, childKeys }: SplitContainerProps)
       }}
     >
       {children.map((child, i) => (
-        <div key={childKeys[i]} style={{ display: "flex", flex: `${sizes[i]} 1 0%`, minHeight: 0, minWidth: 0 }}>
+        <div key={childKeys[i]} style={{ display: "flex", flex: `${sizes[i]} 1 0%`, minHeight: 0, minWidth: 0, width: "100%" }}>
           {child}
           {i < children.length - 1 && (
             <div

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -33,6 +33,61 @@ const TERMINAL_THEME: ITheme = {
   brightWhite: "#fff9f0",
 };
 
+export type TerminalInputMode = "interactive" | "external";
+
+export interface UseTerminalOptions {
+  inputMode?: TerminalInputMode;
+  /** When set and the pane is active, receives the sendCommand function for external input. */
+  sendRef?: RefObject<((cmd: string) => void) | null>;
+  /** Whether this pane is the currently active tab. */
+  active?: boolean;
+}
+
+function toBytes(data: string): number[] {
+  return Array.from(new TextEncoder().encode(data));
+}
+
+function decodeOutput(data: unknown): Uint8Array | null {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (Array.isArray(data)) return new Uint8Array(data);
+  return null;
+}
+
+/** Prevent concurrent create_terminal calls for the same pane (StrictMode / re-render races). */
+const pendingBackendSessions = new Map<string, Promise<string>>();
+
+function findPaneById(sessionId: string) {
+  return useTerminalStore
+    .getState()
+    .tabs.flatMap((tab) => tab.panes)
+    .find((pane) => pane.id === sessionId);
+}
+
+async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
+  const existingSid = findPaneById(sessionId)?.backendSessionId;
+  if (existingSid) return existingSid;
+
+  let pending = pendingBackendSessions.get(sessionId);
+  if (!pending) {
+    pending = invoke<string>("create_terminal", { cols, rows })
+      .then((sid) => {
+        const pane = findPaneById(sessionId);
+        if (pane?.backendSessionId) {
+          invoke("close_terminal", { id: sid }).catch(() => {});
+          return pane.backendSessionId;
+        }
+        useTerminalStore.getState().setBackendSessionId(sessionId, sid);
+        return sid;
+      })
+      .finally(() => {
+        pendingBackendSessions.delete(sessionId);
+      });
+    pendingBackendSessions.set(sessionId, pending);
+  }
+  return pending;
+}
+
 export function useTerminal(
   sessionId: string,
   containerRef: RefObject<HTMLDivElement | null>,
@@ -40,19 +95,27 @@ export function useTerminal(
   onCommand?: (command: string) => void,
   onBlockRightClick?: (block: TerminalBlock, position: { x: number; y: number }) => void,
   suspended = false,
+  options: UseTerminalOptions = {},
 ) {
+  const { inputMode = "interactive", sendRef, active = true } = options;
   const termRef = useRef<Terminal | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const sendCommandRef = useRef<((cmd: string) => void) | null>(null);
   const suspendedRef = useRef(suspended);
   suspendedRef.current = suspended;
+  const onTerminalReadyRef = useRef(onTerminalReady);
+  onTerminalReadyRef.current = onTerminalReady;
+  const onCommandRef = useRef(onCommand);
+  onCommandRef.current = onCommand;
+  const onBlockRightClickRef = useRef(onBlockRightClick);
+  onBlockRightClickRef.current = onBlockRightClick;
   const runtimeRef = useRef<{
     resizeObserver: ResizeObserver | null;
     fitAddon: FitAddon | null;
     container: HTMLDivElement | null;
     outputBuffer: Uint8Array[];
-  }>({ resizeObserver: null, fitAddon: null, container: null, outputBuffer: [] });
-  const setTerminal = useTerminalStore((s) => s.setTerminal);
-  const setStatus = useTerminalStore((s) => s.setStatus);
+    initTerminal: (() => void) | null;
+  }>({ resizeObserver: null, fitAddon: null, container: null, outputBuffer: [], initTerminal: null });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -67,7 +130,8 @@ export function useTerminal(
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let backendSid: string | null = null;
     let pendingInput: string[] = [];
-    let unlistenPromise: Promise<UnlistenFn> | null = null;
+    let unlistenOutput: UnlistenFn | null = null;
+    let unlistenEvent: UnlistenFn | null = null;
     const disposables: IDisposable[] = [];
 
     // Shell integration state
@@ -78,6 +142,48 @@ export function useTerminal(
       blockId?: string;
     } | null = null;
     let currentCwd = "";
+
+    function flushPendingInput() {
+      if (!backendSid) return;
+      for (const data of pendingInput) {
+        invoke("write_terminal", {
+          id: backendSid,
+          data: toBytes(data),
+        }).catch((err) => {
+          console.error(`[Terminal ${sessionId}] write_terminal failed:`, err);
+        });
+      }
+      pendingInput = [];
+    }
+
+    function writeToBackend(data: string) {
+      if (!backendSid) {
+        pendingInput.push(data);
+        return;
+      }
+      invoke("write_terminal", {
+        id: backendSid,
+        data: toBytes(data),
+      }).catch((err) => {
+        console.error(`[Terminal ${sessionId}] write_terminal failed:`, err);
+      });
+    }
+
+    function sendCommand(cmd: string) {
+      writeToBackend(`${cmd}\r`);
+    }
+
+    function writeSessionBanner() {
+      const pane = useTerminalStore
+        .getState()
+        .tabs.flatMap((tab) => tab.panes)
+        .find((item) => item.id === sessionId);
+      if (pane?.type !== "remote" || !term) return;
+      const host = getResourceById(pane.resourceId);
+      term.writeln(`\r\n\x1b[33m[SSH] ${host?.name ?? pane.resourceId} · ${host?.subtitle ?? ""}\x1b[0m\r\n`);
+    }
+
+    sendCommandRef.current = sendCommand;
 
     function setupShellIntegration(t: Terminal) {
       const addBlock = useBlocksStore.getState().addBlock;
@@ -159,8 +265,71 @@ export function useTerminal(
       );
     }
 
+    async function attachOutputListener() {
+      unlistenOutput = await listen<{ session_id: string; data: unknown }>(
+        "terminal-output",
+        (ev) => {
+          if (destroyed || ev.payload.session_id !== backendSid) return;
+          try {
+            const bytes = decodeOutput(ev.payload.data);
+            if (!bytes) return;
+            if (suspendedRef.current) {
+              runtimeRef.current.outputBuffer.push(bytes);
+              return;
+            }
+            term?.write(bytes);
+          } catch (e) {
+            console.error(`[Terminal ${sessionId}] terminal-output error:`, e);
+          }
+        }
+      );
+    }
+
+    async function attachEventListener() {
+      unlistenEvent = await listen<{ session_id: string; event: string }>(
+        "terminal-event",
+        (ev) => {
+          if (destroyed || ev.payload.session_id !== backendSid) return;
+          if (ev.payload.event === "exited") {
+            useTerminalStore.getState().setStatus(sessionId, "disconnected");
+            if (!suspendedRef.current) {
+              term?.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
+            }
+          }
+        }
+      );
+    }
+
+    async function ensureBackendSession(cols: number, rows: number) {
+      const existingSid = findPaneById(sessionId)?.backendSessionId;
+
+      if (existingSid) {
+        backendSid = existingSid;
+        useTerminalStore.getState().setStatus(sessionId, "connected");
+        writeSessionBanner();
+        flushPendingInput();
+        return;
+      }
+
+      useTerminalStore.getState().setStatus(sessionId, "connecting");
+      try {
+        const sid = await acquireBackendSession(sessionId, cols, rows);
+        if (destroyed) return;
+        backendSid = sid;
+        useTerminalStore.getState().setStatus(sessionId, "connected");
+        writeSessionBanner();
+        flushPendingInput();
+      } catch (err) {
+        if (destroyed) return;
+        console.error(`[Terminal ${sessionId}] create_terminal failed:`, err);
+        term?.writeln(`\r\n\x1b[31mFailed to create terminal: ${err}\x1b[0m`);
+        useTerminalStore.getState().setStatus(sessionId, "disconnected");
+        pendingInput = [];
+      }
+    }
+
     function initTerminal() {
-      if (destroyed || term) return;
+      if (destroyed || term || suspendedRef.current) return;
 
       try {
         term = new Terminal({
@@ -193,78 +362,21 @@ export function useTerminal(
 
         setupShellIntegration(term);
 
-        // Wire up Tauri Channel for output streaming
-        // Pass callback directly in constructor — more reliable than setting .onmessage
-        const onOutput = new Channel((data: unknown) => {
-          if (destroyed) return;
-          try {
-            const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as number[]);
-            if (suspendedRef.current) {
-              runtimeRef.current.outputBuffer.push(bytes);
-              return;
-            }
-            term!.write(bytes);
-          } catch (e) {
-            console.error(`[Terminal ${sessionId}] onOutput error:`, e, "data:", data);
-          }
-        });
+        void attachOutputListener();
+        void attachEventListener();
+        void ensureBackendSession(term.cols, term.rows);
 
-        // Create terminal session on the backend
-        invoke<string>("create_terminal", {
-          cols: term.cols,
-          rows: term.rows,
-          onOutput,
-        })
-          .then((sid) => {
-            if (destroyed) return;
-            backendSid = sid;
-            useTerminalStore.getState().setBackendSessionId(sessionId, sid);
-            setStatus(sessionId, "connected");
-            const pane = useTerminalStore
-              .getState()
-              .tabs.flatMap((tab) => tab.panes)
-              .find((item) => item.id === sessionId);
-            if (pane?.type === "remote") {
-              const host = getResourceById(pane.resourceId);
-              term!.writeln(
-                `\r\n\x1b[33m[SSH] ${host?.name ?? pane.resourceId} · ${host?.subtitle ?? ""}\x1b[0m\r\n`
-              );
-            }
-            // Flush any buffered input
-            for (const data of pendingInput) {
-              invoke("write_terminal", {
-                id: sid,
-                data: Array.from(new TextEncoder().encode(data)),
-              });
-            }
-            pendingInput = [];
-          })
-          .catch((err) => {
-            if (destroyed) return;
-            console.error(`[Terminal ${sessionId}] create_terminal failed:`, err);
-            term!.writeln(`\r\n\x1b[31mFailed to create terminal: ${err}\x1b[0m`);
-            setStatus(sessionId, "disconnected");
-            pendingInput = [];
-          });
+        if (inputMode === "external") {
+          term.attachCustomKeyEventHandler(() => false);
+        } else {
+          disposables.push(
+            term.onData((data) => {
+              if (destroyed) return;
+              writeToBackend(data);
+            })
+          );
+        }
 
-        // Wire terminal input -> backend
-        disposables.push(
-          term.onData((data) => {
-            if (destroyed) return;
-            if (!backendSid) {
-              pendingInput.push(data);
-              return;
-            }
-            invoke("write_terminal", {
-              id: backendSid,
-              data: Array.from(new TextEncoder().encode(data)),
-            }).catch((err) => {
-              console.error(`[Terminal ${sessionId}] write_terminal failed:`, err);
-            });
-          })
-        );
-
-        // Handle resize with debounce
         resizeObserver = new ResizeObserver(() => {
           if (suspendedRef.current || !fitAddon || !term) return;
           fitAddon.fit();
@@ -283,27 +395,10 @@ export function useTerminal(
         runtimeRef.current.fitAddon = fitAddon;
         runtimeRef.current.container = container!;
 
-        // Listen for process exit
-        unlistenPromise = listen<{ session_id: string; event: string }>(
-          "terminal-event",
-          (ev) => {
-            if (destroyed) return;
-            if (ev.payload.session_id === backendSid) {
-              if (ev.payload.event === "exited") {
-                setStatus(sessionId, "disconnected");
-                if (!suspendedRef.current) {
-                  term!.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
-                }
-              }
-            }
-          }
-        );
-
         termRef.current = term;
-        setTerminal(sessionId, term);
+        useTerminalStore.getState().setTerminal(sessionId, term);
 
-        // Intercept Enter key for command detection
-        if (onCommand) {
+        if (onCommandRef.current) {
           term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
             if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && e.type === "keydown") {
               const buf = term!.buffer.active;
@@ -316,7 +411,7 @@ export function useTerminal(
                 }
                 text = text.replace(/\x1b\[[0-9;]*m/g, "").trim();
                 if (text.length > 0) {
-                  onCommand(text);
+                  onCommandRef.current?.(text);
                 }
               }
             }
@@ -324,8 +419,7 @@ export function useTerminal(
           });
         }
 
-        // Right-click on terminal blocks
-        if (onBlockRightClick) {
+        if (onBlockRightClickRef.current) {
           contextmenuHandler = (e: MouseEvent) => {
             if (!term || destroyed) return;
             const rect = container!.getBoundingClientRect();
@@ -340,7 +434,7 @@ export function useTerminal(
 
             if (clickedBlock) {
               e.preventDefault();
-              onBlockRightClick(clickedBlock, { x: e.clientX, y: e.clientY });
+              onBlockRightClickRef.current?.(clickedBlock, { x: e.clientX, y: e.clientY });
             }
           };
           container!.addEventListener("contextmenu", contextmenuHandler);
@@ -348,13 +442,16 @@ export function useTerminal(
 
         term.focus();
 
-        if (onTerminalReady && searchAddon) {
-          onTerminalReady(term, searchAddon);
+        const readyCb = onTerminalReadyRef.current;
+        if (readyCb && searchAddon) {
+          readyCb(term, searchAddon);
         }
       } catch (err) {
         console.error(`[Terminal ${sessionId}] initTerminal failed:`, err);
       }
     }
+
+    runtimeRef.current.initTerminal = initTerminal;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -386,10 +483,12 @@ export function useTerminal(
       if (contextmenuHandler) {
         container.removeEventListener("contextmenu", contextmenuHandler);
       }
+      sendCommandRef.current = null;
       for (const disposable of disposables) {
         disposable.dispose();
       }
-      unlistenPromise?.then((unlisten) => unlisten()).catch(() => {});
+      unlistenOutput?.();
+      unlistenEvent?.();
       webglAddon?.dispose();
       if (term) {
         const pane = useTerminalStore
@@ -404,8 +503,9 @@ export function useTerminal(
       }
       termRef.current = null;
       searchAddonRef.current = null;
+      runtimeRef.current.initTerminal = null;
     };
-  }, [containerRef, onBlockRightClick, onCommand, onTerminalReady, sessionId, setStatus, setTerminal]);
+  }, [sessionId, inputMode]);
 
   useEffect(() => {
     const rt = runtimeRef.current;
@@ -418,6 +518,12 @@ export function useTerminal(
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
     }
+    if (!term && rt.container && rt.initTerminal) {
+      const rect = rt.container.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        rt.initTerminal();
+      }
+    }
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
         term.write(bytes);
@@ -426,6 +532,15 @@ export function useTerminal(
     }
     requestAnimationFrame(() => rt.fitAddon?.fit());
   }, [suspended]);
+
+  useEffect(() => {
+    if (!sendRef) return;
+    if (active && !suspended) {
+      sendRef.current = sendCommandRef.current;
+    } else if (sendRef.current === sendCommandRef.current) {
+      sendRef.current = null;
+    }
+  }, [active, sendRef, suspended]);
 
   return { termRef, searchAddonRef };
 }

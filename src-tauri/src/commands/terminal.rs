@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 
 use crate::state::AppState;
@@ -13,7 +12,6 @@ pub async fn create_terminal(
     state: State<'_, AppState>,
     cols: u16,
     rows: u16,
-    on_output: Channel<Vec<u8>>,
 ) -> Result<String, String> {
     let id = format!("term-{}", TERMINAL_COUNTER.fetch_add(1, Ordering::Relaxed));
 
@@ -25,7 +23,8 @@ pub async fn create_terminal(
     let mut session = Terminal::new(config)
         .map_err(|e| format!("Failed to spawn terminal: {e}"))?;
 
-    // Take the reader and spawn a background thread to forward output
+    // Take the reader and spawn a background thread to forward output via events.
+    // Events survive React remounts unlike Tauri Channels.
     let reader = session
         .take_reader()
         .ok_or_else(|| "Failed to take PTY reader".to_string())?;
@@ -41,8 +40,17 @@ pub async fn create_terminal(
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
-                    if on_output.send(buf[..n].to_vec()).is_err() {
-                        break; // Frontend disconnected
+                    if app_handle
+                        .emit(
+                            "terminal-output",
+                            serde_json::json!({
+                                "session_id": session_id,
+                                "data": &buf[..n],
+                            }),
+                        )
+                        .is_err()
+                    {
+                        break;
                     }
                 }
                 Err(_) => {
@@ -59,7 +67,6 @@ pub async fn create_terminal(
         }
     });
 
-    // Store session (reader is already taken out, which is fine)
     let mut sessions = state.terminal_sessions.lock().await;
     sessions.insert(id.clone(), session);
 
