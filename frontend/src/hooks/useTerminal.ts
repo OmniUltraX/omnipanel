@@ -101,6 +101,22 @@ function disposeBackendSession(sessionId: string, backendSid: string) {
   invoke(cmd, { id: backendSid }).catch(() => {});
 }
 
+/** 关闭窗格对应的后端 PTY/SSH（仅在用户关闭窗格/标签时调用，勿在 React 卸载时调用） */
+export function disposePaneBackendSession(paneId: string) {
+  const pane = findPaneById(paneId);
+  if (!pane?.backendSessionId) return;
+  disposeBackendSession(paneId, pane.backendSessionId);
+  useTerminalStore.getState().setBackendSessionId(paneId, null);
+}
+
+export function disposeTabBackendSessions(tabId: string) {
+  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
+  if (!tab) return;
+  for (const pane of tab.panes) {
+    disposePaneBackendSession(pane.id);
+  }
+}
+
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const existingSid = findPaneById(sessionId)?.backendSessionId;
   if (existingSid) return existingSid;
@@ -198,6 +214,10 @@ export function useTerminal(
       pendingInput = [];
     }
 
+    function isSessionNotFoundError(err: unknown): boolean {
+      return String(err).includes("not found");
+    }
+
     function writeToBackend(data: string) {
       if (!backendSid) {
         pendingInput.push(data);
@@ -207,6 +227,15 @@ export function useTerminal(
         id: backendSid,
         data: toBytes(data),
       }).catch((err) => {
+        if (isSessionNotFoundError(err)) {
+          useTerminalStore.getState().setBackendSessionId(sessionId, null);
+          backendSid = null;
+          pendingInput.push(data);
+          if (term) {
+            void ensureBackendSession(term.cols, term.rows);
+          }
+          return;
+        }
         console.error(`[Terminal ${sessionId}] ${writeCmd} failed:`, err);
       });
     }
@@ -344,6 +373,14 @@ export function useTerminal(
         term.reset();
         if (bytes && bytes.length > 0) term.write(bytes);
       } catch (err) {
+        if (isSessionNotFoundError(err)) {
+          useTerminalStore.getState().setBackendSessionId(sessionId, null);
+          backendSid = null;
+          if (term) {
+            void ensureBackendSession(term.cols, term.rows);
+          }
+          return;
+        }
         console.error(`[Terminal ${sessionId}] terminal_snapshot failed:`, err);
       } finally {
         restoring = false;
@@ -491,6 +528,10 @@ export function useTerminal(
 
         term.focus();
 
+        if (sendRef) {
+          sendRef.current = sendCommandRef.current;
+        }
+
         const readyCb = onTerminalReadyRef.current;
         if (readyCb && searchAddon) {
           readyCb(term, searchAddon);
@@ -540,14 +581,6 @@ export function useTerminal(
       unlistenEvent?.();
       webglAddon?.dispose();
       if (term) {
-        const pane = useTerminalStore
-          .getState()
-          .tabs.flatMap((tab) => tab.panes)
-          .find((item) => item.id === sessionId);
-        const sid = pane?.backendSessionId;
-        if (sid) {
-          disposeBackendSession(sessionId, sid);
-        }
         term.dispose();
       }
       termRef.current = null;

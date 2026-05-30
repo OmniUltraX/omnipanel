@@ -1,6 +1,12 @@
 # OmniPanel Shell Integration for Bash/Zsh
 # Emits OSC 133 sequences for command boundary detection (Blocks)
 
+# 先加载用户配置，保留与原生终端一致的 PS1 / 主题
+if [[ -f "${HOME}/.bashrc" ]]; then
+    # shellcheck disable=SC1090
+    . "${HOME}/.bashrc"
+fi
+
 __omnipanel_prompt_start() {
     printf "\033]133;A\007"
     printf "\033]1337;CurrentDir=%s\007" "$PWD"

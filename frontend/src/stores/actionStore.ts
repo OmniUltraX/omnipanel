@@ -6,8 +6,11 @@ import { getResourceById, type EnvironmentTag } from "../lib/resourceRegistry";
 
 export type WorkspaceActionStatus = "draft" | "blocked" | "confirmed" | "running" | "completed" | "failed" | "cancelled";
 
-/** 后端执行引擎可直接处理（已注册 executor）的动作类型。其余类型视为记录型，前端即时完成。 */
-const EXECUTABLE_TYPES = new Set<WorkspaceAction["type"]>(["terminal", "docker", "server"]);
+/**
+ * 后端执行引擎可直接处理（已注册 executor）的动作类型。其余类型视为记录型，前端即时完成。
+ * terminal 不在此列：终端面板命令已在 PTY/SSH 会话中执行，此处仅作审计记录，避免 Windows 上重复 cmd /C 弹窗。
+ */
+const EXECUTABLE_TYPES = new Set<WorkspaceAction["type"]>(["docker", "server"]);
 
 /** `action-progress` 事件 payload（与后端 omnipanel-exec::ActionProgress 对应；事件类型 specta 不导出，故手定义）。 */
 interface ActionProgressEvent {

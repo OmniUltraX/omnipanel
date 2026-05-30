@@ -22,16 +22,11 @@ export interface TerminalPane {
   status: "connecting" | "connected" | "disconnected";
 }
 
-export type PaneLayout =
-  | { type: "leaf"; paneId: string }
-  | { type: "split"; direction: "horizontal" | "vertical"; children: PaneLayout[]; sizes?: number[] };
-
 export interface TerminalTab {
   id: string;
   title: string;
   panes: TerminalPane[];
   activePaneId: string;
-  layout: PaneLayout;
 }
 
 interface CreateTabOptions {
@@ -46,11 +41,11 @@ interface TerminalState {
   removeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   setActivePane: (tabId: string, paneId: string) => void;
-  replaceTabLayout: (tabId: string, panes: TerminalPane[], layout: PaneLayout, activePaneId: string) => void;
-  updateTabLayout: (tabId: string, layout: PaneLayout) => void;
+  addPaneToTab: (tabId: string, pane: TerminalPane) => void;
+  removePaneFromTab: (tabId: string, paneId: string) => void;
   setTerminal: (paneId: string, terminal: Terminal) => void;
   setStatus: (paneId: string, status: TerminalPane["status"]) => void;
-  setBackendSessionId: (paneId: string, backendSessionId: string) => void;
+  setBackendSessionId: (paneId: string, backendSessionId: string | null) => void;
   findTabByResourceId: (resourceId: string, type?: TerminalPane["type"]) => TerminalTab | undefined;
   openOrFocusSshTab: (hostId: string, title: string) => string;
   openOrFocusLocalTab: (title?: string) => string;
@@ -90,7 +85,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         title: options?.title ?? pane.title,
         panes: [rootPane],
         activePaneId: rootPane.id,
-        layout: { type: "leaf", paneId: rootPane.id },
       };
       return {
         tabs: [...state.tabs, newTab],
@@ -117,23 +111,27 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, activePaneId: paneId } : tab)),
     })),
 
-  replaceTabLayout: (tabId, panes, layout, activePaneId) =>
+  addPaneToTab: (tabId, pane) =>
     set((state) => ({
       tabs: state.tabs.map((tab) =>
         tab.id === tabId
-          ? {
-              ...tab,
-              panes,
-              layout,
-              activePaneId,
-            }
+          ? { ...tab, panes: [...tab.panes, pane], activePaneId: pane.id }
           : tab
       ),
     })),
 
-  updateTabLayout: (tabId, layout) =>
+  removePaneFromTab: (tabId, paneId) =>
     set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, layout } : tab)),
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        const remainingPanes = tab.panes.filter((p) => p.id !== paneId);
+        if (remainingPanes.length === 0) return tab;
+        const newActivePaneId =
+          tab.activePaneId === paneId
+            ? remainingPanes[remainingPanes.length - 1].id
+            : tab.activePaneId;
+        return { ...tab, panes: remainingPanes, activePaneId: newActivePaneId };
+      }),
     })),
 
   setTerminal: (paneId, terminal) =>
@@ -181,7 +179,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     return id;
   },
 
-  openOrFocusLocalTab: (title = "local") => {
+  openOrFocusLocalTab: (title = "本地终端") => {
     const existing = get().findTabByResourceId("local-terminal", "local");
     if (existing) {
       set({ activeTabId: existing.id });
@@ -206,13 +204,3 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     return id;
   },
 }));
-
-export function getBackendSessionId(paneId: string): string {
-  for (const tab of useTerminalStore.getState().tabs) {
-    const pane = tab.panes.find((item) => item.id === paneId);
-    if (pane) {
-      return pane.backendSessionId ?? pane.id;
-    }
-  }
-  return paneId;
-}

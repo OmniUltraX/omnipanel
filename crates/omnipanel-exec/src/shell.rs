@@ -70,7 +70,10 @@ impl Executor for ShellExecutor {
 
 fn build_command(command: &str) -> Command {
     if cfg!(windows) {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
         let mut cmd = Command::new("cmd");
+        cmd.creation_flags(CREATE_NO_WINDOW);
         cmd.arg("/C").arg(command);
         cmd
     } else {

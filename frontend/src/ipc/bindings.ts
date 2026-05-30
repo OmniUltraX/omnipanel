@@ -17,7 +17,8 @@ export const commands = {
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
 	dbTestConnection: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_test_connection", { connection })),
-	dbListTables: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection })),
+	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
+	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
 	/**  列出全部已保存连接。 */
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
 	/**  保存（新建或更新）连接。id 为空时后端生成。 */

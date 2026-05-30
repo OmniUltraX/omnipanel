@@ -65,7 +65,9 @@ impl Terminal {
             ShellKind::PowerShell | ShellKind::PowerShell5 => {
                 let script_path = write_temp_script("ps1", POWERSHELL_INTEGRATION)
                     .unwrap_or_else(|_| "NUL".to_string());
+                // -Command 保持交互式主机；-File 会以非交互方式执行脚本导致首屏无提示符
                 cmd.arg("-NoExit");
+                cmd.arg("-NoLogo");
                 cmd.arg("-ExecutionPolicy");
                 cmd.arg("Bypass");
                 cmd.arg("-Command");
