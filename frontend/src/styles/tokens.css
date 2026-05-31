@@ -61,7 +61,7 @@
   /* Workbench layout (design/database.html, ssh.html, server.html) */
   --resource-rail-w: 260px;
   --resource-rail-min-w: 220px;
-  --schema-panel-w: 240px;
+  --schema-panel-w: 280px;
   --host-list-w: 280px;
   --server-sidebar-w: 220px;
   --context-panel-w: 340px;

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SchemaFiltersSnapshot } from "./schemaFilters";
 
 export interface DbConnectionConfig {
   id: string;
@@ -60,6 +61,14 @@ export async function listConnections(): Promise<DbConnectionConfig[]> {
   return invoke<DbConnectionConfig[]>("db_list_connections");
 }
 
+export async function loadSchemaFilters(): Promise<SchemaFiltersSnapshot> {
+  return invoke<SchemaFiltersSnapshot>("db_load_schema_filters");
+}
+
+export async function saveSchemaFilters(snapshot: SchemaFiltersSnapshot): Promise<void> {
+  return invoke<void>("db_save_schema_filters", { snapshot });
+}
+
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {
   return invoke<DbConnectionConfig>("db_save_connection", { connection });
 }
@@ -72,6 +81,52 @@ export async function listDatabases(connection: DbConnectionConfig): Promise<str
   return invoke<string[]>("db_list_databases", { connection });
 }
 
+export interface DbColumnMeta {
+  name: string;
+  type: string;
+  isPk: boolean;
+  isFk: boolean;
+}
+
+export interface DbIndexMeta {
+  name: string;
+  columns: string[];
+  unique: boolean;
+}
+
+export interface DbTableSchema {
+  name: string;
+  columns: DbColumnMeta[];
+  indexes?: DbIndexMeta[];
+}
+
+export interface DbIntrospectResult {
+  database: string;
+  tables: DbTableSchema[];
+}
+
+export async function introspectSchema(
+  connection: DbConnectionConfig,
+  database?: string,
+): Promise<DbIntrospectResult> {
+  return invoke<DbIntrospectResult>("db_introspect_schema", {
+    connection,
+    schema: database?.trim() ? database.trim() : null,
+  });
+}
+
+export async function introspectTable(
+  connection: DbConnectionConfig,
+  database: string,
+  table: string,
+): Promise<DbTableSchema> {
+  return invoke<DbTableSchema>("db_introspect_table", {
+    connection,
+    schema: database.trim() ? database.trim() : null,
+    table,
+  });
+}
+
 export async function listTables(
   connection: DbConnectionConfig,
   schema?: string
@@ -80,4 +135,18 @@ export async function listTables(
     connection,
     schema: schema?.trim() ? schema.trim() : null,
   });
+}
+
+export interface TablePreviewResult {
+  name: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+
+export async function previewTable(
+  connection: DbConnectionConfig,
+  table: string,
+  limit = 200,
+): Promise<TablePreviewResult> {
+  return invoke<TablePreviewResult>("db_preview_table", { connection, table, limit });
 }

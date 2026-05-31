@@ -21,8 +21,12 @@ fn export_ipc_bindings() {
         commands::database::db_list_connections,
         commands::database::db_save_connection,
         commands::database::db_delete_connection,
+        commands::database::db_load_schema_filters,
+        commands::database::db_save_schema_filters,
         commands::database::db_test_connection,
         commands::database::db_list_databases,
+        commands::database::db_introspect_schema,
+        commands::database::db_introspect_table,
         commands::database::db_list_tables,
         commands::connection::conn_list,
         commands::connection::conn_save,
@@ -51,6 +55,28 @@ fn export_ipc_bindings() {
         .expect("failed to export typescript bindings");
 }
 
+fn try_migrate_legacy_storage(
+    target: &std::path::Path,
+    app: &tauri::App,
+) {
+    if target.is_file() {
+        return;
+    }
+    let Ok(old_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let legacy = old_dir.join("omnipanel.db");
+    if !legacy.is_file() {
+        return;
+    }
+    let _ = std::fs::copy(&legacy, target);
+    tracing::info!(
+        from = %legacy.display(),
+        to = %target.display(),
+        "已迁移旧版本地存储"
+    );
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt::init();
@@ -70,11 +96,25 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
-            std::fs::create_dir_all(&data_dir).ok();
-            let db_path = data_dir.join("omnipanel.db");
-            let storage = omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
-            app.manage(AppState::new(app.handle().clone(), storage));
+            let db_path =
+                omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
+            if let Some(parent) = db_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            try_migrate_legacy_storage(&db_path, app);
+            let storage =
+                omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
+            let db_connections = omnipanel_store::DatabaseConnectionStore::open()
+                .expect("加载数据库连接配置失败");
+            tracing::info!(
+                root = %omnipanel_store::omnipd_root().expect("omnipd root").display(),
+                "应用数据目录已就绪"
+            );
+            app.manage(AppState::new(
+                app.handle().clone(),
+                storage,
+                db_connections,
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -116,8 +156,12 @@ pub fn run() {
             commands::database::db_list_connections,
             commands::database::db_save_connection,
             commands::database::db_delete_connection,
+            commands::database::db_load_schema_filters,
+            commands::database::db_save_schema_filters,
             commands::database::db_test_connection,
             commands::database::db_list_databases,
+            commands::database::db_introspect_schema,
+            commands::database::db_introspect_table,
             commands::database::db_list_tables,
             commands::database::db_preview_table,
             commands::database::db_execute_query,

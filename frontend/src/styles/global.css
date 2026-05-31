@@ -93,7 +93,19 @@
 .feed-row span:last-child, .action-meta { color: var(--meta); font-size: 10px; }
 .action-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .empty-state { padding: var(--sp-6); border: 1px dashed var(--border); border-radius: var(--r-md); color: var(--muted); text-align: center; font-size: 12px; display: flex; flex-direction: column; gap: var(--sp-2); align-items: center; justify-content: center; min-height: 120px; }
-.empty-state.compact { padding: var(--sp-3); }
+.empty-state.compact {
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
+  padding: var(--sp-3);
+  box-sizing: border-box;
+}
+.results-area > .empty-state.compact,
+.db-sql-results > .empty-state.compact {
+  flex: 1;
+  min-height: 0;
+}
 .info-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .info-list div { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: 12px; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-soft); }
 .info-list span { color: var(--meta); }
@@ -784,7 +796,7 @@
      Database (database.html)
      ══════════════════════════════════════════════════════════════════════ */
   .db-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-  .schema-panel { width: 100%; min-width: var(--schema-panel-w); height: 100%; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .schema-panel { width: 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; flex-shrink: 0; }
   .schema-header { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: var(--sp-2); }
   .schema-header h3 { font-size: 13px; font-weight: 600; flex: 1; }
   .schema-search { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); }
@@ -809,15 +821,19 @@
   .tree-leaf { color: transparent; }
   .tree-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--border); }
   .tree-icon { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .tree-node--connection .tree-label { font-weight: 600; color: var(--fg); }
   .tree-node--connection .tree-icon { color: var(--accent); }
   .tree-node--database .tree-label { font-weight: 500; color: var(--fg-2); }
   .tree-node--database .tree-icon { color: var(--accent); }
   .tree-node--table .tree-label { color: var(--fg-2); }
   .tree-node--table .tree-icon { color: var(--success); }
+  .tree-node--folder .tree-label { font-weight: 500; color: var(--fg-2); font-size: 11px; }
+  .tree-node--folder .tree-icon { color: var(--warn); }
   .tree-node--column .tree-label { color: var(--meta); font-size: 11px; }
   .tree-node--column .tree-icon { color: var(--meta); }
+  .tree-node--index .tree-label { color: var(--meta); font-size: 11px; }
+  .tree-node--index .tree-icon { color: var(--meta); }
   .tree-badge { font-size: 8px; font-weight: 700; padding: 0 4px; border-radius: 2px; flex-shrink: 0; }
   .tree-badge--pk { color: var(--warn); background: var(--warn-soft); }
   .tree-badge--fk { color: var(--accent); background: var(--accent-soft); }
@@ -917,6 +933,50 @@
   .engine-chip-icon { font-size: 13px; font-weight: 700; color: var(--fg); width: 32px; height: 32px; display: grid; place-items: center; background: var(--bg-deeper); border-radius: var(--r-sm); }
   .engine-chip--active .engine-chip-icon { background: var(--accent); color: #fff; }
   .engine-chip-label { font-size: 10px; color: var(--meta); text-transform: capitalize; }
+  .db-workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+  .db-workspace-tabs { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--border); padding: 0 var(--sp-2); flex-shrink: 0; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: stable; }
+  .db-workspace-tab { display: flex; align-items: center; gap: 2px; border-bottom: 2px solid transparent; margin-bottom: -1px; flex-shrink: 0; }
+  .db-workspace-tab.active { border-bottom-color: var(--accent); }
+  .db-workspace-tab-label { border: none; background: transparent; font: inherit; font-size: 12px; color: var(--muted); padding: var(--sp-2) var(--sp-3); cursor: pointer; }
+  .db-workspace-tab.active .db-workspace-tab-label { color: var(--fg); }
+  .db-workspace-tab-label:hover { color: var(--fg); }
+  .db-workspace-tab-close { border: none; background: transparent; color: var(--meta); padding: var(--sp-1); border-radius: var(--r-sm); cursor: pointer; display: flex; align-items: center; }
+  .db-workspace-tab-close:hover { color: var(--fg); background: var(--surface); }
+  .db-workspace-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .db-workspace-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .db-workspace-pane--sql { display: flex; flex-direction: column; min-height: 0; }
+  .db-sql-split { flex: 1; min-height: 0; }
+  .db-workspace-pane--sql .db-editor-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .db-workspace-pane--sql .sql-monaco-editor { flex: 1; min-height: 0; display: flex; }
+  .db-workspace-pane--sql .sql-monaco-editor > section { flex: 1; min-height: 0; }
+  .db-workspace-pane--sql .db-sql-results { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .db-workspace-pane--sql .db-sql-results .results-grid { flex: 1; min-height: 0; overflow: auto; }
+  .sql-toolbar-meta { font-size: 11px; color: var(--meta); white-space: nowrap; }
+  .db-workspace-pane--table .results-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .db-workspace-pane--table .db-data-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+  .db-data-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; }
+  .db-data-table th,
+  .db-data-table td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  .db-data-table th { position: sticky; top: 0; background: var(--surface); font-weight: 600; color: var(--fg-2); z-index: 1; }
+  .db-data-table tbody tr.db-data-table-row { position: relative; }
+  .db-data-table tbody tr.db-data-table-row:hover { background: var(--surface); }
+  .db-data-table-row--resize-hint td,
+  .db-data-table-row.db-data-table-row--resizing td {
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .db-data-table-cell--custom-h {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: hidden;
+    vertical-align: top;
+    line-height: 1.45;
+  }
+  .db-data-table-wrap--resizing { cursor: row-resize; user-select: none; }
+  .modal-footer-status { flex: 1; min-width: 0; font-size: 12px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 var(--sp-3); }
+  .modal-footer-status--success { color: var(--success); }
+  .modal-footer-status--error { color: var(--danger); }
+  .modal-footer-status--info { color: var(--meta); }
+  .modal-footer-spacer { flex: 1; }
   .db-editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
   .sql-editor-wrap { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); min-height: 200px; flex: 1; }
   .sql-toolbar { display: flex; align-items: center; padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border); gap: var(--sp-2); background: var(--bg); }
