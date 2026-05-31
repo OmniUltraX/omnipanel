@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
+import type { PanelProps } from "react-resizable-panels";
 import { DockLayout } from "./DockLayout";
 import { DockPanel } from "./DockPanel";
 import { DockHandle } from "./DockHandle";
 
 export type DockRailPreset = "default" | "schema" | "host" | "server";
 
-const RAIL_PRESETS: Record<DockRailPreset, { defaultSize: number; minSize: number; maxSize: number }> = {
+type RailSize = PanelProps["minSize"];
+
+const RAIL_PRESETS: Record<DockRailPreset, { defaultSize: RailSize; minSize: RailSize; maxSize: RailSize }> = {
   default: { defaultSize: 260, minSize: 220, maxSize: 420 },
-  schema: { defaultSize: 240, minSize: 220, maxSize: 320 },
+  schema: { defaultSize: 280, minSize: 280, maxSize: "100%" },
   host: { defaultSize: 280, minSize: 240, maxSize: 420 },
   server: { defaultSize: 220, minSize: 200, maxSize: 360 },
 };
@@ -21,7 +24,8 @@ interface DockWorkspaceProps {
   leftSize?: number;
   leftSizePx?: number;
   leftMinPx?: number;
-  leftMaxPx?: number;
+  /** 像素；传字符串（如 `"100%"`）时原样交给 Panel */
+  leftMaxPx?: number | string;
   leftPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;

@@ -16,8 +16,12 @@ export const commands = {
 	dbListConnections: () => typedError<DbConnectionConfig[], string>(__TAURI_INVOKE("db_list_connections")),
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
+	dbLoadSchemaFilters: () => typedError<SchemaFiltersSnapshot, string>(__TAURI_INVOKE("db_load_schema_filters")),
+	dbSaveSchemaFilters: (snapshot: SchemaFiltersSnapshot) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_filters", { snapshot })),
 	dbTestConnection: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_test_connection", { connection })),
 	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
+	dbIntrospectSchema: (connection: DbConnectionConfig, schema: string | null) => typedError<DbIntrospectResult, string>(__TAURI_INVOKE("db_introspect_schema", { connection, schema })),
+	dbIntrospectTable: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<DbTableSchema, string>(__TAURI_INVOKE("db_introspect_table", { connection, schema, table })),
 	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
 	/**  列出全部已保存连接。 */
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
@@ -90,6 +94,14 @@ export type Connection = {
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
 export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | "protocol";
 
+export type DbColumnMeta = {
+	name: string,
+	type: string,
+	isPk: boolean,
+	isFk: boolean,
+};
+
+/**  数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。 */
 export type DbConnectionConfig = {
 	id: string,
 	name: string,
@@ -99,8 +111,25 @@ export type DbConnectionConfig = {
 	user: string,
 	password: string,
 	database: string,
-	group: string,
-	status: string,
+	group?: string,
+	status?: string,
+};
+
+export type DbIndexMeta = {
+	name: string,
+	columns: string[],
+	unique: boolean,
+};
+
+export type DbIntrospectResult = {
+	database: string,
+	tables: DbTableSchema[],
+};
+
+export type DbTableSchema = {
+	name: string,
+	columns: DbColumnMeta[],
+	indexes?: DbIndexMeta[],
 };
 
 /**  错误分类码。前端按 `code` 决定提示文案与重试策略。 */
@@ -151,6 +180,18 @@ export type OmniError_Serialize = {
 	message: string,
 	/**  可选的底层原因（调试用，可能含技术细节） */
 	cause?: string | null,
+};
+
+/**  单个连接或库下的过滤项（与前端 `SchemaFilterState` 对应，可见项为列表）。 */
+export type SchemaFilterRecord = {
+	orderedNames: string[],
+	visibleNames: string[],
+};
+
+/**  全部连接的 Schema 过滤快照。 */
+export type SchemaFiltersSnapshot = {
+	databaseFilters?: { [key in string]: SchemaFilterRecord },
+	tableFilters?: { [key in string]: SchemaFilterRecord },
 };
 
 /**  SFTP 目录项。 */

@@ -292,29 +292,22 @@ export function ConnectionDialog({
             </div>
           )}
 
-          {status && (
-            <div
-              className="form-field"
-              style={{
-                color:
-                  status.kind === "success"
-                    ? "var(--color-success, #34c759)"
-                    : status.kind === "error"
-                      ? "var(--color-danger, #ff3b30)"
-                      : "var(--text-secondary, #8e8e93)",
-                fontSize: "12px",
-              }}
-            >
-              {status.message}
-            </div>
-          )}
         </div>
 
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
             {t("database.dialog.cancel")}
           </button>
-          <div style={{ flex: 1 }} />
+          {status ? (
+            <span
+              className={`modal-footer-status modal-footer-status--${status.kind}`}
+              title={status.message}
+            >
+              {status.message}
+            </span>
+          ) : (
+            <div className="modal-footer-spacer" />
+          )}
           <button className="btn btn-ghost" onClick={() => void handleTest()} disabled={busy}>
             {testing ? t("database.dialog.testing") : t("database.dialog.test")}
           </button>

@@ -4,14 +4,13 @@ use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::commands::database::DbConnectionConfig;
 use crate::protocol::mqtt::MqttSession;
 use crate::protocol::serial::SerialSession;
 use crate::protocol::ws::WsSession;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_ssh::SshSession;
-use omnipanel_store::Storage;
+use omnipanel_store::{DatabaseConnectionStore, Storage};
 
 use omnipanel_ai::provider::AiProviderRegistry;
 
@@ -26,7 +25,7 @@ pub struct AppState {
     pub ai_registry: Arc<Mutex<AiProviderRegistry>>,
     pub current_provider: Arc<Mutex<Option<String>>>,
     pub current_model: Arc<Mutex<Option<String>>>,
-    pub db_connections: Arc<Mutex<HashMap<String, DbConnectionConfig>>>,
+    pub db_connections: DatabaseConnectionStore,
     /// 本地元数据存储（连接、审计等）。
     pub storage: Arc<Mutex<Storage>>,
     /// 动作执行引擎（按 kind 分发到各 Executor）。
@@ -38,7 +37,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(app_handle: AppHandle, storage: Storage) -> Self {
+    pub fn new(app_handle: AppHandle, storage: Storage, db_connections: DatabaseConnectionStore) -> Self {
         let mut engine = ExecutionEngine::new();
         let shell = Arc::new(ShellExecutor);
         // 本地命令型动作统一走 shell 执行器；ssh/sql 待 M3/M5 注册专用 executor。
@@ -54,7 +53,7 @@ impl AppState {
             ai_registry: Arc::new(Mutex::new(AiProviderRegistry::new())),
             current_provider: Arc::new(Mutex::new(None)),
             current_model: Arc::new(Mutex::new(None)),
-            db_connections: Arc::new(Mutex::new(HashMap::new())),
+            db_connections,
             storage: Arc::new(Mutex::new(storage)),
             engine: Arc::new(engine),
             ssh_sessions: Arc::new(Mutex::new(HashMap::new())),

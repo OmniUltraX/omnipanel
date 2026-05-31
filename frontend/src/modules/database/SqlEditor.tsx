@@ -1,58 +1,17 @@
 import { useRef, useEffect, useCallback } from "react";
 import Editor, { type OnMount, loader } from "@monaco-editor/react";
-import type { editor as MonacoEditor, languages, IDisposable } from "monaco-editor";
-
-interface SchemaTable {
-  name: string;
-  columns: { name: string; type: string; isPk?: boolean; isFk?: boolean }[];
-}
+import type { editor as MonacoEditor, IDisposable } from "monaco-editor";
+import type { DatabaseSchema } from "./types";
+import { registerMonacoSqlCompletionProvider } from "./lsp/monacoSqlCompletion";
 
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
   onRun?: () => void;
-  schema?: SchemaTable[];
+  /** 当前上下文中的库表结构（通常仅含当前选中的数据库）。 */
+  schemas?: DatabaseSchema[];
   readOnly?: boolean;
 }
-
-const SQL_KEYWORDS = [
-  "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
-  "DELETE", "CREATE", "TABLE", "ALTER", "DROP", "INDEX", "VIEW", "TRIGGER",
-  "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "CROSS", "FULL", "ON", "AS",
-  "AND", "OR", "NOT", "IN", "BETWEEN", "LIKE", "IS", "NULL", "EXISTS",
-  "HAVING", "GROUP", "BY", "ORDER", "ASC", "DESC", "LIMIT", "OFFSET",
-  "UNION", "ALL", "DISTINCT", "CASE", "WHEN", "THEN", "ELSE", "END",
-  "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION", "SAVEPOINT",
-  "GRANT", "REVOKE", "WITH", "RECURSIVE", "RETURNING", "CONFLICT",
-  "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK", "DEFAULT",
-  "NOT", "AUTO_INCREMENT", "SERIAL", "BIGSERIAL", "CONSTRAINT",
-  "CASCADE", "RESTRICT", "SET", "NULL", "NO", "ACTION",
-  "IF", "TEMPORARY", "TEMP", "EXPLAIN", "ANALYZE", "VACUUM", "REINDEX",
-  "COPY", "FORCE", "ENABLE", "DISABLE", "TRUNCATE", "RENAME",
-  "PARTITION", "OVER", "WINDOW", "RANGE", "ROWS", "PRECEDING", "FOLLOWING",
-  "UNBOUNDED", "CURRENT", "ROW", "NTH_VALUE", "LEAD", "LAG",
-];
-
-const SQL_FUNCTIONS = [
-  "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NULLIF", "IFNULL",
-  "CAST", "CONVERT", "TYPEOF", "LENGTH", "CHAR_LENGTH", "UPPER", "LOWER",
-  "TRIM", "LTRIM", "RTRIM", "SUBSTRING", "SUBSTR", "REPLACE", "REVERSE",
-  "CONCAT", "CONCAT_WS", "FORMAT", "LPAD", "RPAD", "LEFT", "RIGHT",
-  "POSITION", "STRPOS", "REPEAT", "SPACE", "ASCII", "CHR",
-  "NOW", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME",
-  "DATE", "TIME", "DATETIME", "TIMESTAMP", "EXTRACT", "DATE_PART",
-  "DATE_TRUNC", "DATE_ADD", "DATE_SUB", "DATEDIFF", "DATE_FORMAT",
-  "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND",
-  "ABS", "CEIL", "CEILING", "FLOOR", "ROUND", "TRUNC", "MOD", "POWER",
-  "SQRT", "EXP", "LN", "LOG", "LOG10", "LOG2", "SIGN", "RANDOM",
-  "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE", "PERCENT_RANK",
-  "CUME_DIST", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE",
-  "JSON_EXTRACT", "JSON_OBJECT", "JSON_ARRAY", "JSON_VALID",
-  "JSON_LENGTH", "JSON_KEYS", "JSON_VALUE", "JSON_QUERY",
-  "ARRAY_AGG", "ARRAY_APPEND", "ARRAY_PREPEND", "ARRAY_CAT",
-  "STRING_AGG", "GROUP_CONCAT", "GROUPING",
-  "EXISTS", "ANY", "SOME", "INTERSECT", "EXCEPT",
-];
 
 const THEME_DEFINITIONS: Record<string, MonacoEditor.IStandaloneThemeData> = {
   "omnipanel-dark": {
@@ -161,116 +120,33 @@ function getActiveTheme(): string {
     : "omnipanel-dark";
 }
 
-function registerCompletionProvider(
-  monaco: typeof import("monaco-editor"),
-  schema: SchemaTable[]
-): IDisposable {
-  return monaco.languages.registerCompletionItemProvider("sql", {
-    triggerCharacters: [".", " ", "("],
-    provideCompletionItems(model, position) {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endLineNumber: position.lineNumber,
-        endColumn: word.endColumn,
-      };
-
-      const suggestions: languages.CompletionItem[] = [];
-
-      // Check if we're after a dot (table.column completion)
-      const lastLine = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
-      const dotMatch = lastLine.match(/(\w+)\.$/);
-      if (dotMatch) {
-        const tableName = dotMatch[1].toLowerCase();
-        const table = schema.find((t) => t.name.toLowerCase() === tableName);
-        if (table) {
-          for (const col of table.columns) {
-            suggestions.push({
-              label: col.name,
-              kind: monaco.languages.CompletionItemKind.Field,
-              detail: `${col.type}${col.isPk ? " (PK)" : ""}${col.isFk ? " (FK)" : ""}`,
-              insertText: col.name,
-              range,
-            });
-          }
-          return { suggestions };
-        }
-      }
-
-      // SQL keywords
-      for (const kw of SQL_KEYWORDS) {
-        suggestions.push({
-          label: kw,
-          kind: monaco.languages.CompletionItemKind.Keyword,
-          insertText: kw,
-          range,
-        });
-      }
-
-      // SQL functions
-      for (const fn of SQL_FUNCTIONS) {
-        suggestions.push({
-          label: fn,
-          kind: monaco.languages.CompletionItemKind.Function,
-          detail: "function",
-          insertText: `${fn}($1)`,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          range,
-        });
-      }
-
-      // Schema tables
-      for (const table of schema) {
-        suggestions.push({
-          label: table.name,
-          kind: monaco.languages.CompletionItemKind.Struct,
-          detail: `table (${table.columns.length} cols)`,
-          insertText: table.name,
-          range,
-        });
-
-        // Also add table columns (unqualified) for convenience
-        for (const col of table.columns) {
-          suggestions.push({
-            label: `${table.name}.${col.name}`,
-            kind: monaco.languages.CompletionItemKind.Field,
-            detail: `${col.type}${col.isPk ? " (PK)" : ""}${col.isFk ? " (FK)" : ""}`,
-            insertText: `${table.name}.${col.name}`,
-            range,
-          });
-        }
-      }
-
-      return { suggestions };
-    },
-  });
-}
-
-export function SqlEditor({ value, onChange, onRun, schema = [], readOnly = false }: SqlEditorProps) {
+export function SqlEditor({
+  value,
+  onChange,
+  onRun,
+  schemas = [],
+  readOnly = false,
+}: SqlEditorProps) {
   const disposables = useRef<IDisposable[]>([]);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const schemasRef = useRef(schemas);
+  schemasRef.current = schemas;
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
 
-      // Define themes
       for (const [name, data] of Object.entries(THEME_DEFINITIONS)) {
         monaco.editor.defineTheme(name, data);
       }
       monaco.editor.setTheme(getActiveTheme());
 
-      // Register SQL language basics
       monaco.languages.setLanguageConfiguration("sql", {
         comments: {
           lineComment: "--",
           blockComment: ["/*", "*/"],
         },
-        brackets: [
-          ["(", ")"],
-          ["[", "]"],
-        ],
+        brackets: [["(", ")"], ["[", "]"]],
         autoClosingPairs: [
           { open: "(", close: ")" },
           { open: "'", close: "'" },
@@ -287,32 +163,27 @@ export function SqlEditor({ value, onChange, onRun, schema = [], readOnly = fals
         ],
       });
 
-      // Register completion provider
-      const completionDisposable = registerCompletionProvider(monaco, schema);
+      const completionDisposable = registerMonacoSqlCompletionProvider(
+        monaco,
+        () => schemasRef.current,
+      );
       disposables.current.push(completionDisposable);
 
-      // Ctrl+Enter / Cmd+Enter to run query
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
         onRun?.();
       });
 
-      // Focus editor
       editor.focus();
     },
-    [schema, onRun]
+    [onRun],
   );
 
-  // Theme observer: switch Monaco theme when data-theme changes
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      const monaco = editorRef.current;
-      if (monaco) {
-        const model = monaco.getModel();
-        if (model) {
-          loader.init().then((m) => {
-            m.editor.setTheme(getActiveTheme());
-          });
-        }
+      if (editorRef.current) {
+        void loader.init().then((m) => {
+          m.editor.setTheme(getActiveTheme());
+        });
       }
     });
     observer.observe(document.documentElement, {
@@ -322,27 +193,14 @@ export function SqlEditor({ value, onChange, onRun, schema = [], readOnly = fals
     return () => observer.disconnect();
   }, []);
 
-  // Update completion provider when schema changes
   useEffect(() => {
-    let cancelled = false;
-    loader.init().then((monaco) => {
-      if (cancelled) return;
-      // Dispose old completion providers and re-register
-      for (const d of disposables.current) {
-        d.dispose();
-      }
-      disposables.current = [];
-      const disposable = registerCompletionProvider(monaco, schema);
-      disposables.current.push(disposable);
-    });
     return () => {
-      cancelled = true;
       for (const d of disposables.current) {
         d.dispose();
       }
       disposables.current = [];
     };
-  }, [schema]);
+  }, []);
 
   return (
     <div className="sql-monaco-editor">

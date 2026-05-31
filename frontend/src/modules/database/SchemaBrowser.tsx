@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { type DbConnectionConfig, connectionMatchesGroup, listConnections, listDatabases, listTables } from "./api";
+import {
+  type DbConnectionConfig,
+  connectionMatchesGroup,
+  introspectTable,
+  listConnections,
+  listDatabases,
+  listTables,
+  loadSchemaFilters,
+  saveSchemaFilters,
+} from "./api";
+import { filterStatesToSnapshot, snapshotToFilterStates } from "./schemaFilters";
 import {
   DatabaseFilterDialog,
   type SchemaFilterState,
@@ -10,8 +20,25 @@ import {
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 
+interface TableColumn {
+  name: string;
+  type: string;
+  isPk?: boolean;
+  isFk?: boolean;
+}
+
+interface TableIndex {
+  name: string;
+  columns: string[];
+  unique?: boolean;
+}
+
 interface Table {
   name: string;
+  columns?: TableColumn[];
+  indexes?: TableIndex[];
+  loadingDetails?: boolean;
+  detailsError?: string;
 }
 
 interface LoadedDatabase {
@@ -28,7 +55,7 @@ interface LoadedConnection {
   databasesError?: string;
 }
 
-type TreeNodeType = "connection" | "database" | "table" | "column";
+type TreeNodeType = "connection" | "database" | "table" | "folder" | "column" | "index";
 
 interface TreeNodeProps {
   id: string;
@@ -42,6 +69,8 @@ interface TreeNodeProps {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
+  onSelect?: () => void;
+  onLabelClick?: () => void;
 }
 
 function TreeNode({
@@ -55,6 +84,8 @@ function TreeNode({
   isFk,
   hasChildren,
   active,
+  onSelect,
+  onLabelClick,
 }: TreeNodeProps) {
   const indent = depth * 16 + 8;
 
@@ -62,9 +93,16 @@ function TreeNode({
     <div
       className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}`}
       style={{ paddingLeft: indent }}
-      onClick={hasChildren ? onToggle : undefined}
     >
-      <span className={`tree-arrow${hasChildren ? "" : " tree-leaf"}${expanded ? " tree-arrow--open" : ""}`}>
+      <span
+        className={`tree-arrow${hasChildren ? "" : " tree-leaf"}${expanded ? " tree-arrow--open" : ""}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (hasChildren) {
+            onToggle();
+          }
+        }}
+      >
         {hasChildren ? (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
             <path d="M9 18l6-6-6-6" />
@@ -94,14 +132,39 @@ function TreeNode({
             <path d="M3 9h18M3 15h18M9 3v18" />
           </svg>
         )}
+        {type === "folder" && (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+          </svg>
+        )}
         {type === "column" && (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
             <path d="M12 2v20" />
             <path d="M2 12h20" />
           </svg>
         )}
+        {type === "index" && (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+            <path d="M4 6h16M4 10h10M4 14h14M4 18h8" />
+          </svg>
+        )}
       </span>
-      <span className="tree-label">{label}</span>
+      <span
+        className="tree-label"
+        onClick={() => {
+          if (onLabelClick) {
+            onLabelClick();
+            return;
+          }
+          if (!hasChildren) {
+            onSelect?.();
+            return;
+          }
+          onToggle();
+        }}
+      >
+        {label}
+      </span>
       {isPk && <span className="tree-badge tree-badge--pk">PK</span>}
       {isFk && <span className="tree-badge tree-badge--fk">FK</span>}
       {meta && <span className="tree-meta">{meta}</span>}
@@ -121,13 +184,56 @@ function parseDbNodeId(id: string): { connId: string; dbName: string } | null {
   return { connId: rest.slice(0, sep), dbName: rest.slice(sep + 1) };
 }
 
+function makeTableNodeId(connId: string, dbName: string, tableName: string) {
+  return `tbl:${connId}:${dbName}:${tableName}`;
+}
+
+function parseTableNodeId(id: string): { connId: string; dbName: string; tableName: string } | null {
+  if (!id.startsWith("tbl:")) {
+    return null;
+  }
+  const parts = id.slice(4).split(":");
+  if (parts.length < 3) {
+    return null;
+  }
+  const connId = parts[0];
+  const tableName = parts[parts.length - 1];
+  const dbName = parts.slice(1, -1).join(":");
+  return { connId, dbName, tableName };
+}
+
+function tableColumnsFolderId(tableId: string) {
+  return `${tableId}:cols`;
+}
+
+function tableIndexesFolderId(tableId: string) {
+  return `${tableId}:idxs`;
+}
+
+export type SchemaTableSelection = {
+  connId: string;
+  dbName: string;
+  tableName: string;
+  connection: DbConnectionConfig;
+};
+
 interface SchemaBrowserProps {
   onCreateConnection?: () => void;
+  onNewQuery?: () => void;
+  onSelectTable?: (selection: SchemaTableSelection) => void;
+  activeTableKey?: string | null;
   refreshToken?: number;
   groupFilter?: string;
 }
 
-export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilter }: SchemaBrowserProps) {
+export function SchemaBrowser({
+  onCreateConnection,
+  onNewQuery,
+  onSelectTable,
+  activeTableKey = null,
+  refreshToken = 0,
+  groupFilter,
+}: SchemaBrowserProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -136,6 +242,7 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
   const [loadError, setLoadError] = useState<string | null>(null);
   const [databaseFilters, setDatabaseFilters] = useState<Record<string, SchemaFilterState>>({});
   const [tableFilters, setTableFilters] = useState<Record<string, SchemaFilterState>>({});
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
   const [filterDialogConnId, setFilterDialogConnId] = useState<string | null>(null);
   const [filterDialogTable, setFilterDialogTable] = useState<{ connId: string; dbName: string } | null>(
     null
@@ -143,6 +250,7 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
   const connectionsRef = useRef(connections);
   const loadingDatabasesRef = useRef(new Set<string>());
   const loadingTablesRef = useRef(new Set<string>());
+  const loadingTableDetailsRef = useRef(new Set<string>());
   const pendingDatabaseLoadsRef = useRef(new Map<string, Promise<DbConnectionConfig | null>>());
 
   connectionsRef.current = connections;
@@ -185,6 +293,38 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
   useEffect(() => {
     void loadConnections();
   }, [loadConnections, refreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSchemaFilters()
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+        const loaded = snapshotToFilterStates(snapshot);
+        setDatabaseFilters(loaded.databaseFilters);
+        setTableFilters(loaded.tableFilters);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) {
+          setFiltersHydrated(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void saveSchemaFilters(filterStatesToSnapshot(databaseFilters, tableFilters)).catch(() => {});
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [databaseFilters, tableFilters, filtersHydrated]);
 
   const ensureDatabasesLoaded = useCallback(async (connId: string): Promise<DbConnectionConfig | null> => {
     const pending = pendingDatabaseLoadsRef.current.get(connId);
@@ -323,6 +463,119 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
     }
   }, [syncTableFilter]);
 
+  const ensureTableDetailsLoaded = useCallback(
+    async (connId: string, dbName: string, tableName: string, config: DbConnectionConfig) => {
+      const cacheKey = `${connId}:${dbName}:${tableName}`;
+      const current = connectionsRef.current.find((item) => item.config.id === connId);
+      const db = current?.databases?.find((item) => item.name === dbName);
+      const table = db?.tables?.find((item) => item.name === tableName);
+      if (
+        table?.columns !== undefined ||
+        table?.loadingDetails ||
+        loadingTableDetailsRef.current.has(cacheKey)
+      ) {
+        return;
+      }
+
+      loadingTableDetailsRef.current.add(cacheKey);
+
+      const markLoading = (prev: LoadedConnection[]) =>
+        prev.map((item) =>
+          item.config.id === connId
+            ? {
+                ...item,
+                databases: item.databases?.map((entry) =>
+                  entry.name === dbName
+                    ? {
+                        ...entry,
+                        tables: entry.tables?.map((tbl) =>
+                          tbl.name === tableName
+                            ? { ...tbl, loadingDetails: true, detailsError: undefined }
+                            : tbl
+                        ),
+                      }
+                    : entry
+                ),
+              }
+            : item
+        );
+      connectionsRef.current = markLoading(connectionsRef.current);
+      setConnections(connectionsRef.current);
+
+      try {
+        const detail = await introspectTable(config, dbName, tableName);
+        const applyDetail = (prev: LoadedConnection[]) =>
+          prev.map((item) =>
+            item.config.id === connId
+              ? {
+                  ...item,
+                  databases: item.databases?.map((entry) =>
+                    entry.name === dbName
+                      ? {
+                          ...entry,
+                          tables: entry.tables?.map((tbl) =>
+                            tbl.name === tableName
+                              ? {
+                                  ...tbl,
+                                  loadingDetails: false,
+                                  columns: detail.columns.map((col) => ({
+                                    name: col.name,
+                                    type: col.type,
+                                    isPk: col.isPk,
+                                    isFk: col.isFk,
+                                  })),
+                                  indexes: (detail.indexes ?? []).map((idx) => ({
+                                    name: idx.name,
+                                    columns: idx.columns,
+                                    unique: idx.unique,
+                                  })),
+                                }
+                              : tbl
+                          ),
+                        }
+                      : entry
+                  ),
+                }
+              : item
+          );
+        connectionsRef.current = applyDetail(connectionsRef.current);
+        setConnections(connectionsRef.current);
+      } catch (error) {
+        const applyError = (prev: LoadedConnection[]) =>
+          prev.map((item) =>
+            item.config.id === connId
+              ? {
+                  ...item,
+                  databases: item.databases?.map((entry) =>
+                    entry.name === dbName
+                      ? {
+                          ...entry,
+                          tables: entry.tables?.map((tbl) =>
+                            tbl.name === tableName
+                              ? {
+                                  ...tbl,
+                                  loadingDetails: false,
+                                  columns: [],
+                                  indexes: [],
+                                  detailsError: String(error),
+                                }
+                              : tbl
+                          ),
+                        }
+                      : entry
+                  ),
+                }
+              : item
+          );
+        connectionsRef.current = applyError(connectionsRef.current);
+        setConnections(connectionsRef.current);
+      } finally {
+        loadingTableDetailsRef.current.delete(cacheKey);
+      }
+    },
+    [],
+  );
+
   const toggle = (id: string) => {
     const willExpand = !expanded.has(id);
     setExpanded((prev) => {
@@ -352,6 +605,29 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
           await ensureTablesLoaded(parsed.connId, parsed.dbName, config);
         }
       })();
+      return;
+    }
+
+    const tableParsed = parseTableNodeId(id);
+    if (tableParsed) {
+      void (async () => {
+        const config = await ensureDatabasesLoaded(tableParsed.connId);
+        if (config) {
+          await ensureTablesLoaded(tableParsed.connId, tableParsed.dbName, config);
+          await ensureTableDetailsLoaded(
+            tableParsed.connId,
+            tableParsed.dbName,
+            tableParsed.tableName,
+            config,
+          );
+        }
+      })();
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.add(tableColumnsFolderId(id));
+        next.add(tableIndexesFolderId(id));
+        return next;
+      });
     }
   };
 
@@ -427,6 +703,15 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
         </button>
+        {onNewQuery && (
+          <button className="btn-icon" title={t("database.sidebar.newQuery")} onClick={onNewQuery}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M8 13h8M8 17h5" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="schema-search">
         <input
@@ -600,18 +885,135 @@ export function SchemaBrowser({ onCreateConnection, refreshToken = 0, groupFilte
                           </div>
                         )}
                       {dbExpanded &&
-                        visibleTables.map((tbl) => (
-                          <TreeNode
-                            key={tbl.name}
-                            id={`tbl:${conn.config.id}:${db.name}:${tbl.name}`}
-                            label={tbl.name}
-                            type="table"
-                            depth={2}
-                            expanded={false}
-                            onToggle={() => {}}
-                            hasChildren={false}
-                          />
-                        ))}
+                        visibleTables.map((tbl) => {
+                          const tableKey = makeTableNodeId(conn.config.id, db.name, tbl.name);
+                          const tableExpanded = expanded.has(tableKey);
+                          const colsFolderId = tableColumnsFolderId(tableKey);
+                          const idxFolderId = tableIndexesFolderId(tableKey);
+                          const colsExpanded = expanded.has(colsFolderId);
+                          const idxExpanded = expanded.has(idxFolderId);
+                          const columns = tbl.columns ?? [];
+                          const indexes = tbl.indexes ?? [];
+
+                          return (
+                            <div key={tbl.name}>
+                              <TreeNode
+                                id={tableKey}
+                                label={tbl.name}
+                                type="table"
+                                depth={2}
+                                expanded={tableExpanded}
+                                onToggle={() => toggle(tableKey)}
+                                hasChildren
+                                active={activeTableKey === tableKey}
+                                onLabelClick={() =>
+                                  onSelectTable?.({
+                                    connId: conn.config.id,
+                                    dbName: db.name,
+                                    tableName: tbl.name,
+                                    connection: conn.config,
+                                  })
+                                }
+                                meta={
+                                  tbl.loadingDetails
+                                    ? t("common.loading")
+                                    : tbl.detailsError
+                                      ? t("database.sidebar.detailsFailed")
+                                      : tbl.columns
+                                        ? `${columns.length} ${t("database.sidebar.fields")} · ${indexes.length} ${t("database.sidebar.indexes")}`
+                                        : undefined
+                                }
+                              />
+                              {tableExpanded && tbl.detailsError && (
+                                <div
+                                  style={{
+                                    padding: "4px 56px",
+                                    fontSize: "11px",
+                                    color: "var(--color-danger, #ff3b30)",
+                                  }}
+                                >
+                                  {tbl.detailsError}
+                                </div>
+                              )}
+                              {tableExpanded && !tbl.loadingDetails && (
+                                <>
+                                  <TreeNode
+                                    id={colsFolderId}
+                                    label={t("database.sidebar.fields")}
+                                    type="folder"
+                                    depth={3}
+                                    expanded={colsExpanded}
+                                    onToggle={() => toggle(colsFolderId)}
+                                    meta={String(columns.length)}
+                                    hasChildren={columns.length > 0}
+                                  />
+                                  {colsExpanded &&
+                                    columns.map((col) => (
+                                      <TreeNode
+                                        key={`${tableKey}:col:${col.name}`}
+                                        id={`${tableKey}:col:${col.name}`}
+                                        label={col.name}
+                                        type="column"
+                                        depth={4}
+                                        expanded={false}
+                                        onToggle={() => {}}
+                                        hasChildren={false}
+                                        meta={col.type}
+                                        isPk={col.isPk}
+                                        isFk={col.isFk}
+                                      />
+                                    ))}
+                                  {colsExpanded && columns.length === 0 && !tbl.detailsError && (
+                                    <div
+                                      style={{
+                                        padding: "4px 72px",
+                                        fontSize: "11px",
+                                        color: "var(--text-secondary, #8e8e93)",
+                                      }}
+                                    >
+                                      {t("database.sidebar.noColumns")}
+                                    </div>
+                                  )}
+                                  <TreeNode
+                                    id={idxFolderId}
+                                    label={t("database.sidebar.indexes")}
+                                    type="folder"
+                                    depth={3}
+                                    expanded={idxExpanded}
+                                    onToggle={() => toggle(idxFolderId)}
+                                    meta={String(indexes.length)}
+                                    hasChildren={indexes.length > 0}
+                                  />
+                                  {idxExpanded &&
+                                    indexes.map((idx) => (
+                                      <TreeNode
+                                        key={`${tableKey}:idx:${idx.name}`}
+                                        id={`${tableKey}:idx:${idx.name}`}
+                                        label={idx.name}
+                                        type="index"
+                                        depth={4}
+                                        expanded={false}
+                                        onToggle={() => {}}
+                                        hasChildren={false}
+                                        meta={idx.columns.join(", ")}
+                                      />
+                                    ))}
+                                  {idxExpanded && indexes.length === 0 && !tbl.detailsError && (
+                                    <div
+                                      style={{
+                                        padding: "4px 72px",
+                                        fontSize: "11px",
+                                        color: "var(--text-secondary, #8e8e93)",
+                                      }}
+                                    >
+                                      {t("database.sidebar.noIndexes")}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   );
                 })}

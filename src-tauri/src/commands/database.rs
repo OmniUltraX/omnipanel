@@ -1,25 +1,50 @@
 use std::collections::HashMap;
 
 use omnipanel_db::{DbParams, QueryResult};
+pub use omnipanel_store::{
+    DbConnectionConfig, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
+    save_schema_filters,
+};
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
 use tauri::State;
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct DbConnectionConfig {
-    pub id: String,
-    pub name: String,
-    pub db_type: String,
-    pub host: String,
-    pub port: u16,
-    pub user: String,
-    pub password: String,
-    pub database: String,
-    pub group: String,
-    pub status: String,
+/// `information_schema` 部分列在 MySQL 驱动下为 BLOB，需兼容解码为 `String`。
+fn mysql_row_string(row: &MySqlRow, index: usize) -> String {
+    if let Ok(v) = row.try_get::<String, _>(index) {
+        return v;
+    }
+    if let Ok(Some(v)) = row.try_get::<Option<String>, _>(index) {
+        return v;
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
+        return String::from_utf8_lossy(&v).into_owned();
+    }
+    if let Ok(Some(v)) = row.try_get::<Option<Vec<u8>>, _>(index) {
+        return String::from_utf8_lossy(&v).into_owned();
+    }
+    String::new()
+}
+
+fn mysql_row_i32(row: &MySqlRow, index: usize, default: i32) -> i32 {
+    if let Ok(v) = row.try_get::<i32, _>(index) {
+        return v;
+    }
+    if let Ok(v) = row.try_get::<i8, _>(index) {
+        return i32::from(v);
+    }
+    if let Ok(v) = row.try_get::<u8, _>(index) {
+        return i32::from(v);
+    }
+    if let Ok(v) = row.try_get::<i64, _>(index) {
+        return v as i32;
+    }
+    mysql_row_string(row, index)
+        .parse()
+        .unwrap_or(default)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,6 +52,38 @@ pub struct TableInfo {
     pub name: String,
     pub rows: Vec<HashMap<String, serde_json::Value>>,
     pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbColumnMeta {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub column_type: String,
+    pub is_pk: bool,
+    pub is_fk: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbIndexMeta {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct DbTableSchema {
+    pub name: String,
+    pub columns: Vec<DbColumnMeta>,
+    #[serde(default)]
+    pub indexes: Vec<DbIndexMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct DbIntrospectResult {
+    pub database: String,
+    pub tables: Vec<DbTableSchema>,
 }
 
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
@@ -54,10 +111,10 @@ fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
 pub async fn db_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbConnectionConfig>, String> {
-    let store = state.db_connections.lock().await;
-    let mut list: Vec<_> = store.values().cloned().collect();
-    list.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(list)
+    state
+        .db_connections
+        .list()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -66,23 +123,35 @@ pub async fn db_save_connection(
     state: State<'_, AppState>,
     connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
-    let mut store = state.db_connections.lock().await;
-    let id = if connection.id.is_empty() {
-        uuid_v4()
-    } else {
-        connection.id.clone()
-    };
-    let conn = DbConnectionConfig { id, ..connection };
-    store.insert(conn.id.clone(), conn.clone());
-    Ok(conn)
+    state
+        .db_connections
+        .save(connection)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn db_delete_connection(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let mut store = state.db_connections.lock().await;
-    store.remove(&id);
+    state
+        .db_connections
+        .delete(&id)
+        .map_err(|e| e.to_string())?;
+    let mut filters = load_schema_filters().map_err(|e| e.to_string())?;
+    prune_connection_filters(&mut filters, &id);
+    save_schema_filters(&filters).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_load_schema_filters() -> Result<SchemaFiltersSnapshot, String> {
+    load_schema_filters().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_save_schema_filters(snapshot: SchemaFiltersSnapshot) -> Result<(), String> {
+    save_schema_filters(&snapshot).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -120,12 +189,271 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             .fetch_all(&pool)
             .await
             .map_err(|e| format!("Query failed: {e}"))?;
-            let databases: Vec<String> = rows.iter().map(|r| r.get::<String, _>(0)).collect();
+            let databases: Vec<String> = rows.iter().map(|r| mysql_row_string(r, 0)).collect();
             pool.close().await;
             Ok(databases)
         }
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_introspect_schema(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+) -> Result<DbIntrospectResult, String> {
+    let db_name = schema
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| connection.database.clone());
+    if db_name.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => introspect_mysql_schema(&connection, &db_name).await,
+        _ => {
+            let params = with_schema(&connection, Some(db_name.clone()));
+            let driver = omnipanel_db::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            let table_names = driver.list_tables().await.map_err(|e| e.to_string())?;
+            Ok(DbIntrospectResult {
+                database: db_name,
+                tables: table_names
+                    .into_iter()
+                    .map(|name| DbTableSchema {
+                        name,
+                        columns: Vec::new(),
+                        indexes: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_introspect_table(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+    table: String,
+) -> Result<DbTableSchema, String> {
+    let db_name = schema
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| connection.database.clone());
+    if db_name.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+    if table.trim().is_empty() {
+        return Err("未指定数据表".to_string());
+    }
+
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => {
+            introspect_mysql_table(&connection, &db_name, table.trim()).await
+        }
+        _ => Ok(DbTableSchema {
+            name: table,
+            columns: Vec::new(),
+            indexes: Vec::new(),
+        }),
+    }
+}
+
+async fn introspect_mysql_schema(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<DbIntrospectResult, String> {
+    let mut opts = MySqlConnectOptions::new()
+        .host(&connection.host)
+        .port(connection.port)
+        .username(&connection.user)
+        .password(&connection.password);
+    if !connection.database.trim().is_empty() {
+        opts = opts.database(connection.database.trim());
+    }
+    let pool = MySqlPoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .map_err(|e| format!("Connection failed: {e}"))?;
+
+    let col_rows = sqlx::query(
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
+         FROM information_schema.COLUMNS \
+         WHERE TABLE_SCHEMA = ? \
+         ORDER BY TABLE_NAME, ORDINAL_POSITION",
+    )
+    .bind(db_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+
+    let idx_rows = sqlx::query(
+        "SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, NON_UNIQUE, SEQ_IN_INDEX \
+         FROM information_schema.STATISTICS \
+         WHERE TABLE_SCHEMA = ? \
+         ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
+    )
+    .bind(db_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+    pool.close().await;
+
+    let mut tables: Vec<DbTableSchema> = Vec::new();
+    for row in &col_rows {
+        let table_name = mysql_row_string(row, 0);
+        let column_name = mysql_row_string(row, 1);
+        let data_type = mysql_row_string(row, 2);
+        let column_key = mysql_row_string(row, 3);
+        let is_pk = column_key == "PRI";
+        let is_fk = column_key == "MUL";
+
+        if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
+            table.columns.push(DbColumnMeta {
+                name: column_name,
+                column_type: data_type,
+                is_pk,
+                is_fk,
+            });
+        } else {
+            tables.push(DbTableSchema {
+                name: table_name,
+                columns: vec![DbColumnMeta {
+                    name: column_name,
+                    column_type: data_type,
+                    is_pk,
+                    is_fk,
+                }],
+                indexes: Vec::new(),
+            });
+        }
+    }
+
+    apply_mysql_index_rows(&mut tables, idx_rows);
+
+    Ok(DbIntrospectResult {
+        database: db_name.to_string(),
+        tables,
+    })
+}
+
+async fn introspect_mysql_table(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table_name: &str,
+) -> Result<DbTableSchema, String> {
+    let mut opts = MySqlConnectOptions::new()
+        .host(&connection.host)
+        .port(connection.port)
+        .username(&connection.user)
+        .password(&connection.password);
+    if !connection.database.trim().is_empty() {
+        opts = opts.database(connection.database.trim());
+    }
+    let pool = MySqlPoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .map_err(|e| format!("Connection failed: {e}"))?;
+
+    let col_rows = sqlx::query(
+        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
+         FROM information_schema.COLUMNS \
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
+         ORDER BY ORDINAL_POSITION",
+    )
+    .bind(db_name)
+    .bind(table_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+
+    let idx_rows = sqlx::query(
+        "SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE, SEQ_IN_INDEX \
+         FROM information_schema.STATISTICS \
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
+         ORDER BY INDEX_NAME, SEQ_IN_INDEX",
+    )
+    .bind(db_name)
+    .bind(table_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+    pool.close().await;
+
+    let columns: Vec<DbColumnMeta> = col_rows
+        .iter()
+        .map(|row| {
+            let column_name = mysql_row_string(row, 0);
+            let data_type = mysql_row_string(row, 1);
+            let column_key = mysql_row_string(row, 2);
+            DbColumnMeta {
+                name: column_name,
+                column_type: data_type,
+                is_pk: column_key == "PRI",
+                is_fk: column_key == "MUL",
+            }
+        })
+        .collect();
+
+    let mut table = DbTableSchema {
+        name: table_name.to_string(),
+        columns,
+        indexes: Vec::new(),
+    };
+    push_mysql_index_row(&mut table.indexes, idx_rows);
+    Ok(table)
+}
+
+fn push_mysql_index_row(indexes: &mut Vec<DbIndexMeta>, idx_rows: Vec<sqlx::mysql::MySqlRow>) {
+    for row in &idx_rows {
+        let index_name = mysql_row_string(row, 0);
+        let column_name = mysql_row_string(row, 1);
+        let non_unique = mysql_row_i32(row, 2, 1);
+        if index_name == "PRIMARY" {
+            continue;
+        }
+        let unique = non_unique == 0;
+        if let Some(index) = indexes.iter_mut().find(|i| i.name == index_name) {
+            index.columns.push(column_name);
+        } else {
+            indexes.push(DbIndexMeta {
+                name: index_name,
+                columns: vec![column_name],
+                unique,
+            });
+        }
+    }
+}
+
+fn apply_mysql_index_rows(tables: &mut [DbTableSchema], idx_rows: Vec<sqlx::mysql::MySqlRow>) {
+    for row in &idx_rows {
+        let table_name = mysql_row_string(row, 0);
+        let index_name = mysql_row_string(row, 1);
+        let column_name = mysql_row_string(row, 2);
+        let non_unique = mysql_row_i32(row, 3, 1);
+        let table = match tables.iter_mut().find(|t| t.name == table_name) {
+            Some(t) => t,
+            None => continue,
+        };
+        if index_name == "PRIMARY" {
+            continue;
+        }
+        let unique = non_unique == 0;
+        if let Some(index) = table.indexes.iter_mut().find(|i| i.name == index_name) {
+            index.columns.push(column_name);
+        } else {
+            table.indexes.push(DbIndexMeta {
+                name: index_name,
+                columns: vec![column_name],
+                unique,
+            });
+        }
     }
 }
 
@@ -192,19 +520,4 @@ fn to_table_info(name: String, result: QueryResult) -> TableInfo {
         rows,
         columns: result.columns,
     }
-}
-
-fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!(
-        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-        now.as_secs(),
-        (now.as_nanos() & 0xffff) as u16,
-        ((now.as_nanos() >> 16) as u16 & 0xfff),
-        ((now.as_nanos() >> 28) as u16 & 0x3fff) | 0x8000,
-        (now.as_nanos() >> 44) & 0xffff_ffff_ffff
-    )
 }

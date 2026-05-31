@@ -21,23 +21,20 @@ pub fn default_ssh_config_path() -> Option<PathBuf> {
     home_dir().map(|home| home.join(".ssh").join("config"))
 }
 
+fn home_dir_from_env(var: &str) -> Option<PathBuf> {
+    std::env::var(var)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 fn home_dir() -> Option<PathBuf> {
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        if !profile.is_empty() {
-            return Some(PathBuf::from(profile));
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.is_empty() {
-            return Some(PathBuf::from(home));
-        }
-    }
-    None
+    home_dir_from_env("USERPROFILE").or_else(|| home_dir_from_env("HOME"))
 }
 
 fn expand_path(path: &str, base_dir: &Path) -> PathBuf {
     let trimmed = path.trim();
-    let expanded = if let Some(rest) = trimmed.strip_prefix("~/") {
+    if let Some(rest) = trimmed.strip_prefix("~/") {
         home_dir()
             .map(|h| h.join(rest))
             .unwrap_or_else(|| base_dir.join(rest))
@@ -48,8 +45,7 @@ fn expand_path(path: &str, base_dir: &Path) -> PathBuf {
         PathBuf::from(trimmed)
     } else {
         base_dir.join(trimmed)
-    };
-    expanded
+    }
 }
 
 fn is_connectable_alias(alias: &str) -> bool {
@@ -75,7 +71,7 @@ pub fn load_ssh_config_hosts_from(path: &Path) -> OmniResult<Vec<SshConfigEntry>
     })?;
     let base_dir = path.parent().unwrap_or(Path::new("."));
     let mut entries = parse_ssh_config_text(&content, base_dir)?;
-    entries.sort_by(|a, b| a.alias.to_lowercase().cmp(&b.alias.to_lowercase()));
+    entries.sort_by_key(|entry| entry.alias.to_lowercase());
     entries.dedup_by(|a, b| a.alias == b.alias);
     Ok(entries)
 }
