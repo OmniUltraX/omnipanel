@@ -27,10 +27,13 @@ import { useI18n } from "../../i18n";
 import {
   SplitTerminalWorkspace,
   useSplitTerminalWorkspace,
+  type SplitTerminalPaneInput,
 } from "../../components/terminal/split-workspace";
 import { formatPaneHeaderTitle } from "./paneHeader";
 import { getBlueprint } from "./sessionBlueprints";
 import type { LayoutNode } from "./splitLayout";
+
+const EMPTY_PANES: TerminalPane[] = [];
 
 function tabLabel(tab: TerminalTab) {
   const pane =
@@ -124,10 +127,12 @@ export function TerminalPanel() {
         const resolved =
           typeof value === "function" ? value(prev[tabKey] ?? null) : value;
         if (resolved === null) {
+          if (!(tabKey in prev)) return prev;
           const next = { ...prev };
           delete next[tabKey];
           return next;
         }
+        if (prev[tabKey] === resolved) return prev;
         return { ...prev, [tabKey]: resolved };
       });
     },
@@ -154,6 +159,41 @@ export function TerminalPanel() {
     [enqueueAction, tabs, t, workspaceActiveResource],
   );
 
+  const onActivePaneChange = useCallback(
+    (paneId: string) => {
+      if (activeWorkspaceTab) {
+        setActivePane(activeWorkspaceTab.id, paneId);
+      }
+    },
+    [activeWorkspaceTab, setActivePane],
+  );
+
+  const onAddPane = useCallback(
+    (partial: SplitTerminalPaneInput) => {
+      if (!activeWorkspaceTab) return;
+      useTerminalStore.getState().addPaneToTab(activeWorkspaceTab.id, {
+        ...partial,
+        terminal: null,
+        status: "connecting",
+        backendSessionId: null,
+      });
+    },
+    [activeWorkspaceTab],
+  );
+
+  const onRemovePane = useCallback(
+    (paneId: string) => {
+      if (!activeWorkspaceTab) return;
+      disposePaneBackendSession(paneId);
+      useTerminalStore
+        .getState()
+        .removePaneFromTab(activeWorkspaceTab.id, paneId);
+    },
+    [activeWorkspaceTab],
+  );
+
+  const workspacePanes = activeWorkspaceTab?.panes ?? EMPTY_PANES;
+
   const {
     layout: splitLayout,
     handlePaneSenderChange,
@@ -163,29 +203,11 @@ export function TerminalPanel() {
     handleClosePane,
   } = useSplitTerminalWorkspace({
     workspaceId: activeWorkspaceTab?.id ?? "__terminal_inactive__",
-    panes: activeWorkspaceTab?.panes ?? [],
+    panes: workspacePanes,
     activePaneId: activeWorkspaceTab?.activePaneId ?? null,
-    onActivePaneChange: (paneId) => {
-      if (activeWorkspaceTab) {
-        setActivePane(activeWorkspaceTab.id, paneId);
-      }
-    },
-    onAddPane: (partial) => {
-      if (!activeWorkspaceTab) return;
-      useTerminalStore.getState().addPaneToTab(activeWorkspaceTab.id, {
-        ...partial,
-        terminal: null,
-        status: "connecting",
-        backendSessionId: null,
-      });
-    },
-    onRemovePane: (paneId) => {
-      if (!activeWorkspaceTab) return;
-      disposePaneBackendSession(paneId);
-      useTerminalStore
-        .getState()
-        .removePaneFromTab(activeWorkspaceTab.id, paneId);
-    },
+    onActivePaneChange,
+    onAddPane,
+    onRemovePane,
     onCommandExecuted,
     layout: currentLayout,
     setLayout: setTabLayout,

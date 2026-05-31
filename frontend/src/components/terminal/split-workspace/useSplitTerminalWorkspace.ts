@@ -57,29 +57,33 @@ export function useSplitTerminalWorkspace({
   setLayout,
 }: UseSplitTerminalWorkspaceOptions) {
   const paneSendersRef = useRef<Record<string, (cmd: string) => void>>({});
+  const onActivePaneChangeRef = useRef(onActivePaneChange);
+  onActivePaneChangeRef.current = onActivePaneChange;
+
   const paneIdsKey = panes.map((pane) => pane.id).join("\n");
 
   useEffect(() => {
-    if (panes.length === 0) {
+    if (paneIdsKey === "") {
       setLayout(null);
       return;
     }
 
+    const paneIds = paneIdsKey.split("\n");
+
     setLayout((prev) => {
-      const valid =
-        prev && panes.every((pane) => findPaneNode(prev, pane.id));
-      if (valid) return prev;
-      return createPaneNode(panes[0].id);
+      if (prev) return prev;
+      return createPaneNode(paneIds[0]);
     });
 
+    const firstPaneId = paneIds[0];
     if (
       activePaneId &&
-      !panes.some((pane) => pane.id === activePaneId) &&
-      panes[0]
+      !paneIds.includes(activePaneId) &&
+      firstPaneId
     ) {
-      onActivePaneChange(panes[0].id);
+      onActivePaneChangeRef.current(firstPaneId);
     }
-  }, [workspaceId, paneIdsKey, panes, activePaneId, onActivePaneChange, setLayout]);
+  }, [workspaceId, paneIdsKey, activePaneId, setLayout]);
 
   const handlePaneSenderChange = useCallback(
     (sessionId: string, sender: ((cmd: string) => void) | null) => {
