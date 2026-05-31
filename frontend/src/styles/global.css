@@ -741,7 +741,23 @@
   .ssh-detail-tab { padding: var(--sp-3) var(--sp-4); font-size: 12px; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.12s, border-color 0.12s; }
   .ssh-detail-tab:hover { color: var(--fg); }
   .ssh-detail-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
-  .ssh-detail-body { flex: 1; overflow-y: auto; padding: var(--sp-6); }
+  .ssh-detail-body { flex: 1; overflow-y: auto; padding: var(--sp-6); min-height: 0; display: flex; flex-direction: column; }
+  .ssh-detail-body--terminal { padding: 0; overflow: hidden; }
+  .ssh-terminal-tab-slot { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+  .ssh-terminal-tab-slot[hidden] { display: none !important; }
+  .ssh-detail-body > .ssh-terminal-panel,
+  .ssh-terminal-tab-slot > .ssh-terminal-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; border: none; border-radius: 0; overflow: hidden; background: var(--bg-deeper); }
+  .ssh-terminal-workspace .term-panes { flex: 1; min-height: 0; }
+  .ssh-term-split-dock { height: 100%; }
+  .ssh-terminal-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--bg-deeper); }
+  .ssh-terminal-toolbar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); background: var(--bg-deeper); flex-shrink: 0; font-size: 11px; }
+  .ssh-terminal-host { font-weight: 600; color: var(--fg-2); }
+  .ssh-terminal-status { margin-left: auto; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .ssh-terminal-status--connecting { background: var(--warn-soft); color: var(--warn); }
+  .ssh-terminal-status--connected { background: var(--success-soft); color: var(--success); }
+  .ssh-terminal-status--disconnected { background: color-mix(in oklch, var(--surface) 82%, transparent); color: var(--meta); }
+  .ssh-terminal-viewport { flex: 1; min-height: 0; padding: 0 !important; overflow: hidden; }
+  .ssh-terminal-empty { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: var(--sp-6); color: var(--meta); font-size: 13px; text-align: center; }
   .sftp-toolbar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; margin-bottom: var(--sp-3); }
   .sftp-path { display: flex; align-items: center; gap: var(--sp-1); font-size: 12px; color: var(--muted); }
   .sftp-path span { cursor: pointer; }

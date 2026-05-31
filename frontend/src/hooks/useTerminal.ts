@@ -7,7 +7,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
-import { useTerminalStore } from "../stores/terminalStore";
+import {
+  findTerminalPane,
+  useTerminalStore,
+} from "../stores/terminalStore";
 import { useConnectionStore } from "../stores/connectionStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
@@ -69,10 +72,7 @@ function decodeOutput(data: unknown): Uint8Array | null {
 const pendingBackendSessions = new Map<string, Promise<string>>();
 
 function findPaneById(sessionId: string) {
-  return useTerminalStore
-    .getState()
-    .tabs.flatMap((tab) => tab.panes)
-    .find((pane) => pane.id === sessionId);
+  return findTerminalPane(sessionId);
 }
 
 function isRemotePane(sessionId: string): boolean {

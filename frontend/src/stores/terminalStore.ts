@@ -36,6 +36,8 @@ interface CreateTabOptions {
 interface TerminalState {
   tabs: TerminalTab[];
   activeTabId: string | null;
+  /** SSH 等模块内嵌终端（不占用顶部终端 Tab） */
+  embeddedPanes: Record<string, TerminalPane>;
 
   addTab: (pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">, options?: CreateTabOptions) => void;
   removeTab: (tabId: string) => void;
@@ -46,6 +48,10 @@ interface TerminalState {
   setTerminal: (paneId: string, terminal: Terminal) => void;
   setStatus: (paneId: string, status: TerminalPane["status"]) => void;
   setBackendSessionId: (paneId: string, backendSessionId: string | null) => void;
+  upsertEmbeddedPane: (
+    pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">,
+  ) => string;
+  removeEmbeddedPane: (paneId: string) => void;
   findTabByResourceId: (resourceId: string, type?: TerminalPane["type"]) => TerminalTab | undefined;
   openOrFocusSshTab: (hostId: string, title: string) => string;
   openOrFocusLocalTab: (title?: string) => string;
@@ -62,6 +68,38 @@ function updatePaneInTabs(
   }));
 }
 
+/** 在 Tab 窗格或内嵌窗格中查找（供 useTerminal 使用） */
+export function findTerminalPane(paneId: string): TerminalPane | undefined {
+  const state = useTerminalStore.getState();
+  const embedded = state.embeddedPanes[paneId];
+  if (embedded) return embedded;
+  for (const tab of state.tabs) {
+    const pane = tab.panes.find((item) => item.id === paneId);
+    if (pane) return pane;
+  }
+  return undefined;
+}
+
+function patchPaneState(
+  state: Pick<TerminalState, "tabs" | "embeddedPanes">,
+  paneId: string,
+  updater: (pane: TerminalPane) => TerminalPane
+): Pick<TerminalState, "tabs" | "embeddedPanes"> {
+  if (state.embeddedPanes[paneId]) {
+    return {
+      tabs: state.tabs,
+      embeddedPanes: {
+        ...state.embeddedPanes,
+        [paneId]: updater(state.embeddedPanes[paneId]),
+      },
+    };
+  }
+  return {
+    tabs: updatePaneInTabs(state.tabs, paneId, updater),
+    embeddedPanes: state.embeddedPanes,
+  };
+}
+
 function createPane(
   pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">
 ): TerminalPane {
@@ -73,9 +111,22 @@ function createPane(
   };
 }
 
+export const SSH_EMBEDDED_PANE_PREFIX = "ssh-embed:";
+
+/** SSH 模块内嵌终端工作区 id（首个窗格可能与此 id 相同） */
+export function sshEmbeddedWorkspaceId(resourceId: string) {
+  return `${SSH_EMBEDDED_PANE_PREFIX}${resourceId}`;
+}
+
+/** @deprecated 请使用 sshEmbeddedWorkspaceId */
+export function sshEmbeddedPaneId(resourceId: string) {
+  return sshEmbeddedWorkspaceId(resourceId);
+}
+
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  embeddedPanes: {},
 
   addTab: (pane, options) =>
     set((state) => {
@@ -135,19 +186,44 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     })),
 
   setTerminal: (paneId, terminal) =>
-    set((state) => ({
-      tabs: updatePaneInTabs(state.tabs, paneId, (pane) => ({ ...pane, terminal })),
-    })),
+    set((state) => patchPaneState(state, paneId, (pane) => ({ ...pane, terminal }))),
 
   setStatus: (paneId, status) =>
-    set((state) => ({
-      tabs: updatePaneInTabs(state.tabs, paneId, (pane) => ({ ...pane, status })),
-    })),
+    set((state) => patchPaneState(state, paneId, (pane) => ({ ...pane, status }))),
 
   setBackendSessionId: (paneId, backendSessionId) =>
-    set((state) => ({
-      tabs: updatePaneInTabs(state.tabs, paneId, (pane) => ({ ...pane, backendSessionId })),
-    })),
+    set((state) =>
+      patchPaneState(state, paneId, (pane) => ({ ...pane, backendSessionId })),
+    ),
+
+  upsertEmbeddedPane: (pane) => {
+    const id = pane.id;
+    set((state) => {
+      const existing = state.embeddedPanes[id];
+      const next = existing
+        ? {
+            ...existing,
+            ...pane,
+            terminal: existing.terminal,
+            status: existing.status,
+            backendSessionId: existing.backendSessionId,
+          }
+        : createPane(pane);
+      return {
+        embeddedPanes: {
+          ...state.embeddedPanes,
+          [id]: next,
+        },
+      };
+    });
+    return id;
+  },
+
+  removeEmbeddedPane: (paneId) =>
+    set((state) => {
+      const { [paneId]: _removed, ...rest } = state.embeddedPanes;
+      return { embeddedPanes: rest };
+    }),
 
   findTabByResourceId: (resourceId, type) =>
     get().tabs.find((tab) =>
