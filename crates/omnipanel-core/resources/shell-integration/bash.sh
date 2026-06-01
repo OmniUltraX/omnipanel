@@ -25,10 +25,18 @@ __omnipanel_cmd_end() {
 }
 
 if [[ -n "${BASH_VERSION:-}" ]]; then
-    # Bash: use PROMPT_COMMAND and DEBUG trap
+    # Bash: use PROMPT_COMMAND with a single callback + DEBUG trap
     __omnipanel_orig_prompt="${PROMPT_COMMAND:-}"
-    PROMPT_COMMAND="__omnipanel_cmd_end; __omnipanel_prompt_start; ${__omnipanel_orig_prompt}"
-    trap '__omnipanel_cmd_start' DEBUG
+    __omnipanel_in_prompt=0
+    __omnipanel_prompt_callback() {
+        __omnipanel_in_prompt=1
+        __omnipanel_cmd_end
+        __omnipanel_prompt_start
+        ${__omnipanel_orig_prompt}
+        __omnipanel_in_prompt=0
+    }
+    PROMPT_COMMAND="__omnipanel_prompt_callback"
+    trap '(( __omnipanel_in_prompt == 0 )) && __omnipanel_cmd_start' DEBUG
 elif [[ -n "${ZSH_VERSION:-}" ]]; then
     # Zsh: use precmd and preexec hooks
     autoload -Uz add-zsh-hook 2>/dev/null

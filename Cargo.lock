@@ -3111,6 +3111,7 @@ dependencies = [
  "tauri-specta",
  "tokio",
  "tokio-tungstenite",
+ "toml 0.8.2",
  "tracing",
  "tracing-subscriber",
  "url",

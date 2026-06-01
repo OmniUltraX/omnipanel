@@ -224,6 +224,44 @@ impl SshSession {
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 会话已关闭"))
     }
 
+    /// Execute a single command on the existing SSH session (separate channel).
+    /// Returns stdout as a UTF-8 string.
+    pub async fn exec_command(&self, command: &str) -> OmniResult<String> {
+        let mut channel = self
+            .session
+            .channel_open_session()
+            .await
+            .map_err(|e| OmniError::ssh("打开命令执行通道失败").with_cause(e.to_string()))?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| OmniError::ssh("远程命令执行失败").with_cause(e.to_string()))?;
+
+        let mut output = Vec::new();
+        loop {
+            match channel.wait().await {
+                Some(ChannelMsg::Data { ref data }) => {
+                    output.extend_from_slice(data);
+                }
+                Some(ChannelMsg::ExtendedData { ref data, .. }) => {
+                    output.extend_from_slice(data);
+                }
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    if exit_status != 0 {
+                        let stderr = String::from_utf8_lossy(&output);
+                        return Err(OmniError::ssh("远程命令返回非零退出码")
+                            .with_cause(format!("exit={exit_status} stderr={stderr}")));
+                    }
+                }
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                _ => {}
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&output).trim().to_string())
+    }
+
     /// 主动断开连接。
     pub async fn disconnect(&self) {
         let _ = self
