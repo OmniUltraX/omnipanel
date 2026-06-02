@@ -235,6 +235,7 @@ export const zhCN = {
       pendingConfirm: "待确认 {count}",
       openAi: "打开 AI 助手",
       commandPaletteHint: "Ctrl+K：命令面板",
+      backendLogs: "后台日志",
     },
     risk: {
       low: "低风险",

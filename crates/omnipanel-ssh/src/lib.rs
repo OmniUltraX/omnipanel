@@ -91,9 +91,10 @@ enum ShellMsg {
 }
 
 /// 一个已建立的 SSH 会话：持有 client handle（用于 SFTP）与 shell 输入通道。
+/// 当 `shell_tx` 为 None 时仅支持 `exec_command` / SFTP 操作（连接池模式）。
 pub struct SshSession {
     session: client::Handle<Client>,
-    shell_tx: mpsc::UnboundedSender<ShellMsg>,
+    shell_tx: Option<mpsc::UnboundedSender<ShellMsg>>,
 }
 
 impl SshSession {
@@ -207,12 +208,76 @@ impl SshSession {
             sink(SshEvent::Disconnected);
         });
 
-        Ok(Self { session, shell_tx })
+        Ok(Self {
+            session,
+            shell_tx: Some(shell_tx),
+        })
+    }
+
+    /// 建立连接并认证，但不请求 PTY/shell。
+    /// 适用于连接池、监控等只需 exec_command 的场景。
+    pub async fn connect_no_shell(config: SshConfig) -> OmniResult<Self> {
+        let client_config = Arc::new(client::Config {
+            inactivity_timeout: Some(Duration::from_secs(3600)),
+            ..Default::default()
+        });
+
+        let mut session =
+            client::connect(client_config, (config.host.as_str(), config.port), Client)
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Connection, "SSH 连接失败").with_cause(e.to_string())
+                })?;
+
+        let auth_ok = match &config.auth {
+            SshAuth::Password { password } => session
+                .authenticate_password(&config.user, password)
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Auth, "SSH 密码认证失败").with_cause(e.to_string())
+                })?
+                .success(),
+            SshAuth::PrivateKey { pem, passphrase } => {
+                let key = decode_secret_key(pem, passphrase.as_deref()).map_err(|e| {
+                    OmniError::new(ErrorCode::Auth, "SSH 私钥解析失败").with_cause(e.to_string())
+                })?;
+                let hash = session
+                    .best_supported_rsa_hash()
+                    .await
+                    .map_err(|e| {
+                        OmniError::new(ErrorCode::Ssh, "协商 RSA 哈希失败")
+                            .with_cause(e.to_string())
+                    })?
+                    .flatten();
+                session
+                    .authenticate_publickey(
+                        &config.user,
+                        PrivateKeyWithHashAlg::new(Arc::new(key), hash),
+                    )
+                    .await
+                    .map_err(|e| {
+                        OmniError::new(ErrorCode::Auth, "SSH 公钥认证失败")
+                            .with_cause(e.to_string())
+                    })?
+                    .success()
+            }
+        };
+
+        if !auth_ok {
+            return Err(OmniError::new(ErrorCode::Auth, "SSH 认证被拒绝"));
+        }
+
+        Ok(Self {
+            session,
+            shell_tx: None,
+        })
     }
 
     /// 写入 shell 输入。
     pub fn write(&self, data: &[u8]) -> OmniResult<()> {
         self.shell_tx
+            .as_ref()
+            .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）"))?
             .send(ShellMsg::Data(data.to_vec()))
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 会话已关闭"))
     }
@@ -220,6 +285,8 @@ impl SshSession {
     /// 调整远端 PTY 窗口大小。
     pub fn resize(&self, cols: u16, rows: u16) -> OmniResult<()> {
         self.shell_tx
+            .as_ref()
+            .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）"))?
             .send(ShellMsg::Resize(cols, rows))
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 会话已关闭"))
     }

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
+import { useTerminalStore } from "./terminalStore";
 
 export type MemoryStats = {
   total: number;
@@ -45,6 +46,26 @@ export const useSshStatsStore = create<SshStatsState>((set, get) => ({
   getStats: (hostId: string) => get().statsMap[hostId] ?? null,
 }));
 
+/** Backend emits stats keyed by SSH session ID ("ssh-1").  The frontend
+ *  looks up by resource (connection) ID.  Bridge the two via the terminal
+ *  store's pane data. */
+function findBackendSessionId(resourceId: string): string | null {
+  const state = useTerminalStore.getState();
+  for (const pane of Object.values(state.embeddedPanes)) {
+    if (pane.resourceId === resourceId && pane.backendSessionId) {
+      return pane.backendSessionId;
+    }
+  }
+  for (const tab of state.tabs) {
+    for (const pane of tab.panes) {
+      if (pane.resourceId === resourceId && pane.backendSessionId) {
+        return pane.backendSessionId;
+      }
+    }
+  }
+  return null;
+}
+
 let listening = false;
 function ensureListener() {
   if (listening) return;
@@ -60,12 +81,18 @@ if (typeof window !== "undefined") {
   ensureListener();
 }
 
-export function useSshStats(hostId: string | null): HostSystemStats | null {
+/** 根据资源 ID（connection UUID 或 openssh:alias）获取对应主机的实时系统状态。
+ *  优先直接按 resource ID 查找（连接池模式），
+ *  兜底按后端 SSH 会话 ID 查找（交互式终端模式）。 */
+export function useSshStats(resourceId: string | null): HostSystemStats | null {
   const statsMap = useSshStatsStore((s) => s.statsMap);
   useEffect(() => {
     ensureListener();
   }, []);
-  return hostId ? (statsMap[hostId] ?? null) : null;
+  if (!resourceId) return null;
+  if (statsMap[resourceId]) return statsMap[resourceId];
+  const backendSessionId = findBackendSessionId(resourceId);
+  return backendSessionId ? (statsMap[backendSessionId] ?? null) : null;
 }
 
 export function formatBytes(bytes: number): string {

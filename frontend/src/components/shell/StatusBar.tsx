@@ -5,6 +5,7 @@ import { useActionStore } from "../../stores/actionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { workspaceResources, getResourceById, type EnvironmentTag } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
+import { LogModal } from "../ui/LogModal";
 
 export function StatusBar() {
   const { t } = useI18n();
@@ -14,6 +15,7 @@ export function StatusBar() {
   const activeResourceId = useWorkspaceStore((state) => state.activeResourceId);
   const actions = useActionStore((state) => state.actions);
   const [time, setTime] = useState(() => new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+  const [logOpen, setLogOpen] = useState(false);
 
   const onlineCount = workspaceResources.filter((resource) => ["online", "running"].includes(resource.status)).length;
   const blockedCount = actions.filter((action) => action.status === "blocked").length;
@@ -33,7 +35,19 @@ export function StatusBar() {
     const terminalState = activeResource?.environment === "local" ? "Local PTY Ready" : "SSH Connected";
 
     return (
+      <>
       <div className="statusbar">
+        <button
+          className="statusbar-item cursor-pointer hover:text-accent transition-colors"
+          onClick={() => setLogOpen(true)}
+          title={t("shell.statusbar.backendLogs")}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+            <path d="M4 4h16v2H4z" />
+            <path d="M4 10h16v2H4z" />
+            <path d="M4 16h12v2H4z" />
+          </svg>
+        </button>
         <span className="statusbar-item">
           <span className="statusbar-dot green" />
           {terminalState}
@@ -72,15 +86,29 @@ export function StatusBar() {
         <span className="statusbar-item">UTF-8</span>
         <span className="statusbar-item">LF</span>
       </div>
+      <LogModal open={logOpen} onClose={() => setLogOpen(false)} />
+      </>
     );
   }
 
   return (
-    <div className="statusbar">
-      <span className="statusbar-item">
-        <span className="statusbar-dot green"></span>
-        {t("shell.statusbar.resourcesOnline", { count: onlineCount })}
-      </span>
+    <>
+      <div className="statusbar">
+        <button
+          className="statusbar-item cursor-pointer hover:text-accent transition-colors"
+          onClick={() => setLogOpen(true)}
+          title={t("shell.statusbar.backendLogs")}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+            <path d="M4 4h16v2H4z" />
+            <path d="M4 10h16v2H4z" />
+            <path d="M4 16h12v2H4z" />
+          </svg>
+        </button>
+        <span className="statusbar-item">
+          <span className="statusbar-dot green"></span>
+          {t("shell.statusbar.resourcesOnline", { count: onlineCount })}
+        </span>
       <span className="statusbar-item">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <rect x="2" y="7" width="6" height="5" rx="1" />
@@ -112,5 +140,7 @@ export function StatusBar() {
         {t("shell.statusbar.commandPaletteHint")}
       </span>
     </div>
+      <LogModal open={logOpen} onClose={() => setLogOpen(false)} />
+      </>
   );
 }

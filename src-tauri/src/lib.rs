@@ -1,5 +1,6 @@
 mod background;
 mod commands;
+mod log_store;
 mod output_buffer;
 mod protocol;
 mod state;
@@ -116,11 +117,12 @@ pub fn run() {
                 storage,
                 db_connections,
             );
-            let ssh_sessions = app_state.ssh_sessions.clone();
+            let pool_storage = app_state.storage.clone();
+            let log_store = app_state.log_store.clone();
             app.manage(app_state);
 
-            // Start background scheduler
-            background::BackgroundScheduler::start(ssh_sessions, app.handle().clone());
+            // Start background scheduler (SSH connection pool + stats)
+            background::BackgroundScheduler::start(pool_storage, log_store, app.handle().clone());
 
             Ok(())
         })
@@ -193,6 +195,9 @@ pub fn run() {
             // Updater
             commands::updater::check_update,
             commands::updater::install_update,
+            // Backend logs
+            commands::log::get_backend_logs,
+            commands::log::clear_backend_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

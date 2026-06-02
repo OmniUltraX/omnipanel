@@ -539,7 +539,9 @@ export function useTerminal(
           container!.addEventListener("contextmenu", contextmenuHandler);
         }
 
-        term.focus();
+        if (inputMode !== "external") {
+          term.focus();
+        }
 
         if (sendRef) {
           sendRef.current = sendCommandRef.current;

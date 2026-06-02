@@ -239,6 +239,7 @@ export const enUS: TranslationDict = {
       pendingConfirm: "Pending {count}",
       openAi: "Open AI Assistant",
       commandPaletteHint: "Ctrl+K: Command Palette",
+      backendLogs: "Backend Logs",
     },
     risk: {
       low: "Low risk",

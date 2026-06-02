@@ -752,9 +752,12 @@
   .host-item .host-info { flex: 1; min-width: 0; }
   .host-item .host-name { font-size: 12px; font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .host-item .host-addr { font-size: 11px; color: var(--meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .host-item .host-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .host-item .host-status.online { background: var(--success); }
-  .host-item .host-status.offline { background: var(--muted); }
+  .host-item .host-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .host-item .host-status--online { background: var(--success); box-shadow: 0 0 0 2px var(--success-soft); }
+  .host-item .host-status--offline { background: var(--muted); }
+  .host-item .host-status--connecting { width: 10px; height: 10px; border: 2px solid var(--muted); border-top-color: var(--warn); border-radius: 50%; animation: spin-dot .8s linear infinite; }
+  .host-item .host-status--error { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 30%, transparent); }
+  .host-item .host-status--unknown { background: var(--border); }
   .ssh-detail { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .ssh-detail-header { padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: var(--sp-4); }
   .ssh-detail-header .host-title { font-size: 18px; font-weight: 700; }
@@ -801,6 +804,24 @@
   .ssh-module-list { display: flex; flex-direction: column; gap: var(--sp-2); }
   .ssh-module-item { width: 100%; padding: var(--sp-3); border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); color: inherit; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
   .ssh-module-item:hover { border-color: var(--accent); }
+
+  /* SSH Overview cards */
+  .ssh-ov { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-6); flex: 1; }
+  .ssh-ov-toolbar { display: flex; align-items: center; justify-content: space-between; }
+  .ssh-ov-toolbar h3 { font-size: 15px; font-weight: 700; }
+  .ssh-ov-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
+  .ssh-ov-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); transition: border-color 0.15s, box-shadow 0.15s; }
+  .ssh-ov-card:hover { border-color: var(--border-focus); box-shadow: 0 0 0 1px var(--border-focus); }
+  .ssh-ov-card-head { display: flex; align-items: center; gap: var(--sp-3); }
+  .ssh-ov-card-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--r-md); }
+  .ssh-ov-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--meta); }
+  .ssh-ov-card-pct { font-size: 32px; font-weight: 800; line-height: 1; }
+  .ssh-ov-card-bar { margin-top: var(--sp-1); }
+  .ssh-ov-card-bar-track { width: 100%; height: 6px; background: var(--bg-deeper); border-radius: 999px; overflow: hidden; }
+  .ssh-ov-card-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+  .ssh-ov-card-details { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); border-top: 1px solid var(--border-soft); padding-top: var(--sp-3); }
+  .ssh-ov-card-details li { font-size: 12px; color: var(--fg-2); display: flex; align-items: center; gap: var(--sp-2); }
+  .ssh-ov-card-details li::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--meta); flex-shrink: 0; }
 
   /* ══════════════════════════════════════════════════════════════════════
      Database (database.html)
@@ -926,6 +947,25 @@
   .modal-header h3 { flex: 1; font-size: 14px; font-weight: 600; color: var(--fg); }
   .modal-body { flex: 1; overflow-y: auto; padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
   .modal-footer { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--border); }
+
+  /* Log modal */
+  .log-modal { width: 720px; max-width: 92vw; }
+  .log-modal-toolbar { display: flex; align-items: center; gap: var(--sp-2); }
+  .log-modal-select { font-size: 11px; padding: 2px 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg-2); outline: none; }
+  .log-modal-select:focus { border-color: var(--accent); }
+  .log-modal-btn { font-size: 11px; padding: 2px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg-2); cursor: pointer; }
+  .log-modal-btn:hover { background: var(--hover); color: var(--fg); }
+  .log-modal-body { padding: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; min-height: 300px; max-height: 60vh; }
+  .log-modal-empty { padding: var(--sp-8); text-align: center; color: var(--meta); }
+  .log-modal-entry { display: flex; gap: var(--sp-2); padding: 1px var(--sp-4); border-bottom: 1px solid var(--border); align-items: baseline; }
+  .log-modal-entry:hover { background: var(--hover); }
+  .log-modal-ts { color: var(--meta); flex-shrink: 0; width: 80px; }
+  .log-modal-level { flex-shrink: 0; width: 44px; font-weight: 600; }
+  .log-modal-level.log-level--error { color: var(--danger); }
+  .log-modal-level.log-level--warn { color: var(--warn); }
+  .log-modal-level.log-level--info { color: var(--accent); }
+  .log-modal-module { flex-shrink: 0; color: var(--fg-2); width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-modal-msg { flex: 1; color: var(--fg); word-break: break-all; }
 
   /* Form fields */
   .form-field { display: flex; flex-direction: column; gap: var(--sp-1); }
@@ -1464,4 +1504,13 @@
   .provider-card .provider-desc { font-size: 11px; color: var(--muted); }
   .settings-panel { display: none; }
   .settings-panel.active { display: block; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes spin-dot {
+  to { transform: rotate(360deg); }
 }

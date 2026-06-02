@@ -6,6 +6,7 @@ import {
 } from "../../lib/resourceRegistry";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { useHostOnlineStatus } from "../../stores/sshConnectionStore";
 
 const HOST_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -21,6 +22,30 @@ interface HostListPanelProps {
 }
 
 const SSH_PATH = "/ssh";
+
+function HostStatusDot({ resourceId }: { resourceId: string }) {
+  const status = useHostOnlineStatus(resourceId);
+
+  const cls =
+    status === "online"
+      ? "host-status host-status--online"
+      : status === "connecting"
+        ? "host-status host-status--connecting"
+        : status === "error"
+          ? "host-status host-status--error"
+          : "host-status host-status--unknown";
+
+  const title =
+    status === "online"
+      ? "已连接"
+      : status === "connecting"
+        ? "正在连接"
+        : status === "error"
+          ? "连接失败"
+          : "未知";
+
+  return <span className={cls} title={title} />;
+}
 
 export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   const { t } = useI18n();
@@ -91,9 +116,7 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
                       <div className="host-name">{host.name}</div>
                       <div className="host-addr">{host.subtitle}</div>
                     </div>
-                    <span
-                      className={`host-status ${host.status === "offline" ? "offline" : "online"}`}
-                    />
+                    <HostStatusDot resourceId={host.id} />
                   </button>
                   {onConnect && (
                     <button

@@ -14,6 +14,7 @@ use omnipanel_store::{DatabaseConnectionStore, Storage};
 
 use omnipanel_ai::provider::AiProviderRegistry;
 
+use crate::log_store::LogStore;
 use crate::output_buffer::{self, OutputBuffers};
 
 pub struct AppState {
@@ -34,6 +35,8 @@ pub struct AppState {
     pub ssh_sessions: Arc<Mutex<HashMap<String, SshSession>>>,
     /// 终端/SSH 输出 scrollback 缓冲（会话恢复用）。
     pub output_buffers: OutputBuffers,
+    /// 后台任务日志存储。
+    pub log_store: LogStore,
 }
 
 impl AppState {
@@ -58,6 +61,7 @@ impl AppState {
             engine: Arc::new(engine),
             ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
             output_buffers: output_buffer::new_buffers(),
+            log_store: LogStore::new(500),
         }
     }
 }

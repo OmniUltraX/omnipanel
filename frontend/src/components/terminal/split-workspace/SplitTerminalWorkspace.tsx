@@ -1,7 +1,8 @@
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { TerminalPane } from "../../../stores/terminalStore";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import { SplitLayoutRenderer } from "../../../modules/terminal/SplitLayoutRenderer";
+import { isSplitContainer } from "../../../modules/terminal/splitLayout";
 import type { LayoutNode } from "../../../modules/terminal/splitLayout";
 
 export type SplitTerminalWorkspaceProps = {
@@ -24,6 +25,21 @@ export type SplitTerminalWorkspaceProps = {
   dockClassName?: string;
   empty?: ReactNode;
 };
+
+function getPaneIdsInOrder(node: LayoutNode): string[] {
+  if (!isSplitContainer(node)) {
+    return [node.paneId];
+  }
+  return node.children.flatMap(getPaneIdsInOrder);
+}
+
+function focusInputByIndex(index: number) {
+  const panes = document.querySelectorAll<HTMLElement>(".term-pane-leaf");
+  const target = panes[index];
+  if (!target) return;
+  const textarea = target.querySelector<HTMLTextAreaElement>(".term-cmd-textarea");
+  textarea?.focus();
+}
 
 export function SplitTerminalWorkspace({
   panes,
@@ -54,6 +70,26 @@ export function SplitTerminalWorkspace({
     return map;
   }, [getResource, panes]);
 
+  const paneIdOrder = useMemo(
+    () => (layout ? getPaneIdsInOrder(layout) : []),
+    [layout],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.altKey && /^[1-9]$/.test(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const index = parseInt(e.key, 10) - 1;
+        const paneId = paneIdOrder[index];
+        if (!paneId) return;
+        onActivatePane(paneId);
+        focusInputByIndex(index);
+      }
+    },
+    [onActivatePane, paneIdOrder],
+  );
+
   if (!layout || panes.length === 0) {
     return empty ?? null;
   }
@@ -61,7 +97,7 @@ export function SplitTerminalWorkspace({
   const effectiveActivePaneId = interactionActive ? activePaneId : null;
 
   return (
-    <div className={className}>
+    <div className={className} tabIndex={0} onKeyDown={handleKeyDown}>
       <div className="term-panes">
         <SplitLayoutRenderer
           node={layout}
