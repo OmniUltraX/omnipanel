@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use omnipanel_db::{DbParams, QueryResult};
+use omnipanel_db::{DbParams, QueryResult, mysql_connect_options};
+use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
     save_schema_filters,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow};
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
 use tauri::State;
 
@@ -86,6 +87,11 @@ pub struct DbIntrospectResult {
     pub tables: Vec<DbTableSchema>,
 }
 
+/// 将领域错误转为前端可读文案（含底层 cause）。
+fn err_msg(e: OmniError) -> String {
+    e.user_message()
+}
+
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
 fn to_params(c: &DbConnectionConfig) -> DbParams {
     DbParams {
@@ -95,7 +101,17 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
         user: c.user.clone(),
         password: c.password.clone(),
         database: c.database.clone(),
+        ssl: c.ssl,
     }
+}
+
+async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
+    let opts = mysql_connect_options(&to_params(connection));
+    MySqlPoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .map_err(|e| format!("MySQL 连接失败: {e}"))
 }
 
 fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
@@ -159,8 +175,8 @@ pub async fn db_save_schema_filters(snapshot: SchemaFiltersSnapshot) -> Result<(
 pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String, String> {
     let driver = omnipanel_db::connect(&to_params(&connection))
         .await
-        .map_err(|e| e.to_string())?;
-    driver.version().await.map_err(|e| e.to_string())
+        .map_err(err_msg)?;
+    driver.version().await.map_err(err_msg)
 }
 
 #[tauri::command]
@@ -168,19 +184,7 @@ pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String
 pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<String>, String> {
     match connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => {
-            let mut opts = MySqlConnectOptions::new()
-                .host(&connection.host)
-                .port(connection.port)
-                .username(&connection.user)
-                .password(&connection.password);
-            if !connection.database.trim().is_empty() {
-                opts = opts.database(connection.database.trim());
-            }
-            let pool = MySqlPoolOptions::new()
-                .max_connections(1)
-                .connect_with(opts)
-                .await
-                .map_err(|e| format!("Connection failed: {e}"))?;
+            let pool = mysql_pool(&connection).await?;
             let rows = sqlx::query(
                 "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA \
                  WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys') \
@@ -217,8 +221,8 @@ pub async fn db_introspect_schema(
             let params = with_schema(&connection, Some(db_name.clone()));
             let driver = omnipanel_db::connect(&params)
                 .await
-                .map_err(|e| e.to_string())?;
-            let table_names = driver.list_tables().await.map_err(|e| e.to_string())?;
+                .map_err(err_msg)?;
+            let table_names = driver.list_tables().await.map_err(err_msg)?;
             Ok(DbIntrospectResult {
                 database: db_name,
                 tables: table_names
@@ -267,19 +271,7 @@ async fn introspect_mysql_schema(
     connection: &DbConnectionConfig,
     db_name: &str,
 ) -> Result<DbIntrospectResult, String> {
-    let mut opts = MySqlConnectOptions::new()
-        .host(&connection.host)
-        .port(connection.port)
-        .username(&connection.user)
-        .password(&connection.password);
-    if !connection.database.trim().is_empty() {
-        opts = opts.database(connection.database.trim());
-    }
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
-        .await
-        .map_err(|e| format!("Connection failed: {e}"))?;
+    let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
         "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
@@ -347,19 +339,7 @@ async fn introspect_mysql_table(
     db_name: &str,
     table_name: &str,
 ) -> Result<DbTableSchema, String> {
-    let mut opts = MySqlConnectOptions::new()
-        .host(&connection.host)
-        .port(connection.port)
-        .username(&connection.user)
-        .password(&connection.password);
-    if !connection.database.trim().is_empty() {
-        opts = opts.database(connection.database.trim());
-    }
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
-        .await
-        .map_err(|e| format!("Connection failed: {e}"))?;
+    let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
         "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
@@ -469,8 +449,8 @@ pub async fn db_list_tables(
     }
     let driver = omnipanel_db::connect(&params)
         .await
-        .map_err(|e| e.to_string())?;
-    driver.list_tables().await.map_err(|e| e.to_string())
+        .map_err(err_msg)?;
+    driver.list_tables().await.map_err(err_msg)
 }
 
 #[tauri::command]
@@ -478,15 +458,27 @@ pub async fn db_preview_table(
     connection: DbConnectionConfig,
     table: String,
     limit: u32,
+    offset: u32,
 ) -> Result<TableInfo, String> {
     let driver = omnipanel_db::connect(&to_params(&connection))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(err_msg)?;
     let result = driver
-        .preview(&table, limit as i64)
+        .preview(&table, limit as i64, offset as i64)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(err_msg)?;
     Ok(to_table_info(table, result))
+}
+
+#[tauri::command]
+pub async fn db_count_table(
+    connection: DbConnectionConfig,
+    table: String,
+) -> Result<i64, String> {
+    let driver = omnipanel_db::connect(&to_params(&connection))
+        .await
+        .map_err(err_msg)?;
+    driver.count(&table).await.map_err(err_msg)
 }
 
 /// 执行任意 SQL（SELECT 返回行集，DML 返回影响行数）。高风险写操作由前端经执行引擎确认后调用。
@@ -497,8 +489,8 @@ pub async fn db_execute_query(
 ) -> Result<QueryResult, String> {
     let driver = omnipanel_db::connect(&to_params(&connection))
         .await
-        .map_err(|e| e.to_string())?;
-    driver.execute(&sql).await.map_err(|e| e.to_string())
+        .map_err(err_msg)?;
+    driver.execute(&sql).await.map_err(err_msg)
 }
 
 /// 将列式 QueryResult 转换为前端预览用的 TableInfo（行为 列名→值 的 map）。

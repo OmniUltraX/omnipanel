@@ -1,3 +1,5 @@
+import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
+import { useSshStats, formatBytes, formatPercent } from "../../../../stores/sshStatsStore";
 import type { SshManagerContext } from "../../hooks/useSshManager";
 import { presetBadgeClass } from "../../utils/badges";
 
@@ -5,6 +7,8 @@ type Props = Pick<
   SshManagerContext,
   | "profile"
   | "hostAddress"
+  | "activeResource"
+  | "hostName"
   | "activeTunnelCount"
   | "operationalChecklist"
   | "hostSignals"
@@ -18,6 +22,8 @@ type Props = Pick<
 export function OverviewDetailTab({
   profile,
   hostAddress,
+  activeResource,
+  hostName,
   activeTunnelCount,
   operationalChecklist,
   hostSignals,
@@ -27,16 +33,37 @@ export function OverviewDetailTab({
   setDetailTab,
   triggerTunnelAction,
 }: Props) {
+  const stats = useSshStats(activeResource?.id ?? null);
+
+  const cpuLabel = stats
+    ? `${stats.cpuUsage.toFixed(1)}% (${stats.cpuCores} cores)`
+    : profile.cpu;
+  const memLabel = stats
+    ? `${formatBytes(stats.memory.used)} / ${formatBytes(stats.memory.total)} (${formatPercent(stats.memory.used, stats.memory.total)})`
+    : profile.memory;
+  const diskLabel = stats
+    ? `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (${formatPercent(stats.disk.used, stats.disk.total)})`
+    : profile.disk;
+  const loadLabel = stats?.load || "—";
+
   return (
     <>
       <div className="quick-stats">
         <div className="quick-stat">
           <div className="stat-label">CPU</div>
-          <div className="stat-value">{profile.cpu}</div>
+          <div className="stat-value">{cpuLabel}</div>
         </div>
         <div className="quick-stat">
           <div className="stat-label">Memory</div>
-          <div className="stat-value">{profile.memory}</div>
+          <div className="stat-value">{memLabel}</div>
+        </div>
+        <div className="quick-stat">
+          <div className="stat-label">Load</div>
+          <div className="stat-value">{loadLabel}</div>
+        </div>
+        <div className="quick-stat">
+          <div className="stat-label">Disk</div>
+          <div className="stat-value">{diskLabel}</div>
         </div>
         <div className="quick-stat">
           <div className="stat-label">Tunnel</div>
@@ -167,6 +194,43 @@ export function OverviewDetailTab({
               ))}
             </div>
           </div>
+
+          {stats && (
+            <div className="panel">
+              <div className="panel-header">
+                <h3>实时资源</h3>
+                <span className="badge badge-success">3s 刷新</span>
+              </div>
+              <div className="panel-body action-list">
+                <div className="action-row">
+                  <span className="action-title">CPU 使用率</span>
+                  <span className="action-meta">{stats.cpuUsage.toFixed(1)}%</span>
+                </div>
+                <div className="action-row">
+                  <span className="action-title">CPU 核心</span>
+                  <span className="action-meta">{stats.cpuCores}</span>
+                </div>
+                <div className="action-row">
+                  <span className="action-title">负载均值</span>
+                  <span className="action-meta">{stats.load}</span>
+                </div>
+                <div className="action-row">
+                  <span className="action-title">内存</span>
+                  <span className="action-meta">
+                    {formatBytes(stats.memory.used)} / {formatBytes(stats.memory.total)}
+                    {" ("}{formatPercent(stats.memory.used, stats.memory.total)}{")"}
+                  </span>
+                </div>
+                <div className="action-row">
+                  <span className="action-title">磁盘</span>
+                  <span className="action-meta">
+                    {formatBytes(stats.disk.used)} / {formatBytes(stats.disk.total)}
+                    {" ("}{formatPercent(stats.disk.used, stats.disk.total)}{")"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="panel">
             <div className="panel-header">

@@ -1,0 +1,36 @@
+# OmniPanel 后台定时任务配置
+# 调整 interval_secs 或 enabled 即可控制采集频率与开关
+
+[scheduler]
+default_interval_secs = 3
+
+[[tasks]]
+id = "ssh_system_stats"
+enabled = true
+description = "SSH 系统资源实时采集（负载/CPU/内存/磁盘）"
+interval_secs = 3
+
+[[tasks.commands]]
+id = "load"
+cmd = "cat /proc/loadavg"
+parser = "loadavg"
+
+[[tasks.commands]]
+id = "cpu_cores"
+cmd = "nproc"
+parser = "int"
+
+[[tasks.commands]]
+id = "cpu_usage"
+cmd = "top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'"
+parser = "float"
+
+[[tasks.commands]]
+id = "memory"
+cmd = "free -b | grep Mem | awk '{print $2,$3,$4}'"
+parser = "mem"
+
+[[tasks.commands]]
+id = "disk"
+cmd = "df -B1 / | tail -1 | awk '{print $2,$3,$4}'"
+parser = "disk"

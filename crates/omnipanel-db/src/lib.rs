@@ -13,6 +13,8 @@ mod mysql;
 mod postgres;
 mod sqlite;
 
+pub use mysql::mysql_connect_options;
+
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
 pub struct DbParams {
@@ -23,6 +25,8 @@ pub struct DbParams {
     pub password: String,
     /// 网络数据库为库名；SQLite 为文件路径。
     pub database: String,
+    /// 是否启用 SSL（MySQL）。
+    pub ssl: bool,
 }
 
 /// 查询结果：列名 + 行（每行按列顺序的 JSON 值）+ 影响行数（DML）。
@@ -43,8 +47,10 @@ pub trait DbDriver: Send + Sync {
     async fn list_tables(&self) -> OmniResult<Vec<String>>;
     /// 执行任意 SQL：SELECT 类返回行集，DML 返回影响行数。
     async fn execute(&self, sql: &str) -> OmniResult<QueryResult>;
-    /// 预览某张表前 N 行。
-    async fn preview(&self, table: &str, limit: i64) -> OmniResult<QueryResult>;
+    /// 预览某张表前 N 行（支持偏移量）。
+    async fn preview(&self, table: &str, limit: i64, offset: i64) -> OmniResult<QueryResult>;
+    /// 查询某张表的总行数。
+    async fn count(&self, table: &str) -> OmniResult<i64>;
 }
 
 /// 按 `db_type` 建立连接并返回对应驱动实例。

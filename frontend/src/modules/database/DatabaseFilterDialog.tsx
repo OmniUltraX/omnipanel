@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { Modal } from "../../components/ui/Modal";
 
 export interface SchemaFilterState {
   orderedNames: string[];
@@ -77,7 +78,7 @@ export function SchemaFilterDialog({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div className="modal-dialog db-filter-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
@@ -150,7 +151,7 @@ export function SchemaFilterDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

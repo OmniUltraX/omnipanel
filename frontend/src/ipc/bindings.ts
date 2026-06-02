@@ -158,6 +158,8 @@ export type DbConnectionConfig = {
 	user: string,
 	password: string,
 	database: string,
+	/**  是否启用 SSL（MySQL 等）。 */
+	ssl?: boolean,
 	group?: string,
 	status?: string,
 };

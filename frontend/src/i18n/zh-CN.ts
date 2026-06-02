@@ -187,6 +187,7 @@ export const zhCN = {
     cancel: "取消",
     rows: "行",
     readonly: "只读结果",
+    editable: "可编辑",
   },
   quickInput: {
     required: "请输入内容",
@@ -212,7 +213,13 @@ export const zhCN = {
       commandPalette: "命令面板 (Ctrl+K)",
       minimize: "最小化",
       maximize: "最大化",
+      restore: "还原",
       close: "关闭",
+      closeCurrent: "关闭当前",
+      closeLeft: "关闭左侧",
+      closeRight: "关闭右侧",
+      closeOthers: "关闭其他",
+      closeAll: "关闭全部",
       recordContext: "记录现场",
     askAi: "询问 AI",
     newTab: "新建标签",
@@ -398,6 +405,11 @@ export const zhCN = {
       runQueryDesc: "在当前数据库连接执行查询或变更",
       dangerDraft: "危险 SQL 草稿",
       dangerDraftDesc: "删除用户表数据",
+    },
+    cellEditor: {
+      title: "编辑单元格",
+      nullValue: "空值",
+      typeLabel: "类型：{type}",
     },
   },
   dashboard: {

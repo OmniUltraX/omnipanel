@@ -52,10 +52,25 @@ impl DbDriver for PgDriver {
         run(&self.pool, sql).await
     }
 
-    async fn preview(&self, table: &str, limit: i64) -> OmniResult<QueryResult> {
+    async fn preview(&self, table: &str, limit: i64, offset: i64) -> OmniResult<QueryResult> {
         let safe = table.replace('"', "");
-        let sql = format!("SELECT * FROM \"{}\" LIMIT {}", safe, limit.max(0));
+        let sql = format!(
+            "SELECT * FROM \"{}\" LIMIT {} OFFSET {}",
+            safe,
+            limit.max(0),
+            offset.max(0)
+        );
         run(&self.pool, &sql).await
+    }
+
+    async fn count(&self, table: &str) -> OmniResult<i64> {
+        let safe = table.replace('"', "");
+        let sql = format!("SELECT COUNT(*) AS count FROM \"{}\"", safe);
+        let row = sqlx::query(&sql)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        Ok(row.get::<i64, _>("count"))
     }
 }
 

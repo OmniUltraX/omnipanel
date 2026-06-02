@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { Modal } from "../../components/ui/Modal";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import {
   type ConnectionFormData,
@@ -149,7 +150,7 @@ export function ConnectionDialog({
   const busy = testing || saving;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <Modal open={open} onClose={onClose}>
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{t("database.dialog.title")}</h3>
@@ -316,6 +317,6 @@ export function ConnectionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

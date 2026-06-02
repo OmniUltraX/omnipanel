@@ -122,7 +122,6 @@ export function NotificationDrawer() {
     <>
       <div
         className={`notif-drawer-overlay${isOpen ? " open" : ""}`}
-        onClick={() => setIsOpen(false)}
       />
       <div className={`notif-drawer${isOpen ? " open" : ""}`}>
         <div className="notif-drawer-header">

@@ -71,10 +71,27 @@ impl DbDriver for SqliteDriver {
         self.with_conn(move |conn| run(conn, &sql)).await
     }
 
-    async fn preview(&self, table: &str, limit: i64) -> OmniResult<QueryResult> {
+    async fn preview(&self, table: &str, limit: i64, offset: i64) -> OmniResult<QueryResult> {
         let safe = table.replace('"', "");
-        let sql = format!("SELECT * FROM \"{}\" LIMIT {}", safe, limit.max(0));
+        let sql = format!(
+            "SELECT * FROM \"{}\" LIMIT {} OFFSET {}",
+            safe,
+            limit.max(0),
+            offset.max(0)
+        );
         self.with_conn(move |conn| run(conn, &sql)).await
+    }
+
+    async fn count(&self, table: &str) -> OmniResult<i64> {
+        let safe = table.replace('"', "");
+        let sql = format!("SELECT COUNT(*) AS count FROM \"{}\"", safe);
+        self.with_conn(move |conn| {
+            let count: i64 = conn
+                .query_row(&sql, [], |row| row.get(0))
+                .map_err(|e| OmniError::database("查询行数失败").with_cause(e.to_string()))?;
+            Ok(count)
+        })
+        .await
     }
 }
 

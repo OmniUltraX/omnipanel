@@ -1,4 +1,5 @@
 import type { DangerCheckResult, DangerLevel } from "../../lib/commandGuard";
+import { Modal } from "../ui/Modal";
 
 interface Props {
   command: string;
@@ -18,7 +19,7 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
   const style = LEVEL_STYLES[result.level];
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+    <Modal open onClose={onCancel}>
       <div className="bg-bg-deeper border border-border rounded-lg shadow-2xl w-[480px] max-w-[90vw]">
         {/* Header */}
         <div className={`flex items-center gap-3 px-4 py-3 border-b border-border rounded-t-lg ${style.bg}`}>
@@ -66,6 +67,6 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

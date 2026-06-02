@@ -10,9 +10,19 @@ export interface DbConnectionConfig {
   user: string;
   password: string;
   database: string;
+  ssl: boolean;
   group: string;
   status: string;
 }
+
+const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
+  postgresql: 5432,
+  mysql: 3306,
+  sqlite: 0,
+  sqlserver: 1433,
+  redis: 6379,
+  mongodb: 27017,
+};
 
 export function normalizeConnectionGroup(group: string): string {
   if (!group.trim() || group === "default") {
@@ -38,16 +48,19 @@ export interface ConnectionFormData {
 }
 
 export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
-  const port = Number.parseInt(form.port, 10);
+  const parsed = Number.parseInt(form.port, 10);
+  const port =
+    Number.isFinite(parsed) && parsed > 0 ? parsed : ENGINE_DEFAULT_PORTS[form.engine];
   return {
     id,
     name: form.name.trim() || form.host.trim() || "Untitled",
     db_type: form.engine,
     host: form.host.trim(),
-    port: Number.isFinite(port) ? port : 0,
+    port,
     user: form.username.trim(),
     password: form.password,
     database: form.database.trim(),
+    ssl: form.ssl,
     group: form.group.trim() || "默认",
     status: "unknown",
   };
@@ -147,6 +160,14 @@ export async function previewTable(
   connection: DbConnectionConfig,
   table: string,
   limit = 200,
+  offset = 0,
 ): Promise<TablePreviewResult> {
-  return invoke<TablePreviewResult>("db_preview_table", { connection, table, limit });
+  return invoke<TablePreviewResult>("db_preview_table", { connection, table, limit, offset });
+}
+
+export async function countTable(
+  connection: DbConnectionConfig,
+  table: string,
+): Promise<number> {
+  return invoke<number>("db_count_table", { connection, table });
 }

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
-use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow};
+use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow, MySqlSslMode};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err};
@@ -11,14 +11,36 @@ pub struct MySqlDriver {
     database: String,
 }
 
+const DEFAULT_MYSQL_PORT: u16 = 3306;
+
+pub fn mysql_connect_options(params: &DbParams) -> MySqlConnectOptions {
+    let port = if params.port == 0 {
+        DEFAULT_MYSQL_PORT
+    } else {
+        params.port
+    };
+    let ssl_mode = if params.ssl {
+        MySqlSslMode::Required
+    } else {
+        MySqlSslMode::Preferred
+    };
+
+    let mut opts = MySqlConnectOptions::new()
+        .host(&params.host)
+        .port(port)
+        .username(&params.user)
+        .password(&params.password)
+        .ssl_mode(ssl_mode);
+
+    if !params.database.trim().is_empty() {
+        opts = opts.database(params.database.trim());
+    }
+    opts
+}
+
 impl MySqlDriver {
     pub async fn connect(params: &DbParams) -> OmniResult<Self> {
-        let opts = MySqlConnectOptions::new()
-            .host(&params.host)
-            .port(params.port)
-            .username(&params.user)
-            .password(&params.password)
-            .database(&params.database);
+        let opts = mysql_connect_options(params);
         let pool = MySqlPoolOptions::new()
             .max_connections(2)
             .connect_with(opts)
@@ -56,10 +78,25 @@ impl DbDriver for MySqlDriver {
         run(&self.pool, sql).await
     }
 
-    async fn preview(&self, table: &str, limit: i64) -> OmniResult<QueryResult> {
+    async fn preview(&self, table: &str, limit: i64, offset: i64) -> OmniResult<QueryResult> {
         let safe = table.replace('`', "");
-        let sql = format!("SELECT * FROM `{}` LIMIT {}", safe, limit.max(0));
+        let sql = format!(
+            "SELECT * FROM `{}` LIMIT {} OFFSET {}",
+            safe,
+            limit.max(0),
+            offset.max(0)
+        );
         run(&self.pool, &sql).await
+    }
+
+    async fn count(&self, table: &str) -> OmniResult<i64> {
+        let safe = table.replace('`', "");
+        let sql = format!("SELECT COUNT(*) AS count FROM `{}`", safe);
+        let row = sqlx::query(&sql)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        Ok(row.get::<i64, _>("count"))
     }
 }
 

@@ -633,7 +633,6 @@ export function AiDrawer() {
     <>
       <div
         className={`ai-drawer-backdrop${isDrawerMode ? " open" : ""}`}
-        onClick={closeDrawer}
       />
       <div
         className={`ai-drawer-overlay${isDrawerMode ? " open" : ""}${noTransition ? " notransition" : ""}`}

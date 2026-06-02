@@ -136,7 +136,7 @@ export function CommandPalette() {
   let flatIndex = 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]" onClick={() => setIsOpen(false)}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
         className="relative w-[520px] bg-bg-deeper border border-border rounded-xl shadow-2xl overflow-hidden"

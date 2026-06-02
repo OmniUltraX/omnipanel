@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { Modal } from "./Modal";
 
 export interface QuickInputDialogProps {
   open: boolean;
@@ -34,20 +35,6 @@ export function QuickInputDialog({
     setError(null);
   }, [open, defaultValue]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onCancel]);
-
   if (!open) {
     return null;
   }
@@ -63,7 +50,7 @@ export function QuickInputDialog({
   };
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <Modal open={open} onClose={onCancel}>
       <div className="modal-dialog quick-input-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="quick-input-heading">
@@ -104,6 +91,6 @@ export function QuickInputDialog({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

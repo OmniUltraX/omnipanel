@@ -287,6 +287,21 @@ impl SshSession {
         })
     }
 
+    /// 在独立 exec channel 上运行命令并返回 stdout 文本。
+    pub async fn exec_command(&self, command: &str) -> OmniResult<String> {
+        let output = self.exec_capture(command).await?;
+        if output.exit_code != 0 {
+            let detail = if output.stderr.trim().is_empty() {
+                output.stdout.trim()
+            } else {
+                output.stderr.trim()
+            };
+            return Err(OmniError::new(ErrorCode::Ssh, "远程命令返回非零退出码")
+                .with_cause(format!("exit={} stderr={detail}", output.exit_code)));
+        }
+        Ok(output.stdout.trim().to_string())
+    }
+
     /// 主动断开连接。
     pub async fn disconnect(&self) {
         let _ = self

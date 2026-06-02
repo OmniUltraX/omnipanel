@@ -5,8 +5,9 @@ import { useTopbarStore, type TopbarTabDef } from "../../stores/topbarStore";
 import { getResourceById, type EnvironmentTag, type ResourceType } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
 import { createPortal } from "react-dom";
-import type { ReactNode, MouseEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { TabContextMenu } from "./TabContextMenu";
 
 interface TopbarProps {
   title: string;
@@ -97,11 +98,49 @@ export function Topbar({ title, children }: TopbarProps) {
   };
 
   const aiDrawerOpen = useAiStore((state) => state.drawerOpen);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addMenuPosition, setAddMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const addMenuButtonRef = useRef<HTMLButtonElement>(null);
   const hasAddMenu = (handlers.addMenuItems?.length ?? 0) > 0;
+  const spacerDragRef = useRef<{ startX: number; startY: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
+
+  const onSpacerMouseDown = useCallback((e: React.MouseEvent) => {
+    spacerDragRef.current = { startX: e.clientX, startY: e.clientY };
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      const s = spacerDragRef.current;
+      if (!s) return;
+      if (Math.abs(e.clientX - s.startX) > 3 || Math.abs(e.clientY - s.startY) > 3) {
+        spacerDragRef.current = null;
+        getCurrentWindow().startDragging();
+      }
+    };
+    const onMouseUp = () => {
+      spacerDragRef.current = null;
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const update = async () => setIsMaximized(await win.isMaximized());
+    update();
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      unlisten = await win.onResized(update);
+    })();
+    return () => unlisten?.();
+  }, []);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -135,32 +174,74 @@ export function Topbar({ title, children }: TopbarProps) {
     };
   }, [addMenuOpen]);
 
-  const handleDoubleClick = (event: MouseEvent) => {
+  const handleDoubleClick = async (event: React.MouseEvent) => {
     const target = event.target as HTMLElement;
     if (target.closest(".win-controls") || target.closest(".topbar-btn") || target.closest(".topbar-actions")) {
       return;
     }
-    getCurrentWindow().toggleMaximize();
+    const win = getCurrentWindow();
+    if (await win.isFullscreen()) {
+      await win.setFullscreen(false);
+    } else {
+      await win.toggleMaximize();
+    }
   };
+
+  const handleContextAction = useCallback(
+    (action: "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll") => {
+      if (!ctxMenu || !handlers.onClose) return;
+      const idx = ctxMenu.index;
+      const tabList = tabs;
+      if (action === "close") {
+        handlers.onClose(ctxMenu.tabId);
+      } else if (action === "closeLeft") {
+        for (let i = idx - 1; i >= 0; i--) handlers.onClose(tabList[i].id);
+      } else if (action === "closeRight") {
+        for (let i = tabList.length - 1; i > idx; i--) handlers.onClose(tabList[i].id);
+      } else if (action === "closeOthers") {
+        for (let i = tabList.length - 1; i >= 0; i--) {
+          if (i !== idx) handlers.onClose(tabList[i].id);
+        }
+      } else if (action === "closeAll") {
+        for (let i = tabList.length - 1; i >= 0; i--) handlers.onClose(tabList[i].id);
+      }
+      setCtxMenu(null);
+    },
+    [ctxMenu, handlers, tabs],
+  );
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtxMenu(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [ctxMenu]);
 
   const addTitle =
     addTabTitle ||
     (tabMode === "connection" ? t("shell.topbar.newConnection") : t("shell.topbar.newTab"));
 
   return (
-    <div className="topbar" onDoubleClick={handleDoubleClick} data-tauri-drag-region>
+    <div className="topbar" onDoubleClick={handleDoubleClick}>
       <span className="topbar-title" data-tauri-drag-region>
         {title}
       </span>
 
       {hasTabs && (
         <div className={`topbar-tabs topbar-tabs--${tabMode}`}>
-          {tabs.map((tab) => (
+          {tabs.map((tab, idx) => (
             <button
               key={tab.id}
               type="button"
               className={`topbar-tab${tab.active ? " active" : ""}`}
               onClick={() => handlers.onSelect?.(tab.id)}
+              onContextMenu={(e) => {
+                if (!isSession) return;
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id, index: idx });
+              }}
             >
               {isSession && tab.status && <span className={`topbar-tab-dot ${tabStatusClass(tab.status)}`} />}
               {tabMode === "segment" && tab.icon && <SegmentTabIcon icon={tab.icon} />}
@@ -236,6 +317,18 @@ export function Topbar({ title, children }: TopbarProps) {
         </div>
       )}
 
+      {ctxMenu && isSession && createPortal(
+        <TabContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          tabCount={tabs.length}
+          tabIndex={ctxMenu.index}
+          onClose={handleContextAction}
+          onDismiss={() => setCtxMenu(null)}
+        />,
+        document.body,
+      )}
+
       {!hasTabs && activeResource && (
         <div className="topbar-context" data-tauri-drag-region>
           <span className="topbar-separator">/</span>
@@ -247,7 +340,7 @@ export function Topbar({ title, children }: TopbarProps) {
         </div>
       )}
 
-      <div className="topbar-spacer" data-tauri-drag-region />
+      <div className="topbar-spacer" onMouseDown={onSpacerMouseDown} />
 
       <div className="topbar-right" data-tauri-drag-region="false">
         {children && <div className="topbar-page-actions">{children}</div>}
@@ -288,10 +381,17 @@ export function Topbar({ title, children }: TopbarProps) {
                 <path d="M0 5h10" stroke="currentColor" strokeWidth="1.2" />
               </svg>
             </button>
-            <button className="win-btn maximize" title={t("shell.topbar.maximize")} onClick={handleMaximize}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
+            <button className="win-btn maximize" title={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")} onClick={handleMaximize}>
+              {isMaximized ? (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="0.5" y="0.5" width="5.5" height="5.5" stroke="currentColor" strokeWidth="1.2" />
+                  <rect x="4" y="4" width="5.5" height="5.5" fill="var(--bg)" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+              )}
             </button>
             <button className="win-btn close" title={t("shell.topbar.close")} onClick={handleClose}>
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">

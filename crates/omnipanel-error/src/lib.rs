@@ -39,8 +39,7 @@ pub enum ErrorCode {
 }
 
 /// 统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。
-#[derive(Debug, Clone, Serialize, Type, thiserror::Error)]
-#[error("[{code:?}] {message}")]
+#[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OmniError {
     /// 错误分类码
@@ -103,7 +102,27 @@ impl OmniError {
     pub fn storage(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::Storage, message)
     }
+
+    /// 面向用户/前端的完整错误文案（含底层 cause）。
+    pub fn user_message(&self) -> String {
+        match &self.cause {
+            Some(cause) => format!("{}: {cause}", self.message),
+            None => self.message.clone(),
+        }
+    }
 }
+
+impl std::fmt::Display for OmniError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:?}] {}", self.code, self.message)?;
+        if let Some(cause) = &self.cause {
+            write!(f, ": {cause}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for OmniError {}
 
 impl From<anyhow::Error> for OmniError {
     fn from(err: anyhow::Error) -> Self {
@@ -162,6 +181,18 @@ mod tests {
     fn display_includes_code_and_message() {
         let err = OmniError::not_found("no such session");
         assert_eq!(format!("{err}"), "[NotFound] no such session");
+    }
+
+    #[test]
+    fn display_includes_cause_when_present() {
+        let err = OmniError::connection("MySQL 连接失败").with_cause("access denied");
+        assert_eq!(format!("{err}"), "[Connection] MySQL 连接失败: access denied");
+    }
+
+    #[test]
+    fn user_message_includes_cause() {
+        let err = OmniError::connection("MySQL 连接失败").with_cause("access denied");
+        assert_eq!(err.user_message(), "MySQL 连接失败: access denied");
     }
 
     #[test]

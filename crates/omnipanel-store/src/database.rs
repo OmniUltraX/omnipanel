@@ -19,6 +19,9 @@ pub struct DbConnectionConfig {
     pub user: String,
     pub password: String,
     pub database: String,
+    /// 是否启用 SSL（MySQL 等）。
+    #[serde(default)]
+    pub ssl: bool,
     #[serde(default)]
     pub group: String,
     #[serde(default)]
@@ -176,6 +179,7 @@ mod tests {
             user: "root".into(),
             password: "secret".into(),
             database: "app".into(),
+            ssl: false,
             group: "默认".into(),
             status: "unknown".into(),
         }

@@ -191,6 +191,7 @@ export const enUS: TranslationDict = {
     cancel: "Cancel",
     rows: "rows",
     readonly: "Read-only result",
+    editable: "Editable",
   },
   quickInput: {
     required: "Please enter a value",
@@ -216,7 +217,13 @@ export const enUS: TranslationDict = {
       commandPalette: "Command Palette (Ctrl+K)",
       minimize: "Minimize",
       maximize: "Maximize",
+      restore: "Restore",
       close: "Close",
+      closeCurrent: "Close Current",
+      closeLeft: "Close Left",
+      closeRight: "Close Right",
+      closeOthers: "Close Others",
+      closeAll: "Close All",
       recordContext: "Capture Context",
     askAi: "Ask AI",
     newTab: "New Tab",
@@ -402,6 +409,11 @@ export const enUS: TranslationDict = {
       runQueryDesc: "Execute query or mutation on current connection",
       dangerDraft: "Dangerous SQL Draft",
       dangerDraftDesc: "Delete user table data",
+    },
+    cellEditor: {
+      title: "Edit Cell",
+      nullValue: "NULL",
+      typeLabel: "Type: {type}",
     },
   },
   dashboard: {

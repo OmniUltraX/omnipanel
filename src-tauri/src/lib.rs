@@ -1,3 +1,4 @@
+mod background;
 mod commands;
 mod output_buffer;
 mod protocol;
@@ -127,11 +128,17 @@ pub fn run() {
                 root = %omnipanel_store::omnipd_root().expect("omnipd root").display(),
                 "应用数据目录已就绪"
             );
-            app.manage(AppState::new(
+            let app_state = AppState::new(
                 app.handle().clone(),
                 storage,
                 db_connections,
-            ));
+            );
+            let ssh_sessions = app_state.ssh_sessions.clone();
+            app.manage(app_state);
+
+            // Start background scheduler
+            background::BackgroundScheduler::start(ssh_sessions, app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -181,6 +188,7 @@ pub fn run() {
             commands::database::db_introspect_table,
             commands::database::db_list_tables,
             commands::database::db_preview_table,
+            commands::database::db_count_table,
             commands::database::db_execute_query,
             // Connections（统一连接模型）
             commands::connection::conn_list,
