@@ -14,6 +14,7 @@ use omnipanel_store::{DatabaseConnectionStore, Storage};
 
 use omnipanel_ai::provider::AiProviderRegistry;
 
+use crate::background::SshPool;
 use crate::log_store::LogStore;
 use crate::output_buffer::{self, OutputBuffers};
 
@@ -33,8 +34,8 @@ pub struct AppState {
     pub engine: Arc<ExecutionEngine>,
     /// 活跃 SSH 会话（交互式）。
     pub ssh_sessions: Arc<Mutex<HashMap<String, SshSession>>>,
-    /// 连接池 SSH 会话（SFTP 等，按 resource_id 索引）。
-    pub ssh_pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+    /// SSH 连接池（端口探测 + 按需会话；池内会话由 `SshPool` 持有）。
+    pub ssh_pool: Arc<SshPool>,
     /// 终端/SSH 输出 scrollback 缓冲（会话恢复用）。
     pub output_buffers: OutputBuffers,
     /// 后台任务日志存储。
@@ -49,6 +50,13 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(app_handle: AppHandle, storage: Storage, db_connections: DatabaseConnectionStore) -> Self {
+        let log_store = LogStore::new(500);
+        let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
+        let ssh_pool = Arc::new(SshPool::new(
+            log_store.clone(),
+            ssh_pool_sessions.clone(),
+        ));
+
         let mut engine = ExecutionEngine::new();
         let shell = Arc::new(ShellExecutor);
         // 本地命令型动作统一走 shell 执行器；ssh/sql 待 M3/M5 注册专用 executor。
@@ -68,9 +76,9 @@ impl AppState {
             storage: Arc::new(Mutex::new(storage)),
             engine: Arc::new(engine),
             ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
-            ssh_pool_sessions: Arc::new(Mutex::new(HashMap::new())),
+            ssh_pool,
             output_buffers: output_buffer::new_buffers(),
-            log_store: LogStore::new(500),
+            log_store,
             docker_ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
             docker_log_streams: Arc::new(Mutex::new(HashMap::new())),
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),

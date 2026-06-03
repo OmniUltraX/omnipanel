@@ -43,11 +43,11 @@ function HostStatusDot({ resourceId }: { resourceId: string }) {
 
   const title =
     status === "online"
-      ? "已连接"
+      ? "SSH 端口可达"
       : status === "connecting"
-        ? "正在连接"
+        ? "正在探测"
         : status === "error"
-          ? "连接失败"
+          ? "SSH 端口不可达"
           : "未知";
 
   return <span className={cls} title={title} />;

@@ -20,9 +20,9 @@ function HostOsTag({ resourceId }: { resourceId: string | undefined }) {
 function HostStatusBadge({ resourceId }: { resourceId: string | undefined }) {
   const status = useHostOnlineStatus(resourceId ?? null);
   const text =
-    status === "online" ? "在线"
-      : status === "connecting" ? "连接中"
-      : status === "error" ? "离线"
+    status === "online" ? "端口可达"
+      : status === "connecting" ? "探测中"
+      : status === "error" ? "端口不可达"
       : "未知";
   const cls =
     status === "online" ? "badge badge-success"

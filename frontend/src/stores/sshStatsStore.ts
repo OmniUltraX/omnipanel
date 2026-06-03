@@ -15,6 +15,11 @@ export type DiskStats = {
   available: number;
 };
 
+export type NetworkStats = {
+  rxBytes: number;
+  txBytes: number;
+};
+
 export type HostSystemStats = {
   hostId: string;
   hostName: string;
@@ -23,6 +28,7 @@ export type HostSystemStats = {
   cpuUsage: number;
   memory: MemoryStats;
   disk: DiskStats;
+  network: NetworkStats;
   osInfo: string;
   timestamp: number;
 };

@@ -36,7 +36,7 @@ if (typeof window !== "undefined") {
   ensureListener();
 }
 
-/** 根据 resourceId 获取主机的实时连接状态。
+/** 根据 resourceId 获取主机 SSH 端口可达状态（TCP 探测，非完整登录）。
  *  返回 "online" | "connecting" | "error" | "unknown" */
 export function useHostOnlineStatus(
   resourceId: string | null,

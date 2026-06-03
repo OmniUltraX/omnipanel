@@ -1,7 +1,7 @@
-import { useSshStats, formatBytes } from "../../../../stores/sshStatsStore";
-import { commands } from "../../../../ipc/bindings";
+import { useSshOverview } from "../../hooks/useSshOverview";
+import { formatBytes } from "../../../../stores/sshStatsStore";
 import { useI18n } from "../../../../i18n";
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import type { SshProcessInfo } from "../../../../ipc/bindings";
 import type { SshManagerContext } from "../../hooks/useSshManager";
 
@@ -94,38 +94,18 @@ function StatCard({ label, icon, percent, value, details, accent }: StatCardProp
 type SortKey = keyof SshProcessInfo;
 const PAGE_SIZE = 20;
 
-function ProcessListPanel({ resourceId }: { resourceId: string | null }) {
+type ProcessListPanelProps = {
+  processes: SshProcessInfo[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+};
+
+function ProcessListPanel({ processes, loading, error, onRefresh }: ProcessListPanelProps) {
   const { t } = useI18n();
-  const [processes, setProcesses] = useState<SshProcessInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("cpu");
   const [sortDir, setSortDir] = useState<-1 | 1>(-1);
-
-  const fetchProcesses = useCallback(async () => {
-    if (!resourceId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await commands.sshProcessList(resourceId);
-      if (result.status === "ok") {
-        setProcesses(result.data);
-      } else {
-        setError(result.error?.message ?? t("ssh.processList.error"));
-      }
-    } catch {
-      setError(t("ssh.processList.error"));
-    } finally {
-      setLoading(false);
-    }
-  }, [resourceId, t]);
-
-  useEffect(() => {
-    fetchProcesses();
-    const interval = setInterval(fetchProcesses, 10000);
-    return () => clearInterval(interval);
-  }, [fetchProcesses]);
 
   const sorted = [...processes].sort((a, b) => {
     const av = a[sortKey];
@@ -154,8 +134,6 @@ function ProcessListPanel({ resourceId }: { resourceId: string | null }) {
     return <span className="proc-sort-arrow proc-sort-active">{sortDir === -1 ? "↓" : "↑"}</span>;
   }
 
-  if (!resourceId) return null;
-
   const columns: { key: SortKey; label: string; align?: string }[] = [
     { key: "user", label: t("ssh.processList.user") },
     { key: "pid", label: t("ssh.processList.pid"), align: "right" },
@@ -173,7 +151,7 @@ function ProcessListPanel({ resourceId }: { resourceId: string | null }) {
     <div className="proc-panel">
       <div className="proc-header">
         <span className="proc-title">{t("ssh.processList.title")}</span>
-        <button className="proc-refresh" onClick={fetchProcesses} disabled={loading}>
+        <button className="proc-refresh" onClick={onRefresh} disabled={loading}>
           {loading ? "⟳" : "↻"}
         </button>
       </div>
@@ -229,7 +207,9 @@ export function OverviewDetailTab({
   profile,
   activeResource,
 }: Props) {
-  const stats = useSshStats(activeResource?.id ?? null);
+  const { t } = useI18n();
+  const resourceId = activeResource?.id ?? null;
+  const { phase, stats, processes, error, refresh } = useSshOverview(resourceId);
 
   const cpuPct = stats ? Math.round(stats.cpuUsage) : 0;
   const memPct = stats
@@ -248,6 +228,30 @@ export function OverviewDetailTab({
   const diskDetails = stats
     ? [`${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)}`, `${formatBytes(stats.disk.available)} 可用`]
     : [profile.disk ?? "—"];
+
+  if (phase === "loading" || phase === "idle") {
+    return (
+      <div className="ssh-ov ssh-ov--loading">
+        <div className="ssh-ov-loading">
+          <span className="ssh-ov-loading-spinner" aria-hidden />
+          <p>{t("ssh.overview.loading")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "error") {
+    return (
+      <div className="ssh-ov ssh-ov--error">
+        <div className="ssh-ov-loading">
+          <p className="ssh-ov-error-text">{error ?? t("ssh.overview.loadError")}</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => refresh()}>
+            {t("ssh.overview.retry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="ssh-ov">
@@ -277,7 +281,12 @@ export function OverviewDetailTab({
           accent="var(--warn)"
         />
       </div>
-      <ProcessListPanel resourceId={activeResource?.id ?? null} />
+      <ProcessListPanel
+        processes={processes}
+        loading={false}
+        error={null}
+        onRefresh={refresh}
+      />
     </div>
   );
 }

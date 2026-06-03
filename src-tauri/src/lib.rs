@@ -64,6 +64,9 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_list_config_hosts,
         commands::ssh::ssh_connect_config_host,
         commands::ssh::ssh_process_list,
+        commands::ssh::ssh_pool_load_overview,
+        commands::ssh::ssh_pool_release,
+        commands::ssh::ssh_pool_fetch_stats,
         commands::updater::check_update,
         commands::updater::install_update,
     ]);
@@ -138,12 +141,11 @@ pub fn run() {
                 db_connections,
             );
             let pool_storage = app_state.storage.clone();
-            let log_store = app_state.log_store.clone();
-            let pool_sessions = app_state.ssh_pool_sessions.clone();
+            let ssh_pool = app_state.ssh_pool.clone();
             app.manage(app_state);
 
-            // Start background scheduler (SSH connection pool + stats)
-            background::BackgroundScheduler::start(pool_storage, log_store, pool_sessions, app.handle().clone());
+            // 启动 SSH 端口探测后台任务
+            background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
 
             Ok(())
         })
@@ -234,6 +236,9 @@ pub fn run() {
             commands::ssh::ssh_list_config_hosts,
             commands::ssh::ssh_connect_config_host,
             commands::ssh::ssh_process_list,
+            commands::ssh::ssh_pool_load_overview,
+            commands::ssh::ssh_pool_release,
+            commands::ssh::ssh_pool_fetch_stats,
             // Updater
             commands::updater::check_update,
             commands::updater::install_update,

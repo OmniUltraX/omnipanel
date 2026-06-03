@@ -1,28 +1,16 @@
-mod ssh_pool;
+pub mod ssh_pool;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use omnipanel_store::Storage;
-use tokio::sync::Mutex;
+pub use ssh_pool::{HostSystemStats, SshHostOverview, SshPool};
 
-use omnipanel_ssh::SshSession;
-use crate::log_store::LogStore;
-use ssh_pool::SshPool;
-
-/// Background scheduler — manages the SSH connection pool and periodic tasks.
+/// Background scheduler — SSH 端口可达性探测与周期复检。
 pub struct BackgroundScheduler;
 
 impl BackgroundScheduler {
-    /// Start the SSH connection pool and background loops.
-    pub fn start(
-        storage: Arc<Mutex<Storage>>,
-        log_store: LogStore,
-        pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
-        app_handle: tauri::AppHandle,
-    ) {
-        let pool = SshPool::new(log_store, pool_sessions);
-
+    /// 启动 SSH 端口探测与后台复检循环。
+    pub fn start(pool: Arc<SshPool>, storage: Arc<tokio::sync::Mutex<Storage>>, app_handle: tauri::AppHandle) {
         tauri::async_runtime::spawn(async move {
             pool.start(storage, app_handle).await;
         });

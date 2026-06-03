@@ -110,6 +110,12 @@ export const commands = {
 	sshConnectConfigHost: (alias: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_config_host", { alias, cols, rows })),
 	/**  列出远程进程列表。 */
 	sshProcessList: (id: string) => typedError<SshProcessInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_process_list", { id })),
+	/**  概览页：连接池建立 SSH 会话并拉取系统指标与进程列表。 */
+	sshPoolLoadOverview: (resourceId: string) => typedError<SshHostOverview, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_load_overview", { resourceId })),
+	/**  释放连接池中指定资源的 SSH 会话（离开概览等场景）。 */
+	sshPoolRelease: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_release", { resourceId })),
+	/**  监控页：复用连接池会话，仅拉取系统指标。 */
+	sshPoolFetchStats: (resourceId: string) => typedError<HostSystemStats, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_fetch_stats", { resourceId })),
 	checkUpdate: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("check_update")),
 	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
 };
@@ -185,6 +191,12 @@ export type DbTableSchema = {
 	name: string,
 	columns: DbColumnMeta[],
 	indexes?: DbIndexMeta[],
+};
+
+export type DiskStats = {
+	total: number | null,
+	used: number | null,
+	available: number | null,
 };
 
 /**  连接级能力探测结果。前端据此决定页签/按钮显隐与降级。 */
@@ -383,6 +395,30 @@ export type ErrorCode =
 /**  IO 错误 */
 "io";
 
+export type HostSystemStats = {
+	hostId: string,
+	hostName: string,
+	load: string,
+	cpuCores: number,
+	cpuUsage: number | null,
+	memory: MemoryStats,
+	disk: DiskStats,
+	network: NetworkStats,
+	osInfo: string,
+	timestamp: number | null,
+};
+
+export type MemoryStats = {
+	total: number | null,
+	used: number | null,
+	available: number | null,
+};
+
+export type NetworkStats = {
+	rxBytes: number | null,
+	txBytes: number | null,
+};
+
 /**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
 export type OmniError = OmniError_Serialize | OmniError_Deserialize;
 
@@ -443,6 +479,12 @@ export type SshConfigEntry = {
 	user: string | null,
 	port: number | null,
 	identityFile: string | null,
+};
+
+/**  概览页一次加载的完整数据（系统指标 + 进程列表）。 */
+export type SshHostOverview = {
+	stats: HostSystemStats,
+	processes: SshProcessInfo[],
 };
 
 /**  远程进程信息（ps aux 解析结果）。 */

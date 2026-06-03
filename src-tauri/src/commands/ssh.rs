@@ -10,6 +10,7 @@ use omnipanel_ssh::{
 };
 use tauri::{Emitter, State};
 
+use crate::background::{HostSystemStats, SshHostOverview};
 use crate::output_buffer;
 use crate::state::AppState;
 
@@ -93,6 +94,44 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, id: String) -> Result<()
     Ok(())
 }
 
+async fn pool_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
+    state.ssh_pool.ensure_session(id).await
+}
+
+/// 概览页：连接池建立 SSH 会话并拉取系统指标与进程列表。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_load_overview(
+    state: State<'_, AppState>,
+    resource_id: String,
+) -> Result<SshHostOverview, OmniError> {
+    state
+        .ssh_pool
+        .load_overview(&resource_id, &state.app_handle)
+        .await
+}
+
+/// 释放连接池中指定资源的 SSH 会话（离开概览等场景）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_release(state: State<'_, AppState>, resource_id: String) -> Result<(), OmniError> {
+    state.ssh_pool.release_session(&resource_id).await;
+    Ok(())
+}
+
+/// 监控页：复用连接池会话，仅拉取系统指标。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_fetch_stats(
+    state: State<'_, AppState>,
+    resource_id: String,
+) -> Result<HostSystemStats, OmniError> {
+    state
+        .ssh_pool
+        .fetch_stats(&resource_id, &state.app_handle)
+        .await
+}
+
 /// 列出远端目录。
 #[tauri::command]
 #[specta::specta]
@@ -106,10 +145,7 @@ pub async fn sftp_list(
         return session.sftp_list(&path).await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.sftp_list(&path).await
+    pool_session(&state, &id).await?.sftp_list(&path).await
 }
 
 /// 下载远端文件内容（字节）。
@@ -125,10 +161,7 @@ pub async fn sftp_download(
         return session.sftp_download(&path).await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.sftp_download(&path).await
+    pool_session(&state, &id).await?.sftp_download(&path).await
 }
 
 /// 上传内容到远端文件（覆盖）。
@@ -145,10 +178,7 @@ pub async fn sftp_upload(
         return session.sftp_upload(&path, &data).await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.sftp_upload(&path, &data).await
+    pool_session(&state, &id).await?.sftp_upload(&path, &data).await
 }
 
 /// 在远程服务器创建目录。
@@ -164,10 +194,7 @@ pub async fn sftp_mkdir(
         return session.sftp_mkdir(&path).await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.sftp_mkdir(&path).await
+    pool_session(&state, &id).await?.sftp_mkdir(&path).await
 }
 
 /// 删除远程服务器上的文件。
@@ -183,10 +210,7 @@ pub async fn sftp_remove(
         return session.sftp_remove(&path).await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.sftp_remove(&path).await
+    pool_session(&state, &id).await?.sftp_remove(&path).await
 }
 
 /// 读取 `~/.ssh/config` 中的 Host 条目（含 Include）。
@@ -223,9 +247,6 @@ pub async fn ssh_process_list(
         return session.process_list().await;
     }
     drop(sessions);
-    let pool = state.ssh_pool_sessions.lock().await;
-    let session = pool.get(&id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))?;
-    session.process_list().await
+    pool_session(&state, &id).await?.process_list().await
 }
  

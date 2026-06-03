@@ -808,6 +808,10 @@
 
   /* SSH Overview cards */
   .ssh-ov { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-6); flex: 1; }
+  .ssh-ov--loading, .ssh-ov--error { align-items: center; justify-content: center; min-height: 240px; }
+  .ssh-ov-loading { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4); color: var(--meta); font-size: 13px; }
+  .ssh-ov-loading-spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin-dot .8s linear infinite; }
+  .ssh-ov-error-text { color: var(--danger); margin: 0; text-align: center; max-width: 360px; }
   .ssh-ov-toolbar { display: flex; align-items: center; justify-content: space-between; }
   .ssh-ov-toolbar h3 { font-size: 15px; font-weight: 700; }
   .ssh-ov-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
