@@ -40,8 +40,7 @@ fn expand_path(path: &str, base_dir: &Path) -> PathBuf {
             .unwrap_or_else(|| base_dir.join(rest))
     } else if trimmed == "~" {
         home_dir().unwrap_or_else(|| base_dir.to_path_buf())
-    } else if trimmed.starts_with('/') || (cfg!(windows) && trimmed.contains(':'))
-    {
+    } else if trimmed.starts_with('/') || (cfg!(windows) && trimmed.contains(':')) {
         PathBuf::from(trimmed)
     } else {
         base_dir.join(trimmed)
@@ -130,8 +129,7 @@ fn parse_ssh_config_text(content: &str, base_dir: &Path) -> OmniResult<Vec<SshCo
     for include_path in includes {
         if include_path.is_file() {
             let nested = std::fs::read_to_string(&include_path).map_err(|e| {
-                OmniError::new(ErrorCode::Io, "读取 SSH Include 文件失败")
-                    .with_cause(e.to_string())
+                OmniError::new(ErrorCode::Io, "读取 SSH Include 文件失败").with_cause(e.to_string())
             })?;
             let parent = include_path.parent().unwrap_or(base_dir);
             out.extend(parse_ssh_config_text(&nested, parent)?);
@@ -205,10 +203,8 @@ pub fn ssh_config_to_connect_config(entry: &SshConfigEntry) -> OmniResult<crate:
 
     let auth = if let Some(path) = &entry.identity_file {
         let pem = std::fs::read_to_string(path).map_err(|e| {
-            OmniError::new(ErrorCode::Auth, "读取 SSH 私钥失败").with_cause(format!(
-                "{path}: {}",
-                e
-            ))
+            OmniError::new(ErrorCode::Auth, "读取 SSH 私钥失败")
+                .with_cause(format!("{path}: {}", e))
         })?;
         SshAuth::PrivateKey {
             pem,

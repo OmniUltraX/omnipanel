@@ -57,11 +57,13 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
         storage.get_connection(connection_id)?
     }
     .ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, format!("Docker 连接 {connection_id} 不存在"))
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("Docker 连接 {connection_id} 不存在"),
+        )
     })?;
 
-    let cfg: DockerConnectionConfig =
-        serde_json::from_str(&conn.config).unwrap_or_default();
+    let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
 
     match cfg.source.as_deref().map(DockerConnectionSource::parse) {
         Some(DockerConnectionSource::SshEngine) => {
@@ -141,8 +143,7 @@ pub async fn docker_list_connections(
     };
 
     for conn in stored {
-        let cfg: DockerConnectionConfig =
-            serde_json::from_str(&conn.config).unwrap_or_default();
+        let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
         let source = cfg
             .source
             .as_deref()
@@ -277,7 +278,10 @@ pub async fn docker_stream_container_logs(
     tail: i32,
     follow: bool,
 ) -> Result<String, OmniError> {
-    let stream_id = format!("docker-log-{}", LOG_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let stream_id = format!(
+        "docker-log-{}",
+        LOG_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     let stop = Arc::new(AtomicBool::new(false));
     state
         .docker_log_streams
@@ -418,7 +422,10 @@ pub async fn docker_create_exec_session(
     let cmd = vec![shell.unwrap_or_else(|| "/bin/sh".to_string())];
     let (session, mut output) = adapter.create_exec(&container_id, cmd, cols, rows).await?;
 
-    let session_id = format!("docker-exec-{}", EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let session_id = format!(
+        "docker-exec-{}",
+        EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     state
         .docker_exec_sessions
         .lock()
@@ -459,9 +466,12 @@ pub async fn docker_exec_write(
     data: Vec<u8>,
 ) -> Result<(), OmniError> {
     let sessions = state.docker_exec_sessions.lock().await;
-    let session = sessions
-        .get(&session_id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("容器终端会话 {session_id} 不存在")))?;
+    let session = sessions.get(&session_id).ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("容器终端会话 {session_id} 不存在"),
+        )
+    })?;
     session.write(&data).await
 }
 

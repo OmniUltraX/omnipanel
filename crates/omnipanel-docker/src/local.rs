@@ -177,8 +177,7 @@ impl LocalDockerAdapter {
 
 /// bollard 连接类错误 → OmniError（连通性问题）。
 fn map_bollard_connect(err: bollard::errors::Error) -> OmniError {
-    OmniError::new(ErrorCode::Connection, "无法连接本地 Docker Engine")
-        .with_cause(err.to_string())
+    OmniError::new(ErrorCode::Connection, "无法连接本地 Docker Engine").with_cause(err.to_string())
 }
 
 /// bollard 操作类错误 → OmniError。
@@ -217,7 +216,11 @@ impl DockerAdapter for LocalDockerAdapter {
         let containers = self.list_containers(ContainerFilter::All).await?;
         let running = containers.iter().filter(|c| c.running).count() as u32;
         let total = containers.len() as u32;
-        let images = self.list_images().await.map(|i| i.len() as u32).unwrap_or(0);
+        let images = self
+            .list_images()
+            .await
+            .map(|i| i.len() as u32)
+            .unwrap_or(0);
         let version = self.docker.version().await.ok();
         Ok(DockerOverview {
             capabilities: DockerCapabilities::full(DockerConnectionSource::LocalEngine),
@@ -441,7 +444,10 @@ fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainer
         .map(|p| DockerPort {
             private_port: p.private_port,
             public_port: p.public_port,
-            protocol: p.typ.map(|t| format!("{t:?}").to_lowercase()).unwrap_or_else(|| "tcp".into()),
+            protocol: p
+                .typ
+                .map(|t| format!("{t:?}").to_lowercase())
+                .unwrap_or_else(|| "tcp".into()),
             ip: p.ip,
         })
         .collect();
@@ -482,9 +488,7 @@ pub(crate) fn to_container_detail(
         .map(|s| format!("{s:?}"))
         .unwrap_or_default();
     let config = c.config.as_ref();
-    let image = config
-        .and_then(|cfg| cfg.image.clone())
-        .unwrap_or_default();
+    let image = config.and_then(|cfg| cfg.image.clone()).unwrap_or_default();
     let command = config.and_then(|cfg| cfg.cmd.as_ref()).map(|c| c.join(" "));
     let env = config
         .and_then(|cfg| cfg.env.clone())
@@ -509,7 +513,10 @@ pub(crate) fn to_container_detail(
         .unwrap_or_default()
         .into_iter()
         .map(|m| DockerMount {
-            kind: m.typ.map(|t| format!("{t:?}").to_lowercase()).unwrap_or_default(),
+            kind: m
+                .typ
+                .map(|t| format!("{t:?}").to_lowercase())
+                .unwrap_or_default(),
             source: m.source.unwrap_or_default(),
             destination: m.destination.unwrap_or_default(),
             read_only: !m.rw.unwrap_or(true),
@@ -531,7 +538,11 @@ pub(crate) fn to_container_detail(
         id,
         name,
         image,
-        state: if running { "running".into() } else { status_text.to_lowercase() },
+        state: if running {
+            "running".into()
+        } else {
+            status_text.to_lowercase()
+        },
         status_text,
         running,
         ports: Vec::new(),

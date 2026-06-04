@@ -7,8 +7,8 @@ pub use omnipanel_store::{
     save_schema_filters,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use tauri::State;
 
 use crate::state::AppState;
@@ -43,9 +43,7 @@ fn mysql_row_i32(row: &MySqlRow, index: usize, default: i32) -> i32 {
     if let Ok(v) = row.try_get::<i64, _>(index) {
         return v as i32;
     }
-    mysql_row_string(row, index)
-        .parse()
-        .unwrap_or(default)
+    mysql_row_string(row, index).parse().unwrap_or(default)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -135,10 +133,7 @@ fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
 pub async fn db_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbConnectionConfig>, String> {
-    state
-        .db_connections
-        .list()
-        .map_err(|e| e.to_string())
+    state.db_connections.list().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -227,9 +222,7 @@ pub async fn db_introspect_schema(
         "mysql" | "mariadb" => introspect_mysql_schema(&connection, &db_name).await,
         _ => {
             let params = with_schema(&connection, Some(db_name.clone()));
-            let driver = omnipanel_db::connect(&params)
-                .await
-                .map_err(err_msg)?;
+            let driver = omnipanel_db::connect(&params).await.map_err(err_msg)?;
             let table_names = driver.list_tables().await.map_err(err_msg)?;
             Ok(DbIntrospectResult {
                 database: db_name,
@@ -264,9 +257,7 @@ pub async fn db_introspect_table(
     }
 
     match connection.db_type.to_lowercase().as_str() {
-        "mysql" | "mariadb" => {
-            introspect_mysql_table(&connection, &db_name, table.trim()).await
-        }
+        "mysql" | "mariadb" => introspect_mysql_table(&connection, &db_name, table.trim()).await,
         _ => Ok(DbTableSchema {
             name: table,
             columns: Vec::new(),
@@ -455,9 +446,7 @@ pub async fn db_list_tables(
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
     }
-    let driver = omnipanel_db::connect(&params)
-        .await
-        .map_err(err_msg)?;
+    let driver = omnipanel_db::connect(&params).await.map_err(err_msg)?;
     driver.list_tables().await.map_err(err_msg)
 }
 

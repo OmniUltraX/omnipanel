@@ -6,8 +6,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
-    SftpEntry, SshConfig, SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink, find_ssh_config_entry,
-    load_ssh_config_hosts, ssh_config_to_connect_config,
+    SftpEntry, SshConfig, SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink,
+    find_ssh_config_entry, load_ssh_config_hosts, ssh_config_to_connect_config,
 };
 use omnipanel_store::{Connection, ConnectionKind};
 use serde::Serialize;
@@ -118,7 +118,10 @@ pub async fn ssh_pool_load_overview(
 /// 释放连接池中指定资源的 SSH 会话（离开概览等场景）。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_pool_release(state: State<'_, AppState>, resource_id: String) -> Result<(), OmniError> {
+pub async fn ssh_pool_release(
+    state: State<'_, AppState>,
+    resource_id: String,
+) -> Result<(), OmniError> {
     state.ssh_pool.release_session(&resource_id).await;
     Ok(())
 }
@@ -182,7 +185,10 @@ pub async fn sftp_upload(
         return session.sftp_upload(&path, &data).await;
     }
     drop(sessions);
-    pool_session(&state, &id).await?.sftp_upload(&path, &data).await
+    pool_session(&state, &id)
+        .await?
+        .sftp_upload(&path, &data)
+        .await
 }
 
 /// 在远程服务器创建目录。
@@ -338,8 +344,12 @@ pub async fn ssh_connect_config_host(
     cols: u16,
     rows: u16,
 ) -> Result<String, OmniError> {
-    let entry = find_ssh_config_entry(&alias)?
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 配置中未找到 Host `{alias}`")))?;
+    let entry = find_ssh_config_entry(&alias)?.ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("SSH 配置中未找到 Host `{alias}`"),
+        )
+    })?;
     let config = ssh_config_to_connect_config(&entry)?;
     ssh_connect(state, config, cols, rows).await
 }
@@ -358,4 +368,3 @@ pub async fn ssh_process_list(
     drop(sessions);
     pool_session(&state, &id).await?.process_list().await
 }
- 

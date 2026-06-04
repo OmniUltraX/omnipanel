@@ -49,13 +49,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(app_handle: AppHandle, storage: Storage, db_connections: DatabaseConnectionStore) -> Self {
+    pub fn new(
+        app_handle: AppHandle,
+        storage: Storage,
+        db_connections: DatabaseConnectionStore,
+    ) -> Self {
         let log_store = LogStore::new(500);
         let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
-        let ssh_pool = Arc::new(SshPool::new(
-            log_store.clone(),
-            ssh_pool_sessions.clone(),
-        ));
+        let ssh_pool = Arc::new(SshPool::new(log_store.clone(), ssh_pool_sessions.clone()));
 
         let mut engine = ExecutionEngine::new();
         let shell = Arc::new(ShellExecutor);

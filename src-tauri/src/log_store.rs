@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use serde::Serialize;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// 单条后台日志

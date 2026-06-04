@@ -4,8 +4,8 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{Connection, ConnectionKind};
 use tauri::State;
 
-use omnipanel_store::DbConnectionConfig;
 use crate::state::AppState;
+use omnipanel_store::DbConnectionConfig;
 
 fn now_secs() -> i64 {
     SystemTime::now()

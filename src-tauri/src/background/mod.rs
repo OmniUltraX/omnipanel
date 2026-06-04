@@ -10,7 +10,11 @@ pub struct BackgroundScheduler;
 
 impl BackgroundScheduler {
     /// 启动 SSH 端口探测与后台复检循环。
-    pub fn start(pool: Arc<SshPool>, storage: Arc<tokio::sync::Mutex<Storage>>, app_handle: tauri::AppHandle) {
+    pub fn start(
+        pool: Arc<SshPool>,
+        storage: Arc<tokio::sync::Mutex<Storage>>,
+        app_handle: tauri::AppHandle,
+    ) {
         tauri::async_runtime::spawn(async move {
             pool.start(storage, app_handle).await;
         });

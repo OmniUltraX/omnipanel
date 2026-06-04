@@ -54,18 +54,24 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
     match updater.check().await {
         Ok(Some(update)) => {
-            let _ = app.emit("update-download-progress", UpdateProgress {
-                chunk_length: 0,
-                content_length: None,
-            });
+            let _ = app.emit(
+                "update-download-progress",
+                UpdateProgress {
+                    chunk_length: 0,
+                    content_length: None,
+                },
+            );
 
             update
                 .download_and_install(
                     |chunk_length, content_length| {
-                        let _ = app.emit("update-download-progress", UpdateProgress {
-                            chunk_length: chunk_length as u64,
-                            content_length,
-                        });
+                        let _ = app.emit(
+                            "update-download-progress",
+                            UpdateProgress {
+                                chunk_length: chunk_length as u64,
+                                content_length,
+                            },
+                        );
                     },
                     || {
                         let _ = app.emit("update-download-complete", ());

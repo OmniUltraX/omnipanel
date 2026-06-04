@@ -34,13 +34,15 @@ pub fn aggregate_compose(rows: Vec<ComposeContainerRow>) -> Vec<DockerComposePro
         if row.project.is_empty() {
             continue;
         }
-        let acc = projects.entry(row.project.clone()).or_insert_with(|| ProjAcc {
-            working_dir: None,
-            config_files: None,
-            services: BTreeMap::new(),
-            container_count: 0,
-            running_count: 0,
-        });
+        let acc = projects
+            .entry(row.project.clone())
+            .or_insert_with(|| ProjAcc {
+                working_dir: None,
+                config_files: None,
+                services: BTreeMap::new(),
+                container_count: 0,
+                running_count: 0,
+            });
         if acc.working_dir.is_none() {
             acc.working_dir = row.working_dir.clone();
         }

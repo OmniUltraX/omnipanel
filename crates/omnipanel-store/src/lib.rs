@@ -10,16 +10,15 @@ mod vault;
 
 pub use connection::{Connection, ConnectionKind};
 pub use database::{
-    DbConnectionConfig, DatabaseConnectionStore, load_database_connections,
+    DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
     save_database_connections,
 };
 pub use paths::{
-    database_connections_path, database_schema_filters_path, meta_db_path, module_dir,
-    omnipd_root,
+    database_connections_path, database_schema_filters_path, meta_db_path, module_dir, omnipd_root,
 };
 pub use schema_filters::{
-    load_schema_filters, prune_connection_filters, save_schema_filters, SchemaFilterRecord,
-    SchemaFiltersSnapshot,
+    SchemaFilterRecord, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
+    save_schema_filters,
 };
 pub use storage::{AuditEntry, Storage};
 pub use vault::Vault;

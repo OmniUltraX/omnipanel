@@ -320,7 +320,9 @@ impl SshSession {
     pub fn write(&self, data: &[u8]) -> OmniResult<()> {
         self.shell_tx
             .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）"))?
+            .ok_or_else(|| {
+                OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）")
+            })?
             .send(ShellMsg::Data(data.to_vec()))
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 会话已关闭"))
     }
@@ -329,7 +331,9 @@ impl SshSession {
     pub fn resize(&self, cols: u16, rows: u16) -> OmniResult<()> {
         self.shell_tx
             .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）"))?
+            .ok_or_else(|| {
+                OmniError::new(ErrorCode::Ssh, "当前会话不支持 shell 输入（连接池模式）")
+            })?
             .send(ShellMsg::Resize(cols, rows))
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 会话已关闭"))
     }
@@ -412,11 +416,12 @@ impl SshSession {
         let sftp = self.open_sftp().await?;
         let dir = sftp.read_dir(path).await.map_err(|e| {
             let err_str = e.to_string();
-            let msg = if err_str.contains("Permission denied") || err_str.contains("permission denied") {
-                "权限不足，无法读取此目录"
-            } else {
-                "读取目录失败"
-            };
+            let msg =
+                if err_str.contains("Permission denied") || err_str.contains("permission denied") {
+                    "权限不足，无法读取此目录"
+                } else {
+                    "读取目录失败"
+                };
             OmniError::new(ErrorCode::Ssh, msg).with_cause(err_str)
         })?;
         let mut entries = Vec::new();
@@ -463,17 +468,31 @@ impl SshSession {
 
     /// 列出远程进程列表（解析 ps aux 输出）。
     pub async fn process_list(&self) -> OmniResult<Vec<SshProcessInfo>> {
-        let output = self.exec_command("COLUMNS=2000 ps aux --no-headers 2>/dev/null || COLUMNS=2000 ps aux | tail -n +2").await
-            .map_err(|e| OmniError::new(ErrorCode::Ssh, "获取进程列表失败").with_cause(e.to_string()))?;
+        let output = self
+            .exec_command(
+                "COLUMNS=2000 ps aux --no-headers 2>/dev/null || COLUMNS=2000 ps aux | tail -n +2",
+            )
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "获取进程列表失败").with_cause(e.to_string())
+            })?;
         let mut processes = Vec::new();
         for line in output.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let fields: Vec<&str> = line.splitn(11, char::is_whitespace).collect();
-            if fields.len() < 11 { continue; }
+            if fields.len() < 11 {
+                continue;
+            }
             let command = fields[10].to_string();
-            if command.is_empty() { continue; }
-            let Ok(pid) = fields[1].parse::<u32>() else { continue };
+            if command.is_empty() {
+                continue;
+            }
+            let Ok(pid) = fields[1].parse::<u32>() else {
+                continue;
+            };
             processes.push(SshProcessInfo {
                 user: fields[0].to_string(),
                 pid,

@@ -120,10 +120,7 @@ pub struct SshPool {
 
 #[allow(dead_code)]
 impl SshPool {
-    pub fn new(
-        log: LogStore,
-        pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
-    ) -> Self {
+    pub fn new(log: LogStore, pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>) -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
@@ -133,11 +130,7 @@ impl SshPool {
     }
 
     /// 应用启动：从持久化存储加载 SSH 连接并探测端口。
-    pub async fn start(
-        &self,
-        storage: Arc<Mutex<Storage>>,
-        app_handle: tauri::AppHandle,
-    ) {
+    pub async fn start(&self, storage: Arc<Mutex<Storage>>, app_handle: tauri::AppHandle) {
         self.log
             .log("ssh-pool", "info", "SSH 端口探测启动中…")
             .await;
@@ -152,11 +145,7 @@ impl SshPool {
     }
 
     /// 从持久化存储重新加载主机列表并探测端口（同步 ~/.ssh/config 后调用）。
-    pub async fn reload_hosts(
-        &self,
-        storage: Arc<Mutex<Storage>>,
-        app_handle: tauri::AppHandle,
-    ) {
+    pub async fn reload_hosts(&self, storage: Arc<Mutex<Storage>>, app_handle: tauri::AppHandle) {
         let connections = {
             let guard = storage.lock().await;
             match guard.list_connections_by_kind(ConnectionKind::Ssh) {
@@ -172,7 +161,11 @@ impl SshPool {
         };
 
         self.log
-            .log("ssh-pool", "info", &format!("已保存 SSH 连接: {} 个", connections.len()))
+            .log(
+                "ssh-pool",
+                "info",
+                &format!("已保存 SSH 连接: {} 个", connections.len()),
+            )
             .await;
 
         let (specs, parse_errors) = Self::specs_from_connections(&connections);
@@ -197,7 +190,12 @@ impl SshPool {
                     },
                 },
             );
-            emit_status(&app_handle, &resource_id, "error", Some(&format!("配置解析失败: {err}")));
+            emit_status(
+                &app_handle,
+                &resource_id,
+                "error",
+                Some(&format!("配置解析失败: {err}")),
+            );
         }
 
         {
@@ -220,7 +218,11 @@ impl SshPool {
         }
 
         self.log
-            .log("ssh-pool", "info", &format!("共 {} 个主机，开始并发端口探测", specs.len()))
+            .log(
+                "ssh-pool",
+                "info",
+                &format!("共 {} 个主机，开始并发端口探测", specs.len()),
+            )
             .await;
 
         {
@@ -262,7 +264,9 @@ impl SshPool {
         }
     }
 
-    fn specs_from_connections(connections: &[Connection]) -> (Vec<ConnSpec>, Vec<(String, String, String)>) {
+    fn specs_from_connections(
+        connections: &[Connection],
+    ) -> (Vec<ConnSpec>, Vec<(String, String, String)>) {
         let mut specs = Vec::new();
         let mut errors = Vec::new();
         for conn in connections {
@@ -290,8 +294,7 @@ impl SshPool {
         tauri::async_runtime::spawn(async move {
             let mut health_interval = tokio::time::interval(Duration::from_secs(30));
             health_interval.tick().await;
-            log.log("ssh-pool", "info", "端口探测后台循环已启动")
-                .await;
+            log.log("ssh-pool", "info", "端口探测后台循环已启动").await;
             loop {
                 health_interval.tick().await;
                 Self::health_check(&entries, &app_handle, &log).await;
@@ -343,7 +346,8 @@ impl SshPool {
         } else {
             let msg = format!("SSH 端口 {} 未开放或不可达", config.port);
             warn!("SSH 池：{} {msg}", name);
-            log.log("ssh-pool", "warn", &format!("{} {msg}", name)).await;
+            log.log("ssh-pool", "warn", &format!("{} {msg}", name))
+                .await;
             ("error", Some(msg))
         };
 
@@ -369,15 +373,16 @@ impl SshPool {
         let targets: Vec<(String, SshConfig)> = {
             let pool = entries.lock().await;
             let count = pool.len();
-            log.log("ssh-pool", "info", &format!("端口健康检查开始 ({count} 个条目)"))
-                .await;
+            log.log(
+                "ssh-pool",
+                "info",
+                &format!("端口健康检查开始 ({count} 个条目)"),
+            )
+            .await;
             pool.iter()
                 .filter(|(_, e)| {
                     !e.config.host.trim().is_empty()
-                        && matches!(
-                            e.status.as_str(),
-                            "connected" | "error" | "disconnected"
-                        )
+                        && matches!(e.status.as_str(), "connected" | "error" | "disconnected")
                 })
                 .map(|(id, e)| (id.clone(), e.config.clone()))
                 .collect()
@@ -409,12 +414,7 @@ impl SshPool {
             } else {
                 entry.status = "error".into();
                 entry.error = Some(format!("SSH 端口 {} 未开放或不可达", entry.config.port));
-                emit_status(
-                    app_handle,
-                    &resource_id,
-                    "error",
-                    entry.error.as_deref(),
-                );
+                emit_status(app_handle, &resource_id, "error", entry.error.as_deref());
             }
         }
     }
@@ -422,7 +422,12 @@ impl SshPool {
     async fn emit_all_status(&self, app_handle: &tauri::AppHandle) {
         let pool = self.entries.lock().await;
         for (resource_id, entry) in pool.iter() {
-            emit_status(app_handle, resource_id, &entry.status, entry.error.as_deref());
+            emit_status(
+                app_handle,
+                resource_id,
+                &entry.status,
+                entry.error.as_deref(),
+            );
         }
     }
 
@@ -495,7 +500,11 @@ impl SshPool {
         if let Some(session) = session {
             session.disconnect().await;
             self.log
-                .log("ssh-pool", "info", &format!("已释放 SSH 会话: {resource_id}"))
+                .log(
+                    "ssh-pool",
+                    "info",
+                    &format!("已释放 SSH 会话: {resource_id}"),
+                )
                 .await;
         }
     }
@@ -567,9 +576,8 @@ impl SshPool {
         host_name: &str,
     ) -> OmniResult<HostSystemStats> {
         let output = session.exec_command(STATS_SCRIPT).await?;
-        Self::parse_stats(resource_id, host_name, &output).ok_or_else(|| {
-            OmniError::new(ErrorCode::Internal, "解析系统指标失败")
-        })
+        Self::parse_stats(resource_id, host_name, &output)
+            .ok_or_else(|| OmniError::new(ErrorCode::Internal, "解析系统指标失败"))
     }
 
     fn parse_stats(session_id: &str, host_name: &str, output: &str) -> Option<HostSystemStats> {
@@ -616,7 +624,11 @@ impl SshPool {
         let parts: Vec<&str> = raw.split_whitespace().collect();
         let total = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
         let used = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let available = parts.get(3).or(parts.get(2)).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let available = parts
+            .get(3)
+            .or(parts.get(2))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         MemoryStats {
             total,
             used,

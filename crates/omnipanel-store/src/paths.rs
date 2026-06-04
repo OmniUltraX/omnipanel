@@ -34,9 +34,8 @@ fn home_dir() -> Option<PathBuf> {
 
 /// 返回 `~/.omnipd`，若不存在则创建。
 pub fn omnipd_root() -> OmniResult<PathBuf> {
-    let home = home_dir().ok_or_else(|| {
-        OmniError::new(ErrorCode::InvalidInput, "无法定位用户主目录")
-    })?;
+    let home =
+        home_dir().ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "无法定位用户主目录"))?;
     let root = home.join(OMNIPD_DIR_NAME);
     std::fs::create_dir_all(&root).map_err(map_io)?;
     Ok(root)
@@ -83,9 +82,13 @@ mod tests {
     #[test]
     fn database_connections_path_name() {
         let path = database_connections_path().unwrap();
-        assert_eq!(path.file_name().and_then(|s| s.to_str()), Some("connections.json"));
-        assert!(path
-            .parent()
-            .is_some_and(|p| p.ends_with(modules::DATABASE)));
+        assert_eq!(
+            path.file_name().and_then(|s| s.to_str()),
+            Some("connections.json")
+        );
+        assert!(
+            path.parent()
+                .is_some_and(|p| p.ends_with(modules::DATABASE))
+        );
     }
 }

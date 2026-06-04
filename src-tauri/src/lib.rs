@@ -81,10 +81,7 @@ fn export_ipc_bindings() {
         .expect("failed to export typescript bindings");
 }
 
-fn try_migrate_legacy_storage(
-    target: &std::path::Path,
-    app: &tauri::App,
-) {
+fn try_migrate_legacy_storage(target: &std::path::Path, app: &tauri::App) {
     if target.is_file() {
         return;
     }
@@ -128,19 +125,14 @@ pub fn run() {
                 std::fs::create_dir_all(parent).ok();
             }
             try_migrate_legacy_storage(&db_path, app);
-            let storage =
-                omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
-            let db_connections = omnipanel_store::DatabaseConnectionStore::open()
-                .expect("加载数据库连接配置失败");
+            let storage = omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
+            let db_connections =
+                omnipanel_store::DatabaseConnectionStore::open().expect("加载数据库连接配置失败");
             tracing::info!(
                 root = %omnipanel_store::omnipd_root().expect("omnipd root").display(),
                 "应用数据目录已就绪"
             );
-            let app_state = AppState::new(
-                app.handle().clone(),
-                storage,
-                db_connections,
-            );
+            let app_state = AppState::new(app.handle().clone(), storage, db_connections);
             let pool_storage = app_state.storage.clone();
             let ssh_pool = app_state.ssh_pool.clone();
             app.manage(app_state);

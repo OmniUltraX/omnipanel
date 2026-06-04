@@ -98,7 +98,10 @@ pub async fn overview(session: &SshSession) -> OmniResult<DockerOverview> {
     let containers = list_containers(session, ContainerFilter::All).await?;
     let running = containers.iter().filter(|c| c.running).count() as u32;
     let total = containers.len() as u32;
-    let images = list_images(session).await.map(|i| i.len() as u32).unwrap_or(0);
+    let images = list_images(session)
+        .await
+        .map(|i| i.len() as u32)
+        .unwrap_or(0);
     let version = probe(session).await.ok().and_then(|p| p.engine_version);
     Ok(DockerOverview {
         capabilities: DockerCapabilities::full(DockerConnectionSource::SshEngine),
@@ -267,8 +270,12 @@ pub async fn list_compose_projects(session: &SshSession) -> OmniResult<Vec<Docke
                     .get("com.docker.compose.service")
                     .cloned()
                     .unwrap_or_else(|| "default".to_string()),
-                working_dir: labels.get("com.docker.compose.project.working_dir").cloned(),
-                config_files: labels.get("com.docker.compose.project.config_files").cloned(),
+                working_dir: labels
+                    .get("com.docker.compose.project.working_dir")
+                    .cloned(),
+                config_files: labels
+                    .get("com.docker.compose.project.config_files")
+                    .cloned(),
                 image: row.image.clone(),
                 running: row.state.eq_ignore_ascii_case("running"),
             });
@@ -304,8 +311,7 @@ struct PsRow {
 
 impl PsRow {
     fn into_summary(self) -> DockerContainerSummary {
-        let running = self.state.eq_ignore_ascii_case("running")
-            || self.status.starts_with("Up");
+        let running = self.state.eq_ignore_ascii_case("running") || self.status.starts_with("Up");
         let name = self
             .names
             .split(',')
@@ -329,7 +335,11 @@ impl PsRow {
             name,
             image: self.image,
             state: if self.state.is_empty() {
-                if running { "running".into() } else { "exited".into() }
+                if running {
+                    "running".into()
+                } else {
+                    "exited".into()
+                }
             } else {
                 self.state.to_lowercase()
             },
@@ -411,9 +421,7 @@ fn human_size_to_bytes(text: &str) -> i64 {
     if t.is_empty() || t == "N/A" {
         return 0;
     }
-    let split = t
-        .find(|c: char| c.is_ascii_alphabetic())
-        .unwrap_or(t.len());
+    let split = t.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(t.len());
     let (num, unit) = t.split_at(split);
     let value: f64 = num.trim().parse().unwrap_or(0.0);
     let multiplier = match unit.trim().to_uppercase().as_str() {

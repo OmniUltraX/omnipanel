@@ -186,7 +186,10 @@ mod tests {
     #[test]
     fn display_includes_cause_when_present() {
         let err = OmniError::connection("MySQL 连接失败").with_cause("access denied");
-        assert_eq!(format!("{err}"), "[Connection] MySQL 连接失败: access denied");
+        assert_eq!(
+            format!("{err}"),
+            "[Connection] MySQL 连接失败: access denied"
+        );
     }
 
     #[test]
