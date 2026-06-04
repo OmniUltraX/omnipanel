@@ -7,10 +7,8 @@ import {
   listConnections,
   listDatabases,
   listTables,
-  loadSchemaFilters,
-  saveSchemaFilters,
 } from "./api";
-import { filterStatesToSnapshot, snapshotToFilterStates } from "./schemaFilters";
+import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import {
   DatabaseFilterDialog,
   type SchemaFilterState,
@@ -240,9 +238,12 @@ export function SchemaBrowser({
   const [connections, setConnections] = useState<LoadedConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [databaseFilters, setDatabaseFilters] = useState<Record<string, SchemaFilterState>>({});
-  const [tableFilters, setTableFilters] = useState<Record<string, SchemaFilterState>>({});
-  const [filtersHydrated, setFiltersHydrated] = useState(false);
+  const databaseFilters = useDbSchemaFilterStore((s) => s.databaseFilters);
+  const tableFilters = useDbSchemaFilterStore((s) => s.tableFilters);
+  const filtersHydrated = useDbSchemaFilterStore((s) => s.hydrated);
+  const hydrateSchemaFilters = useDbSchemaFilterStore((s) => s.hydrate);
+  const setDatabaseFilters = useDbSchemaFilterStore((s) => s.setDatabaseFilters);
+  const setTableFilters = useDbSchemaFilterStore((s) => s.setTableFilters);
   const [filterDialogConnId, setFilterDialogConnId] = useState<string | null>(null);
   const [filterDialogTable, setFilterDialogTable] = useState<{ connId: string; dbName: string } | null>(
     null
@@ -295,36 +296,10 @@ export function SchemaBrowser({
   }, [loadConnections, refreshToken]);
 
   useEffect(() => {
-    let cancelled = false;
-    void loadSchemaFilters()
-      .then((snapshot) => {
-        if (cancelled) {
-          return;
-        }
-        const loaded = snapshotToFilterStates(snapshot);
-        setDatabaseFilters(loaded.databaseFilters);
-        setTableFilters(loaded.tableFilters);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) {
-          setFiltersHydrated(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!filtersHydrated) {
-      return;
+      void hydrateSchemaFilters();
     }
-    const timer = window.setTimeout(() => {
-      void saveSchemaFilters(filterStatesToSnapshot(databaseFilters, tableFilters)).catch(() => {});
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [databaseFilters, tableFilters, filtersHydrated]);
+  }, [filtersHydrated, hydrateSchemaFilters]);
 
   const ensureDatabasesLoaded = useCallback(async (connId: string): Promise<DbConnectionConfig | null> => {
     const pending = pendingDatabaseLoadsRef.current.get(connId);

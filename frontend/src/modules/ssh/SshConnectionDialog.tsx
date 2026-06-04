@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Modal } from "../../components/ui/Modal";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { collectSshGroupSuggestions, sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
 
 interface SshConnectionDialogProps {
@@ -23,7 +24,6 @@ interface SshFormData {
   pem: string;
   passphrase: string;
   group: string;
-  envTag: string;
 }
 
 const EMPTY_FORM: SshFormData = {
@@ -36,7 +36,6 @@ const EMPTY_FORM: SshFormData = {
   pem: "",
   passphrase: "",
   group: "默认",
-  envTag: "dev",
 };
 
 function formToConnection(form: SshFormData, existingId?: string): Connection {
@@ -53,14 +52,14 @@ function formToConnection(form: SshFormData, existingId?: string): Connection {
     id: existingId || "",
     kind: "ssh",
     name: form.name,
-    group: form.group,
-    envTag: form.envTag,
+    group: sanitizeSshGroupInput(form.group),
+    envTag: "unknown",
     config,
   };
 }
 
 function connectionToForm(conn: Connection): SshFormData {
-  const result = { ...EMPTY_FORM, name: conn.name, group: conn.group || "", envTag: conn.envTag || "dev" };
+  const result = { ...EMPTY_FORM, name: conn.name, group: conn.group || "默认" };
   try {
     const cfg = JSON.parse(conn.config || "{}") as Record<string, unknown>;
     if (typeof cfg.host === "string") result.host = cfg.host;
@@ -84,7 +83,12 @@ function connectionToForm(conn: Connection): SshFormData {
 export function SshConnectionDialog({ open, onClose, onSaved, editConnection }: SshConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
+  const connections = useConnectionStore((s) => s.connections);
   const [form, setForm] = useState<SshFormData>(EMPTY_FORM);
+  const groupSuggestions = useMemo(
+    () => collectSshGroupSuggestions(connections, form.group),
+    [connections, form.group],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -200,26 +204,22 @@ export function SshConnectionDialog({ open, onClose, onSaved, editConnection }: 
             </>
           )}
 
-          <div className="form-row">
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">{t("ssh.dialog.group")}</label>
-              <select className="input" value={form.group} onChange={(e) => update("group", e.target.value)} style={{ width: "100%" }}>
-                <option value="默认">{t("ssh.dialog.defaultGroup")}</option>
-                <option value="生产">生产</option>
-                <option value="预发">预发</option>
-                <option value="开发">开发</option>
-              </select>
-            </div>
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">{t("ssh.dialog.envTag")}</label>
-              <select className="input" value={form.envTag} onChange={(e) => update("envTag", e.target.value)} style={{ width: "100%" }}>
-                <option value="dev">{t("env.dev")}</option>
-                <option value="staging">{t("env.staging")}</option>
-                <option value="prod">{t("env.prod")}</option>
-                <option value="local">{t("env.local")}</option>
-                <option value="unknown">{t("env.unknown")}</option>
-              </select>
-            </div>
+          <div className="form-field">
+            <label className="form-label">{t("ssh.dialog.group")}</label>
+            <input
+              className="input"
+              list="ssh-group-suggestions"
+              placeholder={t("ssh.dialog.groupPlaceholder")}
+              value={form.group}
+              onChange={(e) => update("group", e.target.value)}
+              style={{ width: "100%" }}
+            />
+            <datalist id="ssh-group-suggestions">
+              {groupSuggestions.map((g) => (
+                <option key={g} value={g} />
+              ))}
+            </datalist>
+            <p className="form-hint">{t("ssh.dialog.groupHint")}</p>
           </div>
         </div>
 

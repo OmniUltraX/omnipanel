@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures::future::join_all;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-use omnipanel_ssh::{
-    SshAuth, SshConfig, SshProcessInfo, SshSession, find_ssh_config_entry, load_ssh_config_hosts,
-    ssh_config_to_connect_config,
-};
+use omnipanel_ssh::{SshAuth, SshConfig, SshProcessInfo, SshSession};
+use omnipanel_store::Connection;
 use omnipanel_store::{ConnectionKind, Storage};
 use serde::Serialize;
 use specta::Type;
@@ -116,6 +115,7 @@ pub struct SshPool {
     entries: Arc<Mutex<HashMap<String, PoolEntry>>>,
     pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
     log: LogStore,
+    background_started: AtomicBool,
 }
 
 #[allow(dead_code)]
@@ -128,12 +128,11 @@ impl SshPool {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
             log,
+            background_started: AtomicBool::new(false),
         }
     }
 
-    const CONFIG_HOST_PREFIX: &str = "openssh:";
-
-    /// 并发探测所有 SSH 主机的端口，先标记 connecting，完成后更新状态。
+    /// 应用启动：从持久化存储加载 SSH 连接并探测端口。
     pub async fn start(
         &self,
         storage: Arc<Mutex<Storage>>,
@@ -142,8 +141,22 @@ impl SshPool {
         self.log
             .log("ssh-pool", "info", "SSH 端口探测启动中…")
             .await;
+        self.reload_hosts(storage, app_handle.clone()).await;
+        if self
+            .background_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Self::spawn_background_loop(self.entries.clone(), app_handle, self.log.clone());
+        }
+    }
 
-        // ── 1. 已保存连接 ────────────────────────────────────────────────
+    /// 从持久化存储重新加载主机列表并探测端口（同步 ~/.ssh/config 后调用）。
+    pub async fn reload_hosts(
+        &self,
+        storage: Arc<Mutex<Storage>>,
+        app_handle: tauri::AppHandle,
+    ) {
         let connections = {
             let guard = storage.lock().await;
             match guard.list_connections_by_kind(ConnectionKind::Ssh) {
@@ -159,105 +172,42 @@ impl SshPool {
         };
 
         self.log
-            .log("ssh-pool", "info", &format!("已保存连接: {} 个", connections.len()))
+            .log("ssh-pool", "info", &format!("已保存 SSH 连接: {} 个", connections.len()))
             .await;
 
-        // ── 2. ~/.ssh/config 主机 ─────────────────────────────────────────
-        let config_hosts = match load_ssh_config_hosts() {
-            Ok(hosts) => {
-                self.log
-                    .log(
-                        "ssh-pool",
-                        "info",
-                        &format!("~/.ssh/config 主机: {} 个", hosts.len()),
-                    )
-                    .await;
-                hosts
-            }
-            Err(e) => {
-                warn!("SSH 池：加载 ~/.ssh/config 失败: {e}");
-                self.log
-                    .log("ssh-pool", "warn", &format!("加载 ~/.ssh/config 失败: {e}"))
-                    .await;
-                Vec::new()
-            }
-        };
-
-        let mut specs: Vec<ConnSpec> = Vec::new();
-        let mut seen_ids = std::collections::HashSet::new();
-
-        // 已保存连接（解析配置，失败则直接标记 error）
-        for conn in &connections {
-            match serde_json::from_str::<SshConfig>(&conn.config) {
-                Ok(config) => {
-                    specs.push(ConnSpec {
-                        resource_id: conn.id.clone(),
-                        name: conn.name.clone(),
-                        config,
-                    });
-                    seen_ids.insert(conn.id.clone());
-                }
-                Err(e) => {
-                    warn!("SSH 池：连接 {} 配置解析失败: {e}", conn.name);
-                    self.log
-                        .log("ssh-pool", "warn", &format!("{} 配置解析失败: {e}", conn.name))
-                        .await;
-                    self.entries.lock().await.insert(
-                        conn.id.clone(),
-                        PoolEntry {
-                            status: "error".into(),
-                            error: Some(format!("配置解析失败: {e}")),
-                            host_name: conn.name.clone(),
-                            config: SshConfig {
-                                host: String::new(),
-                                port: 22,
-                                user: String::new(),
-                                auth: SshAuth::Password {
-                                    password: String::new(),
-                                },
-                            },
-                        },
-                    );
-                    emit_status(&app_handle, &conn.id, "error", Some(&format!("配置解析失败: {e}")));
-                }
-            }
-        }
-
-        // ~/.ssh/config 主机（仅需 host/port 做端口探测，不要求 IdentityFile）
-        for host in &config_hosts {
-            let resource_id = format!("{}{}", Self::CONFIG_HOST_PREFIX, host.alias);
-            if seen_ids.contains(&resource_id) {
-                continue;
-            }
-            let config = match ssh_config_to_connect_config(host) {
-                Ok(config) => config,
-                Err(e) => {
-                    self.log
-                        .log(
-                            "ssh-pool",
-                            "warn",
-                            &format!("{} SSH 登录配置不完整（仍探测端口）: {e}", host.alias),
-                        )
-                        .await;
-                    SshConfig {
-                        host: host.host_name.clone(),
-                        port: host.port.unwrap_or(22),
-                        user: host
-                            .user
-                            .clone()
-                            .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into())),
+        let (specs, parse_errors) = Self::specs_from_connections(&connections);
+        for (resource_id, name, err) in parse_errors {
+            warn!("SSH 池：连接 {name} 配置解析失败: {err}");
+            self.log
+                .log("ssh-pool", "warn", &format!("{name} 配置解析失败: {err}"))
+                .await;
+            self.entries.lock().await.insert(
+                resource_id.clone(),
+                PoolEntry {
+                    status: "error".into(),
+                    error: Some(format!("配置解析失败: {err}")),
+                    host_name: name,
+                    config: SshConfig {
+                        host: String::new(),
+                        port: 22,
+                        user: String::new(),
                         auth: SshAuth::Password {
                             password: String::new(),
                         },
-                    }
+                    },
+                },
+            );
+            emit_status(&app_handle, &resource_id, "error", Some(&format!("配置解析失败: {err}")));
+        }
+
+        {
+            let mut pool = self.entries.lock().await;
+            let ids: Vec<String> = pool.keys().cloned().collect();
+            for id in ids {
+                if !specs.iter().any(|s| s.resource_id == id) {
+                    pool.remove(&id);
                 }
-            };
-            specs.push(ConnSpec {
-                resource_id: resource_id.clone(),
-                name: host.alias.clone(),
-                config,
-            });
-            seen_ids.insert(resource_id);
+            }
         }
 
         if specs.is_empty() {
@@ -266,10 +216,6 @@ impl SshPool {
                 .log("ssh-pool", "info", "无任何可探测的 SSH 主机")
                 .await;
             self.emit_all_status(&app_handle).await;
-            let entries = self.entries.clone();
-            let handle = app_handle.clone();
-            let log = self.log.clone();
-            Self::spawn_background_loop(entries, handle, log);
             return;
         }
 
@@ -277,7 +223,6 @@ impl SshPool {
             .log("ssh-pool", "info", &format!("共 {} 个主机，开始并发端口探测", specs.len()))
             .await;
 
-        // ── 3. 先插入 connecting 状态，立即通知前端 ──────────────────────
         {
             let mut pool = self.entries.lock().await;
             for spec in &specs {
@@ -296,7 +241,6 @@ impl SshPool {
             emit_status(&app_handle, &spec.resource_id, "connecting", None);
         }
 
-        // ── 4. 并发探测：每个主机一个 task，完成即更新 ────────────────────
         let entries = self.entries.clone();
         for spec in specs {
             let entries = entries.clone();
@@ -316,9 +260,26 @@ impl SshPool {
                 .await;
             });
         }
+    }
 
-        // ── 5. 启动后台循环 ──────────────────────────────────────────────
-        Self::spawn_background_loop(self.entries.clone(), app_handle, self.log.clone());
+    fn specs_from_connections(connections: &[Connection]) -> (Vec<ConnSpec>, Vec<(String, String, String)>) {
+        let mut specs = Vec::new();
+        let mut errors = Vec::new();
+        for conn in connections {
+            match serde_json::from_str::<SshConfig>(&conn.config) {
+                Ok(config) => {
+                    specs.push(ConnSpec {
+                        resource_id: conn.id.clone(),
+                        name: conn.name.clone(),
+                        config,
+                    });
+                }
+                Err(e) => {
+                    errors.push((conn.id.clone(), conn.name.clone(), e.to_string()));
+                }
+            }
+        }
+        (specs, errors)
     }
 
     fn spawn_background_loop(
@@ -586,20 +547,6 @@ impl SshPool {
     }
 
     async fn resolve_connect_config(&self, resource_id: &str) -> OmniResult<(String, SshConfig)> {
-        if resource_id.starts_with(Self::CONFIG_HOST_PREFIX) {
-            let alias = resource_id
-                .strip_prefix(Self::CONFIG_HOST_PREFIX)
-                .unwrap_or(resource_id);
-            let entry = find_ssh_config_entry(alias)?.ok_or_else(|| {
-                OmniError::new(
-                    ErrorCode::NotFound,
-                    format!("SSH 配置中未找到 Host `{alias}`"),
-                )
-            })?;
-            let config = ssh_config_to_connect_config(&entry)?;
-            return Ok((entry.alias, config));
-        }
-
         let entries = self.entries.lock().await;
         let entry = entries.get(resource_id).ok_or_else(|| {
             OmniError::new(

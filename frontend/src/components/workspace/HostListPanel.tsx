@@ -1,16 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { type WorkspaceResource } from "../../lib/resourceRegistry";
 import {
-  type EnvironmentTag,
-  type WorkspaceResource,
-} from "../../lib/resourceRegistry";
+  collectSshGroupSuggestions,
+  normalizeSshGroup,
+  sanitizeSshGroupInput,
+  sortSshGroups,
+  sshGroupLabel,
+} from "../../lib/sshGroups";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { useHostOnlineStatus } from "../../stores/sshConnectionStore";
 import { useSshStats } from "../../stores/sshStatsStore";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { isOpenSshHostId, getOpenSshConfigEntry, openSshHostAlias } from "../../lib/sshConfigHosts";
+import { syncFromOpenSshConfig, useConnectionStore } from "../../stores/connectionStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { WarnAlert } from "../ui/WarnAlert";
 import { SshConnectionDialog } from "../../modules/ssh/SshConnectionDialog";
 import type { Connection } from "../../ipc/bindings";
 
@@ -59,6 +63,46 @@ function HostOsInfo({ resourceId }: { resourceId: string }) {
   return <span className="host-os-tag">{stats.osInfo}</span>;
 }
 
+type HostGroupSectionProps = {
+  groupKey: string;
+  label: string;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+};
+
+function HostGroupSection({
+  label,
+  count,
+  expanded,
+  onToggle,
+  onContextMenu,
+  children,
+}: HostGroupSectionProps) {
+  return (
+    <div className={`host-group${expanded ? " host-group--open" : ""}`}>
+      <button
+        type="button"
+        className="host-group-header"
+        onClick={onToggle}
+        onContextMenu={onContextMenu}
+        aria-expanded={expanded}
+      >
+        <span className={`host-group-chevron${expanded ? " host-group-chevron--open" : ""}`}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </span>
+        <span className="host-group-title">{label}</span>
+        <span className="badge badge-muted host-group-count">{count}</span>
+      </button>
+      {expanded && <div className="host-group-body">{children}</div>}
+    </div>
+  );
+}
+
 export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -67,29 +111,68 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   const selectResource = useWorkspaceStore((s) => s.selectResource);
   const setActivePath = useWorkspaceStore((s) => s.setActivePath);
   const connections = useConnectionStore((s) => s.connections);
+  const saveConn = useConnectionStore((s) => s.save);
+  const moveSshConnectionsToGroup = useConnectionStore((s) => s.moveSshConnectionsToGroup);
   const removeConn = useConnectionStore((s) => s.remove);
   const activeHostId = selectedResourceByPath[SSH_PATH];
 
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; host: WorkspaceResource } | null>(null);
+  type HostListCtxMenu =
+    | { kind: "host"; x: number; y: number; host: WorkspaceResource }
+    | { kind: "group"; x: number; y: number; groupKey: string };
+
+  const [listCtxMenu, setListCtxMenu] = useState<HostListCtxMenu | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
   const [deleting, setDeleting] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [syncing, setSyncing] = useState(false);
+  const [syncWarnOpen, setSyncWarnOpen] = useState(false);
 
   const grouped = useMemo(() => {
+    const q = query.trim().toLowerCase();
     const filtered = resources.filter(
       (r) =>
-        r.name.toLowerCase().includes(query.toLowerCase()) ||
-        r.subtitle.toLowerCase().includes(query.toLowerCase())
+        !q ||
+        r.name.toLowerCase().includes(q) ||
+        r.subtitle.toLowerCase().includes(q) ||
+        normalizeSshGroup(r.group).toLowerCase().includes(q),
     );
-    const order: EnvironmentTag[] = ["prod", "staging", "dev", "local", "unknown"];
-    return order
-      .map((env) => ({
-        env,
-        label: t(`env.${env}`),
-        items: filtered.filter((r) => r.environment === env),
-      }))
-      .filter((g) => g.items.length > 0);
+    const map = new Map<string, WorkspaceResource[]>();
+    for (const host of filtered) {
+      const key = normalizeSshGroup(host.group);
+      const list = map.get(key) ?? [];
+      list.push(host);
+      map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    }
+    return sortSshGroups([...map.keys()]).map((groupKey) => ({
+      groupKey,
+      label: sshGroupLabel(groupKey, t),
+      items: map.get(groupKey) ?? [],
+    }));
   }, [resources, query, t]);
+
+  useEffect(() => {
+    if (!query.trim()) return;
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      for (const g of grouped) {
+        next[g.groupKey] = true;
+      }
+      return next;
+    });
+  }, [query, grouped]);
+
+  const isGroupExpanded = (groupKey: string) => expandedGroups[groupKey] !== false;
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [groupKey]: !isGroupExpanded(groupKey),
+    }));
+  };
 
   const selectHost = (resource: WorkspaceResource) => {
     selectResource(resource.id, SSH_PATH);
@@ -99,17 +182,59 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
 
   const handleContextMenu = (e: React.MouseEvent, host: WorkspaceResource) => {
     e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY, host });
+    e.stopPropagation();
+    setListCtxMenu({ kind: "host", x: e.clientX, y: e.clientY, host });
+  };
+
+  const handleGroupContextMenu = (e: React.MouseEvent, groupKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setListCtxMenu({ kind: "group", x: e.clientX, y: e.clientY, groupKey });
+  };
+
+  const sshConnectionsInGroup = (groupKey: string) =>
+    connections.filter(
+      (c) => c.kind === "ssh" && normalizeSshGroup(c.group) === groupKey,
+    );
+
+  const remapExpandedGroupKey = (fromKey: string, toKey: string) => {
+    if (fromKey === toKey) return;
+    setExpandedGroups((prev) => {
+      if (!(fromKey in prev)) return prev;
+      const next = { ...prev };
+      next[toKey] = prev[fromKey];
+      delete next[fromKey];
+      return next;
+    });
+  };
+
+  const performSyncConfig = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const result = await syncFromOpenSshConfig();
+      if (result) {
+        const failHint =
+          result.failures.length > 0
+            ? `\n${t("ssh.sidebar.syncFailures", { count: result.failures.length })}`
+            : "";
+        window.alert(
+          t("ssh.sidebar.syncResult", {
+            added: result.added,
+            updated: result.updated,
+            skipped: result.skipped,
+          }) + failHint,
+        );
+      }
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleDelete = async () => {
-    if (!ctxMenu || deleting) return;
-    const host = ctxMenu.host;
-    setCtxMenu(null);
-    if (isOpenSshHostId(host.id)) {
-      alert(t("ssh.dialog.configHostDeleteWarn"));
-      return;
-    }
+    if (listCtxMenu?.kind !== "host" || deleting) return;
+    const host = listCtxMenu.host;
+    setListCtxMenu(null);
     if (!window.confirm(t("ssh.dialog.confirmDelete", { name: host.name }))) return;
     setDeleting(true);
     try {
@@ -119,34 +244,13 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   };
 
   const handleEdit = () => {
-    if (!ctxMenu) return;
-    const host = ctxMenu.host;
-    setCtxMenu(null);
+    if (listCtxMenu?.kind !== "host") return;
+    const host = listCtxMenu.host;
+    setListCtxMenu(null);
     const conn = connections.find((c) => c.id === host.id);
     if (conn) {
       setEditConnection(conn);
       setShowDialog(true);
-    } else if (isOpenSshHostId(host.id)) {
-      const alias = openSshHostAlias(host.id);
-      const entry = alias ? getOpenSshConfigEntry(host.id) : null;
-      if (entry) {
-        const config = JSON.stringify({
-          host: entry.hostName,
-          port: entry.port ?? 22,
-          user: entry.user ?? "root",
-          auth: { type: "password", password: "" },
-        });
-        const prefill: Connection = {
-          id: "",
-          kind: "ssh",
-          name: host.name,
-          group: "默认",
-          envTag: "unknown",
-          config,
-        };
-        setEditConnection(prefill);
-        setShowDialog(true);
-      }
     }
   };
 
@@ -155,19 +259,151 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
     setShowDialog(true);
   };
 
-  const ctxItems: ContextMenuItem[] = [
-    { label: t("ssh.dialog.edit"), onClick: handleEdit },
-    { label: t("ssh.dialog.delete"), onClick: handleDelete, danger: true },
-  ];
+  const handleMoveToGroup = async (targetGroup: string) => {
+    if (listCtxMenu?.kind !== "host") return;
+    const host = listCtxMenu.host;
+    const conn = connections.find((c) => c.id === host.id);
+    if (!conn) return;
+    const group = sanitizeSshGroupInput(targetGroup);
+    if (normalizeSshGroup(conn.group) === group) {
+      setListCtxMenu(null);
+      return;
+    }
+    setListCtxMenu(null);
+    await saveConn({ ...conn, group });
+  };
+
+  const handleRenameGroup = () => {
+    if (listCtxMenu?.kind !== "group") return;
+    const { groupKey } = listCtxMenu;
+    setListCtxMenu(null);
+    const input = window.prompt(
+      t("ssh.context.renameGroupPrompt", { name: sshGroupLabel(groupKey, t) }),
+      groupKey,
+    );
+    if (input == null) return;
+    if (!input.trim()) {
+      window.alert(t("ssh.context.renameGroupEmpty"));
+      return;
+    }
+    const newKey = sanitizeSshGroupInput(input);
+    if (newKey === groupKey) return;
+    void (async () => {
+      const conns = sshConnectionsInGroup(groupKey);
+      for (const conn of conns) {
+        await saveConn({ ...conn, group: newKey });
+      }
+      remapExpandedGroupKey(groupKey, newKey);
+    })();
+  };
+
+  const handleMoveAllToGroup = async (targetGroup: string) => {
+    if (listCtxMenu?.kind !== "group") return;
+    const { groupKey } = listCtxMenu;
+    const group = sanitizeSshGroupInput(targetGroup);
+    if (group === groupKey) {
+      setListCtxMenu(null);
+      return;
+    }
+    setListCtxMenu(null);
+    const ids = sshConnectionsInGroup(groupKey).map((c) => c.id);
+    await moveSshConnectionsToGroup(ids, group);
+    remapExpandedGroupKey(groupKey, group);
+  };
+
+  const buildMoveTargetChildren = (
+    prefix: string,
+    targetGroups: string[],
+    onPick: (group: string) => void,
+  ): ContextMenuItem[] =>
+    targetGroups.map((g, index) => ({
+      id: `${prefix}-target-${index}-${g}`,
+      label: sshGroupLabel(g, t),
+      onClick: () => void onPick(g),
+    }));
+
+  const buildGroupCtxItems = (groupKey: string): ContextMenuItem[] => {
+    const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== groupKey);
+    const items: ContextMenuItem[] = [
+      { id: "group-edit", label: t("ssh.context.editGroup"), onClick: handleRenameGroup },
+    ];
+    if (targetGroups.length > 0) {
+      items.push({
+        id: "group-move-all",
+        label: t("ssh.context.moveAllTo"),
+        children: buildMoveTargetChildren("group-move-all", targetGroups, handleMoveAllToGroup),
+      });
+    } else {
+      items.push({
+        id: "group-move-all",
+        label: t("ssh.context.moveAllTo"),
+        disabled: true,
+      });
+    }
+    return items;
+  };
+
+  const buildHostCtxItems = (host: WorkspaceResource): ContextMenuItem[] => {
+    const currentGroup = normalizeSshGroup(host.group);
+    const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== currentGroup);
+    const items: ContextMenuItem[] = [
+      { id: "host-edit", label: t("ssh.dialog.edit"), onClick: handleEdit },
+    ];
+    if (targetGroups.length > 0) {
+      items.push({
+        id: "host-move",
+        label: t("ssh.context.moveTo"),
+        children: buildMoveTargetChildren("host-move", targetGroups, handleMoveToGroup),
+      });
+    } else {
+      items.push({
+        id: "host-move",
+        label: t("ssh.context.moveTo"),
+        disabled: true,
+      });
+    }
+    items.push({ id: "host-delete", label: t("ssh.dialog.delete"), onClick: handleDelete, danger: true });
+    return items;
+  };
+
+  const buildListCtxItems = (): ContextMenuItem[] => {
+    if (!listCtxMenu) return [];
+    if (listCtxMenu.kind === "group") {
+      return buildGroupCtxItems(listCtxMenu.groupKey);
+    }
+    return buildHostCtxItems(listCtxMenu.host);
+  };
 
   return (
     <div className="host-list-panel">
       <div className="host-list-header">
         <h3>{t("ssh.sidebar.title")}</h3>
         <span className="badge badge-muted">{resources.length}</span>
-        <button className="btn btn-icon host-add-btn" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-        </button>
+        <div className="host-list-actions">
+          <button
+            type="button"
+            className="btn btn-icon"
+            title={t("ssh.sidebar.syncConfig")}
+            disabled={syncing}
+            onClick={() => setSyncWarnOpen(true)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              width="14"
+              height="14"
+              className={syncing ? "icon-spin" : undefined}
+            >
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </button>
+          <button className="btn btn-icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          </button>
+        </div>
       </div>
       <div className="host-list-search">
         <input
@@ -183,11 +419,18 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
           <div className="empty-state compact">{t("common.noResources")}</div>
         ) : (
           grouped.map((group) => (
-            <div key={group.env}>
-              <div className="host-group-label">{group.label}</div>
+            <HostGroupSection
+              key={group.groupKey}
+              groupKey={group.groupKey}
+              label={group.label}
+              count={group.items.length}
+              expanded={isGroupExpanded(group.groupKey)}
+              onToggle={() => toggleGroup(group.groupKey)}
+              onContextMenu={(e) => handleGroupContextMenu(e, group.groupKey)}
+            >
               {group.items.map((host) => (
                 <div
-                  key={host.id}
+                  key={`${group.groupKey}::${host.id}`}
                   className={`host-item-row${activeHostId === host.id ? " active" : ""}`}
                   onContextMenu={(e) => handleContextMenu(e, host)}
                 >
@@ -209,18 +452,28 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
                   <HostStatusDot resourceId={host.id} />
                 </div>
               ))}
-            </div>
+            </HostGroupSection>
           ))
         )}
       </div>
 
-      {ctxMenu && (
+      {listCtxMenu && (
         <ContextMenu
-          items={ctxItems}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-          onClose={() => setCtxMenu(null)}
+          items={buildListCtxItems()}
+          position={{ x: listCtxMenu.x, y: listCtxMenu.y }}
+          onClose={() => setListCtxMenu(null)}
         />
       )}
+
+      <WarnAlert
+        open={syncWarnOpen}
+        title={t("ssh.sidebar.syncConfigConfirmTitle")}
+        message={t("ssh.sidebar.syncConfigConfirmMessage")}
+        confirmLabel={t("common.continue")}
+        cancelLabel={t("common.cancel")}
+        onConfirm={() => void performSyncConfig()}
+        onClose={() => setSyncWarnOpen(false)}
+      />
 
       <SshConnectionDialog
         open={showDialog}

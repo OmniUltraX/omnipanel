@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -8,6 +9,9 @@ use omnipanel_ssh::{
     SftpEntry, SshConfig, SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink, find_ssh_config_entry,
     load_ssh_config_hosts, ssh_config_to_connect_config,
 };
+use omnipanel_store::{Connection, ConnectionKind};
+use serde::Serialize;
+use specta::Type;
 use tauri::{Emitter, State};
 
 use crate::background::{HostSystemStats, SshHostOverview};
@@ -211,6 +215,111 @@ pub async fn sftp_remove(
     }
     drop(sessions);
     pool_session(&state, &id).await?.sftp_remove(&path).await
+}
+
+/// 同步导入时分组名（写入持久化存储，不在侧栏单独展示 config 条目）。
+const SSH_CONFIG_SYNC_GROUP: &str = "~/.ssh/config";
+
+fn conn_now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn conn_gen_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    format!("conn-{nanos:x}")
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConfigSyncFailure {
+    pub alias: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConfigSyncResult {
+    pub added: u32,
+    pub updated: u32,
+    pub skipped: u32,
+    pub failures: Vec<SshConfigSyncFailure>,
+}
+
+/// 将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_sync_config_hosts(
+    state: State<'_, AppState>,
+) -> Result<SshConfigSyncResult, OmniError> {
+    let hosts = load_ssh_config_hosts()?;
+    let now = conn_now_secs();
+    let mut added = 0u32;
+    let mut updated = 0u32;
+    let mut skipped = 0u32;
+    let mut failures = Vec::new();
+
+    {
+        let storage = state.storage.lock().await;
+        let existing = storage.list_connections_by_kind(ConnectionKind::Ssh)?;
+
+        for host in hosts {
+            let ssh_config = match ssh_config_to_connect_config(&host) {
+                Ok(c) => c,
+                Err(e) => {
+                    failures.push(SshConfigSyncFailure {
+                        alias: host.alias.clone(),
+                        reason: e.to_string(),
+                    });
+                    skipped += 1;
+                    continue;
+                }
+            };
+            let config_json = serde_json::to_string(&ssh_config).map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败").with_cause(e.to_string())
+            })?;
+            if let Some(existing_conn) = existing.iter().find(|c| c.name == host.alias) {
+                let mut conn = existing_conn.clone();
+                conn.config = config_json;
+                conn.group = SSH_CONFIG_SYNC_GROUP.to_string();
+                conn.env_tag = "unknown".to_string();
+                conn.updated_at = now;
+                storage.save_connection(&conn)?;
+                updated += 1;
+            } else {
+                let conn = Connection {
+                    id: conn_gen_id(),
+                    kind: ConnectionKind::Ssh,
+                    name: host.alias.clone(),
+                    group: SSH_CONFIG_SYNC_GROUP.to_string(),
+                    env_tag: "unknown".to_string(),
+                    config: config_json,
+                    credential_ref: None,
+                    created_at: now,
+                    updated_at: now,
+                };
+                storage.save_connection(&conn)?;
+                added += 1;
+            }
+        }
+    }
+
+    state
+        .ssh_pool
+        .reload_hosts(state.storage.clone(), state.app_handle.clone())
+        .await;
+
+    Ok(SshConfigSyncResult {
+        added,
+        updated,
+        skipped,
+        failures,
+    })
 }
 
 /// 读取 `~/.ssh/config` 中的 Host 条目（含 Include）。

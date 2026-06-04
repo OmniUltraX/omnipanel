@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { create } from "zustand";
-import { commands, type Connection, type ConnectionKind } from "../ipc/bindings";
+import {
+  commands,
+  type Connection,
+  type ConnectionKind,
+  type SshConfigSyncResult,
+} from "../ipc/bindings";
 import {
   SEED_RESOURCES,
   type EnvironmentTag,
   type ResourceType,
   type WorkspaceResource,
 } from "../lib/resourceRegistry";
-import {
-  mergeSshHostResources,
-  refreshSshConfigHosts,
-} from "../lib/sshConfigHosts";
+import { normalizeSshGroup, sanitizeSshGroupInput } from "../lib/sshGroups";
 
 /**
  * 连接状态层：后端 `omnipanel-store` 持久化的统一连接模型在前端的唯一缓存。
@@ -23,6 +25,8 @@ interface ConnectionState {
   error: string | null;
   refresh: () => Promise<void>;
   save: (connection: Connection) => Promise<Connection | null>;
+  /** 批量更新 SSH 连接分组（单次状态提交，避免列表重复 key 抖动） */
+  moveSshConnectionsToGroup: (connectionIds: string[], group: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   test: (connection: Connection) => Promise<{ ok: boolean; message: string }>;
 }
@@ -69,10 +73,11 @@ export function connectionToResource(connection: Connection): WorkspaceResource 
     modulePath: `/${type}`,
     environment: normalizeEnv(connection.envTag),
     status: "idle",
+    group: normalizeSshGroup(connection.group),
   };
 }
 
-export const useConnectionStore = create<ConnectionState>((set) => ({
+export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: [],
   loaded: false,
   loading: false,
@@ -113,6 +118,32 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     } catch (e) {
       set({ error: String(e) });
       return null;
+    }
+  },
+
+  moveSshConnectionsToGroup: async (connectionIds, group) => {
+    const targetGroup = sanitizeSshGroupInput(group);
+    const idSet = new Set(connectionIds);
+    const toMove = get().connections.filter((c) => c.kind === "ssh" && idSet.has(c.id));
+    if (toMove.length === 0) return;
+
+    const saved: Connection[] = [];
+    try {
+      for (const conn of toMove) {
+        const res = await commands.connSave({ ...conn, group: targetGroup });
+        if (res.status === "ok") {
+          saved.push(res.data);
+        } else {
+          set({ error: res.error.message });
+          return;
+        }
+      }
+      const savedMap = new Map(saved.map((c) => [c.id, c]));
+      set((state) => ({
+        connections: state.connections.map((c) => savedMap.get(c.id) ?? c),
+      }));
+    } catch (e) {
+      set({ error: String(e) });
     }
   },
 
@@ -157,42 +188,35 @@ export function useWorkspaceResources(): WorkspaceResource[] {
 /** 应用启动时拉取一次后端连接。 */
 export function initConnections() {
   void useConnectionStore.getState().refresh();
-  void refreshSshConfigHosts();
 }
 
-/**
- * SSH 模块主机列表：优先已保存连接，并合并 `~/.ssh/config` 中的 Host。
- * 无二者时回退 SEED 占位数据。
- */
+/** 将 `~/.ssh/config` 同步到本地持久化存储，并刷新连接列表。 */
+export async function syncFromOpenSshConfig(): Promise<SshConfigSyncResult | null> {
+  try {
+    const res = await commands.sshSyncConfigHosts();
+    if (res.status === "ok") {
+      await useConnectionStore.getState().refresh();
+      return res.data;
+    }
+    useConnectionStore.setState({ error: res.error.message });
+    return null;
+  } catch (e) {
+    useConnectionStore.setState({ error: String(e) });
+    return null;
+  }
+}
+
+/** SSH 模块主机列表：仅展示持久化存储中的 SSH 连接。 */
 export function useSshHostResources(): WorkspaceResource[] {
   const connections = useConnectionStore((state) => state.connections);
   const loaded = useConnectionStore((state) => state.loaded);
-  const [configHosts, setConfigHosts] = useState<WorkspaceResource[]>([]);
-  const [configLoaded, setConfigLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void refreshSshConfigHosts().then((hosts) => {
-      if (!cancelled) {
-        setConfigHosts(hosts);
-        setConfigLoaded(true);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   return useMemo(() => {
     const stored = connections
       .filter((c) => c.kind === "ssh")
       .map(connectionToResource);
-    if (stored.length > 0 || configHosts.length > 0) {
-      return mergeSshHostResources(stored, configHosts);
-    }
-    if (loaded && configLoaded) {
-      return SEED_RESOURCES.filter((r) => r.type === "ssh");
-    }
+    if (stored.length > 0) return stored;
+    if (loaded) return SEED_RESOURCES.filter((r) => r.type === "ssh");
     return [];
-  }, [connections, configHosts, loaded, configLoaded]);
+  }, [connections, loaded]);
 }

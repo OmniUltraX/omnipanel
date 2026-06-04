@@ -43,12 +43,7 @@ function TopbarPageActions() {
   }
 
   if (path === "/database") {
-    return (
-      <>
-        <button className="btn btn-secondary btn-sm">{t("common.import")}</button>
-        <button className="btn btn-secondary btn-sm">{t("common.export")}</button>
-      </>
-    );
+    return null;
   }
 
   if (path === "/ssh") {

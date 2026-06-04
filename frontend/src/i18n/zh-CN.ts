@@ -1,4 +1,8 @@
 export const zhCN = {
+  app: {
+    tagline: "AI 原生的个人工程工作台",
+    banner: "终端 · SSH · 数据库 · 容器 · 协议 · 工作流",
+  },
   knowledge: {
     categories: "分类",
     tags: "标签",
@@ -185,6 +189,7 @@ export const zhCN = {
     export: "导出",
     confirm: "确认",
     cancel: "取消",
+    continue: "继续",
     rows: "行",
     readonly: "只读结果",
     editable: "可编辑",
@@ -389,7 +394,9 @@ export const zhCN = {
       meta: "{rows} 行 · {ms}ms · {mode}",
       noConnection: "请先选择数据库连接",
       runHint: "执行 SQL 以查看结果",
+      emptySql: "当前没有可执行的 SQL 语句",
       affected: "执行成功，影响 {rows} 行",
+      close: "关闭结果预览",
     },
     context: {
       title: "数据库上下文",
@@ -458,6 +465,13 @@ export const zhCN = {
     sidebar: {
       title: "连接",
       search: "搜索主机…",
+      openSshGroup: "~/.ssh/config",
+      syncConfig: "从 ~/.ssh/config 同步到本地",
+      syncConfigConfirmTitle: "同步 SSH 配置",
+      syncConfigConfirmMessage:
+        "同步后将按 ~/.ssh/config 覆盖匹配主机的连接信息与分组，是否继续？",
+      syncResult: "同步完成：新增 {added}，更新 {updated}，跳过 {skipped}",
+      syncFailures: "{count} 条因缺少密钥等未能导入",
     },
     tabs: { hosts: "主机", tunnels: "隧道", keys: "密钥" },
     detailTabs: {
@@ -501,6 +515,12 @@ export const zhCN = {
       title: "SSH 操作草稿",
       restartConfirm: "生成重启确认",
       testConnection: "测试连接",
+      moveTo: "移动到",
+      moveAllTo: "移动全部到",
+      noOtherGroups: "暂无其他分组",
+      editGroup: "编辑",
+      renameGroupPrompt: "将分组「{name}」重命名为：",
+      renameGroupEmpty: "分组名称不能为空",
     },
     feed: {
       title: "远程操作流",
@@ -534,6 +554,8 @@ export const zhCN = {
       passphrase: "密钥口令",
       passphrasePlaceholder: "选填",
       group: "分组",
+      groupPlaceholder: "输入分组名，如：生产、测试",
+      groupHint: "可输入新分组名，或从已有分组中选择",
       defaultGroup: "默认",
       envTag: "环境",
       save: "保存",

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useAiStore } from "../../stores/aiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { AppLogo } from "../ui/AppLogo";
 
 const navPaths = [
   {
@@ -145,10 +146,7 @@ export function Sidebar() {
         title={t("shell.nav.workspace")}
         onClick={() => go("/")}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-          <polyline points="9 22 9 12 15 12 15 22" />
-        </svg>
+        <AppLogo size={36} className="sidebar-logo__img" />
       </button>
 
       {navPaths.map(renderItem)}

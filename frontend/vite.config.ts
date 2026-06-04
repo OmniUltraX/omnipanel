@@ -1,13 +1,25 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+const frontendRoot = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  resolve: {
+    alias: {
+      "@repo-logo": path.resolve(frontendRoot, "../logo"),
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
+    fs: {
+      allow: [frontendRoot, path.resolve(frontendRoot, "..")],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

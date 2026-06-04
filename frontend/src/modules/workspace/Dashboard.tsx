@@ -67,15 +67,6 @@ const DOCKER_MINI = [
   { name: "redis-staging", status: "Stopped", dot: "var(--meta)" },
 ];
 
-const SERVER_MINI = [
-  { name: "prod-web-01", type: "23%", dot: "var(--success)" },
-  { name: "prod-web-02", type: "18%", dot: "var(--success)" },
-  { name: "prod-db", type: "67%", dot: "var(--warn)" },
-  { name: "staging-api", type: "12%", dot: "var(--success)" },
-  { name: "staging-wk", type: "Disk 92%", dot: "var(--danger)" },
-  { name: "dev-local", type: "8%", dot: "var(--success)" },
-];
-
 function draftDot(risk: string) {
   if (risk === "high" || risk === "critical") return "var(--danger)";
   if (risk === "medium") return "var(--accent)";
@@ -308,15 +299,7 @@ export function Dashboard() {
                   {t("dashboard.viewAll")}
                 </button>
               </div>
-              <div className="conn-grid">
-                {SERVER_MINI.map((item) => (
-                  <button key={item.name} type="button" className="conn-item" onClick={() => navigate("/server")}>
-                    <span className="conn-dot" style={{ background: item.dot }} />
-                    <span className="conn-name">{item.name}</span>
-                    <span className="conn-type">{item.type}</span>
-                  </button>
-                ))}
-              </div>
+              <div className="empty-state compact">{t("common.noResources")}</div>
             </div>
           </div>
         </div>

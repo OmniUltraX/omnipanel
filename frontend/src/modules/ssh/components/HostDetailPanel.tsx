@@ -1,6 +1,6 @@
 import { DETAIL_TABS } from "../constants";
 import type { SshManagerContext } from "../hooks/useSshManager";
-import { envBadgeClass } from "../utils/badges";
+import { normalizeSshGroup, sshGroupLabel } from "../../../lib/sshGroups";
 import { useSshStats } from "../../../stores/sshStatsStore";
 import { useHostOnlineStatus } from "../../../stores/sshConnectionStore";
 import { HostTunnelsDetailTab } from "./detail/HostTunnelsDetailTab";
@@ -56,9 +56,11 @@ export function HostDetailPanel(ctx: Props) {
           </div>
         </div>
         <HostStatusBadge resourceId={activeResource?.id} />
-        <span className={envBadgeClass(activeResource)}>
-          {t(`env.${activeResource?.environment ?? "unknown"}`)}
-        </span>
+        {activeResource && (
+          <span className="badge badge-muted">
+            {sshGroupLabel(normalizeSshGroup(activeResource.group), t)}
+          </span>
+        )}
       </div>
 
       <div className="ssh-detail-tabs">

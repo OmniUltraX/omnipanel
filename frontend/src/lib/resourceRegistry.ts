@@ -25,6 +25,8 @@ export interface WorkspaceResource {
   modulePath: string;
   environment: EnvironmentTag;
   status: ResourceStatus;
+  /** SSH 等连接的分组名（如 默认 / 生产 / ~/.ssh/config）。 */
+  group?: string;
   tags?: string[];
   metrics?: Record<string, string>;
 }
@@ -67,6 +69,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     modulePath: "/ssh",
     environment: "prod",
     status: "online",
+    group: "生产",
     tags: ["SSH", "SFTP", "Tunnel"],
     metrics: { CPU: "23%", MEM: "78%" },
   },
@@ -78,6 +81,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     modulePath: "/ssh",
     environment: "prod",
     status: "online",
+    group: "生产",
     tags: ["SSH", "Canary", "Tunnel"],
     metrics: { CPU: "18%", MEM: "46%" },
   },
@@ -89,6 +93,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     modulePath: "/ssh",
     environment: "staging",
     status: "warning",
+    group: "预发",
     tags: ["Bastion", "SSH", "Audit"],
     metrics: { CPU: "31%", MEM: "52%" },
   },

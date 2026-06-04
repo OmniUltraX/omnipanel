@@ -3,11 +3,20 @@ import Editor, { type OnMount, loader } from "@monaco-editor/react";
 import type { editor as MonacoEditor, IDisposable } from "monaco-editor";
 import type { DatabaseSchema } from "./types";
 import { registerMonacoSqlCompletionProvider } from "./lsp/monacoSqlCompletion";
+import { isSqlMonacoEditorFocused, positionToOffset, sqlAtOffset } from "./lsp/sqlStatement";
+
+/** 打开方式：独立查询页（sql）或侧栏点表后的表数据预览（data）。 */
+export type SqlEditorOpenMode = "query" | "table";
 
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
-  onRun?: () => void;
+  /** 与 DatabasePanel `tabModes` 对应：`sql` → query，`data` → table。 */
+  openMode?: SqlEditorOpenMode;
+  /** Cmd/Ctrl+Enter：执行光标所在的一条 SQL（由调用方传入已提取的语句）。 */
+  onRun?: (sqlAtCursor: string) => void;
+  /** 光标 offset 变化（供无焦点时 ⌘+Enter 使用）。 */
+  onCursorOffsetChange?: (offset: number) => void;
   /** 当前上下文中的库表结构（通常仅含当前选中的数据库）。 */
   schemas?: DatabaseSchema[];
   readOnly?: boolean;
@@ -120,16 +129,36 @@ function getActiveTheme(): string {
     : "omnipanel-dark";
 }
 
+function runStatementAtCursor(
+  editor: MonacoEditor.IStandaloneCodeEditor,
+  onRun: (sqlAtCursor: string) => void,
+): void {
+  const model = editor.getModel();
+  const pos = editor.getPosition();
+  if (!model || !pos) return;
+  const text = model.getValue();
+  const offset = positionToOffset(text, pos.lineNumber, pos.column);
+  onRun(sqlAtOffset(text, offset));
+}
+
 export function SqlEditor({
   value,
   onChange,
+  openMode = "query",
   onRun,
+  onCursorOffsetChange,
   schemas = [],
   readOnly = false,
 }: SqlEditorProps) {
   const disposables = useRef<IDisposable[]>([]);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const onRunRef = useRef(onRun);
+  const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
+  const readOnlyRef = useRef(readOnly);
   const schemasRef = useRef(schemas);
+  onRunRef.current = onRun;
+  onCursorOffsetChangeRef.current = onCursorOffsetChange;
+  readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
 
   const handleMount: OnMount = useCallback(
@@ -169,14 +198,44 @@ export function SqlEditor({
       );
       disposables.current.push(completionDisposable);
 
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-        onRun?.();
+      const cursorDisposable = editor.onDidChangeCursorPosition((e) => {
+        const model = editor.getModel();
+        if (!model || !onCursorOffsetChangeRef.current) return;
+        const offset = positionToOffset(
+          model.getValue(),
+          e.position.lineNumber,
+          e.position.column,
+        );
+        onCursorOffsetChangeRef.current(offset);
       });
+      disposables.current.push(cursorDisposable);
 
-      editor.focus();
+      if (openMode === "query") {
+        editor.focus();
+      }
     },
-    [onRun],
+    [openMode],
   );
+
+  // macOS Tauri WebView 下 Monaco addCommand 对 Cmd+Enter 不可靠；仅编辑器有焦点时在此处理。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey || e.altKey) {
+        return;
+      }
+      if (!isSqlMonacoEditorFocused()) return;
+      const editor = editorRef.current;
+      if (!editor?.hasTextFocus() || readOnlyRef.current) return;
+      const run = onRunRef.current;
+      if (!run) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runStatementAtCursor(editor, run);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -203,7 +262,7 @@ export function SqlEditor({
   }, []);
 
   return (
-    <div className="sql-monaco-editor">
+    <div className="sql-monaco-editor" data-open-mode={openMode}>
       <Editor
         defaultLanguage="sql"
         value={value}

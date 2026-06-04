@@ -216,6 +216,14 @@ export function getVisibleItems<T extends { name: string }>(
     .sort((a, b) => (orderMap.get(a.name) ?? 9999) - (orderMap.get(b.name) ?? 9999));
 }
 
+/** 按侧栏过滤规则返回可见的数据库名列表（保持排序）。 */
+export function getVisibleNames(names: string[], filter: SchemaFilterState | undefined): string[] {
+  return getVisibleItems(
+    names.map((name) => ({ name })),
+    filter,
+  ).map((item) => item.name);
+}
+
 /** @deprecated use getVisibleItems */
 export const getVisibleDatabases = getVisibleItems;
 

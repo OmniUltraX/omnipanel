@@ -8,10 +8,13 @@ import { TableDataGrid } from "./TableDataGrid";
 import { TabContextMenu } from "../../components/shell/TabContextMenu";
 import { useActionStore } from "../../stores/actionStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
+import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
+import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
-import { SqlEditor } from "./SqlEditor";
+import { SqlEditor, type SqlEditorOpenMode } from "./SqlEditor";
+import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import {
   connectionMatchesGroup,
   countTable,
@@ -33,6 +36,7 @@ import {
   type SqlWorkspaceTab,
 } from "./workspaceTabs";
 import { CellEditorDialog } from "./cell_editor";
+import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 
 const DEFAULT_SQL = `SELECT 1;`;
 
@@ -64,6 +68,8 @@ function createDefaultTablePreviewState(): TablePreviewState {
 type SqlTabState = {
   sql: string;
   database: string;
+  /** 上次光标位置，表预览模式无编辑器焦点时 ⌘+Enter 用此 offset 取语句。 */
+  cursorOffset: number;
   result: QueryResult | null;
   error: string | null;
   elapsed: number | null;
@@ -74,11 +80,16 @@ function createDefaultSqlTabState(database = ""): SqlTabState {
   return {
     sql: DEFAULT_SQL,
     database,
+    cursorOffset: 0,
     result: null,
     error: null,
     elapsed: null,
     running: false,
   };
+}
+
+function tabModeToEditorOpenMode(mode: "data" | "sql"): SqlEditorOpenMode {
+  return mode === "data" ? "table" : "query";
 }
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
@@ -87,12 +98,6 @@ const INITIAL_SQL_TAB: SqlWorkspaceTab = {
   kind: "sql",
   label: makeSqlTabLabel(1),
 };
-
-function cellToText(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
 
 function rowsToRecord(columns: string[], rows: unknown[][]): Record<string, unknown>[] {
   return rows.map((row) => {
@@ -210,9 +215,27 @@ export function DatabasePanel() {
     return { ...activeConn, database: activeSqlDatabase };
   }, [activeConn, activeSqlDatabase]);
 
-  const databasesForActiveConn = activeConn
+  const databaseFilters = useDbSchemaFilterStore((s) => s.databaseFilters);
+  const hydrateSchemaFilters = useDbSchemaFilterStore((s) => s.hydrate);
+  const setDatabaseFilters = useDbSchemaFilterStore((s) => s.setDatabaseFilters);
+  const filtersHydrated = useDbSchemaFilterStore((s) => s.hydrated);
+
+  const allDatabasesForActiveConn = activeConn
     ? (databasesByConnId[activeConn.id] ?? [])
     : [];
+
+  const databasesForActiveConn = useMemo(() => {
+    if (!activeConn) {
+      return [];
+    }
+    return getVisibleNames(allDatabasesForActiveConn, databaseFilters[activeConn.id]);
+  }, [activeConn, allDatabasesForActiveConn, databaseFilters]);
+
+  useEffect(() => {
+    if (!filtersHydrated) {
+      void hydrateSchemaFilters();
+    }
+  }, [filtersHydrated, hydrateSchemaFilters, schemaRefreshToken]);
 
   const sqlCompletionSchemas = useMemo((): DatabaseSchema[] => {
     if (!activeConn || !activeSqlDatabase.trim()) {
@@ -238,6 +261,10 @@ export function DatabasePanel() {
       .then((names) => {
         if (!cancelled) {
           setDatabasesByConnId((prev) => ({ ...prev, [activeConn.id]: names }));
+          setDatabaseFilters((prev) => ({
+            ...prev,
+            [activeConn.id]: mergeFilter(prev[activeConn.id], names),
+          }));
         }
       })
       .catch(() => {
@@ -256,15 +283,15 @@ export function DatabasePanel() {
       return;
     }
     const tabState = sqlTabStates[activeSqlTabId];
-    if (tabState?.database.trim()) {
-      return;
-    }
+    const current = tabState?.database.trim() ?? "";
     const preset = activeConn.database.trim();
     const pick =
-      preset && databasesForActiveConn.includes(preset)
-        ? preset
-        : databasesForActiveConn[0];
-    if (pick) {
+      current && databasesForActiveConn.includes(current)
+        ? current
+        : preset && databasesForActiveConn.includes(preset)
+          ? preset
+          : databasesForActiveConn[0];
+    if (pick && pick !== current) {
       updateSqlTabState(activeSqlTabId, { database: pick });
     }
   }, [
@@ -661,27 +688,34 @@ export function DatabasePanel() {
     { mode: "connection", showAddTab: true, addTabTitle: t("database.groups.new") },
   );
 
-  const runQuery = useCallback(async () => {
-    if (activeWorkspaceTab?.kind !== "sql") {
+  const runQuery = useCallback(async (sqlOverride?: string, tabIdOverride?: string) => {
+    const tabId = tabIdOverride ?? activeWorkspaceTab?.id;
+    const tab = tabId ? workspaceTabs.find((t) => t.id === tabId) : null;
+    if (!tab || tab.kind !== "sql") {
       return;
     }
-    const tabId = activeWorkspaceTab.id;
-    const tabState = sqlTabStates[tabId] ?? createDefaultSqlTabState();
+    const resolvedTabId = tab.id;
+    const tabState = sqlTabStates[resolvedTabId] ?? createDefaultSqlTabState();
     const conn = connectionForSql;
+    const sql = (sqlOverride ?? tabState.sql).trim();
     if (!conn) {
-      updateSqlTabState(tabId, { error: t("database.results.noConnection") });
+      updateSqlTabState(resolvedTabId, { error: t("database.results.noConnection") });
       return;
     }
     if (!tabState.database.trim()) {
-      updateSqlTabState(tabId, { error: t("database.workspace.selectDatabase") });
+      updateSqlTabState(resolvedTabId, { error: t("database.workspace.selectDatabase") });
       return;
     }
-    updateSqlTabState(tabId, { running: true, error: null });
+    if (!sql) {
+      updateSqlTabState(resolvedTabId, { error: t("database.results.emptySql") });
+      return;
+    }
+    updateSqlTabState(resolvedTabId, { running: true, error: null });
     enqueueAction({
       type: "sql",
       title: t("database.actions.runQuery"),
       description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
-      command: tabState.sql,
+      command: sql,
       resourceId: conn.id,
       source: "用户",
     });
@@ -689,15 +723,15 @@ export function DatabasePanel() {
     try {
       const res = await invoke<QueryResult>("db_execute_query", {
         connection: conn,
-        sql: tabState.sql,
+        sql,
       });
-      updateSqlTabState(tabId, {
+      updateSqlTabState(resolvedTabId, {
         result: res,
         elapsed: Math.round(performance.now() - started),
         running: false,
       });
     } catch (e) {
-      updateSqlTabState(tabId, {
+      updateSqlTabState(resolvedTabId, {
         result: null,
         error: typeof e === "string" ? e : JSON.stringify(e),
         running: false,
@@ -706,11 +740,37 @@ export function DatabasePanel() {
   }, [
     connectionForSql,
     activeWorkspaceTab,
+    workspaceTabs,
     enqueueAction,
     sqlTabStates,
     t,
     updateSqlTabState,
   ]);
+
+  // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 ⌘/Ctrl+Enter。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey || e.altKey) {
+        return;
+      }
+      if (isSqlMonacoEditorFocused()) return;
+
+      const tabId = activeWorkspaceTabId;
+      if (!tabId) return;
+      const tabState = sqlTabStates[tabId];
+      if (!tabState) return;
+
+      const statement = sqlAtOffset(tabState.sql, tabState.cursorOffset);
+      if (!statement) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      void runQuery(statement, tabId);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [activeWorkspaceTabId, sqlTabStates, runQuery]);
 
   const renderSqlPane = (tab: SqlWorkspaceTab) => {
     const tabState = sqlTabStates[tab.id] ?? createDefaultSqlTabState();
@@ -729,6 +789,11 @@ export function DatabasePanel() {
 
     const canRefresh = preview?.connId && preview?.dbName && preview?.tableName;
     const isPreviewTab = !!(preview?.connId);
+    const hasSqlQueryOutput = !isPreviewTab && !!(tabState.result || tabState.error);
+
+    const dismissSqlResults = () => {
+      updateSqlTabState(tab.id, { result: null, error: null, elapsed: null });
+    };
 
     const editorContent = (
       <div className="db-editor-area">
@@ -775,7 +840,7 @@ export function DatabasePanel() {
           <button
             className="btn btn-primary btn-sm"
             style={{ marginLeft: "auto" }}
-            onClick={runQuery}
+            onClick={() => void runQuery()}
             disabled={
               tabState.running || !connectionForSql || !tabState.database.trim()
             }
@@ -784,9 +849,14 @@ export function DatabasePanel() {
           </button>
         </div>
         <SqlEditor
+          key={tab.id}
+          openMode={tabModeToEditorOpenMode(mode)}
           value={tabState.sql}
           onChange={(value) => updateSqlTabState(tab.id, { sql: value })}
-          onRun={runQuery}
+          onCursorOffsetChange={(cursorOffset) =>
+            updateSqlTabState(tab.id, { cursorOffset })
+          }
+          onRun={(sql) => void runQuery(sql, tab.id)}
           schemas={sqlCompletionSchemas}
         />
       </div>
@@ -828,6 +898,27 @@ export function DatabasePanel() {
               })}
             </span>
           )}
+          {mode === "sql" && hasSqlQueryOutput && (
+            <button
+              type="button"
+              className="btn-icon"
+              style={{ marginLeft: "auto" }}
+              title={t("database.results.close")}
+              aria-label={t("database.results.close")}
+              onClick={dismissSqlResults}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                width="14"
+                height="14"
+              >
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          )}
         </div>
         {tabState.error ? (
           <div
@@ -849,6 +940,7 @@ export function DatabasePanel() {
               page={0}
               pageSize={resultRows.length}
               loading={false}
+              onPageChange={() => {}}
             />
           )
         ) : isPreviewTab && preview ? (
@@ -910,8 +1002,8 @@ export function DatabasePanel() {
       );
     }
 
-    // SQL mode — show editor full height unless there are results
-    if (!tabState.result) {
+    // SQL 模式：有查询结果/错误时分屏；关闭预览后恢复编辑器全高
+    if (!hasSqlQueryOutput) {
       return (
         <div className="db-workspace-pane db-workspace-pane--sql">
           <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -997,9 +1089,7 @@ export function DatabasePanel() {
             </div>
             <div className="db-workspace-body">
               {!activeWorkspaceTab ? (
-                <div className="empty-state" style={{ padding: "var(--sp-6)" }}>
-                  {t("database.workspace.emptyTabs")}
-                </div>
+                <WorkspaceEmptyPage hint={t("database.workspace.emptyTabs")} />
               ) : (
                 renderSqlPane(activeWorkspaceTab)
               )}

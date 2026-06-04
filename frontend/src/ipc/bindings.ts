@@ -106,6 +106,8 @@ export const commands = {
 	sftpRemove: (id: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_remove", { id, path })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
 	sshListConfigHosts: () => typedError<SshConfigEntry[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_config_hosts")),
+	/**  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。 */
+	sshSyncConfigHosts: () => typedError<SshConfigSyncResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_sync_config_hosts")),
 	/**  按 `~/.ssh/config` 中的 Host 别名建立连接（使用 IdentityFile 等配置）。 */
 	sshConnectConfigHost: (alias: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_config_host", { alias, cols, rows })),
 	/**  列出远程进程列表。 */
@@ -479,6 +481,18 @@ export type SshConfigEntry = {
 	user: string | null,
 	port: number | null,
 	identityFile: string | null,
+};
+
+export type SshConfigSyncFailure = {
+	alias: string,
+	reason: string,
+};
+
+export type SshConfigSyncResult = {
+	added: number,
+	updated: number,
+	skipped: number,
+	failures: SshConfigSyncFailure[],
 };
 
 /**  概览页一次加载的完整数据（系统指标 + 进程列表）。 */

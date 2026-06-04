@@ -70,6 +70,54 @@ export function buildDatabaseSchema(databaseName: string, tables: TableSchema[])
   return { name: databaseName, tables };
 }
 
+/** 表名后的快捷片段：select / count / update / insert */
+export function buildTableActionSnippets(
+  qualifiedTable: string,
+  table: TableSchema,
+): CompletionItem[] {
+  const cols = table.columns.map((c) => c.name);
+  const selectCols = cols.length > 0 ? cols.join(", ") : "*";
+  const insertColList = cols.length > 0 ? cols.join(", ") : "column1, column2";
+  const insertValues =
+    cols.length > 0
+      ? cols.map((c, i) => `\${${i + 1}:${c}}`).join(", ")
+      : "${1:value1}, ${2:value2}";
+  const setClause =
+    cols.length > 0
+      ? cols.map((c, i) => `${c} = \${${i + 1}}`).join(",\n  ")
+      : "${1:column} = ${2:value}";
+
+  return [
+    {
+      label: "select",
+      kind: KEYWORD_KIND,
+      detail: "生成 SELECT 查询",
+      insertText: `SELECT ${selectCols}\nFROM ${qualifiedTable}\nWHERE \${1:1=1};`,
+      snippet: true,
+    },
+    {
+      label: "count",
+      kind: FUNCTION_KIND,
+      detail: "生成 COUNT 统计",
+      insertText: `SELECT COUNT(*) AS total\nFROM ${qualifiedTable};`,
+    },
+    {
+      label: "update",
+      kind: KEYWORD_KIND,
+      detail: "生成 UPDATE 语句",
+      insertText: `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE \${${cols.length > 0 ? cols.length + 1 : 3}:1=1};`,
+      snippet: true,
+    },
+    {
+      label: "insert",
+      kind: KEYWORD_KIND,
+      detail: "生成 INSERT 语句",
+      insertText: `INSERT INTO ${qualifiedTable} (${insertColList})\nVALUES (${insertValues});`,
+      snippet: true,
+    },
+  ];
+}
+
 export function introspectToTableSchemas(
   tables: { name: string; columns: { name: string; type: string; isPk?: boolean; isFk?: boolean }[] }[],
 ): TableSchema[] {

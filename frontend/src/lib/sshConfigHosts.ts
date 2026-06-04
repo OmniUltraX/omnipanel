@@ -1,4 +1,5 @@
 import { commands, type SshConfigEntry } from "../ipc/bindings";
+import { OPENSSH_CONFIG_GROUP } from "./sshGroups";
 import {
   type EnvironmentTag,
   type WorkspaceResource,
@@ -40,6 +41,7 @@ export function sshConfigEntryToResource(entry: SshConfigEntry): WorkspaceResour
     modulePath: "/ssh",
     environment: inferEnvironment(entry.alias, entry.hostName),
     status: "idle",
+    group: OPENSSH_CONFIG_GROUP,
     tags: ["OpenSSH", "~/.ssh/config"],
   };
 }
@@ -56,7 +58,7 @@ export function getCachedOpenSshHosts(): WorkspaceResource[] {
   return cachedHosts;
 }
 
-/** 从 `~/.ssh/config` 拉取 Host 并写入内存缓存。 */
+/** 从 `~/.ssh/config` 拉取 Host 并写入内存缓存（供 `ssh_connect_config_host` 等兼容路径使用）。 */
 export async function refreshSshConfigHosts(): Promise<WorkspaceResource[]> {
   try {
     const res = await commands.sshListConfigHosts();
@@ -76,14 +78,4 @@ export async function refreshSshConfigHosts(): Promise<WorkspaceResource[]> {
     cachedEntries = new Map();
     return [];
   }
-}
-
-/** 合并已保存连接与 OpenSSH 配置主机（按名称去重，优先保留 store 条目）。 */
-export function mergeSshHostResources(
-  stored: WorkspaceResource[],
-  fromConfig: WorkspaceResource[],
-): WorkspaceResource[] {
-  const names = new Set(stored.map((item) => item.name.toLowerCase()));
-  const extra = fromConfig.filter((item) => !names.has(item.name.toLowerCase()));
-  return [...stored, ...extra];
 }
