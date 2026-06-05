@@ -60,7 +60,25 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Sync version to project files
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const v = process.env.VERSION;
+          const tauriPath = 'src-tauri/tauri.conf.json';
+          const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
+          tauri.version = v;
+          fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
+          let cargo = fs.readFileSync('Cargo.toml', 'utf8');
+          cargo = cargo.replace(/^version = "[^"]+"/m, `version = "${v}"`);
+          fs.writeFileSync('Cargo.toml', cargo);
+          console.log(`Synced app version to ${v}`);
+          EOF
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -70,9 +88,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'OmniPanel ${{ github.ref_name }}'
+          releaseName: 'OmniPanel v${{ steps.version.outputs.version }}'
           releaseBody: 'See the assets to download and install this version.'
           releaseDraft: false
           prerelease: false
-          appVersion: ${{ env.VERSION }}
           args: ${{ matrix.args }}
