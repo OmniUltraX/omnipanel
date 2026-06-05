@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
-import type { OnePanelInstalledApp } from "../../lib/onepanel";
 import type { ServerEntry } from "./CreateServerDialog";
 import {
+  getAppDescription,
   getAppDisplayName,
+  getAppInstanceName,
   getAppPortTags,
   getAppStatus,
   getAppStatusClass,
 } from "./appCard";
 import { useAppIcon } from "./useAppIcon";
 import { ServerAppDrawer } from "./ServerAppDrawer";
+import type { ServerInstalledApp } from "./serverApp";
 import { useInstalledApps } from "./useInstalledApps";
 
 interface ServerInstalledAppsProps {
@@ -23,15 +25,17 @@ function ServerAppCard({
   onSelect,
 }: {
   server: ServerEntry;
-  app: OnePanelInstalledApp;
+  app: ServerInstalledApp;
   t: (key: string, vars?: Record<string, string | number>) => string;
-  onSelect: (app: OnePanelInstalledApp) => void;
+  onSelect: (app: ServerInstalledApp) => void;
 }) {
   const { iconUrl, loading } = useAppIcon(server, app);
   const [iconFailed, setIconFailed] = useState(false);
   const displayName = getAppDisplayName(app);
+  const instanceName = getAppInstanceName(app);
   const status = getAppStatus(app);
   const portTags = getAppPortTags(app);
+  const description = getAppDescription(app);
   const showIcon = iconUrl && !iconFailed && !loading;
 
   useEffect(() => {
@@ -68,18 +72,30 @@ function ServerAppCard({
               {(displayName[0] ?? "?").toUpperCase()}
             </span>
           )}
-          <strong className="server-app-card__name" title={displayName}>
-            {displayName}
-          </strong>
+          <div className="server-app-card__titles">
+            <strong className="server-app-card__name" title={displayName}>
+              {displayName}
+            </strong>
+            {instanceName ? (
+              <span className="server-app-card__instance" title={instanceName}>
+                {instanceName}
+              </span>
+            ) : null}
+          </div>
         </div>
         <span className={`server-app-card__status server-app-card__status--${getAppStatusClass(status)}`}>
-          <span className={`status-dot ${status === "Running" ? "online" : "offline"}`} />
+          <span
+            className={`status-dot ${status === "Running" || status.toLowerCase() === "running" ? "online" : "offline"}`}
+          />
           {status}
         </span>
       </div>
 
-      {(portTags.length > 0 || app.canUpdate) && (
+      {(portTags.length > 0 || app.canUpdate || app.appType) && (
         <div className="server-app-card__tags">
+          {app.appType ? (
+            <span className="badge badge-muted server-app-card__tag">{app.appType}</span>
+          ) : null}
           {portTags.map((tag) => (
             <span key={tag} className="badge badge-muted server-app-card__tag">
               {tag}
@@ -91,9 +107,9 @@ function ServerAppCard({
         </div>
       )}
 
-      {app.message ? (
-        <p className="server-app-card__message" title={app.message}>
-          {app.message}
+      {description ? (
+        <p className="server-app-card__message" title={description}>
+          {description}
         </p>
       ) : null}
     </article>
@@ -103,9 +119,9 @@ function ServerAppCard({
 export function ServerInstalledApps({ server }: ServerInstalledAppsProps) {
   const { t } = useI18n();
   const { apps, total, loading, error, refresh } = useInstalledApps(server);
-  const [selectedApp, setSelectedApp] = useState<OnePanelInstalledApp | null>(null);
+  const [selectedApp, setSelectedApp] = useState<ServerInstalledApp | null>(null);
 
-  if (server.serviceType !== "1panel") {
+  if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
     return (
       <div className="server-apps">
         <div className="server-apps-empty">{t("server.apps.unsupported")}</div>
@@ -147,7 +163,7 @@ export function ServerInstalledApps({ server }: ServerInstalledAppsProps) {
             <div className="server-app-grid">
               {apps.map((app) => (
                 <ServerAppCard
-                  key={app.id}
+                  key={app.uid}
                   server={server}
                   app={app}
                   t={t}

@@ -2,68 +2,93 @@ import { useEffect, useState } from "react";
 import { LogViewer } from "../../components/ui/LogViewer";
 import { SubWindow } from "../../components/ui/SubWindow";
 import { useI18n } from "../../i18n";
-import type { OnePanelInstalledApp } from "../../lib/onepanel";
 import type { ServerEntry } from "./CreateServerDialog";
+import { formatAppPorts } from "./appCard";
+import { formatBtAppInfoValue } from "./serverApp";
+import type { ServerInstalledApp } from "./serverApp";
 import { useAppComposeLogs } from "./useAppComposeLogs";
 
 type AppTab = "detail" | "logs";
 
 interface ServerAppDrawerProps {
   server: ServerEntry;
-  app: OnePanelInstalledApp | null;
+  app: ServerInstalledApp | null;
   onClose: () => void;
 }
 
-function formatAppPort(app: OnePanelInstalledApp): string {
-  const parts: string[] = [];
-  if (app.httpPort) parts.push(`HTTP ${app.httpPort}`);
-  if (app.httpsPort) parts.push(`HTTPS ${app.httpsPort}`);
-  return parts.length > 0 ? parts.join(" / ") : "-";
-}
-
-function DetailTab({ app, t }: { app: OnePanelInstalledApp; t: ReturnType<typeof useI18n>["t"] }) {
+function DetailTab({
+  server,
+  app,
+  t,
+}: {
+  server: ServerEntry;
+  app: ServerInstalledApp;
+  t: ReturnType<typeof useI18n>["t"];
+}) {
   const displayName = app.appName || app.name || app.appKey || "-";
   const status = app.status || app.appStatus || "-";
 
   const rows: Array<{ label: string; value: string }> = [
     { label: t("server.apps.drawer.appName"), value: displayName },
-    { label: t("server.apps.drawer.instance"), value: app.name || "-" },
+    { label: t("server.apps.drawer.instance"), value: app.serviceName || app.name || "-" },
     { label: t("server.apps.drawer.appKey"), value: app.appKey || "-" },
     { label: t("server.apps.version"), value: app.version || "-" },
     { label: t("server.apps.status"), value: status },
     { label: t("server.apps.type"), value: app.appType || "-" },
-    { label: t("server.apps.port"), value: formatAppPort(app) },
+    { label: t("server.apps.port"), value: formatAppPorts(app) },
     { label: t("server.apps.drawer.container"), value: app.container || "-" },
-    { label: t("server.apps.drawer.service"), value: app.serviceName || "-" },
     { label: t("server.apps.drawer.path"), value: app.path || "-" },
-    { label: t("server.apps.drawer.createdAt"), value: app.createdAt || "-" },
+    { label: t("server.apps.drawer.createdAt"), value: app.runtimeLabel || app.createdAt || "-" },
   ];
 
+  if (app.serverIp) {
+    rows.push({ label: t("server.apps.drawer.serverIp"), value: app.serverIp });
+  }
   if (app.app?.website) {
     rows.push({ label: t("server.apps.drawer.website"), value: app.app.website });
   }
-  if (app.app?.document) {
-    rows.push({ label: t("server.apps.drawer.document"), value: app.app.document });
+  if (app.description) {
+    rows.push({ label: t("server.apps.drawer.description"), value: app.description });
   }
-  if (app.app?.github) {
-    rows.push({ label: t("server.apps.drawer.github"), value: app.app.github });
-  }
-  if (app.message) {
+  if (app.message && app.message !== app.description) {
     rows.push({ label: t("server.apps.drawer.message"), value: app.message });
   }
 
+  const configRows =
+    server.serviceType === "bt" && app.btAppInfo?.length
+      ? app.btAppInfo.map((field) => ({
+          label: field.fieldTitle,
+          value: formatBtAppInfoValue(field.fieldValue),
+        }))
+      : [];
+
   return (
-    <div className="drawer-section">
-      <h4>{t("server.apps.drawer.basicInfo")}</h4>
-      <dl className="drawer-kv">
-        {rows.map((row) => (
-          <div key={row.label} style={{ display: "contents" }}>
-            <dt>{row.label}</dt>
-            <dd>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <>
+      <div className="drawer-section">
+        <h4>{t("server.apps.drawer.basicInfo")}</h4>
+        <dl className="drawer-kv">
+          {rows.map((row) => (
+            <div key={row.label} style={{ display: "contents" }}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      {configRows.length > 0 ? (
+        <div className="drawer-section">
+          <h4>{t("server.apps.drawer.config")}</h4>
+          <dl className="drawer-kv">
+            {configRows.map((row) => (
+              <div key={`${row.label}-${row.value}`} style={{ display: "contents" }}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -73,7 +98,7 @@ function LogsTab({
   t,
 }: {
   server: ServerEntry;
-  app: OnePanelInstalledApp;
+  app: ServerInstalledApp;
   t: ReturnType<typeof useI18n>["t"];
 }) {
   const { logs, loading, error, refresh, clear } = useAppComposeLogs(server, app, true);
@@ -106,14 +131,14 @@ function ServerAppSubWindowContent({
   app,
 }: {
   server: ServerEntry;
-  app: OnePanelInstalledApp;
+  app: ServerInstalledApp;
 }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<AppTab>("detail");
 
   useEffect(() => {
     setTab("detail");
-  }, [app.id]);
+  }, [app.uid]);
 
   return (
     <div className="server-app-subwindow">
@@ -125,21 +150,25 @@ function ServerAppSubWindowContent({
         >
           {t("server.apps.drawer.detail")}
         </button>
-        <button
-          type="button"
-          className={`subtab${tab === "logs" ? " active" : ""}`}
-          onClick={() => setTab("logs")}
-        >
-          {t("server.apps.drawer.logs")}
-        </button>
+        {server.serviceType === "1panel" ? (
+          <button
+            type="button"
+            className={`subtab${tab === "logs" ? " active" : ""}`}
+            onClick={() => setTab("logs")}
+          >
+            {t("server.apps.drawer.logs")}
+          </button>
+        ) : null}
       </div>
       <div className={`server-app-subwindow__body${tab === "logs" ? " server-app-subwindow__body--logs" : ""}`}>
         {tab === "detail" && (
           <div className="server-app-subwindow__detail">
-            <DetailTab app={app} t={t} />
+            <DetailTab server={server} app={app} t={t} />
           </div>
         )}
-        {tab === "logs" && <LogsTab server={server} app={app} t={t} />}
+        {tab === "logs" && server.serviceType === "1panel" ? (
+          <LogsTab server={server} app={app} t={t} />
+        ) : null}
       </div>
     </div>
   );

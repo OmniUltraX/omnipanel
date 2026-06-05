@@ -39,6 +39,8 @@ fn export_ipc_bindings() {
         commands::panel::panel_1panel_test_connection,
         commands::panel::panel_1panel_app_icon,
         commands::panel::panel_1panel_request_text,
+        commands::panel::panel_bt_request,
+        commands::panel::panel_bt_test_connection,
         commands::docker::docker_list_connections,
         commands::docker::docker_probe_connection,
         commands::docker::docker_get_overview,
@@ -202,11 +204,13 @@ pub fn run() {
             commands::connection::conn_save,
             commands::connection::conn_delete,
             commands::connection::conn_test,
-            // 1Panel API
+            // 面板 API
             commands::panel::panel_1panel_request,
             commands::panel::panel_1panel_test_connection,
             commands::panel::panel_1panel_app_icon,
             commands::panel::panel_1panel_request_text,
+            commands::panel::panel_bt_request,
+            commands::panel::panel_bt_test_connection,
             // Docker（容器工作区）
             commands::docker::docker_list_connections,
             commands::docker::docker_probe_connection,

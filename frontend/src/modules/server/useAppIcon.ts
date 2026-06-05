@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { createOnePanelClient, type OnePanelInstalledApp } from "../../lib/onepanel";
+import { createOnePanelClient } from "../../lib/onepanel";
 import type { ServerEntry } from "./CreateServerDialog";
-import { resolveFallbackAppIconUrl } from "./appIcon";
+import { resolveBtAppIconUrl, resolveFallbackAppIconUrl } from "./appIcon";
+import type { ServerInstalledApp } from "./serverApp";
 
 const iconCache = new Map<string, string>();
 
@@ -9,17 +10,26 @@ function cacheKey(host: string, apiKey: string, appKey: string): string {
   return `${host}::${apiKey}::${appKey}`;
 }
 
-export function useAppIcon(server: ServerEntry, app: OnePanelInstalledApp) {
-  const fallback = useMemo(
-    () => resolveFallbackAppIconUrl(server.address, app),
-    [server.address, app],
-  );
+export function useAppIcon(server: ServerEntry, app: ServerInstalledApp) {
+  const fallback = useMemo(() => {
+    if (server.serviceType === "bt") {
+      return resolveBtAppIconUrl(server.address, app);
+    }
+    return resolveFallbackAppIconUrl(server.address, app);
+  }, [server.address, server.serviceType, app]);
+
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let blobUrl: string | null = null;
     let cancelled = false;
+
+    if (server.serviceType === "bt") {
+      setIconUrl(resolveBtAppIconUrl(server.address, app));
+      setLoading(false);
+      return;
+    }
 
     const appKey = app.appKey?.trim();
     if (server.serviceType !== "1panel" || !appKey) {
@@ -64,7 +74,7 @@ export function useAppIcon(server: ServerEntry, app: OnePanelInstalledApp) {
       cancelled = true;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [server.address, server.key, server.serviceType, app.appKey, fallback]);
+  }, [server.address, server.key, server.serviceType, app, fallback]);
 
   return {
     iconUrl: iconUrl ?? fallback,

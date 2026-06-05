@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createOnePanelClient, OnePanelApiError } from "../../lib/onepanel";
 import type { ServerEntry } from "./CreateServerDialog";
-import type { OnePanelInstalledApp } from "../../lib/onepanel";
 import { getAppComposePath } from "./appCompose";
+import type { ServerInstalledApp } from "./serverApp";
 
 function formatError(err: unknown): string {
   if (err instanceof OnePanelApiError) {
@@ -14,7 +14,7 @@ function formatError(err: unknown): string {
 
 export function useAppComposeLogs(
   server: ServerEntry,
-  app: OnePanelInstalledApp | null,
+  app: ServerInstalledApp | null,
   enabled: boolean,
 ) {
   const [logs, setLogs] = useState("");

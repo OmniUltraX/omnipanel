@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { useI18n } from "../../i18n";
+import { createBtPanelClient } from "../../lib/btpanel";
 import { createOnePanelClient } from "../../lib/onepanel";
 
 export interface ServerEntry {
@@ -56,21 +57,26 @@ export function CreateServerDialog({ open, editServer, onClose, onCreate, onUpda
       });
       return;
     }
-    if (serviceType !== "1panel") {
-      setStatus({ kind: "error", message: t("server.create.testUnsupported") });
-      return;
-    }
-
     setTesting(true);
     setStatus({ kind: "info", message: t("server.create.testing") });
     try {
-      const client = createOnePanelClient(address.trim(), key.trim());
-      const info = await client.getDeviceBase();
-      const hostname = info.hostname ?? address.trim();
-      setStatus({
-        kind: "success",
-        message: t("server.create.testSuccess", { hostname }),
-      });
+      if (serviceType === "1panel") {
+        const client = createOnePanelClient(address.trim(), key.trim());
+        const info = await client.getDeviceBase();
+        const hostname = info.hostname ?? address.trim();
+        setStatus({
+          kind: "success",
+          message: t("server.create.testSuccess", { hostname }),
+        });
+      } else {
+        const client = createBtPanelClient(address.trim(), key.trim());
+        const info = await client.getSystemTotal();
+        const hostname = info.system ?? info.version ?? address.trim();
+        setStatus({
+          kind: "success",
+          message: t("server.create.testSuccess", { hostname }),
+        });
+      }
     } catch (error) {
       setStatus({
         kind: "error",
@@ -180,16 +186,14 @@ export function CreateServerDialog({ open, editServer, onClose, onCreate, onUpda
           ) : (
             <div className="modal-footer-spacer" />
           )}
-          {serviceType === "1panel" && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={testing || !address.trim() || !key.trim()}
-              onClick={() => void handleTest()}
-            >
-              {testing ? t("server.create.testing") : t("server.create.test")}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={testing || !address.trim() || !key.trim()}
+            onClick={() => void handleTest()}
+          >
+            {testing ? t("server.create.testing") : t("server.create.test")}
+          </button>
           <button
             type="button"
             className="btn btn-primary"

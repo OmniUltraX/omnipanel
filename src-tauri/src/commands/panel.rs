@@ -67,3 +67,44 @@ pub async fn panel_1panel_request_text(
 
     crate::panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
 }
+
+/// 通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
+/// `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_bt_request(
+    host: String,
+    api_sk: String,
+    path: String,
+    body: Option<String>,
+) -> Result<String, OmniError> {
+    let body_map = match body {
+        Some(raw) if !raw.trim().is_empty() => {
+            let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
+                OmniError::invalid_input("请求体不是合法 JSON").with_cause(e.to_string())
+            })?;
+            match value {
+                Value::Object(map) => Some(map),
+                Value::Null => None,
+                _ => {
+                    return Err(OmniError::invalid_input(
+                        "宝塔 API 请求体必须是 JSON 对象",
+                    ));
+                }
+            }
+        }
+        _ => None,
+    };
+
+    let result = crate::panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
+    serde_json::to_string(&result)
+        .map_err(|e| OmniError::internal("序列化宝塔面板响应失败").with_cause(e.to_string()))
+}
+
+/// 宝塔面板连通性测试。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bool, OmniError> {
+    crate::panel::btpanel::test_connection(&host, &api_sk).await?;
+    Ok(true)
+}

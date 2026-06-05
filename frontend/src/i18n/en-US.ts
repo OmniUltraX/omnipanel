@@ -733,6 +733,7 @@ export const enUS: TranslationDict = {
     empty: {
       title: "No Servers",
       description: 'Click the "+" button or the button below to add a server.',
+      selectServer: "Select a server in the sidebar, or use the top bar “+” to open a server tab.",
     },
     placeholder: "{name} is ready. Server management features coming soon.",
     apps: {
@@ -761,11 +762,15 @@ export const enUS: TranslationDict = {
         document: "Documentation",
         github: "GitHub",
         message: "Status Message",
+        description: "Description",
+        config: "Configuration",
+        serverIp: "Server IP",
         logsLoading: "Loading logs…",
         logsEmpty: "No logs",
       },
     },
     tabs: {
+      openServer: "Open Server",
       monitor: "Monitoring",
       processes: "Processes",
       services: "Services",

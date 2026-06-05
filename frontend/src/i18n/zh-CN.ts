@@ -729,6 +729,7 @@ export const zhCN = {
     empty: {
       title: "暂无服务器",
       description: '点击"+"按钮或下方按钮添加服务器。',
+      selectServer: "在左侧选择服务器，或在顶栏点击「+」打开服务器标签页。",
     },
     placeholder: "{name} 已就绪。服务器管理功能即将上线。",
     apps: {
@@ -757,11 +758,15 @@ export const zhCN = {
         document: "文档",
         github: "GitHub",
         message: "状态消息",
+        description: "应用描述",
+        config: "应用配置",
+        serverIp: "服务器 IP",
         logsLoading: "加载日志中…",
         logsEmpty: "暂无日志",
       },
     },
     tabs: {
+      openServer: "打开服务器",
       monitor: "监控",
       processes: "进程",
       services: "服务",

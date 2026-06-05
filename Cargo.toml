@@ -44,7 +44,7 @@ async-trait = "0.1"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
 # Protocol Lab
-reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "cookies"], default-features = false }
 serialport = "4"
 rumqttc = "0.24"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
