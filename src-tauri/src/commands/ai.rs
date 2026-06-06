@@ -13,12 +13,17 @@ pub struct ProviderInfo {
 }
 
 /// Send a message to the current AI provider and stream back events.
+///
+/// When `history` is provided, those messages are prepended to the request so the
+/// LLM sees the full multi-turn conversation.  If `history` is `None` (or empty)
+/// the request falls back to a single-message payload (backward compatible).
 #[tauri::command]
 pub async fn ai_send_message(
     state: State<'_, AppState>,
     _conversation_id: String,
     content: String,
     on_event: Channel<StreamEvent>,
+    history: Option<Vec<ChatMessage>>,
 ) -> Result<(), String> {
     let provider_name = state
         .current_provider
@@ -39,15 +44,19 @@ pub async fn ai_send_message(
         .get(&provider_name)
         .ok_or_else(|| format!("Provider '{}' not found", provider_name))?;
 
+    // Build the message list: conversation history (if any) + the new user message
+    let mut messages: Vec<ChatMessage> = history.unwrap_or_default();
+    messages.push(ChatMessage {
+        role: Role::User,
+        content,
+        tool_call_id: None,
+        tool_calls: None,
+        name: None,
+    });
+
     let request = ChatRequest {
         model,
-        messages: vec![ChatMessage {
-            role: Role::User,
-            content,
-            tool_call_id: None,
-            tool_calls: None,
-            name: None,
-        }],
+        messages,
         stream: true,
         tools: None,
         temperature: None,

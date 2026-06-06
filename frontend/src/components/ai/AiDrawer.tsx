@@ -358,9 +358,23 @@ function useAiChat() {
           }
         );
 
+        // Collect conversation history (all messages except the current empty
+        // assistant placeholder) so the LLM sees the full multi-turn context.
+        // Limit to the last 20 messages to avoid blowing token limits.
+        const MAX_HISTORY = 20;
+        const convState = useAiStore.getState().conversations.find((c) => c.id === convId);
+        const historyMessages = convState?.messages ?? [];
+        // Drop the last entry which is the empty assistant placeholder we just added
+        const priorMessages = historyMessages.slice(0, -1);
+        const historySlice = priorMessages.slice(-MAX_HISTORY).map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
         await invoke("ai_send_message", {
           conversationId: convId,
           content: trimmed,
+          history: historySlice,
         });
       } finally {
         unlistenFn?.();

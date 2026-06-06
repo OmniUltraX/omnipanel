@@ -11,7 +11,7 @@ thiserror.workspace = true
 specta.workspace = true
 tracing.workspace = true
 omnipanel-error = { path = "../omnipanel-error" }
-rusqlite = { version = "0.32", features = ["bundled", "fts5"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 getrandom = "0.2"
 

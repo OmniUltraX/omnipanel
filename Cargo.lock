@@ -3239,6 +3239,7 @@ dependencies = [
  "omnipanel-store",
  "reqwest 0.12.28",
  "rumqttc",
+ "rusqlite",
  "serde",
  "serde_json",
  "serialport",

@@ -32,6 +32,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 sqlx.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
 futures = "0.3"
 
 # Protocol Lab

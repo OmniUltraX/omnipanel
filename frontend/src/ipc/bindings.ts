@@ -177,7 +177,8 @@ export const commands = {
 	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
 	/**  列出知识条目（可选按 kind / tag 过滤）。 */
 	knowledgeList: (kind: string | null, tag: string | null) => typedError<KnowledgeEntry[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_list", { kind, tag })),
-	/**  全文搜索知识条目（FTS5）。 */
+	/**  获取单个知识条目。 */
+	knowledgeGet: (id: string) => typedError<KnowledgeEntry | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_get", { id })),
 	knowledgeSearch: (query: string, kind: string | null) => typedError<KnowledgeSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_search", { query, kind })),
 	/**  获取所有已使用的标签。 */
 	knowledgeTags: () => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_tags")),
