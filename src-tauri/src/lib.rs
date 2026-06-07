@@ -107,6 +107,18 @@ fn export_ipc_bindings() {
         commands::knowledge::knowledge_search,
         commands::knowledge::knowledge_tags,
         commands::knowledge::knowledge_increment_usage,
+        // Workflow（工作流）
+        commands::workflow::workflow_list,
+        commands::workflow::workflow_get,
+        commands::workflow::workflow_save,
+        commands::workflow::workflow_delete,
+        commands::workflow::workflow_executions,
+        // Task（任务）
+        commands::task::task_list,
+        commands::task::task_get,
+        commands::task::task_save,
+        commands::task::task_update_status,
+        commands::task::task_delete,
     ]);
 
     // 用 CARGO_MANIFEST_DIR 拼绝对路径，避免 cwd 在不同入口（cargo test/run）下不一致。
@@ -315,6 +327,18 @@ pub fn run() {
             commands::knowledge::knowledge_search,
             commands::knowledge::knowledge_tags,
             commands::knowledge::knowledge_increment_usage,
+            // Workflow（工作流）
+            commands::workflow::workflow_list,
+            commands::workflow::workflow_get,
+            commands::workflow::workflow_save,
+            commands::workflow::workflow_delete,
+            commands::workflow::workflow_executions,
+            // Task（任务）
+            commands::task::task_list,
+            commands::task::task_get,
+            commands::task::task_save,
+            commands::task::task_update_status,
+            commands::task::task_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

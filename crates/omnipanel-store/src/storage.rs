@@ -64,6 +64,65 @@ const MIGRATIONS: &[&str] = &[
         INSERT INTO knowledge_fts(rowid, title, content, tags) VALUES (new.rowid, new.title, new.content, new.tags);
     END;
     "#,
+    // v3 — workflows + workflow_steps + workflow_executions
+    r#"
+    CREATE TABLE IF NOT EXISTS workflows (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        workflow_type TEXT NOT NULL DEFAULT 'script',
+        risk_level TEXT NOT NULL DEFAULT 'low',
+        target TEXT NOT NULL DEFAULT '',
+        env_tag TEXT NOT NULL DEFAULT 'dev',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS workflow_steps (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        step_type TEXT NOT NULL DEFAULT 'shell',
+        command TEXT NOT NULL DEFAULT '',
+        step_order INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'ready'
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_steps_wf ON workflow_steps(workflow_id);
+    CREATE TABLE IF NOT EXISTS workflow_executions (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'running',
+        triggered_by TEXT NOT NULL DEFAULT 'user',
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        duration_ms INTEGER,
+        output TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_exec_wf ON workflow_executions(workflow_id);
+    "#,
+    // v4 — tasks
+    r#"
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        task_type TEXT NOT NULL DEFAULT 'terminal',
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        resource_id TEXT NOT NULL DEFAULT '',
+        resource_name TEXT NOT NULL DEFAULT '',
+        env_tag TEXT NOT NULL DEFAULT 'dev',
+        command TEXT NOT NULL DEFAULT '',
+        risk TEXT NOT NULL DEFAULT 'low',
+        status TEXT NOT NULL DEFAULT 'draft',
+        source TEXT NOT NULL DEFAULT 'user',
+        output TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_updated ON tasks(updated_at);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

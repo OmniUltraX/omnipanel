@@ -7,7 +7,9 @@ mod knowledge;
 mod paths;
 mod schema_filters;
 mod storage;
+mod task;
 mod vault;
+mod workflow;
 
 pub use connection::{Connection, ConnectionKind};
 pub use database::{
@@ -23,4 +25,9 @@ pub use schema_filters::{
 };
 pub use storage::{AuditEntry, Storage};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
+pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use vault::Vault;
+pub use workflow::{
+    ExecutionStatus, RiskLevel, SaveStepRequest, SaveWorkflowRequest, StepStatus, StepType,
+    Workflow, WorkflowDetail, WorkflowExecution, WorkflowStep, WorkflowType,
+};
