@@ -1,6 +1,6 @@
 import { useI18n } from "../../i18n";
 
-export type ProtocolKind = "http" | "ws" | "mqtt" | "serial";
+export type ProtocolKind = "http" | "ws" | "mqtt" | "serial" | "grpc";
 
 const HTTP_HISTORY = [
   { method: "GET", url: "/api/users", status: "200", time: "12ms" },

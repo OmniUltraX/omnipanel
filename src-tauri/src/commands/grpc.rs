@@ -1,79 +1,58 @@
+//! gRPC Tauri 命令。
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::State;
 
 use crate::protocol::grpc::{
-    GrpcConnectionConfig, GrpcMethodInfo, GrpcResponse, GrpcServiceInfo,
+    GrpcCallRequest, GrpcCallResponse, GrpcConnectionConfig, GrpcSession,
 };
 use crate::state::AppState;
 
 static GRPC_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-// ──────────────────────────────────────────────
-// gRPC Commands
-// ──────────────────────────────────────────────
-
-/// Connect to a gRPC endpoint and store the session.
 #[tauri::command]
+#[specta::specta]
 pub async fn grpc_connect(
     state: State<'_, AppState>,
     config: GrpcConnectionConfig,
 ) -> Result<String, String> {
     let id = format!("grpc-{}", GRPC_COUNTER.fetch_add(1, Ordering::Relaxed));
-
-    let session = crate::protocol::grpc::GrpcSession::connect(config).await?;
-
-    state
-        .grpc_sessions
-        .lock()
-        .await
-        .insert(id.clone(), session);
-
-    tracing::info!("gRPC session created: {id}");
+    let session = GrpcSession::connect(config).map_err(|e| e.to_string())?;
+    state.grpc_sessions.lock().await.insert(id.clone(), session);
     Ok(id)
 }
 
-/// Execute a unary gRPC call.
 #[tauri::command]
+#[specta::specta]
 pub async fn grpc_call(
     state: State<'_, AppState>,
     connection_id: String,
-    service: String,
-    method: String,
-    request_json: String,
-    metadata: Option<HashMap<String, String>>,
-) -> Result<GrpcResponse, String> {
+    request: GrpcCallRequest,
+) -> Result<GrpcCallResponse, String> {
     let sessions = state.grpc_sessions.lock().await;
     let session = sessions
         .get(&connection_id)
-        .ok_or_else(|| format!("gRPC session {connection_id} not found"))?;
-
-    session.call(&service, &method, &request_json, metadata).await
+        .ok_or_else(|| format!("gRPC 连接 {connection_id} 不存在"))?;
+    session.call(request).await.map_err(|e| e.to_string())
 }
 
-/// Attempt gRPC server reflection to list available services and methods.
 #[tauri::command]
-pub async fn grpc_reflect(
+#[specta::specta]
+pub async fn grpc_close(
     state: State<'_, AppState>,
     connection_id: String,
-) -> Result<Vec<GrpcServiceInfo>, String> {
-    let sessions = state.grpc_sessions.lock().await;
-    let session = sessions
-        .get(&connection_id)
-        .ok_or_else(|| format!("gRPC session {connection_id} not found"))?;
-
-    session.reflect().await
+) -> Result<(), String> {
+    state.grpc_sessions.lock().await.remove(&connection_id);
+    Ok(())
 }
 
-/// Close a gRPC session.
 #[tauri::command]
-pub async fn grpc_close(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
-    let mut sessions = state.grpc_sessions.lock().await;
-    if sessions.remove(&connection_id).is_some() {
-        tracing::info!("gRPC session closed: {connection_id}");
-        Ok(())
-    } else {
-        Err(format!("gRPC session {connection_id} not found"))
-    }
+#[specta::specta]
+pub async fn grpc_list_connections(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let sessions = state.grpc_sessions.lock().await;
+    Ok(sessions.keys().cloned().collect())
 }

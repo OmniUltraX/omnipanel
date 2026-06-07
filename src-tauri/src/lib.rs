@@ -148,7 +148,7 @@ fn export_ipc_bindings() {
         // Protocol Lab — gRPC
         commands::grpc::grpc_connect,
         commands::grpc::grpc_call,
-        commands::grpc::grpc_reflect,
+        commands::grpc::grpc_list_connections,
         commands::grpc::grpc_close,
     ]);
 
@@ -407,7 +407,7 @@ pub fn run() {
             // Protocol Lab — gRPC
             commands::grpc::grpc_connect,
             commands::grpc::grpc_call,
-            commands::grpc::grpc_reflect,
+            commands::grpc::grpc_list_connections,
             commands::grpc::grpc_close,
         ])
         .run(tauri::generate_context!())

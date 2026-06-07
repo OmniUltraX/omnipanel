@@ -5,9 +5,10 @@ import { HttpPanel } from "./HttpPanel";
 import { WsPanel } from "./WsPanel";
 import { MqttPanel } from "./MqttPanel";
 import { SerialPanel } from "./SerialPanel";
+import { GrpcPanel } from "./GrpcPanel";
 import { ProtocolContextSidebar, type ProtocolKind } from "./ProtocolContextSidebar";
 
-const PROTOCOLS: ProtocolKind[] = ["http", "ws", "mqtt", "serial"];
+const PROTOCOLS: ProtocolKind[] = ["http", "ws", "mqtt", "serial", "grpc"];
 
 export function ProtocolPanel() {
   const { t } = useI18n();
@@ -37,6 +38,8 @@ export function ProtocolPanel() {
         return <MqttPanel />;
       case "serial":
         return <SerialPanel />;
+      case "grpc":
+        return <GrpcPanel />;
     }
   };
 
