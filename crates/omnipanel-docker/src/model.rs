@@ -76,13 +76,12 @@ impl DockerCapabilities {
         }
     }
 
-    /// SSH 宿主机 adapter 能力子集：日志流式通过 `docker logs -f` 实现；
-    /// 容器内交互终端（docker exec -it）需 PTY 通道，尚未实现。
+    /// SSH 宿主机 adapter：完整功能，exec_pty 已支持 docker exec -it。
     pub fn ssh_engine() -> Self {
         Self {
             can_overview: true,
             can_stream_logs: true,
-            can_container_exec: false,
+            can_container_exec: true,
             can_inspect: true,
             can_manage_containers: true,
             can_manage_images: true,

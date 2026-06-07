@@ -580,14 +580,9 @@ impl SshSession {
             OmniError::new(ErrorCode::Ssh, "发起 PTY exec 命令失败").with_cause(e.to_string())
         })?;
 
-        // 共享 channel：reader 任务负责 wait() 与推送 chunks，writer 由 SshPtySession 持有。
+        // 复用已打开的 exec channel（而非创建第二个空 channel）。
         let shared: Arc<tokio::sync::Mutex<Channel<russh::client::Msg>>> =
-            Arc::new(tokio::sync::Mutex::new(
-                self.session.channel_open_session().await.map_err(|e| {
-                    OmniError::new(ErrorCode::Ssh, "PTY 共享通道创建失败")
-                        .with_cause(e.to_string())
-                })?,
-            ));
+            Arc::new(tokio::sync::Mutex::new(channel));
         let reader_shared = shared.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();

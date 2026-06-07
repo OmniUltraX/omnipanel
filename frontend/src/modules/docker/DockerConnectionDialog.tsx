@@ -1,8 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Modal } from "../../components/ui/Modal";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
+
+/** Backend type from docker_probe_ssh_docker */
+interface DockerAutoDetectResult {
+  available: boolean;
+  version?: string;
+  os?: string;
+  containers: number;
+  images: number;
+  error?: string;
+}
+
+/** Backend type from docker_list_ssh_hosts */
+interface SshHostInfo {
+  connectionId: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+}
 
 interface DockerConnectionDialogProps {
   open: boolean;
@@ -195,6 +215,9 @@ export function DockerConnectionDialog({
   const [form, setForm] = useState<DockerForm>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectedHosts, setConnectedHosts] = useState<SshHostInfo[]>([]);
+  const [detectResult, setDetectResult] = useState<DockerAutoDetectResult | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   const sshConnections = useMemo(
     () => connections.filter((c) => c.kind === "ssh"),
@@ -202,6 +225,45 @@ export function DockerConnectionDialog({
   );
 
   const isEdit = !!editConnection?.id;
+
+  /** Load connected SSH hosts when dialog opens in ssh-engine mode */
+  const loadSshHosts = useCallback(async () => {
+    try {
+      const hosts = await invoke<SshHostInfo[]>("docker_list_ssh_hosts");
+      setConnectedHosts(hosts);
+    } catch {
+      setConnectedHosts([]);
+    }
+  }, []);
+
+  /** Probe selected SSH host for Docker daemon */
+  const handleDetectDocker = useCallback(async (sshConnectionId: string) => {
+    if (!sshConnectionId) return;
+    setDetecting(true);
+    setDetectResult(null);
+    try {
+      const result = await invoke<DockerAutoDetectResult>("docker_probe_ssh_docker", {
+        sshConnectionId,
+      });
+      setDetectResult(result);
+    } catch (e) {
+      setDetectResult({ available: false, containers: 0, images: 0, error: String(e) });
+    } finally {
+      setDetecting(false);
+    }
+  }, []);
+
+  /** Quick-fill from a connected SSH host */
+  const handleUseSshHost = useCallback((host: SshHostInfo) => {
+    setForm((prev) => ({
+      ...prev,
+      sshHost: host.host,
+      sshPort: String(host.port),
+      sshUser: host.user,
+      boundSshConnectionId: host.connectionId,
+    }));
+    setDetectResult(null);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -212,7 +274,10 @@ export function DockerConnectionDialog({
     }
     setError(null);
     setSaving(false);
-  }, [open, editConnection]);
+    setDetectResult(null);
+    setDetecting(false);
+    loadSshHosts();
+  }, [open, editConnection, loadSshHosts]);
 
   if (!open) return null;
 
@@ -560,6 +625,67 @@ export function DockerConnectionDialog({
                     ))}
                   </select>
                   <p className="form-hint">绑定后可在工作区中复用此 SSH 会话并贯通上下文。</p>
+                </div>
+              )}
+
+              {/* Quick-fill from connected SSH hosts */}
+              {connectedHosts.length > 0 && (
+                <div className="form-field">
+                  <label className="form-label">快速选择已连接的 SSH 主机</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {connectedHosts.map((h) => (
+                      <button
+                        key={h.connectionId}
+                        type="button"
+                        className="engine-chip"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => handleUseSshHost(h)}
+                      >
+                        {h.name} ({h.user}@{h.host}:{h.port})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Auto-detect Docker on bound SSH connection */}
+              {form.boundSshConnectionId && (
+                <div className="form-field">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ alignSelf: "flex-start" }}
+                    disabled={detecting}
+                    onClick={() => handleDetectDocker(form.boundSshConnectionId)}
+                  >
+                    {detecting ? "探测中…" : "🔍 自动探测 Docker"}
+                  </button>
+                  {detectResult && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        background: detectResult.available
+                          ? "rgba(34,197,94,0.1)"
+                          : "rgba(239,68,68,0.1)",
+                        border: `1px solid ${detectResult.available ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                        color: detectResult.available ? "#22c55e" : "#ef4444",
+                      }}
+                    >
+                      {detectResult.available ? (
+                        <>
+                          ✅ Docker 已安装 — 版本 <strong>{detectResult.version}</strong>
+                          {detectResult.os && <> · {detectResult.os}</>}
+                          <br />
+                          容器: {detectResult.containers} · 镜像: {detectResult.images}
+                        </>
+                      ) : (
+                        <>❌ {detectResult.error || "Docker 未安装或不可用"}</>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </>

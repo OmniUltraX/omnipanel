@@ -81,6 +81,8 @@ fn export_ipc_bindings() {
         commands::docker::docker_build_image,
         commands::docker::docker_stream_stats,
         commands::docker::docker_stop_stats_stream,
+        commands::docker::docker_probe_ssh_docker,
+        commands::docker::docker_list_ssh_hosts,
         commands::exec::execute_action,
         commands::ssh::ssh_connect,
         commands::ssh::ssh_write,
@@ -294,6 +296,8 @@ pub fn run() {
             commands::docker::docker_list_container_dir,
             commands::docker::docker_read_container_file,
             commands::docker::docker_write_container_file,
+            commands::docker::docker_probe_ssh_docker,
+            commands::docker::docker_list_ssh_hosts,
             // Execution engine（动作执行引擎）
             commands::exec::execute_action,
             // SSH

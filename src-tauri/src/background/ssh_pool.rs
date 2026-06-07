@@ -509,6 +509,18 @@ impl SshPool {
         }
     }
 
+    /// 获取已有会话的引用（不创建新连接），用于 Docker 复用。
+    pub async fn get_session_ref(&self, resource_id: &str) -> Option<Arc<SshSession>> {
+        let pool = self.pool_sessions.lock().await;
+        pool.get(resource_id).cloned()
+    }
+
+    /// 获取已保存的 SSH 配置（用于 Docker 连接复用）。
+    pub async fn get_ssh_config(&self, resource_id: &str) -> Option<SshConfig> {
+        let entries = self.entries.lock().await;
+        entries.get(resource_id).map(|e| e.config.clone())
+    }
+
     /// 建立（或复用）池会话，拉取概览数据并推送到前端。
     pub async fn load_overview(
         &self,

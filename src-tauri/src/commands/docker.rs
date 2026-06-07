@@ -23,7 +23,7 @@ use omnipanel_docker::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshEvent, SshSession, SshSink};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
@@ -143,20 +143,58 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
     }
 }
 
-/// 从复用池获取 SSH 会话，不存在则建立并缓存。
+/// 从复用池获取 SSH 会话，优先复用 SSH 模块已有的连接。
+///
+/// 复用策略：
+/// 1. Docker 专用池 (`docker_ssh_sessions`) 已有缓存 → 直接返回
+/// 2. `bound_ssh_connection_id` 存在 → 尝试从 SSH 连接池获取已有会话
+/// 3. 以上都没有 → 建立新连接并缓存到 Docker 专用池
 async fn ensure_docker_ssh(
     state: &AppState,
     connection_id: &str,
     ssh: SshConfig,
 ) -> Result<Arc<Mutex<SshSession>>, OmniError> {
-    let mut pool = state.docker_ssh_sessions.lock().await;
-    if let Some(existing) = pool.get(connection_id) {
-        return Ok(existing.clone());
+    // 1. Docker 专用池命中
+    {
+        let pool = state.docker_ssh_sessions.lock().await;
+        if let Some(existing) = pool.get(connection_id) {
+            return Ok(existing.clone());
+        }
     }
-    // Docker SSH adapter 仅用 exec channel，交互输出无需回流，sink 留空。
+
+    // 2. 尝试从 SSH 连接池复用（bound_ssh_connection_id 或按 host:port 匹配）
+    //    先查存储中的 Docker 连接配置，看是否有 bound_ssh_connection_id
+    let bound_id: Option<String> = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_connection(connection_id)?
+            .and_then(|c| {
+                serde_json::from_str::<DockerConnectionConfig>(&c.config)
+                    .ok()
+                    .and_then(|cfg| cfg.bound_ssh_connection_id)
+            })
+    };
+
+    if let Some(ref ssh_id) = bound_id {
+        // 从 SSH 池获取配置，建立专用 Docker 会话（exec-only，无 shell）
+        if let Some(ssh_config) = state.ssh_pool.get_ssh_config(ssh_id).await {
+            tracing::info!(
+                "Docker 连接 {connection_id} 使用 SSH 配置 {ssh_id} 建立专用会话"
+            );
+            let sink: SshSink = Arc::new(|_: SshEvent| {});
+            let session = SshSession::connect(ssh_config, 80, 24, sink).await?;
+            let handle = Arc::new(Mutex::new(session));
+            let mut pool = state.docker_ssh_sessions.lock().await;
+            pool.insert(connection_id.to_string(), handle.clone());
+            return Ok(handle);
+        }
+    }
+
+    // 3. 建立新连接
     let sink: SshSink = Arc::new(|_: SshEvent| {});
     let session = SshSession::connect(ssh, 80, 24, sink).await?;
     let handle = Arc::new(Mutex::new(session));
+    let mut pool = state.docker_ssh_sessions.lock().await;
     pool.insert(connection_id.to_string(), handle.clone());
     Ok(handle)
 }
@@ -1041,4 +1079,102 @@ pub async fn docker_write_container_file(
         .await?
         .write_container_file(&container_id, &path, data)
         .await
+}
+// Append to docker.rs — Docker auto-detection via SSH
+
+/// Probe a remote SSH host for Docker daemon availability.
+/// Returns Docker version info if found, or an error if Docker is not installed/running.
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_probe_ssh_docker(
+    state: State<'_, AppState>,
+    ssh_connection_id: String,
+) -> Result<DockerAutoDetectResult, OmniError> {
+    // Get or create SSH session from the pool
+    let session = state
+        .ssh_pool
+        .ensure_session(&ssh_connection_id)
+        .await?;
+
+    // Probe Docker daemon
+    let version_output = session
+        .exec_command("docker version --format '{{.Server.Version}}' 2>/dev/null")
+        .await;
+
+    let info_output = session
+        .exec_command("docker info --format '{{.OperatingSystem}}|{{.ServerVersion}}|{{.Containers}}|{{.Images}}' 2>/dev/null")
+        .await;
+
+    match (version_output, info_output) {
+        (Ok(version), Ok(info)) => {
+            let parts: Vec<&str> = info.split('|').collect();
+            Ok(DockerAutoDetectResult {
+                available: true,
+                version: Some(version.trim().to_string()),
+                os: parts.first().map(|s| s.to_string()),
+                containers: parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0),
+                images: parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(0),
+                error: None,
+            })
+        }
+        (_, Err(e)) | (Err(e), _) => Ok(DockerAutoDetectResult {
+            available: false,
+            version: None,
+            os: None,
+            containers: 0,
+            images: 0,
+            error: Some(format!("Docker not available: {}", e)),
+        }),
+    }
+}
+
+/// Docker auto-detection result.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerAutoDetectResult {
+    pub available: bool,
+    pub version: Option<String>,
+    pub os: Option<String>,
+    pub containers: u32,
+    pub images: u32,
+    pub error: Option<String>,
+}
+
+/// List SSH connections available for Docker binding.
+/// Returns connections that are in "connected" state in the SSH pool.
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_list_ssh_hosts(
+    state: State<'_, AppState>,
+) -> Result<Vec<SshHostInfo>, OmniError> {
+    let connected_ids = state.ssh_pool.connected_ids().await;
+    let storage = state.storage.lock().await;
+    let mut hosts = Vec::new();
+
+    for id in connected_ids {
+        if let Ok(Some(conn)) = storage.get_connection(&id) {
+            if let Ok(config) = serde_json::from_str::<omnipanel_ssh::SshConfig>(&conn.config) {
+                hosts.push(SshHostInfo {
+                    connection_id: conn.id,
+                    name: conn.name,
+                    host: config.host,
+                    port: config.port,
+                    user: config.user,
+                });
+            }
+        }
+    }
+
+    Ok(hosts)
+}
+
+/// SSH host info for Docker connection binding.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshHostInfo {
+    pub connection_id: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
 }
