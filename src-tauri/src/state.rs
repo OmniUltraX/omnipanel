@@ -51,6 +51,10 @@ pub struct AppState {
     pub docker_exec_sessions: Arc<Mutex<HashMap<String, omnipanel_docker::DockerExecSession>>>,
     /// 活跃 SSH 隧道（按 tunnelId 索引）。
     pub ssh_tunnels: Arc<Mutex<HashMap<String, SshTunnelInfo>>>,
+    /// 正在运行的工作流执行（按 executionId 索引，AtomicBool 为 cancel flag）。
+    pub running_workflows: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 正在运行的任务后台句柄（按 taskId 索引），用于 task_stop 取消。
+    pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl AppState {
@@ -90,6 +94,8 @@ impl AppState {
             docker_stats_streams: Arc::new(Mutex::new(HashMap::new())),
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
             ssh_tunnels: Arc::new(Mutex::new(HashMap::new())),
+            running_workflows: Arc::new(Mutex::new(HashMap::new())),
+            running_tasks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

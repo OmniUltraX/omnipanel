@@ -42,7 +42,7 @@ pub enum RiskLevel {
     ReadOnly,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
     Ready,
@@ -62,7 +62,7 @@ pub enum StepType {
     Workflow,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionStatus {
     Running,
@@ -134,6 +134,30 @@ pub struct SaveStepRequest {
     pub step_type: StepType,
     pub command: String,
     pub step_order: i32,
+}
+
+// ─── Execution Step Detail ──────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct WorkflowExecutionStep {
+    pub id: String,
+    pub execution_id: String,
+    pub step_id: String,
+    pub step_order: i32,
+    pub name: String,
+    pub step_type: StepType,
+    pub command: String,
+    pub status: StepStatus,
+    pub output: String,
+    pub error: String,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct WorkflowExecutionDetail {
+    pub execution: WorkflowExecution,
+    pub steps: Vec<WorkflowExecutionStep>,
 }
 
 // ─── CRUD ────────────────────────────────────────────────────
@@ -359,6 +383,144 @@ impl Storage {
             out.push(r.map_err(map_sqlite)?);
         }
         Ok(out)
+    }
+
+    /// Insert a workflow_execution_steps record.
+    pub fn workflow_insert_execution_step(
+        &self,
+        step: &WorkflowExecutionStep,
+    ) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "INSERT INTO workflow_execution_steps (id, execution_id, step_id, step_order, name, step_type, command, status, output, error, started_at, finished_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    step.id,
+                    step.execution_id,
+                    step.step_id,
+                    step.step_order,
+                    step.name,
+                    enum_str(&step.step_type),
+                    step.command,
+                    enum_str(&step.status),
+                    step.output,
+                    step.error,
+                    step.started_at,
+                    step.finished_at,
+                ],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    /// Update a workflow_execution_steps record (status, output, error, timestamps).
+    pub fn workflow_update_execution_step(
+        &self,
+        step: &WorkflowExecutionStep,
+    ) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "UPDATE workflow_execution_steps
+                 SET status = ?1, output = ?2, error = ?3, started_at = ?4, finished_at = ?5
+                 WHERE id = ?6",
+                params![
+                    enum_str(&step.status),
+                    step.output,
+                    step.error,
+                    step.started_at,
+                    step.finished_at,
+                    step.id,
+                ],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    /// Get execution detail with step records.
+    pub fn workflow_get_execution_detail(
+        &self,
+        execution_id: &str,
+    ) -> OmniResult<WorkflowExecutionDetail> {
+        let execution = self
+            .conn()
+            .query_row(
+                "SELECT id, workflow_id, status, triggered_by, started_at, finished_at, duration_ms, output
+                 FROM workflow_executions WHERE id = ?1",
+                [execution_id],
+                |row| {
+                    Ok(WorkflowExecution {
+                        id: row.get(0)?,
+                        workflow_id: row.get(1)?,
+                        status: parse_enum(&row.get::<_, String>(2)?)
+                            .unwrap_or(ExecutionStatus::Failed),
+                        triggered_by: row.get(3)?,
+                        started_at: row.get(4)?,
+                        finished_at: row.get(5)?,
+                        duration_ms: row.get(6)?,
+                        output: row.get(7)?,
+                    })
+                },
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    OmniError::new(ErrorCode::NotFound, format!("execution '{}' not found", execution_id))
+                }
+                other => map_sqlite(other),
+            })?;
+
+        let mut stmt = self
+            .conn()
+            .prepare(
+                "SELECT id, execution_id, step_id, step_order, name, step_type, command, status, output, error, started_at, finished_at
+                 FROM workflow_execution_steps WHERE execution_id = ?1 ORDER BY step_order",
+            )
+            .map_err(map_sqlite)?;
+        let steps: Vec<WorkflowExecutionStep> = stmt
+            .query_map([execution_id], |row| {
+                Ok(WorkflowExecutionStep {
+                    id: row.get(0)?,
+                    execution_id: row.get(1)?,
+                    step_id: row.get(2)?,
+                    step_order: row.get(3)?,
+                    name: row.get(4)?,
+                    step_type: parse_enum(&row.get::<_, String>(5)?)
+                        .unwrap_or(StepType::Shell),
+                    command: row.get(6)?,
+                    status: parse_enum(&row.get::<_, String>(7)?)
+                        .unwrap_or(StepStatus::Pending),
+                    output: row.get(8)?,
+                    error: row.get(9)?,
+                    started_at: row.get(10)?,
+                    finished_at: row.get(11)?,
+                })
+            })
+            .map_err(map_sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_sqlite)?;
+
+        Ok(WorkflowExecutionDetail { execution, steps })
+    }
+
+    /// Update a workflow execution record (status, finished_at, duration_ms, output).
+    pub fn workflow_update_execution(
+        &self,
+        exec: &WorkflowExecution,
+    ) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "UPDATE workflow_executions
+                 SET status = ?1, finished_at = ?2, duration_ms = ?3, output = ?4
+                 WHERE id = ?5",
+                params![
+                    enum_str(&exec.status),
+                    exec.finished_at,
+                    exec.duration_ms,
+                    exec.output,
+                    exec.id,
+                ],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
     }
 }
 

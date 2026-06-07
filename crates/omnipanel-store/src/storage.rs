@@ -102,6 +102,22 @@ const MIGRATIONS: &[&str] = &[
     "#,
     // v4 — tasks
     r#"
+    CREATE TABLE IF NOT EXISTS workflow_execution_steps (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
+        step_id TEXT NOT NULL,
+        step_order INTEGER NOT NULL DEFAULT 0,
+        name TEXT NOT NULL,
+        step_type TEXT NOT NULL DEFAULT 'shell',
+        command TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        started_at INTEGER,
+        finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_exec_steps_exec ON workflow_execution_steps(execution_id);
+
     CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         task_type TEXT NOT NULL DEFAULT 'terminal',

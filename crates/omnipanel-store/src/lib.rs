@@ -29,5 +29,6 @@ pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType
 pub use vault::Vault;
 pub use workflow::{
     ExecutionStatus, RiskLevel, SaveStepRequest, SaveWorkflowRequest, StepStatus, StepType,
-    Workflow, WorkflowDetail, WorkflowExecution, WorkflowStep, WorkflowType,
+    Workflow, WorkflowDetail, WorkflowExecution, WorkflowExecutionDetail, WorkflowExecutionStep,
+    WorkflowStep, WorkflowType,
 };
