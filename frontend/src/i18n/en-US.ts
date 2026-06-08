@@ -603,6 +603,13 @@ export const enUS: TranslationDict = {
       create: "Create Tunnel",
       delete: "Delete",
       empty: "No tunnels",
+      type: "Type",
+      localPort: "Local Port",
+      remoteHost: "Remote Host",
+      remotePort: "Remote Port",
+      status: "Status",
+      active: "Active",
+      closed: "Closed",
     },
     capabilities: {
       title: "Connection Capabilities",
