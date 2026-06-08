@@ -23,6 +23,7 @@ export function PaneServerSelector({
     <Select
       className="term-pane-server-select"
       size="sm"
+      borderless
       value={value}
       options={options}
       onChange={onChange}

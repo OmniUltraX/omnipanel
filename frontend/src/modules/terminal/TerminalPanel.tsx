@@ -200,16 +200,24 @@ export function TerminalPanel() {
   const paneServerOptions = useMemo(
     () => [
       {
-        id: LOCAL_TERMINAL_RESOURCE_ID,
+        value: LOCAL_TERMINAL_RESOURCE_ID,
         label: t("terminal.newSession.local"),
       },
       ...sshHosts.map((host) => ({
-        id: host.id,
+        value: host.id,
         label: host.name,
       })),
     ],
     [sshHosts, t],
   );
+
+  const occupiedResourceIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const pane of workspacePanes) {
+      if (pane.resourceId) set.add(pane.resourceId);
+    }
+    return set;
+  }, [workspacePanes]);
 
   const handlePaneResourceChange = useCallback(
     (paneId: string, resourceId: string) => {
@@ -370,6 +378,7 @@ export function TerminalPanel() {
         resolveResourceById(pane.resourceId) ?? workspaceActiveResource
       }
       serverOptions={paneServerOptions}
+      occupiedResourceIds={occupiedResourceIds}
       onPaneResourceChange={handlePaneResourceChange}
       paneStartup={(pane) =>
         getBlueprint(

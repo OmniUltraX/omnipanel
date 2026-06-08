@@ -10,8 +10,8 @@ export const OPENSSH_HOST_ID_PREFIX = "openssh:";
 let cachedHosts: WorkspaceResource[] = [];
 let cachedEntries = new Map<string, SshConfigEntry>();
 
-export function isOpenSshHostId(id: string): boolean {
-  return id.startsWith(OPENSSH_HOST_ID_PREFIX);
+export function isOpenSshHostId(id: string | undefined | null): boolean {
+  return !!id && id.startsWith(OPENSSH_HOST_ID_PREFIX);
 }
 
 export function openSshHostAlias(id: string): string | null {

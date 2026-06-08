@@ -88,7 +88,7 @@ function isRemotePane(sessionId: string): boolean {
 /** 远程 pane 走 SSH（ssh_connect），本地 pane 走本地 PTY（create_terminal）。 */
 async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const pane = findPaneById(sessionId);
-  if (pane?.type === "remote") {
+  if (pane?.type === "remote" && pane.resourceId) {
     if (isOpenSshHostId(pane.resourceId)) {
       const alias = openSshHostAlias(pane.resourceId);
       if (!alias) {

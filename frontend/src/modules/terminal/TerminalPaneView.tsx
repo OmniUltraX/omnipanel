@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import type { TerminalPane } from "../../stores/terminalStore";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
@@ -31,6 +31,7 @@ export type TerminalPaneViewProps = {
   onClose: () => void;
   canClose: boolean;
   serverOptions?: PaneServerOption[];
+  occupiedResourceIds?: Set<string>;
   onServerChange?: (resourceId: string) => void;
 };
 
@@ -49,6 +50,7 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
     onClose,
     canClose,
     serverOptions,
+    occupiedResourceIds,
     onServerChange,
   }, ref) {
     const cmdRef = useRef<CommandInputHandle>(null);
@@ -66,8 +68,15 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
     }, [isActive]);
 
     const headerTitle = formatPaneHeaderTitle(resource, pane);
-    const env = resource?.environment ?? "local";
-    const showEnvBadge = env !== "local" && env !== "dev";
+
+    const effectiveOptions = useMemo(() => {
+      if (!serverOptions || !occupiedResourceIds || occupiedResourceIds.size === 0) {
+        return serverOptions;
+      }
+      return serverOptions.filter(
+        (opt) => !occupiedResourceIds.has(opt.value) || opt.value === pane.resourceId,
+      );
+    }, [serverOptions, occupiedResourceIds, pane.resourceId]);
 
     return (
       <div
@@ -76,25 +85,15 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
         onMouseDown={onActivate}
       >
         <div className="term-pane-header">
-          {showEnvBadge && (
-            <span className={`env-badge env-${env}`}>{env}</span>
-          )}
-          {serverOptions && serverOptions.length > 0 && onServerChange ? (
+          {effectiveOptions && effectiveOptions.length > 0 && onServerChange ? (
             <PaneServerSelector
               value={pane.resourceId}
-              options={serverOptions}
+              options={effectiveOptions}
               onChange={onServerChange}
               disabled={pane.status === "connecting"}
             />
           ) : (
             <span className="term-pane-title">{headerTitle}</span>
-          )}
-          {pane.status !== "connected" && (
-            <span
-              className={`term-pane-status ${pane.status === "connecting" ? "warn" : "muted"}`}
-            >
-              {pane.status === "connecting" ? "连接中" : "已断开"}
-            </span>
           )}
           <div className="term-pane-actions">
             <Button

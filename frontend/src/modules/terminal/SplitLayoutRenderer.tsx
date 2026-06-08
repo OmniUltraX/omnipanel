@@ -17,6 +17,7 @@ export type SplitLayoutRendererProps = {
   activePaneId: string | null;
   resourceMap: Map<string, WorkspaceResource | null>;
   serverOptions?: PaneServerOption[];
+  occupiedResourceIds?: Set<string>;
   onPaneResourceChange?: (paneId: string, resourceId: string) => void;
   paneStartup?: (pane: TerminalPane) => string[];
   onActivatePane: (paneId: string) => void;
@@ -37,6 +38,7 @@ export function SplitLayoutRenderer({
   activePaneId,
   resourceMap,
   serverOptions,
+  occupiedResourceIds,
   onPaneResourceChange,
   paneStartup,
   onActivatePane,
@@ -67,6 +69,7 @@ export function SplitLayoutRenderer({
         onClose={() => onClosePane(node.paneId)}
         canClose={totalPanes > 1}
         serverOptions={serverOptions}
+        occupiedResourceIds={occupiedResourceIds}
         onServerChange={
           onPaneResourceChange
             ? (resourceId) => onPaneResourceChange(node.paneId, resourceId)
@@ -107,6 +110,7 @@ export function SplitLayoutRenderer({
           activePaneId={activePaneId}
           resourceMap={resourceMap}
           serverOptions={serverOptions}
+          occupiedResourceIds={occupiedResourceIds}
           onPaneResourceChange={onPaneResourceChange}
           paneStartup={paneStartup}
           onActivatePane={onActivatePane}

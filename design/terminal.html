@@ -1,514 +1,972 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OmniPanel — Terminal Workspace</title>
-<link rel="stylesheet" href="css/omnipanel.css">
-<style>
-  /* Terminal-specific layout */
-  .term-workspace {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .term-panes {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .term-pane-row {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-  }
-  .term-pane {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    border-right: 1px solid var(--border);
-  }
-  .term-pane:last-child { border-right: none; }
-  .term-pane-header {
-    display: flex;
-    align-items: center;
-    padding: var(--sp-1) var(--sp-3);
-    background: var(--bg-deeper);
-    border-bottom: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--meta);
-    gap: var(--sp-2);
-    height: 28px;
-    flex-shrink: 0;
-  }
-  .term-pane-header .host { color: var(--fg-2); font-weight: 500; }
-  .term-pane-header .env-badge {
-    padding: 0 5px;
-    border-radius: 2px;
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .env-prod { background: var(--danger-soft); color: var(--danger); }
-  .env-staging { background: var(--warn-soft); color: var(--warn); }
-  .env-dev { background: var(--success-soft); color: var(--success); }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OmniPanel — Terminal Workspace</title>
+    <link rel="stylesheet" href="css/omnipanel.css" />
+    <style>
+      /* Terminal-specific layout */
+      .term-workspace {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .term-panes {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .term-pane-row {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .term-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        border-right: 1px solid var(--border);
+      }
+      .term-pane:last-child {
+        border-right: none;
+      }
+      .term-pane-header {
+        display: flex;
+        align-items: center;
+        padding: var(--sp-3) var(--sp-3);
+        background: var(--bg-deeper);
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--meta);
+        gap: var(--sp-2);
+        height: 28px;
+        flex-shrink: 0;
+      }
+      .term-pane-header .host {
+        color: var(--fg-2);
+        font-weight: 500;
+      }
+      .term-pane-header .env-badge {
+        padding: 0 5px;
+        border-radius: 2px;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .env-prod {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+      .env-staging {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+      .env-dev {
+        background: var(--success-soft);
+        color: var(--success);
+      }
 
-  .term-split-handle {
-    height: 3px;
-    background: var(--border);
-    cursor: row-resize;
-    flex-shrink: 0;
-    transition: background 0.12s;
-  }
-  .term-split-handle:hover { background: var(--accent); }
+      .term-split-handle {
+        height: 3px;
+        background: var(--border);
+        cursor: row-resize;
+        flex-shrink: 0;
+        transition: background 0.12s;
+      }
+      .term-split-handle:hover {
+        background: var(--accent);
+      }
 
-  /* Host info in terminal */
-  .term-host-info {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3);
-    background: color-mix(in oklch, var(--accent) 8%, transparent);
-    border-bottom: 1px solid var(--border-soft);
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .term-host-info .hostname { color: var(--accent); font-weight: 500; }
+      /* Host info in terminal */
+      .term-host-info {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        background: color-mix(in oklch, var(--accent) 8%, transparent);
+        border-bottom: 1px solid var(--border-soft);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .term-host-info .hostname {
+        color: var(--accent);
+        font-weight: 500;
+      }
 
-  /* AI context chips */
-  .ai-context-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
-    padding: var(--sp-2) var(--sp-4);
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .context-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-size: 10px;
-    color: var(--muted);
-    cursor: pointer;
-    transition: border-color 0.12s;
-  }
-  .context-chip:hover { border-color: var(--accent); color: var(--fg-2); }
-  .context-chip svg { width: 10px; height: 10px; }
+      /* AI context chips */
+      .ai-context-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-1);
+        padding: var(--sp-2) var(--sp-4);
+        border-bottom: 1px solid var(--border-soft);
+      }
+      .context-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 10px;
+        color: var(--muted);
+        cursor: pointer;
+        transition: border-color 0.12s;
+      }
+      .context-chip:hover {
+        border-color: var(--accent);
+        color: var(--fg-2);
+      }
+      .context-chip svg {
+        width: 10px;
+        height: 10px;
+      }
 
-  /* Quick actions bar */
-  .quick-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-1);
-    padding: var(--sp-2) var(--sp-3);
-    border-top: 1px solid var(--border);
-    background: var(--bg-deeper);
-  }
-  .quick-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: var(--r-sm);
-    font-size: 10px;
-    color: var(--meta);
-    transition: background 0.12s, color 0.12s;
-    cursor: pointer;
-  }
-  .quick-action:hover { background: var(--surface); color: var(--fg); }
-  .quick-action svg { width: 12px; height: 12px; }
-</style>
-</head>
-<body>
-<div class="app with-right-panel" id="app">
-  <!-- ─── Sidebar ──────────────────────────────────────────────── -->
-  <aside class="sidebar">
-    <a class="sidebar-logo" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></a>
-    <a class="sidebar-item active" href="terminal.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></a>
-    <a class="sidebar-item" href="ssh.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></a>
-    <a class="sidebar-item" href="database.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg></a>
-    <a class="sidebar-item" href="docker.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/><rect x="18" y="7" width="4" height="5" rx="1"/><rect x="6" y="2" width="6" height="5" rx="1"/><path d="M2 17h20c0 2.76-4.48 5-10 5S2 19.76 2 17z"/></svg></a>
-    <a class="sidebar-item" href="server.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/></svg></a>
-    <div class="sidebar-divider"></div>
-    <a class="sidebar-item" href="protocol.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></a>
-    <a class="sidebar-item" href="workflow.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg></a>
-    <a class="sidebar-item" href="knowledge.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></a>
-    <a class="sidebar-item" href="tasks.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></a>
-    <div class="sidebar-spacer"></div>
-    <a class="sidebar-item" href="settings.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></a>
-  </aside>
+      /* Quick actions bar */
+      .quick-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        padding: var(--sp-2) var(--sp-3);
+        border-top: 1px solid var(--border);
+        background: var(--bg-deeper);
+      }
+      .quick-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: var(--r-sm);
+        font-size: 10px;
+        color: var(--meta);
+        transition:
+          background 0.12s,
+          color 0.12s;
+        cursor: pointer;
+      }
+      .quick-action:hover {
+        background: var(--surface);
+        color: var(--fg);
+      }
+      .quick-action svg {
+        width: 12px;
+        height: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app with-right-panel" id="app">
+      <!-- ─── Sidebar ──────────────────────────────────────────────── -->
+      <aside class="sidebar">
+        <a class="sidebar-logo" href="index.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            width="18"
+            height="18"
+          >
+            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" /></svg
+        ></a>
+        <a class="sidebar-item active" href="terminal.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path d="M4 17l6-6-6-6" />
+            <path d="M12 19h8" /></svg
+        ></a>
+        <a class="sidebar-item" href="ssh.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" /></svg
+        ></a>
+        <a class="sidebar-item" href="database.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" />
+            <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" /></svg
+        ></a>
+        <a class="sidebar-item" href="docker.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <rect x="2" y="7" width="6" height="5" rx="1" />
+            <rect x="10" y="7" width="6" height="5" rx="1" />
+            <rect x="18" y="7" width="4" height="5" rx="1" />
+            <rect x="6" y="2" width="6" height="5" rx="1" />
+            <path d="M2 17h20c0 2.76-4.48 5-10 5S2 19.76 2 17z" /></svg
+        ></a>
+        <a class="sidebar-item" href="server.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <rect x="2" y="2" width="20" height="8" rx="2" />
+            <rect x="2" y="14" width="20" height="8" rx="2" />
+            <circle cx="6" cy="6" r="1" fill="currentColor" />
+            <circle cx="6" cy="18" r="1" fill="currentColor" /></svg
+        ></a>
+        <div class="sidebar-divider"></div>
+        <a class="sidebar-item" href="protocol.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg
+        ></a>
+        <a class="sidebar-item" href="workflow.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path d="M12 3v18M3 12h18" />
+            <circle cx="12" cy="12" r="3" /></svg
+        ></a>
+        <a class="sidebar-item" href="knowledge.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+            <path
+              d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"
+            /></svg
+        ></a>
+        <a class="sidebar-item" href="tasks.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <path d="M9 11l3 3L22 4" />
+            <path
+              d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"
+            /></svg
+        ></a>
+        <div class="sidebar-spacer"></div>
+        <a class="sidebar-item" href="settings.html"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+            /></svg
+        ></a>
+      </aside>
 
-  <!-- ─── Main ─────────────────────────────────────────────────── -->
-  <div class="main-content">
-    <!-- Top Bar -->
-    <div class="topbar">
-      <span class="topbar-title">Terminal</span>
-      <div class="topbar-tabs">
-        <div class="topbar-tab active">
-          <span>prod-web-01</span>
-          <span class="close">&times;</span>
-        </div>
-        <div class="topbar-tab">
-          <span>staging-api</span>
-          <span class="close">&times;</span>
-        </div>
-        <div class="topbar-tab">
-          <span>dev-local</span>
-          <span class="close">&times;</span>
-        </div>
-        <button class="btn-icon" title="New Tab" style="margin-left: 4px;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-      </div>
-      <div class="topbar-right">
-        <div class="topbar-page-actions">
-          <button class="btn-icon" title="Split Horizontal">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg>
-          </button>
-          <button class="btn-icon" title="Split Vertical">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>
-          </button>
-          <button class="btn-icon" title="Toggle AI Panel" onclick="toggleAiPanel()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M18 14h.01M6 14h.01"/><path d="M12 17v4M8 21h8"/></svg>
-          </button>
-        </div>
-        <div class="topbar-actions">
-          <button class="topbar-btn" title="Notifications">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-            <span class="notif-badge">3</span>
-          </button>
-          <button class="topbar-btn" title="Search (Ctrl+K)" onclick="toggleCmdPalette()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          </button>
-          <div class="win-controls">
-            <button class="win-btn close" title="Close"></button>
-            <button class="win-btn minimize" title="Minimize"></button>
-            <button class="win-btn maximize" title="Maximize"></button>
+      <!-- ─── Main ─────────────────────────────────────────────────── -->
+      <div class="main-content">
+        <!-- Top Bar -->
+        <div class="topbar">
+          <span class="topbar-title">Terminal</span>
+          <div class="topbar-tabs">
+            <div class="topbar-tab active">
+              <span>prod-web-01</span>
+              <span class="close">&times;</span>
+            </div>
+            <div class="topbar-tab">
+              <span>staging-api</span>
+              <span class="close">&times;</span>
+            </div>
+            <div class="topbar-tab">
+              <span>dev-local</span>
+              <span class="close">&times;</span>
+            </div>
+            <button class="btn-icon" title="New Tab" style="margin-left: 4px">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Terminal Workspace -->
-    <div class="term-workspace">
-      <div class="term-panes">
-        <!-- Pane 1: prod-web-01 -->
-        <div class="term-pane" style="flex: 2;">
-          <div class="term-pane-header">
-            <span class="env-badge env-prod">PROD</span>
-            <span class="host">root@prod-web-01</span>
-            <span class="text-muted">:</span>
-            <span class="text-accent">~</span>
-            <span style="margin-left: auto;" class="text-muted">bash</span>
-          </div>
-          <div class="terminal-area" id="term1">
-            <div class="terminal-line"><span class="terminal-muted">Last login: Mon May 26 09:14:23 2026 from 192.168.1.100</span></div>
-            <div class="terminal-line"><span class="terminal-prompt">root@prod-web-01:~$</span> <span class="terminal-cmd">docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"</span></div>
-            <div class="terminal-line terminal-output">
-NAMES            STATUS       PORTS
-nginx-proxy      Up 3 days    0.0.0.0:443->443/tcp
-app-backend      Up 3 days    0.0.0.0:8080->8080/tcp
-redis-cache      Up 3 days    6379/tcp
-postgres-main    Up 3 days    5432/tcp</div>
-            <div class="terminal-line" style="margin-top: 8px;"><span class="terminal-prompt">root@prod-web-01:~$</span> <span class="terminal-cmd">curl -s localhost:8080/health | jq .</span></div>
-            <div class="terminal-line terminal-output">{
-  "status": "healthy",
-  "uptime": "72h14m",
-  "connections": 847,
-  "memory_mb": 1024,
-  "cpu_percent": 23.4
-}</div>
-            <div class="terminal-line" style="margin-top: 8px;"><span class="terminal-prompt">root@prod-web-01:~$</span> <span class="terminal-cmd">docker logs nginx-proxy --tail 5</span></div>
-            <div class="terminal-line terminal-output">2026-05-26 09:12:01 [warn] upstream connection timeout
-2026-05-26 09:12:01 [warn] upstream connection timeout
-2026-05-26 09:13:45 [info] 200 GET /api/users 12ms
-2026-05-26 09:13:46 [info] 200 GET /api/users 8ms
-2026-05-26 09:14:02 <span class="terminal-warn">[warn] rate limit triggered for 45.33.32.x</span></div>
-            <div class="terminal-line" style="margin-top: 8px;">
-              <span class="terminal-prompt">root@prod-web-01:~$</span>
-              <span class="terminal-cmd" style="border-right: 2px solid var(--accent); animation: blink 1s step-end infinite;">&#8203;</span>
+          <div class="topbar-right">
+            <div class="topbar-page-actions">
+              <button class="btn-icon" title="Split Horizontal">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M3 12h18" />
+                </svg>
+              </button>
+              <button class="btn-icon" title="Split Vertical">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M12 3v18" />
+                </svg>
+              </button>
+              <button
+                class="btn-icon"
+                title="Toggle AI Panel"
+                onclick="toggleAiPanel()"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
+                  <path d="M18 14h.01M6 14h.01" />
+                  <path d="M12 17v4M8 21h8" />
+                </svg>
+              </button>
+            </div>
+            <div class="topbar-actions">
+              <button class="topbar-btn" title="Notifications">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 01-3.46 0" />
+                </svg>
+                <span class="notif-badge">3</span>
+              </button>
+              <button
+                class="topbar-btn"
+                title="Search (Ctrl+K)"
+                onclick="toggleCmdPalette()"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </button>
+              <div class="win-controls">
+                <button class="win-btn close" title="Close"></button>
+                <button class="win-btn minimize" title="Minimize"></button>
+                <button class="win-btn maximize" title="Maximize"></button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="term-split-handle"></div>
+        <!-- Terminal Workspace -->
+        <div class="term-workspace">
+          <div class="term-panes">
+            <!-- Pane 1: prod-web-01 -->
+            <div class="term-pane" style="flex: 2">
+              <div class="term-pane-header">
+                <span class="env-badge env-prod">PROD</span>
+                <span class="host">root@prod-web-01</span>
+                <span class="text-muted">:</span>
+                <span class="text-accent">~</span>
+                <span style="margin-left: auto" class="text-muted">bash</span>
+              </div>
+              <div class="terminal-area" id="term1">
+                <div class="terminal-line">
+                  <span class="terminal-muted"
+                    >Last login: Mon May 26 09:14:23 2026 from
+                    192.168.1.100</span
+                  >
+                </div>
+                <div class="terminal-line">
+                  <span class="terminal-prompt">root@prod-web-01:~$</span>
+                  <span class="terminal-cmd"
+                    >docker ps --format "table
+                    {{.Names}}\t{{.Status}}\t{{.Ports}}"</span
+                  >
+                </div>
+                <div class="terminal-line terminal-output">
+                  NAMES STATUS PORTS nginx-proxy Up 3 days 0.0.0.0:443->443/tcp
+                  app-backend Up 3 days 0.0.0.0:8080->8080/tcp redis-cache Up 3
+                  days 6379/tcp postgres-main Up 3 days 5432/tcp
+                </div>
+                <div class="terminal-line" style="margin-top: 8px">
+                  <span class="terminal-prompt">root@prod-web-01:~$</span>
+                  <span class="terminal-cmd"
+                    >curl -s localhost:8080/health | jq .</span
+                  >
+                </div>
+                <div class="terminal-line terminal-output">
+                  { "status": "healthy", "uptime": "72h14m", "connections": 847,
+                  "memory_mb": 1024, "cpu_percent": 23.4 }
+                </div>
+                <div class="terminal-line" style="margin-top: 8px">
+                  <span class="terminal-prompt">root@prod-web-01:~$</span>
+                  <span class="terminal-cmd"
+                    >docker logs nginx-proxy --tail 5</span
+                  >
+                </div>
+                <div class="terminal-line terminal-output">
+                  2026-05-26 09:12:01 [warn] upstream connection timeout
+                  2026-05-26 09:12:01 [warn] upstream connection timeout
+                  2026-05-26 09:13:45 [info] 200 GET /api/users 12ms 2026-05-26
+                  09:13:46 [info] 200 GET /api/users 8ms 2026-05-26 09:14:02
+                  <span class="terminal-warn"
+                    >[warn] rate limit triggered for 45.33.32.x</span
+                  >
+                </div>
+                <div class="terminal-line" style="margin-top: 8px">
+                  <span class="terminal-prompt">root@prod-web-01:~$</span>
+                  <span
+                    class="terminal-cmd"
+                    style="
+                      border-right: 2px solid var(--accent);
+                      animation: blink 1s step-end infinite;
+                    "
+                    >&#8203;</span
+                  >
+                </div>
+              </div>
+            </div>
 
-        <!-- Pane 2: local monitoring -->
-        <div class="term-pane" style="flex: 1;">
-          <div class="term-pane-header">
-            <span class="env-badge env-dev">LOCAL</span>
-            <span class="host">localhost</span>
-            <span class="text-muted">:</span>
-            <span class="text-accent">~/projects/app</span>
-            <span style="margin-left: auto;" class="text-muted">zsh</span>
-          </div>
-          <div class="terminal-area" id="term2">
-            <div class="terminal-line"><span class="terminal-prompt">chaoj@macbook ~/p/app (main)</span></div>
-            <div class="terminal-line"><span class="terminal-cmd">$ npm run build</span></div>
-            <div class="terminal-line terminal-output">
-> app@2.1.0 build
-> vite build
+            <div class="term-split-handle"></div>
 
-vite v5.4.2 building for production...
-transforming (1423) <span class="terminal-accent">████████████████████</span> 100%
-✓ 1423 modules transformed.
-rendering chunks...
-computing gzip size...
-dist/index.html                  0.46 kB │ gzip:  0.30 kB
-dist/assets/index-Di2K8lg4.css  48.12 kB │ gzip:  8.94 kB
-dist/assets/index-C4q32VkT.js  312.47 kB │ gzip: 94.23 kB
-✓ built in 3.82s</div>
-            <div class="terminal-line" style="margin-top: 4px;"><span class="terminal-success">Build complete.</span></div>
-            <div class="terminal-line"><span class="terminal-prompt">chaoj@macbook ~/p/app (main)</span> <span class="terminal-cmd">$ _</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- AI Panel -->
-      <div class="ai-panel" id="aiPanel">
-        <div class="ai-panel-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" width="16" height="16"><path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M18 14h.01M6 14h.01"/><path d="M12 17v4M8 21h8"/><path d="M20 10c0 6-3.5 9-8 9s-8-3-8-9"/></svg>
-          <h3>AI Assistant</h3>
-          <span class="badge badge-accent" style="margin-left: auto;">Context Aware</span>
-        </div>
-
-        <div class="ai-context-chips">
-          <span class="context-chip">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-            prod-web-01
-          </span>
-          <span class="context-chip">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-            bash
-          </span>
-          <span class="context-chip">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-            4 containers
-          </span>
-          <span class="context-chip">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
-            nginx logs
-          </span>
-        </div>
-
-        <div class="ai-messages" id="aiMessages">
-          <div class="ai-msg">
-            <div class="ai-msg-avatar ai">AI</div>
-            <div class="ai-msg-body">
-              <p>I can see your current context: connected to <code>prod-web-01</code> via SSH, 4 containers running. I noticed some <span class="text-warn">upstream timeout warnings</span> in the nginx logs.</p>
-              <p>What would you like to investigate?</p>
+            <!-- Pane 2: local monitoring -->
+            <div class="term-pane" style="flex: 1">
+              <div class="term-pane-header">
+                <span class="env-badge env-dev">LOCAL</span>
+                <span class="host">localhost</span>
+                <span class="text-muted">:</span>
+                <span class="text-accent">~/projects/app</span>
+                <span style="margin-left: auto" class="text-muted">zsh</span>
+              </div>
+              <div class="terminal-area" id="term2">
+                <div class="terminal-line">
+                  <span class="terminal-prompt"
+                    >chaoj@macbook ~/p/app (main)</span
+                  >
+                </div>
+                <div class="terminal-line">
+                  <span class="terminal-cmd">$ npm run build</span>
+                </div>
+                <div class="terminal-line terminal-output">
+                  > app@2.1.0 build > vite build vite v5.4.2 building for
+                  production... transforming (1423)
+                  <span class="terminal-accent">████████████████████</span> 100%
+                  ✓ 1423 modules transformed. rendering chunks... computing gzip
+                  size... dist/index.html 0.46 kB │ gzip: 0.30 kB
+                  dist/assets/index-Di2K8lg4.css 48.12 kB │ gzip: 8.94 kB
+                  dist/assets/index-C4q32VkT.js 312.47 kB │ gzip: 94.23 kB ✓
+                  built in 3.82s
+                </div>
+                <div class="terminal-line" style="margin-top: 4px">
+                  <span class="terminal-success">Build complete.</span>
+                </div>
+                <div class="terminal-line">
+                  <span class="terminal-prompt"
+                    >chaoj@macbook ~/p/app (main)</span
+                  >
+                  <span class="terminal-cmd">$ _</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="ai-msg">
-            <div class="ai-msg-avatar user">U</div>
-            <div class="ai-msg-body">
-              <p>nginx-proxy 的 CPU 使用率突然升高了，帮我分析一下原因</p>
+
+          <!-- AI Panel -->
+          <div class="ai-panel" id="aiPanel">
+            <div class="ai-panel-header">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--accent)"
+                stroke-width="1.8"
+                width="16"
+                height="16"
+              >
+                <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
+                <path d="M18 14h.01M6 14h.01" />
+                <path d="M12 17v4M8 21h8" />
+                <path d="M20 10c0 6-3.5 9-8 9s-8-3-8-9" />
+              </svg>
+              <h3>AI Assistant</h3>
+              <span class="badge badge-accent" style="margin-left: auto"
+                >Context Aware</span
+              >
             </div>
-          </div>
-          <div class="ai-msg">
-            <div class="ai-msg-avatar ai">AI</div>
-            <div class="ai-msg-body">
-              <p>Analyzing container logs and system metrics...</p>
-              <p><strong>Findings:</strong></p>
-              <p>1. Past 5 minutes: <span class="text-warn">2,847 requests</span> from <code>45.33.32.0/24</code> subnet, triggering rate-limiting.</p>
-              <p>2. Upstream timeouts correlate with the traffic spike — backend can't keep up.</p>
-              <p>3. CPU spike is from TLS handshake overhead on the flood.</p>
-              <pre><span class="terminal-muted"># Recommended mitigation:</span>
+
+            <div class="ai-context-chips">
+              <span class="context-chip">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+                prod-web-01
+              </span>
+              <span class="context-chip">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M4 17l6-6-6-6" />
+                  <path d="M12 19h8" />
+                </svg>
+                bash
+              </span>
+              <span class="context-chip">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="2" y="7" width="6" height="5" rx="1" />
+                  <rect x="10" y="7" width="6" height="5" rx="1" />
+                </svg>
+                4 containers
+              </span>
+              <span class="context-chip">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"
+                  />
+                  <path d="M14 2v6h6" />
+                </svg>
+                nginx logs
+              </span>
+            </div>
+
+            <div class="ai-messages" id="aiMessages">
+              <div class="ai-msg">
+                <div class="ai-msg-avatar ai">AI</div>
+                <div class="ai-msg-body">
+                  <p>
+                    I can see your current context: connected to
+                    <code>prod-web-01</code> via SSH, 4 containers running. I
+                    noticed some
+                    <span class="text-warn">upstream timeout warnings</span> in
+                    the nginx logs.
+                  </p>
+                  <p>What would you like to investigate?</p>
+                </div>
+              </div>
+              <div class="ai-msg">
+                <div class="ai-msg-avatar user">U</div>
+                <div class="ai-msg-body">
+                  <p>nginx-proxy 的 CPU 使用率突然升高了，帮我分析一下原因</p>
+                </div>
+              </div>
+              <div class="ai-msg">
+                <div class="ai-msg-avatar ai">AI</div>
+                <div class="ai-msg-body">
+                  <p>Analyzing container logs and system metrics...</p>
+                  <p><strong>Findings:</strong></p>
+                  <p>
+                    1. Past 5 minutes:
+                    <span class="text-warn">2,847 requests</span> from
+                    <code>45.33.32.0/24</code> subnet, triggering rate-limiting.
+                  </p>
+                  <p>
+                    2. Upstream timeouts correlate with the traffic spike —
+                    backend can't keep up.
+                  </p>
+                  <p>
+                    3. CPU spike is from TLS handshake overhead on the flood.
+                  </p>
+                  <pre><span class="terminal-muted"># Recommended mitigation:</span>
 <span class="terminal-cmd">deny 45.33.32.0/24;</span> <span class="terminal-muted"># block in nginx.conf</span>
 <span class="terminal-cmd">docker restart nginx-proxy</span></pre>
-              <p>Want me to <span class="text-accent">generate the nginx config patch</span>?</p>
+                  <p>
+                    Want me to
+                    <span class="text-accent"
+                      >generate the nginx config patch</span
+                    >?
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="ai-input-area">
+              <div class="ai-input-wrap">
+                <textarea
+                  class="ai-input"
+                  placeholder="Ask AI about this server..."
+                  rows="1"
+                  id="aiInput"
+                ></textarea>
+                <button class="btn btn-primary btn-sm" onclick="sendAiMsg()">
+                  Send
+                </button>
+              </div>
+              <div class="quick-actions">
+                <span class="quick-action" onclick="insertAiCmd('/explain ')">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4M12 8h.01" />
+                  </svg>
+                  Explain
+                </span>
+                <span class="quick-action" onclick="insertAiCmd('/fix ')">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"
+                    />
+                  </svg>
+                  Fix
+                </span>
+                <span class="quick-action" onclick="insertAiCmd('/generate ')">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 3v18M3 12h18" />
+                  </svg>
+                  Generate
+                </span>
+                <span class="quick-action" onclick="insertAiCmd('/analyze ')">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M3 3v18h18" />
+                    <path d="m19 9-5 5-4-4-3 3" />
+                  </svg>
+                  Analyze
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="ai-input-area">
-          <div class="ai-input-wrap">
-            <textarea class="ai-input" placeholder="Ask AI about this server..." rows="1" id="aiInput"></textarea>
-            <button class="btn btn-primary btn-sm" onclick="sendAiMsg()">Send</button>
+        <!-- Status Bar -->
+        <div class="statusbar">
+          <span class="statusbar-item">
+            <span class="statusbar-dot green"></span>
+            SSH Connected
+          </span>
+          <span class="statusbar-item">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <rect x="2" y="7" width="6" height="5" rx="1" />
+              <rect x="10" y="7" width="6" height="5" rx="1" />
+            </svg>
+            4 containers
+          </span>
+          <span class="statusbar-item">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+            09:14:26
+          </span>
+          <span class="statusbar-spacer"></span>
+          <span class="statusbar-item text-muted">Ctrl+K: Command Palette</span>
+          <span class="statusbar-item">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+            GPU: wgpu
+          </span>
+          <span class="statusbar-item">UTF-8</span>
+          <span class="statusbar-item">LF</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Command Palette Overlay -->
+    <div class="cmd-palette-overlay" id="cmdPalette">
+      <div class="cmd-palette">
+        <input
+          class="cmd-palette-input"
+          placeholder="Search connections, commands, containers..."
+          id="cmdInput"
+        />
+        <div class="cmd-palette-list" id="cmdList">
+          <div class="cmd-palette-item selected">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+            </div>
+            <span class="item-label">prod-web-01</span>
+            <span class="item-hint">SSH</span>
           </div>
-          <div class="quick-actions">
-            <span class="quick-action" onclick="insertAiCmd('/explain ')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-              Explain
-            </span>
-            <span class="quick-action" onclick="insertAiCmd('/fix ')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-              Fix
-            </span>
-            <span class="quick-action" onclick="insertAiCmd('/generate ')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"/></svg>
-              Generate
-            </span>
-            <span class="quick-action" onclick="insertAiCmd('/analyze ')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-              Analyze
-            </span>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+            </div>
+            <span class="item-label">staging-api</span>
+            <span class="item-hint">SSH</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+              </svg>
+            </div>
+            <span class="item-label">postgres-main</span>
+            <span class="item-hint">Database</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="2" y="7" width="6" height="5" rx="1" />
+                <rect x="10" y="7" width="6" height="5" rx="1" />
+              </svg>
+            </div>
+            <span class="item-label">nginx-proxy</span>
+            <span class="item-hint">Container</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M4 17l6-6-6-6" />
+                <path d="M12 19h8" />
+              </svg>
+            </div>
+            <span class="item-label">docker ps</span>
+            <span class="item-hint">Command</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M4 17l6-6-6-6" />
+                <path d="M12 19h8" />
+              </svg>
+            </div>
+            <span class="item-label">tail -f /var/log/nginx/error.log</span>
+            <span class="item-hint">Command</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 3v18" />
+              </svg>
+            </div>
+            <span class="item-label">New Terminal</span>
+            <span class="item-hint">Action</span>
+          </div>
+          <div class="cmd-palette-item">
+            <div class="item-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M12 3v18M3 12h18" />
+              </svg>
+            </div>
+            <span class="item-label">New SSH Connection</span>
+            <span class="item-hint">Action</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Status Bar -->
-    <div class="statusbar">
-      <span class="statusbar-item">
-        <span class="statusbar-dot green"></span>
-        SSH Connected
-      </span>
-      <span class="statusbar-item">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg>
-        4 containers
-      </span>
-      <span class="statusbar-item">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-        09:14:26
-      </span>
-      <span class="statusbar-spacer"></span>
-      <span class="statusbar-item text-muted">Ctrl+K: Command Palette</span>
-      <span class="statusbar-item">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        GPU: wgpu
-      </span>
-      <span class="statusbar-item">UTF-8</span>
-      <span class="statusbar-item">LF</span>
-    </div>
-  </div>
-</div>
+    <style>
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+    </style>
 
-<!-- Command Palette Overlay -->
-<div class="cmd-palette-overlay" id="cmdPalette">
-  <div class="cmd-palette">
-    <input class="cmd-palette-input" placeholder="Search connections, commands, containers..." id="cmdInput">
-    <div class="cmd-palette-list" id="cmdList">
-      <div class="cmd-palette-item selected">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
-        <span class="item-label">prod-web-01</span>
-        <span class="item-hint">SSH</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
-        <span class="item-label">staging-api</span>
-        <span class="item-hint">SSH</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg></div>
-        <span class="item-label">postgres-main</span>
-        <span class="item-hint">Database</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="6" height="5" rx="1"/><rect x="10" y="7" width="6" height="5" rx="1"/></svg></div>
-        <span class="item-label">nginx-proxy</span>
-        <span class="item-hint">Container</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></div>
-        <span class="item-label">docker ps</span>
-        <span class="item-hint">Command</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></div>
-        <span class="item-label">tail -f /var/log/nginx/error.log</span>
-        <span class="item-hint">Command</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 3v18"/></svg></div>
-        <span class="item-label">New Terminal</span>
-        <span class="item-hint">Action</span>
-      </div>
-      <div class="cmd-palette-item">
-        <div class="item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"/></svg></div>
-        <span class="item-label">New SSH Connection</span>
-        <span class="item-hint">Action</span>
-      </div>
-    </div>
-  </div>
-</div>
+    <script>
+      // AI panel toggle
+      function toggleAiPanel() {
+        const panel = document.getElementById("aiPanel");
+        panel.classList.toggle("collapsed");
+      }
 
-<style>
-  @keyframes blink { 50% { opacity: 0; } }
-</style>
+      // Command palette toggle
+      function toggleCmdPalette() {
+        const el = document.getElementById("cmdPalette");
+        el.classList.toggle("show");
+        if (el.classList.contains("show")) {
+          document.getElementById("cmdInput").focus();
+        }
+      }
 
-<script>
-  // AI panel toggle
-  function toggleAiPanel() {
-    const panel = document.getElementById('aiPanel');
-    panel.classList.toggle('collapsed');
-  }
+      document.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+          e.preventDefault();
+          toggleCmdPalette();
+        }
+        if (e.key === "Escape") {
+          document.getElementById("cmdPalette").classList.remove("show");
+        }
+      });
 
-  // Command palette toggle
-  function toggleCmdPalette() {
-    const el = document.getElementById('cmdPalette');
-    el.classList.toggle('show');
-    if (el.classList.contains('show')) {
-      document.getElementById('cmdInput').focus();
-    }
-  }
+      document.getElementById("cmdPalette").addEventListener("click", (e) => {
+        if (e.target === e.currentTarget) {
+          e.target.classList.remove("show");
+        }
+      });
 
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-      e.preventDefault();
-      toggleCmdPalette();
-    }
-    if (e.key === 'Escape') {
-      document.getElementById('cmdPalette').classList.remove('show');
-    }
-  });
+      // AI quick actions
+      function insertAiCmd(cmd) {
+        const input = document.getElementById("aiInput");
+        input.value = cmd;
+        input.focus();
+      }
 
-  document.getElementById('cmdPalette').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) {
-      e.target.classList.remove('show');
-    }
-  });
+      function sendAiMsg() {
+        const input = document.getElementById("aiInput");
+        const text = input.value.trim();
+        if (!text) return;
 
-  // AI quick actions
-  function insertAiCmd(cmd) {
-    const input = document.getElementById('aiInput');
-    input.value = cmd;
-    input.focus();
-  }
+        const messages = document.getElementById("aiMessages");
+        const userMsg = document.createElement("div");
+        userMsg.className = "ai-msg";
+        userMsg.innerHTML = `<div class="ai-msg-avatar user">U</div><div class="ai-msg-body"><p>${text}</p></div>`;
+        messages.appendChild(userMsg);
 
-  function sendAiMsg() {
-    const input = document.getElementById('aiInput');
-    const text = input.value.trim();
-    if (!text) return;
+        input.value = "";
+        messages.scrollTop = messages.scrollHeight;
 
-    const messages = document.getElementById('aiMessages');
-    const userMsg = document.createElement('div');
-    userMsg.className = 'ai-msg';
-    userMsg.innerHTML = `<div class="ai-msg-avatar user">U</div><div class="ai-msg-body"><p>${text}</p></div>`;
-    messages.appendChild(userMsg);
+        // Simulate AI response
+        setTimeout(() => {
+          const aiMsg = document.createElement("div");
+          aiMsg.className = "ai-msg";
+          aiMsg.innerHTML = `<div class="ai-msg-avatar ai">AI</div><div class="ai-msg-body"><p>Let me analyze that for you based on the current server context...</p></div>`;
+          messages.appendChild(aiMsg);
+          messages.scrollTop = messages.scrollHeight;
+        }, 800);
+      }
 
-    input.value = '';
-    messages.scrollTop = messages.scrollHeight;
+      // Auto-scroll terminal
+      const term1 = document.getElementById("term1");
+      term1.scrollTop = term1.scrollHeight;
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiMsg = document.createElement('div');
-      aiMsg.className = 'ai-msg';
-      aiMsg.innerHTML = `<div class="ai-msg-avatar ai">AI</div><div class="ai-msg-body"><p>Let me analyze that for you based on the current server context...</p></div>`;
-      messages.appendChild(aiMsg);
-      messages.scrollTop = messages.scrollHeight;
-    }, 800);
-  }
-
-  // Auto-scroll terminal
-  const term1 = document.getElementById('term1');
-  term1.scrollTop = term1.scrollHeight;
-
-  // Tab switching
-  document.querySelectorAll('.topbar-tab').forEach(tab => {
-    tab.addEventListener('click', function() {
-      document.querySelectorAll('.topbar-tab').forEach(t => t.classList.remove('active'));
-      this.classList.add('active');
-    });
-  });
-</script>
-</body>
+      // Tab switching
+      document.querySelectorAll(".topbar-tab").forEach((tab) => {
+        tab.addEventListener("click", function () {
+          document
+            .querySelectorAll(".topbar-tab")
+            .forEach((t) => t.classList.remove("active"));
+          this.classList.add("active");
+        });
+      });
+    </script>
+  </body>
 </html>

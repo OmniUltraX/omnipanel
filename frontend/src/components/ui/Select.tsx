@@ -29,6 +29,8 @@ export interface SelectProps {
   searchThreshold?: number;
   disabled?: boolean;
   size?: "sm" | "md";
+  /** 隐藏触发器边框，仅在展开下拉面板时显示 */
+  borderless?: boolean;
   className?: string;
   style?: CSSProperties;
   emptyText?: string;
@@ -73,6 +75,7 @@ export function Select({
   searchThreshold = 8,
   disabled = false,
   size = "md",
+  borderless = false,
   className,
   style,
   emptyText,
@@ -224,6 +227,7 @@ export function Select({
     `omni-select--${size}`,
     open ? "is-open" : "",
     disabled ? "is-disabled" : "",
+    borderless ? "is-borderless" : "",
     !selectedOption && placeholder ? "is-placeholder" : "",
     className ?? "",
   ]
