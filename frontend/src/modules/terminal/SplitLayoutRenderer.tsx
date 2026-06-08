@@ -3,6 +3,7 @@ import { DockLayout, DockPanel, DockHandle } from "../../components/dock";
 import type { TerminalPane } from "../../stores/terminalStore";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { TerminalPaneView } from "./TerminalPaneView";
+import type { PaneServerOption } from "./PaneServerSelector";
 import {
   isSplitContainer,
   normalizeSizes,
@@ -15,6 +16,8 @@ export type SplitLayoutRendererProps = {
   paneMap: Map<string, TerminalPane>;
   activePaneId: string | null;
   resourceMap: Map<string, WorkspaceResource | null>;
+  serverOptions?: PaneServerOption[];
+  onPaneResourceChange?: (paneId: string, resourceId: string) => void;
   paneStartup?: (pane: TerminalPane) => string[];
   onActivatePane: (paneId: string) => void;
   onSendCommand: (command: string, paneId: string) => void;
@@ -33,6 +36,8 @@ export function SplitLayoutRenderer({
   paneMap,
   activePaneId,
   resourceMap,
+  serverOptions,
+  onPaneResourceChange,
   paneStartup,
   onActivatePane,
   onSendCommand,
@@ -45,7 +50,7 @@ export function SplitLayoutRenderer({
   if (!isSplitContainer(node)) {
     const pane = paneMap.get(node.paneId);
     if (!pane) return null;
-    const resource = resourceMap.get(pane.resourceId) ?? null;
+    const resource = resourceMap.get(node.paneId) ?? null;
 
     return (
       <TerminalPaneView
@@ -61,6 +66,12 @@ export function SplitLayoutRenderer({
         onSplitVertical={() => onSplitPane(node.paneId, "vertical")}
         onClose={() => onClosePane(node.paneId)}
         canClose={totalPanes > 1}
+        serverOptions={serverOptions}
+        onServerChange={
+          onPaneResourceChange
+            ? (resourceId) => onPaneResourceChange(node.paneId, resourceId)
+            : undefined
+        }
       />
     );
   }
@@ -95,6 +106,8 @@ export function SplitLayoutRenderer({
           paneMap={paneMap}
           activePaneId={activePaneId}
           resourceMap={resourceMap}
+          serverOptions={serverOptions}
+          onPaneResourceChange={onPaneResourceChange}
           paneStartup={paneStartup}
           onActivatePane={onActivatePane}
           onSendCommand={onSendCommand}

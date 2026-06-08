@@ -48,6 +48,20 @@ interface TerminalState {
   setTerminal: (paneId: string, terminal: Terminal) => void;
   setStatus: (paneId: string, status: TerminalPane["status"]) => void;
   setBackendSessionId: (paneId: string, backendSessionId: string | null) => void;
+  /** 切换窗格目标服务器（调用方需先 dispose 旧后端会话） */
+  setPaneResource: (
+    paneId: string,
+    patch: Pick<
+      TerminalPane,
+      | "type"
+      | "resourceId"
+      | "title"
+      | "shellLabel"
+      | "cwd"
+      | "purpose"
+      | "commandPack"
+    >
+  ) => void;
   upsertEmbeddedPane: (
     pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">,
   ) => string;
@@ -194,6 +208,17 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setBackendSessionId: (paneId, backendSessionId) =>
     set((state) =>
       patchPaneState(state, paneId, (pane) => ({ ...pane, backendSessionId })),
+    ),
+
+  setPaneResource: (paneId, patch) =>
+    set((state) =>
+      patchPaneState(state, paneId, (pane) => ({
+        ...pane,
+        ...patch,
+        terminal: null,
+        backendSessionId: null,
+        status: "connecting",
+      })),
     ),
 
   upsertEmbeddedPane: (pane) => {

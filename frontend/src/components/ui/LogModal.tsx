@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { LogViewer } from "./LogViewer";
 import { SubWindow } from "./SubWindow";
+import { Select } from "./Select";
 
 type LogEntry = {
   timestamp: string;
@@ -90,30 +91,26 @@ export function LogModal({ open, onClose }: LogModalProps) {
         footer={<span className="log-viewer-panel__footer-text">{t("logViewer.lineCount", { count: filtered.length })}</span>}
         toolbar={
           <>
-            <select
+            <Select
               className="log-viewer-panel__select"
               value={filterModule ?? ""}
-              onChange={(e) => setFilterModule(e.target.value || null)}
-            >
-              <option value="">全部模块</option>
-              {modules.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(v) => setFilterModule(v || null)}
+              searchable={modules.length >= 8}
+              options={[
+                { value: "", label: "全部模块" },
+                ...modules.map((m) => ({ value: m, label: m })),
+              ]}
+            />
+            <Select
               className="log-viewer-panel__select"
               value={filterLevel ?? ""}
-              onChange={(e) => setFilterLevel(e.target.value || null)}
-            >
-              <option value="">全部级别</option>
-              {LEVEL_ORDER.map((l) => (
-                <option key={l} value={l}>
-                  {l.toUpperCase()}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setFilterLevel(v || null)}
+              searchable={false}
+              options={[
+                { value: "", label: "全部级别" },
+                ...LEVEL_ORDER.map((l) => ({ value: l, label: l.toUpperCase() })),
+              ]}
+            />
           </>
         }
       />

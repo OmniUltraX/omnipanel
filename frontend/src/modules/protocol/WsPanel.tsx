@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 
 type WsStatus = "disconnected" | "connecting" | "connected";
 type WsMsgFormat = "JSON" | "Text" | "Binary";
@@ -173,16 +174,19 @@ export function WsPanel() {
 
       {/* Input row */}
       <div className="ws-input-row">
-        <select
+        <Select
           className="input"
+          size="sm"
           style={{ width: "80px" }}
           value={msgFormat}
-          onChange={(e) => setMsgFormat(e.target.value as WsMsgFormat)}
-        >
-          <option value="JSON">{t("protocol.ws.formats.JSON")}</option>
-          <option value="Text">{t("protocol.ws.formats.Text")}</option>
-          <option value="Binary">{t("protocol.ws.formats.Binary")}</option>
-        </select>
+          onChange={(v) => setMsgFormat(v as WsMsgFormat)}
+          searchable={false}
+          options={[
+            { value: "JSON", label: t("protocol.ws.formats.JSON") },
+            { value: "Text", label: t("protocol.ws.formats.Text") },
+            { value: "Binary", label: t("protocol.ws.formats.Binary") },
+          ]}
+        />
         <input
           placeholder={t("protocol.ws.inputPlaceholder")}
           value={inputValue}

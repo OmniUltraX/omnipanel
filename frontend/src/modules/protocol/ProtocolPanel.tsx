@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
+import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { HttpPanel } from "./HttpPanel";
 import { WsPanel } from "./WsPanel";
 import { MqttPanel } from "./MqttPanel";
@@ -50,11 +51,8 @@ export function ProtocolPanel() {
   };
 
   return (
-    <div className="proto-workspace">
-      <ProtocolContextSidebar protocol={active} />
-      <div className="proto-main">
-        <div className="proto-content">{renderPanel()}</div>
-      </div>
-    </div>
+    <SidebarWorkspace sidebar={<ProtocolContextSidebar protocol={active} />}>
+      {renderPanel()}
+    </SidebarWorkspace>
   );
 }

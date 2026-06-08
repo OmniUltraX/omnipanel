@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
@@ -614,19 +615,17 @@ export function DockerConnectionDialog({
               {sshConnections.length > 0 && (
                 <div className="form-field">
                   <label className="form-label">绑定现有 SSH 连接（可选）</label>
-                  <select
+                  <Select
                     className="input"
                     value={form.boundSshConnectionId}
-                    onChange={(e) => update("boundSshConnectionId", e.target.value)}
+                    onChange={(v) => update("boundSshConnectionId", v)}
                     style={{ width: "100%" }}
-                  >
-                    <option value="">不绑定（独立连接）</option>
-                    {sshConnections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    searchable={sshConnections.length >= 8}
+                    options={[
+                      { value: "", label: "不绑定（独立连接）" },
+                      ...sshConnections.map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                  />
                   <p className="form-hint">绑定后可在工作区中复用此 SSH 会话并贯通上下文。</p>
                 </div>
               )}
@@ -697,18 +696,14 @@ export function DockerConnectionDialog({
           <div className="form-row">
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">环境标签</label>
-              <select
+              <Select
                 className="input"
                 value={form.envTag}
-                onChange={(e) => update("envTag", e.target.value)}
+                onChange={(v) => update("envTag", v)}
                 style={{ width: "100%" }}
-              >
-                {ENV_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                searchable={false}
+                options={ENV_OPTIONS}
+              />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">分组</label>

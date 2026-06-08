@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import Editor from "@monaco-editor/react";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useI18n } from "../../i18n";
+import { Select } from "../../components/ui/Select";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 
 function formatDate(dateStr: string): string {
@@ -140,20 +141,30 @@ export function KnowledgeDetail() {
           <div className="knowledge-field-row">
             <div className="knowledge-field">
               <label>{t("knowledge.type")}</label>
-              <select value={editKind} onChange={(e) => setEditKind(e.target.value)}>
-                <option value="snippet">{t("knowledge.types.snippet")}</option>
-                <option value="case">{t("knowledge.types.case")}</option>
-                <option value="ai">{t("knowledge.types.ai")}</option>
-              </select>
+              <Select
+                value={editKind}
+                onChange={setEditKind}
+                searchable={false}
+                options={[
+                  { value: "snippet", label: t("knowledge.types.snippet") },
+                  { value: "case", label: t("knowledge.types.case") },
+                  { value: "ai", label: t("knowledge.types.ai") },
+                ]}
+              />
             </div>
             <div className="knowledge-field">
               <label>{t("knowledge.riskLevel")}</label>
-              <select value={editRisk} onChange={(e) => setEditRisk(e.target.value)}>
-                <option value="safe">{t("knowledge.risks.safe")}</option>
-                <option value="readonly">{t("knowledge.risks.readonly")}</option>
-                <option value="medium">{t("knowledge.risks.medium")}</option>
-                <option value="dangerous">{t("knowledge.risks.dangerous")}</option>
-              </select>
+              <Select
+                value={editRisk}
+                onChange={setEditRisk}
+                searchable={false}
+                options={[
+                  { value: "safe", label: t("knowledge.risks.safe") },
+                  { value: "readonly", label: t("knowledge.risks.readonly") },
+                  { value: "medium", label: t("knowledge.risks.medium") },
+                  { value: "dangerous", label: t("knowledge.risks.dangerous") },
+                ]}
+              />
             </div>
           </div>
           <div className="knowledge-field">

@@ -72,6 +72,11 @@ function decodeOutput(data: unknown): Uint8Array | null {
 /** Prevent concurrent create_terminal calls for the same pane (StrictMode / re-render races). */
 const pendingBackendSessions = new Map<string, Promise<string>>();
 
+/** 切换窗格服务器前清除进行中的后端创建任务 */
+export function clearPaneBackendPending(paneId: string) {
+  pendingBackendSessions.delete(paneId);
+}
+
 function findPaneById(sessionId: string) {
   return findTerminalPane(sessionId);
 }

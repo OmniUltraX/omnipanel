@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { commands } from "../../../../ipc/bindings";
 import type { SshKeyInfo } from "../../../../ipc/bindings";
+import { Select } from "../../../../components/ui/Select";
 
 export function KeysModuleView() {
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
@@ -131,10 +132,17 @@ export function KeysModuleView() {
           <div className="panel-body" style={{ padding: 12 }}>
             <div className="form-field">
               <label className="form-label">密钥类型</label>
-              <select className="input" value={genKeyType} onChange={(e) => setGenKeyType(e.target.value as "ed25519" | "rsa")} style={{ width: "100%" }}>
-                <option value="ed25519">ED25519（推荐）</option>
-                <option value="rsa">RSA</option>
-              </select>
+              <Select
+                className="input"
+                value={genKeyType}
+                onChange={(v) => setGenKeyType(v as "ed25519" | "rsa")}
+                style={{ width: "100%" }}
+                searchable={false}
+                options={[
+                  { value: "ed25519", label: "ED25519（推荐）" },
+                  { value: "rsa", label: "RSA" },
+                ]}
+              />
             </div>
             {genKeyType === "rsa" && (
               <div className="form-field">

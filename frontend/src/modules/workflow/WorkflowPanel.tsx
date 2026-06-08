@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useWorkflowStore } from "../../stores/workflowStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useI18n } from "../../i18n";
+import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import type {
   Workflow,
   WorkflowDetail,
@@ -196,26 +198,26 @@ export function WorkflowPanel() {
     return map[rl] ?? rl;
   };
 
-  return (
-    <div className="wf-workspace">
-      {/* ── Sidebar ───────────────────────────────────── */}
-      <div className="wf-sidebar">
-        <div className="wf-section-title">{t("workflow.ui.operations")}</div>
-        {SECTION_IDS.map((sid) => (
-          <button
-            key={sid}
-            type="button"
-            className={`wf-nav-item${activeSection === sid ? " active" : ""}`}
-            onClick={() => setActiveSection(sid)}
-          >
-            {SECTION_ICONS[sid]}
-            {t(`workflow.ui.sections.${sid}`)}
-          </button>
-        ))}
-      </div>
+  const sidebar = (
+    <div>
+      <div className="wf-section-title">{t("workflow.ui.operations")}</div>
+      {SECTION_IDS.map((sid) => (
+        <button
+          key={sid}
+          type="button"
+          className={`wf-nav-item${activeSection === sid ? " active" : ""}`}
+          onClick={() => setActiveSection(sid)}
+        >
+          {SECTION_ICONS[sid]}
+          {t(`workflow.ui.sections.${sid}`)}
+        </button>
+      ))}
+    </div>
+  );
 
-      {/* ── Main content ─────────────────────────────── */}
-      <div className="wf-main">
+  return (
+    <>
+      <SidebarWorkspace sidebar={sidebar}>
         <div className="wf-content">
           {/* ── Error bar ──────────────────────────── */}
           {error && (
@@ -451,7 +453,7 @@ export function WorkflowPanel() {
             />
           )}
         </div>
-      </div>
+      </SidebarWorkspace>
 
       {/* ═══════════════════════════════════════════════ */}
       {/*  CREATE / EDIT DIALOG                         */}
@@ -509,7 +511,7 @@ export function WorkflowPanel() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -689,26 +691,19 @@ function ExecutionHistoryView({
 
       {/* Workflow selector for history */}
       <div style={{ marginBottom: "var(--sp-3)" }}>
-        <select
+        <Select
           value={historyWfId ?? ""}
-          onChange={(e) => setHistoryWfId(e.target.value || null)}
-          style={{
-            padding: "var(--sp-2) var(--sp-3)",
-            fontSize: 12,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-sm)",
-            color: "var(--fg)",
-            minWidth: 240,
-          }}
-        >
-          <option value="">{t("workflow.ui.selectWorkflow")}</option>
-          {workflows.map((wf) => (
-            <option key={wf.id} value={wf.id}>
-              {wf.name} — {typeLabel(wf.workflow_type)}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setHistoryWfId(v || null)}
+          searchable={workflows.length >= 8}
+          style={{ minWidth: 240 }}
+          options={[
+            { value: "", label: t("workflow.ui.selectWorkflow") },
+            ...workflows.map((wf) => ({
+              value: wf.id,
+              label: `${wf.name} — ${typeLabel(wf.workflow_type)}`,
+            })),
+          ]}
+        />
       </div>
 
       {/* Executions table */}
@@ -907,23 +902,33 @@ function WorkflowFormDialog({
           <div className="knowledge-field-row" style={{ display: "flex", gap: "var(--sp-3)" }}>
             <div className="knowledge-field" style={{ flex: 1 }}>
               <label>{t("workflow.ui.form.type")}</label>
-              <select value={workflowType} onChange={(e) => setWorkflowType(e.target.value as WorkflowType)}>
-                <option value="script">Script</option>
-                <option value="deploy">Deploy</option>
-                <option value="patrol">Patrol</option>
-                <option value="data_flow">Data Flow</option>
-                <option value="template">Template</option>
-              </select>
+              <Select
+                value={workflowType}
+                onChange={(v) => setWorkflowType(v as WorkflowType)}
+                searchable={false}
+                options={[
+                  { value: "script", label: "Script" },
+                  { value: "deploy", label: "Deploy" },
+                  { value: "patrol", label: "Patrol" },
+                  { value: "data_flow", label: "Data Flow" },
+                  { value: "template", label: "Template" },
+                ]}
+              />
             </div>
             <div className="knowledge-field" style={{ flex: 1 }}>
               <label>{t("workflow.ui.form.risk")}</label>
-              <select value={riskLevel} onChange={(e) => setRiskLevel(e.target.value as WfRiskLevel)}>
-                <option value="read_only">{t("workflow.risk.readonly")}</option>
-                <option value="low">{t("workflow.risk.low")}</option>
-                <option value="medium">{t("workflow.risk.medium")}</option>
-                <option value="high">{t("workflow.risk.high")}</option>
-                <option value="critical">{t("workflow.risk.high")}</option>
-              </select>
+              <Select
+                value={riskLevel}
+                onChange={(v) => setRiskLevel(v as WfRiskLevel)}
+                searchable={false}
+                options={[
+                  { value: "read_only", label: t("workflow.risk.readonly") },
+                  { value: "low", label: t("workflow.risk.low") },
+                  { value: "medium", label: t("workflow.risk.medium") },
+                  { value: "high", label: t("workflow.risk.high") },
+                  { value: "critical", label: t("workflow.risk.high") },
+                ]}
+              />
             </div>
           </div>
 
@@ -938,11 +943,16 @@ function WorkflowFormDialog({
             </div>
             <div className="knowledge-field" style={{ flex: 1 }}>
               <label>{t("workflow.ui.form.envTag")}</label>
-              <select value={envTag} onChange={(e) => setEnvTag(e.target.value)}>
-                <option value="dev">dev</option>
-                <option value="staging">staging</option>
-                <option value="prod">prod</option>
-              </select>
+              <Select
+                value={envTag}
+                onChange={setEnvTag}
+                searchable={false}
+                options={[
+                  { value: "dev", label: "dev" },
+                  { value: "staging", label: "staging" },
+                  { value: "prod", label: "prod" },
+                ]}
+              />
             </div>
           </div>
 
@@ -992,16 +1002,19 @@ function WorkflowFormDialog({
                     style={{ fontSize: 12 }}
                   />
                   <div style={{ display: "flex", gap: "var(--sp-1)" }}>
-                    <select
+                    <Select
+                      size="sm"
                       value={step.step_type}
-                      onChange={(e) => updateStep(index, "step_type", e.target.value)}
-                      style={{ fontSize: 11, width: 80 }}
-                    >
-                      <option value="shell">Shell</option>
-                      <option value="sql">SQL</option>
-                      <option value="docker">Docker</option>
-                      <option value="workflow">Workflow</option>
-                    </select>
+                      onChange={(v) => updateStep(index, "step_type", v)}
+                      style={{ width: 80 }}
+                      searchable={false}
+                      options={[
+                        { value: "shell", label: "Shell" },
+                        { value: "sql", label: "SQL" },
+                        { value: "docker", label: "Docker" },
+                        { value: "workflow", label: "Workflow" },
+                      ]}
+                    />
                     <input
                       value={step.command}
                       onChange={(e) => updateStep(index, "command", e.target.value)}

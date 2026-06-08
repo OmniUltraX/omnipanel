@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Button } from "../ui/Button";
+import { Select } from "../ui/Select";
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerConnectionGroup } from "../../stores/serverGroupStore";
 
@@ -63,18 +64,14 @@ export function ServerSidebar({
   return (
     <div className="server-sidebar">
       <div className="server-sidebar-header">
-        <select
+        <Select
           className="server-sidebar-group-select"
           value={activeGroupId}
-          onChange={(e) => onGroupChange(e.target.value)}
+          onChange={onGroupChange}
           aria-label={t("server.groups.nameLabel")}
-        >
-          {groups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-        </select>
+          searchable={groups.length >= 8}
+          options={groups.map((group) => ({ value: group.id, label: group.name }))}
+        />
         <Button
           type="button"
           variant="icon"

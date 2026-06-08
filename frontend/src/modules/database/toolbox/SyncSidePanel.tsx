@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import { DataLoading, type DataLoadingProps } from "../../../components/ui/DataLoading";
+import { Select } from "../../../components/ui/Select";
 import type { DbConnectionConfig } from "../api";
 import type {
   DataSyncStrategy,
@@ -109,40 +110,34 @@ function ConnectionDatabaseFilters({
 
   return (
     <div className="db-toolbox-side__filters">
-      <select
+      <Select
         className="db-select"
         value={connectionId}
-        onChange={(e) => onConnectionChange(e.target.value)}
+        onChange={onConnectionChange}
         disabled={connections.length === 0}
         title={t("database.toolbox.side.connection")}
-      >
-        {connections.length === 0 ? (
-          <option value="">{t("database.toolbox.side.noConnection")}</option>
-        ) : (
-          connections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))
-        )}
-      </select>
-      <select
+        searchable={false}
+        placeholder={t("database.toolbox.side.noConnection")}
+        options={
+          connections.length === 0
+            ? [{ value: "", label: t("database.toolbox.side.noConnection"), disabled: true }]
+            : connections.map((c) => ({ value: c.id, label: c.name }))
+        }
+      />
+      <Select
         className="db-select"
         value={database}
-        onChange={(e) => onDatabaseChange(e.target.value)}
+        onChange={onDatabaseChange}
         disabled={!conn || databasesLoading || databases.length === 0}
         title={t("database.toolbox.side.database")}
-      >
-        {!conn || databases.length === 0 ? (
-          <option value="">{t("database.toolbox.side.noDatabase")}</option>
-        ) : (
-          databases.map((dbName) => (
-            <option key={dbName} value={dbName}>
-              {dbName}
-            </option>
-          ))
-        )}
-      </select>
+        searchable={false}
+        placeholder={t("database.toolbox.side.noDatabase")}
+        options={
+          !conn || databases.length === 0
+            ? [{ value: "", label: t("database.toolbox.side.noDatabase"), disabled: true }]
+            : databases.map((dbName) => ({ value: dbName, label: dbName }))
+        }
+      />
       {showSelectAll && (
         <label className="db-toolbox-select-all">
           <input

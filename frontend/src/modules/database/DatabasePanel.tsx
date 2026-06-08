@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DockLayout, DockHandle, DockPanel } from "../../components/dock";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import { SchemaBrowser, type SchemaTableSelection } from "./SchemaBrowser";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { TableDataGrid } from "./TableDataGrid";
@@ -797,42 +798,34 @@ export function DatabasePanel() {
     const editorContent = (
       <div className="db-editor-area">
         <div className="sql-toolbar">
-          <select
+          <Select
             className="db-select"
             value={activeConn?.id ?? ""}
-            onChange={(event) => setActiveConnId(event.target.value || null)}
+            onChange={(v) => setActiveConnId(v || null)}
             disabled={groupConnections.length === 0}
             title={t("database.workspace.connection")}
-          >
-            {groupConnections.length === 0 ? (
-              <option value="">{t("database.results.noConnection")}</option>
-            ) : (
-              groupConnections.map((conn) => (
-                <option key={conn.id} value={conn.id}>
-                  {conn.name}
-                </option>
-              ))
-            )}
-          </select>
-          <select
+            searchable={false}
+            placeholder={t("database.results.noConnection")}
+            options={
+              groupConnections.length === 0
+                ? [{ value: "", label: t("database.results.noConnection"), disabled: true }]
+                : groupConnections.map((conn) => ({ value: conn.id, label: conn.name }))
+            }
+          />
+          <Select
             className="db-select"
             value={tabState.database}
-            onChange={(event) =>
-              updateSqlTabState(tab.id, { database: event.target.value })
-            }
+            onChange={(v) => updateSqlTabState(tab.id, { database: v })}
             disabled={!activeConn || databasesForActiveConn.length === 0}
             title={t("database.workspace.database")}
-          >
-            {!activeConn || databasesForActiveConn.length === 0 ? (
-              <option value="">{t("database.workspace.noDatabase")}</option>
-            ) : (
-              databasesForActiveConn.map((dbName) => (
-                <option key={dbName} value={dbName}>
-                  {dbName}
-                </option>
-              ))
-            )}
-          </select>
+            searchable={false}
+            placeholder={t("database.workspace.noDatabase")}
+            options={
+              !activeConn || databasesForActiveConn.length === 0
+                ? [{ value: "", label: t("database.workspace.noDatabase"), disabled: true }]
+                : databasesForActiveConn.map((dbName) => ({ value: dbName, label: dbName }))
+            }
+          />
           {schemaLoading && (
             <span className="sql-toolbar-meta">{t("common.loading")}</span>
           )}

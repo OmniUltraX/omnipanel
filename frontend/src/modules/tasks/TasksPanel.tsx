@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useTaskStore, initTaskProgressListener } from "../../stores/taskStore";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
+import { Select } from "../../components/ui/Select";
 import type {
   Task,
   TaskStatus,
@@ -168,33 +169,48 @@ function NewTaskForm({
           <div style={{ display: "flex", gap: "var(--sp-3)", marginBottom: "var(--sp-3)" }}>
             <div className="form-field" style={{ flex: 1 }}>
               <label>{t("tasks.create.typeLabel")}</label>
-              <select value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)}>
-                <option value="terminal">Terminal</option>
-                <option value="sql">SQL</option>
-                <option value="docker">Docker</option>
-                <option value="server">Server</option>
-                <option value="ssh">SSH</option>
-                <option value="ai">AI</option>
-                <option value="workflow">Workflow</option>
-              </select>
+              <Select
+                value={taskType}
+                onChange={(v) => setTaskType(v as TaskType)}
+                searchable={false}
+                options={[
+                  { value: "terminal", label: "Terminal" },
+                  { value: "sql", label: "SQL" },
+                  { value: "docker", label: "Docker" },
+                  { value: "server", label: "Server" },
+                  { value: "ssh", label: "SSH" },
+                  { value: "ai", label: "AI" },
+                  { value: "workflow", label: "Workflow" },
+                ]}
+              />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label>{t("tasks.create.riskLabel")}</label>
-              <select value={risk} onChange={(e) => setRisk(e.target.value as TaskRisk)}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
+              <Select
+                value={risk}
+                onChange={(v) => setRisk(v as TaskRisk)}
+                searchable={false}
+                options={[
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                  { value: "critical", label: "Critical" },
+                ]}
+              />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label>{t("tasks.create.envLabel")}</label>
-              <select value={envTag} onChange={(e) => setEnvTag(e.target.value)}>
-                <option value="dev">Dev</option>
-                <option value="test">Test</option>
-                <option value="staging">Staging</option>
-                <option value="prod">Prod</option>
-              </select>
+              <Select
+                value={envTag}
+                onChange={setEnvTag}
+                searchable={false}
+                options={[
+                  { value: "dev", label: "Dev" },
+                  { value: "test", label: "Test" },
+                  { value: "staging", label: "Staging" },
+                  { value: "prod", label: "Prod" },
+                ]}
+              />
             </div>
           </div>
           <div style={{ display: "flex", gap: "var(--sp-3)", marginBottom: "var(--sp-4)" }}>

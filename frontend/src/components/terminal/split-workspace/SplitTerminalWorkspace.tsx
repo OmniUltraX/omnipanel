@@ -2,6 +2,7 @@ import { useCallback, useMemo, type ReactNode } from "react";
 import type { TerminalPane } from "../../../stores/terminalStore";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import { SplitLayoutRenderer } from "../../../modules/terminal/SplitLayoutRenderer";
+import type { PaneServerOption } from "../../../modules/terminal/PaneServerSelector";
 import { isSplitContainer } from "../../../modules/terminal/splitLayout";
 import type { LayoutNode } from "../../../modules/terminal/splitLayout";
 
@@ -12,6 +13,8 @@ export type SplitTerminalWorkspaceProps = {
   /** 为 false 时暂停 xterm 激活态（保留后端会话），例如 SSH 切到其他子 Tab */
   interactionActive?: boolean;
   getResource: (pane: TerminalPane) => WorkspaceResource | null;
+  serverOptions?: PaneServerOption[];
+  onPaneResourceChange?: (paneId: string, resourceId: string) => void;
   paneStartup?: (pane: TerminalPane) => string[];
   onActivatePane: (paneId: string) => void;
   onSendCommand: (command: string, paneId: string) => void;
@@ -47,6 +50,8 @@ export function SplitTerminalWorkspace({
   activePaneId,
   interactionActive = true,
   getResource,
+  serverOptions,
+  onPaneResourceChange,
   paneStartup,
   onActivatePane,
   onSendCommand,
@@ -65,7 +70,7 @@ export function SplitTerminalWorkspace({
   const resourceMap = useMemo(() => {
     const map = new Map<string, WorkspaceResource | null>();
     for (const pane of panes) {
-      map.set(pane.resourceId, getResource(pane));
+      map.set(pane.id, getResource(pane));
     }
     return map;
   }, [getResource, panes]);
@@ -104,6 +109,8 @@ export function SplitTerminalWorkspace({
           paneMap={paneMap}
           activePaneId={effectiveActivePaneId}
           resourceMap={resourceMap}
+          serverOptions={serverOptions}
+          onPaneResourceChange={onPaneResourceChange}
           paneStartup={paneStartup}
           onActivatePane={onActivatePane}
           onSendCommand={onSendCommand}

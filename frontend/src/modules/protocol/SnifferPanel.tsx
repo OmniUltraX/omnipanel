@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Select } from "../../components/ui/Select";
 
 /* ── Types ── */
 
@@ -226,29 +227,21 @@ export function SnifferPanel() {
         }}
       >
         {/* Interface selector */}
-        <select
+        <Select
           value={selectedIface}
-          onChange={(e) => setSelectedIface(e.target.value)}
+          onChange={setSelectedIface}
           disabled={capturing}
-          style={{
-            background: "var(--surface-1)",
-            color: "var(--text)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "6px 10px",
-            fontSize: "12px",
-            minWidth: "180px",
-          }}
-        >
-          {interfaces.length === 0 && <option value="">No interfaces</option>}
-          {interfaces.map((iface) => (
-            <option key={iface.name} value={iface.name}>
-              {iface.name}
-              {iface.description ? ` — ${iface.description}` : ""}
-              {iface.is_loopback ? " (loopback)" : ""}
-            </option>
-          ))}
-        </select>
+          placeholder="No interfaces"
+          style={{ minWidth: "180px" }}
+          options={
+            interfaces.length === 0
+              ? [{ value: "", label: "No interfaces", disabled: true }]
+              : interfaces.map((iface) => ({
+                  value: iface.name,
+                  label: `${iface.name}${iface.description ? ` — ${iface.description}` : ""}${iface.is_loopback ? " (loopback)" : ""}`,
+                }))
+          }
+        />
 
         <button
           className="btn btn-ghost btn-sm"

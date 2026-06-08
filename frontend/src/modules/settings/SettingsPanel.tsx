@@ -27,6 +27,7 @@ import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import { invoke } from "@tauri-apps/api/core";
@@ -133,13 +134,14 @@ function SettingSelect({
   options: string[];
 }) {
   return (
-    <select className="setting-select" value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
+    <Select
+      className="setting-select"
+      size="sm"
+      value={value}
+      options={options}
+      onChange={onChange}
+      searchable={options.length > 6}
+    />
   );
 }
 
@@ -498,14 +500,17 @@ function AiModelsSection() {
           <div className="setting-label">
             <h4>{t("settings.aiDisplay.label")}</h4>
           </div>
-          <select
+          <Select
             className="setting-select"
+            size="sm"
             value={aiDisplayMode}
-            onChange={(e) => setAiDisplayMode(e.target.value as AiDisplayMode)}
-          >
-            <option value="subwindow">{t("settings.aiDisplay.subwindow")}</option>
-            <option value="dockview">{t("settings.aiDisplay.dockview")}</option>
-          </select>
+            onChange={(v) => setAiDisplayMode(v as AiDisplayMode)}
+            searchable={false}
+            options={[
+              { value: "subwindow", label: t("settings.aiDisplay.subwindow") },
+              { value: "dockview", label: t("settings.aiDisplay.dockview") },
+            ]}
+          />
         </div>
       </div>
     </div>
@@ -658,17 +663,17 @@ export function SettingsPanel() {
                   <h4>{t("settings.language.label")}</h4>
                   <p>{t("settings.language.desc")}</p>
                 </div>
-                <select
+                <Select
                   className="setting-select"
+                  size="sm"
                   value={locale}
-                  onChange={(e) => setLocale(e.target.value as Locale)}
-                >
-                  {LOCALE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {t(opt.labelKey)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setLocale(v as Locale)}
+                  searchable={false}
+                  options={LOCALE_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: t(opt.labelKey),
+                  }))}
+                />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
@@ -786,15 +791,18 @@ export function SettingsPanel() {
                     <div className="setting-label">
                       <h4>{t("settings.proxy.protocol")}</h4>
                     </div>
-                    <select
+                    <Select
                       className="setting-select"
+                      size="sm"
                       value={proxy.protocol}
-                      onChange={(e) => setProxy({ ...proxy, protocol: e.target.value as ProxyProtocol })}
-                    >
-                      <option value="http">HTTP</option>
-                      <option value="https">HTTPS</option>
-                      <option value="socks5">SOCKS5</option>
-                    </select>
+                      onChange={(v) => setProxy({ ...proxy, protocol: v as ProxyProtocol })}
+                      searchable={false}
+                      options={[
+                        { value: "http", label: "HTTP" },
+                        { value: "https", label: "HTTPS" },
+                        { value: "socks5", label: "SOCKS5" },
+                      ]}
+                    />
                   </div>
                   <div className="setting-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--sp-3)" }}>
                     <div>
@@ -871,15 +879,18 @@ export function SettingsPanel() {
                   <h4>主题</h4>
                   <p>应用配色方案</p>
                 </div>
-                <select
+                <Select
                   className="setting-select"
+                  size="sm"
                   value={theme}
-                  onChange={(e) => setTheme(e.target.value as "system" | "light" | "dark")}
-                >
-                  <option value="system">跟随系统</option>
-                  <option value="light">浅色</option>
-                  <option value="dark">深色</option>
-                </select>
+                  onChange={(v) => setTheme(v as "system" | "light" | "dark")}
+                  searchable={false}
+                  options={[
+                    { value: "system", label: "跟随系统" },
+                    { value: "light", label: "浅色" },
+                    { value: "dark", label: "深色" },
+                  ]}
+                />
               </div>
               <div className="setting-row">
                 <div className="setting-label">

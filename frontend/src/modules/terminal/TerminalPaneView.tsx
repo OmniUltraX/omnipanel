@@ -5,6 +5,10 @@ import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
 import { Button } from "../../components/ui/Button";
 import { formatPaneHeaderTitle } from "./paneHeader";
+import {
+  PaneServerSelector,
+  type PaneServerOption,
+} from "./PaneServerSelector";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -26,6 +30,8 @@ export type TerminalPaneViewProps = {
   onSplitVertical: () => void;
   onClose: () => void;
   canClose: boolean;
+  serverOptions?: PaneServerOption[];
+  onServerChange?: (resourceId: string) => void;
 };
 
 export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneViewProps>(
@@ -42,6 +48,8 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
     onSplitVertical,
     onClose,
     canClose,
+    serverOptions,
+    onServerChange,
   }, ref) {
     const cmdRef = useRef<CommandInputHandle>(null);
 
@@ -71,7 +79,16 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
           {showEnvBadge && (
             <span className={`env-badge env-${env}`}>{env}</span>
           )}
-          <span className="term-pane-title">{headerTitle}</span>
+          {serverOptions && serverOptions.length > 0 && onServerChange ? (
+            <PaneServerSelector
+              value={pane.resourceId}
+              options={serverOptions}
+              onChange={onServerChange}
+              disabled={pane.status === "connecting"}
+            />
+          ) : (
+            <span className="term-pane-title">{headerTitle}</span>
+          )}
           {pane.status !== "connected" && (
             <span
               className={`term-pane-status ${pane.status === "connecting" ? "warn" : "muted"}`}
@@ -149,6 +166,7 @@ export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneV
         </div>
         <div className="terminal-area term-terminal-shell" tabIndex={-1}>
           <TerminalView
+            key={`${paneId}:${pane.type}:${pane.resourceId}`}
             sessionId={paneId}
             resource={resource}
             startup={startup}

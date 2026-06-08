@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useI18n } from "../../i18n";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 
 interface CreateEntryDialogProps {
@@ -93,25 +94,34 @@ export function CreateEntryDialog({ open, onClose }: CreateEntryDialogProps) {
       <div className="form-row">
         <div className="form-field" style={{ flex: 1 }}>
           <label className="form-label">{t("knowledge.type")}</label>
-          <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: "100%" }}>
-            <option value="snippet">{t("knowledge.types.snippet")}</option>
-            <option value="case">{t("knowledge.types.case")}</option>
-            <option value="ai">{t("knowledge.types.ai")}</option>
-          </select>
+          <Select
+            className="input"
+            value={kind}
+            onChange={setKind}
+            style={{ width: "100%" }}
+            searchable={false}
+            options={[
+              { value: "snippet", label: t("knowledge.types.snippet") },
+              { value: "case", label: t("knowledge.types.case") },
+              { value: "ai", label: t("knowledge.types.ai") },
+            ]}
+          />
         </div>
         <div className="form-field" style={{ flex: 1 }}>
           <label className="form-label">{t("knowledge.riskLevel")}</label>
-          <select
+          <Select
             className="input"
             value={riskLevel}
-            onChange={(e) => setRiskLevel(e.target.value)}
+            onChange={setRiskLevel}
             style={{ width: "100%" }}
-          >
-            <option value="safe">{t("knowledge.risks.safe")}</option>
-            <option value="readonly">{t("knowledge.risks.readonly")}</option>
-            <option value="medium">{t("knowledge.risks.medium")}</option>
-            <option value="dangerous">{t("knowledge.risks.dangerous")}</option>
-          </select>
+            searchable={false}
+            options={[
+              { value: "safe", label: t("knowledge.risks.safe") },
+              { value: "readonly", label: t("knowledge.risks.readonly") },
+              { value: "medium", label: t("knowledge.risks.medium") },
+              { value: "dangerous", label: t("knowledge.risks.dangerous") },
+            ]}
+          />
         </div>
       </div>
       <div className="form-field">

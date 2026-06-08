@@ -1,6 +1,6 @@
 import { useTerminalStore } from "../stores/terminalStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
-import { getResourceById } from "./resourceRegistry";
+import { resolveResourceById } from "../stores/connectionStore";
 
 export { createTerminalTabId } from "../stores/terminalStore";
 
@@ -10,7 +10,7 @@ export function navigateToPath(path: string) {
 }
 
 export function openSshTerminalSession(hostId: string): string | null {
-  const host = getResourceById(hostId);
+  const host = resolveResourceById(hostId);
   if (!host || host.type !== "ssh") return null;
 
   const tabId = useTerminalStore.getState().openOrFocusSshTab(hostId, host.name);

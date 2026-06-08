@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import {
   type ConnectionFormData,
@@ -198,18 +199,14 @@ export function ConnectionDialog({
 
           <div className="form-field">
             <label className="form-label">{t("database.dialog.group")}</label>
-            <select
+            <Select
               className="input"
               value={form.group}
-              onChange={(e) => update("group", e.target.value)}
+              onChange={(v) => update("group", v)}
               style={{ width: "100%" }}
-            >
-              {groups.map((group) => (
-                <option key={group.id} value={group.name}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
+              searchable={false}
+              options={groups.map((group) => ({ value: group.name, label: group.name }))}
+            />
           </div>
 
           {!isFileBased && (

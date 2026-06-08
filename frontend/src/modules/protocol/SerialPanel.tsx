@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 
 type SerialStatus = "disconnected" | "connecting" | "connected";
 type Encoding = "UTF-8" | "ASCII" | "HEX";
@@ -171,93 +172,79 @@ export function SerialPanel() {
       <div className="serial-config">
         <div className="serial-field">
           <label>{t("protocol.serial.port")}</label>
-          <select
+          <Select
             value={portName}
-            onChange={(e) => setPortName(e.target.value)}
+            onChange={setPortName}
             disabled={status === "connected"}
-          >
-            {ports.length > 0 ? (
-              ports.map((p) => (
-                <option key={p.port_name} value={p.port_name}>
-                  {p.port_name} {p.manufacturer ? `— ${p.manufacturer}` : ""}
-                </option>
-              ))
-            ) : (
-              <>
-                <option>COM3</option>
-                <option>COM5</option>
-                <option>/dev/ttyUSB0</option>
-              </>
-            )}
-          </select>
+            searchable={ports.length >= 8}
+            options={
+              ports.length > 0
+                ? ports.map((p) => ({
+                    value: p.port_name,
+                    label: `${p.port_name}${p.manufacturer ? ` — ${p.manufacturer}` : ""}`,
+                  }))
+                : ["COM3", "COM5", "/dev/ttyUSB0"]
+            }
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.baudRate")}</label>
-          <select
-            value={baudRate}
-            onChange={(e) => setBaudRate(Number(e.target.value))}
+          <Select
+            value={String(baudRate)}
+            onChange={(v) => setBaudRate(Number(v))}
             disabled={status === "connected"}
-          >
-            {BAUD_RATES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
+            searchable={false}
+            options={BAUD_RATES.map((r) => String(r))}
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.dataBits")}</label>
-          <select
-            value={dataBits}
-            onChange={(e) => setDataBits(Number(e.target.value))}
+          <Select
+            value={String(dataBits)}
+            onChange={(v) => setDataBits(Number(v))}
             disabled={status === "connected"}
-          >
-            <option value={7}>7</option>
-            <option value={8}>8</option>
-          </select>
+            searchable={false}
+            options={["7", "8"]}
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.stopBits")}</label>
-          <select
-            value={stopBits}
-            onChange={(e) => setStopBits(Number(e.target.value))}
+          <Select
+            value={String(stopBits)}
+            onChange={(v) => setStopBits(Number(v))}
             disabled={status === "connected"}
-          >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </select>
+            searchable={false}
+            options={["1", "2"]}
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.parity")}</label>
-          <select
+          <Select
             value={parity}
-            onChange={(e) => setParity(e.target.value)}
+            onChange={setParity}
             disabled={status === "connected"}
-          >
-            <option>None</option>
-            <option>Even</option>
-            <option>Odd</option>
-          </select>
+            searchable={false}
+            options={["None", "Even", "Odd"]}
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.flowControl")}</label>
-          <select
+          <Select
             value={flowControl}
-            onChange={(e) => setFlowControl(e.target.value)}
+            onChange={setFlowControl}
             disabled={status === "connected"}
-          >
-            <option>None</option>
-            <option>RTS/CTS</option>
-            <option>XON/XOFF</option>
-          </select>
+            searchable={false}
+            options={["None", "RTS/CTS", "XON/XOFF"]}
+          />
         </div>
         <div className="serial-field">
           <label>{t("protocol.serial.encoding")}</label>
-          <select value={encoding} onChange={(e) => setEncoding(e.target.value as Encoding)}>
-            <option>UTF-8</option>
-            <option>ASCII</option>
-            <option>HEX</option>
-          </select>
+          <Select
+            value={encoding}
+            onChange={(v) => setEncoding(v as Encoding)}
+            searchable={false}
+            options={["UTF-8", "ASCII", "HEX"]}
+          />
         </div>
         <div className="serial-field">
           <label>{" "}</label>

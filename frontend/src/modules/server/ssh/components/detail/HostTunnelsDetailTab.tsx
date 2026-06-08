@@ -3,6 +3,7 @@ import { commands } from "../../../../../ipc/bindings";
 import type { SshTunnelInfo } from "../../../../../ipc/bindings";
 import { useI18n } from "../../../../../i18n";
 import { Button } from "../../../../../components/ui/Button";
+import { Select } from "../../../../../components/ui/Select";
 
 export function HostTunnelsDetailTab() {
   const { t } = useI18n();
@@ -90,11 +91,19 @@ export function HostTunnelsDetailTab() {
       {showCreate && (
         <div className="tunnel-create" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <select className="input input-sm" value={tunnelType} onChange={(e) => setTunnelType(e.target.value as typeof tunnelType)} style={{ width: 100 }}>
-              <option value="local">Local</option>
-              <option value="remote">Remote</option>
-              <option value="dynamic">Dynamic</option>
-            </select>
+            <Select
+              className="input input-sm"
+              size="sm"
+              value={tunnelType}
+              onChange={(v) => setTunnelType(v as typeof tunnelType)}
+              style={{ width: 100 }}
+              searchable={false}
+              options={[
+                { value: "local", label: "Local" },
+                { value: "remote", label: "Remote" },
+                { value: "dynamic", label: "Dynamic" },
+              ]}
+            />
             <input className="input input-sm" placeholder="连接 ID" value={connectionId} onChange={(e) => setConnectionId(e.target.value)} style={{ flex: 1 }} />
           </div>
           <div style={{ display: "flex", gap: 6 }}>

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 
 interface KVPair {
   key: string;
@@ -711,19 +712,13 @@ export function HttpPanel() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto", padding: "var(--sp-3)" }}>
         {/* Request builder */}
         <div className="http-builder">
-          <select
+          <Select
             className="method-select"
             value={method}
-            onChange={(e) => setMethod(e.target.value as HttpMethod)}
-          >
-            {(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as HttpMethod[]).map(
-              (m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              )
-            )}
-          </select>
+            onChange={(v) => setMethod(v as HttpMethod)}
+            searchable={false}
+            options={["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]}
+          />
           <input
             className="url-input"
             placeholder={t("protocol.http.urlPlaceholder")}

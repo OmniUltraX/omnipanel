@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import type { DockerNetworkSummary, DockerCreateNetworkRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import { formatDockerTime } from "./format";
@@ -130,11 +131,14 @@ export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, on
         </div>
         <div className="form-field">
           <label className="form-label">驱动</label>
-          <select className="input" value={driver} onChange={(e) => setDriver(e.target.value)} style={{ width: "100%" }}>
-            <option value="bridge">bridge</option>
-            <option value="overlay">overlay</option>
-            <option value="macvlan">macvlan</option>
-          </select>
+          <Select
+            className="input"
+            value={driver}
+            onChange={setDriver}
+            style={{ width: "100%" }}
+            searchable={false}
+            options={["bridge", "overlay", "macvlan"]}
+          />
         </div>
         <div className="form-field">
           <label className="form-label">子网（CIDR，可选）</label>

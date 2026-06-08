@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import { commands } from "../../ipc/bindings";
 import type { DockerCreateContainerRequest } from "../../ipc/bindings";
 
@@ -184,12 +185,14 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
 
           <div className="form-field">
             <label className="form-label">重启策略</label>
-            <select className="input" value={restartPolicy} onChange={(e) => setRestartPolicy(e.target.value)} style={{ width: "100%" }}>
-              <option value="no">no</option>
-              <option value="always">always</option>
-              <option value="unless-stopped">unless-stopped</option>
-              <option value="on-failure">on-failure</option>
-            </select>
+            <Select
+              className="input"
+              value={restartPolicy}
+              onChange={setRestartPolicy}
+              style={{ width: "100%" }}
+              searchable={false}
+              options={["no", "always", "unless-stopped", "on-failure"]}
+            />
           </div>
 
           <div className="form-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

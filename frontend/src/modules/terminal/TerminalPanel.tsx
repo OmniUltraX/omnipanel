@@ -12,13 +12,11 @@ import {
   type TerminalTab,
 } from "../../stores/terminalStore";
 import {
+  clearPaneBackendPending,
   disposePaneBackendSession,
   disposeTabBackendSessions,
 } from "../../hooks/useTerminal";
-import {
-  getResourceById,
-  getSshHosts,
-} from "../../lib/resourceRegistry";
+import { resolveResourceById, useSshHostResources } from "../../stores/connectionStore";
 import { openSshTerminalSession } from "../../lib/terminalSession";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useServerViewStore } from "../../stores/serverViewStore";
@@ -31,6 +29,10 @@ import {
   type SplitTerminalPaneInput,
 } from "../../components/terminal/split-workspace";
 import { formatPaneHeaderTitle } from "./paneHeader";
+import {
+  buildPaneResourcePatch,
+  LOCAL_TERMINAL_RESOURCE_ID,
+} from "./paneResource";
 import { getBlueprint } from "./sessionBlueprints";
 import type { LayoutNode } from "./splitLayout";
 
@@ -40,7 +42,7 @@ function tabLabel(tab: TerminalTab) {
   const pane =
     tab.panes.find((item) => item.id === tab.activePaneId) ?? tab.panes[0];
   if (!pane) return tab.title;
-  const resource = getResourceById(pane.resourceId);
+  const resource = resolveResourceById(pane.resourceId);
   return formatPaneHeaderTitle(resource, pane);
 }
 
@@ -59,11 +61,11 @@ export function TerminalPanel() {
     (state) => state.activeResourceId,
   );
   const workspaceActiveResource =
-    getResourceById(workspaceActiveResourceId) ??
-    getResourceById("local-terminal");
+    resolveResourceById(workspaceActiveResourceId) ??
+    resolveResourceById(LOCAL_TERMINAL_RESOURCE_ID);
   const selectResource = useWorkspaceStore((state) => state.selectResource);
   const enqueueAction = useActionStore((state) => state.enqueueAction);
-  const sshHosts = useMemo(() => getSshHosts(), []);
+  const sshHosts = useSshHostResources();
 
   // Layout state for each tab
   const [layouts, setLayouts] = useState<Record<string, LayoutNode>>({});
@@ -147,7 +149,7 @@ export function TerminalPanel() {
       );
       if (!targetTab) return;
       const targetResource =
-        getResourceById(pane.resourceId) ?? workspaceActiveResource;
+        resolveResourceById(pane.resourceId) ?? workspaceActiveResource;
       enqueueAction({
         type: "terminal",
         title: t("terminal.actions.command"),
@@ -194,6 +196,38 @@ export function TerminalPanel() {
   );
 
   const workspacePanes = activeWorkspaceTab?.panes ?? EMPTY_PANES;
+
+  const paneServerOptions = useMemo(
+    () => [
+      {
+        id: LOCAL_TERMINAL_RESOURCE_ID,
+        label: t("terminal.newSession.local"),
+      },
+      ...sshHosts.map((host) => ({
+        id: host.id,
+        label: host.name,
+      })),
+    ],
+    [sshHosts, t],
+  );
+
+  const handlePaneResourceChange = useCallback(
+    (paneId: string, resourceId: string) => {
+      const pane = workspacePanes.find((item) => item.id === paneId);
+      if (!pane || pane.resourceId === resourceId) return;
+
+      disposePaneBackendSession(paneId);
+      clearPaneBackendPending(paneId);
+      useTerminalStore
+        .getState()
+        .setPaneResource(paneId, buildPaneResourcePatch(resourceId));
+
+      if (activeWorkspaceTab?.activePaneId === paneId) {
+        selectResource(resourceId);
+      }
+    },
+    [activeWorkspaceTab?.activePaneId, selectResource, workspacePanes],
+  );
 
   const {
     layout: splitLayout,
@@ -333,11 +367,13 @@ export function TerminalPanel() {
       layout={splitLayout}
       activePaneId={activeWorkspaceTab.activePaneId}
       getResource={(pane) =>
-        getResourceById(pane.resourceId) ?? workspaceActiveResource
+        resolveResourceById(pane.resourceId) ?? workspaceActiveResource
       }
+      serverOptions={paneServerOptions}
+      onPaneResourceChange={handlePaneResourceChange}
       paneStartup={(pane) =>
         getBlueprint(
-          getResourceById(pane.resourceId) ?? workspaceActiveResource,
+          resolveResourceById(pane.resourceId) ?? workspaceActiveResource,
           pane,
         ).startup
       }

@@ -261,6 +261,12 @@ export const zhCN = {
   quickInput: {
     required: "请输入内容",
   },
+  ui: {
+    select: {
+      searchPlaceholder: "搜索…",
+      noResults: "无匹配项",
+    },
+  },
   shell: {
     nav: {
       workspace: "工作区",
@@ -552,10 +558,13 @@ export const zhCN = {
       send: "发送",
     },
     newSession: {
-      local: "新建本地 Shell",
+      local: "本地终端",
       localDesc: "打开新的本地 PTY 标签",
       manageHosts: "管理主机…",
       manageHostsDesc: "跳转到主机模块添加连接",
+    },
+    pane: {
+      server: "目标服务器",
     },
     context: {
       title: "终端上下文",

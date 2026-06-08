@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Select } from "../../components/ui/Select";
 import type { DockerContainerSummary, DockerFileEntry } from "../../ipc/bindings";
 
 interface DockerFilesTabProps {
@@ -42,21 +43,21 @@ export function DockerFilesTab({ containers, files, filePath, fileContainerId, o
   return (
     <div className="docker-files-tab">
       <div className="docker-filters">
-        <select
+        <Select
           className="input"
           value={selectedCid ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
+          onChange={(v) => {
             setSelectedCid(v || null);
             if (v) void onPickContainer(v);
           }}
           style={{ minWidth: 220 }}
-        >
-          <option value="">选择容器…</option>
-          {containers.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+          placeholder="选择容器…"
+          searchable={containers.length >= 8}
+          options={[
+            { value: "", label: "选择容器…" },
+            ...containers.map((c) => ({ value: c.id, label: c.name })),
+          ]}
+        />
         {onNavigatePath ? (
           <Breadcrumb path={filePath} onNavigate={onNavigatePath} />
         ) : (

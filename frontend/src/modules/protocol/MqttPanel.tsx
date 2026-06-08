@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 
 type MqttQos = 0 | 1 | 2;
 type MqttStatus = "disconnected" | "connecting" | "connected";
@@ -316,17 +317,20 @@ export function MqttPanel() {
             style={{ flex: "1 1 180px", fontSize: "11px" }}
             disabled={status === "connected"}
           />
-          <select
+          <Select
             className="input"
-            style={{ width: "70px", fontSize: "11px" }}
-            value={willQos}
-            onChange={(e) => setWillQos(Number(e.target.value) as MqttQos)}
+            size="sm"
+            style={{ width: "70px" }}
+            value={String(willQos)}
+            onChange={(v) => setWillQos(Number(v) as MqttQos)}
             disabled={status === "connected"}
-          >
-            <option value={0}>QoS 0</option>
-            <option value={1}>QoS 1</option>
-            <option value={2}>QoS 2</option>
-          </select>
+            searchable={false}
+            options={[
+              { value: "0", label: "QoS 0" },
+              { value: "1", label: "QoS 1" },
+              { value: "2", label: "QoS 2" },
+            ]}
+          />
           <label style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }}>
             <input
               type="checkbox"
@@ -380,16 +384,19 @@ export function MqttPanel() {
             style={{ width: "240px", fontSize: "11px" }}
             disabled={status !== "connected"}
           />
-          <select
+          <Select
             className="input"
-            style={{ width: "60px", fontSize: "11px" }}
-            value={newQos}
-            onChange={(e) => setNewQos(Number(e.target.value) as MqttQos)}
-          >
-            <option value={0}>QoS 0</option>
-            <option value={1}>QoS 1</option>
-            <option value={2}>QoS 2</option>
-          </select>
+            size="sm"
+            style={{ width: "60px" }}
+            value={String(newQos)}
+            onChange={(v) => setNewQos(Number(v) as MqttQos)}
+            searchable={false}
+            options={[
+              { value: "0", label: "QoS 0" },
+              { value: "1", label: "QoS 1" },
+              { value: "2", label: "QoS 2" },
+            ]}
+          />
           <Button
             variant="ghost"
             size="sm"
@@ -441,16 +448,19 @@ export function MqttPanel() {
           style={{ width: "200px" }}
           disabled={status !== "connected"}
         />
-        <select
+        <Select
           className="input"
+          size="sm"
           style={{ width: "70px" }}
-          value={pubQos}
-          onChange={(e) => setPubQos(Number(e.target.value) as MqttQos)}
-        >
-          <option value={0}>QoS 0</option>
-          <option value={1}>QoS 1</option>
-          <option value={2}>QoS 2</option>
-        </select>
+          value={String(pubQos)}
+          onChange={(v) => setPubQos(Number(v) as MqttQos)}
+          searchable={false}
+          options={[
+            { value: "0", label: "QoS 0" },
+            { value: "1", label: "QoS 1" },
+            { value: "2", label: "QoS 2" },
+          ]}
+        />
         <input
           className="input"
           placeholder={t("protocol.mqtt.publishPayload")}

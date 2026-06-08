@@ -265,6 +265,12 @@ export const enUS: TranslationDict = {
   quickInput: {
     required: "Please enter a value",
   },
+  ui: {
+    select: {
+      searchPlaceholder: "Search…",
+      noResults: "No matches",
+    },
+  },
   shell: {
     nav: {
       workspace: "Workspace",
@@ -556,10 +562,13 @@ export const enUS: TranslationDict = {
       send: "Send",
     },
     newSession: {
-      local: "New Local Shell",
+      local: "Local Terminal",
       localDesc: "Open another local PTY tab",
       manageHosts: "Manage Hosts…",
       manageHostsDesc: "Go to Host module to add connections",
+    },
+    pane: {
+      server: "Target server",
     },
     context: {
       title: "Terminal Context",

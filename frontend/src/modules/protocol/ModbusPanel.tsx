@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
+import { Select } from "../../components/ui/Select";
 
 type RegisterType = "coils" | "discrete_inputs" | "holding_registers" | "input_registers";
 
@@ -10,7 +11,6 @@ const STYLE = {
   row: { display: "flex", alignItems: "center", gap: 12, marginBottom: 8 },
   label: { fontSize: 12, color: "var(--text-dim, #888)", minWidth: 80 },
   input: { flex: 1, padding: "6px 10px", background: "var(--bg, #1a1a2e)", border: "1px solid var(--border, #444)", color: "var(--text, #e0e0e0)", borderRadius: 4, fontSize: 13 },
-  select: { padding: "6px 10px", background: "var(--bg, #1a1a2e)", border: "1px solid var(--border, #444)", color: "var(--text, #e0e0e0)", borderRadius: 4, fontSize: 13 },
   btn: (accent = false) => ({
     padding: "6px 16px", background: accent ? "var(--accent, #7c5cfc)" : "var(--bg-tertiary, #222)",
     border: "1px solid var(--border, #444)", color: "var(--text, #e0e0e0)", borderRadius: 4,
@@ -150,12 +150,18 @@ export function ModbusPanel() {
           <div style={STYLE.title}>📖 Read Registers</div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Type</span>
-            <select style={STYLE.select} value={regType} onChange={(e) => setRegType(e.target.value as RegisterType)}>
-              <option value="coils">Coils (0x)</option>
-              <option value="discrete_inputs">Discrete Inputs (1x)</option>
-              <option value="holding_registers">Holding Registers (4x)</option>
-              <option value="input_registers">Input Registers (3x)</option>
-            </select>
+            <Select
+              size="sm"
+              value={regType}
+              onChange={(v) => setRegType(v as RegisterType)}
+              searchable={false}
+              options={[
+                { value: "coils", label: "Coils (0x)" },
+                { value: "discrete_inputs", label: "Discrete Inputs (1x)" },
+                { value: "holding_registers", label: "Holding Registers (4x)" },
+                { value: "input_registers", label: "Input Registers (3x)" },
+              ]}
+            />
           </div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Address</span>
@@ -171,10 +177,16 @@ export function ModbusPanel() {
           <div style={STYLE.title}>✏️ Write Register</div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Type</span>
-            <select style={STYLE.select} value={regType} onChange={(e) => setRegType(e.target.value as RegisterType)}>
-              <option value="coils">Coils (0x)</option>
-              <option value="holding_registers">Holding Registers (4x)</option>
-            </select>
+            <Select
+              size="sm"
+              value={regType}
+              onChange={(v) => setRegType(v as RegisterType)}
+              searchable={false}
+              options={[
+                { value: "coils", label: "Coils (0x)" },
+                { value: "holding_registers", label: "Holding Registers (4x)" },
+              ]}
+            />
           </div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Address</span>
