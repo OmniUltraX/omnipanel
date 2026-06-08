@@ -1993,8 +1993,8 @@
   /* ══════════════════════════════════════════════════════════════════════
      Docker (docker.html)
      ══════════════════════════════════════════════════════════════════════ */
-  .docker-layout { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-  .docker-stats { display: flex; gap: var(--sp-3); padding: var(--sp-3) var(--sp-6); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .docker-layout { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--bg); }
+  .docker-stats { display: flex; flex-wrap: wrap; gap: var(--sp-3); padding: var(--sp-3) var(--sp-6); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .docker-stat { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); min-width: 140px; }
   .docker-stat .stat-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-sm); }
   .docker-stat .stat-icon svg { width: 16px; height: 16px; }
@@ -2007,9 +2007,10 @@
   .filter-tab.active { background: var(--accent-soft); color: var(--accent); }
   .filter-tab .count { font-size: 10px; padding: 0 5px; background: var(--surface); border-radius: 999px; margin-left: 4px; }
   .filter-tab.active .count { background: var(--accent); color: #fff; }
-  .container-list { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-6); }
-  .container-card { display: grid; grid-template-columns: 1fr 120px 100px 140px 100px 80px; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: var(--sp-2); transition: border-color 0.12s; cursor: pointer; }
-  .container-card:hover { border-color: var(--accent); }
+  .container-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-6); }
+  .container-card { display: grid; grid-template-columns: 1fr 120px 100px 140px 100px 80px; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); min-height: 48px; border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: var(--sp-2); transition: border-color 0.12s, background 0.12s; cursor: pointer; background: var(--bg-deeper); }
+  .container-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 4%, var(--bg-deeper)); }
+  .container-card > * { min-width: 0; }
   .container-card .container-name { display: flex; align-items: center; gap: var(--sp-3); }
   .container-card .container-icon { width: 32px; height: 32px; display: grid; place-items: center; background: var(--surface); border-radius: var(--r-sm); flex-shrink: 0; }
   .container-card .container-icon svg { width: 16px; height: 16px; }
@@ -2021,7 +2022,7 @@
   .ssh-detail-tab { border: none; background: transparent; font: inherit; cursor: pointer; }
   .container-card .container-actions { display: flex; gap: var(--sp-1); opacity: 0; transition: opacity 0.12s; }
   .container-card:hover .container-actions { opacity: 1; }
-  .list-header { display: grid; grid-template-columns: 1fr 120px 100px 140px 100px 80px; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--meta); border-bottom: 1px solid var(--border); }
+  .list-header { display: grid; grid-template-columns: 1fr 120px 100px 140px 100px 80px; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-1); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--meta); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1; background: var(--bg); }
   .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; }
   .drawer-overlay.show { opacity: 1; pointer-events: auto; }
   .drawer { position: fixed; top: 0; right: 0; width: 480px; height: 100vh; background: var(--bg); border-left: 1px solid var(--border); z-index: 51; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform; }
@@ -2043,8 +2044,10 @@
   .log-line .level-error { color: var(--danger); }
 
   /* Docker — 真实数据工作区扩展 */
-  .docker-conn-header { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-6); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .docker-conn-header .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .docker-conn-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-6); border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg-deeper); }
+  .docker-conn-header-info { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); min-width: 0; }
+  .docker-conn-header-info strong { font-size: 13px; font-weight: 600; }
+  .docker-conn-header .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .docker-conn-header .status-dot.online { background: var(--success); }
   .docker-conn-header .status-dot.warning { background: var(--warn); }
   .docker-conn-header .status-dot.offline { background: var(--muted); }
@@ -2055,10 +2058,25 @@
   .subtab { padding: var(--sp-1) var(--sp-3); font-size: 12px; font-weight: 500; color: var(--muted); border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; font: inherit; }
   .subtab:hover { color: var(--fg); }
   .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .container-card.container-card-5 { grid-template-columns: 1.6fr 160px 1fr 130px 80px; }
-  .list-header.list-5 { grid-template-columns: 1.6fr 160px 1fr 130px 80px; }
-  .container-card.image-row, .list-header.image-row { grid-template-columns: 1.4fr 1fr 110px 1fr 70px; }
-  .compose-card { border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-2); }
+  .docker-tab-content-animate { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; animation: dockerTabFadeIn 0.2s ease-out; }
+  @keyframes dockerTabFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .container-card.container-card-5,
+  .list-header.list-5 { grid-template-columns: 28px minmax(180px, 1.6fr) minmax(120px, 160px) minmax(100px, 1fr) minmax(90px, 130px) 72px; }
+  .container-card.image-row,
+  .list-header.image-row { grid-template-columns: 28px minmax(140px, 1.4fr) minmax(80px, 1fr) 110px minmax(120px, 1fr) 72px; }
+  .container-card.network-row,
+  .list-header.network-row { grid-template-columns: minmax(160px, 1.6fr) 90px 80px 60px minmax(140px, 1fr) 48px; }
+  .container-card.volume-row,
+  .list-header.volume-row { grid-template-columns: minmax(140px, 1.4fr) 80px minmax(120px, 1.2fr) 90px 80px 48px; }
+  .container-card.file-row,
+  .list-header.file-row { grid-template-columns: minmax(200px, 1.6fr) 90px 90px 80px; }
+  .list-header .col-check,
+  .container-card .col-check { display: flex; align-items: center; justify-content: center; }
+  .docker-files-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .docker-files-tab .docker-filters { flex-wrap: wrap; align-items: center; }
+  .docker-files-tab .container-list { flex: 1; }
+  .compose-card { border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-2); background: var(--bg-deeper); transition: border-color 0.12s; }
+  .compose-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
   .compose-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
   .compose-head strong { font-size: 13px; }
   .compose-services { display: flex; flex-direction: column; gap: var(--sp-1); }
@@ -2070,7 +2088,18 @@
   .docker-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-4); font-size: 12px; color: var(--fg); z-index: 200; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 
   /* Docker 详情抽屉（image / network / volume / compose 复用） */
-  .docker-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 100vw; background: var(--bg); border-left: 1px solid var(--border); z-index: 52; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,0.25); }
+  .docker-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 100vw; background: var(--bg); border-left: 1px solid var(--border); z-index: 52; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,0.25); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); will-change: transform; pointer-events: none; }
+  .docker-drawer.show { transform: translateX(0); pointer-events: auto; }
+  .docker-stats-drawer { width: 420px; }
+  .docker-stats-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .docker-stats-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .docker-stats-header strong { font-size: 14px; font-weight: 600; }
+  .docker-stats-error { padding: var(--sp-2) var(--sp-5); flex-shrink: 0; }
+  .docker-stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); flex: 1; overflow-y: auto; align-content: start; }
+  .docker-stats-metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3); }
+  .docker-stats-metric-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--meta); margin-bottom: var(--sp-1); }
+  .docker-stats-metric-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg); }
+  .docker-stats-waiting { padding: var(--sp-4) var(--sp-5); color: var(--muted); font-size: 12px; }
   .docker-drawer-header { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .docker-drawer-title { flex: 1; min-width: 0; }
   .docker-drawer-title h2 { font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3008,14 +3037,7 @@
 .docker-error-dismiss:hover { opacity: 1; }
 @keyframes errorSlideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* ====== Tab Content Transition ====== */
-@keyframes tabFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.docker-tab-content-animate {
-  animation: tabFadeIn 0.2s ease-out;
-}
+/* ====== Tab Content Transition (legacy — animation lives in @layer components) ====== */
 
 /* ====== List Item Enter Animation ====== */
 @keyframes listItemEnter {
@@ -3075,8 +3097,8 @@
   animation: emptyFadeIn 0.4s ease-out;
 }
 .docker-empty-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.8; }
-.docker-empty-title { font-size: 15px; color: var(--text-1, #e4e4e7); font-weight: 500; }
-.docker-empty-desc { font-size: 13px; color: var(--text-3, #71717a); }
+.docker-empty-title { font-size: 15px; color: var(--fg); font-weight: 500; }
+.docker-empty-desc { font-size: 13px; color: var(--muted); }
 @keyframes emptyFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerNetworkDetail } from "../../ipc/bindings";
+import { formatDockerTime } from "./format";
 
 interface ConfirmState {
   title: string;
@@ -17,11 +18,6 @@ interface DockerNetworkDrawerProps {
   onClose: () => void;
   inspectNetwork: (name: string) => Promise<DockerNetworkDetail | null>;
   onRemove: (name: string) => Promise<{ ok: boolean; message: string }>;
-}
-
-function formatTime(ms: number | null | undefined): string {
-  if (!ms) return "-";
-  return new Date(ms).toLocaleString();
 }
 
 export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }: DockerNetworkDrawerProps) {
@@ -51,13 +47,15 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
     };
   }, [name, inspectNetwork]);
 
-  if (!name) return null;
+  const open = Boolean(name);
   const isSystem = name === "bridge" || name === "host" || name === "none";
 
   return (
     <>
-      <div className="drawer-overlay show" onClick={onClose} />
-      <aside className="docker-drawer" role="dialog" aria-label="网络详情">
+      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
+      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="网络详情" aria-hidden={!open}>
+        {open && name && (
+          <>
         <header className="docker-drawer-header">
           <div className="docker-drawer-title">
             <div className="docker-drawer-eyebrow">网络</div>
@@ -84,7 +82,7 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
                   <dt>IPv6</dt>
                   <dd>{detail.enableIpv6 ? "启用" : "关闭"}</dd>
                   <dt>创建时间</dt>
-                  <dd>{formatTime(detail.createdAt)}</dd>
+                  <dd>{formatDockerTime(detail.createdAt)}</dd>
                 </dl>
               </section>
               {detail.subnets.length > 0 && (
@@ -177,6 +175,8 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
             删除网络
           </Button>
         </footer>
+          </>
+        )}
       </aside>
       {confirm && (
         <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />

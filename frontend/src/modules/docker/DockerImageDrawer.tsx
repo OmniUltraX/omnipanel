@@ -4,6 +4,7 @@ import type {
   DockerImageDetail,
   DockerImageHistoryLayer,
 } from "../../ipc/bindings";
+import { formatDockerTime } from "./format";
 
 interface ConfirmState {
   title: string;
@@ -36,11 +37,6 @@ function formatBytes(n: number | null | undefined): string {
     i += 1;
   }
   return `${v.toFixed(1)} ${units[i]}`;
-}
-
-function formatTime(ms: number | null | undefined): string {
-  if (!ms) return "-";
-  return new Date(ms).toLocaleString();
 }
 
 export function DockerImageDrawer({
@@ -80,15 +76,16 @@ export function DockerImageDrawer({
     };
   }, [imageId, inspectImage, imageHistory]);
 
-  if (!imageId) return null;
-
-  const shortId = imageId.length > 12 ? imageId.slice(0, 12) : imageId;
+  const open = Boolean(imageId);
+  const shortId = imageId && imageId.length > 12 ? imageId.slice(0, 12) : imageId ?? "";
   const repoTag = detail?.repoTags?.find((t) => t !== "<none>:<none>") ?? detail?.repoTags?.[0] ?? "<none>:<none>";
 
   return (
     <>
-      <div className="drawer-overlay show" onClick={onClose} />
-      <aside className="docker-drawer" role="dialog" aria-label="镜像详情">
+      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
+      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="镜像详情" aria-hidden={!open}>
+        {open && (
+          <>
         <header className="docker-drawer-header">
           <div className="docker-drawer-title">
             <div className="docker-drawer-eyebrow">镜像</div>
@@ -113,7 +110,7 @@ export function DockerImageDrawer({
                   <dt>大小</dt>
                   <dd>{formatBytes(detail.sizeBytes)}</dd>
                   <dt>创建时间</dt>
-                  <dd>{formatTime(detail.createdAt)}</dd>
+                  <dd>{formatDockerTime(detail.createdAt)}</dd>
                   <dt>架构</dt>
                   <dd>{detail.architecture ?? "-"}</dd>
                   <dt>OS</dt>
@@ -220,6 +217,8 @@ export function DockerImageDrawer({
             删除
           </Button>
         </footer>
+          </>
+        )}
       </aside>
       {confirm && (
         <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />

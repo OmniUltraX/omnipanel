@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../../components/ui/Button";
+import { CloseIcon } from "./icons";
 
 interface ContainerStats {
   containerId: string;
@@ -41,13 +42,25 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
   const [stats, setStats] = useState<ContainerStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(true);
-  const [streamId, setStreamId] = useState<string | null>(null);
   const streamIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    setStats(null);
+    setError(null);
+    setActive(true);
+  }, [connectionId, containerId]);
+
+  useEffect(() => {
     if (!connectionId || !containerId || !active) return;
+
     let disposed = false;
     const unlistens: UnlistenFn[] = [];
+
+    const stopStream = (streamId: string | null) => {
+      if (!streamId) return;
+      void commands.dockerStopStatsStream(streamId).catch(() => {});
+    };
+
     const start = async () => {
       try {
         const unlistenStats = await listen<{ streamId: string; stats: ContainerStats }>("docker-stats", (e) => {
@@ -58,6 +71,7 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
           }
         });
         unlistens.push(unlistenStats);
+
         const unlistenEnd = await listen<{ streamId: string; error?: string }>("docker-stats-end", (e) => {
           if (disposed) return;
           if (e.payload.streamId === streamIdRef.current) {
@@ -65,31 +79,31 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
           }
         });
         unlistens.push(unlistenEnd);
+
         const r = await commands.dockerStreamStats(connectionId, containerId);
+        if (disposed) {
+          if (r.status === "ok") stopStream(r.data);
+          return;
+        }
         if (r.status === "ok") {
-          setStreamId(r.data);
           streamIdRef.current = r.data;
         } else {
           setError(r.error.message);
         }
       } catch (e) {
-        setError(String(e));
+        if (!disposed) setError(String(e));
       }
     };
+
     void start();
+
     return () => {
       disposed = true;
       unlistens.forEach((u) => u());
+      stopStream(streamIdRef.current);
+      streamIdRef.current = null;
     };
   }, [connectionId, containerId, active]);
-
-  useEffect(() => {
-    return () => {
-      if (streamId) {
-        void commands.dockerStopStatsStream(streamId).catch(() => {});
-      }
-    };
-  }, [streamId]);
 
   return (
     <div className="docker-stats-panel">
@@ -98,12 +112,10 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted" style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            启用
+            实时刷新
           </label>
           <Button variant="icon" onClick={onClose} title="关闭">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+            <CloseIcon />
           </Button>
         </div>
       </div>
@@ -112,10 +124,7 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
         <div className="docker-stats-grid">
           <Stat label="CPU" value={fmtPercent(stats.cpuPercent)} highlight={stats.cpuPercent > 80} />
           <Stat label="内存使用" value={fmtBytes(stats.memoryUsageBytes)} />
-          <Stat
-            label="内存限额"
-            value={stats.memoryLimitBytes != null ? fmtBytes(stats.memoryLimitBytes) : "无"}
-          />
+          <Stat label="内存限额" value={stats.memoryLimitBytes != null ? fmtBytes(stats.memoryLimitBytes) : "无"} />
           <Stat label="内存占比" value={fmtPercent(stats.memoryPercent)} highlight={stats.memoryPercent > 80} />
           <Stat label="网络 RX" value={fmtBytes(stats.netRxBytes)} />
           <Stat label="网络 TX" value={fmtBytes(stats.netTxBytes)} />
@@ -123,7 +132,7 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
           <Stat label="块设备写" value={fmtBytes(stats.blockWriteBytes)} />
         </div>
       ) : (
-        <div className="text-muted text-sm">等待数据…</div>
+        <div className="docker-stats-waiting">{error ? "无法获取监控数据" : "等待数据…"}</div>
       )}
     </div>
   );
@@ -131,9 +140,9 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
 
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="docker-stat-item">
-      <div className="docker-stat-label">{label}</div>
-      <div className={`docker-stat-value${highlight ? " text-danger" : ""}`}>{value}</div>
+    <div className="docker-stats-metric">
+      <div className="docker-stats-metric-label">{label}</div>
+      <div className={`docker-stats-metric-value${highlight ? " text-danger" : ""}`}>{value}</div>
     </div>
   );
 }

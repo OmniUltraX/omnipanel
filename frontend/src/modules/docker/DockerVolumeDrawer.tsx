@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerVolumeDetail } from "../../ipc/bindings";
+import { formatDockerTime } from "./format";
 
 interface ConfirmState {
   title: string;
@@ -32,11 +33,6 @@ function formatBytes(n: number | null | undefined): string {
   return `${v.toFixed(1)} ${units[i]}`;
 }
 
-function formatTime(ms: number | null | undefined): string {
-  if (!ms) return "-";
-  return new Date(ms).toLocaleString();
-}
-
 export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: DockerVolumeDrawerProps) {
   const [detail, setDetail] = useState<DockerVolumeDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,12 +60,14 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
     };
   }, [name, inspectVolume]);
 
-  if (!name) return null;
+  const open = Boolean(name);
 
   return (
     <>
-      <div className="drawer-overlay show" onClick={onClose} />
-      <aside className="docker-drawer" role="dialog" aria-label="卷详情">
+      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
+      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="卷详情" aria-hidden={!open}>
+        {open && name && (
+          <>
         <header className="docker-drawer-header">
           <div className="docker-drawer-title">
             <div className="docker-drawer-eyebrow">卷</div>
@@ -92,7 +90,7 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
                   <dt>挂载点</dt>
                   <dd><code>{detail.mountpoint || "-"}</code></dd>
                   <dt>创建时间</dt>
-                  <dd>{formatTime(detail.createdAt)}</dd>
+                  <dd>{formatDockerTime(detail.createdAt)}</dd>
                   <dt>占用</dt>
                   <dd>{formatBytes(detail.sizeBytes)}</dd>
                   <dt>引用数</dt>
@@ -140,6 +138,8 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
             删除卷
           </Button>
         </footer>
+          </>
+        )}
       </aside>
       {confirm && (
         <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />

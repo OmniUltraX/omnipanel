@@ -27,6 +27,17 @@ import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import type { DockerComposeAction } from "../../ipc/bindings";
 import { CreateContainerDialog } from "./CreateContainerDialog";
 import { SwarmPanel } from "./SwarmPanel";
+import { formatDockerTime } from "./format";
+import {
+  CloseIcon,
+  PlayIcon,
+  PushIcon,
+  RestartIcon,
+  StatsIcon,
+  StopIcon,
+  TagIcon,
+  TrashIcon,
+} from "./icons";
 import type {
   DockerContainerDetail,
   DockerContainerSummary,
@@ -48,11 +59,6 @@ function formatBytes(bytes: number | null | undefined): string {
   if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} KB`;
   if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-}
-
-function formatTimestamp(seconds: number | null | undefined): string {
-  if (!seconds) return "-";
-  return new Date(seconds * 1000).toLocaleString();
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -383,19 +389,21 @@ export function DockerPanel() {
         {/* 连接头部 */}
         {selectedConnection && (
           <div className="docker-conn-header">
-            <div className="flex items-center gap-2">
+            <div className="docker-conn-header-info">
               <span className={`status-dot ${selectedConnection.status === "online" ? "online" : selectedConnection.status === "degraded" ? "warning" : "offline"}`} />
               <strong>{selectedConnection.name}</strong>
               <span className={`badge ${STATUS_BADGE[selectedConnection.status] ?? "badge-muted"}`}>
                 {selectedConnection.status === "online" ? "在线" : selectedConnection.status === "degraded" ? "降级" : "离线"}
               </span>
               <span className="text-muted text-xs">{SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source}</span>
-              <span className="text-muted text-xs">{selectedConnection.hostLabel}</span>
+              {selectedConnection.hostLabel && selectedConnection.hostLabel !== SOURCE_LABEL[selectedConnection.source] && (
+                <span className="text-muted text-xs">{selectedConnection.hostLabel}</span>
+              )}
               {selectedConnection.engineVersion && (
                 <span className="text-muted text-xs">Engine {selectedConnection.engineVersion}</span>
               )}
             </div>
-            <Button variant="secondary" size="sm" style={{ marginLeft: "auto" }} onClick={refresh} disabled={dataLoading}>
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={dataLoading}>
               {dataLoading ? "刷新中…" : "刷新"}
             </Button>
           </div>
@@ -429,10 +437,10 @@ export function DockerPanel() {
           <>
             {/* 统计 */}
             <div className="docker-stats">
-              <StatCard color="success" value={overview?.summary.containersRunning ?? counts.running} label={t("docker.stats.running")} />
-              <StatCard color="muted" value={overview?.summary.containersStopped ?? counts.stopped} label={t("docker.stats.stopped")} />
-              <StatCard color="accent" value={overview?.summary.images ?? images.length} label={t("docker.stats.images")} />
-              <StatCard color="warn" value={composeProjects.length} label="Compose" />
+              <StatCard color="success" value={overview?.summary.containersRunning ?? counts.running} label={t("docker.stats.running")} icon="running" />
+              <StatCard color="muted" value={overview?.summary.containersStopped ?? counts.stopped} label={t("docker.stats.stopped")} icon="stopped" />
+              <StatCard color="accent" value={overview?.summary.images ?? images.length} label={t("docker.stats.images")} icon="images" />
+              <StatCard color="warn" value={composeProjects.length} label="Compose" icon="compose" />
             </div>
 
             {/* Error Banner */}
@@ -494,7 +502,7 @@ export function DockerPanel() {
 
                 <div className="container-list">
                   <div className="list-header list-5">
-                    <span style={{ width: 24 }}>
+                    <span className="col-check">
                       <input type="checkbox" checked={selectedContainers.size > 0 && selectedContainers.size === filteredContainers.length} onChange={(e) => {
                         if (e.target.checked) setSelectedContainers(new Set(filteredContainers.map((c) => c.id)));
                         else setSelectedContainers(new Set());
@@ -518,7 +526,7 @@ export function DockerPanel() {
                         style={!container.running ? { opacity: 0.65, animationDelay: `${idx * 0.03}s` } : { animationDelay: `${idx * 0.03}s` }}
                         onClick={() => setDrawerId(container.id)}
                       >
-                        <div style={{ width: 24 }} onClick={(e) => e.stopPropagation()}>
+                        <div className="col-check" onClick={(e) => e.stopPropagation()}>
                           <input type="checkbox" checked={selectedContainers.has(container.id)} onChange={() => toggleContainerSelect(container.id)} />
                         </div>
                         <div className="container-name">
@@ -544,10 +552,10 @@ export function DockerPanel() {
                           <Button
                             variant="icon"
                             title="资源监控"
-                            disabled={!container.running || !probe?.capabilities?.canManageContainers}
+                            disabled={!container.running}
                             onClick={() => setStatsContainer({ id: container.id, name: container.name })}
                           >
-                            📊
+                            <StatsIcon />
                           </Button>
                           {container.running ? (
                             <>
@@ -606,7 +614,7 @@ export function DockerPanel() {
                   </div>
                 </div>
                 <div className="list-header image-row">
-                  <span style={{ width: 24 }}>
+                  <span className="col-check">
                     <input type="checkbox" checked={selectedImages.size > 0 && selectedImages.size === images.length} onChange={(e) => {
                       if (e.target.checked) setSelectedImages(new Set(images.map((i) => i.id)));
                       else setSelectedImages(new Set());
@@ -628,7 +636,7 @@ export function DockerPanel() {
                       style={{ animationDelay: `${idx * 0.03}s` }}
                       onClick={() => setImageDrawerId(img.id)}
                     >
-                      <div style={{ width: 24 }} onClick={(e) => e.stopPropagation()}>
+                      <div className="col-check" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={selectedImages.has(img.id)} onChange={() => toggleImageSelect(img.id)} />
                       </div>
                       <div className="container-title">
@@ -637,7 +645,7 @@ export function DockerPanel() {
                       </div>
                       <div className="text-sm text-muted">{img.tag}</div>
                       <div className="text-sm">{formatBytes(img.sizeBytes)}</div>
-                      <div className="text-sm text-muted">{formatTimestamp(img.createdAt)}</div>
+                      <div className="text-sm text-muted">{formatDockerTime(img.createdAt)}</div>
                       <div className="container-actions" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="icon"
@@ -649,7 +657,7 @@ export function DockerPanel() {
                             showToast(r.message ?? (r.ok ? "推送完成" : "推送失败"));
                           }}
                         >
-                          ↑
+                          <PushIcon />
                         </Button>
                         <Button
                           variant="icon"
@@ -662,8 +670,8 @@ export function DockerPanel() {
                             showToast(r.message ?? (r.ok ? "已打 tag" : "打 tag 失败"));
                           }}
                         >
-                            ⎘
-                          </Button>
+                          <TagIcon />
+                        </Button>
                         <Button
                           variant="icon"
                           className="text-danger"
@@ -964,16 +972,22 @@ export function DockerPanel() {
       />
 
       {statsContainer && (
-        <div className="docker-drawer-mask" onClick={() => setStatsContainer(null)}>
-          <div className="docker-drawer docker-stats-drawer" onClick={(e) => e.stopPropagation()}>
+        <>
+          <div className="drawer-overlay show" onClick={() => setStatsContainer(null)} />
+          <aside
+            className="docker-drawer docker-stats-drawer show"
+            role="dialog"
+            aria-label="资源监控"
+            onClick={(e) => e.stopPropagation()}
+          >
             <DockerStatsPanel
               connectionId={selectedConnectionId}
               containerId={statsContainer.id}
               containerName={statsContainer.name}
               onClose={() => setStatsContainer(null)}
             />
-          </div>
-        </div>
+          </aside>
+        </>
       )}
 
       {toast && <div className="docker-toast">{toast}</div>}
@@ -1010,14 +1024,20 @@ function useCountUp(target: number, duration = 600) {
   return value;
 }
 
-function StatCard({ color, value, label }: { color: string; value: number; label: string }) {
+function StatCard({ color, value, label, icon }: { color: string; value: number; label: string; icon: "running" | "stopped" | "images" | "compose" }) {
   const animatedValue = useCountUp(value);
   const bg = `var(--${color}-soft)`;
   const fg = `var(--${color})`;
+  const icons = {
+    running: <BoxIcon />,
+    stopped: <BoxIcon />,
+    images: <ImageStatIcon />,
+    compose: <ComposeStatIcon />,
+  };
   return (
     <div className="docker-stat">
       <div className="stat-icon" style={{ background: bg, color: fg }}>
-        <BoxIcon />
+        {icons[icon]}
       </div>
       <div className="stat-info">
         <span className="stat-val">{animatedValue}</span>
@@ -1107,7 +1127,7 @@ function ContainerDrawer({
                 </span>
               )}
               <Button variant="icon" onClick={onClose} title="关闭">
-                <CloseIcon />
+                <CloseIcon size={16} />
               </Button>
             </div>
 
@@ -1325,39 +1345,18 @@ function BoxIcon() {
     </svg>
   );
 }
-function RestartIcon() {
+function ImageStatIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M23 4v6h-6M1 20v-6h6" />
-      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+      <rect x="3" y="3" width="18" height="18" rx="2" />
     </svg>
   );
 }
-function StopIcon() {
+function ComposeStatIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <rect x="6" y="6" width="12" height="12" rx="1" />
-    </svg>
-  );
-}
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  );
-}
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-    </svg>
-  );
-}
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M18 6L6 18M6 6l12 12" />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
     </svg>
   );
 }
