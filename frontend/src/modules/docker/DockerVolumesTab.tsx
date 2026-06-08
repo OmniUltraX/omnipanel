@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
 import type { DockerVolumeSummary, DockerCreateVolumeRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
+import { TrashIcon } from "./icons";
 
 interface ConfirmState {
   title: string;
@@ -110,7 +111,7 @@ export function DockerVolumesTab({ volumes, canManage, onRefresh, onCreate, onRe
                   });
                 }}
               >
-                ×
+                <TrashIcon />
               </Button>
             </div>
           </div>

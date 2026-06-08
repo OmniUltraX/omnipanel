@@ -18,9 +18,10 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
 
-  if (!project) return null;
+  const open = Boolean(project);
 
   const run = async (action: DockerComposeAction) => {
+    if (!project) return;
     setBusy(action);
     setMessage(null);
     const r = await onAction(action, project);
@@ -29,9 +30,9 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
   };
 
   const handleSaveAndDeploy = async () => {
+    if (!project) return;
     setSaving(true);
     setMessage(null);
-    // After saving the compose file, run "up" to redeploy
     const r = await onAction("up", project);
     setSaving(false);
     setMessage(r.message ?? (r.ok ? "已保存并重新部署" : "部署失败"));
@@ -39,8 +40,10 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
 
   return (
     <>
-      <div className="drawer-overlay show" onClick={onClose} />
-      <aside className="docker-drawer" role="dialog" aria-label="Compose 项目详情">
+      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
+      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="Compose 项目详情" aria-hidden={!open}>
+        {open && project && (
+          <>
         <header className="docker-drawer-header">
           <div className="docker-drawer-title">
             <div className="docker-drawer-eyebrow">Compose</div>
@@ -188,6 +191,8 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             {busy === "Down" ? "停止中…" : "Down"}
           </Button>
         </footer>
+          </>
+        )}
       </aside>
     </>
   );

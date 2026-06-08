@@ -4,6 +4,8 @@ import { FormDialog } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import type { DockerNetworkSummary, DockerCreateNetworkRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
+import { formatDockerTime } from "./format";
+import { TrashIcon } from "./icons";
 
 interface ConfirmState {
   title: string;
@@ -20,11 +22,6 @@ interface DockerNetworksTabProps {
   onCreate: (req: DockerCreateNetworkRequest) => Promise<DockerActionResult>;
   onRemove: (name: string) => Promise<DockerActionResult>;
   onInspect: (name: string) => void;
-}
-
-function formatTimestamp(seconds: number | null | undefined): string {
-  if (!seconds) return "-";
-  return new Date(seconds * 1000).toLocaleString();
 }
 
 export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, onRemove, onInspect }: DockerNetworksTabProps) {
@@ -72,7 +69,7 @@ export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, on
               <div className="text-sm">{n.driver}</div>
               <div className="text-sm text-muted">{n.scope}</div>
               <div className="text-sm">{n.internal ? "是" : "否"}</div>
-              <div className="text-sm text-muted">{formatTimestamp(n.createdAt)}</div>
+              <div className="text-sm text-muted">{formatDockerTime(n.createdAt)}</div>
               <div className="container-actions" onClick={(e) => e.stopPropagation()}>
                 <Button
                   variant="icon"
@@ -91,7 +88,7 @@ export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, on
                     });
                   }}
                 >
-                  ×
+                  <TrashIcon />
                 </Button>
               </div>
             </div>
