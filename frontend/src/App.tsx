@@ -23,6 +23,7 @@ import { KnowledgePanel } from "./modules/knowledge/KnowledgePanel";
 import { TasksPanel } from "./modules/tasks/TasksPanel";
 import { FileEditorPanel } from "./modules/editor/FileEditorPanel";
 import { SettingsPanel } from "./modules/settings/SettingsPanel";
+import { AiAgentPanel } from "./modules/ai";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
@@ -199,6 +200,7 @@ function AppShell() {
                   <Route path="/workflow" element={<WorkflowPanel />} />
                   <Route path="/knowledge" element={<KnowledgePanel />} />
                   <Route path="/tasks" element={<TasksPanel />} />
+                  <Route path="/ai-agent" element={<AiAgentPanel />} />
                   <Route path="/settings" element={<SettingsPanel />} />
                   <Route path="/editor" element={<FileEditorPanel />} />
                 </Routes>

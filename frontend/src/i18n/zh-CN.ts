@@ -273,6 +273,7 @@ export const zhCN = {
       workflow: "工作流",
       knowledge: "知识库",
       tasks: "任务中心",
+      aiAgent: "AI 智能体",
       editor: "文件编辑器",
       settings: "设置",
       ai: "AI 助手",
