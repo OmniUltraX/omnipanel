@@ -4,6 +4,7 @@ import { DataLoading, type DataLoadingProps } from "../../../components/ui/DataL
 import { Select } from "../../../components/ui/Select";
 import type { DbConnectionConfig } from "../api";
 import type {
+  DataAnalysisResult,
   DataSyncStrategy,
   SyncSideSnapshot,
   SyncTableInfo,
@@ -45,6 +46,8 @@ interface SyncSidePanelProps {
   onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
   /** 结构同步：源表与目标表的字段差异 */
   schemaTableDiffs?: Record<string, SchemaTableDiff>;
+  /** 数据同步：逐条比对结果（行级 diff） */
+  tableAnalysis?: Record<string, DataAnalysisResult>;
 }
 
 function TableSelectCheckbox({
@@ -227,18 +230,42 @@ function TargetSyncTableRow({
   targetStatus,
   syncStrategy = "rewrite",
   onSyncStrategyChange,
+  analysis,
 }: {
   tableName: string;
   targetStatus?: TableTargetStatus;
   syncStrategy?: DataSyncStrategy;
   onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  analysis?: DataAnalysisResult;
 }) {
+  const { t } = useI18n();
   const showStrategies = targetStatus === "conflict" && Boolean(onSyncStrategyChange);
+  const analysisStatus = analysis?.status;
+  const analysisLabel =
+    analysisStatus === "analyzing"
+      ? t("database.toolbox.side.analysisAnalyzing")
+      : analysisStatus === "match"
+        ? t("database.toolbox.side.analysisMatch")
+        : analysisStatus === "diff"
+          ? t("database.toolbox.side.analysisDiff", { count: analysis?.diffRows ?? 0 })
+          : analysisStatus === "error"
+            ? t("database.toolbox.side.analysisError")
+            : null;
+  const analysisTitle =
+    analysisStatus === "error" && analysis?.error ? analysis.error : analysisLabel ?? undefined;
 
   return (
     <li className={`db-toolbox-table-row db-toolbox-table-row--target${showStrategies ? " db-toolbox-table-row--conflict" : ""}`}>
       <span className="db-toolbox-table-row__name">{tableName}</span>
       {targetStatus && <TableTargetTag status={targetStatus} />}
+      {analysisLabel && (
+        <span
+          className={`db-toolbox-sync-tag db-toolbox-analysis-tag db-toolbox-analysis-tag--${analysisStatus}`}
+          title={analysisTitle}
+        >
+          {analysisLabel}
+        </span>
+      )}
       {showStrategies && (
         <SyncStrategyButtons
           tableName={tableName}
@@ -358,6 +385,7 @@ export function SyncSidePanel({
   tableSyncStrategies = {},
   onSyncStrategyChange,
   schemaTableDiffs = {},
+  tableAnalysis = {},
 }: SyncSidePanelProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -404,12 +432,14 @@ export function SyncSidePanel({
       name,
       status: tableTargetStatus[name] ?? (targetTablesLoading ? "checking" : undefined),
       strategy: tableSyncStrategies[name] ?? "rewrite",
+      analysis: tableAnalysis[name],
     }));
   }, [
     sourceSelectedTableNames,
     tableTargetStatus,
     tableSyncStrategies,
     targetTablesLoading,
+    tableAnalysis,
   ]);
 
   return (
@@ -472,6 +502,7 @@ export function SyncSidePanel({
                   targetStatus={row.status}
                   syncStrategy={row.strategy}
                   onSyncStrategyChange={onSyncStrategyChange}
+                  analysis={row.analysis}
                 />
               ))}
             </ul>

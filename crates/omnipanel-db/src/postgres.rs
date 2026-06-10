@@ -4,7 +4,7 @@ use serde_json::Value;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err};
+use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
 
 pub struct PgDriver {
     pool: PgPool,
@@ -75,32 +75,48 @@ impl DbDriver for PgDriver {
 }
 
 async fn run(pool: &PgPool, sql: &str) -> OmniResult<QueryResult> {
-    if is_query(sql) {
-        let rows = sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(map_sqlx_err)?;
-        let columns: Vec<String> = match rows.first() {
-            Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
-            None => Vec::new(),
-        };
-        let data = rows
-            .iter()
-            .map(|r| (0..columns.len()).map(|i| extract(r, i)).collect())
-            .collect();
-        Ok(QueryResult {
-            columns,
-            rows: data,
-            rows_affected: 0,
-        })
-    } else {
-        let res = sqlx::query(sql).execute(pool).await.map_err(map_sqlx_err)?;
-        Ok(QueryResult {
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return Ok(QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),
-            rows_affected: res.rows_affected(),
-        })
+            rows_affected: 0,
+        });
     }
+
+    let mut result = QueryResult {
+        columns: Vec::new(),
+        rows: Vec::new(),
+        rows_affected: 0,
+    };
+    for stmt in statements {
+        if is_query(&stmt) {
+            let rows = sqlx::query(&stmt)
+                .fetch_all(pool)
+                .await
+                .map_err(map_sqlx_err)?;
+            let columns: Vec<String> = match rows.first() {
+                Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
+                None => Vec::new(),
+            };
+            let data = rows
+                .iter()
+                .map(|r| (0..columns.len()).map(|i| extract(r, i)).collect())
+                .collect();
+            result = QueryResult {
+                columns,
+                rows: data,
+                rows_affected: 0,
+            };
+        } else {
+            let res = sqlx::query(&stmt)
+                .execute(pool)
+                .await
+                .map_err(map_sqlx_err)?;
+            result.rows_affected = result.rows_affected.saturating_add(res.rows_affected());
+        }
+    }
+    Ok(result)
 }
 
 fn extract(row: &PgRow, index: usize) -> Value {
@@ -118,7 +134,7 @@ fn extract(row: &PgRow, index: usize) -> Value {
             .unwrap_or(Value::Null),
         "int2" | "int4" | "int8" => row
             .try_get::<i64, _>(index)
-            .map(|v| serde_json::json!(v))
+            .map(|v| safe_int_to_value(v as i128))
             .unwrap_or(Value::Null),
         "float4" | "float8" | "numeric" => row
             .try_get::<f64, _>(index)
@@ -133,5 +149,15 @@ fn extract(row: &PgRow, index: usize) -> Value {
             .try_get::<String, _>(index)
             .map(Value::String)
             .unwrap_or(Value::Null),
+    }
+}
+
+/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
+fn safe_int_to_value(v: i128) -> Value {
+    const SAFE_MAX: i128 = 1i128 << 53;
+    if v.abs() < SAFE_MAX {
+        serde_json::json!(v)
+    } else {
+        Value::String(v.to_string())
     }
 }

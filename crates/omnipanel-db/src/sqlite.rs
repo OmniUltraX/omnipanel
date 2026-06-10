@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 use serde_json::Value;
 
-use crate::{DbDriver, DbParams, QueryResult, is_query};
+use crate::{DbDriver, DbParams, QueryResult, is_query, split_statements};
 
 /// SQLite 驱动：每次操作在阻塞线程中打开连接（文件打开成本低，避免持有非 Send 连接跨 await）。
 pub struct SqliteDriver {
@@ -96,48 +96,78 @@ impl DbDriver for SqliteDriver {
 }
 
 fn run(conn: &Connection, sql: &str) -> OmniResult<QueryResult> {
-    if is_query(sql) {
-        let mut stmt = conn
-            .prepare(sql)
-            .map_err(|e| OmniError::database("SQL 解析失败").with_cause(e.to_string()))?;
-        let columns: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-        let col_count = columns.len();
-        let mut rows_out: Vec<Vec<Value>> = Vec::new();
-        let mut rows = stmt
-            .query([])
-            .map_err(|e| OmniError::database("查询失败").with_cause(e.to_string()))?;
-        while let Some(row) = rows
-            .next()
-            .map_err(|e| OmniError::database("读取行失败").with_cause(e.to_string()))?
-        {
-            let mut record = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let value = match row.get_ref(i) {
-                    Ok(ValueRef::Null) => Value::Null,
-                    Ok(ValueRef::Integer(n)) => serde_json::json!(n),
-                    Ok(ValueRef::Real(f)) => serde_json::json!(f),
-                    Ok(ValueRef::Text(t)) => Value::String(String::from_utf8_lossy(t).into_owned()),
-                    Ok(ValueRef::Blob(_)) => Value::String("[BLOB]".to_string()),
-                    Err(_) => Value::Null,
-                };
-                record.push(value);
-            }
-            rows_out.push(record);
-        }
-        Ok(QueryResult {
-            columns,
-            rows: rows_out,
-            rows_affected: 0,
-        })
-    } else {
-        let affected = conn
-            .execute(sql, [])
-            .map_err(|e| OmniError::database("执行失败").with_cause(e.to_string()))?;
-        Ok(QueryResult {
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return Ok(QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),
-            rows_affected: affected as u64,
-        })
+            rows_affected: 0,
+        });
+    }
+
+    let mut result = QueryResult {
+        columns: Vec::new(),
+        rows: Vec::new(),
+        rows_affected: 0,
+    };
+    for stmt in statements {
+        if is_query(&stmt) {
+            let mut prepared = conn
+                .prepare(&stmt)
+                .map_err(|e| OmniError::database("SQL 解析失败").with_cause(e.to_string()))?;
+            let columns: Vec<String> = prepared
+                .column_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let col_count = columns.len();
+            let mut rows_out: Vec<Vec<Value>> = Vec::new();
+            let mut rows = prepared
+                .query([])
+                .map_err(|e| OmniError::database("查询失败").with_cause(e.to_string()))?;
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| OmniError::database("读取行失败").with_cause(e.to_string()))?
+            {
+                let mut record = Vec::with_capacity(col_count);
+                for i in 0..col_count {
+                    let value = match row.get_ref(i) {
+                        Ok(ValueRef::Null) => Value::Null,
+                        Ok(ValueRef::Integer(n)) => safe_int_to_value(n),
+                        Ok(ValueRef::Real(f)) => serde_json::json!(f),
+                        Ok(ValueRef::Text(t)) => {
+                            Value::String(String::from_utf8_lossy(t).into_owned())
+                        }
+                        Ok(ValueRef::Blob(_)) => Value::String("[BLOB]".to_string()),
+                        Err(_) => Value::Null,
+                    };
+                    record.push(value);
+                }
+                rows_out.push(record);
+            }
+            // 多个查询时以最后一条为准（前端只展示一个结果集）。
+            result = QueryResult {
+                columns,
+                rows: rows_out,
+                rows_affected: 0,
+            };
+        } else {
+            let affected = conn
+                .execute(&stmt, [])
+                .map_err(|e| OmniError::database("执行失败").with_cause(e.to_string()))?;
+            result.rows_affected = result.rows_affected.saturating_add(affected as u64);
+        }
+    }
+    Ok(result)
+}
+
+/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
+fn safe_int_to_value(v: i64) -> Value {
+    const SAFE_MAX: i64 = 1i64 << 53;
+    if v.abs() < SAFE_MAX {
+        serde_json::json!(v)
+    } else {
+        Value::String(v.to_string())
     }
 }
 

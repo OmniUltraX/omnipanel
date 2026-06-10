@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -20,7 +20,18 @@ export type TableDataGridProps = {
   onPageChange: (page: number) => void;
   columnMeta?: DbColumnMeta[];
   onCellEdit?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
+  /** 已修改的行 key 集合（来自父组件脏数据状态），用于高亮 */
+  dirtyRowKeys?: Set<string>;
+  /** 单元覆盖：行 key -> 列名 -> 覆盖值；优先于 rows 展示 */
+  cellOverrides?: Record<string, Record<string, unknown>>;
 };
+
+function buildRowKey(row: Record<string, unknown>, pkCols: { name: string }[]): string {
+  if (pkCols.length === 0) return "";
+  return pkCols
+    .map((pk) => `${pk.name}=${row[pk.name] == null ? "" : String(row[pk.name])}`)
+    .join("&");
+}
 
 const MIN_ROW_HEIGHT = 28;
 const DEFAULT_ROW_HEIGHT = 36;
@@ -38,7 +49,7 @@ function isNearRowBottom(target: HTMLElement, clientY: number): boolean {
   return clientY >= rect.bottom - ROW_RESIZE_ZONE_PX;
 }
 
-export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit }: TableDataGridProps) {
+export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, dirtyRowKeys, cellOverrides }: TableDataGridProps) {
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
   const [resizingRow, setResizingRow] = useState<number | null>(null);
   const [resizeHintRow, setResizeHintRow] = useState<number | null>(null);
@@ -168,48 +179,10 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
 
   return (
+    <>
     <div
       className={`db-data-table-wrap${resizingRow !== null ? " db-data-table-wrap--resizing" : ""}${table.getState().columnSizingInfo?.isResizingColumn ? " db-data-table-wrap--col-resizing" : ""}`}
     >
-      <div className="db-pagination">
-        <div className="db-pagination-info">
-          {loading ? (
-            <span>Loading...</span>
-          ) : totalRows > 0 ? (
-            <span>
-              {showingFrom.toLocaleString()}–{showingTo.toLocaleString()} of{" "}
-              {totalRows.toLocaleString()} rows
-            </span>
-          ) : (
-            <span>0 rows</span>
-          )}
-        </div>
-        <div className="db-pagination-controls">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={page <= 0 || loading}
-            onClick={() => onPageChange(page - 1)}
-            title="Previous page"
-          >
-            ‹
-          </Button>
-          {totalPages > 0 && (
-            <span className="db-pagination-pages">
-              {page + 1} / {totalPages}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={page >= totalPages - 1 || loading}
-            onClick={() => onPageChange(page + 1)}
-            title="Next page"
-          >
-            ›
-          </Button>
-        </div>
-      </div>
       <table className="db-data-table">
         <thead>
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -250,12 +223,16 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
           {table.getRowModel().rows.map((row) => {
             const rowHeight = rowHeights[row.index];
             const isCustomHeight = rowHeight !== undefined;
+            const pkCols = (columnMeta ?? []).filter((c) => c.isPk);
+            const rowKey = pkCols.length > 0 ? buildRowKey(row.original, pkCols) : "";
+            const rowDirty = rowKey ? (dirtyRowKeys?.has(rowKey) ?? false) : false;
+            const overrideForRow = rowKey ? cellOverrides?.[rowKey] : undefined;
 
             return (
               <tr
                 key={row.id}
                 data-row-index={row.index}
-                className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${resizingRow === row.index ? " db-data-table-row--resizing" : ""}${resizeHintRow === row.index ? " db-data-table-row--resize-hint" : ""}`}
+                className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${resizingRow === row.index ? " db-data-table-row--resizing" : ""}${resizeHintRow === row.index ? " db-data-table-row--resize-hint" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
                 style={isCustomHeight ? { height: rowHeight } : undefined}
                 onMouseDown={(event) => {
                   if (!isNearRowBottom(event.currentTarget, event.clientY)) {
@@ -279,14 +256,26 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
               >
                 {row.getVisibleCells().map((cell) => {
                   const colMeta = columnMetaMap?.[cell.column.id];
-                  const canEdit = onCellEdit && colMeta && !colMeta.isPk;
+                  const canEdit = onCellEdit && colMeta;
+                  const overrideValue = overrideForRow?.[cell.column.id];
+                  const cellDirty = overrideValue !== undefined && rowDirty;
+                  const rawValue = overrideValue !== undefined ? overrideValue : cell.getValue();
+                  const cellTitle = cellToText(rawValue);
                   return (
                     <td
                       key={cell.id}
-                      className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}`}
+                      className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}`}
                       onDoubleClick={canEdit ? () => onCellEdit({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
+                      title={cellTitle}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {overrideValue !== undefined
+                        ? flexRender(
+                            typeof overrideValue === "object" && overrideValue !== null
+                              ? () => cellToText(overrideValue)
+                              : () => cellToText(overrideValue),
+                            cell.getContext(),
+                          )
+                        : flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   );
                 })}
@@ -296,5 +285,45 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
         </tbody>
       </table>
     </div>
+    <div className="db-pagination">
+      <div className="db-pagination-info">
+        {loading ? (
+          <span>Loading...</span>
+        ) : totalRows > 0 ? (
+          <span>
+            {showingFrom.toLocaleString()}–{showingTo.toLocaleString()} of{" "}
+            {totalRows.toLocaleString()} rows
+          </span>
+        ) : (
+          <span>0 rows</span>
+        )}
+      </div>
+      <div className="db-pagination-controls">
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={page <= 0 || loading}
+          onClick={() => onPageChange(page - 1)}
+          title="Previous page"
+        >
+          ‹
+        </Button>
+        {totalPages > 0 && (
+          <span className="db-pagination-pages">
+            {page + 1} / {totalPages}
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={page >= totalPages - 1 || loading}
+          onClick={() => onPageChange(page + 1)}
+          title="Next page"
+        >
+          ›
+        </Button>
+      </div>
+    </div>
+    </>
   );
 }

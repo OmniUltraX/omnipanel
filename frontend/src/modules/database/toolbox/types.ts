@@ -36,6 +36,17 @@ export function resolveDataSyncConflictStatus(
 /** 冲突表的数据同步策略 */
 export type DataSyncStrategy = "rewrite" | "append" | "update";
 
+/** 逐条比对（行级 diff）状态：未执行 / 执行中 / 全部一致 / 存在差异 / 失败 */
+export type DataAnalysisStatus = "unchecked" | "analyzing" | "match" | "diff" | "error";
+
+export interface DataAnalysisResult {
+  status: DataAnalysisStatus;
+  /** 不一致的行数（status === "diff" 时有值） */
+  diffRows?: number;
+  /** 错误信息（status === "error" 时） */
+  error?: string;
+}
+
 export type SyncSideId = "source" | "target";
 
 export interface SyncSideSelection {

@@ -4,7 +4,7 @@ use serde_json::Value;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow, MySqlSslMode};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err};
+use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
 
 pub struct MySqlDriver {
     pool: MySqlPool,
@@ -101,32 +101,49 @@ impl DbDriver for MySqlDriver {
 }
 
 async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
-    if is_query(sql) {
-        let rows = sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(map_sqlx_err)?;
-        let columns: Vec<String> = match rows.first() {
-            Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
-            None => Vec::new(),
-        };
-        let data = rows
-            .iter()
-            .map(|r| (0..columns.len()).map(|i| extract(r, i)).collect())
-            .collect();
-        Ok(QueryResult {
-            columns,
-            rows: data,
-            rows_affected: 0,
-        })
-    } else {
-        let res = sqlx::query(sql).execute(pool).await.map_err(map_sqlx_err)?;
-        Ok(QueryResult {
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return Ok(QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),
-            rows_affected: res.rows_affected(),
-        })
+            rows_affected: 0,
+        });
     }
+
+    let mut result = QueryResult {
+        columns: Vec::new(),
+        rows: Vec::new(),
+        rows_affected: 0,
+    };
+    for stmt in statements {
+        if is_query(&stmt) {
+            let rows = sqlx::query(&stmt)
+                .fetch_all(pool)
+                .await
+                .map_err(map_sqlx_err)?;
+            let columns: Vec<String> = match rows.first() {
+                Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
+                None => Vec::new(),
+            };
+            let data = rows
+                .iter()
+                .map(|r| (0..columns.len()).map(|i| extract(r, i)).collect())
+                .collect();
+            // 多个查询时以最后一条为准（前端只展示一个结果集）。
+            result = QueryResult {
+                columns,
+                rows: data,
+                rows_affected: 0,
+            };
+        } else {
+            let res = sqlx::query(&stmt)
+                .execute(pool)
+                .await
+                .map_err(map_sqlx_err)?;
+            result.rows_affected = result.rows_affected.saturating_add(res.rows_affected());
+        }
+    }
+    Ok(result)
 }
 
 fn extract(row: &MySqlRow, index: usize) -> Value {
@@ -137,10 +154,14 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
         return Value::Null;
     }
     let type_name = raw.type_info().name().to_lowercase();
-    if type_name.contains("int")
-        && let Ok(v) = row.try_get::<i64, _>(index)
-    {
-        return serde_json::json!(v);
+    if type_name.contains("int") {
+        // BIGINT UNSIGNED 超出 i64 范围，先按 u64 尝试，避免 i64 溢出吞精度
+        if let Ok(v) = row.try_get::<u64, _>(index) {
+            return safe_int_to_value(v as i128);
+        }
+        if let Ok(v) = row.try_get::<i64, _>(index) {
+            return safe_int_to_value(v as i128);
+        }
     }
     if (type_name.contains("float")
         || type_name.contains("double")
@@ -155,5 +176,15 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     match row.try_get::<String, _>(index) {
         Ok(v) => Value::String(v),
         Err(_) => Value::Null,
+    }
+}
+
+/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
+fn safe_int_to_value(v: i128) -> Value {
+    const SAFE_MAX: i128 = 1i128 << 53;
+    if v.abs() < SAFE_MAX {
+        serde_json::json!(v)
+    } else {
+        Value::String(v.to_string())
     }
 }

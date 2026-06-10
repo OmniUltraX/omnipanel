@@ -64,6 +64,11 @@ export function parseCellValue(kind: CellEditorKind, raw: string): unknown {
   if (kind === "number") {
     const trimmed = raw.trim();
     if (trimmed === "") return null;
+    // 整数原样保留为字符串，避免 >2^53 的 BIGINT 经 JS Number 往返丢精度；
+    // 后端 SQL 拼接时会按字符串转义，原值不损失。带小数点/科学计数法才转 number。
+    if (/^-?\d+$/.test(trimmed)) {
+      return trimmed;
+    }
     const n = Number(trimmed);
     return Number.isFinite(n) ? n : trimmed;
   }

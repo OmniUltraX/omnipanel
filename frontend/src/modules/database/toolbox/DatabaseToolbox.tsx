@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { useDataLoading } from "../../../components/ui/DataLoading";
+import { WarnAlert } from "../../../components/ui/WarnAlert";
 import {
   countTable,
   countTables,
@@ -20,6 +21,7 @@ import {
 import {
   connectionWithDatabase,
   resolveDataSyncConflictStatus,
+  type DataAnalysisResult,
   type DataSyncStrategy,
   type SyncSideSnapshot,
   type SyncTableInfo,
@@ -28,6 +30,9 @@ import {
 } from "./types";
 
 const EMPTY_SNAPSHOT: SyncSideSnapshot = { tables: [], loading: false, error: null };
+
+/** 逐条比对的行数门槛 */
+const LARGE_TABLE_ROW_THRESHOLD = 10_000;
 
 interface DatabaseToolboxProps {
   connections: DbConnectionConfig[];
@@ -70,6 +75,9 @@ export function DatabaseToolbox({
   const [sourceSelected, setSourceSelected] = useState<Set<string>>(() => new Set());
   const [tableTargetStatus, setTableTargetStatus] = useState<Record<string, TableTargetStatus>>({});
   const [tableSyncStrategies, setTableSyncStrategies] = useState<Record<string, DataSyncStrategy>>({});
+  const [tableAnalysis, setTableAnalysis] = useState<Record<string, DataAnalysisResult>>({});
+  const [largeTableWarn, setLargeTableWarn] = useState<{ names: string[]; rows: Record<string, number> } | null>(null);
+  const analyzingRef = useRef(new Set<string>());
 
   const countingRef = useRef(new Set<string>());
   const [countingTables, setCountingTables] = useState<Set<string>>(() => new Set());
@@ -599,6 +607,90 @@ export function DatabaseToolbox({
     [sourceSelected],
   );
 
+  const runRowByRowAnalysis = useCallback(
+    async (tableNames: string[]) => {
+      if (tableNames.length === 0) return;
+      const target = connectionWithDatabase(
+        connections.find((c) => c.id === targetConnId) ?? connections[0]!,
+        targetDb,
+      );
+
+      for (const name of tableNames) {
+        if (analyzingRef.current.has(name)) continue;
+        analyzingRef.current.add(name);
+        setTableAnalysis((prev) => ({
+          ...prev,
+          [name]: { status: "analyzing" },
+        }));
+        try {
+          // 占位骨架：等待 500ms 后置为 match，等真实逐行比对命令接入。
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (!analyzingRef.current.has(name)) return;
+          setTableAnalysis((prev) => ({
+            ...prev,
+            [name]: { status: "match" },
+          }));
+        } catch (e) {
+          setTableAnalysis((prev) => ({
+            ...prev,
+            [name]: { status: "error", error: typeof e === "string" ? e : String(e) },
+          }));
+        } finally {
+          analyzingRef.current.delete(name);
+        }
+        void target;
+      }
+    },
+    [connections, targetConnId, targetDb],
+  );
+
+  // 勾选即触发逐条比对：仅在 dataSync tab 下，对源侧新勾选且目标库中存在的表做处理。
+  const lastAnalyzedSelectionRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
+    const eligible = new Set(
+      sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
+    );
+    const newlySelected: string[] = [];
+    for (const name of eligible) {
+      if (!lastAnalyzedSelectionRef.current.has(name)) {
+        newlySelected.push(name);
+      }
+    }
+    lastAnalyzedSelectionRef.current = eligible;
+    if (newlySelected.length === 0) return;
+
+    const oversized: string[] = [];
+    const oversizedRows: Record<string, number> = {};
+    for (const name of newlySelected) {
+      const rows = targetRowCounts[name];
+      if (typeof rows === "number" && rows >= LARGE_TABLE_ROW_THRESHOLD) {
+        oversized.push(name);
+        oversizedRows[name] = rows;
+      }
+    }
+    if (oversized.length > 0) {
+      setLargeTableWarn({ names: oversized, rows: oversizedRows });
+      return;
+    }
+    void runRowByRowAnalysis(newlySelected);
+  }, [
+    tab,
+    targetConfigured,
+    targetTablesLoading,
+    sourceSelectedTableNames,
+    targetTableNames,
+    targetRowCounts,
+    runRowByRowAnalysis,
+  ]);
+
+  const confirmLargeTableAnalysis = useCallback(() => {
+    const ctx = largeTableWarn;
+    setLargeTableWarn(null);
+    if (!ctx) return;
+    void runRowByRowAnalysis(ctx.names);
+  }, [largeTableWarn, runRowByRowAnalysis]);
+
   const tabs = useMemo(
     () =>
       [
@@ -675,9 +767,31 @@ export function DatabaseToolbox({
             tableSyncStrategies={tableSyncStrategies}
             onSyncStrategyChange={setTableSyncStrategy}
             schemaTableDiffs={schemaTableDiffs}
+            tableAnalysis={tableAnalysis}
           />
         </div>
       </div>
+      <WarnAlert
+        open={largeTableWarn !== null}
+        title={t("database.toolbox.side.analysisLargeTitle")}
+        confirmLabel={t("database.toolbox.side.analysisLargeConfirm")}
+        cancelLabel={t("shell.topbar.cancel", { defaultValue: "取消" })}
+        onConfirm={confirmLargeTableAnalysis}
+        onClose={() => setLargeTableWarn(null)}
+      >
+        {largeTableWarn && (
+          <ul className="warn-alert-list">
+            {largeTableWarn.names.map((name) => (
+              <li key={name}>
+                {t("database.toolbox.side.analysisLargeItem", {
+                  name,
+                  rows: largeTableWarn.rows[name]?.toLocaleString() ?? "—",
+                })}
+              </li>
+            ))}
+          </ul>
+        )}
+      </WarnAlert>
     </div>
   );
 }

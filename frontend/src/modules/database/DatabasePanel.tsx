@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
+import { Button } from "../../components/ui/Button";
+import { Modal } from "../../components/ui/Modal";
 import { SchemaBrowser, type SchemaTableSelection } from "./SchemaBrowser";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -16,6 +19,7 @@ import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import {
   connectionMatchesGroup,
   countTable,
+  fetchTableDdl,
   introspectSchema,
   introspectTable,
   listConnections,
@@ -25,6 +29,7 @@ import {
   type DbConnectionConfig,
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
+import { toCsv } from "./csvExport";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
@@ -57,6 +62,19 @@ const INITIAL_SQL_TAB: SqlWorkspaceTab = {
   label: makeSqlTabLabel(1),
 };
 
+
+/** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL。 */
+function readRowKeyValue(rowKey: string, colName: string): string {
+  for (const part of rowKey.split("&")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq) === colName) {
+      return part.slice(eq + 1);
+    }
+  }
+  return "";
+}
+
 export function DatabasePanel() {
   const { t } = useI18n();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
@@ -88,7 +106,28 @@ export function DatabasePanel() {
     column: string;
     row: Record<string, unknown>;
   } | null>(null);
+  /** 每个 tab 的「未提交修改」：行键 -> {列名: 新值}。提交或回滚后清空对应 tab。 */
+  const [tabDirtyRows, setTabDirtyRows] = useState<
+    Record<string, Record<string, Record<string, unknown>>>
+  >({});
+  const [committingTabs, setCommittingTabs] = useState<Set<string>>(() => new Set());
+  const [pendingTabAction, setPendingTabAction] = useState<
+    | {
+        kind: "refresh" | "page" | "close";
+        tabId: string;
+        page?: number;
+      }
+    | null
+  >(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
+  const [tableCtxMenu, setTableCtxMenu] = useState<
+    | {
+        x: number;
+        y: number;
+        selection: SchemaTableSelection;
+      }
+    | null
+  >(null);
   const toolboxOpen = useDbToolboxStore((s) => s.open);
   const setToolboxOpen = useDbToolboxStore((s) => s.setOpen);
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
@@ -401,6 +440,195 @@ export function DatabasePanel() {
     [connections],
   );
 
+  const clearTabDirty = useCallback((tabId: string) => {
+    setTabDirtyRows((prev) => {
+      if (!(tabId in prev)) return prev;
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+  }, []);
+
+  const refreshTabPreviewNow = useCallback(
+    (tabId: string) => {
+      const preview = tablePreviews[tabId];
+      if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
+      refreshTablePreview(tabId, preview.connId, preview.dbName, preview.tableName);
+    },
+    [tablePreviews, refreshTablePreview],
+  );
+
+  const goToPageNow = useCallback(
+    (tabId: string, page: number) => {
+      const preview = tablePreviews[tabId];
+      if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
+      goToPage(tabId, preview.connId, preview.dbName, preview.tableName, page);
+    },
+    [tablePreviews, goToPage],
+  );
+
+  const commitTabDirty = useCallback(
+    async (tabId: string) => {
+      const dirty = tabDirtyRows[tabId];
+      if (!dirty) return;
+      const preview = tablePreviews[tabId];
+      if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
+      const connection = connections.find((c) => c.id === preview.connId);
+      if (!connection) return;
+      const colMeta = tableColumnMeta[tabId];
+      if (!colMeta) return;
+      const pkCols = colMeta.filter((c) => c.isPk);
+      if (pkCols.length === 0) {
+        console.error("[db.commit] no primary key found, cannot commit");
+        return;
+      }
+      const connForSchema = { ...connection, database: preview.dbName };
+      const tableName = preview.tableName;
+      const pkNames = pkCols.map((c) => c.name);
+      const escape = (v: unknown): string => {
+        if (v === null || v === undefined) return "NULL";
+        if (typeof v === "number") return String(v);
+        return `'${String(v).replace(/'/g, "\\'")}'`;
+      };
+      const sqls: string[] = [];
+      for (const [rowKey, changes] of Object.entries(dirty)) {
+        const setClause = Object.entries(changes)
+          .map(([col, val]) => `\`${col}\` = ${escape(val)}`)
+          .join(", ");
+        const pkValues = pkNames.map((n) => {
+          const v = readRowKeyValue(rowKey, n);
+          return v === "" ? `${n} IS NULL` : `${n} = ${escape(v)}`;
+        });
+        sqls.push(`UPDATE \`${tableName}\` SET ${setClause} WHERE ${pkValues.join(" AND ")} LIMIT 1`);
+      }
+      setCommittingTabs((prev) => new Set(prev).add(tabId));
+      try {
+        for (const sql of sqls) {
+          await invoke("db_execute_query", { connection: connForSchema, sql });
+        }
+        clearTabDirty(tabId);
+        refreshTabPreviewNow(tabId);
+      } catch (err) {
+        console.error("[db.commit] failed", err);
+        throw err;
+      } finally {
+        setCommittingTabs((prev) => {
+          const next = new Set(prev);
+          next.delete(tabId);
+          return next;
+        });
+      }
+    },
+    [tabDirtyRows, tablePreviews, connections, tableColumnMeta, clearTabDirty, refreshTabPreviewNow],
+  );
+
+  const rollbackTabDirty = useCallback(
+    (tabId: string) => {
+      clearTabDirty(tabId);
+      refreshTabPreviewNow(tabId);
+    },
+    [clearTabDirty, refreshTabPreviewNow],
+  );
+
+  const closeWorkspaceTab = useCallback((tabId: string) => {
+    setWorkspaceTabs((prev) => {
+      const idx = prev.findIndex((tab) => tab.id === tabId);
+      const next = prev.filter((tab) => tab.id !== tabId);
+      setActiveWorkspaceTabId((current) => {
+        if (current !== tabId) {
+          return current;
+        }
+        const fallback = next[Math.min(idx, Math.max(0, next.length - 1))];
+        return fallback?.id ?? "";
+      });
+      return next;
+    });
+    setSqlTabStates((prev) => {
+      if (!(tabId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setTablePreviews((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setTableColumnMeta((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setTabModes((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setTabDirtyRows((prev) => {
+      if (!(tabId in prev)) return prev;
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setCommittingTabs((prev) => {
+      if (!prev.has(tabId)) return prev;
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
+  }, []);
+
+  const hasDirty = useCallback(
+    (tabId: string) => Object.keys(tabDirtyRows[tabId] ?? {}).length > 0,
+    [tabDirtyRows],
+  );
+
+  const requestTabAction = useCallback(
+    (action: { kind: "refresh" | "page" | "close"; tabId: string; page?: number }) => {
+      if (hasDirty(action.tabId)) {
+        setPendingTabAction(action);
+        return;
+      }
+      executeTabAction(action);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasDirty],
+  );
+
+  const executeTabAction = useCallback(
+    (action: { kind: "refresh" | "page" | "close"; tabId: string; page?: number }) => {
+      if (action.kind === "refresh") {
+        refreshTabPreviewNow(action.tabId);
+      } else if (action.kind === "page") {
+        goToPageNow(action.tabId, action.page ?? 0);
+      } else {
+        closeWorkspaceTab(action.tabId);
+      }
+    },
+    [refreshTabPreviewNow, goToPageNow, closeWorkspaceTab],
+  );
+
+  const confirmPendingCommit = useCallback(async () => {
+    if (!pendingTabAction) return;
+    const tabId = pendingTabAction.tabId;
+    setPendingTabAction(null);
+    try {
+      await commitTabDirty(tabId);
+    } catch {
+      // 提交失败时不清空 dirty，提示用户去处理
+      return;
+    }
+    executeTabAction(pendingTabAction);
+  }, [pendingTabAction, commitTabDirty, executeTabAction]);
+
+  const cancelPendingCommit = useCallback(() => {
+    if (!pendingTabAction) return;
+    setPendingTabAction(null);
+    executeTabAction(pendingTabAction);
+  }, [pendingTabAction, executeTabAction]);
+
   const handleCellEdit = useCallback(
     (tabId: string, cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
       setCellEdit({ tabId, column: cellInfo.column, row: cellInfo.row });
@@ -409,61 +637,209 @@ export function DatabasePanel() {
   );
 
   const handleCellSave = useCallback(
-    async (value: unknown) => {
+    (value: unknown) => {
       if (!cellEdit) return;
       const { tabId, column, row } = cellEdit;
-      const preview = tablePreviews[tabId];
-      if (!preview || !preview.connId || !preview.dbName || !preview.tableName) {
-        setCellEdit(null);
-        return;
-      }
-      const connection = connections.find((c) => c.id === preview.connId);
-      if (!connection) {
-        setCellEdit(null);
-        return;
-      }
       const colMeta = tableColumnMeta[tabId];
       if (!colMeta) {
         setCellEdit(null);
         return;
       }
-      // Build PK WHERE clause
       const pkCols = colMeta.filter((c) => c.isPk);
       if (pkCols.length === 0) {
         setCellEdit(null);
         return;
       }
-      const pkConditions = pkCols
-        .map((pk) => {
-          const val = row[pk.name];
-          if (val === null || val === undefined) return `${pk.name} IS NULL`;
-          if (typeof val === "number") return `${pk.name} = ${val}`;
-          return `${pk.name} = '${String(val).replace(/'/g, "\\'")}'`;
-        })
-        .join(" AND ");
-
-      const connForSchema = { ...connection, database: preview.dbName };
-      const escapedValue =
-        typeof value === "number"
-          ? String(value)
-          : value === null
-            ? "NULL"
-            : `'${String(value).replace(/'/g, "\\'")}'`;
-
-      const sql = `UPDATE \`${preview.tableName}\` SET \`${column}\` = ${escapedValue} WHERE ${pkConditions} LIMIT 1`;
-
-      try {
-        await invoke("db_execute_query", { connection: connForSchema, sql });
+      const originalValue = row[column];
+      const same =
+        originalValue === value ||
+        (originalValue == null && value === "") ||
+        (originalValue === "" && value == null) ||
+        (typeof originalValue === "number" &&
+          typeof value === "string" &&
+          String(originalValue) === value);
+      if (same) {
         setCellEdit(null);
-        // Refresh preview
-        refreshTablePreview(tabId, preview.connId, preview.dbName, preview.tableName);
-      } catch (e) {
-        console.error("Cell update failed:", e);
-        setCellEdit(null);
+        return;
       }
+      const rowKey = pkCols
+        .map((pk) => `${pk.name}=${row[pk.name] == null ? "" : String(row[pk.name])}`)
+        .join("&");
+      setTabDirtyRows((prev) => {
+        const cur = { ...(prev[tabId] ?? {}) };
+        const rowDirty = { ...(cur[rowKey] ?? {}) };
+        if (value === null || value === undefined) {
+          delete rowDirty[column];
+        } else {
+          rowDirty[column] = value;
+        }
+        if (Object.keys(rowDirty).length === 0) {
+          delete cur[rowKey];
+        } else {
+          cur[rowKey] = rowDirty;
+        }
+        if (Object.keys(cur).length === 0) {
+          const next = { ...prev };
+          delete next[tabId];
+          return next;
+        }
+        return { ...prev, [tabId]: cur };
+      });
+      setCellEdit(null);
     },
-    [cellEdit, tablePreviews, connections, tableColumnMeta, refreshTablePreview],
+    [cellEdit, tableColumnMeta],
   );
+
+  const handleContextTable = useCallback(
+    (selection: SchemaTableSelection, event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setTableCtxMenu({ x: event.clientX, y: event.clientY, selection });
+    },
+    [],
+  );
+
+  async function writeToClipboard(text: string): Promise<boolean> {
+    const clip = navigator.clipboard;
+    if (clip && typeof clip.writeText === "function") {
+      try {
+        await clip.writeText(text);
+        return true;
+      } catch (err) {
+        console.error("[clipboard] writeText failed, falling back", err);
+      }
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (err) {
+      console.error("[clipboard] execCommand failed", err);
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  const copyNameForCurrentTable = useCallback(() => {
+    const ctx = tableCtxMenu;
+    if (!ctx) return;
+    void writeToClipboard(`\`${ctx.selection.dbName}\`.\`${ctx.selection.tableName}\``);
+  }, [tableCtxMenu]);
+
+  const exportPreviewToCsv = useCallback(
+    async (tabId: string) => {
+      const preview = tablePreviews[tabId];
+      if (!preview?.data) return;
+      const { columns, rows } = preview.data;
+      const csv = toCsv(columns, rows);
+      const baseName = `${preview.dbName ?? "export"}_${preview.tableName ?? "result"}`;
+      const defaultName = `${baseName}_page${preview.page + 1}.csv`;
+      const filePath = await save({
+        title: t("database.results.exportCsv"),
+        defaultPath: defaultName,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+      if (!filePath) return;
+      await invoke("write_text_file", { path: filePath, contents: csv });
+    },
+    [tablePreviews, t],
+  );
+
+  const copyPreviewToClipboard = useCallback(
+    async (tabId: string) => {
+      const preview = tablePreviews[tabId];
+      if (!preview?.data) return;
+      const { columns, rows } = preview.data;
+      await writeToClipboard(toCsv(columns, rows));
+    },
+    [tablePreviews],
+  );
+
+  const [exportMenu, setExportMenu] = useState<
+    { x: number; y: number; tabId: string } | null
+  >(null);
+  const buildExportMenuItems = useCallback(() => {
+    const clipboardIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <rect x="5" y="5" width="9" height="9" rx="1.5" />
+        <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+      </svg>
+    );
+    const fileIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M3 2.5h7l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" />
+        <path d="M10 2.5V6h3" />
+      </svg>
+    );
+    return [
+      {
+        id: "export-clipboard",
+        label: t("database.results.exportToClipboard"),
+        icon: clipboardIcon,
+        onClick: () => {
+          const tabId = exportMenu?.tabId;
+          if (!tabId) return;
+          void copyPreviewToClipboard(tabId);
+        },
+      },
+      {
+        id: "export-file",
+        label: t("database.results.exportToFile"),
+        icon: fileIcon,
+        onClick: () => {
+          const tabId = exportMenu?.tabId;
+          if (!tabId) return;
+          void exportPreviewToCsv(tabId);
+        },
+      },
+    ];
+  }, [copyPreviewToClipboard, exportPreviewToCsv, exportMenu?.tabId, t]);
+
+  const copyDdlForCurrentTable = useCallback(() => {
+    const ctx = tableCtxMenu;
+    if (!ctx) return;
+    fetchTableDdl(ctx.selection.connection, ctx.selection.dbName, ctx.selection.tableName)
+      .then((ddl) => writeToClipboard(ddl))
+      .catch((err) => console.error("[db.copyDdl] fetchTableDdl failed", err));
+  }, [tableCtxMenu]);
+
+  const buildTableContextMenuItems = useCallback(() => {
+    const copyIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <rect x="5" y="5" width="9" height="9" rx="1.5" />
+        <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+      </svg>
+    );
+    return [
+      {
+        id: "copy",
+        label: t("database.contextMenu.copy"),
+        icon: copyIcon,
+        children: [
+          {
+            id: "copy-name",
+            label: t("database.contextMenu.copyName"),
+            onClick: copyNameForCurrentTable,
+          },
+          {
+            id: "copy-ddl",
+            label: t("database.contextMenu.copyDdl"),
+            onClick: copyDdlForCurrentTable,
+          },
+          {
+            id: "copy-data",
+            label: t("database.contextMenu.copyData"),
+            disabled: true,
+          },
+        ],
+      },
+    ];
+  }, [t, copyDdlForCurrentTable, copyNameForCurrentTable]);
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
@@ -529,44 +905,6 @@ export function DatabasePanel() {
     setActiveWorkspaceTabId(tabId);
     setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
   }, [activeConn?.database, workspaceTabs]);
-
-  const closeWorkspaceTab = useCallback((tabId: string) => {
-    setWorkspaceTabs((prev) => {
-      const idx = prev.findIndex((tab) => tab.id === tabId);
-      const next = prev.filter((tab) => tab.id !== tabId);
-      setActiveWorkspaceTabId((current) => {
-        if (current !== tabId) {
-          return current;
-        }
-        const fallback = next[Math.min(idx, Math.max(0, next.length - 1))];
-        return fallback?.id ?? "";
-      });
-      return next;
-    });
-    setSqlTabStates((prev) => {
-      if (!(tabId in prev)) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[tabId];
-      return next;
-    });
-    setTablePreviews((prev) => {
-      const next = { ...prev };
-      delete next[tabId];
-      return next;
-    });
-    setTableColumnMeta((prev) => {
-      const next = { ...prev };
-      delete next[tabId];
-      return next;
-    });
-    setTabModes((prev) => {
-      const next = { ...prev };
-      delete next[tabId];
-      return next;
-    });
-  }, []);
 
   const renameWorkspaceTab = useCallback((tabId: string, label: string) => {
     const nextLabel = label.trim();
@@ -760,20 +1098,26 @@ export function DatabasePanel() {
     tabs: workspaceTabs,
     activeTabId: activeWorkspaceTabId,
     setActiveTabId: setActiveWorkspaceTabId,
-    closeTab: closeWorkspaceTab,
+    closeTab: (tabId) => requestTabAction({ kind: "close", tabId }),
     runQuery,
     updateSqlTabState,
     refreshTablePreview,
     goToPage,
+    requestTabAction,
     handleCellEdit,
     sqlTabStates,
     tablePreviews,
     tableColumnMeta,
     tabModes,
     setTabMode: (id, mode) => setTabModes((prev) => ({ ...prev, [id]: mode })),
+    tabDirtyRows,
+    committingTabs,
+    commitTabDirty,
+    openExportMenu: (x: number, y: number, tabId: string) => setExportMenu({ x, y, tabId }),
     activeConn,
     groupConnections,
     databasesByConnId,
+    databasesForActiveConn,
     schemaByKey,
     schemaLoadingKey,
     setActiveConnId,
@@ -782,11 +1126,11 @@ export function DatabasePanel() {
     rowsToRecord,
     tabModeToEditorOpenMode,
   }), [
-    workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, closeWorkspaceTab,
+    workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, requestTabAction,
     runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit,
-    sqlTabStates, tablePreviews, tableColumnMeta, tabModes,
-    activeConn, groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey,
-    setActiveConnId, sqlCompletionSchemas, connectionForSql,
+    sqlTabStates, tablePreviews, tableColumnMeta, tabModes, tabDirtyRows, committingTabs,
+    commitTabDirty, activeConn, groupConnections, databasesByConnId, databasesForActiveConn,
+    schemaByKey, schemaLoadingKey, setActiveConnId, sqlCompletionSchemas, connectionForSql,
   ]);
 
   return (
@@ -799,6 +1143,7 @@ export function DatabasePanel() {
             onCreateConnection={() => setDialogOpen(true)}
             onNewQuery={openNewSqlTab}
             onSelectTable={handleSelectTable}
+            onContextTable={handleContextTable}
             activeTableKey={activeTableKey}
             refreshToken={schemaRefreshToken}
             groupFilter={activeGroupName}
@@ -810,7 +1155,7 @@ export function DatabasePanel() {
           tabs={workspaceTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
           activeTabId={activeWorkspaceTabId}
           onActiveTabChange={setActiveWorkspaceTabId}
-          onCloseTab={closeWorkspaceTab}
+          onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
           savedLayout={dockLayout}
           onSavedLayoutChange={setDockLayout}
           emptyContent={t("database.workspace.emptyTabs")}
@@ -841,6 +1186,60 @@ export function DatabasePanel() {
           onClose={() => setCtxMenu(null)}
         />
       )}
+      {tableCtxMenu && (
+        <ContextMenu
+          items={buildTableContextMenuItems()}
+          position={{ x: tableCtxMenu.x, y: tableCtxMenu.y }}
+          onClose={() => setTableCtxMenu(null)}
+        />
+      )}
+      {exportMenu && (
+        <ContextMenu
+          items={buildExportMenuItems()}
+          position={{ x: exportMenu.x, y: exportMenu.y }}
+          onClose={() => setExportMenu(null)}
+        />
+      )}
+      <Modal
+        open={pendingTabAction !== null}
+        onClose={cancelPendingCommit}
+      >
+        {pendingTabAction && (() => {
+          const dirtyCount = Object.keys(tabDirtyRows[pendingTabAction.tabId] ?? {}).length;
+          return (
+            <div className="warn-alert-dialog" role="alertdialog">
+              <div className="warn-alert-header">
+                <span className="warn-alert-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </span>
+                <h3 className="warn-alert-title">{t("database.results.dirtyTitle")}</h3>
+              </div>
+              <div className="warn-alert-body">
+                <p className="warn-alert-message">
+                  {t("database.results.dirtyMessage", { count: dirtyCount })}
+                </p>
+              </div>
+              <div className="warn-alert-footer">
+                <Button type="button" variant="secondary" onClick={cancelPendingCommit}>
+                  {t("database.results.dirtyRollback")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={confirmPendingCommit}
+                  disabled={committingTabs.has(pendingTabAction.tabId)}
+                >
+                  {t("database.results.dirtyCommit")}
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
       <SubWindow
         open={toolboxOpen}
         title={t("database.toolbox.open")}

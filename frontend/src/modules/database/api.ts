@@ -140,6 +140,18 @@ export async function introspectTable(
   });
 }
 
+export async function fetchTableDdl(
+  connection: DbConnectionConfig,
+  database: string,
+  table: string,
+): Promise<string> {
+  return invoke<string>("db_table_ddl", {
+    connection,
+    schema: database.trim() ? database.trim() : null,
+    table,
+  });
+}
+
 export async function listTables(
   connection: DbConnectionConfig,
   schema?: string

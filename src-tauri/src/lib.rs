@@ -31,6 +31,7 @@ fn export_ipc_bindings() {
         commands::database::db_introspect_schema,
         commands::database::db_introspect_table,
         commands::database::db_list_tables,
+        commands::database::db_table_ddl,
         commands::connection::conn_list,
         commands::connection::conn_save,
         commands::connection::conn_delete,
@@ -118,6 +119,14 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_pool_load_overview,
         commands::ssh::ssh_pool_release,
         commands::ssh::ssh_pool_fetch_stats,
+        commands::ssh::ssh_create_tunnel,
+        commands::ssh::ssh_close_tunnel,
+        commands::ssh::ssh_list_tunnels,
+        commands::ssh::ssh_list_keys,
+        commands::ssh::ssh_generate_key,
+        commands::ssh::ssh_import_key,
+        commands::ssh::ssh_delete_key,
+        commands::fileio::write_text_file,
         commands::updater::check_update,
         commands::updater::install_update,
         commands::knowledge::knowledge_list,
@@ -264,6 +273,10 @@ pub fn run() {
             // 启动 SSH 端口探测后台任务
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
 
+            if let Some(window) = app.get_webview_window("main") {
+                window.center().ok();
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -339,6 +352,7 @@ pub fn run() {
             commands::database::db_introspect_schema,
             commands::database::db_introspect_table,
             commands::database::db_list_tables,
+            commands::database::db_table_ddl,
             commands::database::db_preview_table,
             commands::database::db_count_table,
             commands::database::db_count_tables,
@@ -448,6 +462,8 @@ pub fn run() {
             commands::updater::install_update,
             // Backend logs
             commands::log::get_backend_logs,
+            // 通用文件 I/O（用户通过 dialog 授权路径后写入）
+            commands::fileio::write_text_file,
             commands::log::clear_backend_logs,
             // Knowledge（知识库）
             commands::knowledge::knowledge_list,

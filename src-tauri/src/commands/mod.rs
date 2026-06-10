@@ -3,6 +3,7 @@ pub mod connection;
 pub mod database;
 pub mod docker;
 pub mod exec;
+pub mod fileio;
 pub mod grpc;
 pub mod knowledge;
 pub mod log;

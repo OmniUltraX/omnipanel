@@ -1,0 +1,12 @@
+.claude
+.codegraph
+.cursor
+.opencode
+.vscode
+
+openspec
+
+.gitignore
+.stcignore
+
+/**/*.png

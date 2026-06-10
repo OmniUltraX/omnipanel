@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import {
@@ -69,6 +69,7 @@ interface TreeNodeProps {
   active?: boolean;
   onSelect?: () => void;
   onLabelClick?: () => void;
+  onContextMenu?: (e: ReactMouseEvent) => void;
 }
 
 function TreeNode({
@@ -84,6 +85,7 @@ function TreeNode({
   active,
   onSelect,
   onLabelClick,
+  onContextMenu,
 }: TreeNodeProps) {
   const indent = depth * 16 + 8;
 
@@ -91,6 +93,7 @@ function TreeNode({
     <div
       className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}`}
       style={{ paddingLeft: indent }}
+      onContextMenu={onContextMenu}
     >
       <span
         className={`tree-arrow${hasChildren ? "" : " tree-leaf"}${expanded ? " tree-arrow--open" : ""}`}
@@ -219,6 +222,7 @@ interface SchemaBrowserProps {
   onCreateConnection?: () => void;
   onNewQuery?: () => void;
   onSelectTable?: (selection: SchemaTableSelection) => void;
+  onContextTable?: (selection: SchemaTableSelection, event: ReactMouseEvent) => void;
   activeTableKey?: string | null;
   refreshToken?: number;
   groupFilter?: string;
@@ -228,6 +232,7 @@ export function SchemaBrowser({
   onCreateConnection,
   onNewQuery,
   onSelectTable,
+  onContextTable,
   activeTableKey = null,
   refreshToken = 0,
   groupFilter,
@@ -888,6 +893,20 @@ export function SchemaBrowser({
                                     tableName: tbl.name,
                                     connection: conn.config,
                                   })
+                                }
+                                onContextMenu={
+                                  onContextTable
+                                    ? (e) =>
+                                        onContextTable(
+                                          {
+                                            connId: conn.config.id,
+                                            dbName: db.name,
+                                            tableName: tbl.name,
+                                            connection: conn.config,
+                                          },
+                                          e,
+                                        )
+                                    : undefined
                                 }
                                 meta={
                                   tbl.loadingDetails

@@ -287,6 +287,183 @@ pub async fn db_introspect_table(
     }
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn db_table_ddl(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+    table: String,
+) -> Result<String, String> {
+    let db_name = schema
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| connection.database.clone());
+    if db_name.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+    if table.trim().is_empty() {
+        return Err("未指定数据表".to_string());
+    }
+
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => mysql_table_ddl(&connection, &db_name, table.trim()).await,
+        "postgresql" | "postgres" => pg_table_ddl(&connection, &db_name, table.trim()).await,
+        "sqlite" => sqlite_table_ddl(&connection, table.trim()),
+        _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
+    }
+}
+
+/// MySQL / MariaDB: `SHOW CREATE TABLE` 直接返回原始建表语句。
+async fn mysql_table_ddl(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table_name: &str,
+) -> Result<String, String> {
+    let pool = mysql_pool(connection).await?;
+    let row = sqlx::query(&format!(
+        "SHOW CREATE TABLE `{}`.`{}`",
+        db_name.replace('`', "``"),
+        table_name.replace('`', "``")
+    ))
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| format!("SHOW CREATE TABLE 失败: {e}"))?;
+    pool.close().await;
+
+    // SHOW CREATE TABLE 返回两列：Table 名称 + Create Table 语句
+    let create_sql: String = row.try_get(1).map_err(|e| format!("解码 DDL 失败: {e}"))?;
+    Ok(create_sql)
+}
+
+/// PostgreSQL: 拼接标准 DDL（PG 没有原生 `SHOW CREATE TABLE`）。
+async fn pg_table_ddl(
+    connection: &DbConnectionConfig,
+    _db_name: &str,
+    table_name: &str,
+) -> Result<String, String> {
+    let pool = pg_pool(connection).await?;
+    let ddl = pg_build_ddl(&pool, table_name).await?;
+    pool.close().await;
+    Ok(ddl)
+}
+
+async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String> {
+    let col_rows = sqlx::query(
+        "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, \
+         pg_get_expr(d.adbin, d.adrelid) AS default_expr \
+         FROM pg_attribute a \
+         JOIN pg_class c ON c.oid = a.attrelid \
+         JOIN pg_type t ON t.oid = a.atttypid \
+         LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
+         WHERE c.relname = $1 AND a.attnum > 0 AND NOT a.attisdropped \
+         ORDER BY a.attnum",
+    )
+    .bind(table_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG columns query failed: {e}"))?;
+
+    let pk_rows = sqlx::query(
+        "SELECT a.attname \
+         FROM pg_index i \
+         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) \
+         JOIN pg_class c ON c.oid = i.indrelid \
+         WHERE c.relname = $1 AND i.indisprimary \
+         ORDER BY array_position(i.indkey, a.attnum)",
+    )
+    .bind(table_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG pk query failed: {e}"))?;
+
+    let idx_rows = sqlx::query(
+        "SELECT i.relname AS index_name, \
+                array_agg(a.attname ORDER BY array_position(i.indkey, a.attnum)) AS cols, \
+                ix.indisunique AS is_unique \
+         FROM pg_index ix \
+         JOIN pg_class i ON i.oid = ix.indexrelid \
+         JOIN pg_class t ON t.oid = ix.indrelid \
+         JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey) \
+         WHERE t.relname = $1 AND NOT ix.indisprimary \
+         GROUP BY i.relname, ix.indisunique \
+         ORDER BY i.relname",
+    )
+    .bind(table_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG index query failed: {e}"))?;
+
+    if col_rows.is_empty() {
+        return Err(format!("PG 表 {table_name} 不存在或无字段"));
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    for row in &col_rows {
+        let name: String = row.try_get(0).unwrap_or_default();
+        let typ: String = row.try_get(1).unwrap_or_default();
+        let not_null: bool = row.try_get(2).unwrap_or(false);
+        let default_expr: Option<String> = row.try_get(3).ok();
+        let mut parts = vec![format!("\"{name}\" {typ}")];
+        if not_null {
+            parts.push("NOT NULL".to_string());
+        }
+        if let Some(d) = default_expr.filter(|s| !s.is_empty()) {
+            parts.push(format!("DEFAULT {d}"));
+        }
+        lines.push(format!("  {}", parts.join(" ")));
+    }
+
+    if !pk_rows.is_empty() {
+        let cols: Vec<String> = pk_rows
+            .iter()
+            .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
+            .collect();
+        lines.push(format!("  PRIMARY KEY ({})", cols.join(", ")));
+    }
+
+    let mut ddl = format!("CREATE TABLE \"{table_name}\" (\n{});\n", lines.join(",\n"));
+
+    for row in &idx_rows {
+        let name: String = row.try_get(0).unwrap_or_default();
+        let cols: Vec<String> = row.try_get::<Vec<String>, _>(1).unwrap_or_default();
+        let is_unique: bool = row.try_get(2).unwrap_or(false);
+        let unique = if is_unique { "UNIQUE " } else { "" };
+        ddl.push('\n');
+        ddl.push_str(&format!(
+            "CREATE {unique}INDEX \"{name}\" ON \"{table_name}\" ({});\n",
+            cols.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ")
+        ));
+    }
+
+    Ok(ddl)
+}
+
+/// SQLite: `sqlite_master.sql` 拿原始建表语句。
+fn sqlite_table_ddl(connection: &DbConnectionConfig, table_name: &str) -> Result<String, String> {
+    let path = connection.database.trim();
+    if path.is_empty() {
+        return Err("SQLite database path is empty".into());
+    }
+    let conn = rusqlite::Connection::open(path)
+        .map_err(|e| format!("SQLite open failed: {e}"))?;
+    let sql = format!(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='{}'",
+        table_name.replace('\'', "''")
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("SQLite prepare failed: {e}"))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| format!("SQLite query failed: {e}"))?;
+    if let Ok(Some(row)) = rows.next() {
+        let sql: Option<String> = row.get(0).map_err(|e| format!("row error: {e}"))?;
+        if let Some(s) = sql {
+            return Ok(s);
+        }
+    }
+    Err(format!("SQLite 表 {table_name} 不存在或无建表语句"))
+}
+
 async fn introspect_mysql_schema(
     connection: &DbConnectionConfig,
     db_name: &str,

@@ -23,6 +23,7 @@ export const commands = {
 	dbIntrospectSchema: (connection: DbConnectionConfig, schema: string | null) => typedError<DbIntrospectResult, string>(__TAURI_INVOKE("db_introspect_schema", { connection, schema })),
 	dbIntrospectTable: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<DbTableSchema, string>(__TAURI_INVOKE("db_introspect_table", { connection, schema, table })),
 	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
+	dbTableDdl: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<string, string>(__TAURI_INVOKE("db_table_ddl", { connection, schema, table })),
 	/**  列出全部已保存连接。 */
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
 	/**  保存（新建或更新）连接。id 为空时后端生成。 */
@@ -202,6 +203,30 @@ export const commands = {
 	sshPoolRelease: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_release", { resourceId })),
 	/**  监控页：复用连接池会话，仅拉取系统指标。 */
 	sshPoolFetchStats: (resourceId: string) => typedError<HostSystemStats, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_fetch_stats", { resourceId })),
+	/**
+	 *  创建 SSH 隧道（端口转发）。
+	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行。
+	 */
+	sshCreateTunnel: (connectionId: string, tunnelType: string, localPort: number, remoteHost: string, remotePort: number) => typedError<SshTunnelInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_create_tunnel", { connectionId, tunnelType, localPort, remoteHost, remotePort })),
+	/**  关闭 SSH 隧道。 */
+	sshCloseTunnel: (tunnelId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_close_tunnel", { tunnelId })),
+	/**  列出活跃隧道。 */
+	sshListTunnels: () => typedError<SshTunnelInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_tunnels")),
+	/**  列出本地 ~/.ssh/ 下的密钥。 */
+	sshListKeys: () => typedError<SshKeyInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_keys")),
+	/**  生成 SSH 密钥对。 */
+	sshGenerateKey: (keyType: string, bits: number | null, comment: string, passphrase: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_generate_key", { keyType, bits, comment, passphrase })),
+	/**  导入 SSH 私钥（写入 ~/.ssh/ 目录）。 */
+	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
+	/**  删除 SSH 密钥。 */
+	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
+	/**
+	 *  将文本写入用户通过 `plugin-dialog::save` 选择的任意路径。
+	 * 
+	 *  Tauri 2 的 `plugin-fs` 默认只允许在 capability scope 内的目录写入；本命令直接调用 std::fs
+	 *  绕开范围限制，调用方必须已通过 save dialog 拿到用户明确授权的路径。
+	 */
+	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
 	checkUpdate: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("check_update")),
 	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
 	/**  列出知识条目（可选按 kind / tag 过滤）。 */
@@ -1150,6 +1175,15 @@ export type SshHostOverview = {
 	processes: SshProcessInfo[],
 };
 
+/**  SSH 密钥信息。 */
+export type SshKeyInfo = {
+	name: string,
+	keyType: string,
+	path: string,
+	fingerprint: string,
+	comment: string,
+};
+
 /**  远程进程信息（ps aux 解析结果）。 */
 export type SshProcessInfo = {
 	user: string,
@@ -1162,6 +1196,18 @@ export type SshProcessInfo = {
 	start: string,
 	time: string,
 	command: string,
+};
+
+/**  隧道信息。 */
+export type SshTunnelInfo = {
+	id: string,
+	connectionId: string,
+	tunnelType: TunnelType,
+	localPort: number,
+	remoteHost: string,
+	remotePort: number,
+	status: string,
+	startedAt: number | null,
 };
 
 export type StepStatus = "ready" | "pending" | "running" | "passed" | "failed" | "skipped";
@@ -1195,6 +1241,9 @@ export type TaskSource = "user" | "ai" | "system";
 export type TaskStatus = "draft" | "blocked" | "confirmed" | "running" | "completed" | "failed" | "cancelled";
 
 export type TaskType = "terminal" | "sql" | "docker" | "server" | "ssh" | "ai" | "workflow";
+
+/**  隧道类型。 */
+export type TunnelType = "local" | "remote" | "dynamic";
 
 export type UpdateInfo = {
 	available: boolean,

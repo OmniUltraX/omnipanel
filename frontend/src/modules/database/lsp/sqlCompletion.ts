@@ -115,6 +115,13 @@ export function buildTableActionSnippets(
       insertText: `INSERT INTO ${qualifiedTable} (${insertColList})\nVALUES (${insertValues});`,
       snippet: true,
     },
+    {
+      label: "delete",
+      kind: KEYWORD_KIND,
+      detail: "生成 DELETE 语句",
+      insertText: `DELETE FROM ${qualifiedTable}\nWHERE \${1:1=1};`,
+      snippet: true,
+    },
   ];
 }
 
