@@ -39,22 +39,42 @@ interface Props {
   protocol: ProtocolKind;
 }
 
+/** 带标题行 + 新建按钮的侧栏头部 */
+function SidebarHeader({ title, onNew }: { title: string; onNew?: () => void }) {
+  return (
+    <div className="proto-sidebar-header">
+      <span className="proto-sidebar-title">{title}</span>
+      {onNew && (
+        <button type="button" className="proto-sidebar-new" onClick={onNew} title="新建">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
+            <line x1="8" y1="3" x2="8" y2="13" />
+            <line x1="3" y1="8" x2="13" y2="8" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ProtocolContextSidebar({ protocol }: Props) {
   const { t } = useI18n();
 
   if (protocol === "http") {
     return (
       <aside className="proto-sidebar">
-        <div className="proto-section-title">{t("protocol.sidebar.history")}</div>
+        <SidebarHeader title={t("protocol.sidebar.history")} onNew={() => {}} />
         {HTTP_HISTORY.map((item) => (
           <div key={`${item.method}-${item.url}`} className="history-item">
-            <span className={`h-method ${methodClass(item.method)}`}>
-              {item.method === "DELETE" ? "DEL" : item.method}
-            </span>
-            <span className="h-url">{item.url}</span>
-            <span className="h-time">
-              {item.status} · {item.time}
-            </span>
+            <div className="history-item-main">
+              <span className={`h-method ${methodClass(item.method)}`}>
+                {item.method === "DELETE" ? "DEL" : item.method}
+              </span>
+              <span className="h-url">{item.url}</span>
+            </div>
+            <div className="history-item-meta">
+              <span className={`h-status ${Number(item.status) < 400 ? "h-status-ok" : "h-status-err"}`}>{item.status}</span>
+              <span className="h-time">{item.time}</span>
+            </div>
           </div>
         ))}
       </aside>
@@ -64,7 +84,7 @@ export function ProtocolContextSidebar({ protocol }: Props) {
   if (protocol === "ws") {
     return (
       <aside className="proto-sidebar">
-        <div className="proto-section-title">{t("protocol.sidebar.endpoints")}</div>
+        <SidebarHeader title={t("protocol.sidebar.endpoints")} onNew={() => {}} />
         {WS_SESSIONS.map((session) => (
           <button key={session.name} type="button" className="proto-context-item">
             <span className={`status-dot ${session.status === "online" ? "online" : "offline"}`} />
@@ -81,7 +101,7 @@ export function ProtocolContextSidebar({ protocol }: Props) {
   if (protocol === "mqtt") {
     return (
       <aside className="proto-sidebar">
-        <div className="proto-section-title">{t("protocol.sidebar.topics")}</div>
+        <SidebarHeader title={t("protocol.sidebar.topics")} onNew={() => {}} />
         <div className="proto-sidebar-tags">
           {MQTT_TOPICS.map((item) => (
             <span key={item.topic} className="mqtt-topic">
@@ -100,7 +120,7 @@ export function ProtocolContextSidebar({ protocol }: Props) {
   if (protocol === "sniffer") {
     return (
       <aside className="proto-sidebar">
-        <div className="proto-section-title">Capture Filters</div>
+        <SidebarHeader title="Capture Filters" />
         {[
           { label: "All Traffic", filter: "" },
           { label: "HTTP (tcp/80)", filter: "tcp port 80" },
@@ -124,7 +144,7 @@ export function ProtocolContextSidebar({ protocol }: Props) {
 
   return (
     <aside className="proto-sidebar">
-      <div className="proto-section-title">{t("protocol.sidebar.ports")}</div>
+      <SidebarHeader title={t("protocol.sidebar.ports")} onNew={() => {}} />
       {SERIAL_PORTS.map((item) => (
         <button key={item.port} type="button" className="proto-context-item">
           <span className="proto-context-body">

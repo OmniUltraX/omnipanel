@@ -69,6 +69,3 @@ function global:OmniPanel-Prompt {
 
     $promptText
 }
-
-# 输出首个交互提示符（PTY 首屏）
-[Console]::Write((OmniPanel-Prompt))

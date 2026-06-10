@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
+import { SidebarSecondary } from "../../components/ui/SidebarSecondary";
 
 interface KVPair {
   key: string;
@@ -140,8 +141,6 @@ export function HttpPanel() {
   const [showNewCollection, setShowNewCollection] = useState(false);
   const [saveRequestName, setSaveRequestName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   // ─── Load history & collections ───
   const loadHistory = useCallback(async () => {
     try {
@@ -349,366 +348,145 @@ export function HttpPanel() {
 
   const tabs: ReqTab[] = ["params", "headers", "body", "auth", "scripts"];
 
-  return (
-    <div className="http-panel" style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* ─── Left Sidebar ─── */}
-      {!sidebarCollapsed && (
-        <div
-          style={{
-            width: "240px",
-            minWidth: "200px",
-            borderRight: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            background: "var(--bg-sidebar, var(--bg-secondary))",
-            flexShrink: 0,
-            overflow: "hidden",
-          }}
+  const sidebarContent = (
+    <>
+      {/* Side tabs */}
+      <div className="proto-sidebar-header">
+        <button
+          onClick={() => setSideTab("history")}
+          className={`proto-tab-btn${sideTab === "history" ? " is-active" : ""}`}
         >
-          {/* Side tabs */}
-          <div
-            style={{
-              display: "flex",
-              borderBottom: "1px solid var(--border)",
-              flexShrink: 0,
-            }}
-          >
-            <button
-              onClick={() => setSideTab("history")}
-              style={{
-                flex: 1,
-                padding: "8px 0",
-                fontSize: "12px",
-                fontWeight: sideTab === "history" ? 600 : 400,
-                color: sideTab === "history" ? "var(--accent)" : "var(--text-dim)",
-                background: "none",
-                border: "none",
-                borderBottom: sideTab === "history" ? "2px solid var(--accent)" : "2px solid transparent",
-                cursor: "pointer",
-              }}
-            >
-              {t("protocol.http.history") || "History"}
-            </button>
-            <button
-              onClick={() => setSideTab("collections")}
-              style={{
-                flex: 1,
-                padding: "8px 0",
-                fontSize: "12px",
-                fontWeight: sideTab === "collections" ? 600 : 400,
-                color: sideTab === "collections" ? "var(--accent)" : "var(--text-dim)",
-                background: "none",
-                border: "none",
-                borderBottom: sideTab === "collections" ? "2px solid var(--accent)" : "2px solid transparent",
-                cursor: "pointer",
-              }}
-            >
-              {t("protocol.http.collections") || "Collections"}
+          {t("protocol.http.history") || "History"}
+        </button>
+        <button
+          onClick={() => setSideTab("collections")}
+          className={`proto-tab-btn${sideTab === "collections" ? " is-active" : ""}`}
+        >
+          {t("protocol.http.collections") || "Collections"}
+        </button>
+      </div>
+
+      {/* History list */}
+      {sideTab === "history" && (
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "6px 8px", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+            <button onClick={clearHistory} className="proto-link-danger">
+              {t("protocol.http.clearHistory") || "Clear"}
             </button>
           </div>
-
-          {/* History list */}
-          {sideTab === "history" && (
-            <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  padding: "6px 8px",
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  flexShrink: 0,
-                }}
-              >
-                <button
-                  onClick={clearHistory}
-                  style={{
-                    fontSize: "11px",
-                    color: "var(--danger, #f44336)",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: "2px 6px",
-                  }}
-                >
-                  {t("protocol.http.clearHistory") || "Clear"}
-                </button>
-              </div>
-              {history.length === 0 && (
-                <div style={{ padding: "20px 12px", textAlign: "center", color: "var(--text-dim)", fontSize: "12px" }}>
-                  {t("protocol.http.noHistory") || "No history yet"}
-                </div>
-              )}
-              {history.map((entry) => (
-                <div
-                  key={entry.id}
-                  onClick={() => clickHistory(entry)}
-                  style={{
-                    padding: "6px 10px",
-                    cursor: "pointer",
-                    borderBottom: "1px solid var(--border-light, var(--border))",
-                    fontSize: "12px",
-                    lineHeight: "1.4",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover, rgba(255,255,255,0.04))")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: "10px",
-                        color: methodColor(entry.method),
-                        minWidth: "36px",
-                      }}
-                    >
-                      {entry.method}
-                    </span>
-                    {entry.statusCode && (
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          color: statusColor(entry.statusCode),
-                          fontWeight: 500,
-                        }}
-                      >
-                        {entry.statusCode}
-                      </span>
-                    )}
-                    {entry.responseTimeMs != null && (
-                      <span style={{ fontSize: "10px", color: "var(--text-dim)", marginLeft: "auto" }}>
-                        {entry.responseTimeMs}ms
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      color: "var(--text-secondary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontSize: "11px",
-                    }}
-                  >
-                    {entry.url}
-                  </div>
-                  <div style={{ fontSize: "10px", color: "var(--text-dim)", marginTop: "1px" }}>
-                    {formatDate(entry.createdAt)} {formatTime(entry.createdAt)}
-                  </div>
-                </div>
-              ))}
+          {history.length === 0 && (
+            <div className="proto-empty">
+              {t("protocol.http.noHistory") || "No history yet"}
             </div>
           )}
-
-          {/* Collections list */}
-          {sideTab === "collections" && (
-            <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  padding: "6px 8px",
-                  display: "flex",
-                  gap: "4px",
-                  flexShrink: 0,
-                }}
-              >
-                {showNewCollection ? (
-                  <div style={{ display: "flex", gap: "4px", width: "100%" }}>
-                    <input
-                      value={newCollectionName}
-                      onChange={(e) => setNewCollectionName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && createCollection()}
-                      placeholder={t("protocol.http.collectionName") || "Name..."}
-                      style={{
-                        flex: 1,
-                        fontSize: "11px",
-                        padding: "3px 6px",
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "4px",
-                        color: "var(--text)",
-                        outline: "none",
-                      }}
-                      autoFocus
-                    />
-                    <button
-                      onClick={createCollection}
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--accent)",
-                        background: "none",
-                        border: "1px solid var(--accent)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        padding: "2px 6px",
-                      }}
-                    >
-                      ✓
-                    </button>
-                    <button
-                      onClick={() => { setShowNewCollection(false); setNewCollectionName(""); }}
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-dim)",
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowNewCollection(true)}
-                    className="btn btn-ghost btn-sm"
-                    style={{ fontSize: "11px", width: "100%", justifyContent: "center" }}
-                  >
-                    + {t("protocol.http.newCollection") || "New Collection"}
-                  </button>
+          {history.map((entry) => (
+            <div key={entry.id} onClick={() => clickHistory(entry)} className="history-item">
+              <div className="history-item-main">
+                <span className="h-method" style={{ color: methodColor(entry.method) }}>
+                  {entry.method}
+                </span>
+                <span className="h-url">{entry.url}</span>
+              </div>
+              <div className="history-item-meta">
+                {entry.statusCode && (
+                  <span className={`h-status ${entry.statusCode < 400 ? "h-status-ok" : "h-status-err"}`}>
+                    {entry.statusCode}
+                  </span>
+                )}
+                {entry.responseTimeMs != null && (
+                  <span className="h-time">{entry.responseTimeMs}ms</span>
                 )}
               </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-              {/* Collection: all requests (unfiltered) */}
-              <div
-                onClick={() => setActiveCollectionId(null)}
-                style={{
-                  padding: "6px 10px",
-                  cursor: "pointer",
-                  fontSize: "12px",
-                  fontWeight: activeCollectionId === null ? 600 : 400,
-                  color: activeCollectionId === null ? "var(--accent)" : "var(--text)",
-                  borderBottom: "1px solid var(--border-light, var(--border))",
-                  background: activeCollectionId === null ? "var(--bg-hover, rgba(255,255,255,0.04))" : "transparent",
-                }}
-              >
-                📁 {t("protocol.http.allRequests") || "All Requests"}
+      {/* Collections list */}
+      {sideTab === "collections" && (
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "6px 8px", display: "flex", gap: "4px", flexShrink: 0 }}>
+            {showNewCollection ? (
+              <div style={{ display: "flex", gap: "4px", width: "100%" }}>
+                <input
+                  value={newCollectionName}
+                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && createCollection()}
+                  placeholder={t("protocol.http.collectionName") || "Name..."}
+                  className="proto-input-sm"
+                  autoFocus
+                />
+                <button onClick={createCollection} className="proto-icon-btn-accent">✓</button>
+                <button onClick={() => { setShowNewCollection(false); setNewCollectionName(""); }} className="proto-icon-btn">✕</button>
               </div>
+            ) : (
+              <button onClick={() => setShowNewCollection(true)} className="proto-sidebar-action" style={{ width: "100%", justifyContent: "center" }}>
+                + {t("protocol.http.newCollection") || "New Collection"}
+              </button>
+            )}
+          </div>
 
-              {collections.map((col) => (
-                <div key={col.id}>
-                  <div
-                    onClick={() => setActiveCollectionId(col.id)}
-                    style={{
-                      padding: "6px 10px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                      fontWeight: activeCollectionId === col.id ? 600 : 400,
-                      color: activeCollectionId === col.id ? "var(--accent)" : "var(--text)",
-                      borderBottom: "1px solid var(--border-light, var(--border))",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      background: activeCollectionId === col.id ? "var(--bg-hover, rgba(255,255,255,0.04))" : "transparent",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (activeCollectionId !== col.id)
-                        e.currentTarget.style.background = "var(--bg-hover, rgba(255,255,255,0.04))";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (activeCollectionId !== col.id)
-                        e.currentTarget.style.background = "transparent";
-                    }}
-                  >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      📁 {col.name}
+          <div
+            onClick={() => setActiveCollectionId(null)}
+            className={`proto-context-item${activeCollectionId === null ? " is-active" : ""}`}
+          >
+            📁 {t("protocol.http.allRequests") || "All Requests"}
+          </div>
+
+          {collections.map((col) => (
+            <div key={col.id}>
+              <div
+                onClick={() => setActiveCollectionId(col.id)}
+                className={`proto-context-item${activeCollectionId === col.id ? " is-active" : ""}`}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  📁 {col.name}
+                </span>
+                <span
+                  onClick={(e) => { e.stopPropagation(); deleteCollection(col.id); }}
+                  className="proto-delete-btn"
+                >
+                  ✕
+                </span>
+              </div>
+            </div>
+          ))}
+
+          {savedRequests.length > 0 && (
+            <div style={{ borderTop: "1px solid var(--border)", marginTop: "4px" }}>
+              <div style={{ padding: "6px 10px", fontSize: "11px", color: "var(--meta)", fontWeight: 600 }}>
+                {t("protocol.http.savedRequests") || "Saved Requests"} ({savedRequests.length})
+              </div>
+              {savedRequests.map((req) => (
+                <div
+                  key={req.id}
+                  onClick={() => clickSavedRequest(req)}
+                  className="history-item"
+                >
+                  <div className="history-item-main">
+                    <span className="h-method" style={{ color: methodColor(req.method) }}>
+                      {req.method}
                     </span>
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteCollection(col.id);
-                      }}
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--text-dim)",
-                        cursor: "pointer",
-                        padding: "0 4px",
-                        opacity: 0.6,
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.6")}
-                    >
-                      ✕
-                    </span>
+                    <span className="h-url">{req.name}</span>
                   </div>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); deleteSavedRequest(req.id); }}
+                    className="proto-delete-btn"
+                  >
+                    ✕
+                  </span>
                 </div>
               ))}
-
-              {/* Saved requests in selected collection */}
-              {savedRequests.length > 0 && (
-                <div style={{ borderTop: "1px solid var(--border)", marginTop: "4px" }}>
-                  <div style={{ padding: "6px 10px", fontSize: "11px", color: "var(--text-dim)", fontWeight: 600 }}>
-                    {t("protocol.http.savedRequests") || "Saved Requests"} ({savedRequests.length})
-                  </div>
-                  {savedRequests.map((req) => (
-                    <div
-                      key={req.id}
-                      onClick={() => clickSavedRequest(req)}
-                      style={{
-                        padding: "5px 10px",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        borderBottom: "1px solid var(--border-light, var(--border))",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover, rgba(255,255,255,0.04))")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: "10px", color: methodColor(req.method), minWidth: "36px" }}>
-                        {req.method}
-                      </span>
-                      <span
-                        style={{
-                          flex: 1,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          fontSize: "11px",
-                        }}
-                      >
-                        {req.name}
-                      </span>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteSavedRequest(req.id);
-                        }}
-                        style={{ fontSize: "10px", color: "var(--text-dim)", cursor: "pointer", padding: "0 2px", opacity: 0.5 }}
-                        onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                        onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-                      >
-                        ✕
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
       )}
+    </>
+  );
 
-      {/* ─── Sidebar toggle ─── */}
-      <div
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        style={{
-          width: "16px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          borderRight: "1px solid var(--border)",
-          background: "var(--bg-secondary)",
-          color: "var(--text-dim)",
-          fontSize: "10px",
-          flexShrink: 0,
-          userSelect: "none",
-        }}
-        title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-      >
-        {sidebarCollapsed ? "»" : "«"}
-      </div>
-
-      {/* ─── Main content ─── */}
+  return (
+    <SidebarSecondary sidebar={sidebarContent} className="http-panel" sidebarSizePx={240} sidebarMinPx={180}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto", padding: "var(--sp-3)" }}>
         {/* Request builder */}
         <div className="http-builder">
@@ -969,6 +747,6 @@ export function HttpPanel() {
           </div>
         )}
       </div>
-    </div>
+    </SidebarSecondary>
   );
 }

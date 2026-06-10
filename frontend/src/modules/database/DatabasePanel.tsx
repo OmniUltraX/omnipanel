@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { DockLayout, DockHandle, DockPanel } from "../../components/dock";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import { Select } from "../../components/ui/Select";
 import { SchemaBrowser, type SchemaTableSelection } from "./SchemaBrowser";
 import { ConnectionDialog } from "./ConnectionDialog";
-import { TableDataGrid } from "./TableDataGrid";
 import { ContextMenu } from "../../components/ui/ContextMenu";
-import { buildTabCloseMenuItems } from "../../components/ui/contextMenuItems";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
@@ -18,7 +15,6 @@ import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
-import { SqlEditor, type SqlEditorOpenMode } from "./SqlEditor";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import {
   connectionMatchesGroup,
@@ -31,7 +27,6 @@ import {
   previewTable,
   type DbColumnMeta,
   type DbConnectionConfig,
-  type TablePreviewResult,
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
 import { toCsv } from "./csvExport";
@@ -43,64 +38,22 @@ import {
   type SqlWorkspaceTab,
 } from "./workspaceTabs";
 import { CellEditorDialog } from "./cell_editor";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { SubWindow } from "../../components/ui/SubWindow";
 import { useDbToolboxStore } from "../../stores/dbToolboxStore";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
-
-const DEFAULT_SQL = `SELECT 1;`;
-
-/** db_execute_query 的返回结构（serde camelCase）。 */
-interface QueryResult {
-  columns: string[];
-  rows: unknown[][];
-  rowsAffected: number;
-}
-
-type TablePreviewState = {
-  loading: boolean;
-  error: string | null;
-  data: TablePreviewResult | null;
-  totalRows: number;
-  page: number;
-  pageSize: number;
-  connId?: string;
-  dbName?: string;
-  tableName?: string;
-};
-
-const DEFAULT_PAGE_SIZE = 100;
-
-function createDefaultTablePreviewState(): TablePreviewState {
-  return { loading: false, error: null, data: null, totalRows: 0, page: 0, pageSize: DEFAULT_PAGE_SIZE };
-}
-
-type SqlTabState = {
-  sql: string;
-  database: string;
-  /** 上次光标位置，表预览模式无编辑器焦点时 ⌘+Enter 用此 offset 取语句。 */
-  cursorOffset: number;
-  result: QueryResult | null;
-  error: string | null;
-  elapsed: number | null;
-  running: boolean;
-};
-
-function createDefaultSqlTabState(database = ""): SqlTabState {
-  return {
-    sql: DEFAULT_SQL,
-    database,
-    cursorOffset: 0,
-    result: null,
-    error: null,
-    elapsed: null,
-    running: false,
-  };
-}
-
-function tabModeToEditorOpenMode(mode: "data" | "sql"): SqlEditorOpenMode {
-  return mode === "data" ? "table" : "query";
-}
+import {
+  createDefaultSqlTabState,
+  createDefaultTablePreviewState,
+  rowsToRecord,
+  tabModeToEditorOpenMode,
+  type SqlTabState,
+  type TablePreviewState,
+  type QueryResult,
+} from "./dbWorkspaceState";
+import { DbPanelSurface } from "./DbPanelSurface";
+import { DockableWorkspace } from "../../components/dock";
+import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
+import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
 const INITIAL_SQL_TAB: SqlWorkspaceTab = {
@@ -109,15 +62,6 @@ const INITIAL_SQL_TAB: SqlWorkspaceTab = {
   label: makeSqlTabLabel(1),
 };
 
-function rowsToRecord(columns: string[], rows: unknown[][]): Record<string, unknown>[] {
-  return rows.map((row) => {
-    const obj: Record<string, unknown> = {};
-    for (let i = 0; i < columns.length; i++) {
-      obj[columns[i]] = row[i];
-    }
-    return obj;
-  });
-}
 
 /** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL。 */
 function readRowKeyValue(rowKey: string, colName: string): string {
@@ -186,6 +130,8 @@ export function DatabasePanel() {
   >(null);
   const toolboxOpen = useDbToolboxStore((s) => s.open);
   const setToolboxOpen = useDbToolboxStore((s) => s.setOpen);
+  const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
+  const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
   const activeGroupName = useMemo(
     () => getGroupName(activeGroupId),
@@ -960,14 +906,54 @@ export function DatabasePanel() {
     setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
   }, [activeConn?.database, workspaceTabs]);
 
+  const renameWorkspaceTab = useCallback((tabId: string, label: string) => {
+    const nextLabel = label.trim();
+    if (!nextLabel) return;
+    setWorkspaceTabs((prev) =>
+      prev.map((tab) => (tab.id === tabId ? { ...tab, label: nextLabel } : tab)),
+    );
+  }, []);
+
+  const handleRenameTab = useCallback(
+    async (tabId: string) => {
+      const tab = workspaceTabs.find((item) => item.id === tabId);
+      if (!tab) return;
+
+      const name = await quickInput({
+        title: t("database.workspace.renameTabTitle"),
+        subtitle: t("shell.topbar.rename"),
+        placeholder: t("database.workspace.renameTabPlaceholder"),
+        defaultValue: tab.label,
+        validate: (value) => {
+          if (!value.trim()) {
+            return t("database.workspace.renameTabRequired");
+          }
+          return null;
+        },
+      });
+
+      if (name) {
+        renameWorkspaceTab(tabId, name);
+      }
+    },
+    [workspaceTabs, t, renameWorkspaceTab],
+  );
+
   const handleContextAction = useCallback(
-    (action: "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll") => {
+    (action: TabContextMenuAction) => {
       if (!ctxMenu) return;
       const idx = ctxMenu.index;
       const tabList = workspaceTabs;
+      const { tabId } = ctxMenu;
+
+      if (action === "rename") {
+        setCtxMenu(null);
+        void handleRenameTab(tabId);
+        return;
+      }
 
       if (action === "close") {
-        closeWorkspaceTab(ctxMenu.tabId);
+        closeWorkspaceTab(tabId);
       } else if (action === "closeLeft") {
         for (let i = idx - 1; i >= 0; i--) closeWorkspaceTab(tabList[i].id);
       } else if (action === "closeRight") {
@@ -981,7 +967,7 @@ export function DatabasePanel() {
       }
       setCtxMenu(null);
     },
-    [ctxMenu, workspaceTabs, closeWorkspaceTab],
+    [ctxMenu, workspaceTabs, closeWorkspaceTab, handleRenameTab],
   );
 
 
@@ -1108,316 +1094,47 @@ export function DatabasePanel() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [activeWorkspaceTabId, sqlTabStates, runQuery]);
 
-  const renderSqlPane = (tab: SqlWorkspaceTab) => {
-    const tabState = sqlTabStates[tab.id] ?? createDefaultSqlTabState();
-    const preview = tablePreviews[tab.id];
-    const colMeta = tableColumnMeta[tab.id];
-    const mode = tabModes[tab.id] ?? "sql";
-
-    const schemaKey =
-      activeConn && tabState.database.trim()
-        ? `${activeConn.id}:${tabState.database}`
-        : null;
-    const schemaLoading = schemaKey !== null && schemaLoadingKey === schemaKey;
-
-    const resultRows = tabState.result ? rowsToRecord(tabState.result.columns, tabState.result.rows) : [];
-    const rowCount = resultRows.length;
-
-    const canRefresh = preview?.connId && preview?.dbName && preview?.tableName;
-    const isPreviewTab = !!(preview?.connId);
-    const hasSqlQueryOutput = !isPreviewTab && !!(tabState.result || tabState.error);
-
-    const dismissSqlResults = () => {
-      updateSqlTabState(tab.id, { result: null, error: null, elapsed: null });
-    };
-
-    const editorContent = (
-      <div className="db-editor-area">
-        <div className="sql-toolbar">
-          <Select
-            className="db-select"
-            value={activeConn?.id ?? ""}
-            onChange={(v) => setActiveConnId(v || null)}
-            disabled={groupConnections.length === 0}
-            title={t("database.workspace.connection")}
-            searchable={false}
-            placeholder={t("database.results.noConnection")}
-            options={
-              groupConnections.length === 0
-                ? [{ value: "", label: t("database.results.noConnection"), disabled: true }]
-                : groupConnections.map((conn) => ({ value: conn.id, label: conn.name }))
-            }
-          />
-          <Select
-            className="db-select"
-            value={tabState.database}
-            onChange={(v) => updateSqlTabState(tab.id, { database: v })}
-            disabled={!activeConn || databasesForActiveConn.length === 0}
-            title={t("database.workspace.database")}
-            searchable={false}
-            placeholder={t("database.workspace.noDatabase")}
-            options={
-              !activeConn || databasesForActiveConn.length === 0
-                ? [{ value: "", label: t("database.workspace.noDatabase"), disabled: true }]
-                : databasesForActiveConn.map((dbName) => ({ value: dbName, label: dbName }))
-            }
-          />
-          {schemaLoading && (
-            <span className="sql-toolbar-meta">{t("common.loading")}</span>
-          )}
-          <Button
-            variant="primary"
-            size="sm"
-            style={{ marginLeft: "auto" }}
-            onClick={() => void runQuery()}
-            disabled={
-              tabState.running || !connectionForSql || !tabState.database.trim()
-            }
-          >
-            {tabState.running ? t("database.running") : t("database.runSql")}
-          </Button>
-        </div>
-        <SqlEditor
-          key={tab.id}
-          openMode={tabModeToEditorOpenMode(mode)}
-          value={tabState.sql}
-          onChange={(value) => updateSqlTabState(tab.id, { sql: value })}
-          onCursorOffsetChange={(cursorOffset) =>
-            updateSqlTabState(tab.id, { cursorOffset })
-          }
-          onRun={(sql) => void runQuery(sql, tab.id)}
-          schemas={sqlCompletionSchemas}
-        />
-      </div>
-    );
-
-    const resultsContent = (
-      <div className="results-area db-sql-results">
-        <div className="results-header">
-          <h3 style={{ marginRight: "auto" }}>
-            {isPreviewTab ? tab.label : t("database.results.preview")}
-          </h3>
-          {isPreviewTab && canRefresh && (
-            <Button
-              variant="icon"
-              style={{ marginLeft: "var(--sp-2)" }}
-              title="Refresh"
-              disabled={preview!.loading}
-              onClick={() => requestTabAction({ kind: "refresh", tabId: tab.id })}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                <path d="M23 4v6h-6M1 20v-6h6" />
-                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-              </svg>
-            </Button>
-          )}
-          {isPreviewTab && preview?.data && !preview.loading && canRefresh && (
-            <span className="results-meta" style={{ marginLeft: "var(--sp-2)" }}>
-              {preview!.page * preview!.pageSize + 1}–
-              {Math.min((preview!.page + 1) * preview!.pageSize, preview!.totalRows)}
-              {" / "}
-              {preview!.totalRows.toLocaleString()}
-            </span>
-          )}
-          {isPreviewTab && preview?.data && !preview.loading && canRefresh && (
-            <Button
-              variant="icon"
-              style={{ marginLeft: "var(--sp-2)" }}
-              title={t("database.results.exportCsv")}
-              aria-label={t("database.results.exportCsv")}
-              onClick={(e) => {
-                setExportMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
-              }}
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                width="14"
-                height="14"
-                aria-hidden
-              >
-                <path d="M8 1.5v9" strokeLinecap="round" />
-                <path d="M4.5 7L8 10.5 11.5 7" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M2.5 13h11" strokeLinecap="round" />
-              </svg>
-            </Button>
-          )}
-          {isPreviewTab && (() => {
-            const dirtyCount = Object.keys(tabDirtyRows[tab.id] ?? {}).length;
-            const isCommitting = committingTabs.has(tab.id);
-            return (
-              <span className="db-toolbar-icon-button-wrap" style={{ marginLeft: "var(--sp-2)" }}>
-                <Button
-                  variant={dirtyCount > 0 ? "primary" : "icon"}
-                  style={{ position: "relative" }}
-                  disabled={dirtyCount === 0 || isCommitting}
-                  onClick={() => {
-                    commitTabDirty(tab.id).catch(() => {});
-                  }}
-                  title={t("database.results.commitDirty", { count: dirtyCount })}
-                  aria-label={t("database.results.commitDirty", { count: dirtyCount })}
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    width="14"
-                    height="14"
-                    aria-hidden
-                  >
-                    <path d="M3 8.5l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </Button>
-                {dirtyCount > 0 && !isCommitting && (
-                  <span className="db-toolbar-badge" aria-hidden>{dirtyCount}</span>
-                )}
-              </span>
-            );
-          })()}
-          {!isPreviewTab && (
-            <span className="results-meta">
-              {t("database.results.meta", {
-                rows: rowCount,
-                ms: tabState.elapsed ?? 0,
-                mode: t("common.readonly"),
-              })}
-            </span>
-          )}
-          {mode === "sql" && hasSqlQueryOutput && (
-            <Button
-              variant="icon"
-              title={t("database.results.close")}
-              aria-label={t("database.results.close")}
-              onClick={dismissSqlResults}
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                width="14"
-                height="14"
-              >
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-            </Button>
-          )}
-        </div>
-        {tabState.error ? (
-          <div
-            className="empty-state compact text-danger"
-            style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}
-          >
-            {tabState.error}
-          </div>
-        ) : tabState.result ? (
-          tabState.result.columns.length === 0 ? (
-            <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
-              {t("database.results.affected", { rows: tabState.result.rowsAffected })}
-            </div>
-          ) : (
-            <TableDataGrid
-              columns={tabState.result.columns}
-              rows={resultRows}
-              totalRows={resultRows.length}
-              page={0}
-              pageSize={resultRows.length}
-              loading={false}
-              onPageChange={() => {}}
-            />
-          )
-        ) : isPreviewTab && preview ? (
-          preview.loading ? (
-            <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
-              {t("common.loading")}
-            </div>
-          ) : preview.error ? (
-            <div
-              className="empty-state compact text-danger"
-              style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}
-            >
-              {preview.error}
-            </div>
-          ) : preview.data && canRefresh ? (
-            <TableDataGrid
-              columns={preview.data.columns}
-              rows={preview.data.rows}
-              totalRows={preview.totalRows}
-              page={preview.page}
-              pageSize={preview.pageSize}
-              loading={false}
-              columnMeta={colMeta}
-              onCellEdit={(cellInfo) => handleCellEdit(tab.id, cellInfo)}
-              dirtyRowKeys={new Set(Object.keys(tabDirtyRows[tab.id] ?? {}))}
-              cellOverrides={tabDirtyRows[tab.id]}
-              onPageChange={(page) => requestTabAction({ kind: "page", tabId: tab.id, page })}
-            />
-          ) : null
-        ) : (
-          <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
-            {t("database.results.runHint")}
-          </div>
-        )}
-        {tabState.result && (
-          <div className="exec-stats">
-            <span className="stat">
-              {t("database.results.title")}: <span className="stat-val">{rowCount}</span>
-            </span>
-            <span className="stat">
-              Latency: <span className="stat-val">{tabState.elapsed ?? 0}ms</span>
-            </span>
-          </div>
-        )}
-      </div>
-    );
-
-    if (mode === "data") {
-      return (
-        <div className="db-workspace-pane db-workspace-pane--sql">
-          <DockLayout direction="vertical" className="db-sql-split">
-            <DockPanel key={tab.id} defaultSize={0} minSize={160} collapsible collapsedSize={0}>
-              {editorContent}
-            </DockPanel>
-            <DockHandle direction="vertical" />
-            <DockPanel defaultSize={100} minSize={120} className="dock-panel-bottom">
-              {resultsContent}
-            </DockPanel>
-          </DockLayout>
-        </div>
-      );
-    }
-
-    // SQL 模式：有查询结果/错误时分屏；关闭预览后恢复编辑器全高
-    if (!hasSqlQueryOutput) {
-      return (
-        <div className="db-workspace-pane db-workspace-pane--sql">
-          <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-            {editorContent}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="db-workspace-pane db-workspace-pane--sql">
-        <DockLayout direction="vertical" className="db-sql-split">
-          <DockPanel key={tab.id} defaultSize={55} minSize={160}>
-            {editorContent}
-          </DockPanel>
-          <DockHandle direction="vertical" />
-          <DockPanel defaultSize={45} minSize={120} className="dock-panel-bottom">
-            {resultsContent}
-          </DockPanel>
-        </DockLayout>
-      </div>
-    );
-  };
+  const ctxValue = useMemo<DbWorkspaceContextValue>(() => ({
+    tabs: workspaceTabs,
+    activeTabId: activeWorkspaceTabId,
+    setActiveTabId: setActiveWorkspaceTabId,
+    closeTab: (tabId) => requestTabAction({ kind: "close", tabId }),
+    runQuery,
+    updateSqlTabState,
+    refreshTablePreview,
+    goToPage,
+    requestTabAction,
+    handleCellEdit,
+    sqlTabStates,
+    tablePreviews,
+    tableColumnMeta,
+    tabModes,
+    setTabMode: (id, mode) => setTabModes((prev) => ({ ...prev, [id]: mode })),
+    tabDirtyRows,
+    committingTabs,
+    commitTabDirty,
+    openExportMenu: (x: number, y: number, tabId: string) => setExportMenu({ x, y, tabId }),
+    activeConn,
+    groupConnections,
+    databasesByConnId,
+    databasesForActiveConn,
+    schemaByKey,
+    schemaLoadingKey,
+    setActiveConnId,
+    sqlCompletionSchemas,
+    connectionForSql,
+    rowsToRecord,
+    tabModeToEditorOpenMode,
+  }), [
+    workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, requestTabAction,
+    runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit,
+    sqlTabStates, tablePreviews, tableColumnMeta, tabModes, tabDirtyRows, committingTabs,
+    commitTabDirty, activeConn, groupConnections, databasesByConnId, databasesForActiveConn,
+    schemaByKey, schemaLoadingKey, setActiveConnId, sqlCompletionSchemas, connectionForSql,
+  ]);
 
   return (
-    <>
+    <DbWorkspaceProvider value={ctxValue}>
       <SidebarWorkspace
         preset="schema"
         sidebarMinPx={280}
@@ -1433,61 +1150,38 @@ export function DatabasePanel() {
           />
         }
       >
-          <div className="db-workspace">
-            <div className="db-workspace-tabs" role="tablist">
-              {workspaceTabs.map((tab, idx) => (
-                <div
-                  key={tab.id}
-                  className={`db-workspace-tab${activeWorkspaceTabId === tab.id ? " active" : ""}`}
-                  role="tab"
-                  aria-selected={activeWorkspaceTabId === tab.id}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id, index: idx });
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="db-workspace-tab-label"
-                    onClick={() => setActiveWorkspaceTabId(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                  <button
-                    type="button"
-                    className="db-workspace-tab-close"
-                    title={t("shell.topbar.close")}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      requestTabAction({ kind: "close", tabId: tab.id });
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      width="12"
-                      height="12"
-                    >
-                      <path d="M4 4l8 8M12 4l-8 8" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="db-workspace-body">
-              {!activeWorkspaceTab ? (
-                <WorkspaceEmptyPage prompt={t("database.workspace.emptyTabs")} />
-              ) : (
-                renderSqlPane(activeWorkspaceTab)
-              )}
-            </div>
-          </div>
+        <DockableWorkspace
+          className="db-workspace"
+          tabs={workspaceTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+          activeTabId={activeWorkspaceTabId}
+          onActiveTabChange={setActiveWorkspaceTabId}
+          onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+          savedLayout={dockLayout}
+          onSavedLayoutChange={setDockLayout}
+          emptyContent={t("database.workspace.emptyTabs")}
+          renderPanel={(tabId) => {
+            const tab = workspaceTabs.find((item) => item.id === tabId);
+            if (!tab) return null;
+            return (
+              <div className="db-workspace-pane db-dock-pane">
+                <DbPanelSurface tab={tab} />
+              </div>
+            );
+          }}
+          onTabContextMenu={(_event, tabId, index) => {
+            setCtxMenu({ x: _event.clientX, y: _event.clientY, tabId, index });
+          }}
+        />
       </SidebarWorkspace>
       {ctxMenu && (
         <ContextMenu
-          items={buildTabCloseMenuItems(t, workspaceTabs.length, ctxMenu.index, handleContextAction)}
+          items={buildTabCloseMenuItems(
+            t,
+            workspaceTabs.length,
+            ctxMenu.index,
+            handleContextAction,
+            { showRename: true },
+          )}
           position={{ x: ctxMenu.x, y: ctxMenu.y }}
           onClose={() => setCtxMenu(null)}
         />
@@ -1577,6 +1271,6 @@ export function DatabasePanel() {
           />
         );
       })()}
-    </>
+    </DbWorkspaceProvider>
   );
 }

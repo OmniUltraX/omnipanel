@@ -104,6 +104,14 @@
     flex-direction: column;
 }
 
+.dock-panel-left .dock-rail-shell {
+    border-right: 1px solid var(--border);
+}
+
+.dock-panel-right .dock-rail-shell {
+    border-left: 1px solid var(--border);
+}
+
 .dock-panel-left {
     min-width: 0 !important;
 }
@@ -111,6 +119,10 @@
 .dock-panel-main {
     flex: 1 1 auto;
     min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .dock-panel-right {
@@ -972,6 +984,345 @@
 .dock-handle:hover .dock-handle-inner,
 .dock-handle[data-resize-handle-active] .dock-handle-inner {
     background: var(--accent);
+}
+
+/* ─── Dockable Workspace（rc-dock 通用拖拽停靠） ─────────────────────── */
+.dockable-workspace {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.rc-dock-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+.dockable-workspace__empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--meta);
+}
+
+.dock-pane-surface {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.dockable-tab-title {
+    flex: 1;
+    min-width: 0;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
+/* rc-dock TabCache 在 title 外包 DragDropDiv，关闭按钮为 .dock-tab-close-btn */
+.rc-dock-wrap .dock-layout {
+    position: absolute;
+    inset: 0;
+}
+
+.rc-dock-wrap .dock-panel {
+    color: var(--fg);
+    background: var(--bg);
+    border-color: var(--border);
+}
+
+/* ── Tab 栏 ── */
+.rc-dock-wrap .dock-bar {
+    background: var(--bg-deeper);
+    border-bottom: 1px solid var(--border);
+    min-height: 32px;
+    padding: 0 var(--sp-2);
+}
+
+.rc-dock-wrap .dock-top .dock-bar {
+    padding-left: var(--sp-2);
+}
+
+.rc-dock-wrap .dock-nav-wrap {
+    align-items: stretch;
+    overflow: visible;
+}
+
+.rc-dock-wrap .dock-nav-list {
+    gap: 2px;
+    align-items: stretch;
+    overflow: visible;
+}
+
+.rc-dock-wrap .dock-extra-content {
+    height: 32px;
+    align-items: center;
+}
+
+.rc-dock-wrap .dock-nav-more {
+    height: 32px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.rc-dock-wrap .dock-nav-more:hover {
+    color: var(--fg);
+}
+
+.rc-dock-wrap .dock-tab {
+    float: none;
+    margin-right: 0;
+    height: auto;
+    min-width: 0;
+    border-bottom: none;
+    background: transparent;
+    display: flex;
+    align-items: stretch;
+}
+
+.rc-dock-wrap .dock-tab > div:not(.dock-tab-btn) {
+    padding: 0;
+}
+
+/* TabCache 标签内容：DragDropDiv.drag-initiator 内含 title + 关闭按钮 */
+.rc-dock-wrap .dock-tab-btn > .drag-initiator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    position: relative;
+}
+
+.rc-dock-wrap .dock-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    max-width: 240px;
+    min-height: 32px;
+    padding: 0 var(--sp-3);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: visible;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.rc-dock-wrap .dock-tab:hover .dock-tab-btn {
+    color: var(--fg);
+}
+
+.rc-dock-wrap .dock-tab-active .dock-tab-btn,
+.rc-dock-wrap .dock-tab.dock-tab-active .dock-tab-btn {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    background: transparent;
+    cursor: default;
+}
+
+.rc-dock-wrap .dock-tab-btn-disabled,
+.rc-dock-wrap .dock-tab-disabled .dock-tab-btn {
+    color: var(--meta);
+    cursor: default;
+}
+
+.rc-dock-wrap .dock-tab-with-remove .dock-tab-btn {
+    padding-right: var(--sp-3);
+}
+
+/* rc-dock TabCache 内置关闭按钮（依赖 ::before 显示 ×） */
+.rc-dock-wrap .dock-tab-btn .dock-tab-close-btn {
+    position: static;
+    flex-shrink: 0;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--meta);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.75;
+    transform: none;
+    top: auto;
+    right: auto;
+    font-family: inherit;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+    z-index: 2;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.rc-dock-wrap .dock-tab-btn .dock-tab-close-btn::before {
+    content: "×";
+    display: block;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1;
+}
+
+.rc-dock-wrap .dock-tab:hover .dock-tab-btn .dock-tab-close-btn,
+.rc-dock-wrap .dock-tab-active .dock-tab-btn .dock-tab-close-btn {
+    opacity: 0.7;
+}
+
+.rc-dock-wrap .dock-tab-btn .dock-tab-close-btn:hover,
+.rc-dock-wrap .dock-tab-btn .dock-tab-close-btn:focus {
+    opacity: 1;
+    color: var(--fg);
+    background: var(--surface);
+    transform: none;
+}
+
+/* 浮动面板标题栏上的关闭全部按钮 */
+.rc-dock-wrap .dock-extra-content .dock-tab-close-btn {
+    position: relative;
+    opacity: 1;
+    top: auto;
+    right: auto;
+}
+
+.rc-dock-wrap .dock-extra-content .dock-tab-close-btn::before {
+    content: "X";
+    font-size: 12px;
+}
+
+.rc-dock-wrap .dock-ink-bar {
+    display: none;
+}
+
+/* ── 分屏拖拽分隔条（对齐 .dock-handle 风格） ── */
+.rc-dock-wrap .dock-divider {
+    flex: 0 0 5px !important;
+    transform: none !important;
+    background: transparent !important;
+    position: relative;
+    z-index: 2;
+    overflow: visible;
+}
+
+.rc-dock-wrap .dock-hbox > .dock-divider {
+    width: 5px;
+    min-width: 5px;
+    max-width: 5px;
+    margin: 0 -2px;
+    cursor: col-resize;
+}
+
+.rc-dock-wrap .dock-vbox > .dock-divider {
+    height: 5px;
+    min-height: 5px;
+    max-height: 5px;
+    margin: -2px 0;
+    cursor: row-resize;
+}
+
+.rc-dock-wrap .dock-divider::after {
+    content: "";
+    position: absolute;
+    background: var(--border);
+    border-radius: 1px;
+    transition: background 0.15s, width 0.15s, height 0.15s;
+    pointer-events: none;
+}
+
+.rc-dock-wrap .dock-hbox > .dock-divider::after {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+}
+
+.rc-dock-wrap .dock-vbox > .dock-divider::after {
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    transform: translateY(-50%);
+}
+
+.rc-dock-wrap .dock-divider:hover,
+.rc-dock-wrap .dock-divider:active {
+    background: var(--accent-soft) !important;
+}
+
+.rc-dock-wrap .dock-hbox > .dock-divider:hover::after,
+.rc-dock-wrap .dock-hbox > .dock-divider:active::after {
+    background: var(--accent);
+    width: 2px;
+}
+
+.rc-dock-wrap .dock-vbox > .dock-divider:hover::after,
+.rc-dock-wrap .dock-vbox > .dock-divider:active::after {
+    background: var(--accent);
+    height: 2px;
+}
+
+.rc-dock-wrap .dock-panel-max-btn,
+.rc-dock-wrap .dock-panel-min-btn {
+    color: var(--meta);
+}
+
+.rc-dock-wrap .dock-panel-max-btn:hover,
+.rc-dock-wrap .dock-panel-min-btn:hover {
+    color: var(--fg);
+}
+
+.rc-dock-wrap .dock-drop-indicator {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+    border-color: var(--accent);
+}
+
+.rc-dock-wrap .dock-fbox,
+.rc-dock-wrap .dock-box {
+    background: transparent;
+}
+
+.rc-dock-wrap .dock-panel-content {
+    background: var(--bg);
+}
+
+/* 数据库模块工作区 */
+.db-workspace.db-workspace {
+    flex: 1;
+    min-height: 0;
+}
+
+.db-workspace .db-dock-pane {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
 }
 
 /* ─── Sidebar ──────────────────────────────────────────────────────── */
@@ -9691,14 +10042,153 @@
      Protocol Lab (protocol.html)
      ══════════════════════════════════════════════════════════════════════ */
     .proto-sidebar {
-        width: 200px;
-        min-width: 200px;
+        width: 100%;
         background: var(--bg-deeper);
-        border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
         overflow-y: auto;
+    }
+
+    .proto-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border-soft);
+        flex-shrink: 0;
+    }
+
+    .proto-sidebar-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--meta);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .proto-sidebar-new {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-2);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .proto-sidebar-new:hover {
+        background: var(--surface-hover);
+        color: var(--accent);
+    }
+
+    /* Protocol sidebar utility classes */
+    .proto-tab-btn {
+        flex: 1;
+        padding: 6px 0;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--meta);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: color 0.12s, border-color 0.12s;
+    }
+
+    .proto-tab-btn.is-active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+        font-weight: 600;
+    }
+
+    .proto-tab-btn:hover:not(.is-active) {
+        color: var(--fg-2);
+    }
+
+    .proto-link-danger {
+        font-size: 11px;
+        color: var(--danger);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px 6px;
+    }
+
+    .proto-link-danger:hover {
+        text-decoration: underline;
+    }
+
+    .proto-empty {
+        padding: 20px 12px;
+        text-align: center;
+        color: var(--meta);
+        font-size: 12px;
+    }
+
+    .proto-input-sm {
+        flex: 1;
+        font-size: 11px;
+        padding: 3px 6px;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        outline: none;
+    }
+
+    .proto-input-sm:focus {
+        border-color: var(--accent);
+    }
+
+    .proto-icon-btn {
+        font-size: 11px;
+        color: var(--meta);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px 4px;
+    }
+
+    .proto-icon-btn:hover {
+        color: var(--fg);
+    }
+
+    .proto-icon-btn-accent {
+        font-size: 11px;
+        color: var(--accent);
+        background: none;
+        border: 1px solid var(--accent);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        padding: 2px 6px;
+    }
+
+    .proto-icon-btn-accent:hover {
+        background: var(--accent-soft);
+    }
+
+    .proto-context-item.is-active {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .proto-delete-btn {
+        font-size: 10px;
+        color: var(--meta);
+        cursor: pointer;
+        padding: 0 4px;
+        opacity: 0.5;
+        transition: opacity 0.12s;
+    }
+
+    .proto-delete-btn:hover {
+        opacity: 1;
+        color: var(--danger);
     }
 
     .proto-nav-item {
@@ -10113,7 +10603,11 @@
     }
 
     .history-item {
-        padding: var(--sp-2) var(--sp-4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
         border-bottom: 1px solid var(--border-soft);
         cursor: pointer;
         transition: background 0.12s;
@@ -10123,24 +10617,48 @@
         background: var(--surface);
     }
 
+    .history-item-main {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+    }
+
     .history-item .h-method {
         font-size: 10px;
         font-weight: 700;
-        margin-right: 4px;
+        flex-shrink: 0;
     }
 
     .history-item .h-url {
         font-size: 11px;
         color: var(--fg-2);
-        display: block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
+    .history-item-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-shrink: 0;
+    }
+
+    .history-item .h-status {
+        font-size: 10px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .history-item .h-status-ok { color: var(--success); }
+    .history-item .h-status-err { color: var(--danger); }
+
     .history-item .h-time {
         font-size: 10px;
         color: var(--meta);
+        font-variant-numeric: tabular-nums;
     }
 
     .method-get {
@@ -13035,4 +13553,41 @@
     font-size: 14px;
     width: 20px;
     text-align: center;
+}
+
+/* ─── Database workspace dock ─────────────────────────────────────── */
+.db-dock-host {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.db-dock-split {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.db-dock-pane {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.db-dock-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--meta);
 }

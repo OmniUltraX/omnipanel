@@ -182,7 +182,7 @@ impl SshPtySession {
     /// 写 stdin。
     pub async fn write(&self, data: &[u8]) -> OmniResult<()> {
         let ch = self.channel.lock().await;
-        ch.data(&data[..])
+        ch.data(data)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "写入 PTY stdin 失败").with_cause(e.to_string()))
     }
@@ -588,7 +588,7 @@ impl SshSession {
         let stop_clone = stop.clone();
         let task = tokio::spawn(async move {
             let mut guard = reader_shared.lock().await;
-            run_stream_task(&mut *guard, tx, stop_clone).await;
+            run_stream_task(&mut guard, tx, stop_clone).await;
         });
 
         Ok(SshPtySession {
