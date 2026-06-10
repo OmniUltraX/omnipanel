@@ -560,6 +560,13 @@ export const zhCN = {
       dirtyRollback: "回滚",
       dirtyCommit: "提交",
       close: "关闭结果预览",
+      paginationFirst: "第一页",
+      paginationPrev: "上一页",
+      paginationNext: "下一页",
+      paginationLast: "最后一页",
+      transposeOn: "行列转换",
+      transposeOff: "恢复正常显示",
+      transposeField: "字段",
     },
     context: {
       title: "数据库上下文",

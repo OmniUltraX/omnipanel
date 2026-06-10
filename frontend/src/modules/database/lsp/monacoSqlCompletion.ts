@@ -15,6 +15,8 @@ type TableDotContext = {
   table: TableSchema;
   qualifiedTable: string;
   tableTokenInLine: string;
+  /** 来自 `表.字段 运算符 值.` 时已输入的 WHERE 条件（如 `id > 0`） */
+  whereClause?: string;
 };
 
 function completionRange(model: editor.ITextModel, position: Position) {
@@ -67,7 +69,7 @@ function anySchemaHasTables(schemas: DatabaseSchema[]): boolean {
 }
 
 /** 解析 `表.` / `库.表.` 上下文；表名优先于库名（避免 `库名.` 误占表片段）。 */
-function resolveTableDotContext(
+function resolveDirectTableDotContext(
   linePrefix: string,
   schemas: DatabaseSchema[],
 ): TableDotContext | null {
@@ -96,6 +98,10 @@ function resolveTableDotContext(
   const token = singleDot[1];
   const partial = singleDot[2];
 
+  if (/^\d+$/.test(token)) {
+    return null;
+  }
+
   for (const database of schemas) {
     const table = findTable(database, token);
     if (table) {
@@ -121,6 +127,150 @@ function resolveTableDotContext(
   }
 
   return null;
+}
+
+const SQL_VALUE_PATTERN =
+  "(?:'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"|\\d+(?:\\.\\d+)?|NULL|\\w+)";
+const SQL_COMPARE_OP_PATTERN = "(?:<>|!=|<=|>=|=|<|>|(?:NOT\\s+)?LIKE)";
+const SQL_CONDITION_TAIL_PATTERN = `(?:${SQL_COMPARE_OP_PATTERN}\\s*${SQL_VALUE_PATTERN}?|IS\\s+(?:NOT\\s+)?NULL)`;
+
+function lookupTableContext(
+  schemas: DatabaseSchema[],
+  databaseName: string | undefined,
+  tableName: string,
+  tableTokenInLine: string,
+): TableDotContext | null {
+  if (databaseName) {
+    const database = findDatabase(schemas, databaseName);
+    const table =
+      findTable(database, tableName) ??
+      (database && !anySchemaHasTables(schemas)
+        ? { name: tableName, columns: [] }
+        : undefined);
+    if (table && database) {
+      return {
+        table,
+        qualifiedTable: `${database.name}.${table.name}`,
+        tableTokenInLine,
+      };
+    }
+    return null;
+  }
+
+  for (const database of schemas) {
+    const table = findTable(database, tableName);
+    if (table) {
+      return {
+        table,
+        qualifiedTable: table.name,
+        tableTokenInLine,
+      };
+    }
+  }
+
+  if (
+    !findDatabase(schemas, tableName) &&
+    !SQL_NOISE_TOKENS.has(tableName.toUpperCase()) &&
+    !anySchemaHasTables(schemas)
+  ) {
+    return {
+      table: { name: tableName, columns: [] },
+      qualifiedTable: tableName,
+      tableTokenInLine,
+    };
+  }
+
+  return null;
+}
+
+function columnBelongsToTable(table: TableSchema, columnName: string): boolean {
+  if (table.columns.length === 0) {
+    return true;
+  }
+  const key = columnName.toLowerCase();
+  return table.columns.some((col) => col.name.toLowerCase() === key);
+}
+
+/** 从 `表.字段 运算符 值[.]` 中提取 WHERE 条件文本（如 `id > 0`）。 */
+function parseWhereClauseAfterTable(
+  linePrefix: string,
+  tableTokenInLine: string,
+): string | undefined {
+  const pos = linePrefix.lastIndexOf(tableTokenInLine);
+  if (pos < 0) return undefined;
+  const afterTable = linePrefix.slice(pos + tableTokenInLine.length);
+  const match = afterTable.match(
+    new RegExp(
+      `^\\.(\\w+)\\s*(${SQL_COMPARE_OP_PATTERN}\\s*${SQL_VALUE_PATTERN}?|IS\\s+(?:NOT\\s+)?NULL)(?:\\.(\\w*))?$`,
+      "i",
+    ),
+  );
+  if (!match) return undefined;
+  return `${match[1]} ${match[2].trim()}`;
+}
+
+function withWhereClause(ctx: TableDotContext, linePrefix: string): TableDotContext {
+  const whereClause = parseWhereClauseAfterTable(linePrefix, ctx.tableTokenInLine);
+  if (!whereClause) return ctx;
+  return { ...ctx, whereClause };
+}
+
+/** 解析 `表.字段 运算符 值.` / `库.表.字段 运算符 值.` 后的表上下文。 */
+function resolveTableConditionDotContext(
+  linePrefix: string,
+  schemas: DatabaseSchema[],
+): TableDotContext | null {
+  const dbTableColMatch = linePrefix.match(
+    new RegExp(
+      `(\\w+)\\.(\\w+)\\.(\\w+)\\s*${SQL_CONDITION_TAIL_PATTERN}\\.(\\w*)$`,
+      "i",
+    ),
+  );
+  if (dbTableColMatch) {
+    const [, dbName, tableName, columnName] = dbTableColMatch;
+    const ctx = lookupTableContext(
+      schemas,
+      dbName,
+      tableName,
+      `${dbName}.${tableName}`,
+    );
+    if (ctx && columnBelongsToTable(ctx.table, columnName)) {
+      return withWhereClause(ctx, linePrefix);
+    }
+  }
+
+  const tableColMatch = linePrefix.match(
+    new RegExp(
+      `(\\w+)\\.(\\w+)\\s*${SQL_CONDITION_TAIL_PATTERN}\\.(\\w*)$`,
+      "i",
+    ),
+  );
+  if (!tableColMatch) {
+    return null;
+  }
+
+  const [, tableName, columnName] = tableColMatch;
+  const asDatabase = findDatabase(schemas, tableName);
+  if (asDatabase && findTable(asDatabase, columnName)) {
+    return null;
+  }
+
+  const ctx = lookupTableContext(schemas, undefined, tableName, tableName);
+  if (ctx && columnBelongsToTable(ctx.table, columnName)) {
+    return withWhereClause(ctx, linePrefix);
+  }
+
+  return null;
+}
+
+function resolveTableDotContext(
+  linePrefix: string,
+  schemas: DatabaseSchema[],
+): TableDotContext | null {
+  return (
+    resolveTableConditionDotContext(linePrefix, schemas) ??
+    resolveDirectTableDotContext(linePrefix, schemas)
+  );
 }
 
 function columnSuggestions(
@@ -184,7 +334,7 @@ function tableDotSuggestions(
 
   const prefix = prefixAfterLastDot(linePrefix);
   const actions = filterByPrefix(
-    buildTableActionSnippets(ctx.qualifiedTable, ctx.table),
+    buildTableActionSnippets(ctx.qualifiedTable, ctx.table, ctx.whereClause),
     prefix,
   );
 
@@ -239,7 +389,7 @@ export function provideMonacoSqlCompletions(
   const tableCtx = resolveTableDotContext(linePrefix, schemas);
   if (tableCtx) {
     const suggestions = tableDotSuggestions(monaco, model, position, linePrefix, tableCtx);
-    return { suggestions };
+    return { suggestions: dedupeCompletionItems(suggestions) };
   }
 
   const singleDot = linePrefix.match(/(\w+)\.(\w*)$/);
@@ -247,7 +397,9 @@ export function provideMonacoSqlCompletions(
     const token = singleDot[1];
     const asDatabase = findDatabase(schemas, token);
     if (asDatabase) {
-      return { suggestions: tableSuggestions(monaco, range, asDatabase) };
+      return {
+        suggestions: dedupeCompletionItems(tableSuggestions(monaco, range, asDatabase)),
+      };
     }
   }
 
@@ -283,17 +435,67 @@ export function provideMonacoSqlCompletions(
     return suggestion;
   });
 
-  return { suggestions };
+  return { suggestions: dedupeCompletionItems(suggestions) };
 }
 
+const modelSchemaGetters = new WeakMap<
+  editor.ITextModel,
+  () => DatabaseSchema[]
+>();
+let sqlCompletionProviderRegistered = false;
+
+export function bindEditorModelSchemas(
+  model: editor.ITextModel,
+  getSchemas: () => DatabaseSchema[],
+): void {
+  modelSchemaGetters.set(model, getSchemas);
+}
+
+export function unbindEditorModelSchemas(model: editor.ITextModel): void {
+  modelSchemaGetters.delete(model);
+}
+
+function dedupeCompletionItems(
+  items: languages.CompletionItem[],
+): languages.CompletionItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${String(item.label)}\0${item.insertText ?? item.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** 全局只注册一次；各编辑器实例通过 bindEditorModelSchemas 绑定 model → schemas。 */
+export function ensureMonacoSqlCompletionProvider(monaco: Monaco): void {
+  if (sqlCompletionProviderRegistered) return;
+  sqlCompletionProviderRegistered = true;
+
+  monaco.languages.registerCompletionItemProvider("sql", {
+    triggerCharacters: [".", " ", "("],
+    provideCompletionItems(model, position) {
+      const getSchemas = modelSchemaGetters.get(model);
+      if (!getSchemas) {
+        return { suggestions: [] };
+      }
+      return provideMonacoSqlCompletions(monaco, getSchemas(), model, position);
+    },
+  });
+}
+
+/** @deprecated 使用 ensureMonacoSqlCompletionProvider + bindEditorModelSchemas */
 export function registerMonacoSqlCompletionProvider(
   monaco: Monaco,
   getSchemas: () => DatabaseSchema[],
 ) {
-  return monaco.languages.registerCompletionItemProvider("sql", {
-    triggerCharacters: [".", " ", "("],
-    provideCompletionItems(model, position) {
-      return provideMonacoSqlCompletions(monaco, getSchemas(), model, position);
+  ensureMonacoSqlCompletionProvider(monaco);
+  return {
+    dispose() {
+      /* 兼容旧调用；实际 provider 为单例 */
     },
-  });
+    bindModel(model: editor.ITextModel) {
+      bindEditorModelSchemas(model, getSchemas);
+    },
+  };
 }

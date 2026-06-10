@@ -23,7 +23,7 @@ export interface DockableWorkspaceProps {
   onActiveTabChange: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   savedLayout: LayoutBase | null;
-  onSavedLayoutChange: (layout: LayoutBase) => void;
+  onSavedLayoutChange: (layout: LayoutBase | null) => void;
   renderPanel: (tabId: string) => ReactNode;
   className?: string;
   emptyContent?: ReactNode;
@@ -49,16 +49,26 @@ export function DockableWorkspace({
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
-  const tabIndexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    tabs.forEach((tab, index) => map.set(tab.id, index));
-    return map;
-  }, [tabs]);
+  const tabIdsSignature = useMemo(
+    () => tabs.map((tab) => tab.id).join("|"),
+    [tabs],
+  );
+
+  const tabIds = useMemo(() => {
+    if (!tabIdsSignature) return [];
+    return tabIdsSignature.split("|");
+  }, [tabIdsSignature]);
+
+  const tabsLabelSignature = useMemo(
+    () => tabs.map((tab) => `${tab.id}:${tab.label}`).join("|"),
+    [tabs],
+  );
 
   const loadTab = useCallback((saved: TabBase): TabData => {
-    const meta = tabsRef.current.find((tab) => tab.id === saved.id);
+    const tabsList = tabsRef.current;
+    const meta = tabsList.find((tab) => tab.id === saved.id);
     const id = saved.id ?? "";
-    const index = tabIndexMap.get(id) ?? 0;
+    const index = tabsList.findIndex((tab) => tab.id === id);
     const label = meta?.label ?? id;
     const closable = meta?.closable !== false;
 
@@ -68,7 +78,7 @@ export function DockableWorkspace({
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onTabContextMenu(event, id, index);
+          onTabContextMenu(event, id, index >= 0 ? index : 0);
         }}
       >
         {label}
@@ -85,33 +95,24 @@ export function DockableWorkspace({
       closable,
       cached: true,
     };
-  }, [onTabContextMenu, tabIndexMap]);
+  }, [onTabContextMenu]);
 
   const saveTab = useCallback((tab: TabData): TabBase => ({ id: tab.id }), []);
 
-  const tabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
-
-  const tabsLabelSignature = useMemo(
-    () => tabs.map((tab) => `${tab.id}:${tab.label}`).join("|"),
-    [tabs],
-  );
-
   const layout = useMemo(
     () => mergeTabsIntoRcLayout(savedLayout, tabIds, activeTabId),
-    [savedLayout, tabIds, activeTabId],
+    [savedLayout, tabIdsSignature, activeTabId, tabIds],
   );
 
-  // 仅标题变更时 layout 引用不变，克隆一份以触发 rc-dock reload（不可用 updateTab，会触发 changeLayout 死循环）
-  const layoutForRcDock = useMemo(
-    () => JSON.parse(JSON.stringify(layout)) as LayoutBase,
-    [layout, tabsLabelSignature],
-  );
+  const layoutForRcDock = useMemo(() => {
+    const base = layout ?? createDefaultRcLayout(tabIds, activeTabId);
+    return JSON.parse(JSON.stringify(base)) as LayoutBase;
+  }, [layout, tabsLabelSignature, tabIdsSignature, activeTabId, tabIds]);
 
-  // 新增/关闭 tab 时合并布局并持久化；受控模式下须保持 layout 引用稳定，避免每次 render 触发 reload
+  // 新增/关闭 tab 时合并布局并持久化；无 tab 时 layout 为 null，须与 savedLayout 同步一次后停止
   useEffect(() => {
-    if (layout !== savedLayout) {
-      onSavedLayoutChange(layout);
-    }
+    if (layout === savedLayout) return;
+    onSavedLayoutChange(layout);
   }, [layout, savedLayout, onSavedLayoutChange]);
 
   // rc-dock 关闭按钮需 drag-ignore，避免点击 × 时误触发 Tab 拖拽

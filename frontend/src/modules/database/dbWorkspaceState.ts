@@ -34,7 +34,7 @@ export type SqlTabState = {
 };
 
 export const DEFAULT_PAGE_SIZE = 100;
-export const DEFAULT_SQL = `SELECT 1;`;
+export const DEFAULT_SQL = `SELECT version();`;
 
 export function createDefaultTablePreviewState(): TablePreviewState {
   return { loading: false, error: null, data: null, totalRows: 0, page: 0, pageSize: DEFAULT_PAGE_SIZE };

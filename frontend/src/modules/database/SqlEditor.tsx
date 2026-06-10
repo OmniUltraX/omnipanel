@@ -1,8 +1,12 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 import Editor, { type OnMount, loader } from "@monaco-editor/react";
 import type { editor as MonacoEditor, IDisposable } from "monaco-editor";
 import type { DatabaseSchema } from "./types";
-import { registerMonacoSqlCompletionProvider } from "./lsp/monacoSqlCompletion";
+import {
+  bindEditorModelSchemas,
+  ensureMonacoSqlCompletionProvider,
+  unbindEditorModelSchemas,
+} from "./lsp/monacoSqlCompletion";
 import { isSqlMonacoEditorFocused, positionToOffset, sqlAtOffset } from "./lsp/sqlStatement";
 
 /** 打开方式：独立查询页（sql）或侧栏点表后的表数据预览（data）。 */
@@ -161,6 +165,44 @@ export function SqlEditor({
   readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
 
+  const editorOptions = useMemo(
+    (): MonacoEditor.IStandaloneEditorConstructionOptions => ({
+      fontSize: 13,
+      fontFamily: "var(--font-mono)",
+      lineHeight: 22,
+      tabSize: 2,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      padding: { top: 12, bottom: 12 },
+      renderLineHighlight: "line",
+      renderWhitespace: "selection",
+      wordWrap: "on",
+      automaticLayout: true,
+      suggestOnTriggerCharacters: true,
+      quickSuggestions: true,
+      wordBasedSuggestions: "off",
+      snippetSuggestions: "inline",
+      tabCompletion: "on",
+      suggest: {
+        showKeywords: true,
+        showFunctions: true,
+        showSnippets: true,
+        preview: true,
+        insertMode: "replace",
+      },
+      folding: true,
+      foldingStrategy: "indentation",
+      bracketPairColorization: { enabled: true },
+      cursorBlinking: "smooth",
+      cursorSmoothCaretAnimation: "on",
+      smoothScrolling: true,
+      readOnly,
+      contextmenu: true,
+      mouseWheelZoom: true,
+    }),
+    [readOnly],
+  );
+
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
@@ -192,23 +234,54 @@ export function SqlEditor({
         ],
       });
 
-      const completionDisposable = registerMonacoSqlCompletionProvider(
-        monaco,
-        () => schemasRef.current,
-      );
-      disposables.current.push(completionDisposable);
+      ensureMonacoSqlCompletionProvider(monaco);
 
-      const cursorDisposable = editor.onDidChangeCursorPosition((e) => {
+      const bindCurrentModel = () => {
+        const current = editor.getModel();
+        if (current) {
+          bindEditorModelSchemas(current, () => schemasRef.current);
+        }
+        return current;
+      };
+
+      bindCurrentModel();
+
+      const modelDisposable = editor.onDidChangeModel((e) => {
+        if (e.oldModelUrl) {
+          const oldModel = monaco.editor.getModel(e.oldModelUrl);
+          if (oldModel) {
+            unbindEditorModelSchemas(oldModel);
+          }
+        }
+        bindCurrentModel();
+      });
+      disposables.current.push(modelDisposable);
+
+      disposables.current.push({
+        dispose: () => {
+          const current = editor.getModel();
+          if (current) {
+            unbindEditorModelSchemas(current);
+          }
+        },
+      });
+
+      const syncCursorOffset = () => {
         const model = editor.getModel();
-        if (!model || !onCursorOffsetChangeRef.current) return;
+        const pos = editor.getPosition();
+        if (!model || !pos || !onCursorOffsetChangeRef.current) return;
         const offset = positionToOffset(
           model.getValue(),
-          e.position.lineNumber,
-          e.position.column,
+          pos.lineNumber,
+          pos.column,
         );
         onCursorOffsetChangeRef.current(offset);
+      };
+
+      const blurDisposable = editor.onDidBlurEditorWidget(() => {
+        syncCursorOffset();
       });
-      disposables.current.push(cursorDisposable);
+      disposables.current.push(blurDisposable);
 
       if (openMode === "query") {
         editor.focus();
@@ -269,40 +342,7 @@ export function SqlEditor({
         onChange={(val) => onChange(val ?? "")}
         onMount={handleMount}
         theme={getActiveTheme()}
-        options={{
-          fontSize: 13,
-          fontFamily: "var(--font-mono)",
-          lineHeight: 22,
-          tabSize: 2,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          padding: { top: 12, bottom: 12 },
-          renderLineHighlight: "line",
-          renderWhitespace: "selection",
-          wordWrap: "on",
-          automaticLayout: true,
-          suggestOnTriggerCharacters: true,
-          quickSuggestions: true,
-          wordBasedSuggestions: "off",
-          snippetSuggestions: "inline",
-          tabCompletion: "on",
-          suggest: {
-            showKeywords: true,
-            showFunctions: true,
-            showSnippets: true,
-            preview: true,
-            insertMode: "replace",
-          },
-          folding: true,
-          foldingStrategy: "indentation",
-          bracketPairColorization: { enabled: true },
-          cursorBlinking: "smooth",
-          cursorSmoothCaretAnimation: "on",
-          smoothScrolling: true,
-          readOnly,
-          contextmenu: true,
-          mouseWheelZoom: true,
-        }}
+        options={editorOptions}
       />
     </div>
   );

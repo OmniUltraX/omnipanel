@@ -129,9 +129,9 @@ export function mergeTabsIntoRcLayout(
   base: LayoutBase | null,
   tabIds: string[],
   activeTabId: string,
-): LayoutBase {
+): LayoutBase | null {
   if (tabIds.length === 0) {
-    return createDefaultRcLayout([], activeTabId);
+    return null;
   }
 
   if (!base) {

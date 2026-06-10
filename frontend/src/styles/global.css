@@ -5955,6 +5955,10 @@
         padding: var(--sp-2);
     }
 
+    .schema-tree:focus {
+        outline: none;
+    }
+
     .schema-db {
         font-size: 11px;
         font-weight: 700;
@@ -7746,8 +7750,22 @@
     }
 
     .db-pagination-info {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
         font-size: 11px;
         color: var(--meta);
+    }
+
+    .db-transpose-toggle {
+        flex-shrink: 0;
+    }
+
+    .db-data-table-wrap--transposed .db-data-table-cell--field,
+    .db-data-table-wrap--transposed .db-data-table th:first-child {
+        font-weight: 600;
+        color: var(--accent);
+        background: var(--accent-soft, rgba(0, 122, 255, 0.06));
     }
 
     .db-pagination-controls {

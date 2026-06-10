@@ -253,6 +253,9 @@ export function SchemaBrowser({
   const [filterDialogTable, setFilterDialogTable] = useState<{ connId: string; dbName: string } | null>(
     null
   );
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const schemaTreeRef = useRef<HTMLDivElement>(null);
   const connectionsRef = useRef(connections);
   const loadingDatabasesRef = useRef(new Set<string>());
   const loadingTablesRef = useRef(new Set<string>());
@@ -664,8 +667,41 @@ export function SchemaBrowser({
       .find((conn) => conn.config.id === filterDialogTable.connId)
       ?.databases?.find((db) => db.name === filterDialogTable.dbName);
 
+  const focusSearchInput = useCallback(() => {
+    if (filterDialogConnId !== null || filterDialogTable !== null) return;
+    searchInputRef.current?.focus({ preventScroll: true });
+  }, [filterDialogConnId, filterDialogTable]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !search.trim()) return;
+      if (filterDialogConnId !== null || filterDialogTable !== null) return;
+
+      const panel = sidebarRef.current;
+      const tree = schemaTreeRef.current;
+      if (!panel) return;
+
+      const inSidebar =
+        panel.contains(document.activeElement) ||
+        panel.matches(":hover") ||
+        (tree !== null &&
+          (tree === document.activeElement ||
+            tree.contains(document.activeElement) ||
+            tree.matches(":hover")));
+      if (!inSidebar) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      setSearch("");
+      searchInputRef.current?.focus({ preventScroll: true });
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [search, filterDialogConnId, filterDialogTable]);
+
   return (
-    <div className="schema-panel">
+    <div className="schema-panel" ref={sidebarRef} onMouseEnter={focusSearchInput}>
       <div className="schema-header">
         <h3>{t("database.sidebar.title")}</h3>
         <Button
@@ -695,6 +731,7 @@ export function SchemaBrowser({
       </div>
       <div className="schema-search">
         <input
+          ref={searchInputRef}
           className="input input-search"
           placeholder={t("database.sidebar.search")}
           value={search}
@@ -702,7 +739,13 @@ export function SchemaBrowser({
           style={{ width: "100%", fontSize: "11px" }}
         />
       </div>
-      <div className="schema-tree">
+      <div
+        className="schema-tree"
+        ref={schemaTreeRef}
+        tabIndex={-1}
+        onMouseEnter={focusSearchInput}
+        onFocus={focusSearchInput}
+      >
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("common.loading")}

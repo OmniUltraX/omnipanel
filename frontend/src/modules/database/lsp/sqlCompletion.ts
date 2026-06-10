@@ -74,6 +74,7 @@ export function buildDatabaseSchema(databaseName: string, tables: TableSchema[])
 export function buildTableActionSnippets(
   qualifiedTable: string,
   table: TableSchema,
+  whereClause?: string,
 ): CompletionItem[] {
   const cols = table.columns.map((c) => c.name);
   const selectCols = cols.length > 0 ? cols.join(", ") : "*";
@@ -87,25 +88,33 @@ export function buildTableActionSnippets(
       ? cols.map((c, i) => `${c} = \${${i + 1}}`).join(",\n  ")
       : "${1:column} = ${2:value}";
 
+  const whereText = whereClause?.trim();
+  const wherePart = whereText || "${1:1=1}";
+  const whereIsPlaceholder = !whereText;
+
   return [
     {
       label: "select",
       kind: KEYWORD_KIND,
       detail: "生成 SELECT 查询",
-      insertText: `SELECT ${selectCols}\nFROM ${qualifiedTable}\nWHERE \${1:1=1};`,
-      snippet: true,
+      insertText: `SELECT ${selectCols}\nFROM ${qualifiedTable}\nWHERE ${wherePart};`,
+      snippet: whereIsPlaceholder,
     },
     {
       label: "count",
       kind: FUNCTION_KIND,
       detail: "生成 COUNT 统计",
-      insertText: `SELECT COUNT(*) AS total\nFROM ${qualifiedTable};`,
+      insertText: whereText
+        ? `SELECT COUNT(*) AS total\nFROM ${qualifiedTable}\nWHERE ${whereText};`
+        : `SELECT COUNT(*) AS total\nFROM ${qualifiedTable};`,
     },
     {
       label: "update",
       kind: KEYWORD_KIND,
       detail: "生成 UPDATE 语句",
-      insertText: `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE \${${cols.length > 0 ? cols.length + 1 : 3}:1=1};`,
+      insertText: whereText
+        ? `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE ${whereText};`
+        : `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE \${${cols.length > 0 ? cols.length + 1 : 3}:1=1};`,
       snippet: true,
     },
     {
@@ -119,8 +128,8 @@ export function buildTableActionSnippets(
       label: "delete",
       kind: KEYWORD_KIND,
       detail: "生成 DELETE 语句",
-      insertText: `DELETE FROM ${qualifiedTable}\nWHERE \${1:1=1};`,
-      snippet: true,
+      insertText: `DELETE FROM ${qualifiedTable}\nWHERE ${wherePart};`,
+      snippet: whereIsPlaceholder,
     },
   ];
 }

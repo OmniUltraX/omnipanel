@@ -36,6 +36,8 @@ import {
   makeSqlTabId,
   makeSqlTabLabel,
   makeTableTabLabel,
+  makeTableTabKey,
+  findTabIdForTable,
   type SqlWorkspaceTab,
 } from "./workspaceTabs";
 import { CellEditorDialog } from "./cell_editor";
@@ -588,18 +590,6 @@ export function DatabasePanel() {
     [tabDirtyRows],
   );
 
-  const requestTabAction = useCallback(
-    (action: { kind: "refresh" | "page" | "close"; tabId: string; page?: number }) => {
-      if (hasDirty(action.tabId)) {
-        setPendingTabAction(action);
-        return;
-      }
-      executeTabAction(action);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasDirty],
-  );
-
   const executeTabAction = useCallback(
     (action: { kind: "refresh" | "page" | "close"; tabId: string; page?: number }) => {
       if (action.kind === "refresh") {
@@ -611,6 +601,17 @@ export function DatabasePanel() {
       }
     },
     [refreshTabPreviewNow, goToPageNow, closeWorkspaceTab],
+  );
+
+  const requestTabAction = useCallback(
+    (action: { kind: "refresh" | "page" | "close"; tabId: string; page?: number }) => {
+      if (hasDirty(action.tabId)) {
+        setPendingTabAction(action);
+        return;
+      }
+      executeTabAction(action);
+    },
+    [hasDirty, executeTabAction],
   );
 
   const confirmPendingCommit = useCallback(async () => {
@@ -734,33 +735,71 @@ export function DatabasePanel() {
     void writeToClipboard(`\`${ctx.selection.dbName}\`.\`${ctx.selection.tableName}\``);
   }, [tableCtxMenu]);
 
-  const exportPreviewToCsv = useCallback(
+  const resolveTabExportData = useCallback(
     async (tabId: string) => {
+      const tabState = sqlTabStates[tabId] ?? createDefaultSqlTabState();
       const preview = tablePreviews[tabId];
-      if (!preview?.data) return;
-      const { columns, rows } = preview.data;
-      const csv = toCsv(columns, rows);
-      const baseName = `${preview.dbName ?? "export"}_${preview.tableName ?? "result"}`;
-      const defaultName = `${baseName}_page${preview.page + 1}.csv`;
+      const connId = preview?.connId ?? activeConn?.id;
+      const baseConn = connId ? connections.find((c) => c.id === connId) : null;
+      if (!baseConn || !tabState.database.trim()) {
+        return null;
+      }
+      const conn = { ...baseConn, database: tabState.database };
+
+      let queryResult: QueryResult | null = null;
+      if (tabState.result && tabState.result.columns.length > 0) {
+        queryResult = tabState.result;
+      } else if (tabState.sql.trim()) {
+        try {
+          queryResult = await invoke<QueryResult>("db_execute_query", {
+            connection: conn,
+            sql: tabState.sql.trim(),
+          });
+        } catch {
+          return null;
+        }
+      }
+
+      if (!queryResult || queryResult.columns.length === 0) {
+        return null;
+      }
+
+      const rows = rowsToRecord(queryResult.columns, queryResult.rows);
+      const baseName =
+        preview?.dbName && preview?.tableName
+          ? `${preview.dbName}_${preview.tableName}`
+          : tabState.database.trim()
+            ? `${tabState.database}_query`
+            : "query";
+
+      return { columns: queryResult.columns, rows, baseName };
+    },
+    [sqlTabStates, tablePreviews, activeConn, connections],
+  );
+
+  const exportTabResultToCsv = useCallback(
+    async (tabId: string) => {
+      const payload = await resolveTabExportData(tabId);
+      if (!payload) return;
+      const csv = toCsv(payload.columns, payload.rows);
       const filePath = await save({
         title: t("database.results.exportCsv"),
-        defaultPath: defaultName,
+        defaultPath: `${payload.baseName}.csv`,
         filters: [{ name: "CSV", extensions: ["csv"] }],
       });
       if (!filePath) return;
       await invoke("write_text_file", { path: filePath, contents: csv });
     },
-    [tablePreviews, t],
+    [resolveTabExportData, t],
   );
 
-  const copyPreviewToClipboard = useCallback(
+  const copyTabResultToClipboard = useCallback(
     async (tabId: string) => {
-      const preview = tablePreviews[tabId];
-      if (!preview?.data) return;
-      const { columns, rows } = preview.data;
-      await writeToClipboard(toCsv(columns, rows));
+      const payload = await resolveTabExportData(tabId);
+      if (!payload) return;
+      await writeToClipboard(toCsv(payload.columns, payload.rows));
     },
-    [tablePreviews],
+    [resolveTabExportData],
   );
 
   const [exportMenu, setExportMenu] = useState<
@@ -787,7 +826,7 @@ export function DatabasePanel() {
         onClick: () => {
           const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void copyPreviewToClipboard(tabId);
+          void copyTabResultToClipboard(tabId);
         },
       },
       {
@@ -797,11 +836,11 @@ export function DatabasePanel() {
         onClick: () => {
           const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void exportPreviewToCsv(tabId);
+          void exportTabResultToCsv(tabId);
         },
       },
     ];
-  }, [copyPreviewToClipboard, exportPreviewToCsv, exportMenu?.tabId, t]);
+  }, [copyTabResultToClipboard, exportTabResultToCsv, exportMenu?.tabId, t]);
 
   const copyDdlForCurrentTable = useCallback(() => {
     const ctx = tableCtxMenu;
@@ -846,10 +885,23 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
-      const tableKey = `tbl:${selection.connId}:${selection.dbName}:${selection.tableName}`;
-      const tabId = makeSqlTabId();
+      const tableKey = makeTableTabKey(selection.connId, selection.dbName, selection.tableName);
       setActiveTableKey(tableKey);
       setActiveConnId(selection.connId);
+
+      const existingTabId = findTabIdForTable(
+        tablePreviews,
+        workspaceTabs.map((tab) => tab.id),
+        selection.connId,
+        selection.dbName,
+        selection.tableName,
+      );
+      if (existingTabId) {
+        setActiveWorkspaceTabId(existingTabId);
+        return;
+      }
+
+      const tabId = makeSqlTabId();
 
       // Create a SQL tab with collapsed editor for table preview
       setWorkspaceTabs((prev) => {
@@ -888,7 +940,7 @@ export function DatabasePanel() {
         })
         .catch(() => {});
     },
-    [loadTablePreview],
+    [loadTablePreview, tablePreviews, workspaceTabs],
   );
 
   const openNewSqlTab = useCallback(() => {
@@ -967,10 +1019,11 @@ export function DatabasePanel() {
         }
       } else if (action === "closeAll") {
         for (let i = tabList.length - 1; i >= 0; i--) closeWorkspaceTab(tabList[i].id);
+        setDockLayout(null);
       }
       setCtxMenu(null);
     },
-    [ctxMenu, workspaceTabs, closeWorkspaceTab, handleRenameTab],
+    [ctxMenu, workspaceTabs, closeWorkspaceTab, handleRenameTab, setDockLayout],
   );
 
 
@@ -1136,6 +1189,31 @@ export function DatabasePanel() {
     schemaByKey, schemaLoadingKey, setActiveConnId, sqlCompletionSchemas, connectionForSql,
   ]);
 
+  const dockTabs = useMemo(
+    () => workspaceTabs.map((tab) => ({ id: tab.id, label: tab.label })),
+    [workspaceTabs],
+  );
+
+  const renderDockPanel = useCallback(
+    (tabId: string) => {
+      const tab = workspaceTabs.find((item) => item.id === tabId);
+      if (!tab) return null;
+      return (
+        <div className="db-workspace-pane db-dock-pane">
+          <DbPanelSurface tab={tab} />
+        </div>
+      );
+    },
+    [workspaceTabs],
+  );
+
+  const handleDockTabContextMenu = useCallback(
+    (event: ReactMouseEvent, tabId: string, index: number) => {
+      setCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
+  );
+
   return (
     <DbWorkspaceProvider value={ctxValue}>
       <SidebarWorkspace
@@ -1155,25 +1233,15 @@ export function DatabasePanel() {
       >
         <DockableWorkspace
           className="db-workspace"
-          tabs={workspaceTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+          tabs={dockTabs}
           activeTabId={activeWorkspaceTabId}
           onActiveTabChange={setActiveWorkspaceTabId}
           onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
           savedLayout={dockLayout}
           onSavedLayoutChange={setDockLayout}
           emptyContent={t("database.workspace.emptyTabs")}
-          renderPanel={(tabId) => {
-            const tab = workspaceTabs.find((item) => item.id === tabId);
-            if (!tab) return null;
-            return (
-              <div className="db-workspace-pane db-dock-pane">
-                <DbPanelSurface tab={tab} />
-              </div>
-            );
-          }}
-          onTabContextMenu={(_event, tabId, index) => {
-            setCtxMenu({ x: _event.clientX, y: _event.clientY, tabId, index });
-          }}
+          renderPanel={renderDockPanel}
+          onTabContextMenu={handleDockTabContextMenu}
         />
       </SidebarWorkspace>
       {ctxMenu && (

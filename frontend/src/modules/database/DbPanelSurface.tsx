@@ -38,6 +38,14 @@ export function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
 
   const databasesForActiveConn = ws.databasesForActiveConn;
 
+  const exportConn = preview?.connId
+    ? ws.groupConnections.find((c) => c.id === preview.connId)
+    : ws.activeConn;
+  const hasSqlResult = !!(tabState.result && tabState.result.columns.length > 0);
+  const canExport =
+    hasSqlResult ||
+    !!(tabState.sql.trim() && exportConn && tabState.database.trim());
+
   const dismissSqlResults = () => {
     ws.updateSqlTabState(tab.id, { result: null, error: null, elapsed: null });
   };
@@ -130,12 +138,13 @@ export function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
             {preview!.totalRows.toLocaleString()}
           </span>
         )}
-        {isPreviewTab && preview?.data && !preview.loading && canRefresh && (
+        {canExport && (
           <Button
             variant="icon"
             style={{ marginLeft: "var(--sp-2)" }}
             title={t("database.results.exportCsv")}
             aria-label={t("database.results.exportCsv")}
+            disabled={tabState.running}
             onClick={(e) => {
               ws.openExportMenu(e.clientX, e.clientY, tab.id);
             }}
@@ -261,6 +270,7 @@ export function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
             pageSize={preview.pageSize}
             loading={false}
             columnMeta={colMeta}
+            enableTranspose
             onCellEdit={(cellInfo) => ws.handleCellEdit(tab.id, cellInfo)}
             dirtyRowKeys={new Set(Object.keys(ws.tabDirtyRows[tab.id] ?? {}))}
             cellOverrides={ws.tabDirtyRows[tab.id]}

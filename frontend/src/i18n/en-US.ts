@@ -564,6 +564,13 @@ export const enUS: TranslationDict = {
       dirtyRollback: "Rollback",
       dirtyCommit: "Commit",
       close: "Close result preview",
+      paginationFirst: "First page",
+      paginationPrev: "Previous page",
+      paginationNext: "Next page",
+      paginationLast: "Last page",
+      transposeOn: "Transpose rows/columns",
+      transposeOff: "Restore normal view",
+      transposeField: "Field",
     },
     context: {
       title: "Database Context",
