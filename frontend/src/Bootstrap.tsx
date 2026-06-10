@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "./components/shell/SplashScreen";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
+import { initAiModelsStore } from "./stores/aiModelsStore";
 import { initConnections } from "./stores/connectionStore";
 import { initActionListener } from "./stores/actionStore";
 
@@ -52,6 +53,7 @@ export function Bootstrap() {
         advance(2);
         initConnections();
         initActionListener();
+        await initAiModelsStore();
 
         advance(3);
         await import("./lib/monacoSetup");

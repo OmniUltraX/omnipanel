@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+
+import { commands } from "../ipc/bindings";
 
 /** 用户自定义的 AI 模型接入方式 */
 export type ApiStandard = "openai" | "anthropic";
@@ -21,7 +22,7 @@ export interface AiModelProvider {
   createdAt: number;
 }
 
-/** @deprecated 旧版扁平模型结构，仅用于数据迁移 */
+/** @deprecated 旧版扁平模型结构，仅用于一次性数据迁移 */
 interface LegacyAiModelConfig {
   id: string;
   name: string;
@@ -99,63 +100,191 @@ function migrateLegacyModels(models: LegacyAiModelConfig[]): AiModelProvider[] {
   }));
 }
 
-export const useAiModelsStore = create<AiModelsState>()(
-  persist(
-    (set) => ({
-      providers: [],
-      addProvider: (input) => {
-        const provider: AiModelProvider = {
-          id: genId(),
-          providerName: normalizeProviderName(input.providerName),
-          apiStandard: input.apiStandard,
-          baseUrl: normalizeBaseUrl(input.baseUrl),
-          apiKey: input.apiKey.trim(),
-          modelNames: normalizeModelNames(input.modelNames),
-          createdAt: Date.now(),
-        };
-        set((s) => ({ providers: [provider, ...s.providers] }));
-        return provider;
-      },
-      removeProvider: (id) =>
-        set((s) => ({ providers: s.providers.filter((p) => p.id !== id) })),
-      updateProvider: (id, patch) =>
-        set((s) => ({
-          providers: s.providers.map((p) =>
-            p.id === id
-              ? {
-                  ...p,
-                  ...patch,
-                  ...(patch.providerName !== undefined
-                    ? { providerName: normalizeProviderName(patch.providerName) }
-                    : {}),
-                  ...(patch.baseUrl !== undefined
-                    ? { baseUrl: normalizeBaseUrl(patch.baseUrl) }
-                    : {}),
-                  ...(patch.apiKey !== undefined ? { apiKey: patch.apiKey.trim() } : {}),
-                  ...(patch.modelNames !== undefined
-                    ? { modelNames: normalizeModelNames(patch.modelNames) }
-                    : {}),
-                }
-              : p
-          ),
-        })),
-      resetProviders: () => set({ providers: [] }),
-    }),
-    {
-      name: "omnipanel-ai-models",
-      version: 2,
-      migrate: (persisted, version) => {
-        if (version < 2) {
-          const legacy = persisted as { models?: LegacyAiModelConfig[] };
-          return {
-            providers: migrateLegacyModels(legacy.models ?? []),
-          };
-        }
-        return persisted as AiModelsState;
-      },
+/** 旧版 localStorage 键（迁移完成后清除） */
+const LEGACY_LS_KEY = "omnipanel-ai-models";
+
+/** 旧版 localStorage 中保存的负载形态 */
+interface LegacyPersistedState {
+  state?: { providers?: AiModelProvider[]; models?: LegacyAiModelConfig[] };
+  version?: number;
+}
+
+/** 从旧版 localStorage 读取并转换为新的 Provider 结构。无旧数据返回 null。 */
+function readLegacyFromLocalStorage(): AiModelProvider[] | null {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LegacyPersistedState;
+    if (parsed.version === 2 && Array.isArray(parsed.state?.providers)) {
+      return parsed.state.providers;
     }
-  )
-);
+    if (Array.isArray(parsed.state?.models)) {
+      return migrateLegacyModels(parsed.state.models);
+    }
+    return null;
+  } catch (e) {
+    console.warn("[aiModelsStore] 读取旧版 localStorage 数据失败:", e);
+    return null;
+  }
+}
+
+function clearLegacyLocalStorage() {
+  try {
+    window.localStorage.removeItem(LEGACY_LS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 放宽后的 provider 形态（apiStandard 是 string），来自 bindings。 */
+interface LooseProvider {
+  id: string;
+  providerName: string;
+  apiStandard: string;
+  baseUrl: string;
+  apiKey: string;
+  modelNames: string[];
+  createdAt: number;
+}
+
+/**
+ * 把从 bindings 加载的宽类型收紧为 store 强类型。
+ * apiStandard 不在已知枚举内时回落为 "openai"（最宽松的默认）。
+ */
+function toStrictProvider(p: LooseProvider): AiModelProvider {
+  const std: ApiStandard = p.apiStandard === "anthropic" ? "anthropic" : "openai";
+  return {
+    id: p.id,
+    providerName: p.providerName,
+    apiStandard: std,
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    modelNames: Array.isArray(p.modelNames) ? p.modelNames : [],
+    createdAt: p.createdAt,
+  };
+}
+
+function toStrictProviders(list: LooseProvider[] | undefined): AiModelProvider[] {
+  if (!Array.isArray(list)) return [];
+  return list.map(toStrictProvider);
+}
+
+/** 是否运行在 Tauri 环境中（纯 Vite 开发无 Tauri 时为 false） */
+function hasTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INVOKE__" in window;
+}
+
+/** 持久化当前 providers 数组到 ai-models.json。Tauri 不可用时静默跳过。 */
+async function persistProviders(providers: AiModelProvider[]): Promise<void> {
+  if (!hasTauri()) return;
+  try {
+    const res = await commands.aiModelsSave({ version: 1, providers });
+    if (res.status === "error") {
+      console.warn("[aiModelsStore] 写入磁盘失败:", res.error);
+    }
+  } catch (e) {
+    console.warn("[aiModelsStore] 写入磁盘失败:", e);
+  }
+}
+
+/**
+ * 内存中保存状态。磁盘写盘由 initAiModelsStore 完成首次加载，
+ * 之后由各 action（addProvider/removeProvider/updateProvider/resetProviders）
+ * 在更新 store 后立即调用 `persistProviders(next)` 触发。
+ */
+export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
+  providers: [],
+  addProvider: (input) => {
+    const provider: AiModelProvider = {
+      id: genId(),
+      providerName: normalizeProviderName(input.providerName),
+      apiStandard: input.apiStandard,
+      baseUrl: normalizeBaseUrl(input.baseUrl),
+      apiKey: input.apiKey.trim(),
+      modelNames: normalizeModelNames(input.modelNames),
+      createdAt: Date.now(),
+    };
+    const next = [provider, ...get().providers];
+    set({ providers: next });
+    void persistProviders(next);
+    return provider;
+  },
+  removeProvider: (id) => {
+    const next = get().providers.filter((p) => p.id !== id);
+    set({ providers: next });
+    void persistProviders(next);
+  },
+  updateProvider: (id, patch) => {
+    const next = get().providers.map((p) =>
+      p.id === id
+        ? {
+            ...p,
+            ...patch,
+            ...(patch.providerName !== undefined
+              ? { providerName: normalizeProviderName(patch.providerName) }
+              : {}),
+            ...(patch.baseUrl !== undefined
+              ? { baseUrl: normalizeBaseUrl(patch.baseUrl) }
+              : {}),
+            ...(patch.apiKey !== undefined ? { apiKey: patch.apiKey.trim() } : {}),
+            ...(patch.modelNames !== undefined
+              ? { modelNames: normalizeModelNames(patch.modelNames) }
+              : {}),
+          }
+        : p
+    );
+    set({ providers: next });
+    void persistProviders(next);
+  },
+  resetProviders: () => {
+    set({ providers: [] });
+    void persistProviders([]);
+  },
+}));
+
+/**
+ * 应用启动时调用一次：
+ *  1. 若磁盘文件为空,尝试从旧版 localStorage 迁移一次性数据；
+ *  2. 将磁盘内容载入内存。
+ */
+export async function initAiModelsStore(): Promise<void> {
+  if (!hasTauri()) return;
+  try {
+    const res = await commands.aiModelsLoad();
+    if (res.status !== "ok") {
+      console.warn("[aiModelsStore] 加载失败:", res.error);
+      return;
+    }
+    const file = res.data;
+    if ((file.providers?.length ?? 0) === 0) {
+      const legacy = readLegacyFromLocalStorage();
+      if (legacy && legacy.length > 0) {
+        const saveRes = await commands.aiModelsSave({ version: 1, providers: legacy });
+        if (saveRes.status === "ok") {
+          useAiModelsStore.setState({ providers: legacy });
+          console.info(
+            `[aiModelsStore] 已从 localStorage 迁移 ${legacy.length} 个 AI 提供商到磁盘`
+          );
+        } else {
+          console.warn("[aiModelsStore] 迁移写入失败:", saveRes.error);
+        }
+      } else {
+        useAiModelsStore.setState({ providers: [] });
+      }
+      clearLegacyLocalStorage();
+    } else {
+      useAiModelsStore.setState({ providers: toStrictProviders(file.providers) });
+    }
+  } catch (e) {
+    console.warn("[aiModelsStore] 初始化加载失败:", e);
+  }
+}
+
+/** 显式持久化当前 store 内容（一般无需调用，action 已自动落盘）。 */
+export async function persistAiModelsStore(): Promise<void> {
+  const { providers } = useAiModelsStore.getState();
+  await persistProviders(providers);
+}
 
 /** 掩码显示 API Key：仅保留最后 4 个可见字符 */
 export function maskApiKey(key: string): string {

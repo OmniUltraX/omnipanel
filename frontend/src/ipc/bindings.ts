@@ -348,6 +348,10 @@ export const commands = {
 	setProxyConfig: (config: ProxyConfig) => typedError<null, string>(__TAURI_INVOKE("set_proxy_config", { config })),
 	/**  Get the current proxy configuration (for backend use). */
 	getProxyConfig: () => typedError<ProxyConfig, string>(__TAURI_INVOKE("get_proxy_config")),
+	/**  读取 AI 模型配置 JSON 文件。文件不存在时返回默认空配置。 */
+	aiModelsLoad: () => typedError<AiModelsFile, string>(__TAURI_INVOKE("ai_models_load")),
+	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
+	aiModelsSave: (file: AiModelsFile) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
 };
 
 /* Types */
@@ -361,6 +365,26 @@ export type ActionRequest = {
 	envTag?: string | null,
 	/**  工作目录（本地 shell 类执行可用）。 */
 	cwd?: string | null,
+};
+
+/**
+ *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
+ *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐。
+ */
+export type AiModelProvider = {
+	id: string,
+	providerName: string,
+	apiStandard: string,
+	baseUrl: string,
+	apiKey: string,
+	modelNames: string[],
+	createdAt: number | null,
+};
+
+/**  持久化文件结构。版本号用于前端迁移。 */
+export type AiModelsFile = {
+	version?: number,
+	providers?: AiModelProvider[],
 };
 
 /**  抓包统计信息。 */

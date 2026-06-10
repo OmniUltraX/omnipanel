@@ -195,6 +195,9 @@ fn export_ipc_bindings() {
         commands::protocol::modbus_disconnect,
         commands::proxy::set_proxy_config,
         commands::proxy::get_proxy_config,
+        // AI 模型持久化
+        commands::ai_models::ai_models_load,
+        commands::ai_models::ai_models_save,
     ]);
 
     // 用 CARGO_MANIFEST_DIR 拼绝对路径，避免 cwd 在不同入口（cargo test/run）下不一致。
@@ -513,6 +516,9 @@ pub fn run() {
             // Proxy
             commands::proxy::set_proxy_config,
             commands::proxy::get_proxy_config,
+            // AI 模型持久化
+            commands::ai_models::ai_models_load,
+            commands::ai_models::ai_models_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

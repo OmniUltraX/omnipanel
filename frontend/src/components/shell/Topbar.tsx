@@ -122,21 +122,6 @@ export function Topbar({ title, children }: TopbarProps) {
         {children && <div className="topbar-page-actions">{children}</div>}
 
         <div className="topbar-actions">
-          {showGlobalAiButton && (
-            <button
-              className={`topbar-btn${aiDrawerOpen ? " active" : ""}`}
-              title={t("shell.topbar.aiAssistant", { shortcut: aiShortcutLabel })}
-              onClick={handleAi}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
-                <circle cx="18" cy="14" r="0.5" fill="currentColor" />
-                <circle cx="6" cy="14" r="0.5" fill="currentColor" />
-                <path d="M12 17v4" />
-                <path d="M8 21h8" />
-              </svg>
-            </button>
-          )}
           <button className="topbar-btn" title={t("shell.topbar.notifications")} onClick={handleNotifications}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
