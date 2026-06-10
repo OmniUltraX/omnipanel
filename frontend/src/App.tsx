@@ -22,6 +22,7 @@ import { ProtocolPanel } from "./modules/protocol/ProtocolPanel";
 import { WorkflowPanel } from "./modules/workflow/WorkflowPanel";
 import { KnowledgePanel } from "./modules/knowledge/KnowledgePanel";
 import { TasksPanel } from "./modules/tasks/TasksPanel";
+import { AgentPanel } from "./modules/agent/AgentPanel";
 import { SettingsPanel } from "./modules/settings/SettingsPanel";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
@@ -248,6 +249,7 @@ function AppShell() {
                     <Route path="/workflow" element={<WorkflowPanel />} />
                     <Route path="/knowledge" element={<KnowledgePanel />} />
                     <Route path="/tasks" element={<TasksPanel />} />
+                    <Route path="/agent" element={<AgentPanel />} />
                     <Route path="/settings" element={<SettingsPanel />} />
                   </Routes>
                 )}

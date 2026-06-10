@@ -95,6 +95,17 @@ const utilPaths = [
       </svg>
     ),
   },
+  {
+    path: "/agent",
+    key: "shell.nav.agent",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <circle cx="12" cy="8" r="5" />
+        <path d="M3 21v-2a7 7 0 0114 0v2" />
+        <circle cx="12" cy="8" r="2" fill="currentColor" />
+      </svg>
+    ),
+  },
 ];
 
 export function Sidebar() {

@@ -104,6 +104,14 @@
     flex-direction: column;
 }
 
+.dock-panel-left .dock-rail-shell {
+    border-right: 1px solid var(--border);
+}
+
+.dock-panel-right .dock-rail-shell {
+    border-left: 1px solid var(--border);
+}
+
 .dock-panel-left {
     min-width: 0 !important;
 }
@@ -9528,14 +9536,153 @@
      Protocol Lab (protocol.html)
      ══════════════════════════════════════════════════════════════════════ */
     .proto-sidebar {
-        width: 200px;
-        min-width: 200px;
+        width: 100%;
         background: var(--bg-deeper);
-        border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
         overflow-y: auto;
+    }
+
+    .proto-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border-soft);
+        flex-shrink: 0;
+    }
+
+    .proto-sidebar-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--meta);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .proto-sidebar-new {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-2);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .proto-sidebar-new:hover {
+        background: var(--surface-hover);
+        color: var(--accent);
+    }
+
+    /* Protocol sidebar utility classes */
+    .proto-tab-btn {
+        flex: 1;
+        padding: 6px 0;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--meta);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: color 0.12s, border-color 0.12s;
+    }
+
+    .proto-tab-btn.is-active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+        font-weight: 600;
+    }
+
+    .proto-tab-btn:hover:not(.is-active) {
+        color: var(--fg-2);
+    }
+
+    .proto-link-danger {
+        font-size: 11px;
+        color: var(--danger);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px 6px;
+    }
+
+    .proto-link-danger:hover {
+        text-decoration: underline;
+    }
+
+    .proto-empty {
+        padding: 20px 12px;
+        text-align: center;
+        color: var(--meta);
+        font-size: 12px;
+    }
+
+    .proto-input-sm {
+        flex: 1;
+        font-size: 11px;
+        padding: 3px 6px;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        outline: none;
+    }
+
+    .proto-input-sm:focus {
+        border-color: var(--accent);
+    }
+
+    .proto-icon-btn {
+        font-size: 11px;
+        color: var(--meta);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px 4px;
+    }
+
+    .proto-icon-btn:hover {
+        color: var(--fg);
+    }
+
+    .proto-icon-btn-accent {
+        font-size: 11px;
+        color: var(--accent);
+        background: none;
+        border: 1px solid var(--accent);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        padding: 2px 6px;
+    }
+
+    .proto-icon-btn-accent:hover {
+        background: var(--accent-soft);
+    }
+
+    .proto-context-item.is-active {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .proto-delete-btn {
+        font-size: 10px;
+        color: var(--meta);
+        cursor: pointer;
+        padding: 0 4px;
+        opacity: 0.5;
+        transition: opacity 0.12s;
+    }
+
+    .proto-delete-btn:hover {
+        opacity: 1;
+        color: var(--danger);
     }
 
     .proto-nav-item {
@@ -9950,7 +10097,11 @@
     }
 
     .history-item {
-        padding: var(--sp-2) var(--sp-4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
         border-bottom: 1px solid var(--border-soft);
         cursor: pointer;
         transition: background 0.12s;
@@ -9960,24 +10111,48 @@
         background: var(--surface);
     }
 
+    .history-item-main {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+    }
+
     .history-item .h-method {
         font-size: 10px;
         font-weight: 700;
-        margin-right: 4px;
+        flex-shrink: 0;
     }
 
     .history-item .h-url {
         font-size: 11px;
         color: var(--fg-2);
-        display: block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
+    .history-item-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-shrink: 0;
+    }
+
+    .history-item .h-status {
+        font-size: 10px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .history-item .h-status-ok { color: var(--success); }
+    .history-item .h-status-err { color: var(--danger); }
+
     .history-item .h-time {
         font-size: 10px;
         color: var(--meta);
+        font-variant-numeric: tabular-nums;
     }
 
     .method-get {
