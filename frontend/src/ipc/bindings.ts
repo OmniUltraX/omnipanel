@@ -189,6 +189,10 @@ export const commands = {
 	sftpMkdir: (id: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_mkdir", { id, path })),
 	/**  删除远程服务器上的文件。 */
 	sftpRemove: (id: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_remove", { id, path })),
+	/**  重命名远程文件/目录。 */
+	sftpRename: (id: string, oldPath: string, newPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_rename", { id, oldPath, newPath })),
+	/**  修改远程文件权限。 */
+	sftpChmod: (id: string, path: string, mode: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_chmod", { id, path, mode })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
 	sshListConfigHosts: () => typedError<SshConfigEntry[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_config_hosts")),
 	/**  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。 */

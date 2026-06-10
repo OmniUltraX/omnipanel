@@ -69,7 +69,7 @@ function riskBadge(risk: TaskRisk) {
   return <span className={`badge badge-${item.tone}`}>{item.label}</span>;
 }
 
-function sourceBadge(source: TaskSource, t: (k: string) => string) {
+function sourceBadge(source: TaskSource, _t: (k: string) => string) {
   const map: Record<TaskSource, string> = {
     user: "👤",
     ai: "🤖",
@@ -109,7 +109,7 @@ function NewTaskForm({
   const [command, setCommand] = useState("");
   const [taskType, setTaskType] = useState<TaskType>("terminal");
   const [risk, setRisk] = useState<TaskRisk>("low");
-  const [resourceId, setResourceId] = useState("");
+  const [resourceId, _setResourceId] = useState("");
   const [resourceName, setResourceName] = useState("");
   const [envTag, setEnvTag] = useState("dev");
 

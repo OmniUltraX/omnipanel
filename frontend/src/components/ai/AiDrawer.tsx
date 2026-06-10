@@ -13,7 +13,6 @@ import { SidebarWorkspace } from "../ui/SidebarWorkspace";
 import { CommandSuggestion, isShellLanguage } from "./CommandSuggestion";
 import { useI18n } from "../../i18n";
 import { formatShortcut, useShortcutsStore } from "../../stores/shortcutsStore";
-import { formatModShortcut } from "../../lib/platform";
 import { KnowledgeReferences } from "./KnowledgeReferences";
 
 function extractText(node: unknown): string {

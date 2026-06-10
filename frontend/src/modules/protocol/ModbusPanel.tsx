@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useI18n } from "../../i18n";
 import { Select } from "../../components/ui/Select";
 
 type RegisterType = "coils" | "discrete_inputs" | "holding_registers" | "input_registers";
@@ -26,7 +25,6 @@ const STYLE = {
 };
 
 export function ModbusPanel() {
-  const { t } = useI18n();
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("502");
   const [slaveId, setSlaveId] = useState("1");
@@ -74,7 +72,7 @@ export function ModbusPanel() {
       setBusy(true);
       const addr = parseInt(readAddr);
       const qty = parseInt(readQty);
-      let data: any;
+      let data: boolean[] | number[] | unknown;
       switch (regType) {
         case "coils":
           data = await invoke<boolean[]>("modbus_read_coils", { id: sessionId, addr, qty });
@@ -90,7 +88,7 @@ export function ModbusPanel() {
           break;
       }
       const formatted = Array.isArray(data)
-        ? data.map((v: any, i: number) => `[${addr + i}] = ${v}`).join("\n")
+        ? data.map((v: boolean | number, i: number) => `[${addr + i}] = ${v}`).join("\n")
         : JSON.stringify(data);
       setResult(`Read ${regType} (addr=${addr}, qty=${qty}):\n${formatted}`);
     } catch (e) {

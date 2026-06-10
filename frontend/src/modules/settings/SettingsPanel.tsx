@@ -15,7 +15,6 @@ import {
   ACCENT_ORDER,
   clampUiScale,
   type Locale,
-  type ProxyConfig,
   type ProxyProtocol,
   type AiDisplayMode,
 } from "../../stores/settingsStore";

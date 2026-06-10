@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerComposeProject } from "../../ipc/bindings";
+import type { DockerActionResult } from "./useDockerWorkspace";
 import type { DockerComposeAction } from "../../ipc/bindings";
 
 interface DockerComposeDrawerProps {
   project: DockerComposeProject | null;
   onClose: () => void;
-  onAction: (action: DockerComposeAction, project: DockerComposeProject) => Promise<{ ok: boolean; message: string }>;
+  onAction: (action: DockerComposeAction, project: DockerComposeProject) => Promise<DockerActionResult>;
 }
 
 type DrawerTab = "info" | "edit";
@@ -26,7 +27,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
     setMessage(null);
     const r = await onAction(action, project);
     setBusy(null);
-    setMessage(r.message);
+    setMessage(r.message ?? null);
   };
 
   const handleSaveAndDeploy = async () => {
@@ -164,7 +165,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             disabled={busy !== null}
             onClick={() => void run("up")}
           >
-            {busy === "Up" ? "启动中…" : "Up"}
+            {busy === "up" ? "启动中…" : "Up"}
           </Button>
           <Button
             variant="secondary"
@@ -172,7 +173,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             disabled={busy !== null}
             onClick={() => void run("restart")}
           >
-            {busy === "Restart" ? "重启中…" : "Restart"}
+            {busy === "restart" ? "重启中…" : "Restart"}
           </Button>
           <Button
             variant="secondary"
@@ -180,7 +181,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             disabled={busy !== null}
             onClick={() => void run("pull")}
           >
-            {busy === "Pull" ? "拉取中…" : "Pull"}
+            {busy === "pull" ? "拉取中…" : "Pull"}
           </Button>
           <Button
             variant="danger"
@@ -188,7 +189,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             disabled={busy !== null}
             onClick={() => void run("down")}
           >
-            {busy === "Down" ? "停止中…" : "Down"}
+            {busy === "down" ? "停止中…" : "Down"}
           </Button>
         </footer>
           </>

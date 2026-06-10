@@ -449,7 +449,8 @@ export function useTerminal(
           allowProposedApi: true,
           scrollback: settings.terminalScrollback,
         });
-        term.options.copyOnSelect = settings.terminalCopyOnSelect;
+        (term.options as typeof term.options & { copyOnSelect?: boolean }).copyOnSelect =
+          settings.terminalCopyOnSelect;
 
         fitAddon = new FitAddon();
         term.loadAddon(fitAddon);

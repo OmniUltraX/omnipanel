@@ -26,7 +26,7 @@ export function KnowledgePanel() {
 
   const [showCreate, setShowCreate] = useState(false);
   const searchInput = searchQuery;
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // 初始加载
   useEffect(() => {
@@ -149,7 +149,7 @@ export function KnowledgePanel() {
                         setSelectedEntry(result.entry.id);
                         setEditingEntry(null);
                       }}
-                      score={result.score}
+                      score={result.score ?? undefined}
                     />
                   ))
                 : displayEntries.map((entry) => (

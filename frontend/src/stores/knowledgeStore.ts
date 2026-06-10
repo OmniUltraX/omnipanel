@@ -154,7 +154,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           if (res.status === "ok") {
             set((state) => ({
               entries: state.entries.map((e) =>
-                e.id === id ? { ...e, usageCount: e.usageCount + 1 } : e
+                e.id === id ? { ...e, usageCount: (e.usageCount ?? 0) + 1 } : e
               ),
             }));
           }

@@ -80,12 +80,12 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
     try {
       const req: DockerCreateContainerRequest = {
         image: image.trim(),
-        name: name.trim() || undefined,
+        name: name.trim() || null,
         ports,
         volumes,
         env,
-        network: network.trim() || undefined,
-        cmd: cmd.trim() ? cmd.trim().split(/\s+/) : undefined,
+        network: network.trim() || null,
+        cmd: cmd.trim() ? cmd.trim().split(/\s+/) : null,
         restartPolicy,
         autoRemove,
       };

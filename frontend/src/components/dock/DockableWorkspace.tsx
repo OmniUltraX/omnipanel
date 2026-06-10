@@ -132,6 +132,7 @@ export function DockableWorkspace({
         prevTabIds,
         activeTabId,
       );
+      if (!prevLayout) return;
       const removed = diffRemovedTabIds(prevLayout, nextLayout);
 
       onSavedLayoutChange(nextLayout);

@@ -13,7 +13,6 @@ import {
   connectionsToForm,
   EMPTY_SERVER_FORM,
   findSshForPanel,
-  getLinkedConnectionIds,
   parseSshConfig,
   type UnifiedServerFormData,
 } from "./serverConnection";
@@ -174,7 +173,7 @@ export function ServerConnectionDialog({
           panelGroup,
           savedSsh.id,
           savedPanelId,
-          existingPanel?.createdAt,
+          existingPanel?.createdAt ?? undefined,
         );
         const savedPanel = await saveConn(panelDraft);
         if (!savedPanel) throw new Error("Panel save failed");

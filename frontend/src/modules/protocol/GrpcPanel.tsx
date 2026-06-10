@@ -47,7 +47,7 @@ export function GrpcPanel() {
       });
       setConnectionId(id);
       setConnected(true);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(String(e));
     } finally {
       setLoading(false);
@@ -56,7 +56,7 @@ export function GrpcPanel() {
 
   const handleDisconnect = useCallback(async () => {
     if (connectionId) {
-      try { await invoke("grpc_close", { connectionId }); } catch {}
+      try { await invoke("grpc_close", { connectionId }); } catch { /* ignore close errors */ }
     }
     setConnected(false);
     setConnectionId("");
@@ -84,7 +84,7 @@ export function GrpcPanel() {
         { method, request: requestJson, response: resp.response_json, status: resp.status_code, grpcStatus: resp.grpc_status, durationMs: resp.duration_ms, timestamp: new Date() },
         ...prev.slice(0, 49),
       ]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(String(e));
     } finally {
       setLoading(false);

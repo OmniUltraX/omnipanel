@@ -95,7 +95,8 @@ export function TerminalView({
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
-    term.options.copyOnSelect = settings.terminalCopyOnSelect;
+    (term.options as typeof term.options & { copyOnSelect?: boolean }).copyOnSelect =
+      settings.terminalCopyOnSelect;
 
     term.open(container);
     term.attachCustomKeyEventHandler((e) => triggerAiDrawerToggle(e));

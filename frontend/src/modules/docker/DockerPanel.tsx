@@ -131,7 +131,7 @@ export function DockerPanel() {
     inspectVolume,
     removeImage,
     pruneImages,
-    reloadConnections: loadConnections,
+    reloadConnections,
   } = docker;
 
   const [tab, setTab] = useState<WorkspaceTab>("containers");

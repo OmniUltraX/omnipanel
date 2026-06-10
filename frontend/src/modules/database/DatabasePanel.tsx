@@ -629,9 +629,11 @@ export function DatabasePanel() {
 
   const cancelPendingCommit = useCallback(() => {
     if (!pendingTabAction) return;
+    const action = pendingTabAction;
     setPendingTabAction(null);
-    executeTabAction(pendingTabAction);
-  }, [pendingTabAction, executeTabAction]);
+    rollbackTabDirty(action.tabId);
+    executeTabAction(action);
+  }, [pendingTabAction, rollbackTabDirty, executeTabAction]);
 
   const handleCellEdit = useCallback(
     (tabId: string, cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => {

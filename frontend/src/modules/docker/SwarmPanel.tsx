@@ -79,7 +79,7 @@ export function SwarmPanel({ connectionId }: { connectionId: string }) {
     try {
       await invoke("docker_swarm_init", { connectionId, listenAddr: null, advertiseAddr: null });
       await loadSwarmData();
-    } catch (e: any) { setError(String(e)); }
+    } catch (e: unknown) { setError(String(e)); }
     finally { setLoading(false); }
   };
 
@@ -90,7 +90,7 @@ export function SwarmPanel({ connectionId }: { connectionId: string }) {
       await invoke("docker_swarm_leave", { connectionId, force: true });
       setIsInSwarm(false);
       setNodes([]); setServices([]); setStacks([]);
-    } catch (e: any) { setError(String(e)); }
+    } catch (e: unknown) { setError(String(e)); }
     finally { setLoading(false); }
   };
 
@@ -297,7 +297,7 @@ function CreateServiceDialog({ connectionId, onClose, onCreated }: { connectionI
         },
       });
       onCreated();
-    } catch (err: any) { setError(String(err)); }
+    } catch (err: unknown) { setError(String(err)); }
     finally { setLoading(false); }
   };
 
@@ -336,7 +336,7 @@ function DeployStackDialog({ connectionId, onClose, onDeployed }: { connectionId
     try {
       await invoke("docker_stack_deploy", { connectionId, name, composeContent: compose, env: null });
       onDeployed();
-    } catch (err: any) { setError(String(err)); }
+    } catch (err: unknown) { setError(String(err)); }
     finally { setLoading(false); }
   };
 

@@ -14,6 +14,7 @@ export type SplitTerminalWorkspaceProps = {
   interactionActive?: boolean;
   getResource: (pane: TerminalPane) => WorkspaceResource | null;
   serverOptions?: PaneServerOption[];
+  occupiedResourceIds?: Set<string>;
   onPaneResourceChange?: (paneId: string, resourceId: string) => void;
   paneStartup?: (pane: TerminalPane) => string[];
   onActivatePane: (paneId: string) => void;
@@ -51,6 +52,7 @@ export function SplitTerminalWorkspace({
   interactionActive = true,
   getResource,
   serverOptions,
+  occupiedResourceIds,
   onPaneResourceChange,
   paneStartup,
   onActivatePane,
@@ -110,6 +112,7 @@ export function SplitTerminalWorkspace({
           activePaneId={effectiveActivePaneId}
           resourceMap={resourceMap}
           serverOptions={serverOptions}
+          occupiedResourceIds={occupiedResourceIds}
           onPaneResourceChange={onPaneResourceChange}
           paneStartup={paneStartup}
           onActivatePane={onActivatePane}

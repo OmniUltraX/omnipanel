@@ -40,7 +40,6 @@ export function CreateEntryDialog({ open, onClose }: CreateEntryDialogProps) {
   const handleSubmit = async () => {
     if (!title.trim()) return;
     setSaving(true);
-    const now = new Date().toISOString();
     const entry: KnowledgeEntry = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
       kind,
@@ -51,12 +50,12 @@ export function CreateEntryDialog({ open, onClose }: CreateEntryDialogProps) {
         .map((item) => item.trim())
         .filter(Boolean),
       riskLevel,
-      source: source || null,
-      envTag: null,
-      language: language || null,
+      source: source.trim(),
+      envTag: "",
+      language: language.trim(),
       usageCount: 0,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const ok = await saveEntry(entry);
     setSaving(false);

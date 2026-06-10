@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerVolumeDetail } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
+import type { DockerActionResult } from "./useDockerWorkspace";
 
 interface ConfirmState {
   title: string;
@@ -17,7 +18,7 @@ interface DockerVolumeDrawerProps {
   name: string | null;
   onClose: () => void;
   inspectVolume: (name: string) => Promise<DockerVolumeDetail | null>;
-  onRemove: (name: string) => Promise<{ ok: boolean; message: string }>;
+  onRemove: (name: string) => Promise<DockerActionResult>;
 }
 
 function formatBytes(n: number | null | undefined): string {

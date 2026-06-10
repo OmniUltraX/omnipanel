@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
 import Editor from "@monaco-editor/react";
+import type { DockerActionResult } from "./useDockerWorkspace";
 
 /* eslint-disable react-hooks/set-state-in-effect -- controlled form state reset */
 
@@ -9,7 +10,7 @@ interface DockerFileEditorProps {
   filePath: string | null;
   initialContent: string;
   onClose: () => void;
-  onSave: (content: string) => Promise<{ ok: boolean; message: string }>;
+  onSave: (content: string) => Promise<DockerActionResult>;
 }
 
 const MAX_SAFE_BYTES = 64 * 1024;
@@ -41,9 +42,9 @@ export function DockerFileEditor({ open, filePath, initialContent, onClose, onSa
     try {
       const r = await onSave(content);
       if (r.ok) {
-        setMessage(r.message);
+        setMessage(r.message ?? null);
       } else {
-        setError(r.message);
+        setError(r.message ?? "保存失败");
       }
     } catch (e) {
       setError(String(e));

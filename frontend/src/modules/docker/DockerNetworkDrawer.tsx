@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerNetworkDetail } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
+import type { DockerActionResult } from "./useDockerWorkspace";
 
 interface ConfirmState {
   title: string;
@@ -17,7 +18,7 @@ interface DockerNetworkDrawerProps {
   name: string | null;
   onClose: () => void;
   inspectNetwork: (name: string) => Promise<DockerNetworkDetail | null>;
-  onRemove: (name: string) => Promise<{ ok: boolean; message: string }>;
+  onRemove: (name: string) => Promise<DockerActionResult>;
 }
 
 export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }: DockerNetworkDrawerProps) {

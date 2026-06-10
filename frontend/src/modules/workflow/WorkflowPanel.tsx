@@ -3,14 +3,12 @@ import { useWorkflowStore } from "../../stores/workflowStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useI18n } from "../../i18n";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
-import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
 import type {
   Workflow,
   WorkflowDetail,
   WorkflowType,
-  WfRiskLevel,
-  StepType,
+  RiskLevel,
   SaveWorkflowRequest,
   SaveStepRequest,
 } from "../../ipc/bindings";
@@ -83,7 +81,8 @@ function formatDuration(ms: number | null): string {
 }
 
 // ─── Relative time ───────────────────────────────────────
-function relativeTime(ts: number): string {
+function relativeTime(ts: number | null): string {
+  if (ts == null) return "—";
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "刚刚";
@@ -187,8 +186,8 @@ export function WorkflowPanel() {
   };
 
   // ── Risk label i18n ───────────────────────────────────
-  const riskLabel = (rl: WfRiskLevel) => {
-    const map: Record<WfRiskLevel, string> = {
+  const riskLabel = (rl: RiskLevel) => {
+    const map: Record<RiskLevel, string> = {
       low: t("workflow.risk.low"),
       medium: t("workflow.risk.medium"),
       high: t("workflow.risk.high"),
@@ -530,7 +529,7 @@ function WorkflowDetailView({
   detail: WorkflowDetail;
   executions: import("../../ipc/bindings").WorkflowExecution[];
   typeLabel: (wt: WorkflowType) => string;
-  riskLabel: (rl: WfRiskLevel) => string;
+  riskLabel: (rl: RiskLevel) => string;
   onRun: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -783,7 +782,7 @@ function WorkflowFormDialog({
   const [workflowType, setWorkflowType] = useState<WorkflowType>(
     existing?.workflow.workflow_type ?? "script"
   );
-  const [riskLevel, setRiskLevel] = useState<WfRiskLevel>(
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>(
     existing?.workflow.risk_level ?? "low"
   );
   const [target, setTarget] = useState(existing?.workflow.target ?? "");
@@ -919,7 +918,7 @@ function WorkflowFormDialog({
               <label>{t("workflow.ui.form.risk")}</label>
               <Select
                 value={riskLevel}
-                onChange={(v) => setRiskLevel(v as WfRiskLevel)}
+                onChange={(v) => setRiskLevel(v as RiskLevel)}
                 searchable={false}
                 options={[
                   { value: "read_only", label: t("workflow.risk.readonly") },

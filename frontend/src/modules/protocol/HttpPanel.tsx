@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
 import { SidebarSecondary } from "../../components/ui/SidebarSecondary";
 
@@ -69,29 +68,6 @@ interface HttpCollection {
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  const hh = d.getHours().toString().padStart(2, "0");
-  const mm = d.getMinutes().toString().padStart(2, "0");
-  const ss = d.getSeconds().toString().padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
-
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  const month = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  return `${month}-${day}`;
-}
-
-function statusColor(code: number | null): string {
-  if (!code) return "var(--text-dim)";
-  if (code >= 200 && code < 300) return "var(--success, #4caf50)";
-  if (code >= 300 && code < 400) return "var(--warning, #ff9800)";
-  if (code >= 400) return "var(--danger, #f44336)";
-  return "var(--text-dim)";
 }
 
 function methodColor(method: string): string {

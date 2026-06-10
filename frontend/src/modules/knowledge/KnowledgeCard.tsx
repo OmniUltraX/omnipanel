@@ -7,9 +7,10 @@ const KIND_ICONS: Record<string, string> = {
   ai: "🤖",
 };
 
-function relativeTime(dateStr: string): string {
+function relativeTime(dateVal: number | string | null | undefined): string {
+  if (dateVal == null) return "—";
+  const then = typeof dateVal === "number" ? dateVal : new Date(dateVal).getTime();
   const now = Date.now();
-  const then = new Date(dateStr).getTime();
   const diff = now - then;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "刚刚";
@@ -57,7 +58,7 @@ export function KnowledgeCard({ entry, selected, onClick, score }: KnowledgeCard
         <div className="knowledge-card-source">{entry.source}</div>
       )}
       <div className="knowledge-card-meta">
-        <span>{t("knowledge.meta.used", { count: entry.usageCount })}</span>
+        <span>{t("knowledge.meta.used", { count: entry.usageCount ?? 0 })}</span>
         <span>·</span>
         <span>{relativeTime(entry.updatedAt)}</span>
         {score != null && score > 0 && (

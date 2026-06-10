@@ -5,6 +5,7 @@ import type {
   DockerImageHistoryLayer,
 } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
+import type { DockerActionResult } from "./useDockerWorkspace";
 
 interface ConfirmState {
   title: string;
@@ -21,8 +22,8 @@ interface DockerImageDrawerProps {
   onClose: () => void;
   inspectImage: (id: string) => Promise<DockerImageDetail | null>;
   imageHistory: (id: string) => Promise<DockerImageHistoryLayer[] | null>;
-  onRemove: (id: string) => Promise<{ ok: boolean; message: string }>;
-  onPrune: () => Promise<{ ok: boolean; message: string }>;
+  onRemove: (id: string) => Promise<DockerActionResult>;
+  onPrune: () => Promise<DockerActionResult>;
   onCopyId: (id: string) => void;
 }
 

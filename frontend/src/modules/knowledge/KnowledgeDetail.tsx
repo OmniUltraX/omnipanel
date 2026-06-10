@@ -8,11 +8,13 @@ import { useI18n } from "../../i18n";
 import { Select } from "../../components/ui/Select";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 
-function formatDate(dateStr: string): string {
+function formatDate(dateVal: number | string | null | undefined): string {
+  if (dateVal == null) return "—";
   try {
-    return new Date(dateStr).toLocaleString();
+    const ms = typeof dateVal === "number" ? dateVal : new Date(dateVal).getTime();
+    return new Date(ms).toLocaleString();
   } catch {
-    return dateStr;
+    return String(dateVal);
   }
 }
 
@@ -78,9 +80,9 @@ export function KnowledgeDetail() {
         .map((t) => t.trim())
         .filter(Boolean),
       riskLevel: editRisk,
-      source: editSource || null,
-      language: editLanguage || null,
-      updatedAt: new Date().toISOString(),
+      source: editSource.trim(),
+      language: editLanguage.trim(),
+      updatedAt: Date.now(),
     };
     const ok = await saveEntry(updated);
     setSaving(false);

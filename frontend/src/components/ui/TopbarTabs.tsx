@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu } from "./ContextMenu";
-import { buildTabCloseMenuItems } from "./contextMenuItems";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "./contextMenuItems";
 import { useI18n } from "../../i18n";
 import type {
   TopbarHandlers,
@@ -110,8 +110,12 @@ export function TopbarTabs({ tabs, tabMode, showAddTab, addTabTitle, handlers }:
   }, [addMenuOpen]);
 
   const handleContextAction = useCallback(
-    (action: "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll") => {
+    (action: TabContextMenuAction) => {
       if (!ctxMenu || !handlers.onClose) return;
+      if (action === "rename") {
+        setCtxMenu(null);
+        return;
+      }
       const idx = ctxMenu.index;
       const tabList = tabs;
       if (action === "close") {
