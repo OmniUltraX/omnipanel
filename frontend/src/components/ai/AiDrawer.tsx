@@ -1,11 +1,8 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAiStore } from "../../stores/aiStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { useActionStore } from "../../stores/actionStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { getResourceById } from "../../lib/resourceRegistry";
 import type { AiConversation, AiMessage, ToolCallState } from "../../stores/aiStore";
 import { IconRobot } from "../ui/Icons";
 import { SubWindow } from "../ui/SubWindow";
@@ -14,6 +11,10 @@ import { CommandSuggestion, isShellLanguage } from "./CommandSuggestion";
 import { useI18n } from "../../i18n";
 import { formatShortcut, useShortcutsStore } from "../../stores/shortcutsStore";
 import { KnowledgeReferences } from "./KnowledgeReferences";
+import { ReasoningBlock } from "./ReasoningBlock";
+import { useAiChat } from "./useAiChat";
+import { AiModelSelect } from "./AiModelSelect";
+import { AiReasoningEffortSelect } from "./AiReasoningEffortSelect";
 
 function extractText(node: unknown): string {
   if (typeof node === "string") return node;
@@ -38,31 +39,28 @@ function ToolCallView({ tc }: { tc: ToolCallState }) {
   }[tc.status];
 
   return (
-    <div className="border border-border rounded-md overflow-hidden my-1">
+    <div className={`ai-tool-call${expanded ? " is-expanded" : ""}`}>
       <button
-        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-fg-2 hover:bg-surface-hover transition-colors"
+        type="button"
+        className="ai-tool-call-header"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-[10px] text-meta">{statusIcon}</span>
-        <span className="font-mono text-accent">{tc.name}</span>
-        <span className="text-muted truncate flex-1 text-left">
+        <span className="ai-tool-call-status">{statusIcon}</span>
+        <span className="ai-tool-call-name">{tc.name}</span>
+        <span className="ai-tool-call-args">
           {tc.arguments.slice(0, 60)}
           {tc.arguments.length > 60 ? "..." : ""}
         </span>
-        <span className="text-muted">{expanded ? "▾" : "▸"}</span>
+        <span className="ai-tool-call-chevron">{expanded ? "▾" : "▸"}</span>
       </button>
       {expanded && (
-        <div className="border-t border-border px-3 py-2 text-xs">
-          <div className="text-meta mb-1">参数：</div>
-          <pre className="bg-bg-deeper rounded p-2 overflow-x-auto text-fg-2 whitespace-pre-wrap break-all">
-            {tc.arguments}
-          </pre>
+        <div className="ai-tool-call-body">
+          <div className="ai-tool-call-label">参数：</div>
+          <pre className="ai-tool-call-pre">{tc.arguments}</pre>
           {tc.result && (
             <>
-              <div className="text-meta mt-2 mb-1">结果：</div>
-              <pre className="bg-bg-deeper rounded p-2 overflow-x-auto text-fg-2 whitespace-pre-wrap break-all">
-                {tc.result}
-              </pre>
+              <div className="ai-tool-call-label">结果：</div>
+              <pre className="ai-tool-call-pre">{tc.result}</pre>
             </>
           )}
         </div>
@@ -73,9 +71,14 @@ function ToolCallView({ tc }: { tc: ToolCallState }) {
 
 // ─── Message Bubble ───
 
-function MessageBubble({ msg }: { msg: AiMessage }) {
+function StreamingCursor() {
+  return <span className="ai-stream-cursor" aria-hidden />;
+}
+
+function MessageBubble({ msg, isLast }: { msg: AiMessage; isLast?: boolean }) {
   const isUser = msg.role === "user";
   const isAssistant = msg.role === "assistant";
+  const isActiveStream = Boolean(isAssistant && msg.isStreaming && isLast);
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const tabs = useTerminalStore((s) => s.tabs);
 
@@ -90,80 +93,97 @@ function MessageBubble({ msg }: { msg: AiMessage }) {
     [tabs, activeTabId]
   );
 
+  const showTyping =
+    isActiveStream &&
+    !msg.content &&
+    !msg.reasoningContent &&
+    !msg.isReasoningStreaming;
+
   return (
-    <div className={`flex gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+    <div
+      className={`ai-msg ${isUser ? "ai-msg--user" : "ai-msg--assistant"}${isActiveStream ? " ai-msg--streaming" : ""}`}
+    >
       <div
-        className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-xs ${
-          isAssistant ? "bg-accent text-white" : "bg-surface text-fg-2"
-        }`}
+        className={`ai-msg-avatar${isAssistant ? " ai-msg-avatar--bot" : " ai-msg-avatar--user"}${isActiveStream ? " ai-msg-avatar--live" : ""}`}
       >
-        {isAssistant ? <IconRobot size={14} /> : <span>U</span>}
+        {isAssistant ? <IconRobot size={15} /> : <span>U</span>}
+        {isActiveStream && <span className="ai-msg-avatar-ring" aria-hidden />}
       </div>
 
-      <div className={`flex-1 min-w-0 ${isUser ? "text-right" : ""}`}>
+      <div className="ai-msg-body">
         <div
-          className={`inline-block text-left text-sm leading-relaxed max-w-full ${
-            isUser
-              ? "bg-accent/15 text-fg rounded-lg px-3 py-2"
-              : "text-fg-2"
-          }`}
+          className={`ai-msg-bubble${isUser ? " ai-msg-bubble--user" : " ai-msg-bubble--assistant"}${isActiveStream ? " ai-msg-bubble--live" : ""}`}
         >
           {isUser ? (
-            <span className="whitespace-pre-wrap">{msg.content}</span>
+            <span className="ai-msg-user-text">{msg.content}</span>
           ) : (
-            <div className="prose-ai">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  pre({ children, ...props }) {
-                    const codeChild = Array.isArray(children)
-                      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any -- react-markdown 节点为复杂联合类型，此处互操作
-                        children.find((c: any) => c?.type === "code" || c?.props?.className)
-                      : children;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，react-markdown 节点互操作
-                    const codeProps = (codeChild as any)?.props;
-                    const className = codeProps?.className || "";
-                    const lang = className.replace(/^language-/, "");
-                    const code = extractText(codeProps?.children).replace(/\n$/, "");
-
-                    if (isShellLanguage(lang) && code) {
-                      return (
-                        <CommandSuggestion
-                          code={code}
-                          language={lang}
-                          onRunInTerminal={handleRunInTerminal}
-                        />
-                      );
-                    }
-                    return <pre {...props}>{children}</pre>;
-                  },
-                  code({ className, children, ...props }) {
-                    return (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {msg.content || (msg.isStreaming ? "..." : "")}
-              </ReactMarkdown>
-              {msg.isStreaming && (
-                <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom" />
+            <>
+              {(msg.reasoningContent || msg.isReasoningStreaming || (isActiveStream && !msg.content)) && (
+                <ReasoningBlock
+                  content={msg.reasoningContent ?? ""}
+                  isStreaming={Boolean(msg.isReasoningStreaming || (isActiveStream && !msg.content && !msg.reasoningContent))}
+                  hasAnswer={Boolean(msg.content)}
+                />
               )}
-            </div>
+              {showTyping ? (
+                <div className="ai-typing-indicator" aria-label="正在生成">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : (
+                <div className="prose-ai">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      pre({ children, ...props }) {
+                        const codeChild = Array.isArray(children)
+                          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any -- react-markdown 节点为复杂联合类型，此处互操作
+                            children.find((c: any) => c?.type === "code" || c?.props?.className)
+                          : children;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，react-markdown 节点互操作
+                        const codeProps = (codeChild as any)?.props;
+                        const className = codeProps?.className || "";
+                        const lang = className.replace(/^language-/, "");
+                        const code = extractText(codeProps?.children).replace(/\n$/, "");
+
+                        if (isShellLanguage(lang) && code) {
+                          return (
+                            <CommandSuggestion
+                              code={code}
+                              language={lang}
+                              onRunInTerminal={handleRunInTerminal}
+                            />
+                          );
+                        }
+                        return <pre {...props}>{children}</pre>;
+                      },
+                      code({ className, children, ...props }) {
+                        return (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                  {isActiveStream && msg.content && <StreamingCursor />}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {msg.toolCalls && msg.toolCalls.length > 0 && (
-          <div className="mt-1">
+          <div className="ai-msg-tools">
             {msg.toolCalls.map((tc) => (
               <ToolCallView key={tc.id} tc={tc} />
             ))}
           </div>
         )}
 
-        {/* Knowledge References: extract search_knowledge results */}
         {msg.toolCalls
           ?.filter((tc) => tc.name === "search_knowledge" && tc.result && tc.status === "completed")
           .map((tc) => (
@@ -301,186 +321,7 @@ function SessionRow({
   );
 }
 
-// ─── Shared: useAiChat hook ───
-
-function useAiChat() {
-  const conversations = useAiStore((s) => s.conversations);
-  const activeConversationId = useAiStore((s) => s.activeConversationId);
-  const isGenerating = useAiStore((s) => s.isGenerating);
-  const addMessage = useAiStore((s) => s.addMessage);
-  const updateMessage = useAiStore((s) => s.updateMessage);
-  const appendStreamContent = useAiStore((s) => s.appendStreamContent);
-  const createConversation = useAiStore((s) => s.createConversation);
-  const setIsGenerating = useAiStore((s) => s.setIsGenerating);
-  const addContext = useAiStore((s) => s.addContext);
-  const removeContext = useAiStore((s) => s.removeContext);
-  const draftPrompt = useAiStore((s) => s.draftPrompt);
-  const clearDraftPrompt = useAiStore((s) => s.clearDraftPrompt);
-
-  const [input, setInput] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const activeConversation = conversations.find(
-    (c) => c.id === activeConversationId
-  );
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConversation?.messages.length, activeConversation?.messages]);
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height =
-        Math.min(textareaRef.current.scrollHeight, 100) + "px";
-    }
-  }, [input]);
-
-  useEffect(() => {
-    if (!draftPrompt) return;
-    setInput(draftPrompt);
-    clearDraftPrompt();
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [clearDraftPrompt, draftPrompt]);
-
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
-    if (!trimmed || isGenerating) return;
-
-    let convId = activeConversationId;
-    if (!convId) {
-      convId = createConversation();
-    }
-
-    addMessage(convId, { role: "user", content: trimmed });
-    setInput("");
-
-    const assistantMsgId = addMessage(convId, {
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-    });
-
-    setIsGenerating(true);
-
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const { listen } = await import("@tauri-apps/api/event");
-
-      let unlistenFn: (() => void) | null = null;
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI 流式事件 payload 为后端动态联合类型
-        unlistenFn = await listen<any>(
-          `ai-stream-${convId}`,
-          (event) => {
-            const evt = event.payload;
-            switch (evt.type) {
-              case "content_delta":
-                appendStreamContent(convId!, assistantMsgId, evt.text);
-                break;
-              case "tool_call": {
-                const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
-                const msg = conv?.messages.find((m) => m.id === assistantMsgId);
-                const existing = msg?.toolCalls || [];
-                updateMessage(convId!, assistantMsgId, {
-                  toolCalls: [
-                    ...existing,
-                    {
-                      id: evt.id,
-                      name: evt.name,
-                      arguments: evt.arguments,
-                      status: "running" as const,
-                    },
-                  ],
-                });
-                break;
-              }
-              case "tool_call_update": {
-                const conv2 = useAiStore.getState().conversations.find((c) => c.id === convId);
-                const msg2 = conv2?.messages.find((m) => m.id === assistantMsgId);
-                if (msg2?.toolCalls) {
-                  updateMessage(convId!, assistantMsgId, {
-                    toolCalls: msg2.toolCalls.map((tc) =>
-                      tc.id === evt.id
-                        ? { ...tc, status: evt.status ?? tc.status, result: evt.result ?? tc.result }
-                        : tc
-                    ),
-                  });
-                }
-                break;
-              }
-              case "done":
-                updateMessage(convId!, assistantMsgId, { isStreaming: false });
-                break;
-              case "error":
-          appendStreamContent(convId!, assistantMsgId, `\n\n错误：${evt.message}`);
-                updateMessage(convId!, assistantMsgId, { isStreaming: false });
-                break;
-            }
-          }
-        );
-
-        // Collect conversation history (all messages except the current empty
-        // assistant placeholder) so the LLM sees the full multi-turn context.
-        // Limit to the last 20 messages to avoid blowing token limits.
-        const MAX_HISTORY = 20;
-        const convState = useAiStore.getState().conversations.find((c) => c.id === convId);
-        const historyMessages = convState?.messages ?? [];
-        // Drop the last entry which is the empty assistant placeholder we just added
-        const priorMessages = historyMessages.slice(0, -1);
-        const historySlice = priorMessages.slice(-MAX_HISTORY).map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
-
-        await invoke("ai_send_message", {
-          conversationId: convId,
-          content: trimmed,
-          history: historySlice,
-        });
-      } finally {
-        unlistenFn?.();
-      }
-    } catch (err) {
-      appendStreamContent(convId, assistantMsgId, `\n\n发送失败：${err}`);
-      updateMessage(convId, assistantMsgId, { isStreaming: false });
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [
-    input,
-    isGenerating,
-    activeConversationId,
-    createConversation,
-    addMessage,
-    appendStreamContent,
-    updateMessage,
-    setIsGenerating,
-  ]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  return {
-    input,
-    setInput,
-    messagesEndRef,
-    textareaRef,
-    activeConversation,
-    activeConversationId,
-    isGenerating,
-    handleSend,
-    handleKeyDown,
-    addContext,
-    removeContext,
-  };
-}
+// ─── Shared: useAiChat hook（LangChain 流式对话） ───
 
 export function AiPanelBody() {
   const { t } = useI18n();
@@ -490,19 +331,12 @@ export function AiPanelBody() {
     messagesEndRef,
     textareaRef,
     activeConversation,
-    activeConversationId: _activeConversationId,
     isGenerating,
     handleSend,
     handleKeyDown,
     addContext,
     removeContext,
   } = useAiChat();
-  const workspace = useWorkspaceStore((s) => s.workspace);
-  const activeResourceId = useWorkspaceStore((s) => s.activeResourceId);
-  const actions = useActionStore((s) => s.actions);
-  const activeResource = getResourceById(activeResourceId);
-  const environment = activeResource?.environment ?? "unknown";
-  const recentActions = actions.slice(0, 3);
   const aiKeysOverride = useShortcutsStore((s) => s.overrides["toggle-ai"]);
   const aiShortcutLabel = useMemo(
     () => formatShortcut(aiKeysOverride ?? ["Mod", "`"]),
@@ -510,45 +344,29 @@ export function AiPanelBody() {
   );
 
   return (
-    <div className="ai-chat-pane">
-      <div className="ai-context-strip">
-        <div className="ai-context-row">
-          <span className="ai-context-label">{t("ai.currentContext")}</span>
-          <span className={`env-badge env-${environment}`}>
-            {t(`env.${environment}`)}
-          </span>
-        </div>
-        <div className="ai-context-main">
-          <span>{activeResource ? activeResource.name : workspace.name}</span>
-          {activeResource && (
-            <span className="text-meta">
-              {t(`resourceType.${activeResource.type}`)} · {activeResource.subtitle}
-            </span>
-          )}
-        </div>
-        {recentActions.length > 0 && (
-          <div className="ai-action-preview">
-            {recentActions.map((action) => (
-              <span key={action.id} className={`action-chip action-${action.status}`}>
-                {action.title}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
+    <div className={`ai-chat-pane${isGenerating ? " is-generating" : ""}`}>
       <div className="ai-message-list">
+        <div className="ai-message-list-bg" aria-hidden />
         {!activeConversation || activeConversation.messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <IconRobot size={32} className="text-muted mb-3" />
-            <p className="text-sm text-muted mb-1">{t("ai.emptyTitle")}</p>
-            <p className="text-xs text-meta">
-              {t("ai.emptyHint")}
-            </p>
+          <div className="ai-empty-state">
+            <div className="ai-empty-orbs" aria-hidden>
+              <span className="ai-empty-orb ai-empty-orb--1" />
+              <span className="ai-empty-orb ai-empty-orb--2" />
+              <span className="ai-empty-orb ai-empty-orb--3" />
+            </div>
+            <div className="ai-empty-icon-wrap">
+              <IconRobot size={36} className="ai-empty-icon" />
+            </div>
+            <p className="ai-empty-title">{t("ai.emptyTitle")}</p>
+            <p className="ai-empty-hint">{t("ai.emptyHint")}</p>
           </div>
         ) : (
-          activeConversation.messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} />
+          activeConversation.messages.map((msg, i, arr) => (
+            <MessageBubble
+              key={msg.id}
+              msg={msg}
+              isLast={i === arr.length - 1}
+            />
           ))
         )}
         <div ref={messagesEndRef} />
@@ -557,56 +375,64 @@ export function AiPanelBody() {
       {/* Context Chips */}
       <div className="ai-context-chip-bar">
         {(activeConversation?.context || []).map((ctx) => (
-          <span
-            key={ctx.type}
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-surface text-fg-2 rounded-full border border-border"
-          >
+          <span key={ctx.type} className="ai-context-chip">
             {ctx.label}
             <button
               onClick={() => activeConversation && removeContext(activeConversation.id, ctx.type)}
-              className="text-meta hover:text-fg ml-0.5"
-              style={{ fontSize: 12, lineHeight: 1 }}
+              className="ai-context-chip-remove"
+              type="button"
+              aria-label="移除"
             >
               &times;
             </button>
           </span>
         ))}
         <button
+          type="button"
           onClick={() => {
             if (activeConversation) {
               addContext(activeConversation.id, { type: "terminal", label: "Terminal" });
             }
           }}
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] text-muted hover:text-fg transition-colors"
+          className="ai-context-chip-add"
         >
-          添加上下文
+          {t("ai.addContext")}
         </button>
       </div>
 
       <div className="ai-input-shell">
-        <div className="ai-input-shell-inner">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="询问当前资源、命令、SQL 或排障流程..."
-            rows={1}
-            className="ai-input-textarea"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isGenerating}
-            className="ai-input-send"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
-            </svg>
-          </button>
+        <div className={`ai-input-shell-inner${isGenerating ? " is-busy" : ""}`}>
+          {isGenerating && <span className="ai-input-glow" aria-hidden />}
+          <div className="ai-input-toolbar">
+            <AiReasoningEffortSelect disabled={isGenerating} />
+          </div>
+          <div className="ai-input-body">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t("ai.inputPlaceholder")}
+              rows={1}
+              className="ai-input-textarea"
+              disabled={isGenerating}
+            />
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim() || isGenerating}
+              className={`ai-input-send${input.trim() && !isGenerating ? " is-ready" : ""}`}
+              aria-label={t("ai.send")}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="ai-input-hint-row">
-          <span className="text-[10px] text-meta">Shift+Enter 换行</span>
-          <span className="text-[10px] text-meta">
+          <span className="ai-input-hint">Shift+Enter 换行</span>
+          <span className="ai-input-hint">
             {t("ai.toggleHint", { shortcut: aiShortcutLabel })}
           </span>
         </div>
@@ -621,14 +447,14 @@ export function AiDrawer() {
   const { t } = useI18n();
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const closeDrawer = useAiStore((s) => s.closeDrawer);
-  const currentModel = useAiStore((s) => s.currentModel);
+  const isGenerating = useAiStore((s) => s.isGenerating);
   const activeConversation = useAiStore((s) =>
     s.conversations.find((c) => c.id === s.activeConversationId) ?? null
   );
 
   const title = activeConversation
     ? `${t("ai.title")} · ${activeConversation.title}`
-    : `${t("ai.title")} · ${currentModel}`;
+    : t("ai.title");
 
   return (
     <SubWindow
@@ -638,6 +464,12 @@ export function AiDrawer() {
       className="ai-subwindow"
       widthRatio={0.82}
       heightRatio={0.85}
+      headerExtra={
+        <div className="ai-subwindow-model">
+          <span className="ai-subwindow-model-label">{t("ai.modelSelect.label")}</span>
+          <AiModelSelect disabled={isGenerating} className="ai-subwindow-model-select" />
+        </div>
+      }
     >
       <SidebarWorkspace
         preset="ai"

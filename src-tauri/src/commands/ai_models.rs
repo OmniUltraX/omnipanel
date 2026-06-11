@@ -15,6 +15,8 @@ pub struct AiModelProvider {
     pub base_url: String,
     pub api_key: String,
     pub model_names: Vec<String>,
+    #[serde(default)]
+    pub disabled_model_names: Vec<String>,
     // 毫秒级时间戳：i64 存储，但 specta 导出为 number（远小于 2^53，无精度损失）
     #[specta(type = f64)]
     pub created_at: i64,

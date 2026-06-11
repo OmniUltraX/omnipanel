@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { commands } from "../ipc/bindings";
+import { fetchProviderModelList, mergeModelCatalog } from "../lib/fetchProviderModels";
 
 /** 用户自定义的 AI 模型接入方式 */
 export type ApiStandard = "openai" | "anthropic";
@@ -18,6 +19,8 @@ export interface AiModelProvider {
   apiKey: string;
   /** 该提供商下的模型名称列表 */
   modelNames: string[];
+  /** 已关闭的模型（未列出或空数组表示全部启用） */
+  disabledModelNames?: string[];
   /** 创建时间（毫秒） */
   createdAt: number;
 }
@@ -40,6 +43,11 @@ interface AiModelsState {
     id: string,
     patch: Partial<Omit<AiModelProvider, "id" | "createdAt">>
   ) => void;
+  setModelEnabled: (providerId: string, modelName: string, enabled: boolean) => void;
+  setAllModelsEnabled: (providerId: string, enabled: boolean) => void;
+  refreshProviderModelsFromApi: (
+    providerId: string,
+  ) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   resetProviders: () => void;
 }
 
@@ -50,6 +58,36 @@ function genId(): string {
 
 function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+/** 供外部模块构建 /models 请求 URL */
+export function normalizeBaseUrlForFetch(url: string): string {
+  return normalizeBaseUrl(url);
+}
+
+function normalizeDisabledModelNames(names: string[] | undefined): string[] {
+  if (!names?.length) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function pruneDisabledModelNames(
+  modelNames: string[],
+  disabledModelNames: string[] | undefined,
+): string[] {
+  const allowed = new Set(modelNames.map((n) => n.toLowerCase()));
+  return normalizeDisabledModelNames(disabledModelNames).filter((name) =>
+    allowed.has(name.toLowerCase()),
+  );
 }
 
 function normalizeProviderName(name: string): string {
@@ -103,6 +141,9 @@ function migrateLegacyModels(models: LegacyAiModelConfig[]): AiModelProvider[] {
 /** 旧版 localStorage 键（迁移完成后清除） */
 const LEGACY_LS_KEY = "omnipanel-ai-models";
 
+/** 开发/HMR 用的 localStorage 镜像缓存（与 ai-models.json 同步写入） */
+const PROVIDERS_CACHE_LS_KEY = "omnipanel-ai-models-v1";
+
 /** 旧版 localStorage 中保存的负载形态 */
 interface LegacyPersistedState {
   state?: { providers?: AiModelProvider[]; models?: LegacyAiModelConfig[] };
@@ -136,6 +177,30 @@ function clearLegacyLocalStorage() {
   }
 }
 
+function readProvidersCache(): AiModelProvider[] | null {
+  try {
+    const raw = window.localStorage.getItem(PROVIDERS_CACHE_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { providers?: LooseProvider[] };
+    if (!Array.isArray(parsed.providers) || parsed.providers.length === 0) return null;
+    return toStrictProviders(parsed.providers);
+  } catch (e) {
+    console.warn("[aiModelsStore] 读取 localStorage 缓存失败:", e);
+    return null;
+  }
+}
+
+function writeProvidersCache(providers: AiModelProvider[]): void {
+  try {
+    window.localStorage.setItem(
+      PROVIDERS_CACHE_LS_KEY,
+      JSON.stringify({ version: 1, providers: providers.map(serializeProviderForDisk) }),
+    );
+  } catch (e) {
+    console.warn("[aiModelsStore] 写入 localStorage 缓存失败:", e);
+  }
+}
+
 /** 放宽后的 provider 形态（apiStandard 是 string），来自 bindings。 */
 interface LooseProvider {
   id: string;
@@ -144,7 +209,8 @@ interface LooseProvider {
   baseUrl: string;
   apiKey: string;
   modelNames: string[];
-  createdAt: number;
+  disabledModelNames?: string[];
+  createdAt: number | null;
 }
 
 /**
@@ -160,7 +226,10 @@ function toStrictProvider(p: LooseProvider): AiModelProvider {
     baseUrl: p.baseUrl,
     apiKey: p.apiKey,
     modelNames: Array.isArray(p.modelNames) ? p.modelNames : [],
-    createdAt: p.createdAt,
+    disabledModelNames: normalizeDisabledModelNames(
+      Array.isArray(p.disabledModelNames) ? p.disabledModelNames : undefined,
+    ),
+    createdAt: p.createdAt ?? Date.now(),
   };
 }
 
@@ -169,16 +238,35 @@ function toStrictProviders(list: LooseProvider[] | undefined): AiModelProvider[]
   return list.map(toStrictProvider);
 }
 
-/** 是否运行在 Tauri 环境中（纯 Vite 开发无 Tauri 时为 false） */
-function hasTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INVOKE__" in window;
+/** 是否运行在 Tauri 环境中（Tauri 2 使用 __TAURI_INTERNALS__） */
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-/** 持久化当前 providers 数组到 ai-models.json。Tauri 不可用时静默跳过。 */
+function serializeProviderForDisk(provider: AiModelProvider) {
+  return {
+    id: provider.id,
+    providerName: provider.providerName,
+    apiStandard: provider.apiStandard,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    modelNames: provider.modelNames,
+    disabledModelNames: provider.disabledModelNames ?? [],
+    createdAt: provider.createdAt,
+  };
+}
+
+/** 持久化当前 providers：先写 localStorage 镜像，再写 ai-models.json。 */
 async function persistProviders(providers: AiModelProvider[]): Promise<void> {
-  if (!hasTauri()) return;
+  writeProvidersCache(providers);
+  if (!isTauriRuntime()) {
+    return;
+  }
   try {
-    const res = await commands.aiModelsSave({ version: 1, providers });
+    const res = await commands.aiModelsSave({
+      version: 1,
+      providers: providers.map(serializeProviderForDisk),
+    });
     if (res.status === "error") {
       console.warn("[aiModelsStore] 写入磁盘失败:", res.error);
     }
@@ -202,6 +290,7 @@ export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
       baseUrl: normalizeBaseUrl(input.baseUrl),
       apiKey: input.apiKey.trim(),
       modelNames: normalizeModelNames(input.modelNames),
+      disabledModelNames: normalizeDisabledModelNames(input.disabledModelNames),
       createdAt: Date.now(),
     };
     const next = [provider, ...get().providers];
@@ -215,26 +304,75 @@ export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
     void persistProviders(next);
   },
   updateProvider: (id, patch) => {
-    const next = get().providers.map((p) =>
-      p.id === id
-        ? {
-            ...p,
-            ...patch,
-            ...(patch.providerName !== undefined
-              ? { providerName: normalizeProviderName(patch.providerName) }
-              : {}),
-            ...(patch.baseUrl !== undefined
-              ? { baseUrl: normalizeBaseUrl(patch.baseUrl) }
-              : {}),
-            ...(patch.apiKey !== undefined ? { apiKey: patch.apiKey.trim() } : {}),
-            ...(patch.modelNames !== undefined
-              ? { modelNames: normalizeModelNames(patch.modelNames) }
-              : {}),
-          }
-        : p
-    );
+    const next = get().providers.map((p) => {
+      if (p.id !== id) return p;
+      const modelNames =
+        patch.modelNames !== undefined ? normalizeModelNames(patch.modelNames) : p.modelNames;
+      const disabledModelNames =
+        patch.disabledModelNames !== undefined
+          ? normalizeDisabledModelNames(patch.disabledModelNames)
+          : p.disabledModelNames;
+      return {
+        ...p,
+        ...patch,
+        ...(patch.providerName !== undefined
+          ? { providerName: normalizeProviderName(patch.providerName) }
+          : {}),
+        ...(patch.baseUrl !== undefined ? { baseUrl: normalizeBaseUrl(patch.baseUrl) } : {}),
+        ...(patch.apiKey !== undefined ? { apiKey: patch.apiKey.trim() } : {}),
+        modelNames,
+        disabledModelNames: pruneDisabledModelNames(modelNames, disabledModelNames),
+      };
+    });
     set({ providers: next });
     void persistProviders(next);
+  },
+  setModelEnabled: (providerId, modelName, enabled) => {
+    const next = get().providers.map((p) => {
+      if (p.id !== providerId) return p;
+      if (!p.modelNames.includes(modelName)) return p;
+      const disabled = new Set(p.disabledModelNames ?? []);
+      if (enabled) disabled.delete(modelName);
+      else disabled.add(modelName);
+      return { ...p, disabledModelNames: [...disabled] };
+    });
+    set({ providers: next });
+    void persistProviders(next);
+  },
+  setAllModelsEnabled: (providerId, enabled) => {
+    const next = get().providers.map((p) => {
+      if (p.id !== providerId) return p;
+      return {
+        ...p,
+        disabledModelNames: enabled ? [] : [...p.modelNames],
+      };
+    });
+    set({ providers: next });
+    void persistProviders(next);
+  },
+  refreshProviderModelsFromApi: async (providerId) => {
+    const provider = get().providers.find((p) => p.id === providerId);
+    if (!provider) {
+      return { ok: false, error: "not_found" };
+    }
+    if (!provider.apiKey.trim()) {
+      return { ok: false, error: "no_api_key" };
+    }
+
+    const fetched = await fetchProviderModelList(provider.baseUrl, provider.apiKey);
+    if (!fetched.ok) {
+      return { ok: false, error: fetched.error };
+    }
+
+    const modelNames = mergeModelCatalog(provider.modelNames, fetched.models);
+    const disabledModelNames = pruneDisabledModelNames(modelNames, provider.disabledModelNames);
+
+    const next = get().providers.map((p) =>
+      p.id === providerId ? { ...p, modelNames, disabledModelNames } : p,
+    );
+    set({ providers: next });
+    await persistProviders(next);
+    return { ok: true, count: modelNames.length };
   },
   resetProviders: () => {
     set({ providers: [] });
@@ -242,26 +380,61 @@ export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
   },
 }));
 
+const HMR_STATE_KEY = "aiModelsProviders";
+
+if (import.meta.hot) {
+  import.meta.hot.dispose((data) => {
+    data[HMR_STATE_KEY] = useAiModelsStore.getState().providers;
+  });
+
+  const hmrProviders = import.meta.hot.data[HMR_STATE_KEY] as AiModelProvider[] | undefined;
+  if (hmrProviders?.length) {
+    useAiModelsStore.setState({ providers: hmrProviders });
+  } else {
+    const cached = readProvidersCache();
+    if (cached?.length) {
+      useAiModelsStore.setState({ providers: cached });
+    }
+  }
+}
+
 /**
  * 应用启动时调用一次：
  *  1. 若磁盘文件为空,尝试从旧版 localStorage 迁移一次性数据；
  *  2. 将磁盘内容载入内存。
  */
-export async function initAiModelsStore(): Promise<void> {
-  if (!hasTauri()) return;
+export async function initAiModelsStore(force = false): Promise<void> {
+  if (!force && useAiModelsStore.getState().providers.length > 0) {
+    return;
+  }
+  if (!isTauriRuntime()) {
+    const cached = readProvidersCache();
+    if (cached?.length) {
+      useAiModelsStore.setState({ providers: cached });
+    }
+    return;
+  }
   try {
     const res = await commands.aiModelsLoad();
     if (res.status !== "ok") {
       console.warn("[aiModelsStore] 加载失败:", res.error);
+      const cached = readProvidersCache();
+      if (cached?.length && useAiModelsStore.getState().providers.length === 0) {
+        useAiModelsStore.setState({ providers: cached });
+      }
       return;
     }
     const file = res.data;
     if ((file.providers?.length ?? 0) === 0) {
       const legacy = readLegacyFromLocalStorage();
       if (legacy && legacy.length > 0) {
-        const saveRes = await commands.aiModelsSave({ version: 1, providers: legacy });
+        const saveRes = await commands.aiModelsSave({
+          version: 1,
+          providers: legacy.map((p) => serializeProviderForDisk({ ...p, disabledModelNames: p.disabledModelNames ?? [] })),
+        });
         if (saveRes.status === "ok") {
           useAiModelsStore.setState({ providers: legacy });
+          writeProvidersCache(legacy);
           console.info(
             `[aiModelsStore] 已从 localStorage 迁移 ${legacy.length} 个 AI 提供商到磁盘`
           );
@@ -269,14 +442,26 @@ export async function initAiModelsStore(): Promise<void> {
           console.warn("[aiModelsStore] 迁移写入失败:", saveRes.error);
         }
       } else {
-        useAiModelsStore.setState({ providers: [] });
+        const cached = readProvidersCache();
+        if (cached?.length) {
+          useAiModelsStore.setState({ providers: cached });
+          await persistProviders(cached);
+        } else if (useAiModelsStore.getState().providers.length === 0) {
+          useAiModelsStore.setState({ providers: [] });
+        }
       }
       clearLegacyLocalStorage();
     } else {
-      useAiModelsStore.setState({ providers: toStrictProviders(file.providers) });
+      const providers = toStrictProviders(file.providers);
+      useAiModelsStore.setState({ providers });
+      writeProvidersCache(providers);
     }
   } catch (e) {
     console.warn("[aiModelsStore] 初始化加载失败:", e);
+    const cached = readProvidersCache();
+    if (cached?.length && useAiModelsStore.getState().providers.length === 0) {
+      useAiModelsStore.setState({ providers: cached });
+    }
   }
 }
 
@@ -373,6 +558,7 @@ export function resolveModelSelection(
   const provider = providers.find((p) => p.id === parsed.providerId);
   if (!provider) return null;
   if (!provider.modelNames.includes(parsed.modelName)) return null;
+  if (!isModelEnabled(provider, parsed.modelName)) return null;
   return {
     apiStandard: provider.apiStandard,
     name: parsed.modelName,
@@ -381,13 +567,25 @@ export function resolveModelSelection(
   };
 }
 
-/** 列出所有可选择的模型（扁平化提供商下的多个模型名） */
+/** 模型是否在对话选择器中可用 */
+export function isModelEnabled(provider: AiModelProvider, modelName: string): boolean {
+  return !(provider.disabledModelNames ?? []).includes(modelName);
+}
+
+/** 已启用的模型数量 */
+export function countEnabledModels(provider: AiModelProvider): number {
+  const disabled = new Set(provider.disabledModelNames ?? []);
+  return provider.modelNames.filter((name) => !disabled.has(name)).length;
+}
+
+/** 列出所有可选择的模型（扁平化提供商下的多个模型名，跳过已关闭项） */
 export function listModelSelections(
   providers: AiModelProvider[]
 ): { id: string; label: string }[] {
   const items: { id: string; label: string }[] = [];
   for (const provider of providers) {
     for (const modelName of provider.modelNames) {
+      if (!isModelEnabled(provider, modelName)) continue;
       const standard =
         provider.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
       items.push({
@@ -403,27 +601,12 @@ export function listModelSelections(
 export function firstModelSelectionId(
   providers: AiModelProvider[]
 ): string | null {
-  const first = providers[0];
-  const modelName = first?.modelNames[0];
-  if (!first || !modelName) return null;
-  return buildModelSelectionId(first.id, modelName);
-}
-
-/** 查找全局重复的模型名称 */
-export function findModelNameConflict(
-  providers: AiModelProvider[],
-  name: string,
-  excludeProviderId?: string
-): { providerName: string; modelName: string } | null {
-  const lower = name.trim().toLowerCase();
-  if (!lower) return null;
   for (const provider of providers) {
-    if (provider.id === excludeProviderId) continue;
     for (const modelName of provider.modelNames) {
-      if (modelName.toLowerCase() === lower) {
-        return { providerName: provider.providerName, modelName };
-      }
+      if (!isModelEnabled(provider, modelName)) continue;
+      return buildModelSelectionId(provider.id, modelName);
     }
   }
   return null;
 }
+

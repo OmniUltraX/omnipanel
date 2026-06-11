@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { FormDialog } from "../ui/FormDialog";
 import { useI18n } from "../../i18n";
 import {
+  fetchProviderModelList,
+  mergeModelCatalog,
+} from "../../lib/fetchProviderModels";
+import {
   defaultBaseUrlFor,
-  findModelNameConflict,
   isValidBaseUrl,
   parseModelNames,
   useAiModelsStore,
@@ -16,6 +19,7 @@ interface AddModelDialogProps {
   onClose: () => void;
   /** 传入时为编辑模式 */
   editProvider?: AiModelProvider | null;
+  onSaved?: (providerId: string) => void;
 }
 
 interface FormState {
@@ -41,15 +45,54 @@ const API_STANDARD_OPTIONS: { value: ApiStandard; label: string }[] = [
   { value: "anthropic", label: "Anthropic" },
 ];
 
-export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogProps) {
+async function resolveModelCatalog(
+  baseUrl: string,
+  apiKey: string,
+  manualInput: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): Promise<
+  | { ok: true; modelNames: string[]; fetchNote: string | null }
+  | { ok: false; error: string }
+> {
+  const parsed = parseModelNames(manualInput);
+  if (!parsed.ok) {
+    return { ok: false, error: t("settings.aiModels.errors.nameDuplicateInInput", { name: parsed.duplicate }) };
+  }
+
+  const fetchResult = await fetchProviderModelList(baseUrl, apiKey);
+  if (fetchResult.ok) {
+    const modelNames = mergeModelCatalog(parsed.names, fetchResult.models);
+    if (modelNames.length === 0) {
+      return { ok: false, error: t("settings.aiModels.errors.modelNamesRequired") };
+    }
+    const note =
+      parsed.names.length > 0
+        ? t("settings.aiModels.fetch.merged", { count: modelNames.length })
+        : t("settings.aiModels.fetch.success", { count: modelNames.length });
+    return { ok: true, modelNames, fetchNote: note };
+  }
+
+  if (parsed.names.length > 0) {
+    return {
+      ok: true,
+      modelNames: parsed.names,
+      fetchNote: t("settings.aiModels.fetch.fallbackManual"),
+    };
+  }
+
+  return { ok: false, error: t("settings.aiModels.errors.fetchFailed") };
+}
+
+export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddModelDialogProps) {
   const { t } = useI18n();
-  const providers = useAiModelsStore((s) => s.providers);
   const addProvider = useAiModelsStore((s) => s.addProvider);
   const updateProvider = useAiModelsStore((s) => s.updateProvider);
 
   const isEdit = Boolean(editProvider);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -66,11 +109,14 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
       setForm({ ...EMPTY_FORM, baseUrl: defaultBaseUrlFor(EMPTY_FORM.apiStandard) });
     }
     setError(null);
+    setInfo(null);
+    setSaving(false);
   }, [open, editProvider]);
 
   const updateField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setError(null);
+    setInfo(null);
   };
 
   const handleStandardChange = (next: ApiStandard) => {
@@ -83,34 +129,10 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           : defaultBaseUrlFor(next),
     }));
     setError(null);
+    setInfo(null);
   };
 
-  const validateModelNames = (excludeProviderId?: string) => {
-    const parsed = parseModelNames(form.modelNames);
-    if (!parsed.ok) {
-      setError(t("settings.aiModels.errors.nameDuplicateInInput", { name: parsed.duplicate }));
-      return null;
-    }
-    if (parsed.names.length === 0) {
-      setError(t("settings.aiModels.errors.modelNamesRequired"));
-      return null;
-    }
-    for (const name of parsed.names) {
-      const conflict = findModelNameConflict(providers, name, excludeProviderId);
-      if (conflict) {
-        setError(
-          t("settings.aiModels.errors.modelNameDuplicate", {
-            name: conflict.modelName,
-            provider: conflict.providerName,
-          })
-        );
-        return null;
-      }
-    }
-    return parsed.names;
-  };
-
-  const submit = () => {
+  const submit = async () => {
     const providerName = form.providerName.trim();
     const baseUrl = form.baseUrl.trim();
     const apiKey = form.apiKey.trim();
@@ -125,38 +147,63 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
     }
 
     if (isEdit && editProvider) {
-      const modelNames = validateModelNames(editProvider.id);
-      if (!modelNames) return;
-      if (!apiKey && !editProvider.apiKey) {
+      const effectiveKey = apiKey || editProvider.apiKey;
+      if (!effectiveKey) {
         setError(t("settings.aiModels.errors.apiKeyRequired"));
         return;
       }
 
+      setSaving(true);
+      setError(null);
+      setInfo(t("settings.aiModels.fetch.loading"));
+
+      const catalog = await resolveModelCatalog(baseUrl, effectiveKey, form.modelNames, t);
+      setSaving(false);
+      if (!catalog.ok) {
+        setError(catalog.error);
+        setInfo(null);
+        return;
+      }
       updateProvider(editProvider.id, {
         providerName,
-        modelNames,
+        modelNames: catalog.modelNames,
         apiStandard: form.apiStandard,
         baseUrl,
         ...(apiKey ? { apiKey } : {}),
+        disabledModelNames: (editProvider.disabledModelNames ?? []).filter((name) =>
+          catalog.modelNames.includes(name),
+        ),
       });
+      onSaved?.(editProvider.id);
       onClose();
       return;
     }
 
-    const modelNames = validateModelNames();
-    if (!modelNames) return;
     if (!apiKey) {
       setError(t("settings.aiModels.errors.apiKeyRequired"));
       return;
     }
 
-    addProvider({
+    setSaving(true);
+    setError(null);
+    setInfo(t("settings.aiModels.fetch.loading"));
+
+    const catalog = await resolveModelCatalog(baseUrl, apiKey, form.modelNames, t);
+    setSaving(false);
+    if (!catalog.ok) {
+      setError(catalog.error);
+      setInfo(null);
+      return;
+    }
+    const created = addProvider({
       providerName,
-      modelNames,
+      modelNames: catalog.modelNames,
       apiStandard: form.apiStandard,
       baseUrl,
       apiKey,
+      disabledModelNames: [],
     });
+    onSaved?.(created.id);
     onClose();
   };
 
@@ -172,8 +219,13 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
       cancelLabel={t("settings.aiModels.add.cancel")}
       cancelVariant="ghost"
       primaryAction={{
-        label: isEdit ? t("settings.aiModels.edit.confirm") : t("settings.aiModels.add.confirm"),
-        onClick: submit,
+        label: saving
+          ? t("settings.aiModels.fetch.saving")
+          : isEdit
+            ? t("settings.aiModels.edit.confirm")
+            : t("settings.aiModels.add.confirm"),
+        disabled: saving,
+        onClick: () => void submit(),
       }}
     >
       <div className="form-field">
@@ -185,10 +237,11 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           value={form.providerName}
           onChange={(e) => updateField("providerName", e.target.value)}
           placeholder={t("settings.aiModels.fields.providerNamePlaceholder")}
+          disabled={saving}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -202,10 +255,11 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           value={form.modelNames}
           onChange={(e) => updateField("modelNames", e.target.value)}
           placeholder={t("settings.aiModels.fields.modelNamesPlaceholder")}
+          disabled={saving}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -228,6 +282,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
                 name="add-model-api-standard"
                 value={option.value}
                 checked={form.apiStandard === option.value}
+                disabled={saving}
                 onChange={() => handleStandardChange(option.value)}
               />
               <span>{option.label}</span>
@@ -242,6 +297,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           id="add-model-baseurl"
           className="input"
           value={form.baseUrl}
+          disabled={saving}
           onChange={(e) =>
             setForm((p) => ({ ...p, baseUrl: e.target.value, baseUrlTouched: true }))
           }
@@ -249,7 +305,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -264,6 +320,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           autoComplete="off"
           spellCheck={false}
           value={form.apiKey}
+          disabled={saving}
           onChange={(e) => updateField("apiKey", e.target.value)}
           placeholder={
             isEdit
@@ -273,7 +330,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -282,6 +339,7 @@ export function AddModelDialog({ open, onClose, editProvider }: AddModelDialogPr
         </div>
       </div>
 
+      {info && !error && <div className="form-field-hint">{info}</div>}
       {error && <div className="form-error">{error}</div>}
     </FormDialog>
   );

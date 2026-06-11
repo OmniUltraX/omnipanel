@@ -382,6 +382,7 @@ export type AiModelProvider = {
 	baseUrl: string,
 	apiKey: string,
 	modelNames: string[],
+	disabledModelNames?: string[],
 	createdAt: number | null,
 };
 
