@@ -83,7 +83,6 @@ pub async fn ai_models_save(app: AppHandle, file: AiModelsFile) -> Result<(), St
     if path.exists() {
         let _ = fs::remove_file(&path);
     }
-    fs::rename(&tmp, &path)
-        .map_err(|e| format!("重命名临时文件失败 ({}): {e}", path.display()))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("重命名临时文件失败 ({}): {e}", path.display()))?;
     Ok(())
 }

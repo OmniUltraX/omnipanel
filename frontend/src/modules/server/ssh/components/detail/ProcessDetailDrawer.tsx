@@ -1,14 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../../../../components/ui/Button";
 import { useI18n } from "../../../../../i18n";
-import { commands, type SshProcessInfo, type SshProcessPort } from "../../../../../ipc/bindings";
+import {
+  commands,
+  type SshProcessDetail,
+  type SshProcessInfo,
+  type SshProcessPort,
+} from "../../../../../ipc/bindings";
 import { formatBytes } from "../../../../../stores/sshStatsStore";
 import {
   navigateToSftpPath,
   navigateToTerminalPath,
 } from "../../../../../stores/sshDetailNavigationStore";
 import type { DetailTab } from "../../types";
-import { parsePathsFromCommand } from "../../utils/parseCommandPaths";
+import { buildProcessDirectoryList } from "../../utils/parseCommandPaths";
 
 type Props = {
   resourceId: string | null;
@@ -31,13 +36,60 @@ export function ProcessDetailDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmKill, setConfirmKill] = useState(false);
+  const [detail, setDetail] = useState<SshProcessDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const paths = useMemo(
-    () => (process ? parsePathsFromCommand(process.command) : []),
-    [process],
+    () =>
+      process
+        ? buildProcessDirectoryList({
+            command: detail?.commandLine ?? process.command,
+            cwd: detail?.cwd,
+            exe: detail?.exe,
+            openFiles: detail?.openFiles,
+          })
+        : [],
+    [detail, process],
   );
 
   const open = process != null;
+  const commandText = detail?.commandLine || process?.command || "";
+
+  useEffect(() => {
+    if (!resourceId || !process) {
+      setDetail(null);
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+
+    commands
+      .sshPoolProcessDetail(resourceId, process.pid)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.status === "ok") {
+          setDetail(res.data);
+        } else {
+          setDetailError(res.error.message);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setDetailError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resourceId, process?.pid]);
 
   async function handleForceKill() {
     if (!resourceId || !process) return;
@@ -124,7 +176,21 @@ export function ProcessDetailDrawer({
               </section>
               <section className="ssh-process-drawer-section">
                 <h4>{t("ssh.processList.command")}</h4>
-                <pre className="ssh-process-drawer-cmd">{process.command}</pre>
+                {detailLoading && (
+                  <p className="text-muted text-sm">{t("ssh.processDetail.loading")}</p>
+                )}
+                {detailError && (
+                  <p className="text-muted text-sm">{t("ssh.processDetail.detailError", { error: detailError })}</p>
+                )}
+                <pre className="ssh-process-drawer-cmd">{commandText}</pre>
+                <dl className="drawer-kv ssh-process-drawer-procfs">
+                  <dt>{t("ssh.processDetail.cwd")}</dt>
+                  <dd>{detail?.cwd ?? "—"}</dd>
+                  <dt>{t("ssh.processDetail.exe")}</dt>
+                  <dd>{detail?.exe ?? "—"}</dd>
+                  <dt>{t("ssh.processDetail.root")}</dt>
+                  <dd>{detail?.root ?? "—"}</dd>
+                </dl>
               </section>
               <section className="ssh-process-drawer-section">
                 <h4>{t("ssh.processDetail.files")}</h4>

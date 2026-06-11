@@ -6,9 +6,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
-    SftpEntry, SshConfig, SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink,
-    default_ssh_dir, find_ssh_config_entry, list_ssh_private_key_paths, load_ssh_config_hosts,
-    ssh_config_to_connect_config, ssh_public_key_meta,
+    SftpEntry, SshConfig, SshConfigEntry, SshEvent, SshProcessDetail, SshProcessInfo, SshSession,
+    SshSink, default_ssh_dir, find_ssh_config_entry, list_ssh_private_key_paths,
+    load_ssh_config_hosts, ssh_config_to_connect_config, ssh_public_key_meta,
 };
 use omnipanel_store::{Connection, ConnectionKind};
 use serde::Serialize;
@@ -198,6 +198,20 @@ pub async fn ssh_pool_load_processes(
     resource_id: String,
 ) -> Result<Vec<SshProcessInfo>, OmniError> {
     state.ssh_pool.load_processes(&resource_id).await
+}
+
+/// 按 PID 深入查询远程进程详情（启动命令、cwd、exe、root、打开文件）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_process_detail(
+    state: State<'_, AppState>,
+    resource_id: String,
+    pid: u32,
+) -> Result<SshProcessDetail, OmniError> {
+    pool_session(&state, &resource_id)
+        .await?
+        .process_detail(pid)
+        .await
 }
 
 /// 强制终止远程进程（默认 SIGKILL）。

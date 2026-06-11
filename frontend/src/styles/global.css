@@ -5710,6 +5710,41 @@
         font-size: 12px;
     }
 
+    .sftp-path--editing {
+        padding: 1px 8px;
+    }
+
+    .sftp-path-crumbs {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .sftp-path-edit-hit {
+        flex: 1;
+        align-self: stretch;
+        min-width: 24px;
+        min-height: 22px;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: text;
+    }
+
+    .sftp-path-input {
+        flex: 1;
+        width: 100%;
+        min-width: 0;
+        padding: 2px 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+    }
+
     .sftp-path-seg {
         background: none;
         border: none;
@@ -8691,12 +8726,59 @@
         background: var(--bg);
     }
 
+    .docker-main {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .docker-sidebar-title {
+        flex: 1;
+        min-width: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .server-item .status-dot {
+        width: 8px;
+        height: 8px;
+        margin-top: 4px;
+        flex-shrink: 0;
+        border-radius: 50%;
+    }
+
+    .server-item .status-dot.online {
+        background: var(--success);
+    }
+
+    .server-item .status-dot.warning {
+        background: var(--warn);
+    }
+
+    .server-item .status-dot.offline {
+        background: var(--muted);
+    }
+
     .docker-stats {
         display: flex;
         flex-wrap: wrap;
         gap: var(--sp-3);
-        padding: var(--sp-3) var(--sp-6);
+        padding: var(--sp-3) var(--sp-4);
         border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+        align-items: center;
+    }
+
+    .docker-stats-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
         flex-shrink: 0;
     }
 
@@ -8744,7 +8826,7 @@
     .docker-filters {
         display: flex;
         align-items: center;
-        padding: var(--sp-2) var(--sp-6);
+        padding: var(--sp-2) var(--sp-4);
         border-bottom: 1px solid var(--border);
         gap: var(--sp-3);
         flex-shrink: 0;
@@ -8789,7 +8871,7 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        padding: var(--sp-3) var(--sp-6);
+        padding: var(--sp-3) var(--sp-4);
     }
 
     .container-card {
@@ -9757,6 +9839,159 @@
         overflow: hidden;
     }
 
+    .server-workspace {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .server-workspace-content {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .server-panel-tab--flush {
+        padding: 0;
+        min-height: auto;
+    }
+
+    .server-panel-tab-toolbar--compact {
+        margin-bottom: var(--sp-4);
+    }
+
+    .server-panel-tab {
+        min-height: 100%;
+    }
+
+    .server-panel-tab-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--sp-3);
+    }
+
+    .server-panel-tab-title {
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .server-panel-tab-count {
+        font-weight: 500;
+    }
+
+    .server-apps-error--inline {
+        margin: 0 0 var(--sp-3);
+    }
+
+    .server-monitor-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--sp-3);
+    }
+
+    .server-monitor-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: var(--sp-4);
+    }
+
+    .server-monitor-card__label {
+        font-size: 11px;
+        color: var(--meta);
+        margin-bottom: var(--sp-2);
+    }
+
+    .server-monitor-card__value {
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: var(--sp-2);
+    }
+
+    .server-monitor-card__bar {
+        height: 4px;
+        background: var(--bg-deeper);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: var(--sp-2);
+    }
+
+    .server-monitor-card__bar-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 2px;
+    }
+
+    .server-monitor-card__detail {
+        font-size: 10px;
+        color: var(--meta);
+    }
+
+    .server-resource-table-wrap {
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+    }
+
+    .server-resource-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .server-resource-table th,
+    .server-resource-table td {
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+    }
+
+    .server-resource-table th {
+        background: var(--bg-deeper);
+        color: var(--meta);
+        font-weight: 600;
+    }
+
+    .server-resource-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .server-resource-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+    }
+
+    .server-resource-item__main {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .server-apps--embedded {
+        min-height: auto;
+    }
+
+    .server-apps--embedded .server-apps-toolbar {
+        padding: 0;
+        margin-top: 0;
+    }
+
     .server-content {
         flex: 1;
         overflow-y: auto;
@@ -10317,8 +10552,11 @@
         font-size: 12px;
         color: var(--meta);
         cursor: pointer;
+        border: none;
+        background: none;
         border-bottom: 2px solid transparent;
         transition: color 0.12s, border-color 0.12s;
+        white-space: nowrap;
     }
 
     .server-tab:hover {
@@ -13521,6 +13759,18 @@
     word-break: break-all;
     max-height: 200px;
     overflow-y: auto;
+}
+
+.ssh-process-drawer-procfs {
+    margin-top: var(--sp-2);
+    padding: var(--sp-2);
+    border-radius: var(--r-md);
+    background: var(--bg-deeper);
+    border: 1px solid var(--border-soft);
+}
+
+.ssh-process-drawer-procfs dd {
+    word-break: break-all;
 }
 
 .ssh-process-drawer-files {

@@ -7,7 +7,7 @@ export {
   type OnePanelClientOptions,
   type OnePanelDeviceBase,
   type OnePanelHostInfo,
-  type OnePanelMonitorPoint,
+  type OnePanelMonitorData,
   type OnePanelProcess,
   type OnePanelSystemInfo,
 } from "./onepanel";

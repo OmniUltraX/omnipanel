@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
+import { useConnectionStore } from "../../stores/connectionStore";
 import type {
   DockerComposeProject,
   DockerConnectionInfo,
@@ -17,6 +18,7 @@ import type {
   DockerNetworkSummary,
   DockerOverview,
   DockerProbe,
+  DockerScanResult,
   DockerVolumeDetail,
   DockerVolumeSummary,
 } from "../../ipc/bindings";
@@ -99,6 +101,9 @@ export function useDockerWorkspace() {
   const prevConnectionRef = useRef<string | null>(null);
   const imagesRef = useRef<DockerImageSummary[]>([]);
   imagesRef.current = state.images;
+  const [scanning, setScanning] = useState(false);
+  const [lastScanResult, setLastScanResult] = useState<DockerScanResult | null>(null);
+  const autoScanDoneRef = useRef(false);
 
   const loadConnections = useCallback(async () => {
     setState((s) => ({ ...s, connectionsLoading: true }));
@@ -117,6 +122,33 @@ export function useDockerWorkspace() {
       setState((s) => ({ ...s, connectionsLoading: false, error: String(e) }));
     }
   }, []);
+
+  const scanSshDockerHosts = useCallback(
+    async (autoSave = true): Promise<DockerScanResult | null> => {
+      setScanning(true);
+      try {
+        const result = await unwrap(commands.dockerScanSshDockerHosts(autoSave));
+        setLastScanResult(result);
+        if (autoSave && (result.created > 0 || result.updated > 0)) {
+          await useConnectionStore.getState().refresh();
+          await loadConnections();
+        }
+        return result;
+      } catch (e) {
+        setState((s) => ({ ...s, error: String(e) }));
+        return null;
+      } finally {
+        setScanning(false);
+      }
+    },
+    [loadConnections],
+  );
+
+  useEffect(() => {
+    if (autoScanDoneRef.current) return;
+    autoScanDoneRef.current = true;
+    void scanSshDockerHosts(true);
+  }, [scanSshDockerHosts]);
 
   /** 加载选中连接的探测、总览、容器、镜像、Compose。 */
   const loadConnectionData = useCallback(async (connectionId: string, options?: { silent?: boolean }) => {
@@ -698,6 +730,9 @@ export function useDockerWorkspace() {
     readContainerFile,
     writeContainerFile,
     reloadConnections: loadConnections,
+    scanning,
+    lastScanResult,
+    scanSshDockerHosts,
   };
 }
 

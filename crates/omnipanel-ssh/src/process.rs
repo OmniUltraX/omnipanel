@@ -36,6 +36,25 @@ pub struct SshProcessInfo {
     pub ports: Vec<SshProcessPort>,
 }
 
+/// 通过 `/proc/<pid>` 深入采集的进程详情。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshProcessDetail {
+    pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_line: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[serde(default)]
+    pub open_files: Vec<String>,
+}
+
 pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null";
 pub const PS_AUX_CMD: &str =
     "COLUMNS=4096 ps aux --no-headers 2>/dev/null || COLUMNS=4096 ps aux | tail -n +2";
@@ -109,6 +128,74 @@ for d in /proc/[0-9]*; do
   done
 done
 '"#;
+
+/// 生成按 PID 深查进程详情的 `/proc` 命令。
+pub fn process_detail_cmd(pid: u32) -> String {
+    format!(
+        r#"/bin/bash -lc '
+pid={pid}
+proc="/proc/$pid"
+[ -d "$proc" ] || exit 2
+emit_link() {{
+  key="$1"; path="$2"
+  target=$(readlink "$path" 2>/dev/null || true)
+  [ -n "$target" ] && printf "%s\t%s\n" "$key" "$target"
+}}
+emit_link CWD "$proc/cwd"
+emit_link EXE "$proc/exe"
+emit_link ROOT "$proc/root"
+if [ -r "$proc/cmdline" ]; then
+  cmd=$(tr "\000" " " < "$proc/cmdline" 2>/dev/null | sed "s/[[:space:]]*$//")
+  [ -n "$cmd" ] && printf "CMD\t%s\n" "$cmd"
+  tr "\000" "\n" < "$proc/cmdline" 2>/dev/null | awk '"'"'length($0)>0 {{print "ARG\t" $0}}'"'"'
+fi
+count=0
+for fd in "$proc"/fd/*; do
+  target=$(readlink "$fd" 2>/dev/null || true)
+  case "$target" in
+    /*)
+      printf "FD\t%s\n" "$target"
+      count=$((count+1))
+      [ "$count" -ge 80 ] && break
+      ;;
+  esac
+done
+'"#,
+    )
+}
+
+pub fn parse_process_detail_output(pid: u32, output: &str) -> SshProcessDetail {
+    let mut detail = SshProcessDetail {
+        pid,
+        ..Default::default()
+    };
+    let mut seen_files = std::collections::HashSet::new();
+
+    for line in output.lines() {
+        let Some((key, value)) = line.split_once('\t') else {
+            continue;
+        };
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key {
+            "CMD" => detail.command_line = Some(value.to_string()),
+            "ARG" => detail.args.push(value.to_string()),
+            "CWD" => detail.cwd = Some(value.to_string()),
+            "EXE" => detail.exe = Some(value.to_string()),
+            "ROOT" => detail.root = Some(value.to_string()),
+            "FD" => {
+                if seen_files.insert(value.to_string()) {
+                    detail.open_files.push(value.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    detail
+}
 
 /// 解析 `ps -eo user=,...` 单行（`=`` 格式去尾空格，前 9 列按空白分隔，其余为 command）。
 pub fn parse_ps_eo_line(line: &str) -> Option<SshProcessInfo> {

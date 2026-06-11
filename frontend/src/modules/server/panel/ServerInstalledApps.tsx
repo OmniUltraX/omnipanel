@@ -17,6 +17,7 @@ import { useInstalledApps } from "./useInstalledApps";
 
 interface ServerInstalledAppsProps {
   server: ServerEntry;
+  embedded?: boolean;
 }
 
 function ServerAppCard({
@@ -117,22 +118,60 @@ function ServerAppCard({
   );
 }
 
-export function ServerInstalledApps({ server }: ServerInstalledAppsProps) {
+export function ServerInstalledApps({ server, embedded = false }: ServerInstalledAppsProps) {
   const { t } = useI18n();
   const { apps, total, loading, error, refresh } = useInstalledApps(server);
   const [selectedApp, setSelectedApp] = useState<ServerInstalledApp | null>(null);
 
   if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
     return (
-      <div className="server-apps">
+      <div className="server-panel-tab">
         <div className="server-apps-empty">{t("server.apps.unsupported")}</div>
       </div>
     );
   }
 
+  if (embedded) {
+    return (
+      <>
+        <div className="server-panel-tab">
+          <div className="server-panel-tab-toolbar">
+            <span className="server-panel-tab-title">
+              {t("server.tabs.apps")}
+              <span className="badge badge-muted server-panel-tab-count">{total}</span>
+            </span>
+            <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
+              {loading ? t("server.refreshing") : t("server.refresh")}
+            </Button>
+          </div>
+          {error && <div className="server-apps-error server-apps-error--inline">{error}</div>}
+          {loading && apps.length === 0 ? (
+            <div className="server-apps-empty">{t("server.apps.loading")}</div>
+          ) : apps.length === 0 ? (
+            <div className="server-apps-empty">{t("server.apps.empty")}</div>
+          ) : (
+            <div className="server-app-grid">
+              {apps.map((app) => (
+                <ServerAppCard
+                  key={app.uid}
+                  server={server}
+                  app={app}
+                  t={t}
+                  onSelect={setSelectedApp}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <ServerAppDrawer server={server} app={selectedApp} onClose={() => setSelectedApp(null)} />
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="server-apps">
+      <div className={`server-apps${embedded ? " server-apps--embedded" : ""}`}>
+        {!embedded && (
         <div className="server-header">
           <div>
             <strong>{server.name}</strong>
@@ -147,6 +186,7 @@ export function ServerInstalledApps({ server }: ServerInstalledAppsProps) {
             {loading ? t("server.apps.loading") : t("server.refresh")}
           </Button>
         </div>
+        )}
 
         <div className="server-apps-toolbar">
           <span className="server-apps-title">{t("server.apps.title")}</span>

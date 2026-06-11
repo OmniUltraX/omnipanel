@@ -216,6 +216,33 @@ export class BtPanelClient {
     return unwrapInstalledApps(payload);
   }
 
+  /** /data?action=getData&table=databases — 数据库列表。 */
+  async getDatabaseList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
+    const data = await this.request<BtDataListResult<Record<string, unknown>>>({
+      path: "/data?action=getData&table=databases",
+      params: { p: params.p ?? 1, limit: params.limit ?? 100, type: -1, order: "id desc" },
+    });
+    return { data: data.data ?? [], page: data.page, where: data.where };
+  }
+
+  /** /data?action=getData&table=crontab — 计划任务列表。 */
+  async getCronList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
+    const data = await this.request<BtDataListResult<Record<string, unknown>>>({
+      path: "/data?action=getData&table=crontab",
+      params: { p: params.p ?? 1, limit: params.limit ?? 100, type: -1, order: "id desc" },
+    });
+    return { data: data.data ?? [], page: data.page, where: data.where };
+  }
+
+  /** /ssl?action=GetSSLList — SSL 证书列表。 */
+  async getSslList(): Promise<Record<string, unknown>[]> {
+    const data = await this.request<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>({
+      path: "/ssl?action=GetSSLList",
+    });
+    if (Array.isArray(data)) return data;
+    return data.data ?? [];
+  }
+
   /** /site?action=DeleteSite — 删除网站。 */
   async deleteWebsite(
     id: number,

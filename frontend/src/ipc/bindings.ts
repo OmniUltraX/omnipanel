@@ -144,6 +144,8 @@ export const commands = {
 	 *  Returns connections that are in "connected" state in the SSH pool.
 	 */
 	dockerListSshHosts: () => typedError<SshHostInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_ssh_hosts")),
+	/**  扫描全部已配置 SSH 连接中的 Docker 服务，并按需自动保存为 Docker 连接。 */
+	dockerScanSshDockerHosts: (autoSave: boolean) => typedError<DockerScanResult, OmniError_Serialize>(__TAURI_INVOKE("docker_scan_ssh_docker_hosts", { autoSave })),
 	/**  创建容器。返回新容器 ID。 */
 	dockerCreateContainer: (connectionId: string, request: DockerCreateContainerRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_container", { connectionId, request })),
 	dockerSwarmInit: (connectionId: string, listenAddr: string | null, advertiseAddr: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_swarm_init", { connectionId, listenAddr, advertiseAddr })),
@@ -213,6 +215,8 @@ export const commands = {
 	sshPoolUnsubscribeMonitoring: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_unsubscribe_monitoring", { resourceId })),
 	/**  独立刷新进程列表（概览页局部刷新）。 */
 	sshPoolLoadProcesses: (resourceId: string) => typedError<SshProcessInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_load_processes", { resourceId })),
+	/**  按 PID 深入查询远程进程详情（启动命令、cwd、exe、root、打开文件）。 */
+	sshPoolProcessDetail: (resourceId: string, pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_process_detail", { resourceId, pid })),
 	/**  强制终止远程进程（默认 SIGKILL）。 */
 	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal })),
 	/**
@@ -853,6 +857,29 @@ export type DockerResourceSummary = {
 	images: number,
 };
 
+/**  单台 SSH 主机 Docker 扫描条目。 */
+export type DockerScanItemResult = {
+	sshConnectionId: string,
+	sshName: string,
+	available: boolean,
+	probe: DockerAutoDetectResult | null,
+	dockerConnectionId: string | null,
+	/**  created | updated | unchanged | no_docker | failed */
+	action: string,
+	error: string | null,
+};
+
+/**  批量扫描已配置 SSH 中的 Docker 服务汇总。 */
+export type DockerScanResult = {
+	scanned: number,
+	created: number,
+	updated: number,
+	unchanged: number,
+	noDocker: number,
+	failed: number,
+	items: DockerScanItemResult[],
+};
+
 /**  Docker 服务摘要。 */
 export type DockerServiceSummary = {
 	id: string,
@@ -1265,6 +1292,31 @@ export type SshKeyInfo = {
 	path: string,
 	fingerprint: string,
 	comment: string,
+};
+
+/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+export type SshProcessDetail = SshProcessDetail_Serialize | SshProcessDetail_Deserialize;
+
+/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+export type SshProcessDetail_Deserialize = {
+	pid: number,
+	commandLine?: string | null,
+	args?: string[],
+	cwd?: string | null,
+	exe?: string | null,
+	root?: string | null,
+	openFiles?: string[],
+};
+
+/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+export type SshProcessDetail_Serialize = {
+	pid: number,
+	commandLine?: string | null,
+	args: string[],
+	cwd?: string | null,
+	exe?: string | null,
+	root?: string | null,
+	openFiles: string[],
 };
 
 /**  远程进程信息。 */

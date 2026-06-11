@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { useAiStore } from "../../stores/aiStore";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
 import {
@@ -22,6 +23,8 @@ import { DockerVolumeDrawer } from "./DockerVolumeDrawer";
 import { DockerComposeDrawer } from "./DockerComposeDrawer";
 import { DockerFileEditor } from "./DockerFileEditor";
 import { Button } from "../../components/ui/Button";
+import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
+import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import type { DockerComposeAction } from "../../ipc/bindings";
 import { CreateContainerDialog } from "./CreateContainerDialog";
@@ -42,11 +45,11 @@ import {
   TrashIcon,
 } from "./icons";
 import type {
+  Connection,
   DockerContainerDetail,
   DockerContainerSummary,
 } from "../../ipc/bindings";
-
-type WorkspaceTab = "containers" | "images" | "compose" | "networks" | "volumes" | "files" | "swarm";
+import { useDockerWorkspaceTabs, type DockerWorkspaceTab } from "./dockerWorkspaceTabs";
 
 interface ConfirmState {
   title: string;
@@ -64,11 +67,6 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  online: "badge-success",
-  degraded: "badge-warn",
-  offline: "badge-muted",
-};
 
 const SOURCE_LABEL: Record<string, string> = {
   "local-engine": "本地 Engine",
@@ -86,6 +84,8 @@ export function DockerPanel() {
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const setAiDraft = useAiStore((s) => s.setDraftPrompt);
   const openAiDrawer = useAiStore((s) => s.openDrawer);
+  const storedConnections = useConnectionStore((s) => s.connections);
+  const removeStoredConnection = useConnectionStore((s) => s.remove);
 
   const docker = useDockerWorkspace();
   const {
@@ -132,9 +132,11 @@ export function DockerPanel() {
     removeImage,
     pruneImages,
     reloadConnections,
+    scanning,
+    scanSshDockerHosts,
   } = docker;
 
-  const [tab, setTab] = useState<WorkspaceTab>("containers");
+  const [tab, setTab] = useState<DockerWorkspaceTab>("containers");
   const [filter, setFilter] = useState<ContainerFilter>("all");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -143,6 +145,7 @@ export function DockerPanel() {
   const [toast, setToast] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [showAddConn, setShowAddConn] = useState(false);
+  const [editDockerConnection, setEditDockerConnection] = useState<Connection | undefined>();
   const [statsContainer, setStatsContainer] = useState<{ id: string; name: string } | null>(null);
   const [imageDrawerId, setImageDrawerId] = useState<string | null>(null);
   const [networkDrawerName, setNetworkDrawerName] = useState<string | null>(null);
@@ -158,25 +161,22 @@ export function DockerPanel() {
     window.setTimeout(() => setToast(null), 3200);
   };
 
-  // 连接 → topbar 标签页。
-  const topbarTabs = useMemo(
-    () =>
-      connections.map((c) => ({
-        id: c.connectionId,
-        label: c.name,
-        active: c.connectionId === selectedConnectionId,
-      })),
-    [connections, selectedConnectionId]
-  );
+  const handleEditDockerConnection = (info: { connectionId: string }) => {
+    const conn = storedConnections.find((c) => c.id === info.connectionId);
+    if (!conn) {
+      showToast(t("docker.sidebar.editFailed"));
+      return;
+    }
+    setEditDockerConnection(conn);
+    setShowAddConn(true);
+  };
 
-  useTopbarTabs(
-    topbarTabs,
-    {
-      onSelect: (id) => selectConnection(id),
-      onAdd: () => setShowAddConn(true),
-    },
-    { mode: "connection", showAddTab: true, addTabTitle: "添加 Docker 连接", enabled: isActiveRoute }
-  );
+  const handleDeleteDockerConnection = async (connectionId: string) => {
+    if (!window.confirm(t("docker.sidebar.deleteConfirm"))) return;
+    await removeStoredConnection(connectionId);
+    void reloadConnections();
+    showToast(t("docker.sidebar.deleted"));
+  };
 
   // 切换连接时复位本地视图状态（数据在 hook 内后台加载，无全屏遮罩）。
   useEffect(() => {
@@ -320,6 +320,21 @@ export function DockerPanel() {
     !dataLoading &&
     (isOffline || Boolean(error));
 
+  const workspaceTopbarTabs = useDockerWorkspaceTabs(tab);
+  const showWorkspace =
+    !!selectedConnection &&
+    connections.length > 0 &&
+    !showLocalEngineWelcome &&
+    !isOffline;
+
+  useTopbarTabs(
+    workspaceTopbarTabs,
+    {
+      onSelect: (id) => setTab(id as DockerWorkspaceTab),
+    },
+    { mode: "segment", enabled: isActiveRoute && showWorkspace },
+  );
+
   const toggleContainerSelect = (id: string) => {
     setSelectedContainers((prev) => {
       const next = new Set(prev);
@@ -382,40 +397,56 @@ export function DockerPanel() {
     });
   };
 
+  const handleScanSshDocker = async () => {
+    const result = await scanSshDockerHosts(true);
+    if (!result) {
+      showToast("扫描失败");
+      return;
+    }
+    showToast(
+      `扫描完成：新增 ${result.created}，更新 ${result.updated}，无 Docker ${result.noDocker}，失败 ${result.failed}`,
+    );
+  };
+
   return (
     <>
-      <div className="docker-layout">
-        {/* 连接头部 */}
-        {selectedConnection && (
-          <div className="docker-conn-header">
-            <div className="docker-conn-header-info">
-              <span className={`status-dot ${selectedConnection.status === "online" ? "online" : selectedConnection.status === "degraded" ? "warning" : "offline"}`} />
-              <strong>{selectedConnection.name}</strong>
-              <span className={`badge ${STATUS_BADGE[selectedConnection.status] ?? "badge-muted"}`}>
-                {selectedConnection.status === "online" ? "在线" : selectedConnection.status === "degraded" ? "降级" : "离线"}
-              </span>
-              <span className="text-muted text-xs">{SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source}</span>
-              {selectedConnection.hostLabel && selectedConnection.hostLabel !== SOURCE_LABEL[selectedConnection.source] && (
-                <span className="text-muted text-xs">{selectedConnection.hostLabel}</span>
-              )}
-              {selectedConnection.engineVersion && (
-                <span className="text-muted text-xs">Engine {selectedConnection.engineVersion}</span>
-              )}
-            </div>
-            <Button variant="secondary" size="sm" onClick={refresh} disabled={dataRefreshing}>
-              {dataRefreshing ? "刷新中…" : "刷新"}
-            </Button>
-          </div>
-        )}
-
+      <SidebarWorkspace
+        preset="server"
+        sidebar={
+          <DockerSidebar
+            connections={connections}
+            activeConnectionId={selectedConnectionId}
+            loading={connectionsLoading}
+            scanning={scanning}
+            onSelect={selectConnection}
+            onCreate={() => {
+              setEditDockerConnection(undefined);
+              setShowAddConn(true);
+            }}
+            onScan={() => void handleScanSshDocker()}
+            onEditConnection={handleEditDockerConnection}
+            onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
+          />
+        }
+      >
+        <div className="docker-main">
+          <div className="docker-layout">
         {connectionsLoading ? (
           <div className="docker-empty">正在加载 Docker 连接…</div>
         ) : connections.length === 0 ? (
           <div className="docker-empty">
             <div className="docker-empty-title">暂无 Docker 连接</div>
-            <Button variant="primary" size="sm" style={{ marginTop: 12 }} onClick={() => setShowAddConn(true)}>
-              添加 Docker 连接
-            </Button>
+            <div className="text-muted text-sm" style={{ marginTop: 8 }}>
+              {scanning ? "正在扫描 SSH 主机中的 Docker…" : "可扫描已配置 SSH 自动发现 Docker 连接"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "center" }}>
+              <Button variant="secondary" size="sm" disabled={scanning} onClick={() => void handleScanSshDocker()}>
+                {scanning ? "扫描中…" : "扫描 SSH Docker"}
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setShowAddConn(true)}>
+                添加 Docker 连接
+              </Button>
+            </div>
           </div>
         ) : showLocalEngineWelcome ? (
           <WorkspaceEmptyPage
@@ -440,6 +471,11 @@ export function DockerPanel() {
               <StatCard color="muted" value={overview?.summary.containersStopped ?? counts.stopped} label={t("docker.stats.stopped")} icon="stopped" />
               <StatCard color="accent" value={overview?.summary.images ?? images.length} label={t("docker.stats.images")} icon="images" />
               <StatCard color="warn" value={composeProjects.length} label="Compose" icon="compose" />
+              <div className="docker-stats-actions">
+                <Button variant="secondary" size="sm" onClick={refresh} disabled={dataRefreshing}>
+                  {dataRefreshing ? t("server.refreshing") : t("server.refresh")}
+                </Button>
+              </div>
             </div>
 
             {/* Error Banner */}
@@ -450,25 +486,6 @@ export function DockerPanel() {
                 <button className="docker-error-dismiss" onClick={() => setErrorDismissed(true)}>×</button>
               </div>
             )}
-
-            {/* 子页签 */}
-            <div className="docker-subtabs">
-              {(
-                [
-                  { key: "containers", label: "容器" },
-                  { key: "images", label: "镜像" },
-                  { key: "compose", label: "Compose" },
-                  { key: "networks", label: "网络" },
-                  { key: "volumes", label: "卷" },
-                  { key: "files", label: "文件" },
-                  { key: "swarm", label: "Swarm" },
-                ] as const
-              ).map(({ key, label }) => (
-                <button key={key} type="button" className={`subtab${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>
-                  {label}
-                </button>
-              ))}
-            </div>
 
             <div key={tab} className="docker-tab-content-animate">
             {tab === "containers" && (
@@ -837,7 +854,9 @@ export function DockerPanel() {
             </div>
           </>
         )}
-      </div>
+          </div>
+        </div>
+      </SidebarWorkspace>
 
       <ContainerDrawer
         connectionId={selectedConnectionId}
@@ -954,9 +973,14 @@ export function DockerPanel() {
 
       <DockerConnectionDialog
         open={showAddConn}
-        onClose={() => setShowAddConn(false)}
+        onClose={() => {
+          setShowAddConn(false);
+          setEditDockerConnection(undefined);
+        }}
+        editConnection={editDockerConnection}
         onSaved={() => {
           void reloadConnections();
+          setEditDockerConnection(undefined);
         }}
       />
 

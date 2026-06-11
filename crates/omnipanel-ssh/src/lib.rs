@@ -14,7 +14,7 @@ pub use openssh_config::{
     list_ssh_private_key_paths_in, load_ssh_config_hosts, load_ssh_config_hosts_from,
     ssh_config_to_connect_config, ssh_public_key_meta,
 };
-pub use process::{SshProcessInfo, SshProcessPort, attach_ports};
+pub use process::{SshProcessDetail, SshProcessInfo, SshProcessPort, attach_ports};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -772,6 +772,19 @@ impl SshSession {
         };
 
         Ok(parse_ps_output(&ps_output))
+    }
+
+    /// 通过 `/proc/<pid>` 深入查询启动命令、工作目录、可执行文件和打开文件。
+    pub async fn process_detail(&self, pid: u32) -> OmniResult<SshProcessDetail> {
+        use crate::process::{parse_process_detail_output, process_detail_cmd};
+
+        let output = self
+            .exec_command(&process_detail_cmd(pid))
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "获取进程详情失败").with_cause(e.to_string())
+            })?;
+        Ok(parse_process_detail_output(pid, &output))
     }
 
     /// 采集监听端口映射（优先 ss/netstat，必要时短超时 /proc 回退）。

@@ -24,6 +24,7 @@ export interface OnePanelDeviceBase {
   currentTime?: string;
 }
 
+/** @deprecated 使用 OnePanelDashboardBase */
 export interface OnePanelSystemInfo extends OnePanelDeviceBase {
   hostname: string;
   os: string;
@@ -41,28 +42,62 @@ export interface OnePanelSystemInfo extends OnePanelDeviceBase {
   currentTime: string;
 }
 
-export interface OnePanelMonitorPoint {
-  time: string;
-  cpuPercent: number;
-  memoryUsed: number;
-  memoryPercent: number;
-  diskUsed: number;
-  diskPercent: number;
-  networkUp: number;
-  networkDown: number;
-  loadAvg1: number;
-  loadAvg5: number;
-  loadAvg15: number;
+export interface OnePanelDiskInfo {
+  path?: string;
+  total?: number;
+  used?: number;
+  free?: number;
+  usedPercent?: number;
+}
+
+export interface OnePanelDashboardCurrent {
+  uptime?: number;
+  timeSinceUptime?: string;
+  load1?: number;
+  load5?: number;
+  load15?: number;
+  cpuUsedPercent?: number;
+  memoryTotal?: number;
+  memoryUsed?: number;
+  memoryAvailable?: number;
+  memoryUsedPercent?: number;
+  netBytesSent?: number;
+  netBytesRecv?: number;
+  diskData?: OnePanelDiskInfo[];
+}
+
+export interface OnePanelDashboardBase {
+  hostname?: string;
+  os?: string;
+  platform?: string;
+  platformVersion?: string;
+  kernelVersion?: string;
+  ipV4Addr?: string;
+  cpuCores?: number;
+  cpuLogicalCores?: number;
+  cpuModelName?: string;
+  cpuMhz?: number;
+  currentInfo?: OnePanelDashboardCurrent;
+}
+
+export interface OnePanelMonitorData {
+  param?: string;
+  date?: string[];
+  value?: number[];
 }
 
 export interface OnePanelProcess {
   pid: number;
   name: string;
-  cpuPercent: number;
-  memoryPercent: number;
-  memoryRss: number;
-  state: string;
-  user: string;
+  /** 1Panel v2 进程 API 使用 percent */
+  percent?: number;
+  cpuPercent?: number;
+  memory?: number;
+  memoryPercent?: number;
+  memoryRss?: number;
+  cmd?: string;
+  state?: string;
+  user?: string;
 }
 
 export interface OnePanelHostInfo {

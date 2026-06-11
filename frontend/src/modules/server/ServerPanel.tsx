@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ServerSidebar } from "../../components/workspace/ServerSidebar";
 import { Button } from "../../components/ui/Button";
@@ -6,8 +7,14 @@ import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useServerGroupStore } from "../../stores/serverGroupStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
-import { ServerInstalledApps } from "./panel/ServerInstalledApps";
+import {
+  ServerWorkspace,
+  useServerWorkspaceTabState,
+  useServerWorkspaceTabs,
+  type ServerWorkspaceTab,
+} from "./panel/ServerWorkspace";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
 import { SERVER_PATH } from "./panel/constants";
 import {
@@ -19,6 +26,8 @@ import type { Connection } from "../../ipc/bindings";
 
 export function ServerPanel() {
   const { t } = useI18n();
+  const location = useLocation();
+  const isActiveRoute = location.pathname === "/server";
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const groups = useServerGroupStore((s) => s.groups);
@@ -49,6 +58,16 @@ export function ServerPanel() {
 
   const [showDialog, setShowDialog] = useState(false);
   const [editPanelConnection, setEditPanelConnection] = useState<Connection | undefined>();
+  const [tab, setTab] = useServerWorkspaceTabState(activeServerId);
+  const topbarTabs = useServerWorkspaceTabs(tab);
+
+  useTopbarTabs(
+    topbarTabs,
+    {
+      onSelect: (id) => setTab(id as ServerWorkspaceTab),
+    },
+    { mode: "segment", enabled: isActiveRoute && !!activeServer },
+  );
 
   useEffect(() => {
     if (!selectedResourceByPath[SERVER_PATH] && panelServers[0]) {
@@ -111,13 +130,13 @@ export function ServerPanel() {
     }>
       <div className="server-main">
         {activeServer ? (
-          <ServerInstalledApps server={activeServer} />
+          <ServerWorkspace server={activeServer} tab={tab} />
         ) : (
           <WorkspaceEmptyPage
             prompt={t("server.empty.description")}
             actions={
               <Button variant="primary" size="sm" onClick={handleCreateServer}>
-                {t("server.sidebar.addServer")}
+                {t("server.sidebar.addPanel")}
               </Button>
             }
           />
@@ -129,7 +148,6 @@ export function ServerPanel() {
         onClose={() => setShowDialog(false)}
         onSaved={() => setShowDialog(false)}
         editPanelConnection={editPanelConnection}
-        requirePanel
         defaultGroup={activeGroupName}
       />
     </SidebarWorkspace>

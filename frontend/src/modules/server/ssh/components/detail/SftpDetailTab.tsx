@@ -4,6 +4,7 @@ import { commands } from "../../../../../ipc/bindings";
 import { Button } from "../../../../../components/ui/Button";
 import { useSshDetailNavigationStore } from "../../../../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../../../../i18n";
+import { pathToRemoteDir } from "../../utils/parseCommandPaths";
 
 type SftpEntry = { name: string; isDir: boolean; size: number };
 
@@ -52,12 +53,22 @@ export function SftpDetailTab({ activeResource }: Props) {
   const [renameValue, setRenameValue] = useState("");
   const [chmodTarget, setChmodTarget] = useState<SftpEntry | null>(null);
   const [chmodValue, setChmodValue] = useState("");
+  const [pathEditing, setPathEditing] = useState(false);
+  const [pathInput, setPathInput] = useState("");
   const activeResourceRef = useRef(activeResource);
+  const pathInputRef = useRef<HTMLInputElement>(null);
+  const pathEditSkipCommitRef = useRef(false);
+  const loadSeqRef = useRef(0);
+  const handledSftpNonceRef = useRef<number | null>(null);
   const pendingSftp = useSshDetailNavigationStore((s) => s.pendingSftp);
   activeResourceRef.current = activeResource;
 
-  const loadDir = async (dir: string, opts?: { fromNavigation?: boolean }) => {
+  const loadDir = async (
+    dir: string,
+    opts?: { fromNavigation?: boolean; originalPath?: string; seq?: number },
+  ) => {
     if (!activeResourceRef.current?.id) return;
+    const seq = opts?.seq ?? ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     if (!opts?.fromNavigation) setInfo(null);
@@ -70,34 +81,54 @@ export function SftpDetailTab({ activeResource }: Props) {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
+      if (seq !== loadSeqRef.current) return;
       setEntries(list);
       setPath(dir);
       setSelectedName(null);
     } catch (e) {
+      if (seq !== loadSeqRef.current) return;
       if (opts?.fromNavigation && dir !== "/") {
         const parent = dir.split("/").slice(0, -1).join("/") || "/";
-        setInfo(t("ssh.sftp.pathFallback", { path: dir, parent }));
-        await loadDir(parent);
+        setInfo(t("ssh.sftp.pathFallback", { path: opts.originalPath ?? dir, parent }));
+        await loadDir(parent, {
+          fromNavigation: true,
+          originalPath: opts.originalPath ?? dir,
+          seq,
+        });
         return;
       }
       setError(fmtError(e));
       setEntries([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     if (!activeResource?.id) return;
-    const pending = useSshDetailNavigationStore.getState().consumeSftpPath(activeResource.id);
-    void loadDir(pending?.path ?? "/", { fromNavigation: Boolean(pending) });
+    const pending = useSshDetailNavigationStore.getState().pendingSftp;
+    if (pending?.resourceId === activeResource.id) {
+      handledSftpNonceRef.current = pending.nonce;
+      void loadDir(pending.path, {
+        fromNavigation: true,
+        originalPath: pending.path,
+      });
+      return;
+    }
+    void loadDir("/");
   }, [activeResource?.id]);
 
   useEffect(() => {
     if (!activeResource?.id || !pendingSftp) return;
     if (pendingSftp.resourceId !== activeResource.id) return;
-    const pending = useSshDetailNavigationStore.getState().consumeSftpPath(activeResource.id);
-    if (pending) void loadDir(pending.path, { fromNavigation: true });
+    if (handledSftpNonceRef.current === pendingSftp.nonce) return;
+    handledSftpNonceRef.current = pendingSftp.nonce;
+    void loadDir(pendingSftp.path, {
+      fromNavigation: true,
+      originalPath: pendingSftp.path,
+    });
   }, [pendingSftp, activeResource?.id]);
 
   useEffect(() => {
@@ -194,6 +225,39 @@ export function SftpDetailTab({ activeResource }: Props) {
   const pathParts = path.split("/").filter(Boolean);
   const selectedEntry = entries.find((entry) => entry.name === selectedName) ?? null;
 
+  const startPathEdit = () => {
+    pathEditSkipCommitRef.current = false;
+    setPathInput(path);
+    setPathEditing(true);
+    requestAnimationFrame(() => {
+      pathInputRef.current?.focus();
+      pathInputRef.current?.select();
+    });
+  };
+
+  const cancelPathEdit = () => {
+    pathEditSkipCommitRef.current = true;
+    setPathEditing(false);
+    setPathInput("");
+  };
+
+  const commitPathEdit = () => {
+    if (pathEditSkipCommitRef.current) {
+      pathEditSkipCommitRef.current = false;
+      return;
+    }
+    const next = pathToRemoteDir(pathInput);
+    setPathEditing(false);
+    setPathInput("");
+    if (next !== path) void loadDir(next);
+  };
+
+  useEffect(() => {
+    if (!pathEditing) return;
+    pathInputRef.current?.focus();
+    pathInputRef.current?.select();
+  }, [pathEditing]);
+
   return (
     <div className="sftp-panel">
       <div className="sftp-toolbar">
@@ -203,17 +267,47 @@ export function SftpDetailTab({ activeResource }: Props) {
         <Button variant="secondary" size="sm" onClick={() => setShowMkdir(true)}>
           {t("ssh.sftp.mkdir")}
         </Button>
-        <div className="sftp-path">
-          <button type="button" className="sftp-path-seg" onClick={() => void loadDir("/")}>/</button>
-          {pathParts.map((seg, i) => {
-            const segPath = "/" + pathParts.slice(0, i + 1).join("/");
-            return (
-              <span key={segPath} className="sftp-path-group">
-                <span className="sftp-path-sep">/</span>
-                <button type="button" className="sftp-path-seg" onClick={() => void loadDir(segPath)}>{seg}</button>
-              </span>
-            );
-          })}
+        <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
+          {pathEditing ? (
+            <input
+              ref={pathInputRef}
+              className="sftp-path-input"
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              placeholder={t("ssh.sftp.pathEditPlaceholder")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitPathEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelPathEdit();
+                }
+              }}
+              onBlur={commitPathEdit}
+            />
+          ) : (
+            <>
+              <div className="sftp-path-crumbs">
+                <button type="button" className="sftp-path-seg" onClick={() => void loadDir("/")}>/</button>
+                {pathParts.map((seg, i) => {
+                  const segPath = "/" + pathParts.slice(0, i + 1).join("/");
+                  return (
+                    <span key={segPath} className="sftp-path-group">
+                      {i > 0 && <span className="sftp-path-sep">/</span>}
+                      <button type="button" className="sftp-path-seg" onClick={() => void loadDir(segPath)}>{seg}</button>
+                    </span>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="sftp-path-edit-hit"
+                aria-label={t("ssh.sftp.pathEditPlaceholder")}
+                onClick={startPathEdit}
+              />
+            </>
+          )}
         </div>
       </div>
 
