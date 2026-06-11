@@ -7,6 +7,11 @@ edition.workspace = true
 name = "omnipanel_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+default = []
+# 仅用于排查打包问题；正式发布勿启用（macOS 使用私有 API，无法上架 App Store）。
+debug-inspector = ["tauri/devtools"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

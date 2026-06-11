@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { useI18n } from "../../../i18n";
 import type { ServerEntry } from "./serverConnection";
 import { ServerInstalledApps } from "./ServerInstalledApps";

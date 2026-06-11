@@ -2,6 +2,7 @@ pub mod ai;
 pub mod ai_models;
 pub mod connection;
 pub mod database;
+pub mod debug;
 pub mod docker;
 pub mod exec;
 pub mod fileio;

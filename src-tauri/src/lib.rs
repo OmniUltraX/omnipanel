@@ -291,6 +291,10 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("main") {
                 window.center().ok();
+                #[cfg(any(debug_assertions, feature = "debug-inspector"))]
+                if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
+                    window.open_devtools();
+                }
             }
 
             Ok(())
@@ -526,6 +530,8 @@ pub fn run() {
             // Proxy
             commands::proxy::set_proxy_config,
             commands::proxy::get_proxy_config,
+            // Debug（排查打包问题）
+            commands::debug::debug_open_devtools,
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,

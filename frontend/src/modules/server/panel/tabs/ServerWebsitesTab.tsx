@@ -34,7 +34,7 @@ export function ServerWebsitesTab({ server }: Props) {
       } else {
         const client = createBtPanelClient(server.address, server.key);
         const result = await client.getWebsiteList({ limit: 100 });
-        setRows(result.data as Record<string, unknown>[]);
+        setRows(result.data as unknown as Record<string, unknown>[]);
       }
     } catch (e) {
       setError(String(e));
