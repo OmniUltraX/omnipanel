@@ -153,6 +153,10 @@ pub trait DockerAdapter: Send + Sync {
     async fn remove_volume(&self, name: &str, force: bool) -> OmniResult<()>;
     /// 清理未使用卷。
     async fn prune_volumes(&self) -> OmniResult<DockerPruneVolumesResult>;
+    /// `docker system df` 磁盘占用汇总。
+    async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage>;
+    /// 清理构建缓存（`docker builder prune`）。
+    async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult>;
     /// 列出容器内目录。
     async fn list_container_dir(
         &self,

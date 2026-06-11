@@ -322,6 +322,30 @@ pub struct DockerPruneResult {
     pub freed_space_bytes: i64,
 }
 
+/// `docker system df` 单项磁盘占用。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerDiskUsageItem {
+    #[specta(type = f64)]
+    pub size_bytes: i64,
+    #[specta(type = f64)]
+    pub reclaimable_bytes: i64,
+    #[specta(type = f64)]
+    pub total_count: i64,
+    #[specta(type = f64)]
+    pub active_count: i64,
+}
+
+/// `docker system df` 汇总。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerSystemDiskUsage {
+    pub images: DockerDiskUsageItem,
+    pub containers: DockerDiskUsageItem,
+    pub volumes: DockerDiskUsageItem,
+    pub build_cache: DockerDiskUsageItem,
+}
+
 /// 镜像详情。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

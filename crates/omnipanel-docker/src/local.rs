@@ -542,6 +542,53 @@ fn map_bollard(err: bollard::errors::Error) -> OmniError {
     }
 }
 
+fn map_disk_usage_item(
+    total_size: Option<i64>,
+    reclaimable: Option<i64>,
+    total_count: Option<i64>,
+    active_count: Option<i64>,
+) -> DockerDiskUsageItem {
+    DockerDiskUsageItem {
+        size_bytes: total_size.unwrap_or(0),
+        reclaimable_bytes: reclaimable.unwrap_or(0),
+        total_count: total_count.unwrap_or(0),
+        active_count: active_count.unwrap_or(0),
+    }
+}
+
+fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> DockerSystemDiskUsage {
+    DockerSystemDiskUsage {
+        images: resp
+            .image_usage
+            .as_ref()
+            .map(|u| {
+                map_disk_usage_item(u.total_size, u.reclaimable, u.total_count, u.active_count)
+            })
+            .unwrap_or_default(),
+        containers: resp
+            .container_usage
+            .as_ref()
+            .map(|u| {
+                map_disk_usage_item(u.total_size, u.reclaimable, u.total_count, u.active_count)
+            })
+            .unwrap_or_default(),
+        volumes: resp
+            .volume_usage
+            .as_ref()
+            .map(|u| {
+                map_disk_usage_item(u.total_size, u.reclaimable, u.total_count, u.active_count)
+            })
+            .unwrap_or_default(),
+        build_cache: resp
+            .build_cache_usage
+            .as_ref()
+            .map(|u| {
+                map_disk_usage_item(u.total_size, u.reclaimable, u.total_count, u.active_count)
+            })
+            .unwrap_or_default(),
+    }
+}
+
 #[async_trait]
 impl DockerAdapter for LocalDockerAdapter {
     async fn probe(&self) -> OmniResult<DockerProbe> {
@@ -1333,6 +1380,27 @@ impl DockerAdapter for LocalDockerAdapter {
             .map_err(map_bollard)?;
         Ok(DockerPruneVolumesResult {
             deleted: resp.volumes_deleted.unwrap_or_default(),
+            freed_space_bytes: resp.space_reclaimed.unwrap_or(0),
+        })
+    }
+
+    async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage> {
+        let resp = self
+            .docker
+            .df(None::<bollard::query_parameters::DataUsageOptions>)
+            .await
+            .map_err(map_bollard)?;
+        Ok(map_system_data_usage(resp))
+    }
+
+    async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult> {
+        let resp = self
+            .docker
+            .prune_build(None::<bollard::query_parameters::PruneBuildOptions>)
+            .await
+            .map_err(map_bollard)?;
+        Ok(DockerPruneResult {
+            deleted: resp.caches_deleted.unwrap_or_default(),
             freed_space_bytes: resp.space_reclaimed.unwrap_or(0),
         })
     }

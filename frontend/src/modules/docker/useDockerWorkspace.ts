@@ -19,6 +19,7 @@ import type {
   DockerOverview,
   DockerProbe,
   DockerScanResult,
+  DockerSystemDiskUsage,
   DockerVolumeDetail,
   DockerVolumeSummary,
 } from "../../ipc/bindings";
@@ -42,11 +43,11 @@ export interface DockerActionResult {
   message?: string;
 }
 
-interface DockerWorkspaceState {
-  connections: DockerConnectionInfo[];
-  selectedConnectionId: string | null;
+/** 单个 Docker 连接的业务数据快照，用于切换连接时即时展示。 */
+interface DockerConnectionCache {
   probe: DockerProbe | null;
   overview: DockerOverview | null;
+  systemDiskUsage: DockerSystemDiskUsage | null;
   containers: DockerContainerSummary[];
   images: DockerImageSummary[];
   composeProjects: DockerComposeProject[];
@@ -55,12 +56,34 @@ interface DockerWorkspaceState {
   files: DockerFileEntry[];
   filePath: string;
   fileContainerId: string | null;
+  error: string | null;
+}
+
+interface DockerWorkspaceState extends DockerConnectionCache {
+  connections: DockerConnectionInfo[];
+  selectedConnectionId: string | null;
   connectionsLoading: boolean;
-  /** 首次加载或无缓存数据时为 true，会显示列表占位「加载中」 */
+  /** 首次加载且无缓存时为 true，会显示列表占位「加载中」 */
   dataLoading: boolean;
   /** 后台刷新中为 true，仅用于刷新按钮状态，不遮挡内容 */
   dataRefreshing: boolean;
-  error: string | null;
+}
+
+function emptyConnectionCache(): DockerConnectionCache {
+  return {
+    probe: null,
+    overview: null,
+    systemDiskUsage: null,
+    containers: [],
+    images: [],
+    composeProjects: [],
+    networks: [],
+    volumes: [],
+    files: [],
+    filePath: "/",
+    fileContainerId: null,
+    error: null,
+  };
 }
 
 /** 统一处理 typedError 结果，返回数据或抛出消息。 */
@@ -80,6 +103,7 @@ export function useDockerWorkspace() {
     selectedConnectionId: null,
     probe: null,
     overview: null,
+    systemDiskUsage: null,
     containers: [],
     images: [],
     composeProjects: [],
@@ -97,13 +121,32 @@ export function useDockerWorkspace() {
   // 用 ref 保存当前选中连接与镜像列表，避免闭包捕获过期值。
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = state.selectedConnectionId;
-  const loadedConnectionsRef = useRef<Set<string>>(new Set());
-  const prevConnectionRef = useRef<string | null>(null);
+  const connectionCacheRef = useRef<Map<string, DockerConnectionCache>>(new Map());
   const imagesRef = useRef<DockerImageSummary[]>([]);
   imagesRef.current = state.images;
   const [scanning, setScanning] = useState(false);
   const [lastScanResult, setLastScanResult] = useState<DockerScanResult | null>(null);
   const autoScanDoneRef = useRef(false);
+
+  const saveConnectionCache = useCallback(
+    (connectionId: string, patch: Partial<DockerConnectionCache>): DockerConnectionCache => {
+      const prev = connectionCacheRef.current.get(connectionId) ?? emptyConnectionCache();
+      const next = { ...prev, ...patch };
+      connectionCacheRef.current.set(connectionId, next);
+      return next;
+    },
+    [],
+  );
+
+  const patchSelectedConnectionData = useCallback(
+    (patch: Partial<DockerConnectionCache>) => {
+      const id = selectedRef.current;
+      if (!id) return;
+      saveConnectionCache(id, patch);
+      setState((s) => ({ ...s, ...patch }));
+    },
+    [saveConnectionCache],
+  );
 
   const loadConnections = useCallback(async () => {
     setState((s) => ({ ...s, connectionsLoading: true }));
@@ -155,12 +198,13 @@ export function useDockerWorkspace() {
     const silent = options?.silent ?? false;
     setState((s) => ({
       ...s,
-      error: null,
-      dataLoading: silent ? s.dataLoading : true,
+      error: silent ? s.error : null,
+      dataLoading: silent ? false : true,
       dataRefreshing: silent ? true : s.dataRefreshing,
     }));
 
-    const finishLoading = (patch: Partial<DockerWorkspaceState>) => {
+    const applyToSelected = (patch: Partial<DockerWorkspaceState>) => {
+      if (selectedRef.current !== connectionId) return;
       setState((s) => ({
         ...s,
         ...patch,
@@ -169,76 +213,75 @@ export function useDockerWorkspace() {
       }));
     };
 
+    const persistCache = (patch: Partial<DockerConnectionCache>) => {
+      saveConnectionCache(connectionId, patch);
+      applyToSelected(patch);
+    };
+
     // 先探测连通性。
     let probe: DockerProbe | null = null;
     try {
       probe = await unwrap(commands.dockerProbeConnection(connectionId));
     } catch (e) {
+      const message = String(e);
       if (silent) {
-        setState((s) => ({ ...s, dataRefreshing: false, error: String(e) }));
+        saveConnectionCache(connectionId, { error: message });
+        applyToSelected({ error: message, dataRefreshing: false });
         return;
       }
-      finishLoading({
-        probe: null,
-        overview: null,
-        containers: [],
-        images: [],
-        composeProjects: [],
-        networks: [],
-        volumes: [],
-        files: [],
-        error: String(e),
+      persistCache({
+        ...emptyConnectionCache(),
+        error: message,
       });
       return;
     }
 
-    if (selectedRef.current !== connectionId) {
-      setState((s) => ({ ...s, dataLoading: false, dataRefreshing: false }));
-      return;
-    }
+    const mergeProbeIntoConnections = (currentProbe: DockerProbe) => {
+      setState((s) => ({
+        ...s,
+        connections: s.connections.map((c) =>
+          c.connectionId === connectionId
+            ? {
+                ...c,
+                status: currentProbe.status,
+                engineVersion: currentProbe.engineVersion,
+                apiVersion: currentProbe.apiVersion,
+                warningMessage: currentProbe.warningMessage,
+              }
+            : c
+        ),
+        probe: selectedRef.current === connectionId ? currentProbe : s.probe,
+      }));
+    };
 
-    // 把探测得到的状态/版本回填到连接列表。
-    setState((s) => ({
-      ...s,
-      probe,
-      connections: s.connections.map((c) =>
-        c.connectionId === connectionId
-          ? {
-              ...c,
-              status: probe!.status,
-              engineVersion: probe!.engineVersion,
-              apiVersion: probe!.apiVersion,
-              warningMessage: probe!.warningMessage,
-            }
-          : c
-      ),
-    }));
+    mergeProbeIntoConnections(probe);
+    saveConnectionCache(connectionId, { probe });
 
     if (probe.status === "offline") {
-      if (silent) {
-        setState((s) => ({
-          ...s,
-          probe,
-          dataRefreshing: false,
-          error: probe?.warningMessage ?? "Docker 未安装或未启动",
-        }));
-        return;
-      }
-      finishLoading({
+      const offlinePatch: Partial<DockerConnectionCache> = {
+        probe,
         overview: null,
+        systemDiskUsage: null,
         containers: [],
         images: [],
         composeProjects: [],
         networks: [],
         volumes: [],
-        error: probe?.warningMessage ?? "Docker 未安装或未启动",
-      });
+        error: probe.warningMessage ?? "Docker 未安装或未启动",
+      };
+      if (silent) {
+        saveConnectionCache(connectionId, offlinePatch);
+        applyToSelected({ ...offlinePatch, dataRefreshing: false });
+        return;
+      }
+      persistCache(offlinePatch);
       return;
     }
 
     // 并行拉取业务数据；单项失败不阻断其余。
-    const [overview, containers, images, composeProjects, networks, volumes] = await Promise.all([
+    const [overview, systemDiskUsage, containers, images, composeProjects, networks, volumes] = await Promise.all([
       unwrap(commands.dockerGetOverview(connectionId)).catch(() => null),
+      unwrap(commands.dockerGetSystemDiskUsage(connectionId)).catch(() => null),
       unwrap(commands.dockerListContainers(connectionId, null)).catch(() => []),
       unwrap(commands.dockerListImages(connectionId)).catch(() => []),
       unwrap(commands.dockerListComposeProjects(connectionId)).catch(() => []),
@@ -246,54 +289,57 @@ export function useDockerWorkspace() {
       unwrap(commands.dockerListVolumes(connectionId)).catch(() => []),
     ]);
 
-    if (selectedRef.current !== connectionId) {
-      setState((s) => ({ ...s, dataLoading: false, dataRefreshing: false }));
-      return;
-    }
-    loadedConnectionsRef.current.add(connectionId);
-    finishLoading({
+    persistCache({
+      probe,
       overview,
+      systemDiskUsage,
       containers,
       images,
       composeProjects,
       networks,
       volumes,
+      error: null,
     });
-  }, []);
+  }, [saveConnectionCache]);
 
   // 初始化加载连接列表。
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
 
-  // 选中连接变化时加载数据。
+  // 选中连接变化：有缓存则先展示，再静默刷新；无缓存则显示加载态。
   useEffect(() => {
     const id = state.selectedConnectionId;
     if (!id) return;
 
-    const switched =
-      prevConnectionRef.current !== null && prevConnectionRef.current !== id;
-    prevConnectionRef.current = id;
-
-    if (switched) {
+    const cached = connectionCacheRef.current.get(id);
+    if (cached) {
       setState((s) => ({
         ...s,
-        probe: null,
-        overview: null,
-        containers: [],
-        images: [],
-        composeProjects: [],
-        networks: [],
-        volumes: [],
-        files: [],
-        filePath: "/",
-        fileContainerId: null,
+        ...cached,
+        dataLoading: false,
+        dataRefreshing: false,
       }));
+      void loadConnectionData(id, { silent: true });
+      return;
     }
 
-    const silent = loadedConnectionsRef.current.has(id);
-    void loadConnectionData(id, { silent });
+    setState((s) => ({
+      ...s,
+      ...emptyConnectionCache(),
+      dataLoading: true,
+      dataRefreshing: false,
+    }));
+    void loadConnectionData(id, { silent: false });
   }, [state.selectedConnectionId, loadConnectionData]);
+
+  // 连接被删除后清理对应缓存。
+  useEffect(() => {
+    const alive = new Set(state.connections.map((c) => c.connectionId));
+    for (const id of connectionCacheRef.current.keys()) {
+      if (!alive.has(id)) connectionCacheRef.current.delete(id);
+    }
+  }, [state.connections]);
 
   const selectConnection = useCallback((id: string) => {
     setState((s) => (s.selectedConnectionId === id ? s : { ...s, selectedConnectionId: id }));
@@ -310,11 +356,11 @@ export function useDockerWorkspace() {
     if (!id) return;
     try {
       const containers = await unwrap(commands.dockerListContainers(id, null));
-      if (selectedRef.current === id) setState((s) => ({ ...s, containers }));
+      patchSelectedConnectionData({ containers });
     } catch {
       /* 忽略，保留旧数据 */
     }
-  }, []);
+  }, [patchSelectedConnectionData]);
 
   const containerAction = useCallback(
     async (containerId: string, action: string): Promise<DockerActionResult> => {
@@ -393,7 +439,7 @@ export function useDockerWorkspace() {
         return null;
       }
     },
-    []
+    [],
   );
 
   const removeImage = useCallback(
@@ -403,13 +449,13 @@ export function useDockerWorkspace() {
       try {
         await unwrap(commands.dockerRemoveImage(id, imageId, force));
         const images = await unwrap(commands.dockerListImages(id)).catch(() => imagesRef.current);
-        setState((s) => ({ ...s, images }));
+        patchSelectedConnectionData({ images });
         return { ok: true };
       } catch (e) {
         return { ok: false, message: String(e) };
       }
     },
-    []
+    [patchSelectedConnectionData],
   );
 
   const pruneImages = useCallback(async (): Promise<DockerActionResult> => {
@@ -438,7 +484,7 @@ export function useDockerWorkspace() {
         unlisten = await listen<DockerImageProgress>(channel, (e) => onProgress?.(e.payload));
         await unwrap(commands.dockerPullImage(id, image, channel));
         const images = await unwrap(commands.dockerListImages(id)).catch(() => imagesRef.current);
-        setState((s) => ({ ...s, images }));
+        patchSelectedConnectionData({ images });
         return { ok: true, message: `已拉取 ${image}` };
       } catch (e) {
         return { ok: false, message: String(e) };
@@ -446,7 +492,7 @@ export function useDockerWorkspace() {
         unlisten?.();
       }
     },
-    []
+    [patchSelectedConnectionData],
   );
 
   const pushImage = useCallback(
@@ -478,13 +524,13 @@ export function useDockerWorkspace() {
       try {
         await unwrap(commands.dockerTagImage(id, source, target));
         const images = await unwrap(commands.dockerListImages(id)).catch(() => imagesRef.current);
-        setState((s) => ({ ...s, images }));
+        patchSelectedConnectionData({ images });
         return { ok: true, message: `已打 tag: ${target}` };
       } catch (e) {
         return { ok: false, message: String(e) };
       }
     },
-    []
+    [patchSelectedConnectionData],
   );
 
   const buildImage = useCallback(
@@ -509,7 +555,7 @@ export function useDockerWorkspace() {
         };
         await unwrap(commands.dockerBuildImage(id, ctx, channel));
         const images = await unwrap(commands.dockerListImages(id)).catch(() => imagesRef.current);
-        setState((s) => ({ ...s, images }));
+        patchSelectedConnectionData({ images });
         return { ok: true, message: `已构建 ${tag}` };
       } catch (e) {
         return { ok: false, message: String(e) };
@@ -517,7 +563,7 @@ export function useDockerWorkspace() {
         unlisten?.();
       }
     },
-    []
+    [patchSelectedConnectionData],
   );
 
   const composeAction = useCallback(
@@ -563,11 +609,11 @@ export function useDockerWorkspace() {
     if (!id) return;
     try {
       const networks = await unwrap(commands.dockerListNetworks(id));
-      setState((s) => ({ ...s, networks }));
+      patchSelectedConnectionData({ networks });
     } catch (e) {
       setState((s) => ({ ...s, error: String(e) }));
     }
-  }, []);
+  }, [patchSelectedConnectionData]);
 
   const createNetwork = useCallback(
     async (req: DockerCreateNetworkRequest): Promise<DockerActionResult> => {
@@ -604,11 +650,11 @@ export function useDockerWorkspace() {
     if (!id) return;
     try {
       const volumes = await unwrap(commands.dockerListVolumes(id));
-      setState((s) => ({ ...s, volumes }));
+      patchSelectedConnectionData({ volumes });
     } catch (e) {
       setState((s) => ({ ...s, error: String(e) }));
     }
-  }, []);
+  }, [patchSelectedConnectionData]);
 
   const createVolume = useCallback(
     async (req: DockerCreateVolumeRequest): Promise<DockerActionResult> => {
@@ -646,6 +692,7 @@ export function useDockerWorkspace() {
     try {
       const result = await unwrap(commands.dockerPruneVolumes(id));
       await listVolumes();
+      refresh();
       return {
         ok: true,
         message: `已清理 ${result.deleted.length} 个卷，释放约 ${((result.freedSpaceBytes ?? 0) / 1_000_000).toFixed(1)} MB`,
@@ -653,7 +700,22 @@ export function useDockerWorkspace() {
     } catch (e) {
       return { ok: false, message: String(e) };
     }
-  }, [listVolumes]);
+  }, [listVolumes, refresh]);
+
+  const pruneBuildCache = useCallback(async (): Promise<DockerActionResult> => {
+    const id = selectedRef.current;
+    if (!id) return { ok: false, message: "未选择连接" };
+    try {
+      const result = await unwrap(commands.dockerPruneBuildCache(id));
+      refresh();
+      return {
+        ok: true,
+        message: `已清理 ${result.deleted.length} 项构建缓存，释放约 ${((result.freedSpaceBytes ?? 0) / 1_000_000).toFixed(1)} MB`,
+      };
+    } catch (e) {
+      return { ok: false, message: String(e) };
+    }
+  }, [refresh]);
 
   const listContainerDir = useCallback(
     async (containerId: string, path: string): Promise<DockerFileEntry[]> => {
@@ -661,14 +723,14 @@ export function useDockerWorkspace() {
       if (!id) return [];
       try {
         const files = await unwrap(commands.dockerListContainerDir(id, containerId, path));
-        setState((s) => ({ ...s, files, filePath: path, fileContainerId: containerId }));
+        patchSelectedConnectionData({ files, filePath: path, fileContainerId: containerId });
         return files;
       } catch (e) {
         setState((s) => ({ ...s, error: String(e) }));
         return [];
       }
     },
-    []
+    [patchSelectedConnectionData],
   );
 
   const readContainerFile = useCallback(
@@ -726,6 +788,7 @@ export function useDockerWorkspace() {
     createVolume,
     removeVolume,
     pruneVolumes,
+    pruneBuildCache,
     listContainerDir,
     readContainerFile,
     writeContainerFile,

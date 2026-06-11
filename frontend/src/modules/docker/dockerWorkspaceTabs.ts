@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 
 export type DockerWorkspaceTab =
+  | "overview"
   | "containers"
   | "images"
   | "compose"
@@ -12,6 +13,7 @@ export type DockerWorkspaceTab =
   | "swarm";
 
 export const DOCKER_WORKSPACE_TABS: DockerWorkspaceTab[] = [
+  "overview",
   "containers",
   "images",
   "compose",

@@ -28,6 +28,7 @@ import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import type { DockerComposeAction } from "../../ipc/bindings";
 import { CreateContainerDialog } from "./CreateContainerDialog";
+import { DockerOverviewTab } from "./DockerOverviewTab";
 import { SwarmPanel } from "./SwarmPanel";
 import { formatDockerTime } from "./format";
 import {
@@ -95,6 +96,7 @@ export function DockerPanel() {
     selectConnection,
     probe,
     overview,
+    systemDiskUsage,
     containers,
     images,
     composeProjects,
@@ -131,12 +133,13 @@ export function DockerPanel() {
     inspectVolume,
     removeImage,
     pruneImages,
+    pruneBuildCache,
     reloadConnections,
     scanning,
     scanSshDockerHosts,
   } = docker;
 
-  const [tab, setTab] = useState<DockerWorkspaceTab>("containers");
+  const [tab, setTab] = useState<DockerWorkspaceTab>("overview");
   const [filter, setFilter] = useState<ContainerFilter>("all");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -178,10 +181,10 @@ export function DockerPanel() {
     showToast(t("docker.sidebar.deleted"));
   };
 
-  // 切换连接时复位本地视图状态（数据在 hook 内后台加载，无全屏遮罩）。
+  // 切换连接时复位抽屉/筛选等本地 UI（业务数据在 hook 内按连接缓存，先展示再静默刷新）。
   useEffect(() => {
     setDrawerId(null);
-    setTab("containers");
+    setTab("overview");
     setFilter("all");
     setQuery("");
     setSearchInput("");
@@ -307,6 +310,42 @@ export function DockerPanel() {
           showToast(res.message ?? "清理完成");
         } else {
           showToast(`清理失败：${res.message ?? "未知错误"}`);
+        }
+      },
+    });
+  };
+
+  const confirmPruneVolumes = () => {
+    setConfirm({
+      title: t("docker.overview.disk.volumes"),
+      message: t("docker.overview.pruneVolumesConfirm"),
+      detail: selectedConnection?.name ?? "",
+      confirmLabel: t("docker.overview.disk.release"),
+      onConfirm: async () => {
+        setConfirm(null);
+        const res = await pruneVolumes();
+        if (res.ok) {
+          showToast(res.message ?? t("docker.overview.pruneDone"));
+        } else {
+          showToast(res.message ?? t("docker.overview.pruneFailed"));
+        }
+      },
+    });
+  };
+
+  const confirmPruneBuildCache = () => {
+    setConfirm({
+      title: t("docker.overview.disk.buildCache"),
+      message: t("docker.overview.pruneBuildCacheConfirm"),
+      detail: selectedConnection?.name ?? "",
+      confirmLabel: t("docker.overview.disk.release"),
+      onConfirm: async () => {
+        setConfirm(null);
+        const res = await pruneBuildCache();
+        if (res.ok) {
+          showToast(res.message ?? t("docker.overview.pruneDone"));
+        } else {
+          showToast(res.message ?? t("docker.overview.pruneFailed"));
         }
       },
     });
@@ -465,7 +504,8 @@ export function DockerPanel() {
           </div>
         ) : (
           <>
-            {/* 统计 */}
+            {/* 统计（概览页自带统计，此处仅在其他 Tab 展示） */}
+            {tab !== "overview" && (
             <div className="docker-stats">
               <StatCard color="success" value={overview?.summary.containersRunning ?? counts.running} label={t("docker.stats.running")} icon="running" />
               <StatCard color="muted" value={overview?.summary.containersStopped ?? counts.stopped} label={t("docker.stats.stopped")} icon="stopped" />
@@ -477,6 +517,7 @@ export function DockerPanel() {
                 </Button>
               </div>
             </div>
+            )}
 
             {/* Error Banner */}
             {error && !isOffline && !errorDismissed && (
@@ -488,6 +529,29 @@ export function DockerPanel() {
             )}
 
             <div key={tab} className="docker-tab-content-animate">
+            {tab === "overview" && (
+              <DockerOverviewTab
+                overview={overview}
+                systemDiskUsage={systemDiskUsage}
+                probe={probe}
+                connection={selectedConnection}
+                containersTotal={counts.all}
+                containersRunning={counts.running}
+                images={images}
+                composeProjects={composeProjects}
+                networks={networks}
+                volumes={volumes}
+                dataLoading={dataLoading}
+                dataRefreshing={dataRefreshing}
+                canManage={probe?.capabilities?.canManageContainers ?? false}
+                onNavigateTab={setTab}
+                onEditConnection={() => selectedConnection && handleEditDockerConnection(selectedConnection)}
+                onPruneImages={confirmPrune}
+                onPruneVolumes={confirmPruneVolumes}
+                onPruneBuildCache={confirmPruneBuildCache}
+              />
+            )}
+
             {tab === "containers" && (
               <>
                 <div className="docker-filters">

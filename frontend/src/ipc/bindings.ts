@@ -59,6 +59,8 @@ export const commands = {
 	dockerProbeConnection: (connectionId: string) => typedError<DockerProbe, OmniError_Serialize>(__TAURI_INVOKE("docker_probe_connection", { connectionId })),
 	/**  连接总览统计。 */
 	dockerGetOverview: (connectionId: string) => typedError<DockerOverview, OmniError_Serialize>(__TAURI_INVOKE("docker_get_overview", { connectionId })),
+	/**  `docker system df` 磁盘占用汇总。 */
+	dockerGetSystemDiskUsage: (connectionId: string) => typedError<DockerSystemDiskUsage, OmniError_Serialize>(__TAURI_INVOKE("docker_get_system_disk_usage", { connectionId })),
 	/**  容器列表。`filter` 取 all/running/stopped。 */
 	dockerListContainers: (connectionId: string, filter: string | null) => typedError<DockerContainerSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_containers", { connectionId, filter })),
 	/**  容器详情。 */
@@ -84,6 +86,8 @@ export const commands = {
 	dockerRemoveImage: (connectionId: string, imageId: string, force: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_image", { connectionId, imageId, force })),
 	/**  清理悬空镜像（高风险，前端需确认）。 */
 	dockerPruneImages: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_images", { connectionId })),
+	/**  清理构建缓存（高风险，前端需确认）。 */
+	dockerPruneBuildCache: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_build_cache", { connectionId })),
 	/**  镜像详情（`docker inspect`）。 */
 	dockerInspectImage: (connectionId: string, imageId: string) => typedError<DockerImageDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_image", { connectionId, imageId })),
 	/**  镜像历史层（`docker history`）。 */
@@ -658,6 +662,14 @@ export type DockerCreateVolumeRequest = {
 	labels: ([string, string])[],
 };
 
+/**  `docker system df` 单项磁盘占用。 */
+export type DockerDiskUsageItem = {
+	sizeBytes: number | null,
+	reclaimableBytes: number | null,
+	totalCount: number | null,
+	activeCount: number | null,
+};
+
 /**  容器内文件条目。 */
 export type DockerFileEntry = {
 	name: string,
@@ -900,6 +912,14 @@ export type DockerStackSummary = {
 	services: number,
 	orchestrator: string,
 	namespace: string,
+};
+
+/**  `docker system df` 汇总。 */
+export type DockerSystemDiskUsage = {
+	images: DockerDiskUsageItem,
+	containers: DockerDiskUsageItem,
+	volumes: DockerDiskUsageItem,
+	buildCache: DockerDiskUsageItem,
 };
 
 /**  卷详情。 */

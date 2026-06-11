@@ -25,8 +25,9 @@ use crate::{
     DockerImageProgress, DockerImageSummary, DockerKeyValue, DockerLogLine, DockerNetworkContainer,
     DockerNetworkDetail, DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary,
     DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
-    DockerServiceSummary, DockerStackSummary, DockerVolumeDetail, DockerVolumeSummary,
-    model::DockerCapabilities, model::DockerConnectionStatus,
+    DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
+    DockerVolumeSummary, model::DockerCapabilities, model::DockerConnectionStatus,
+    model::DockerDiskUsageItem,
 };
 
 /// 1Panel 客户端。
@@ -852,6 +853,41 @@ impl DockerAdapter for OnePanelAdapter {
                 .and_then(|x| x.as_i64())
                 .unwrap_or(0),
         })
+    }
+
+    async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage> {
+        let (images, volumes) = tokio::try_join!(self.list_images(), self.list_volumes())?;
+        let image_size: i64 = images.iter().map(|i| i.size_bytes.max(0)).sum();
+        let image_reclaimable: i64 = images
+            .iter()
+            .filter(|i| i.dangling)
+            .map(|i| i.size_bytes.max(0))
+            .sum();
+        let volume_size: i64 = volumes.iter().map(|v| v.size_bytes.max(0)).sum();
+        let volume_reclaimable: i64 = volumes
+            .iter()
+            .filter(|v| !v.in_use)
+            .map(|v| v.size_bytes.max(0))
+            .sum();
+        Ok(DockerSystemDiskUsage {
+            images: DockerDiskUsageItem {
+                size_bytes: image_size,
+                reclaimable_bytes: image_reclaimable,
+                total_count: images.len() as i64,
+                active_count: images.iter().filter(|i| !i.dangling).count() as i64,
+            },
+            volumes: DockerDiskUsageItem {
+                size_bytes: volume_size,
+                reclaimable_bytes: volume_reclaimable,
+                total_count: volumes.len() as i64,
+                active_count: volumes.iter().filter(|v| v.in_use).count() as i64,
+            },
+            ..DockerSystemDiskUsage::default()
+        })
+    }
+
+    async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult> {
+        Err(not_supported("清理构建缓存"))
     }
 
     async fn inspect_network(&self, name: &str) -> OmniResult<DockerNetworkDetail> {

@@ -155,6 +155,12 @@ impl DockerAdapter for SshDockerAdapter {
     async fn prune_volumes(&self) -> OmniResult<DockerPruneVolumesResult> {
         prune_volumes(&*self.session.lock().await).await
     }
+    async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage> {
+        system_disk_usage(&*self.session.lock().await).await
+    }
+    async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult> {
+        prune_build_cache(&*self.session.lock().await).await
+    }
     async fn list_container_dir(
         &self,
         container_id: &str,
@@ -1744,6 +1750,87 @@ pub async fn prune_volumes(session: &SshSession) -> OmniResult<DockerPruneVolume
         deleted,
         freed_space_bytes: freed,
     })
+}
+
+pub async fn system_disk_usage(session: &SshSession) -> OmniResult<DockerSystemDiskUsage> {
+    let out = session.exec_capture("docker system df").await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("获取 Docker 磁盘占用失败", &out.stderr));
+    }
+    Ok(parse_system_df_output(&out.stdout))
+}
+
+pub async fn prune_build_cache(session: &SshSession) -> OmniResult<DockerPruneResult> {
+    let out = session.exec_capture("docker builder prune -f").await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("远端清理构建缓存失败", &out.stderr));
+    }
+    let deleted: Vec<String> = out
+        .stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .collect();
+    let freed = parse_docker_reclaimed(&out.stderr)
+        .or_else(|| parse_docker_reclaimed(&out.stdout))
+        .unwrap_or(0);
+    Ok(DockerPruneResult {
+        deleted,
+        freed_space_bytes: freed,
+    })
+}
+
+fn parse_system_df_output(text: &str) -> DockerSystemDiskUsage {
+    let mut usage = DockerSystemDiskUsage::default();
+    for line in text.lines().skip(1) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, item)) = parse_system_df_line(line) else {
+            continue;
+        };
+        match key {
+            "images" => usage.images = item,
+            "containers" => usage.containers = item,
+            "volumes" => usage.volumes = item,
+            "build_cache" => usage.build_cache = item,
+            _ => {}
+        }
+    }
+    usage
+}
+
+fn parse_system_df_line(line: &str) -> Option<(&'static str, DockerDiskUsageItem)> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    let (key, offset) = if tokens[0] == "Local" && tokens.get(1) == Some(&"Volumes") {
+        ("volumes", 2usize)
+    } else if tokens[0] == "Build" && tokens.get(1) == Some(&"Cache") {
+        ("build_cache", 2usize)
+    } else if tokens[0] == "Images" {
+        ("images", 1usize)
+    } else if tokens[0] == "Containers" {
+        ("containers", 1usize)
+    } else {
+        return None;
+    };
+    let nums = tokens.get(offset..)?;
+    if nums.len() < 4 {
+        return None;
+    }
+    let reclaimable_token = nums[3].split('(').next().unwrap_or(nums[3]);
+    Some((
+        key,
+        DockerDiskUsageItem {
+            total_count: nums[0].parse().unwrap_or(0),
+            active_count: nums[1].parse().unwrap_or(0),
+            size_bytes: human_size_to_bytes(nums[2]),
+            reclaimable_bytes: human_size_to_bytes(reclaimable_token),
+        },
+    ))
 }
 
 fn parse_docker_reclaimed(text: &str) -> Option<i64> {

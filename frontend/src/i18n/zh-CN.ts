@@ -928,6 +928,7 @@ export const zhCN = {
       editFailed: "无法加载连接配置",
     },
     tabs: {
+      overview: "概览",
       containers: "容器",
       images: "镜像",
       compose: "Compose",
@@ -968,6 +969,33 @@ export const zhCN = {
     status: {
       running: "运行中",
       stopped: "已停止",
+    },
+    overview: {
+      refreshing: "后台刷新中…",
+      composeTemplates: "编排模版",
+      registries: "镜像仓库",
+      disk: {
+        title: "磁盘占用",
+        images: "镜像",
+        containers: "容器",
+        volumes: "本地存储卷",
+        buildCache: "构建缓存",
+        used: "已占用",
+        reclaimable: "可释放",
+        release: "释放",
+      },
+      config: {
+        title: "配置",
+        endpoint: "连接端点",
+        engine: "Engine 版本",
+        api: "API 版本",
+        source: "连接来源",
+        editConnection: "编辑连接",
+      },
+      pruneVolumesConfirm: "将清理所有未使用的本地存储卷，此操作不可恢复。",
+      pruneBuildCacheConfirm: "将清理所有未使用的 Docker 构建缓存，可能影响后续构建速度。",
+      pruneDone: "清理完成",
+      pruneFailed: "清理失败",
     },
   },
   server: {

@@ -19,8 +19,8 @@ use omnipanel_docker::{
     DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer, DockerImageProgress,
     DockerImageSummary, DockerLogLine, DockerNetworkDetail, DockerNetworkSummary,
     DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult,
-    DockerPullResult, DockerServiceSummary, DockerStackSummary, DockerVolumeDetail,
-    DockerVolumeSummary, LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter,
+    DockerPullResult, DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage,
+    DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter,
     bollard,
 };
 use omnipanel_error::{ErrorCode, OmniError};
@@ -302,6 +302,19 @@ pub async fn docker_get_overview(
     resolve_adapter(&state, &connection_id)
         .await?
         .overview()
+        .await
+}
+
+/// `docker system df` 磁盘占用汇总。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_get_system_disk_usage(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<DockerSystemDiskUsage, OmniError> {
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .system_disk_usage()
         .await
 }
 
@@ -646,6 +659,20 @@ pub async fn docker_prune_images(
     resolve_adapter(&state, &connection_id)
         .await?
         .prune_images()
+        .await
+}
+
+/// 清理构建缓存（高风险，前端需确认）。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_prune_build_cache(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<DockerPruneResult, OmniError> {
+    tracing::info!(connection = %connection_id, "清理 Docker 构建缓存");
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .prune_build_cache()
         .await
 }
 

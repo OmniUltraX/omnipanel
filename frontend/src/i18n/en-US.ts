@@ -968,6 +968,7 @@ export const enUS: TranslationDict = {
       editFailed: "Could not load connection settings",
     },
     tabs: {
+      overview: "Overview",
       containers: "Containers",
       images: "Images",
       compose: "Compose",
@@ -1008,6 +1009,33 @@ export const enUS: TranslationDict = {
     status: {
       running: "Running",
       stopped: "Stopped",
+    },
+    overview: {
+      refreshing: "Refreshing in background…",
+      composeTemplates: "Compose Templates",
+      registries: "Registries",
+      disk: {
+        title: "Disk Usage",
+        images: "Images",
+        containers: "Containers",
+        volumes: "Local Volumes",
+        buildCache: "Build Cache",
+        used: "Used",
+        reclaimable: "Reclaimable",
+        release: "Release",
+      },
+      config: {
+        title: "Configuration",
+        endpoint: "Endpoint",
+        engine: "Engine Version",
+        api: "API Version",
+        source: "Connection Source",
+        editConnection: "Edit Connection",
+      },
+      pruneVolumesConfirm: "This will remove all unused local volumes. This cannot be undone.",
+      pruneBuildCacheConfirm: "This will remove all unused Docker build cache. Subsequent builds may be slower.",
+      pruneDone: "Cleanup completed",
+      pruneFailed: "Cleanup failed",
     },
   },
   server: {

@@ -9804,6 +9804,198 @@
         flex-shrink: 0;
     }
 
+    .docker-overview {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+    }
+
+    .docker-overview-refresh-hint {
+        margin-top: calc(-1 * var(--sp-2));
+    }
+
+    .docker-overview-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: var(--sp-4);
+    }
+
+    .docker-overview-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        margin-bottom: var(--sp-3);
+    }
+
+    .docker-overview-section-title {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .docker-overview-section-title::before {
+        content: "";
+        width: 3px;
+        height: 14px;
+        background: var(--accent);
+        border-radius: 2px;
+        flex-shrink: 0;
+    }
+
+    .docker-overview-badges {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    .docker-overview-hero {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: none;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .docker-overview-hero-value {
+        font-size: 40px;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1;
+    }
+
+    .docker-overview-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--sp-3);
+    }
+
+    .docker-overview-stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: var(--sp-3) var(--sp-4);
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.12s, background 0.12s;
+        font: inherit;
+        color: inherit;
+    }
+
+    .docker-overview-stat-card:hover:not(:disabled) {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+    }
+
+    .docker-overview-stat-card--static,
+    .docker-overview-stat-card:disabled {
+        cursor: default;
+        opacity: 0.72;
+    }
+
+    .docker-overview-stat-card-label {
+        font-size: 12px;
+        color: var(--meta);
+        margin-bottom: var(--sp-2);
+    }
+
+    .docker-overview-stat-card-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1.1;
+    }
+
+    .docker-overview-disk-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--sp-3);
+    }
+
+    .docker-overview-disk-item {
+        padding: var(--sp-3);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        min-height: 96px;
+    }
+
+    .docker-overview-disk-label {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: var(--sp-2);
+    }
+
+    .docker-overview-disk-meta {
+        line-height: 1.6;
+        margin-bottom: var(--sp-2);
+    }
+
+    .docker-overview-release {
+        font-size: 12px;
+        color: var(--accent);
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .docker-overview-release:hover:not(.docker-overview-release--disabled) {
+        text-decoration: underline;
+    }
+
+    .docker-overview-release--disabled {
+        color: var(--muted);
+        cursor: default;
+    }
+
+    .docker-overview-kv {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: var(--sp-2) var(--sp-4);
+        font-size: 12px;
+        margin: 0;
+    }
+
+    .docker-overview-kv dt {
+        color: var(--meta);
+        margin: 0;
+    }
+
+    .docker-overview-kv dd {
+        margin: 0;
+        word-break: break-all;
+    }
+
+    .docker-overview-config-actions {
+        margin-top: var(--sp-3);
+        padding-top: var(--sp-3);
+        border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 960px) {
+        .docker-overview-stat-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .docker-overview-disk-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
     .docker-stat {
         display: flex;
         align-items: center;
