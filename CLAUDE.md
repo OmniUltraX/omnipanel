@@ -79,9 +79,6 @@ cargo test -p omnipanel-core
 
 # Check formatting
 cargo fmt --check
-
-# Run clippy lints
-cargo clippy -- -D warnings
 ```
 
 ## Architecture Principles
