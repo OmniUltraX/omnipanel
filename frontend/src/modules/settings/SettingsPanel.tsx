@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useAiStore } from "../../stores/aiStore";
 import { detectMonospaceFonts } from "../../lib/systemFonts";
 import {
+  countEnabledModels,
   useAiModelsStore,
   maskApiKey,
   type AiModelProvider,
@@ -26,6 +27,7 @@ import {
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
+import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
@@ -280,11 +282,18 @@ function AiModelsSection() {
   const setAiDisplayMode = useSettingsStore((s) => s.setAiDisplayMode);
   const providers = useAiModelsStore((s) => s.providers);
   const removeProvider = useAiModelsStore((s) => s.removeProvider);
+  const refreshProviderModelsFromApi = useAiModelsStore((s) => s.refreshProviderModelsFromApi);
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingProvider, setEditingProvider] = useState<AiModelProvider | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
+  const [refreshNotice, setRefreshNotice] = useState<{
+    providerId: string;
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
 
   const openAddDialog = () => {
     setEditingProvider(null);
@@ -300,6 +309,46 @@ function AiModelsSection() {
   const closeDialog = () => {
     setShowDialog(false);
     setEditingProvider(null);
+  };
+
+  const handleProviderSaved = (providerId: string) => {
+    setExpandedIds((prev) => new Set(prev).add(providerId));
+  };
+
+  const formatRefreshError = (error: string) => {
+    if (error === "no_api_key") return t("settings.aiModels.refresh.noApiKey");
+    if (error === "invalid_base_url") return t("settings.aiModels.errors.baseUrlInvalid");
+    if (error === "empty_list") return t("settings.aiModels.refresh.emptyList");
+    if (error.startsWith("http_")) return t("settings.aiModels.refresh.httpError", { status: error.slice(5) });
+    return error;
+  };
+
+  const handleRefreshModels = async (provider: AiModelProvider) => {
+    setRefreshNotice(null);
+    setRefreshingIds((prev) => new Set(prev).add(provider.id));
+    try {
+      const result = await refreshProviderModelsFromApi(provider.id);
+      if (result.ok) {
+        setExpandedIds((prev) => new Set(prev).add(provider.id));
+        setRefreshNotice({
+          providerId: provider.id,
+          kind: "ok",
+          message: t("settings.aiModels.refresh.success", { count: result.count }),
+        });
+      } else {
+        setRefreshNotice({
+          providerId: provider.id,
+          kind: "err",
+          message: t("settings.aiModels.refresh.failed", { error: formatRefreshError(result.error) }),
+        });
+      }
+    } finally {
+      setRefreshingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(provider.id);
+        return next;
+      });
+    }
   };
 
   const toggleExpanded = (id: string) => {
@@ -359,13 +408,17 @@ function AiModelsSection() {
           <ul className="ai-models-list">
             {providers.map((provider) => {
               const isConfirmingDelete = confirmDeleteId === provider.id;
-              const hasMultipleModels = provider.modelNames.length > 1;
+              const hasModels = provider.modelNames.length > 0;
               const isExpanded = expandedIds.has(provider.id);
+              const enabledCount = countEnabledModels(provider);
+              const isRefreshing = refreshingIds.has(provider.id);
+              const notice =
+                refreshNotice?.providerId === provider.id ? refreshNotice : null;
               return (
                 <li key={provider.id} className="ai-provider-card">
                   <div className="ai-provider-header">
                     <div className="ai-provider-header-main">
-                      {hasMultipleModels ? (
+                      {hasModels ? (
                         <button
                           type="button"
                           className="ai-provider-expand"
@@ -386,14 +439,15 @@ function AiModelsSection() {
                           >
                             {provider.apiStandard === "openai" ? "OpenAI" : "Anthropic"}
                           </span>
-                          {hasMultipleModels ? (
+                          {hasModels ? (
                             <span className="ai-provider-model-count">
-                              {t("settings.aiModels.modelCount", {
-                                count: provider.modelNames.length,
+                              {t("settings.aiModels.enabledCount", {
+                                enabled: enabledCount,
+                                total: provider.modelNames.length,
                               })}
                             </span>
                           ) : (
-                            <span className="ai-provider-single-model">{provider.modelNames[0]}</span>
+                            <span className="ai-provider-single-model">{t("settings.aiModels.noModelsYet")}</span>
                           )}
                         </div>
                         <div className="ai-model-row-meta">
@@ -431,6 +485,28 @@ function AiModelsSection() {
                         </>
                       ) : (
                         <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ai-model-row-refresh"
+                            title={t("settings.aiModels.refresh.title")}
+                            aria-label={t("settings.aiModels.refresh.title")}
+                            disabled={isRefreshing}
+                            onClick={() => void handleRefreshModels(provider)}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              width="14"
+                              height="14"
+                              className={isRefreshing ? "icon-spin" : undefined}
+                            >
+                              <path d="M23 4v6h-6M1 20v-6h6" />
+                              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                            </svg>
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -474,15 +550,15 @@ function AiModelsSection() {
                     </div>
                   </div>
 
-                  {hasMultipleModels && isExpanded ? (
-                    <ul className="ai-provider-models">
-                      {provider.modelNames.map((modelName) => (
-                        <li key={modelName} className="ai-provider-model-item">
-                          {modelName}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  {notice && (
+                    <div
+                      className={`ai-provider-refresh-notice ai-provider-refresh-notice--${notice.kind}`}
+                    >
+                      {notice.message}
+                    </div>
+                  )}
+
+                  {hasModels && isExpanded ? <ProviderModelList provider={provider} /> : null}
                 </li>
               );
             })}
@@ -494,6 +570,7 @@ function AiModelsSection() {
         open={showDialog}
         onClose={closeDialog}
         editProvider={editingProvider}
+        onSaved={handleProviderSaved}
       />
 
       <div className="settings-section-divider" />
