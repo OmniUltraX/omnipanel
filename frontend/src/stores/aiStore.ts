@@ -15,10 +15,16 @@ export interface AiMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
+  /** 推理模型返回的思考过程（reasoning_content） */
+  reasoningContent?: string;
   timestamp: number;
   toolCalls?: ToolCallState[];
   isStreaming?: boolean;
+  isReasoningStreaming?: boolean;
 }
+
+/** 推理强度（OpenAI / DeepSeek 等兼容 API 的 reasoning_effort） */
+export type ReasoningEffortLevel = "default" | "low" | "medium" | "high";
 
 export interface AiConversation {
   id: string;
@@ -38,8 +44,12 @@ interface AiStore {
   drawerOpen: boolean;
   currentProvider: string;
   currentModel: string;
+  /** aiModelsStore 中的 providerId::modelName */
+  currentModelSelectionId: string | null;
   isGenerating: boolean;
   draftPrompt: string;
+  /** 推理程度，default 表示不传给 API */
+  reasoningEffort: ReasoningEffortLevel;
 
   toggleDrawer: () => void;
   openDrawer: () => void;
@@ -61,13 +71,20 @@ interface AiStore {
     messageId: string,
     chunk: string
   ) => void;
+  appendStreamReasoning: (
+    conversationId: string,
+    messageId: string,
+    chunk: string
+  ) => void;
   setCurrentProvider: (provider: string, model: string) => void;
+  setCurrentModelSelectionId: (id: string | null) => void;
   setIsGenerating: (v: boolean) => void;
   setDraftPrompt: (prompt: string) => void;
   clearDraftPrompt: () => void;
   setContext: (conversationId: string, context: { type: string; label: string }[]) => void;
   addContext: (conversationId: string, chip: { type: string; label: string }) => void;
   removeContext: (conversationId: string, type: string) => void;
+  setReasoningEffort: (level: ReasoningEffortLevel) => void;
 }
 
 let idCounter = 0;
@@ -83,8 +100,10 @@ export const useAiStore = create<AiStore>()(
       drawerOpen: false,
       currentProvider: "openai",
       currentModel: "gpt-4o",
+      currentModelSelectionId: null,
       isGenerating: false,
       draftPrompt: "",
+      reasoningEffort: "medium",
 
       toggleDrawer: () =>
         set((state) => ({ drawerOpen: !state.drawerOpen })),
@@ -186,7 +205,30 @@ export const useAiStore = create<AiStore>()(
               ...c,
               messages: c.messages.map((m) =>
                 m.id === messageId
-                  ? { ...m, content: m.content + chunk }
+                  ? {
+                      ...m,
+                      content: m.content + chunk,
+                      isReasoningStreaming: chunk ? false : m.isReasoningStreaming,
+                    }
+                  : m
+              ),
+            };
+          }),
+        })),
+
+      appendStreamReasoning: (conversationId, messageId, chunk) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId
+                  ? {
+                      ...m,
+                      reasoningContent: (m.reasoningContent ?? "") + chunk,
+                      isReasoningStreaming: true,
+                    }
                   : m
               ),
             };
@@ -195,6 +237,8 @@ export const useAiStore = create<AiStore>()(
 
       setCurrentProvider: (provider, model) =>
         set({ currentProvider: provider, currentModel: model }),
+
+      setCurrentModelSelectionId: (id) => set({ currentModelSelectionId: id }),
 
       setIsGenerating: (v) => set({ isGenerating: v }),
 
@@ -229,6 +273,8 @@ export const useAiStore = create<AiStore>()(
             };
           }),
         })),
+
+      setReasoningEffort: (level) => set({ reasoningEffort: level }),
     }),
     {
       name: "omnipanel-ai-store",
@@ -237,6 +283,8 @@ export const useAiStore = create<AiStore>()(
         activeConversationId: state.activeConversationId,
         currentProvider: state.currentProvider,
         currentModel: state.currentModel,
+        currentModelSelectionId: state.currentModelSelectionId,
+        reasoningEffort: state.reasoningEffort,
       }),
     }
   )

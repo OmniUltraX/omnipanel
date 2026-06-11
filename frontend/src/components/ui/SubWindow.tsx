@@ -13,6 +13,8 @@ export interface SubWindowProps {
   /** 相对主窗口可视区域的高度比例，默认 0.9 */
   heightRatio?: number;
   className?: string;
+  /** 标题与关闭按钮之间的附加控件（如模型选择） */
+  headerExtra?: ReactNode;
 }
 
 const DEFAULT_RATIO = 0.9;
@@ -25,6 +27,7 @@ export function SubWindow({
   widthRatio = DEFAULT_RATIO,
   heightRatio = DEFAULT_RATIO,
   className,
+  headerExtra,
 }: SubWindowProps) {
   const { t } = useI18n();
 
@@ -61,6 +64,9 @@ export function SubWindow({
           <h2 id="subwindow-title" className="subwindow-title">
             {title}
           </h2>
+          {headerExtra ? (
+            <div className="subwindow-header-extra">{headerExtra}</div>
+          ) : null}
           <Button
             type="button"
             variant="icon"
