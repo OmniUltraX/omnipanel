@@ -7534,6 +7534,14 @@
         color: var(--success);
     }
 
+    .tree-node--group .tree-label {
+        font-weight: 600;
+    }
+
+    .tree-node--group .tree-icon {
+        color: var(--accent);
+    }
+
     .tree-node--folder .tree-label {
         font-weight: 500;
         color: var(--fg-2);

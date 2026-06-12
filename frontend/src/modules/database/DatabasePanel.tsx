@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
@@ -13,12 +12,12 @@ import { useActionStore } from "../../stores/actionStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
-import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import {
   connectionMatchesGroup,
+  normalizeConnectionGroup,
   countTable,
   fetchTableDdl,
   introspectSchema,
@@ -80,8 +79,6 @@ function readRowKeyValue(rowKey: string, colName: string): string {
 
 export function DatabasePanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/database";
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const groups = useDbGroupStore((s) => s.groups);
   const activeGroupId = useDbGroupStore((s) => s.activeGroupId);
@@ -138,19 +135,27 @@ export function DatabasePanel() {
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
-  const activeGroupName = useMemo(
+  const activeGroupNameFromStore = useMemo(
     () => getGroupName(activeGroupId),
-    [activeGroupId, getGroupName, groups],
+    [activeGroupId, getGroupName],
   );
 
   const groupConnections = useMemo(
-    () => connections.filter((conn) => connectionMatchesGroup(conn, activeGroupName)),
-    [connections, activeGroupName],
+    () => connections.filter((conn) => connectionMatchesGroup(conn, activeGroupNameFromStore)),
+    [connections, activeGroupNameFromStore],
   );
 
   const activeConn = useMemo(
     () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
     [groupConnections, activeConnId],
+  );
+
+  const activeGroupName = useMemo(
+    () =>
+      activeConn
+        ? normalizeConnectionGroup(activeConn.group)
+        : activeGroupNameFromStore,
+    [activeConn, activeGroupNameFromStore],
   );
 
   const activeWorkspaceTab = useMemo(
@@ -1049,23 +1054,25 @@ export function DatabasePanel() {
     }
   }, [addGroup, groups, t]);
 
-  const topbarTabs = useMemo(
-    () =>
-      groups.map((group) => ({
-        id: group.id,
-        label: group.name,
-        active: group.id === activeGroupId,
-      })),
-    [groups, activeGroupId],
+  const handleSelectGroup = useCallback(
+    (groupId: string) => {
+      setActiveGroupId(groupId);
+    },
+    [setActiveGroupId],
   );
 
-  useTopbarTabs(
-    topbarTabs,
-    {
-      onSelect: (id) => setActiveGroupId(id),
-      onAdd: () => void handleCreateGroup(),
+  const handleSelectConnection = useCallback(
+    (connId: string) => {
+      setActiveConnId(connId);
+      const conn = connections.find((item) => item.id === connId);
+      if (!conn) return;
+      const normalized = normalizeConnectionGroup(conn.group);
+      const group = groups.find((item) => item.name === normalized);
+      if (group) {
+        setActiveGroupId(group.id);
+      }
     },
-    { mode: "connection", showAddTab: true, addTabTitle: t("database.groups.new"), enabled: isActiveRoute },
+    [connections, groups, setActiveConnId, setActiveGroupId],
   );
 
   const runQuery = useCallback(async (sqlOverride?: string, tabIdOverride?: string) => {
@@ -1223,13 +1230,18 @@ export function DatabasePanel() {
         sidebarMinPx={280}
         sidebar={
           <SchemaBrowser
+            groups={groups}
+            activeGroupId={activeGroupId}
+            activeConnId={activeConnId}
             onCreateConnection={() => setDialogOpen(true)}
+            onCreateGroup={() => void handleCreateGroup()}
+            onSelectGroup={handleSelectGroup}
+            onSelectConnection={handleSelectConnection}
             onNewQuery={openNewSqlTab}
             onSelectTable={handleSelectTable}
             onContextTable={handleContextTable}
             activeTableKey={activeTableKey}
             refreshToken={schemaRefreshToken}
-            groupFilter={activeGroupName}
           />
         }
       >

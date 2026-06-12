@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
+import type { DockerWorkspaceTab } from "./dockerWorkspaceTabs";
 import type {
   DockerComposeProject,
   DockerConnectionInfo,
@@ -38,6 +39,26 @@ export interface DockerImageProgress {
 
 export type ContainerFilter = "all" | "running" | "stopped";
 
+export type DockerResourceKey =
+  | "overview"
+  | "systemDiskUsage"
+  | "containers"
+  | "images"
+  | "composeProjects"
+  | "networks"
+  | "volumes";
+
+const TAB_RESOURCES: Record<DockerWorkspaceTab, DockerResourceKey[]> = {
+  overview: ["overview", "systemDiskUsage", "containers", "images", "composeProjects", "networks", "volumes"],
+  containers: ["containers"],
+  images: ["images"],
+  compose: ["composeProjects"],
+  networks: ["networks"],
+  volumes: ["volumes"],
+  files: ["containers"],
+  swarm: [],
+};
+
 export interface DockerActionResult {
   ok: boolean;
   message?: string;
@@ -57,6 +78,8 @@ interface DockerConnectionCache {
   filePath: string;
   fileContainerId: string | null;
   error: string | null;
+  /** 已拉取过的资源键，用于 Tab 懒加载判断（空列表也算已加载）。 */
+  fetchedResources: Partial<Record<DockerResourceKey, boolean>>;
 }
 
 interface DockerWorkspaceState extends DockerConnectionCache {
@@ -83,6 +106,7 @@ function emptyConnectionCache(): DockerConnectionCache {
     filePath: "/",
     fileContainerId: null,
     error: null,
+    fetchedResources: {},
   };
 }
 
@@ -95,9 +119,9 @@ async function unwrap<T>(promise: Promise<{ status: "ok"; data: T } | { status: 
 
 /**
  * Docker 工作区数据入口：统一管理连接、探测、容器/镜像/Compose 列表与生命周期动作。
- * 所有数据来自真实 IPC（omnipanel-docker），不再依赖 mock。
+ * 按当前 Tab 懒加载资源，避免切换连接时一次性拉取全部数据。
  */
-export function useDockerWorkspace() {
+export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
   const [state, setState] = useState<DockerWorkspaceState>({
     connections: [],
     selectedConnectionId: null,
@@ -116,6 +140,7 @@ export function useDockerWorkspace() {
     dataLoading: false,
     dataRefreshing: false,
     error: null,
+    fetchedResources: {},
   });
 
   // 用 ref 保存当前选中连接与镜像列表，避免闭包捕获过期值。
@@ -126,12 +151,20 @@ export function useDockerWorkspace() {
   imagesRef.current = state.images;
   const [scanning, setScanning] = useState(false);
   const [lastScanResult, setLastScanResult] = useState<DockerScanResult | null>(null);
-  const autoScanDoneRef = useRef(false);
+  const loadSeqRef = useRef(0);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   const saveConnectionCache = useCallback(
     (connectionId: string, patch: Partial<DockerConnectionCache>): DockerConnectionCache => {
       const prev = connectionCacheRef.current.get(connectionId) ?? emptyConnectionCache();
-      const next = { ...prev, ...patch };
+      const next = {
+        ...prev,
+        ...patch,
+        fetchedResources: patch.fetchedResources
+          ? { ...prev.fetchedResources, ...patch.fetchedResources }
+          : prev.fetchedResources,
+      };
       connectionCacheRef.current.set(connectionId, next);
       return next;
     },
@@ -187,79 +220,55 @@ export function useDockerWorkspace() {
     [loadConnections],
   );
 
-  useEffect(() => {
-    if (autoScanDoneRef.current) return;
-    autoScanDoneRef.current = true;
-    void scanSshDockerHosts(true);
-  }, [scanSshDockerHosts]);
+  const isResourceLoaded = useCallback((cache: DockerConnectionCache, key: DockerResourceKey): boolean => {
+    return cache.fetchedResources[key] === true;
+  }, []);
 
-  /** 加载选中连接的探测、总览、容器、镜像、Compose。 */
-  const loadConnectionData = useCallback(async (connectionId: string, options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
-    setState((s) => ({
-      ...s,
-      error: silent ? s.error : null,
-      dataLoading: silent ? false : true,
-      dataRefreshing: silent ? true : s.dataRefreshing,
-    }));
+  /** 按 Tab 懒加载缺失资源，各资源独立返回并渐进更新 UI。 */
+  const loadTabResources = useCallback(
+    async (connectionId: string, tab: DockerWorkspaceTab, options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      const loadSeq = ++loadSeqRef.current;
+      const resources = TAB_RESOURCES[tab];
+      if (resources.length === 0) return;
 
-    const applyToSelected = (patch: Partial<DockerWorkspaceState>) => {
-      if (selectedRef.current !== connectionId) return;
-      setState((s) => ({
-        ...s,
-        ...patch,
-        dataLoading: false,
-        dataRefreshing: false,
-      }));
-    };
-
-    const persistCache = (patch: Partial<DockerConnectionCache>) => {
-      saveConnectionCache(connectionId, patch);
-      applyToSelected(patch);
-    };
-
-    // 先探测连通性。
-    let probe: DockerProbe | null = null;
-    try {
-      probe = await unwrap(commands.dockerProbeConnection(connectionId));
-    } catch (e) {
-      const message = String(e);
-      if (silent) {
-        saveConnectionCache(connectionId, { error: message });
-        applyToSelected({ error: message, dataRefreshing: false });
+      const cached = connectionCacheRef.current.get(connectionId);
+      const missing = resources.filter((key) => !cached || !isResourceLoaded(cached, key));
+      if (missing.length === 0) {
+        if (!silent) {
+          setState((s) => ({ ...s, dataLoading: false, dataRefreshing: false }));
+        }
         return;
       }
-      persistCache({
-        ...emptyConnectionCache(),
-        error: message,
-      });
-      return;
-    }
 
-    const mergeProbeIntoConnections = (currentProbe: DockerProbe) => {
       setState((s) => ({
         ...s,
-        connections: s.connections.map((c) =>
-          c.connectionId === connectionId
-            ? {
-                ...c,
-                status: currentProbe.status,
-                engineVersion: currentProbe.engineVersion,
-                apiVersion: currentProbe.apiVersion,
-                warningMessage: currentProbe.warningMessage,
-              }
-            : c
-        ),
-        probe: selectedRef.current === connectionId ? currentProbe : s.probe,
+        dataRefreshing: silent ? true : s.dataRefreshing,
+        dataLoading: silent ? false : true,
       }));
-    };
 
-    mergeProbeIntoConnections(probe);
-    saveConnectionCache(connectionId, { probe });
+      const applyPatch = (patch: Partial<DockerConnectionCache>) => {
+        if (loadSeq !== loadSeqRef.current || selectedRef.current !== connectionId) return;
+        saveConnectionCache(connectionId, patch);
+        setState((s) => ({
+          ...s,
+          ...patch,
+          dataLoading: false,
+          dataRefreshing: false,
+        }));
+      };
 
-    if (probe.status === "offline") {
-      const offlinePatch: Partial<DockerConnectionCache> = {
-        probe,
+      const fetchers: Record<DockerResourceKey, () => Promise<unknown>> = {
+        overview: () => unwrap(commands.dockerGetOverview(connectionId)),
+        systemDiskUsage: () => unwrap(commands.dockerGetSystemDiskUsage(connectionId)),
+        containers: () => unwrap(commands.dockerListContainers(connectionId, null)),
+        images: () => unwrap(commands.dockerListImages(connectionId)),
+        composeProjects: () => unwrap(commands.dockerListComposeProjects(connectionId)),
+        networks: () => unwrap(commands.dockerListNetworks(connectionId)),
+        volumes: () => unwrap(commands.dockerListVolumes(connectionId)),
+      };
+
+      const defaults: Partial<DockerConnectionCache> = {
         overview: null,
         systemDiskUsage: null,
         containers: [],
@@ -267,47 +276,119 @@ export function useDockerWorkspace() {
         composeProjects: [],
         networks: [],
         volumes: [],
-        error: probe.warningMessage ?? "Docker 未安装或未启动",
       };
-      if (silent) {
-        saveConnectionCache(connectionId, offlinePatch);
-        applyToSelected({ ...offlinePatch, dataRefreshing: false });
+
+      await Promise.all(
+        missing.map(async (key) => {
+          try {
+            const data = await fetchers[key]();
+            applyPatch({
+              [key]: data,
+              fetchedResources: {
+                ...connectionCacheRef.current.get(connectionId)?.fetchedResources,
+                [key]: true,
+              },
+            } as Partial<DockerConnectionCache>);
+          } catch {
+            applyPatch({
+              [key]: defaults[key],
+              fetchedResources: {
+                ...connectionCacheRef.current.get(connectionId)?.fetchedResources,
+                [key]: true,
+              },
+            } as Partial<DockerConnectionCache>);
+          }
+        }),
+      );
+
+      if (loadSeq === loadSeqRef.current && selectedRef.current === connectionId) {
+        setState((s) => ({ ...s, dataLoading: false, dataRefreshing: false }));
+      }
+    },
+    [isResourceLoaded, saveConnectionCache],
+  );
+
+  /** 探测连通性；离线时不拉业务数据。 */
+  const loadConnectionProbe = useCallback(
+    async (connectionId: string, options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      const loadSeq = ++loadSeqRef.current;
+
+      setState((s) => ({
+        ...s,
+        error: silent ? s.error : null,
+        dataLoading: silent ? false : true,
+        dataRefreshing: silent ? true : s.dataRefreshing,
+      }));
+
+      const applyToSelected = (patch: Partial<DockerWorkspaceState>) => {
+        if (loadSeq !== loadSeqRef.current || selectedRef.current !== connectionId) return;
+        setState((s) => ({
+          ...s,
+          ...patch,
+          dataLoading: false,
+          dataRefreshing: false,
+        }));
+      };
+
+      let probe: DockerProbe | null = null;
+      try {
+        probe = await unwrap(commands.dockerProbeConnection(connectionId));
+      } catch (e) {
+        const message = String(e);
+        saveConnectionCache(connectionId, { ...emptyConnectionCache(), error: message });
+        applyToSelected({ ...emptyConnectionCache(), error: message });
         return;
       }
-      persistCache(offlinePatch);
-      return;
-    }
 
-    // 并行拉取业务数据；单项失败不阻断其余。
-    const [overview, systemDiskUsage, containers, images, composeProjects, networks, volumes] = await Promise.all([
-      unwrap(commands.dockerGetOverview(connectionId)).catch(() => null),
-      unwrap(commands.dockerGetSystemDiskUsage(connectionId)).catch(() => null),
-      unwrap(commands.dockerListContainers(connectionId, null)).catch(() => []),
-      unwrap(commands.dockerListImages(connectionId)).catch(() => []),
-      unwrap(commands.dockerListComposeProjects(connectionId)).catch(() => []),
-      unwrap(commands.dockerListNetworks(connectionId)).catch(() => []),
-      unwrap(commands.dockerListVolumes(connectionId)).catch(() => []),
-    ]);
+      setState((s) => ({
+        ...s,
+        connections: s.connections.map((c) =>
+          c.connectionId === connectionId
+            ? {
+                ...c,
+                status: probe!.status,
+                engineVersion: probe!.engineVersion,
+                apiVersion: probe!.apiVersion,
+                warningMessage: probe!.warningMessage,
+              }
+            : c,
+        ),
+        probe: selectedRef.current === connectionId ? probe : s.probe,
+      }));
 
-    persistCache({
-      probe,
-      overview,
-      systemDiskUsage,
-      containers,
-      images,
-      composeProjects,
-      networks,
-      volumes,
-      error: null,
-    });
-  }, [saveConnectionCache]);
+      if (probe.status === "offline") {
+        const offlinePatch: Partial<DockerConnectionCache> = {
+          probe,
+          overview: null,
+          systemDiskUsage: null,
+          containers: [],
+          images: [],
+          composeProjects: [],
+          networks: [],
+          volumes: [],
+          error: probe.warningMessage ?? "Docker 未安装或未启动",
+          fetchedResources: {},
+        };
+        saveConnectionCache(connectionId, offlinePatch);
+        applyToSelected(offlinePatch);
+        return;
+      }
+
+      saveConnectionCache(connectionId, { probe, error: null });
+      applyToSelected({ probe, error: null, dataLoading: false, dataRefreshing: silent });
+
+      void loadTabResources(connectionId, activeTabRef.current, { silent: true });
+    },
+    [loadTabResources, saveConnectionCache],
+  );
 
   // 初始化加载连接列表。
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
 
-  // 选中连接变化：有缓存则先展示，再静默刷新；无缓存则显示加载态。
+  // 选中连接变化：有缓存则先展示，再探测并懒加载当前 Tab。
   useEffect(() => {
     const id = state.selectedConnectionId;
     if (!id) return;
@@ -320,7 +401,7 @@ export function useDockerWorkspace() {
         dataLoading: false,
         dataRefreshing: false,
       }));
-      void loadConnectionData(id, { silent: true });
+      void loadConnectionProbe(id, { silent: true });
       return;
     }
 
@@ -330,8 +411,17 @@ export function useDockerWorkspace() {
       dataLoading: true,
       dataRefreshing: false,
     }));
-    void loadConnectionData(id, { silent: false });
-  }, [state.selectedConnectionId, loadConnectionData]);
+    void loadConnectionProbe(id, { silent: false });
+  }, [state.selectedConnectionId, loadConnectionProbe]);
+
+  // Tab 切换：在线连接仅补拉当前 Tab 缺失资源。
+  useEffect(() => {
+    const id = state.selectedConnectionId;
+    if (!id) return;
+    const cached = connectionCacheRef.current.get(id);
+    if (cached?.probe?.status !== "online") return;
+    void loadTabResources(id, activeTab, { silent: true });
+  }, [activeTab, state.selectedConnectionId, loadTabResources]);
 
   // 连接被删除后清理对应缓存。
   useEffect(() => {
@@ -347,8 +437,18 @@ export function useDockerWorkspace() {
 
   const refresh = useCallback(() => {
     const id = selectedRef.current;
-    if (id) void loadConnectionData(id, { silent: true });
-  }, [loadConnectionData]);
+    if (!id) return;
+    const tab = activeTabRef.current;
+    const cached = connectionCacheRef.current.get(id);
+    if (cached) {
+      const clearedFetched = { ...cached.fetchedResources };
+      for (const key of TAB_RESOURCES[tab]) {
+        delete clearedFetched[key];
+      }
+      saveConnectionCache(id, { fetchedResources: clearedFetched });
+    }
+    void loadConnectionProbe(id, { silent: true });
+  }, [loadConnectionProbe, saveConnectionCache]);
 
   /** 仅刷新容器列表（动作后轻量刷新）。 */
   const refreshContainers = useCallback(async () => {

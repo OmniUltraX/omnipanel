@@ -9,6 +9,7 @@ import {
   listDatabases,
   listTables,
 } from "./api";
+import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import {
   DatabaseFilterDialog,
@@ -53,7 +54,7 @@ interface LoadedConnection {
   databasesError?: string;
 }
 
-type TreeNodeType = "connection" | "database" | "table" | "folder" | "column" | "index";
+type TreeNodeType = "connection" | "database" | "table" | "folder" | "column" | "index" | "group";
 
 interface TreeNodeProps {
   id: string;
@@ -133,7 +134,7 @@ function TreeNode({
             <path d="M3 9h18M3 15h18M9 3v18" />
           </svg>
         )}
-        {type === "folder" && (
+        {(type === "folder" || type === "group") && (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
           </svg>
@@ -219,23 +220,33 @@ export type SchemaTableSelection = {
 };
 
 interface SchemaBrowserProps {
+  groups: DbConnectionGroup[];
+  activeGroupId?: string;
+  activeConnId?: string | null;
   onCreateConnection?: () => void;
+  onCreateGroup?: () => void;
+  onSelectGroup?: (groupId: string) => void;
+  onSelectConnection?: (connId: string) => void;
   onNewQuery?: () => void;
   onSelectTable?: (selection: SchemaTableSelection) => void;
   onContextTable?: (selection: SchemaTableSelection, event: ReactMouseEvent) => void;
   activeTableKey?: string | null;
   refreshToken?: number;
-  groupFilter?: string;
 }
 
 export function SchemaBrowser({
+  groups,
+  activeGroupId,
+  activeConnId = null,
   onCreateConnection,
+  onCreateGroup,
+  onSelectGroup,
+  onSelectConnection,
   onNewQuery,
   onSelectTable,
   onContextTable,
   activeTableKey = null,
   refreshToken = 0,
-  groupFilter,
 }: SchemaBrowserProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -287,21 +298,29 @@ export function SchemaBrowser({
     pendingDatabaseLoadsRef.current.clear();
     try {
       const list = await listConnections();
-      const filtered = groupFilter
-        ? list.filter((config) => connectionMatchesGroup(config, groupFilter))
-        : list;
-      setConnections(filtered.map((config) => ({ config })));
+      setConnections(list.map((config) => ({ config })));
     } catch (error) {
       setConnections([]);
       setLoadError(String(error));
     } finally {
       setLoading(false);
     }
-  }, [groupFilter]);
+  }, []);
 
   useEffect(() => {
     void loadConnections();
   }, [loadConnections, refreshToken]);
+
+  useEffect(() => {
+    if (!activeGroupId) return;
+    const groupNodeId = `grp:${activeGroupId}`;
+    setExpanded((prev) => {
+      if (prev.has(groupNodeId)) return prev;
+      const next = new Set(prev);
+      next.add(groupNodeId);
+      return next;
+    });
+  }, [activeGroupId]);
 
   useEffect(() => {
     if (!filtersHydrated) {
@@ -657,6 +676,19 @@ export function SchemaBrowser({
       .filter((conn): conn is LoadedConnection => conn !== null);
   }, [connections, search, databaseFilters, tableFilters]);
 
+  const groupSections = useMemo(() => {
+    const sections = groups.map((group) => ({
+      group,
+      connections: filtered.filter((conn) => connectionMatchesGroup(conn.config, group.name)),
+    }));
+    if (!search.trim()) {
+      return sections;
+    }
+    return sections.filter((section) => section.connections.length > 0);
+  }, [groups, filtered, search]);
+
+  const hasAnyConnection = filtered.length > 0;
+
   const filterDialogConn = filterDialogConnId
     ? connections.find((conn) => conn.config.id === filterDialogConnId)
     : undefined;
@@ -704,6 +736,14 @@ export function SchemaBrowser({
     <div className="schema-panel" ref={sidebarRef} onMouseEnter={focusSearchInput}>
       <div className="schema-header">
         <h3>{t("database.sidebar.title")}</h3>
+        {onCreateGroup && (
+          <Button variant="icon" title={t("database.groups.new")} onClick={onCreateGroup}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2v-5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+              <path d="M12 11v6M9 14h6" />
+            </svg>
+          </Button>
+        )}
         <Button
           variant="icon"
           title={t("database.sidebar.createConnection")}
@@ -756,12 +796,39 @@ export function SchemaBrowser({
             {t("database.sidebar.loadFailed")}: {loadError}
           </div>
         )}
-        {!loading && !loadError && filtered.length === 0 && (
+        {!loading && !loadError && !hasAnyConnection && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("database.sidebar.empty")}
           </div>
         )}
-        {filtered.map((conn) => {
+        {groupSections.map(({ group, connections: groupConns }) => {
+          const groupNodeId = `grp:${group.id}`;
+          const groupExpanded = expanded.has(groupNodeId);
+          const totalInGroup = connections.filter((conn) =>
+            connectionMatchesGroup(conn.config, group.name),
+          ).length;
+
+          return (
+            <div key={group.id}>
+              <TreeNode
+                id={groupNodeId}
+                label={group.name}
+                type="group"
+                depth={0}
+                expanded={groupExpanded}
+                onToggle={() => toggle(groupNodeId)}
+                meta={String(totalInGroup)}
+                hasChildren
+                active={activeGroupId === group.id}
+                onLabelClick={() => onSelectGroup?.(group.id)}
+              />
+              {groupExpanded && groupConns.length === 0 && (
+                <div style={{ padding: "4px 24px", fontSize: "11px", color: "var(--text-secondary, #8e8e93)" }}>
+                  {t("database.sidebar.noConnectionsInGroup")}
+                </div>
+              )}
+              {groupExpanded &&
+                groupConns.map((conn) => {
           const connId = `conn:${conn.config.id}`;
           const connExpanded = expanded.has(connId);
           const allDatabases = conn.databases ?? [];
@@ -777,9 +844,11 @@ export function SchemaBrowser({
                 id={connId}
                 label={conn.config.name}
                 type="connection"
-                depth={0}
+                depth={1}
                 expanded={connExpanded}
                 onToggle={() => toggle(connId)}
+                active={activeConnId === conn.config.id}
+                onLabelClick={() => onSelectConnection?.(conn.config.id)}
                 meta={
                   conn.loadingDatabases
                     ? t("common.loading")
@@ -840,7 +909,7 @@ export function SchemaBrowser({
                         id={dbId}
                         label={db.name}
                         type="database"
-                        depth={1}
+                        depth={2}
                         expanded={dbExpanded}
                         onToggle={() => toggle(dbId)}
                         meta={
@@ -924,7 +993,7 @@ export function SchemaBrowser({
                                 id={tableKey}
                                 label={tbl.name}
                                 type="table"
-                                depth={2}
+                                depth={3}
                                 expanded={tableExpanded}
                                 onToggle={() => toggle(tableKey)}
                                 hasChildren
@@ -978,7 +1047,7 @@ export function SchemaBrowser({
                                     id={colsFolderId}
                                     label={t("database.sidebar.fields")}
                                     type="folder"
-                                    depth={3}
+                                    depth={4}
                                     expanded={colsExpanded}
                                     onToggle={() => toggle(colsFolderId)}
                                     meta={String(columns.length)}
@@ -991,7 +1060,7 @@ export function SchemaBrowser({
                                         id={`${tableKey}:col:${col.name}`}
                                         label={col.name}
                                         type="column"
-                                        depth={4}
+                                        depth={5}
                                         expanded={false}
                                         onToggle={() => {}}
                                         hasChildren={false}
@@ -1015,7 +1084,7 @@ export function SchemaBrowser({
                                     id={idxFolderId}
                                     label={t("database.sidebar.indexes")}
                                     type="folder"
-                                    depth={3}
+                                    depth={4}
                                     expanded={idxExpanded}
                                     onToggle={() => toggle(idxFolderId)}
                                     meta={String(indexes.length)}
@@ -1028,7 +1097,7 @@ export function SchemaBrowser({
                                         id={`${tableKey}:idx:${idx.name}`}
                                         label={idx.name}
                                         type="index"
-                                        depth={4}
+                                        depth={5}
                                         expanded={false}
                                         onToggle={() => {}}
                                         hasChildren={false}
@@ -1053,6 +1122,9 @@ export function SchemaBrowser({
                         })}
                     </div>
                   );
+                })}
+            </div>
+          );
                 })}
             </div>
           );
