@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "docker.html",
+  "entry": "docker.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-12T06:40:23.435Z",
+  "updatedAt": "2026-06-12T06:40:23.435Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

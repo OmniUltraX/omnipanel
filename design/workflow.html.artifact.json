@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "workflow.html",
+  "entry": "workflow.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-12T06:40:26.205Z",
+  "updatedAt": "2026-06-12T06:40:26.205Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

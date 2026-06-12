@@ -601,7 +601,8 @@ tr:hover td { background: color-mix(in oklch, var(--fg) 3%, transparent); }
 .topbar-btn .notif-badge {
   position: absolute;
   top: -4px; right: -4px;
-  width: 14px; height: 14px;
+  min-width: 14px; height: 14px;
+  padding: 0 3px;
   background: var(--danger);
   color: #fff;
   font-size: 8px;

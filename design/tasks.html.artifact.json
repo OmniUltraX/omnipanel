@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "tasks.html",
+  "entry": "tasks.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-12T06:40:25.369Z",
+  "updatedAt": "2026-06-12T06:40:25.369Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

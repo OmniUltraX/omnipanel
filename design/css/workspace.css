@@ -1,0 +1,869 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * OmniPanel — Workspace System
+ * Multi-tab · tree split · half/full chrome · bottom-right switcher
+ * ─────────────────────────────────────────────────────────────────── */
+
+/* ─── Shell layouts ───────────────────────────────────────────────────── */
+.ws-shell { height: 100vh; width: 100vw; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+.ws-shell.half { position: relative; }
+.ws-host {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-deeper);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ws-host-bar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--meta);
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+.ws-host-bar .dot { width: 8px; height: 8px; border-radius: 50%; }
+.ws-host-bar .dot.r { background: var(--danger); }
+.ws-host-bar .dot.y { background: var(--warn); }
+.ws-host-bar .dot.g { background: var(--success); }
+.ws-host-body {
+  flex: 1;
+  padding: var(--sp-6);
+  overflow: auto;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.ws-host-body .host-title { font-size: 18px; font-weight: 700; color: var(--fg); margin-bottom: var(--sp-3); }
+.ws-host-body .host-code {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: var(--fg-2);
+  white-space: pre;
+  overflow-x: auto;
+}
+.ws-panel-zone {
+  height: 50%;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-top: 2px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.ws-shell.full { display: flex; flex-direction: column; }
+.ws-shell.full .ws-panel-zone { flex: 1; height: auto; min-height: 0; border-top: none; display: flex; flex-direction: column; }
+.ws-shell.full .statusbar { flex-shrink: 0; }
+#wsMount {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+.ws-chrome { flex: 1; min-height: 0; }
+
+/* ─── Workspace chrome ────────────────────────────────────────────────── */
+.ws-chrome {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
+/* Chrome bars — half mode single row; full mode uses .ws-topbar */
+.ws-chrome-bars {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.ws-toolbar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  background: var(--bg);
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+.ws-toolbar-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Full mode — single title bar row */
+.ws-topbar {
+  height: 36px;
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--sp-2);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: var(--sp-1);
+}
+.ws-topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  align-self: center;
+  flex-shrink: 0;
+}
+.ws-topbar-tabs {
+  flex: 1;
+  min-width: 0;
+}
+.ws-topbar-spacer { flex: 1; min-width: var(--sp-4); }
+.ws-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+  padding-right: var(--sp-1);
+}
+
+/* Workspace name picker — leftmost, click to dropdown */
+.ws-workspace-picker {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+}
+.ws-ws-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  height: 100%;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.ws-ws-trigger:hover,
+.ws-ws-trigger[aria-expanded="true"] {
+  background: var(--surface);
+  color: var(--accent);
+}
+.ws-ws-trigger-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.ws-ws-chevron { width: 12px; height: 12px; color: var(--muted); flex-shrink: 0; }
+.ws-ws-trigger[aria-expanded="true"] .ws-ws-chevron { transform: rotate(180deg); color: var(--accent); }
+
+.ws-ws-dropdown {
+  position: fixed;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  z-index: 80;
+  display: none;
+  box-shadow: var(--elev-raised, 0 0 0 1px var(--border));
+}
+.ws-ws-dropdown.open { display: block; }
+.ws-ws-dropdown-header {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ws-ws-dropdown-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+.ws-ws-dropdown-item:hover { background: var(--bg); color: var(--fg); }
+.ws-ws-dropdown-item.active { color: var(--accent); font-weight: 600; }
+.ws-ws-dropdown-name { flex: 1; }
+.ws-ws-dropdown-check { color: var(--accent); font-size: 11px; }
+.ws-ws-dropdown-add {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.ws-ws-dropdown-add:hover { background: var(--bg); color: var(--fg); }
+.ws-ws-dropdown-add svg { width: 12px; height: 12px; }
+.ws-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 var(--sp-1);
+}
+.ws-toolbar-group { display: flex; align-items: center; gap: 2px; }
+.ws-toolbar-spacer { flex: 1; }
+.ws-tool-btn {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  transition: background 0.1s, color 0.1s;
+}
+.ws-tool-btn:hover { background: var(--surface); color: var(--fg); }
+.ws-tool-btn svg { width: 14px; height: 14px; }
+.ws-tool-btn.active { background: var(--surface); color: var(--accent); }
+
+/* Tab strip */
+.ws-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+.ws-tabs::-webkit-scrollbar { display: none; }
+.ws-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  font-size: 11px;
+  color: var(--muted);
+  border-right: 1px solid var(--border-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+  max-width: 180px;
+}
+.ws-tab:hover { background: var(--surface); color: var(--fg-2); }
+.ws-tab.active { background: var(--bg); color: var(--fg); border-bottom: 2px solid var(--accent); margin-bottom: -1px; }
+.ws-tab .tab-icon { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.7; }
+.ws-tab .tab-label { overflow: hidden; text-overflow: ellipsis; }
+.ws-tab .tab-close {
+  width: 16px; height: 16px;
+  display: grid; place-items: center;
+  border-radius: 2px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.ws-tab:hover .tab-close { opacity: 0.5; }
+.ws-tab .tab-close:hover { opacity: 1; background: var(--surface-hover); }
+
+.ws-add-tab {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--meta);
+  flex-shrink: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  transition: background 0.1s, color 0.1s;
+}
+.ws-add-tab:hover { background: var(--surface); color: var(--fg); }
+.ws-add-tab svg { width: 12px; height: 12px; }
+
+/* Mode toggle injected into topbar actions */
+.ws-mode-btn-inline {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.ws-mode-btn-inline:hover {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ws-mode-btn-inline svg { width: 14px; height: 14px; }
+
+/* Standalone full-page shell */
+.ws-shell.fullscreen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 9999;
+  border: none;
+}
+/* Standalone full page — workspace topbar IS the title bar */
+.ws-shell.fullscreen .ws-panel-zone {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Split tree container */
+.ws-tree-root { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.ws-split-node { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.ws-split-node.horizontal { flex-direction: row; }
+.ws-split-node.vertical { flex-direction: column; }
+.ws-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  flex: 1;
+  border: 1px solid var(--border-soft);
+}
+.ws-pane.focused { border-color: var(--accent); }
+.ws-pane-header {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  background: var(--bg-deeper);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 10px;
+  color: var(--meta);
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+.ws-pane-header .pane-actions { margin-left: auto; display: flex; gap: 2px; }
+.ws-pane-header .pane-btn {
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 2px;
+  color: var(--meta);
+}
+.ws-pane-header .pane-btn:hover { background: var(--surface); color: var(--fg); }
+.ws-pane-header .pane-btn svg { width: 11px; height: 11px; }
+.ws-pane-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+.ws-gutter {
+  flex-shrink: 0;
+  background: var(--border-soft);
+  transition: background 0.12s;
+  z-index: 2;
+}
+.ws-gutter.horizontal { width: 4px; cursor: col-resize; }
+.ws-gutter.vertical { height: 4px; cursor: row-resize; }
+.ws-gutter:hover, .ws-gutter.dragging { background: var(--accent); }
+
+/* ─── Panel content types ─────────────────────────────────────────────── */
+.panel-content { flex: 1; overflow: auto; font-size: 12px; min-height: 0; }
+
+/* Terminal */
+.panel-terminal {
+  background: var(--bg-deeper);
+  padding: var(--sp-3);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.panel-terminal .prompt { color: var(--success); }
+.panel-terminal .cmd { color: var(--fg); }
+.panel-terminal .out { color: var(--muted); }
+.panel-terminal .cursor {
+  display: inline-block;
+  width: 7px; height: 14px;
+  background: var(--accent);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.term-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--border);
+  background: var(--bg-deeper);
+}
+.term-input-row input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-size: 11px;
+  outline: none;
+}
+
+/* SQL */
+.panel-sql { display: flex; flex-direction: column; min-height: 0; }
+.panel-sql-editor {
+  padding: var(--sp-3);
+  background: var(--bg-deeper);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--accent);
+  min-height: 80px;
+  white-space: pre;
+}
+.panel-sql-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.panel-sql-results { flex: 1; overflow: auto; }
+.panel-sql-results table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.panel-sql-results th {
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-deeper);
+  color: var(--meta);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+.panel-sql-results td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--fg-2);
+}
+
+/* Logs */
+.panel-logs { background: var(--bg-deeper); padding: var(--sp-2); font-size: 10px; line-height: 1.7; }
+.log-line { display: flex; gap: var(--sp-2); padding: 1px var(--sp-2); border-radius: 2px; }
+.log-line:hover { background: var(--surface); }
+.log-ts { color: var(--meta); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.log-level { flex-shrink: 0; font-weight: 700; width: 40px; }
+.log-level.info { color: var(--accent); }
+.log-level.warn { color: var(--warn); }
+.log-level.error { color: var(--danger); }
+.log-msg { color: var(--fg-2); }
+
+/* Docker */
+.panel-docker { padding: var(--sp-3); }
+.docker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--sp-2);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.docker-row:hover { border-color: var(--accent); }
+.docker-row .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.docker-row .status-dot.running { background: var(--success); }
+.docker-row .status-dot.stopped { background: var(--meta); }
+.docker-row .c-name { font-weight: 600; font-size: 12px; flex: 1; }
+.docker-row .c-meta { font-size: 10px; color: var(--meta); }
+
+/* Knowledge */
+.panel-kb { display: flex; min-height: 0; flex: 1; }
+.panel-kb-nav {
+  width: 140px;
+  border-right: 1px solid var(--border);
+  padding: var(--sp-2);
+  flex-shrink: 0;
+  background: var(--bg-deeper);
+}
+.panel-kb-nav-item {
+  padding: var(--sp-2);
+  font-size: 11px;
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.panel-kb-nav-item:hover { background: var(--surface); color: var(--fg-2); }
+.panel-kb-nav-item.active { background: var(--surface); color: var(--fg); }
+.panel-kb-body { flex: 1; padding: var(--sp-4); overflow: auto; }
+.panel-kb-body h3 { font-size: 14px; font-weight: 700; margin-bottom: var(--sp-2); }
+.panel-kb-body p { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: var(--sp-3); }
+.panel-kb-code {
+  background: var(--bg-deeper);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  font-size: 10px;
+  color: var(--fg-2);
+  white-space: pre;
+}
+
+/* (old floating switcher removed — using statusbar inline switcher instead) */
+
+/* Add tab menu */
+.ws-add-menu {
+  position: fixed;
+  width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  z-index: 60;
+  display: none;
+}
+.ws-add-menu.open { display: block; }
+.ws-add-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 12px;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.ws-add-menu-item:hover { background: var(--bg); color: var(--fg); }
+.ws-add-menu-item svg { width: 14px; height: 14px; color: var(--muted); }
+
+/* ─── Launcher page ───────────────────────────────────────────────────── */
+.launcher {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.launcher-header {
+  padding: var(--sp-8) var(--sp-6) var(--sp-6);
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+.launcher-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: var(--sp-2);
+}
+.launcher-header p { font-size: 13px; color: var(--muted); max-width: 56ch; line-height: 1.6; }
+.launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4);
+  padding: 0 var(--sp-6) var(--sp-12);
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+@media (max-width: 920px) {
+  .launcher-grid { grid-template-columns: 1fr; }
+}
+.launcher-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  text-decoration: none;
+  color: inherit;
+}
+.launcher-card:hover { border-color: var(--accent); }
+.launcher-card.disabled { opacity: 0.55; cursor: not-allowed; pointer-events: none; }
+.launcher-card .lc-icon {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: var(--bg);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+}
+.launcher-card .lc-icon svg { width: 22px; height: 22px; }
+.launcher-card h2 { font-size: 15px; font-weight: 700; color: var(--fg); }
+.launcher-card p { font-size: 11px; color: var(--muted); line-height: 1.55; flex: 1; }
+.launcher-card .lc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--meta);
+  align-self: flex-start;
+}
+.launcher-card .lc-badge.ready { background: color-mix(in oklch, var(--success) 15%, transparent); color: var(--success); }
+.launcher-card .lc-cta { font-size: 11px; color: var(--accent); font-weight: 500; }
+.launcher-features {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 var(--sp-6) var(--sp-12);
+  width: 100%;
+}
+.launcher-features h3 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-4);
+}
+.launcher-feature-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--sp-3);
+}
+@media (max-width: 920px) {
+  .launcher-feature-row { grid-template-columns: repeat(2, 1fr); }
+}
+.launcher-feat {
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: var(--fg-2);
+  text-align: center;
+}
+.launcher-feat svg { width: 16px; height: 16px; color: var(--muted); margin-bottom: var(--sp-2); display: block; margin-left: auto; margin-right: auto; }
+
+/* ─── Embedded in OmniPanel main window ───────────────────────────────── */
+.main-content { position: relative; }
+.main-content .app-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content.ws-state-off .ws-embed-wrap { display: none; }
+
+.main-content.ws-state-half .app-viewport {
+  flex: 1 1 50%;
+  max-height: 50%;
+  min-height: 0;
+}
+.main-content.ws-state-half .ws-embed-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 240px;
+  border-top: 2px solid var(--border);
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+.main-content.ws-state-half .ws-iframe-slot.has-content ~ .ws-embed-mount {
+  flex: 1 1 50%;
+  min-height: 0;
+}
+
+.main-content.ws-state-full .app-viewport { display: none; }
+
+/* 全屏：复用原页面顶栏，不隐藏、不覆盖右上角窗口控件 */
+.main-content.ws-state-full > .topbar {
+  display: flex;
+  z-index: 5;
+}
+.main-content.ws-state-full .topbar-ws-host {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  position: relative;
+  overflow: visible; /* 允许下拉菜单溢出显示 */
+}
+.main-content.ws-state-full .topbar-ws-host[hidden] { display: none !important; }
+.main-content.ws-state-full .topbar-ws-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.main-content.ws-state-full .topbar-ws-tools[hidden] { display: none !important; }
+.main-content.ws-state-full .topbar-right {
+  flex-shrink: 0;
+  margin-left: auto;
+  position: relative;
+  z-index: 6;
+}
+.main-content.ws-state-full .topbar-title[hidden],
+.main-content.ws-state-full .topbar-tabs[hidden] { display: none !important; }
+
+/* 全屏顶栏内联布局：工作区名 + Tab 同一行 */
+.topbar-ws-mode .ws-topbar-inline {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  gap: var(--sp-1);
+}
+.topbar-ws-mode .ws-topbar-inline .ws-tabs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-ws-mode .ws-ws-trigger {
+  height: 100%;
+  min-height: 36px;
+}
+
+.main-content.ws-state-full .ws-embed-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-top: none;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+.ws-embed-mount,
+.ws-embed-wrap #wsMount {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Hide module-level split buttons when workspace owns the layout */
+.main-content.ws-state-half .topbar-split-btn,
+.main-content.ws-state-full .topbar-split-btn {
+  display: none;
+}
+
+/* Full workspace mode: hide non-workspace children in .topbar-page-actions
+   to prevent them from pushing the window controls off-screen.
+   The .topbar-ws-tools span and its children stay visible. */
+.main-content.ws-state-full .topbar-page-actions > *:not(.topbar-ws-tools) {
+  display: none;
+}
+
+/* Status bar workspace toggle — open/close only */
+.statusbar-ws-toggle {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--meta);
+  padding: 0 var(--sp-2);
+  transition: color 0.12s;
+}
+.statusbar-ws-toggle:hover { color: var(--fg); }
+.statusbar-ws-toggle.active { color: var(--accent); }
+.statusbar-ws-toggle .ws-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meta);
+  flex-shrink: 0;
+}
+.statusbar-ws-toggle.active .ws-indicator { background: var(--accent); }
+.statusbar-ws-toggle svg { width: 12px; height: 12px; }
+.statusbar-ws-toggle .ws-toggle-label { white-space: nowrap; }
+
+.main-content .ws-switcher { display: none; }
+
+/* ─── Logo home-active state ─────────────────────────────────────────── */
+.sidebar-logo.home-active {
+  background: var(--surface);
+  color: var(--accent);
+  border-radius: var(--r-sm);
+}
+
+/* ─── Iframe slot (for dock navigation in half mode) ────────────────── */
+.ws-iframe-slot {
+  display: none;
+  flex: 1 1 50%;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 2px solid var(--border);
+}
+.main-content.ws-state-half .ws-iframe-slot.has-content {
+  display: flex;
+  flex: 1 1 50%;
+  min-height: 0;
+}
+/* When iframe is loaded, hide app-viewport and let embed-wrap fill the space */
+.main-content.ws-has-iframe.ws-state-half .app-viewport { display: none; }
+.main-content.ws-has-iframe.ws-state-half .ws-embed-wrap {
+  flex: 1;
+  max-height: none;
+}
+.main-content.ws-state-full .ws-iframe-slot { display: none; }
+
+/* ─── Home Dashboard view ──────────────────────────────────────────────── */
+/* Dashboard is hidden by default, shown via JS by adding .active */
+.main-content .home-dashboard {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.main-content .home-dashboard.active {
+  display: flex;
+}
+
+/* Home button in workspace topbar */
+.ws-home-btn {
+  opacity: 0.7;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.ws-home-btn:hover { opacity: 1; }
+
+/* ─── Workspace dropdown: "首页" item at top ────────────────────────── */
+.ws-ws-dropdown-home-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+.ws-ws-dropdown-home-item:hover { background: var(--bg); color: var(--fg); }
+.ws-ws-dropdown-home-item svg { color: var(--muted); }
+.ws-ws-dropdown-home-item.active { color: var(--accent); font-weight: 600; }
+.ws-ws-dropdown-home-item.active svg { color: var(--accent); }
+
+/* Dropdown divider between 首页 and workspace list */
+.ws-ws-dropdown-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: var(--sp-1) 0;
+}
+
+/* Home trigger style — subtle indicator */
+.ws-home-trigger { color: var(--accent); }

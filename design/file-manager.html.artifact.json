@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "file-manager.html",
+  "entry": "file-manager.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-12T10:41:54.759Z",
+  "updatedAt": "2026-06-12T10:41:54.759Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

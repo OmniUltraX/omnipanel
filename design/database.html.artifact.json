@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "database.html",
+  "entry": "database.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-12T06:40:23.903Z",
+  "updatedAt": "2026-06-12T06:40:23.903Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}
