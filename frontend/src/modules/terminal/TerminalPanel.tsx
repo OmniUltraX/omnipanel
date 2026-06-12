@@ -1,61 +1,57 @@
 ﻿import {
-  useEffect,
   useCallback,
-  useState,
+  useEffect,
   useMemo,
-  type SetStateAction,
+  useRef,
+  useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
-  type TerminalPane,
   type TerminalTab,
 } from "../../stores/terminalStore";
+import { disposeTabBackendSessions } from "../../hooks/useTerminal";
+import { clearPaneBackendPending } from "../../hooks/useTerminal";
 import {
-  clearPaneBackendPending,
-  disposePaneBackendSession,
-  disposeTabBackendSessions,
-} from "../../hooks/useTerminal";
-import { resolveResourceById, useSshHostResources } from "../../stores/connectionStore";
-import { openSshTerminalSession } from "../../lib/terminalSession";
+  resolveResourceById,
+  useSshHostResources,
+} from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useActionStore } from "../../stores/actionStore";
-import { useTopbarTabs } from "../../hooks/useTopbarTabs";
 import { useI18n } from "../../i18n";
-import {
-  SplitTerminalWorkspace,
-  useSplitTerminalWorkspace,
-  type SplitTerminalPaneInput,
-} from "../../components/terminal/split-workspace";
-import { formatPaneHeaderTitle } from "./paneHeader";
-import {
-  buildPaneResourcePatch,
-  LOCAL_TERMINAL_RESOURCE_ID,
-} from "./paneResource";
-import { getBlueprint } from "./sessionBlueprints";
-import type { LayoutNode } from "./splitLayout";
+import { LOCAL_TERMINAL_RESOURCE_ID, buildSessionInfoForResource } from "./paneResource";
+import { TerminalTabPaneView } from "./TerminalPaneView";
+import { DockableWorkspace } from "../../components/dock";
+import { useTerminalDockLayoutStore } from "../../stores/terminalDockLayoutStore";
 
-const EMPTY_PANES: TerminalPane[] = [];
-
-function tabLabel(tab: TerminalTab) {
-  const pane =
-    tab.panes.find((item) => item.id === tab.activePaneId) ?? tab.panes[0];
-  if (!pane) return tab.title;
-  const resource = resolveResourceById(pane.resourceId);
-  return formatPaneHeaderTitle(resource, pane);
+function tabLabel(tab: TerminalTab, fallbackName?: string) {
+  const resource = resolveResourceById(tab.session.resourceId);
+  return resource?.name ?? tab.title ?? fallbackName ?? tab.session.resourceId;
 }
 
 export function TerminalPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const navigate = useNavigate();
   const isActiveRoute = location.pathname === "/terminal";
   const tabs = useTerminalStore((state) => state.tabs);
   const activeTabId = useTerminalStore((state) => state.activeTabId);
   const removeTab = useTerminalStore((state) => state.removeTab);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const openOrFocusLocalTab = useTerminalStore((state) => state.openOrFocusLocalTab);
-  const setActivePane = useTerminalStore((state) => state.setActivePane);
+  const addLocalTerminalTab = useTerminalStore((state) => state.addLocalTerminalTab);
+  const setTabResource = useTerminalStore((state) => state.setTabResource);
+
+  /** 每个 Tab 的"重新连接"计数器：自增即触发 TerminalView 重建。 */
+  const [reconnectKeys, setReconnectKeys] = useState<Record<string, number>>({});
+  const reconnectKeysRef = useRef(reconnectKeys);
+  reconnectKeysRef.current = reconnectKeys;
+
+  /**
+   * 处于"重新连接中"的 tab 集合。点击刷新按钮时加入，连接尝试结束
+   * （status 离开 connecting）时自动移除——以此驱动加载动画的显示。
+   */
+  const [reconnectingTabs, setReconnectingTabs] = useState<Record<string, boolean>>({});
+
   const workspaceActiveResourceId = useWorkspaceStore(
     (state) => state.activeResourceId,
   );
@@ -66,135 +62,103 @@ export function TerminalPanel() {
   const enqueueAction = useActionStore((state) => state.enqueueAction);
   const sshHosts = useSshHostResources();
 
-  // Layout state for each tab
-  const [layouts, setLayouts] = useState<Record<string, LayoutNode>>({});
+  const dockLayout = useTerminalDockLayoutStore((s) => s.savedLayout);
+  const setDockLayout = useTerminalDockLayoutStore((s) => s.setSavedLayout);
 
-  // 本地终端仅保留一个 Tab：统一走 openOrFocusLocalTab，并清理历史重复项
+  const paneSendersRef = useRef<Record<string, (cmd: string) => void>>({});
+
+  // 进入模块时若没有任何 Tab，则自动建一个本地终端
   useEffect(() => {
-    const localTabs = tabs.filter((tab) =>
-      tab.panes.some(
-        (pane) => pane.type === "local" && pane.resourceId === "local-terminal",
-      ),
-    );
-
-    if (localTabs.length > 1) {
-      const keepId =
-        activeTabId && localTabs.some((tab) => tab.id === activeTabId)
-          ? activeTabId
-          : localTabs[0].id;
-      localTabs
-        .filter((tab) => tab.id !== keepId)
-        .forEach((tab) => {
-          disposeTabBackendSessions(tab.id);
-          removeTab(tab.id);
-        });
-      setActiveTab(keepId);
-      return;
-    }
-
-    if (localTabs.length === 0) {
-      const id = openOrFocusLocalTab(
-        workspaceActiveResource?.name ?? "本地终端",
-      );
+    if (tabs.length === 0) {
+      const id = openOrFocusLocalTab(workspaceActiveResource?.name ?? "本地终端");
       setActiveTab(id);
       return;
     }
-
-    if (!activeTabId) {
-      setActiveTab(localTabs[0].id);
+    if (!activeTabId || !tabs.some((tab) => tab.id === activeTabId)) {
+      setActiveTab(tabs[0].id);
     }
-  }, [
-    activeTabId,
-    openOrFocusLocalTab,
-    removeTab,
-    setActiveTab,
-    tabs,
-    workspaceActiveResource?.name,
-  ]);
+  }, [tabs, activeTabId, openOrFocusLocalTab, setActiveTab, workspaceActiveResource?.name]);
 
-  const activeWorkspaceTab = useMemo(
+  const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
     [tabs, activeTabId],
   );
 
-  const currentLayout = activeWorkspaceTab
-    ? (layouts[activeWorkspaceTab.id] ?? null)
-    : null;
-
-  const setTabLayout = useCallback(
-    (value: SetStateAction<LayoutNode | null>) => {
-      if (!activeWorkspaceTab) return;
-      const tabKey = activeWorkspaceTab.id;
-      setLayouts((prev) => {
-        const resolved =
-          typeof value === "function" ? value(prev[tabKey] ?? null) : value;
-        if (resolved === null) {
-          if (!(tabKey in prev)) return prev;
-          const next = { ...prev };
-          delete next[tabKey];
-          return next;
-        }
-        if (prev[tabKey] === resolved) return prev;
-        return { ...prev, [tabKey]: resolved };
-      });
+  const handleSenderChange = useCallback(
+    (sessionId: string, sender: ((cmd: string) => void) | null) => {
+      if (sender) {
+        paneSendersRef.current[sessionId] = sender;
+      } else {
+        delete paneSendersRef.current[sessionId];
+      }
     },
-    [activeWorkspaceTab?.id],
+    [],
   );
 
-  const onCommandExecuted = useCallback(
-    (command: string, paneId: string, pane: TerminalPane) => {
-      const targetTab = tabs.find((tab) =>
-        tab.panes.some((item) => item.id === paneId),
-      );
+  const handleSendCommand = useCallback(
+    (command: string, tabId: string) => {
+      paneSendersRef.current[tabId]?.(command);
+
+      const targetTab = tabs.find((tab) => tab.id === tabId);
       if (!targetTab) return;
       const targetResource =
-        resolveResourceById(pane.resourceId) ?? workspaceActiveResource;
+        resolveResourceById(targetTab.session.resourceId) ?? workspaceActiveResource;
       enqueueAction({
         type: "terminal",
         title: t("terminal.actions.command"),
         description: `${targetTab.title} · ${command}`,
         command,
-        resourceId: targetResource?.id ?? pane.resourceId,
+        resourceId: targetResource?.id ?? targetTab.session.resourceId,
         source: "用户",
       });
     },
     [enqueueAction, tabs, t, workspaceActiveResource],
   );
 
-  const onActivePaneChange = useCallback(
-    (paneId: string) => {
-      if (activeWorkspaceTab) {
-        setActivePane(activeWorkspaceTab.id, paneId);
+  // 同步 workspace 资源选中（仅当面板处于激活路由时）
+  useEffect(() => {
+    if (!isActiveRoute || !activeTab?.session.resourceId) return;
+    if (activeTab.session.resourceId !== workspaceActiveResourceId) {
+      selectResource(activeTab.session.resourceId);
+    }
+  }, [
+    activeTab?.session.resourceId,
+    isActiveRoute,
+    selectResource,
+    workspaceActiveResourceId,
+  ]);
+
+  const handleCloseTab = useCallback(
+    (id: string) => {
+      delete paneSendersRef.current[id];
+      clearPaneBackendPending(id);
+      disposeTabBackendSessions(id);
+      removeTab(id);
+    },
+    [removeTab],
+  );
+
+  const handleClosePanel = useCallback(
+    (tabIds: string[]) => {
+      for (const tabId of tabIds) {
+        handleCloseTab(tabId);
       }
     },
-    [activeWorkspaceTab, setActivePane],
+    [handleCloseTab],
   );
 
-  const onAddPane = useCallback(
-    (partial: SplitTerminalPaneInput) => {
-      if (!activeWorkspaceTab) return;
-      useTerminalStore.getState().addPaneToTab(activeWorkspaceTab.id, {
-        ...partial,
-        terminal: null,
-        status: "connecting",
-        backendSessionId: null,
-      });
-    },
-    [activeWorkspaceTab],
-  );
+  /** dock 面板上的 + 按钮回调：始终建一个本地终端。 */
+  const handleAddLocal = useCallback(() => {
+    const name = workspaceActiveResource?.name ?? "本地终端";
+    const id = addLocalTerminalTab(name);
+    setActiveTab(id);
+    return id;
+  }, [addLocalTerminalTab, setActiveTab, workspaceActiveResource?.name]);
 
-  const onRemovePane = useCallback(
-    (paneId: string) => {
-      if (!activeWorkspaceTab) return;
-      disposePaneBackendSession(paneId);
-      useTerminalStore
-        .getState()
-        .removePaneFromTab(activeWorkspaceTab.id, paneId);
-    },
-    [activeWorkspaceTab],
+  const dockTabs = useMemo(
+    () => tabs.map((tab) => ({ id: tab.id, label: tabLabel(tab), closable: true })),
+    [tabs],
   );
-
-  const workspacePanes = activeWorkspaceTab?.panes ?? EMPTY_PANES;
 
   const paneServerOptions = useMemo(
     () => [
@@ -210,185 +174,127 @@ export function TerminalPanel() {
     [sshHosts, t],
   );
 
+  /** 被其他面板占用的资源 id 集合（用于去重下拉中已连接目标） */
   const occupiedResourceIds = useMemo(() => {
     const set = new Set<string>();
-    for (const pane of workspacePanes) {
-      if (pane.resourceId) set.add(pane.resourceId);
+    for (const tab of tabs) {
+      set.add(tab.session.resourceId);
     }
     return set;
-  }, [workspacePanes]);
+  }, [tabs]);
 
-  const handlePaneResourceChange = useCallback(
-    (paneId: string, resourceId: string) => {
-      const pane = workspacePanes.find((item) => item.id === paneId);
-      if (!pane || pane.resourceId === resourceId) return;
-
-      disposePaneBackendSession(paneId);
-      clearPaneBackendPending(paneId);
-      useTerminalStore
-        .getState()
-        .setPaneResource(paneId, buildPaneResourcePatch(resourceId));
-
-      if (activeWorkspaceTab?.activePaneId === paneId) {
-        selectResource(resourceId);
+  /** 为单个 Tab 切换目标资源（同步 dispose 旧后端） */
+  const handleTabServerChange = useCallback(
+    (tabId: string, resourceId: string) => {
+      if (resourceId === LOCAL_TERMINAL_RESOURCE_ID) {
+        // 保留为本地目标时不做操作
+        const current = useTerminalStore.getState().tabs.find((t) => t.id === tabId);
+        if (current && current.session.resourceId === LOCAL_TERMINAL_RESOURCE_ID) {
+          return;
+        }
       }
+      // dispose 旧后端会话（先清空 sender 引用，避免被悬空 sender 投递命令）
+      delete paneSendersRef.current[tabId];
+      clearPaneBackendPending(tabId);
+      disposeTabBackendSessions(tabId);
+
+      const next = buildSessionInfoForResource(resourceId);
+      setTabResource(tabId, next);
     },
-    [activeWorkspaceTab?.activePaneId, selectResource, workspacePanes],
+    [setTabResource],
   );
 
-  const {
-    layout: splitLayout,
-    handlePaneSenderChange,
-    handleCommand,
-    handleActivatePane,
-    handleSplitPane,
-    handleClosePane,
-  } = useSplitTerminalWorkspace({
-    workspaceId: activeWorkspaceTab?.id ?? "__terminal_inactive__",
-    panes: workspacePanes,
-    activePaneId: activeWorkspaceTab?.activePaneId ?? null,
-    onActivePaneChange,
-    onAddPane,
-    onRemovePane,
-    onCommandExecuted,
-    layout: currentLayout,
-    setLayout: setTabLayout,
-  });
+  /**
+   * 重新连接当前 Tab：先 dispose 后端 PTY/SSH，再自增 reconnectKey 触发
+   * TerminalView 重建（`useTerminal` 主 effect 重跑 → `ensureBackendSession`
+   * 发现 `backendSessionId === null` → 走 `acquireBackendSession` 创建新会话）。
+   */
+  const handleReconnect = useCallback((tabId: string) => {
+    delete paneSendersRef.current[tabId];
+    clearPaneBackendPending(tabId);
+    disposeTabBackendSessions(tabId);
+    setReconnectKeys((prev) => ({ ...prev, [tabId]: (prev[tabId] ?? 0) + 1 }));
+    setReconnectingTabs((prev) => ({ ...prev, [tabId]: true }));
+  }, []);
 
-  const activePane = useMemo(() => {
-    if (!activeWorkspaceTab) return null;
-    return (
-      activeWorkspaceTab.panes.find(
-        (pane) => pane.id === activeWorkspaceTab.activePaneId,
-      ) ?? activeWorkspaceTab.panes[0] ?? null
-    );
-  }, [activeWorkspaceTab]);
-
+  // 当一个 tab 状态从 connecting 落到 connected / disconnected，
+  // 视为"重新连接尝试已结束"，关闭加载动画。
   useEffect(() => {
-    if (!isActiveRoute || !activePane?.resourceId) return;
-    if (activePane.resourceId !== workspaceActiveResourceId) {
-      selectResource(activePane.resourceId);
-    }
-  }, [
-    activePane?.resourceId,
-    isActiveRoute,
-    selectResource,
-    workspaceActiveResourceId,
-  ]);
+    setReconnectingTabs((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const tabId of Object.keys(prev)) {
+        if (!prev[tabId]) continue;
+        const tab = tabs.find((item) => item.id === tabId);
+        if (!tab) {
+          changed = true;
+          continue;
+        }
+        if (tab.status === "connecting") {
+          next[tabId] = true;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tabs]);
 
-  const handleAddLocalTab = useCallback(() => {
-    const id = openOrFocusLocalTab(
-      workspaceActiveResource?.name ?? "本地终端",
-    );
-    setActiveTab(id);
-  }, [openOrFocusLocalTab, setActiveTab, workspaceActiveResource?.name]);
+  const renderDockPanel = useCallback(
+    (tabId: string) => {
+      const tab = tabs.find((item) => item.id === tabId);
+      if (!tab) return null;
+      const resource = resolveResourceById(tab.session.resourceId) ?? null;
+      const isActive = tabId === activeTabId;
+      const reconnectKey = reconnectKeys[tabId] ?? 0;
+      const isReconnecting = reconnectingTabs[tabId] === true;
 
-  const handleCloseTab = useCallback(
-    (id: string) => {
-      if (tabs.length <= 1) return;
-      disposeTabBackendSessions(id);
-      removeTab(id);
-      setLayouts((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
+      return (
+        <TerminalTabPaneView
+          paneId={tab.id}
+          tab={tab}
+          resource={resource}
+          isActive={isActive}
+          onActivate={() => setActiveTab(tabId)}
+          onSendCommand={(cmd) => handleSendCommand(cmd, tabId)}
+          onSenderChange={handleSenderChange}
+          onServerChange={(resourceId) => handleTabServerChange(tabId, resourceId)}
+          serverOptions={paneServerOptions}
+          occupiedResourceIds={occupiedResourceIds}
+          onReconnect={() => handleReconnect(tabId)}
+          reconnectKey={reconnectKey}
+          isReconnecting={isReconnecting}
+        />
+      );
     },
-    [tabs.length, removeTab],
-  );
-
-  const addMenuItems = useMemo(
-    () => [
-      {
-        id: "local",
-        label: t("terminal.newSession.local"),
-        subtitle: t("terminal.newSession.localDesc"),
-      },
-      ...sshHosts.map((host) => ({
-        id: host.id,
-        label: host.name,
-        subtitle: host.subtitle,
-      })),
-      {
-        id: "manage-hosts",
-        label: t("terminal.newSession.manageHosts"),
-        subtitle: t("terminal.newSession.manageHostsDesc"),
-        dividerBefore: true,
-      },
+    [
+      tabs,
+      activeTabId,
+      handleSendCommand,
+      handleSenderChange,
+      handleTabServerChange,
+      handleReconnect,
+      paneServerOptions,
+      occupiedResourceIds,
+      reconnectKeys,
+      reconnectingTabs,
+      setActiveTab,
     ],
-    [sshHosts, t],
   );
-
-  const handleAddMenuSelect = useCallback(
-    (id: string) => {
-      if (id === "local") {
-        handleAddLocalTab();
-        return;
-      }
-      if (id === "manage-hosts") {
-        navigate("/ssh");
-        return;
-      }
-      openSshTerminalSession(id);
-    },
-    [handleAddLocalTab, navigate],
-  );
-
-  const topbarTabs = useMemo(
-    () =>
-      tabs.map((tab) => {
-        const pane =
-          tab.panes.find((item) => item.id === tab.activePaneId) ??
-          tab.panes[0];
-        return {
-          id: tab.id,
-          label: tabLabel(tab),
-          active: tab.id === activeTabId,
-          closable: tabs.length > 1,
-          status:
-            pane?.status === "disconnected"
-              ? ("offline" as const)
-              : (pane?.status ?? ("offline" as const)),
-        };
-      }),
-    [tabs, activeTabId],
-  );
-
-  useTopbarTabs(
-    topbarTabs,
-    {
-      onSelect: setActiveTab,
-      onClose: handleCloseTab,
-      addMenuItems,
-      onAddMenuSelect: handleAddMenuSelect,
-    },
-    { mode: "session", showAddTab: true, enabled: isActiveRoute },
-  );
-
-  if (!activeWorkspaceTab || !activePane) return null;
 
   return (
-    <SplitTerminalWorkspace
-      panes={activeWorkspaceTab.panes}
-      layout={splitLayout}
-      activePaneId={activeWorkspaceTab.activePaneId}
-      getResource={(pane) =>
-        resolveResourceById(pane.resourceId) ?? workspaceActiveResource
-      }
-      serverOptions={paneServerOptions}
-      occupiedResourceIds={occupiedResourceIds}
-      onPaneResourceChange={handlePaneResourceChange}
-      paneStartup={(pane) =>
-        getBlueprint(
-          resolveResourceById(pane.resourceId) ?? workspaceActiveResource,
-          pane,
-        ).startup
-      }
-      onActivatePane={handleActivatePane}
-      onSendCommand={handleCommand}
-      onSenderChange={handlePaneSenderChange}
-      onSplitPane={handleSplitPane}
-      onClosePane={handleClosePane}
+    <DockableWorkspace
+      className="term-dock-workspace"
+      tabs={dockTabs}
+      activeTabId={activeTabId ?? ""}
+      onActiveTabChange={setActiveTab}
+      onCloseTab={handleCloseTab}
+      onClosePanel={handleClosePanel}
+      savedLayout={dockLayout}
+      onSavedLayoutChange={setDockLayout}
+      renderPanel={renderDockPanel}
+      onAddTab={handleAddLocal}
+      emptyContent={t("terminal.newSession.local")}
     />
   );
 }

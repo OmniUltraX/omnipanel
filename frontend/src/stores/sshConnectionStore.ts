@@ -115,10 +115,8 @@ function remotePaneStatusesForHost(
     }
   }
   for (const tab of tabs) {
-    for (const pane of tab.panes) {
-      if (pane.resourceId === resourceId && pane.type === "remote") {
-        statuses.push(pane.status);
-      }
+    if (tab.session.resourceId === resourceId && tab.session.type === "remote") {
+      statuses.push(tab.status);
     }
   }
   return statuses;

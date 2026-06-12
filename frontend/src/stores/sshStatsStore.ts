@@ -64,10 +64,8 @@ function findBackendSessionId(resourceId: string): string | null {
     }
   }
   for (const tab of state.tabs) {
-    for (const pane of tab.panes) {
-      if (pane.resourceId === resourceId && pane.backendSessionId) {
-        return pane.backendSessionId;
-      }
+    if (tab.session.resourceId === resourceId && tab.backendSessionId) {
+      return tab.backendSessionId;
     }
   }
   return null;

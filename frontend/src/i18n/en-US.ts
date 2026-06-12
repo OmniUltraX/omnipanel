@@ -629,12 +629,16 @@ export const enUS: TranslationDict = {
     },
     newSession: {
       local: "Local Terminal",
-      localDesc: "Open another local PTY tab",
+      localDesc: "Open a new local PTY panel",
       manageHosts: "Manage Hosts…",
       manageHostsDesc: "Go to Host module to add connections",
     },
     pane: {
       server: "Target server",
+    },
+    reconnect: {
+      tooltip: "Reconnect (close backend session and create a new one)",
+      loading: "Reconnecting…",
     },
     context: {
       title: "Terminal Context",
@@ -863,6 +867,7 @@ export const enUS: TranslationDict = {
       pathFallback: "Path {path} unavailable, opened {parent}",
       pathEditPlaceholder: "Enter path, press Enter to go",
     },
+    
     // sftp: {
     //   up: "Parent directory",
     //   mkdir: "New folder",

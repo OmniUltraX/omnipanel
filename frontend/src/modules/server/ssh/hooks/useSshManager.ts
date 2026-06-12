@@ -143,14 +143,9 @@ export function useSshManager() {
     (preset?: LaunchPreset, forceNew = false) => {
       if (!activeResource) return;
       const purpose = preset?.purpose ?? "SSH Workbench";
-      const existing = terminalTabs.find((tab) => {
-        const activePane =
-          tab.panes.find((pane) => pane.id === tab.activePaneId) ?? tab.panes[0];
-        return (
-          activePane?.resourceId === activeResource.id &&
-          activePane.purpose === purpose
-        );
-      });
+      const existing = terminalTabs.find(
+        (tab) => tab.session.resourceId === activeResource.id && tab.session.purpose === purpose,
+      );
 
       queueSshAction(
         preset ? preset.title : t("ssh.actions.openSession"),
@@ -165,12 +160,14 @@ export function useSshManager() {
         addTerminalTab({
           id: tabId,
           title: `${activeResource.name} · ${preset?.title ?? "SSH"}`,
-          type: "remote",
-          resourceId: activeResource.id,
-          shellLabel: "SSH",
-          cwd: "~/",
-          purpose,
-          commandPack: preset?.commands ?? [],
+          session: {
+            type: "remote",
+            resourceId: activeResource.id,
+            shellLabel: "SSH",
+            cwd: "~/",
+            purpose,
+            commandPack: preset?.commands ?? [],
+          },
         });
         setTerminalTab(tabId);
       }

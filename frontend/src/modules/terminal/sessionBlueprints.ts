@@ -1,5 +1,4 @@
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
-import type { TerminalPane } from "../../stores/terminalStore";
 
 type SessionBlueprint = {
   summary: string;
@@ -101,19 +100,25 @@ const SESSION_BLUEPRINTS: Record<string, SessionBlueprint> = {
   },
 };
 
+export type BlueprintSource = {
+  type?: "local" | "remote";
+  commandPack?: string[];
+  purpose?: string;
+};
+
 export function getBlueprint(
   resource: WorkspaceResource | null,
-  tab: TerminalPane | null,
+  source: BlueprintSource | null,
 ) {
   const base =
     SESSION_BLUEPRINTS[resource?.id ?? "default"] ?? SESSION_BLUEPRINTS.default;
   return {
     ...base,
     commandPack: Array.from(
-      new Set([...(tab?.commandPack ?? []), ...base.commandPack]),
+      new Set([...(source?.commandPack ?? []), ...base.commandPack]),
     ),
     purpose:
-      tab?.purpose ??
-      (tab?.type === "remote" ? "SSH Workbench" : "Local Workspace"),
+      source?.purpose ??
+      (source?.type === "remote" ? "SSH Workbench" : "Local Workspace"),
   };
 }

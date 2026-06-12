@@ -625,12 +625,16 @@ export const zhCN = {
     },
     newSession: {
       local: "本地终端",
-      localDesc: "打开新的本地 PTY 标签",
+      localDesc: "打开新的本地 PTY 面板",
       manageHosts: "管理主机…",
       manageHostsDesc: "跳转到主机模块添加连接",
     },
     pane: {
       server: "目标服务器",
+    },
+    reconnect: {
+      tooltip: "重新连接（关闭当前后端会话并重建）",
+      loading: "正在重新连接…",
     },
     context: {
       title: "终端上下文",

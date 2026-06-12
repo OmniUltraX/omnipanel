@@ -26,6 +26,8 @@ export type TerminalViewProps = {
     sessionId: string,
     sender: ((cmd: string) => void) | null,
   ) => void;
+  /** 自增时强制 useTerminal 重新初始化（用于刷新按钮） */
+  reconnectKey?: number;
 };
 
 export function TerminalView({
@@ -34,6 +36,7 @@ export function TerminalView({
   startup,
   active,
   onSenderChange,
+  reconnectKey,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -51,15 +54,14 @@ export function TerminalView({
       inputMode: "external",
       sendRef,
       active,
+      reconnectKey,
     },
   );
 
   const paneStatus = useTerminalStore((state) => {
     const pane = findTerminalPane(sessionId);
     if (pane) return pane.status;
-    return state.tabs
-      .flatMap((tab) => tab.panes)
-      .find((item) => item.id === sessionId)?.status;
+    return state.tabs.find((item) => item.id === sessionId)?.status;
   });
 
   useEffect(() => {

@@ -29,7 +29,5 @@ export function openLocalTerminalSession(): string {
 export function getResourceIdForTab(tabId: string): string {
   const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
   if (!tab) return "local-terminal";
-
-  const activePane = tab.panes.find((pane) => pane.id === tab.activePaneId) ?? tab.panes[0];
-  return activePane?.resourceId ?? "local-terminal";
+  return tab.session.resourceId;
 }

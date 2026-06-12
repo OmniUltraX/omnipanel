@@ -85,9 +85,8 @@ function MessageBubble({ msg, isLast }: { msg: AiMessage; isLast?: boolean }) {
   const handleRunInTerminal = useCallback(
     (command: string) => {
       const tab = tabs.find((t) => t.id === activeTabId);
-      const activePane = tab?.panes.find((pane) => pane.id === tab.activePaneId) ?? tab?.panes[0];
-      if (activePane?.terminal) {
-        activePane.terminal.write(command + "\r");
+      if (tab?.terminal) {
+        tab.terminal.write(command + "\r");
       }
     },
     [tabs, activeTabId]

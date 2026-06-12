@@ -1,29 +1,24 @@
 import { useEffect } from "react";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
-import { SplitTerminalWorkspace } from "../../../../components/terminal/split-workspace";
 import { getBlueprint } from "../../../terminal/sessionBlueprints";
 import { useSshTerminalWorkspace } from "../hooks/useSshTerminalWorkspace";
 import { useSshDetailNavigationStore } from "../../../../stores/sshDetailNavigationStore";
+import { TerminalPaneView } from "../../../terminal/TerminalPaneView";
 
 const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type Props = {
   resource: WorkspaceResource | null;
-  /** 离开「终端」子 Tab 时暂停 xterm 渲染，保留 SSH 会话 */
   active?: boolean;
 };
 
 export function SshTerminalWorkspace({ resource, active = true }: Props) {
   const {
-    layout,
     activePaneId,
-    workspacePanes,
-    handlePaneSenderChange,
+    activePane,
+    handleSenderChange,
     handleCommand,
-    handleActivatePane,
-    handleSplitPane,
-    handleClosePane,
     hasPaneSender,
   } = useSshTerminalWorkspace(resource, active);
 
@@ -47,7 +42,7 @@ export function SshTerminalWorkspace({ resource, active = true }: Props) {
       }
       const pending = consumeTerminalCommand(resource.id);
       if (pending) {
-        handleCommand(`${pending.command}\n`, activePaneId);
+        handleCommand(`${pending.command}\n`);
       }
       window.clearInterval(timer);
     }, 100);
@@ -93,26 +88,28 @@ export function SshTerminalWorkspace({ resource, active = true }: Props) {
     );
   }
 
+  if (!activePane) {
+    return (
+      <div className="ssh-terminal-panel">
+        <div className="ssh-terminal-empty">正在初始化终端…</div>
+      </div>
+    );
+  }
+
   return (
-    <SplitTerminalWorkspace
-      panes={workspacePanes}
-      layout={layout}
-      activePaneId={activePaneId}
-      interactionActive={active}
-      getResource={() => resource}
-      paneStartup={(pane) => getBlueprint(resource, pane).startup}
-      onActivatePane={handleActivatePane}
-      onSendCommand={handleCommand}
-      onSenderChange={handlePaneSenderChange}
-      onSplitPane={handleSplitPane}
-      onClosePane={handleClosePane}
-      className="ssh-terminal-panel ssh-terminal-workspace"
-      dockClassName="term-split-dock ssh-term-split-dock"
-      empty={
-        <div className="ssh-terminal-panel">
-          <div className="ssh-terminal-empty">正在初始化终端…</div>
-        </div>
-      }
-    />
+    <div className="ssh-terminal-panel ssh-terminal-workspace">
+      <div className="term-panes">
+        <TerminalPaneView
+          paneId={activePane.id}
+          resource={resource}
+          pane={activePane}
+          isActive
+          startup={getBlueprint(resource, activePane).startup}
+          onActivate={() => {}}
+          onSendCommand={handleCommand}
+          onSenderChange={handleSenderChange}
+        />
+      </div>
+    </div>
   );
 }

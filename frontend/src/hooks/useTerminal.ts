@@ -2,8 +2,6 @@ import { useEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   commands,
-  type SshAuth_Serialize,
-  type SshConfig_Deserialize,
   type SshConfig_Serialize,
 } from "../ipc/bindings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -53,6 +51,11 @@ export interface UseTerminalOptions {
   sendRef?: RefObject<((cmd: string) => void) | null>;
   /** Whether this pane is the currently active tab. */
   active?: boolean;
+  /**
+   * 重新连接计数器：父组件自增后会触发主 effect 重新执行，
+   * 用于 pane header 上的"刷新"按钮，强制重建后端会话。
+   */
+  reconnectKey?: number;
 }
 
 function toBytes(data: string): number[] {
@@ -91,26 +94,18 @@ function isRemotePane(sessionId: string): boolean {
   return findPaneById(sessionId)?.type === "remote";
 }
 
-/** 持久化配置为 serde 扁平 tag 形态，IPC invoke 需 specta Deserialize 形态。 */
-function toSshConnectConfig(config: SshConfig_Serialize): SshConfig_Deserialize {
-  const auth = config.auth as SshAuth_Serialize;
-  if (auth.type === "password") {
-    return {
-      ...config,
-      auth: { password: { type: "password", password: auth.password } },
-    };
-  }
-  return {
-    ...config,
-    auth: {
-      privateKey: {
-        type: "privateKey",
-        pem: auth.pem,
-        keyPath: auth.keyPath,
-        passphrase: auth.passphrase,
-      },
-    },
-  };
+/**
+ * 把持久化配置（`SshConfig_Serialize` 形态 = serde 内部 tag 的扁平 JSON）
+ * 透传给后端。
+ *
+ * 后端 `SshAuth` 使用 `#[serde(tag = "type", rename_all = "camelCase")]`，
+ * 即 internally tagged —— JSON 线缆格式就是 `{ type: "password", password }`，
+ * 与持久化在 `conn.config` 里的形态一致（见 `serverConnection.ts:155`）。
+ * 这里不再做形态转换；旧的嵌套转换会把 `auth` 变成 `{ password: { type } }`，
+ * 触发后端 `missing field \`type\`` 报错。
+ */
+function toSshConnectConfig(config: SshConfig_Serialize): SshConfig_Serialize {
+  return config;
 }
 
 /** 远程 pane 走 SSH（ssh_connect），本地 pane 走本地 PTY（create_terminal）。 */
@@ -124,7 +119,7 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
       }
       const res = await commands.sshConnectConfigHost(alias, cols, rows);
       if (res.status === "ok") return res.data;
-      throw new Error(res.error.message);
+      throw normalizeBackendError(res.error, "OpenSSH Host 终端创建失败");
     }
     const conn = useConnectionStore.getState().connections.find((c) => c.id === pane.resourceId);
     if (!conn) {
@@ -136,11 +131,89 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
     } catch {
       throw new Error("SSH 连接配置解析失败");
     }
-    const res = await commands.sshConnect(toSshConnectConfig(config), cols, rows);
+    const res = await commands.sshConnect(
+      // specta 生成的 `SshConfig_Deserialize` 形态与 Rust serde 实际接受的
+      // internally-tagged 扁平 JSON 不一致；这里把已校验的 Serialize 形态直传，
+      // 通过 unknown 绕过错误的 Deserialize 类型。后端只接受扁平形态。
+      toSshConnectConfig(config) as unknown as Parameters<typeof commands.sshConnect>[0],
+      cols,
+      rows,
+    );
     if (res.status === "ok") return res.data;
-    throw new Error(res.error.message);
+    throw normalizeBackendError(res.error, "SSH 终端创建失败");
   }
-  return invoke<string>("create_terminal", { cols, rows });
+  return invoke<string>("create_terminal", { cols, rows }).catch((err) => {
+    throw normalizeBackendError(err, "本地 PTY 创建失败");
+  });
+}
+
+/**
+ * 把后端返回的 OmniError（或任何未知形态）规整为带 code/cause 的 Error。
+ *
+ * 背景：specta 生成的 `typedError` 在两种路径下都可能丢失 message：
+ *   1) 后端返 `Result::Err(OmniError)`，Tauri IPC 直接 reject 序列化对象，
+ *      `e instanceof Error === false`，`res.error.message` 正常。
+ *   2) 当后端抛出非结构体 Error（如 anyhow 转的 `String`/`Error`）时，
+ *      Tauri 会 reject 一个 JS Error，typedError 内部 `throw e` 重抛。
+ *      上层 await 会再次拿到 Error 实例，其默认 message 就是 "Error"。
+ * 这两种情况都收拢到本函数，避免 productionDiagnostics 看到裸 "Error"。
+ */
+function normalizeBackendError(
+  raw: unknown,
+  fallback: string,
+): Error {
+  if (raw instanceof Error) {
+    const text = raw.message && raw.message !== "Error" ? raw.message : fallback;
+    const err = new Error(text);
+    (err as Error & { cause?: unknown }).cause = raw.cause ?? raw;
+    return err;
+  }
+  if (raw && typeof raw === "object") {
+    const obj = raw as { code?: unknown; message?: unknown; cause?: unknown };
+    const message =
+      typeof obj.message === "string" && obj.message.trim() && obj.message !== "Error"
+        ? obj.message
+        : fallback;
+    const err = new Error(message);
+    Object.assign(err, { code: obj.code ?? null, cause: obj.cause ?? null });
+    return err;
+  }
+  if (typeof raw === "string" && raw.trim() && raw !== "Error") {
+    return new Error(raw);
+  }
+  return new Error(fallback);
+}
+
+/** 把 Error 渲染为单行可写终端的字符串（包含 code / cause）。 */
+function formatTerminalError(err: unknown, remote: boolean): string {
+  // 后端 OmniError.message 已经描述了失败类别（如 "SSH 连接失败"），
+  // 不再前置 header 避免重复。code / cause 仍拼到尾部供排障。
+  if (err instanceof Error) {
+    const extras: string[] = [];
+    const maybe = err as Error & { code?: unknown; cause?: unknown };
+    if (maybe.code) extras.push(`code=${String(maybe.code)}`);
+    if (maybe.cause) {
+      const causeText =
+        maybe.cause instanceof Error
+          ? maybe.cause.message
+          : typeof maybe.cause === "string"
+            ? maybe.cause
+            : safeStringify(maybe.cause);
+      if (causeText && causeText !== err.message) extras.push(`cause=${causeText}`);
+    }
+    const tail = extras.length > 0 ? ` (${extras.join(", ")})` : "";
+    return `${err.message || (remote ? "SSH 连接失败" : "终端创建失败")}${tail}`;
+  }
+  return safeStringify(err);
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    if (typeof value === "string") return value;
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function disposeBackendSession(sessionId: string, backendSid: string) {
@@ -156,12 +229,13 @@ export function disposePaneBackendSession(paneId: string) {
   useTerminalStore.getState().setBackendSessionId(paneId, null);
 }
 
+/** 关闭 Tab 对应的后端 PTY/SSH（仅在用户关闭标签时调用） */
 export function disposeTabBackendSessions(tabId: string) {
   const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
   if (!tab) return;
-  for (const pane of tab.panes) {
-    disposePaneBackendSession(pane.id);
-  }
+  if (!tab.backendSessionId) return;
+  disposeBackendSession(tabId, tab.backendSessionId);
+  useTerminalStore.getState().setBackendSessionId(tabId, null);
 }
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
@@ -197,7 +271,7 @@ export function useTerminal(
   suspended = false,
   options: UseTerminalOptions = {},
 ) {
-  const { inputMode = "interactive", sendRef, active = true } = options;
+  const { inputMode = "interactive", sendRef, active = true, reconnectKey = 0 } = options;
   const termRef = useRef<Terminal | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const sendCommandRef = useRef<((cmd: string) => void) | null>(null);
@@ -455,7 +529,8 @@ export function useTerminal(
       } catch (err) {
         if (destroyed) return;
         console.error(`[Terminal ${sessionId}] backend session failed:`, err);
-        term?.writeln(`\r\n\x1b[31m${remote ? "SSH 连接失败" : "终端创建失败"}: ${err}\x1b[0m`);
+        const formatted = formatTerminalError(err, remote);
+        term?.writeln(`\r\n\x1b[31m${formatted}\x1b[0m`);
         useTerminalStore.getState().setStatus(sessionId, "disconnected");
         pendingInput = [];
       }
@@ -643,7 +718,7 @@ export function useTerminal(
       searchAddonRef.current = null;
       runtimeRef.current.initTerminal = null;
     };
-  }, [sessionId, inputMode]);
+  }, [sessionId, inputMode, reconnectKey]);
 
   useEffect(() => {
     const rt = runtimeRef.current;

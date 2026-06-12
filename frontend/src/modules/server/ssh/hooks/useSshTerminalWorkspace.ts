@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
-import {
-  useSplitTerminalWorkspace,
-  type SplitTerminalPaneInput,
-} from "../../../../components/terminal/split-workspace";
 import {
   sshEmbeddedWorkspaceId,
   useTerminalStore,
 } from "../../../../stores/terminalStore";
 import { disposePaneBackendSession } from "../../../../hooks/useTerminal";
 import { listSshEmbeddedPanes } from "../terminal/sshEmbeddedPanes";
-import type { LayoutNode } from "../../../terminal/splitLayout";
 
 function disposeWorkspacePanes(workspaceId: string, resourceId: string) {
   const removeEmbeddedPane = useTerminalStore.getState().removeEmbeddedPane;
@@ -20,13 +15,11 @@ function disposeWorkspacePanes(workspaceId: string, resourceId: string) {
   }
 }
 
-/** SSH 详情内嵌终端：按主机管理工作区窗格与拆分布局（与顶部终端 Tab 隔离） */
 export function useSshTerminalWorkspace(
   resource: WorkspaceResource | null,
   active = false,
 ) {
   const upsertEmbeddedPane = useTerminalStore((s) => s.upsertEmbeddedPane);
-  const removeEmbeddedPane = useTerminalStore((s) => s.removeEmbeddedPane);
   const embeddedPanes = useTerminalStore((s) => s.embeddedPanes);
 
   const workspaceId = useMemo(
@@ -34,18 +27,21 @@ export function useSshTerminalWorkspace(
     [resource?.id],
   );
 
-  const [layout, setLayout] = useState<LayoutNode | null>(null);
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
+  const paneSendersRef = useRef<Record<string, (cmd: string) => void>>({});
 
   const workspacePanes = useMemo(() => {
     if (!workspaceId || !resource) return [];
     return listSshEmbeddedPanes(workspaceId, resource.id);
   }, [embeddedPanes, resource?.id, workspaceId]);
 
+  const activePane = useMemo(
+    () => workspacePanes.find((p) => p.id === activePaneId) ?? workspacePanes[0] ?? null,
+    [workspacePanes, activePaneId],
+  );
+
   useEffect(() => {
-    if (!resource || !workspaceId || !active) {
-      return;
-    }
+    if (!resource || !workspaceId || !active) return;
 
     let panes = listSshEmbeddedPanes(workspaceId, resource.id);
     if (panes.length === 0) {
@@ -77,37 +73,37 @@ export function useSshTerminalWorkspace(
     };
   }, [resource?.id, workspaceId]);
 
-  const onAddPane = useCallback(
-    (pane: SplitTerminalPaneInput) => {
-      upsertEmbeddedPane(pane);
+  const handleSenderChange = useCallback(
+    (sessionId: string, sender: ((cmd: string) => void) | null) => {
+      if (sender) {
+        paneSendersRef.current[sessionId] = sender;
+      } else {
+        delete paneSendersRef.current[sessionId];
+      }
     },
-    [upsertEmbeddedPane],
+    [],
   );
 
-  const onRemovePane = useCallback(
-    (paneId: string) => {
-      disposePaneBackendSession(paneId);
-      removeEmbeddedPane(paneId);
+  const handleCommand = useCallback(
+    (command: string) => {
+      if (!activePane) return;
+      paneSendersRef.current[activePane.id]?.(command);
     },
-    [removeEmbeddedPane],
+    [activePane],
   );
 
-  const split = useSplitTerminalWorkspace({
-    workspaceId: workspaceId ?? "__ssh_inactive__",
-    panes: workspacePanes,
-    activePaneId,
-    onActivePaneChange: setActivePaneId,
-    onAddPane,
-    onRemovePane,
-    layout,
-    setLayout,
-  });
+  const hasPaneSender = useCallback(
+    (paneId: string) => Boolean(paneSendersRef.current[paneId]),
+    [],
+  );
 
   return {
-    ...split,
     activePaneId,
+    activePane,
     workspacePanes,
-    hasPaneSender: (paneId: string) => split.hasPaneSender(paneId),
+    handleSenderChange,
+    handleCommand,
+    hasPaneSender,
   };
 }
 

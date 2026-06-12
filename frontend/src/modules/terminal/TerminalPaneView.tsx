@@ -1,23 +1,24 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
-import type { TerminalPane } from "../../stores/terminalStore";
+import type { TerminalPane, TerminalTab } from "../../stores/terminalStore";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
-import { Button } from "../../components/ui/Button";
-import { formatPaneHeaderTitle } from "./paneHeader";
 import {
   PaneServerSelector,
   type PaneServerOption,
 } from "./PaneServerSelector";
+import { type BlueprintSource } from "./sessionBlueprints";
+import { formatPaneHeaderTitle } from "./paneHeader";
+import { useI18n } from "../../i18n";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
 };
 
-export type TerminalPaneViewProps = {
+type CommonProps = {
   paneId: string;
   resource: WorkspaceResource | null;
-  pane: TerminalPane;
+  blueprintSource: BlueprintSource;
   isActive: boolean;
   startup?: string[];
   onActivate: () => void;
@@ -26,155 +27,184 @@ export type TerminalPaneViewProps = {
     sessionId: string,
     sender: ((cmd: string) => void) | null,
   ) => void;
-  onSplitHorizontal: () => void;
-  onSplitVertical: () => void;
-  onClose: () => void;
-  canClose: boolean;
   serverOptions?: PaneServerOption[];
   occupiedResourceIds?: Set<string>;
   onServerChange?: (resourceId: string) => void;
+  /** 重新连接：父组件 dispose 后端会话 + 触发 TerminalView 重建。 */
+  onReconnect?: () => void;
+  /** 强制重建 TerminalView 的计数器（自增即生效）。 */
+  reconnectKey?: number;
+  /** 正在执行用户发起的重新连接：覆盖层显示加载动画。 */
+  isReconnecting?: boolean;
 };
 
-export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneViewProps>(
-  function TerminalPaneView({
+function ReconnectIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width="13"
+      height="13"
+      aria-hidden
+    >
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" />
+      <polyline points="13.5 2 13.5 5 10.5 5" />
+    </svg>
+  );
+}
+
+function PaneViewBody(
+  {
     paneId,
     resource,
-    pane,
+    blueprintSource,
     isActive,
     startup = [],
     onActivate,
     onSendCommand,
     onSenderChange,
-    onSplitHorizontal,
-    onSplitVertical,
-    onClose,
-    canClose,
     serverOptions,
     occupiedResourceIds,
     onServerChange,
-  }, ref) {
-    const cmdRef = useRef<CommandInputHandle>(null);
+    onReconnect,
+    reconnectKey,
+    isReconnecting,
+    currentResourceId,
+  }: CommonProps & { currentResourceId: string },
+  ref: React.ForwardedRef<TerminalPaneViewHandle>,
+) {
+  const { t } = useI18n();
+  const cmdRef = useRef<CommandInputHandle>(null);
 
-    useImperativeHandle(ref, () => ({
-      focusInput: () => {
-        cmdRef.current?.focus();
-      },
-    }));
+  useImperativeHandle(ref, () => ({
+    focusInput: () => {
+      cmdRef.current?.focus();
+    },
+  }));
 
-    useEffect(() => {
-      if (isActive) {
-        cmdRef.current?.focus();
-      }
-    }, [isActive]);
+  useEffect(() => {
+    if (isActive) {
+      cmdRef.current?.focus();
+    }
+  }, [isActive]);
 
-    const headerTitle = formatPaneHeaderTitle(resource, pane);
+  const headerTitle = formatPaneHeaderTitle(resource, { title: resource?.name ?? "" });
 
-    const effectiveOptions = useMemo(() => {
-      if (!serverOptions || !occupiedResourceIds || occupiedResourceIds.size === 0) {
-        return serverOptions;
-      }
-      return serverOptions.filter(
-        (opt) => !occupiedResourceIds.has(opt.value) || opt.value === pane.resourceId,
-      );
-    }, [serverOptions, occupiedResourceIds, pane.resourceId]);
+  const effectiveOptions = useMemo(() => {
+    if (!serverOptions || !occupiedResourceIds || occupiedResourceIds.size === 0) {
+      return serverOptions;
+    }
+    return serverOptions.filter(
+      (opt) => !occupiedResourceIds.has(opt.value) || opt.value === currentResourceId,
+    );
+  }, [serverOptions, occupiedResourceIds, currentResourceId]);
 
-    return (
-      <div
-        className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}`}
-        data-pane-id={paneId}
-        onMouseDown={onActivate}
-      >
-        <div className="term-pane-header">
-          {effectiveOptions && effectiveOptions.length > 0 && onServerChange ? (
-            <PaneServerSelector
-              value={pane.resourceId}
-              options={effectiveOptions}
-              onChange={onServerChange}
-              disabled={pane.status === "connecting"}
-            />
-          ) : (
-            <span className="term-pane-title">{headerTitle}</span>
-          )}
-          <div className="term-pane-actions">
-            <Button
-              variant="icon"
-              className="term-pane-action"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSplitHorizontal();
-              }}
-              title="左右拆分"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                width="14"
-                height="14"
-              >
-                <rect x="1" y="2" width="14" height="12" rx="1.5" />
-                <line x1="8" y1="2" x2="8" y2="14" />
-              </svg>
-            </Button>
-            <Button
-              variant="icon"
-              className="term-pane-action"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSplitVertical();
-              }}
-              title="上下拆分"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                width="14"
-                height="14"
-              >
-                <rect x="1" y="2" width="14" height="12" rx="1.5" />
-                <line x1="1" y1="8" x2="15" y2="8" />
-              </svg>
-            </Button>
-            {canClose && (
-              <Button
-                variant="icon"
-                className="term-pane-action term-pane-action--close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose();
-                }}
-                title="关闭窗格"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  width="14"
-                  height="14"
-                >
-                <line x1="4" y1="4" x2="12" y2="12" />
-                <line x1="12" y1="4" x2="4" y2="12" />
-              </svg>
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="terminal-area term-terminal-shell" tabIndex={-1}>
-          <TerminalView
-            key={`${paneId}:${pane.type}:${pane.resourceId}`}
-            sessionId={paneId}
-            resource={resource}
-            startup={startup}
-            active={isActive}
-            onSenderChange={onSenderChange}
+  return (
+    <div
+      className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}`}
+      data-pane-id={paneId}
+      onMouseDown={onActivate}
+    >
+      <div className="term-pane-header">
+        {effectiveOptions && effectiveOptions.length > 0 && onServerChange ? (
+          <PaneServerSelector
+            value={currentResourceId}
+            options={effectiveOptions}
+            onChange={onServerChange}
+            disabled={false}
           />
-        </div>
-        <CommandInput ref={cmdRef} onSend={onSendCommand} />
+        ) : (
+          <span className="term-pane-title">{headerTitle}</span>
+        )}
+        <button
+          type="button"
+          className={`term-pane-reconnect drag-ignore${isReconnecting ? " is-loading" : ""}`}
+          onClick={(e) => {
+            // 阻止事件冒泡到 .term-pane 的 onMouseDown，避免抢占 focus
+            e.stopPropagation();
+            e.preventDefault();
+            onReconnect?.();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          title={t("terminal.reconnect.tooltip")}
+          aria-label={t("terminal.reconnect.tooltip")}
+          disabled={!onReconnect || isReconnecting}
+        >
+          <ReconnectIcon />
+        </button>
       </div>
+      <div className="terminal-area term-terminal-shell" tabIndex={-1}>
+        <TerminalView
+          key={`${paneId}:${blueprintSource.type ?? "local"}:${currentResourceId}:${reconnectKey ?? 0}`}
+          sessionId={paneId}
+          resource={resource}
+          startup={startup}
+          active={isActive}
+          onSenderChange={onSenderChange}
+          reconnectKey={reconnectKey}
+        />
+        {isReconnecting && (
+          <div className="term-pane-loading" role="status" aria-live="polite">
+            <div className="term-pane-loading__inner">
+              <div className="term-pane-loading__spinner" aria-hidden />
+              <span className="term-pane-loading__text">
+                {t("terminal.reconnect.loading")}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+      <CommandInput ref={cmdRef} onSend={onSendCommand} />
+    </div>
+  );
+}
+
+const ForwardedBody = forwardRef<TerminalPaneViewHandle, CommonProps & { currentResourceId: string }>(
+  PaneViewBody,
+);
+
+export type TerminalTabPaneViewProps = Omit<CommonProps, "blueprintSource"> & {
+  tab: TerminalTab;
+  onTabResourceChange?: (resourceId: string) => void;
+};
+
+/** 顶层终端 Tab 的 PaneView（单会话） */
+export const TerminalTabPaneView = forwardRef<TerminalPaneViewHandle, TerminalTabPaneViewProps>(
+  function TerminalTabPaneView(props, ref) {
+    const { tab, resource, ...rest } = props;
+    return (
+      <ForwardedBody
+        ref={ref}
+        {...rest}
+        resource={resource}
+        blueprintSource={tab.session}
+        currentResourceId={tab.session.resourceId}
+      />
+    );
+  },
+);
+
+export type TerminalPaneViewProps = Omit<CommonProps, "blueprintSource" | "currentResourceId"> & {
+  pane: TerminalPane;
+  onServerChange?: (resourceId: string) => void;
+};
+
+/** SSH 内嵌多 Pane 视图（保持向后兼容） */
+export const TerminalPaneView = forwardRef<TerminalPaneViewHandle, TerminalPaneViewProps>(
+  function TerminalPaneView(props, ref) {
+    const { pane, resource, ...rest } = props;
+    return (
+      <ForwardedBody
+        ref={ref}
+        {...rest}
+        resource={resource}
+        blueprintSource={pane}
+        currentResourceId={pane.resourceId}
+      />
     );
   },
 );

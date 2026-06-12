@@ -1,13 +1,10 @@
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
-import type { TerminalPane } from "../../stores/terminalStore";
 
+/** 终端面板标题：资源名优先，否则回退到自定义标题。 */
 export function formatPaneHeaderTitle(
   resource: WorkspaceResource | null,
-  pane: TerminalPane,
+  fallback?: { title?: string },
 ): string {
-  const base = resource?.name ?? pane.title;
-  if (pane.title && pane.title !== base) {
-    return pane.title;
-  }
-  return base;
+  if (resource?.name) return resource.name;
+  return fallback?.title ?? "";
 }

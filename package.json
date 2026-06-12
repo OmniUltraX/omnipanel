@@ -1,4 +1,19 @@
 {
+  "name": "omnipanel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-native cross-platform engineering workstation",
+  "workspaces": [
+    "frontend",
+    "agent"
+  ],
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:agent": "cd agent && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "build:agent": "cd agent && npm run build",
+    "start:agent": "cd agent && npm start"
+  },
   "dependencies": {
     "@xterm/xterm": "^5.5.0",
     "react-xtermjs": "^1.0.12"
