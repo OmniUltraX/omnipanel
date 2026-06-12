@@ -413,6 +413,7 @@ export const enUS: TranslationDict = {
       createConnection: "Create Connection",
       newQuery: "New Query",
       empty: "No connections yet. Click + to create one.",
+      noConnectionsInGroup: "No connections in this group",
       loadFailed: "Failed to load connections",
       tablesFailed: "Load failed",
       noDatabases: "No databases found",

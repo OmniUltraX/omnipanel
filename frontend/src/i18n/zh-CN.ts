@@ -409,6 +409,7 @@ export const zhCN = {
       createConnection: "创建连接",
       newQuery: "新建查询",
       empty: "暂无连接，点击 + 创建",
+      noConnectionsInGroup: "该分组暂无连接",
       loadFailed: "加载连接失败",
       tablesFailed: "加载失败",
       noDatabases: "无可用数据库",
