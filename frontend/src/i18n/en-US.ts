@@ -336,6 +336,17 @@ export const enUS: TranslationDict = {
       openAi: "Open AI Assistant",
       commandPaletteHint: "Ctrl+K: Command Palette",
       backendLogs: "Backend Logs",
+      expandWorkspace: "Expand workspace",
+      collapseWorkspace: "Collapse workspace",
+    },
+    workspacePanel: {
+      resources: "Resources",
+      welcomePrompt: "Drag panels from other modules here to arrange freely, or switch modules to continue",
+      fullscreen: "Fullscreen workspace",
+      exitFullscreen: "Exit fullscreen",
+      mirroredDatabase: "Database panel moved to engineering workspace",
+      mirroredUnknown: "External panel",
+      mirroredMissing: "Source panel no longer exists",
     },
     risk: {
       low: "Low risk",

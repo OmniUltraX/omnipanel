@@ -3,6 +3,8 @@ import { useI18n } from "../../i18n";
 import { AppLogo } from "./AppLogo";
 
 export interface WorkspaceEmptyPageProps {
+  /** 主标题，默认使用应用名称 */
+  title?: string;
   /** 模块上下文提示语，显示在 Banner 下方 */
   prompt?: string;
   /** @deprecated 请使用 `prompt` */
@@ -13,7 +15,7 @@ export interface WorkspaceEmptyPageProps {
 }
 
 /** 工作区无内容时的通用空页面：品牌 Logo、名称与 Banner。 */
-export function WorkspaceEmptyPage({ prompt, hint, actions, className }: WorkspaceEmptyPageProps) {
+export function WorkspaceEmptyPage({ title, prompt, hint, actions, className }: WorkspaceEmptyPageProps) {
   const { t } = useI18n();
   const message = prompt ?? hint;
   const rootClass = className
@@ -25,7 +27,7 @@ export function WorkspaceEmptyPage({ prompt, hint, actions, className }: Workspa
       <div className="workspace-empty-page__logo" aria-hidden>
         <AppLogo size={56} className="app-logo app-logo--hero" />
       </div>
-      <h1 className="workspace-empty-page__name">{t("routes.default")}</h1>
+      <h1 className="workspace-empty-page__name">{title ?? t("routes.default")}</h1>
       <p className="workspace-empty-page__tagline">{t("app.tagline")}</p>
       <div className="workspace-empty-page__banner" role="presentation">
         {t("app.banner")}

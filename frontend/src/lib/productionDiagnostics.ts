@@ -11,6 +11,14 @@ function formatError(reason: unknown): string {
   return String(reason);
 }
 
+/** 浏览器在 ResizeObserver 同帧反馈布局时的已知无害告警，非应用逻辑错误。 */
+function isBenignResizeObserverNoise(message: string): boolean {
+  return (
+    message.includes("ResizeObserver loop completed with undelivered notifications") ||
+    message.includes("ResizeObserver loop limit exceeded")
+  );
+}
+
 function renderPanel() {
   if (errors.length === 0) {
     panel?.remove();
@@ -123,6 +131,7 @@ export async function openDevtools(): Promise<void> {
 /** Release 包无 DevTools 时：捕获前端错误 + 快捷键打开 Inspector。 */
 export function initProductionDiagnostics(): void {
   window.addEventListener("error", (event) => {
+    if (isBenignResizeObserverNoise(event.message)) return;
     const detail = event.error ? formatError(event.error) : event.message;
     pushError(`[error] ${detail}`);
   });
@@ -134,7 +143,9 @@ export function initProductionDiagnostics(): void {
   const originalConsoleError = console.error.bind(console);
   console.error = (...args: unknown[]) => {
     originalConsoleError(...args);
-    pushError(`[console.error] ${args.map((a) => formatError(a)).join(" ")}`);
+    const message = args.map((a) => formatError(a)).join(" ");
+    if (isBenignResizeObserverNoise(message)) return;
+    pushError(`[console.error] ${message}`);
   };
 
   window.addEventListener(

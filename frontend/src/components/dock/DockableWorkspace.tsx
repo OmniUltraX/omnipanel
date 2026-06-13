@@ -3,20 +3,34 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import RcDockLayout, {
-  type LayoutBase,
-  type PanelData,
-  type TabBase,
-  type TabData,
-} from "rc-dock";
-import "rc-dock/dist/rc-dock-dark.css";
 import {
-  createDefaultRcLayout,
-  diffRemovedTabIds,
-  mergeTabsIntoRcLayout,
-} from "./dockRcLayout";
+  DockviewReact,
+  DockviewDefaultTab,
+  type DockviewApi,
+  type DockviewReadyEvent,
+  type IDockviewHeaderActionsProps,
+  type IDockviewPanel,
+  type IDockviewPanelHeaderProps,
+  type IDockviewPanelProps,
+  type SerializedDockview,
+  type DockviewDidDropEvent,
+  type DockviewWillDropEvent,
+  themeDark,
+} from "dockview-react";
+import "dockview-react/dist/styles/dockview.css";
+import {
+  mergePanelsIntoLayout,
+  collectPanelIds,
+  normalizeDockLayout,
+} from "./dockViewLayout";
+import {
+  registerDockviewInstance,
+  transferPanelToTarget,
+  unregisterDockviewInstance,
+} from "../../lib/dockviewRegistry";
 
 export interface DockableTab {
   id: string;
@@ -29,8 +43,8 @@ export interface DockableWorkspaceProps {
   activeTabId: string;
   onActiveTabChange: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
-  savedLayout: LayoutBase | null;
-  onSavedLayoutChange: (layout: LayoutBase | null) => void;
+  savedLayout: SerializedDockview | null;
+  onSavedLayoutChange: (layout: SerializedDockview | null) => void;
   renderPanel: (tabId: string) => ReactNode;
   className?: string;
   emptyContent?: ReactNode;
@@ -39,8 +53,36 @@ export interface DockableWorkspaceProps {
     tabId: string,
     index: number,
   ) => void;
-  onAddTab?: () => void;
-  onClosePanel?: (tabIds: string[]) => void;
+  /**
+   * 通过 dockview `containerApi.addPanel` 创建新面板。
+   * 返回新面板的 id / title；由调用方同步业务 store。
+   */
+  createPanelRequest?: () => { id: string; title: string } | null;
+  /** 注册到全局 dock 实例表，用于跨 dockview 拖放 */
+  dockScope?: string;
+  /** 是否接受其他 dockview 拖入的 panel */
+  acceptExternalDrops?: boolean;
+}
+
+interface PanelParams {
+  tabId: string;
+}
+
+const COMPONENT_NAME = "dockable-content";
+
+function isExternalPanelDrop(
+  event: { getData: () => ReturnType<DockviewDidDropEvent["getData"]> },
+  targetViewId: string,
+): boolean {
+  const data = event.getData();
+  return Boolean(data?.panelId && data.viewId !== targetViewId);
+}
+
+/** 保留可接收外部拖放的空 group，避免 clear 后只剩 watermark 无法落点 */
+function ensureExternalDropTarget(api: DockviewApi): void {
+  if (api.groups.length === 0) {
+    api.addGroup();
+  }
 }
 
 export function DockableWorkspace({
@@ -54,141 +96,450 @@ export function DockableWorkspace({
   className,
   emptyContent,
   onTabContextMenu,
-  onAddTab,
-  onClosePanel,
+  createPanelRequest,
+  dockScope,
+  acceptExternalDrops = false,
 }: DockableWorkspaceProps) {
-  const workspaceRef = useRef<HTMLDivElement>(null);
+  const apiRef = useRef<DockviewApi | null>(null);
+  const viewIdRef = useRef<string | null>(null);
+  const transferredOutRef = useRef(new Set<string>());
+  const layoutLoadedRef = useRef(false);
+  const isSyncingRef = useRef(false);
+  const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
+  // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
+  const lastWrittenLayoutRef = useRef<SerializedDockview | null>(null);
+
+  // 回调 ref —— 避免 children 重渲染
   const renderPanelRef = useRef(renderPanel);
   renderPanelRef.current = renderPanel;
-
-  const onAddTabRef = useRef(onAddTab);
-  onAddTabRef.current = onAddTab;
-
-  const onClosePanelRef = useRef(onClosePanel);
-  onClosePanelRef.current = onClosePanel;
-
+  const onCloseTabRef = useRef(onCloseTab);
+  onCloseTabRef.current = onCloseTab;
+  const onActiveTabChangeRef = useRef(onActiveTabChange);
+  onActiveTabChangeRef.current = onActiveTabChange;
+  const onSavedLayoutChangeRef = useRef(onSavedLayoutChange);
+  onSavedLayoutChangeRef.current = onSavedLayoutChange;
+  const createPanelRequestRef = useRef(createPanelRequest);
+  createPanelRequestRef.current = createPanelRequest;
+  const dockScopeRef = useRef(dockScope);
+  dockScopeRef.current = dockScope;
+  const acceptExternalDropsRef = useRef(acceptExternalDrops);
+  acceptExternalDropsRef.current = acceptExternalDrops;
+  const onTabContextMenuRef = useRef(onTabContextMenu);
+  onTabContextMenuRef.current = onTabContextMenu;
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
-  const tabIdsSignature = useMemo(
-    () => tabs.map((tab) => tab.id).join("|"),
-    [tabs],
+  // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId
+  const components = useMemo(
+    () => ({
+      [COMPONENT_NAME]: (props: IDockviewPanelProps<PanelParams>) => (
+        <div className="dock-pane-surface">
+          {renderPanelRef.current(props.params.tabId)}
+        </div>
+      ),
+    }),
+    [],
   );
 
-  const tabIds = useMemo(() => {
-    if (!tabIdsSignature) return [];
-    return tabIdsSignature.split("|");
-  }, [tabIdsSignature]);
-
-  const tabsLabelSignature = useMemo(
-    () => tabs.map((tab) => `${tab.id}:${tab.label}`).join("|"),
-    [tabs],
-  );
-
-  const loadTab = useCallback(
-    (saved: TabBase): TabData => {
+  // 自定义 tab：标签从 tabsRef 中按 id 取最新，支持 onContextMenu
+  const defaultTabComponent = useCallback(
+    (props: IDockviewPanelHeaderProps<PanelParams>) => {
+      const tabId = props.params?.tabId ?? props.api.id;
       const tabsList = tabsRef.current;
-      const meta = tabsList.find((tab) => tab.id === saved.id);
-      const id = saved.id ?? "";
-      const index = tabsList.findIndex((tab) => tab.id === id);
-      const label = meta?.label ?? id;
-      const closable = meta?.closable !== false;
-
-      const titleLabel = onTabContextMenu ? (
-        <span
-          className="dockable-tab-title"
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onTabContextMenu(event, id, index >= 0 ? index : 0);
-          }}
+      const tab = tabsList.find((t) => t.id === tabId);
+      const closable = tab?.closable !== false;
+      const onCtx = onTabContextMenuRef.current;
+      const handleContextMenu = onCtx
+        ? (e: ReactMouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const index = tabsList.findIndex((t) => t.id === tabId);
+            onCtx(e, tabId, index >= 0 ? index : 0);
+          }
+        : undefined;
+      return (
+        <DockviewDefaultTab
+          {...props}
+          hideClose={!closable}
+          onContextMenu={handleContextMenu}
         >
-          {label}
-        </span>
-      ) : (
-        <span className="dockable-tab-title">{label}</span>
+          {tab?.label ?? tabId}
+        </DockviewDefaultTab>
       );
-
-      return {
-        id,
-        group: "dockable-main",
-        title: titleLabel,
-        content: (
-          <div className="dock-pane-surface">{renderPanelRef.current(id)}</div>
-        ),
-        closable,
-        cached: true,
-      };
     },
-    [onTabContextMenu],
+    [],
   );
 
-  const saveTab = useCallback((tab: TabData): TabBase => ({ id: tab.id }), []);
-
-  const layout = useMemo(
-    () => mergeTabsIntoRcLayout(savedLayout, tabIds, activeTabId),
-    [savedLayout, tabIdsSignature, activeTabId, tabIds],
-  );
-
-  const layoutForRcDock = useMemo(() => {
-    const base = layout ?? createDefaultRcLayout(tabIds, activeTabId);
-    return JSON.parse(JSON.stringify(base)) as LayoutBase;
-  }, [layout, tabsLabelSignature, tabIdsSignature, activeTabId, tabIds]);
-
-  // 新增/关闭 tab 时合并布局并持久化；无 tab 时 layout 为 null，须与 savedLayout 同步一次后停止
-  useEffect(() => {
-    if (layout === savedLayout) return;
-    onSavedLayoutChange(layout);
-  }, [layout, savedLayout, onSavedLayoutChange]);
-
-  // rc-dock 关闭按钮需 drag-ignore，避免点击 × 时误触发 Tab 拖拽
-  useEffect(() => {
-    const root = workspaceRef.current;
-    if (!root) return;
-    root
-      .querySelectorAll<HTMLElement>(".dock-tab-btn .dock-tab-close-btn")
-      .forEach((el) => {
-        el.classList.add("drag-ignore");
-      });
-  }, [tabs.length, tabsLabelSignature]);
-
-  const handleLayoutChange = useCallback(
-    (nextLayout: LayoutBase, currentTabId?: string) => {
-      const prevTabIds = tabsRef.current.map((tab) => tab.id);
-      const prevLayout = mergeTabsIntoRcLayout(
-        savedLayout ?? createDefaultRcLayout(prevTabIds, activeTabId),
-        prevTabIds,
-        activeTabId,
+  // 头部左侧：通过 dockview API 新建面板
+  const leftHeaderActions = useCallback(
+    (props: IDockviewHeaderActionsProps) => {
+      if (!createPanelRequestRef.current) return null;
+      return (
+        <button
+          type="button"
+          className="dock-panel-add-btn drag-ignore"
+          onClick={(e) => {
+            e.stopPropagation();
+            const opts = createPanelRequestRef.current?.();
+            if (!opts) return;
+            const api = props.containerApi;
+            const existing = api.getPanel(opts.id);
+            if (existing) {
+              existing.api.setActive();
+              return;
+            }
+            const reference = props.activePanel ?? props.panels[0];
+            const options: Parameters<DockviewApi["addPanel"]>[0] = {
+              id: opts.id,
+              component: COMPONENT_NAME,
+              title: opts.title,
+              params: { tabId: opts.id },
+            };
+            if (reference) {
+              options.position = {
+                referencePanel: reference.id,
+                direction: "within",
+              };
+            }
+            api.addPanel(options);
+          }}
+          title="新建面板"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden
+          >
+            <line x1="8" y1="3" x2="8" y2="13" />
+            <line x1="3" y1="8" x2="13" y2="8" />
+          </svg>
+        </button>
       );
-      if (!prevLayout) return;
-      const removed = diffRemovedTabIds(prevLayout, nextLayout);
+    },
+    [],
+  );
 
-      onSavedLayoutChange(nextLayout);
+  // 自定义 tab 关闭按钮 drag-ignore
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = wrapperRef.current;
+    if (!root) return;
+    const handle = () => {
+      root
+        .querySelectorAll<HTMLElement>(".dv-default-tab .dv-default-tab-action")
+        .forEach((el: HTMLElement) => el.classList.add("drag-ignore"));
+    };
+    handle();
+    const observer = new MutationObserver(handle);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [tabs.length]);
 
-      if (currentTabId) {
-        onActiveTabChange(currentTabId);
+  // 加载初始布局（在 onReady 中执行）
+  const applyInitialLayout = useCallback((api: DockviewApi) => {
+    const pending = pendingSavedLayoutRef.current;
+    const desired = mergePanelsIntoLayout(pending, tabsRef.current.map((t) => t.id), "");
+    if (desired) {
+      try {
+        api.fromJSON(normalizeDockLayout(desired) ?? desired);
+      } catch {
+        api.clear();
+      }
+    }
+    // 兜底：mergePanelsIntoLayout 应已生成完整布局；若 dockview 仍缺 panel，则补齐
+    const existing = new Set(api.panels.map((p) => p.id));
+    if (existing.size === tabsRef.current.length) {
+      isSyncingRef.current = true;
+      try {
+        for (const tab of tabsRef.current) {
+          const panel = api.getPanel(tab.id);
+          if (panel && panel.api.title !== tab.label) {
+            panel.api.setTitle(tab.label);
+          }
+        }
+      } finally {
+        isSyncingRef.current = false;
+      }
+      layoutLoadedRef.current = true;
+      if (acceptExternalDropsRef.current) {
+        ensureExternalDropTarget(api);
+      }
+      return;
+    }
+    isSyncingRef.current = true;
+    try {
+      for (const tab of tabsRef.current) {
+        if (existing.has(tab.id)) {
+          const panel = api.getPanel(tab.id);
+          if (panel && panel.api.title !== tab.label) {
+            panel.api.setTitle(tab.label);
+          }
+          continue;
+        }
+        try {
+          const firstPanel = api.panels[0];
+          const options: Parameters<typeof api.addPanel>[0] = {
+            id: tab.id,
+            component: COMPONENT_NAME,
+            params: { tabId: tab.id },
+            title: tab.label,
+            inactive: true,
+          };
+          if (firstPanel) {
+            options.position = {
+              referencePanel: firstPanel.id,
+              direction: "within",
+            };
+          }
+          api.addPanel(options);
+          existing.add(tab.id);
+        } catch (err) {
+          // 防御性兜底：dockview 抛 "panel already exists" 时跳过
+          console.warn("[DockableWorkspace] addPanel failed for", tab.id, err);
+        }
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+    layoutLoadedRef.current = true;
+    if (acceptExternalDropsRef.current) {
+      ensureExternalDropTarget(api);
+    }
+  }, []);
+
+  // 同步 tab 变更（添加/删除/重命名）
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    if (tabs.length === 0) {
+      if (acceptExternalDropsRef.current) {
+        for (const panel of [...api.panels]) {
+          api.removePanel(panel);
+        }
+        ensureExternalDropTarget(api);
+      } else {
+        api.clear();
+      }
+      return;
+    }
+    isSyncingRef.current = true;
+    try {
+      // 移除不再存在的 panel
+      const desiredIds = new Set(tabs.map((t) => t.id));
+      const scopePrefix = dockScopeRef.current ? `${dockScopeRef.current}:` : null;
+      for (const panel of [...api.panels]) {
+        if (!desiredIds.has(panel.id)) {
+          // 跨实例拖入后 store 尚未追上 api 时，避免误删带 scope 前缀的镜像 panel
+          if (
+            acceptExternalDropsRef.current &&
+            scopePrefix &&
+            panel.id.startsWith(scopePrefix)
+          ) {
+            continue;
+          }
+          api.removePanel(panel);
+        }
+      }
+      // 新增 / 改名
+      const existing = new Set(api.panels.map((p) => p.id));
+      for (const tab of tabs) {
+        if (!existing.has(tab.id)) {
+          const firstPanel = api.panels[0];
+          const options: Parameters<typeof api.addPanel>[0] = {
+            id: tab.id,
+            component: COMPONENT_NAME,
+            params: { tabId: tab.id },
+            title: tab.label,
+            inactive: true,
+          };
+          if (firstPanel) {
+            options.position = {
+              referencePanel: firstPanel.id,
+              direction: "within",
+            };
+          }
+          api.addPanel(options);
+        } else {
+          const panel = api.getPanel(tab.id);
+          if (panel && panel.api.title !== tab.label) {
+            panel.api.setTitle(tab.label);
+          }
+        }
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [tabs]);
+
+  // 同步 activeTabId
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    if (!activeTabId) return;
+    if (!tabs.some((t) => t.id === activeTabId)) return;
+    const panel = api.getPanel(activeTabId);
+    if (panel && api.activePanel?.id !== activeTabId) {
+      isSyncingRef.current = true;
+      try {
+        panel.api.setActive();
+      } finally {
+        isSyncingRef.current = false;
+      }
+    }
+  }, [activeTabId, tabs]);
+
+  // 接收外部 savedLayout 变化（如 store 重置）
+  // 关键：dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，
+  // 因此 isSyncingRef 已经在 finally 里清掉，handler 必然执行并写回 store。
+  // 这里用 lastWrittenLayoutRef 识别"自己刚写回的对象"，避免无限 fromJSON→toJSON 循环。
+  useEffect(() => {
+    pendingSavedLayoutRef.current = savedLayout;
+    if (!apiRef.current || !layoutLoadedRef.current) return;
+    if (savedLayout && savedLayout === lastWrittenLayoutRef.current) return;
+
+    const api = apiRef.current;
+    const tabIds = tabsRef.current.map((t) => t.id);
+    const apiPanelIds = new Set(api.panels.map((p) => p.id));
+    if (savedLayout && tabIds.some((id) => apiPanelIds.has(id) && !collectPanelIds(savedLayout).has(id))) {
+      // store 布局滞后于 api（如跨实例拖入刚完成），跳过陈旧 fromJSON
+      return;
+    }
+
+    if (savedLayout) {
+      try {
+        isSyncingRef.current = true;
+        const normalized = normalizeDockLayout(savedLayout) ?? savedLayout;
+        apiRef.current.fromJSON(normalized);
+      } catch {
+        // ignore
+      } finally {
+        isSyncingRef.current = false;
+      }
+    } else {
+      apiRef.current.clear();
+    }
+    lastWrittenLayoutRef.current = savedLayout;
+  }, [savedLayout]);
+
+  const disposablesRef = useRef<Array<{ dispose: () => void }>>([]);
+
+  // 注册 dockview 事件
+  const handleReady = useCallback(
+    (event: DockviewReadyEvent) => {
+      const api = event.api;
+      apiRef.current = api;
+
+      const layoutDisposable = api.onDidLayoutChange(() => {
+        if (isSyncingRef.current || !layoutLoadedRef.current) return;
+        const raw = api.toJSON();
+        const next = normalizeDockLayout(raw) ?? raw;
+        lastWrittenLayoutRef.current = next;
+        onSavedLayoutChangeRef.current(next);
+      });
+      const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
+        if (isSyncingRef.current) return;
+        if (transferredOutRef.current.delete(panel.id)) return;
+        // 若该 panel 仍出现在外部 tabs 中 => 用户主动关闭
+        if (!tabsRef.current.some((t) => t.id === panel.id)) return;
+        onCloseTabRef.current(panel.id);
+      });
+      const activeDisposable = api.onDidActivePanelChange((panel) => {
+        if (isSyncingRef.current) return;
+        if (panel) {
+          onActiveTabChangeRef.current(panel.id);
+        }
+      });
+
+      const scope = dockScopeRef.current;
+      if (scope) {
+        viewIdRef.current = api.id;
+        registerDockviewInstance(api.id, {
+          scope,
+          api,
+          onPanelTransferredOut: (panelId) => {
+            transferredOutRef.current.add(panelId);
+          },
+        });
       }
 
-      for (const tabId of removed) {
-        if (tabsRef.current.some((tab) => tab.id === tabId)) {
-          onCloseTab(tabId);
+      const externalDisposables: Array<{ dispose: () => void }> = [];
+
+      const handleExternalDrop = (
+        event: DockviewDidDropEvent | DockviewWillDropEvent,
+      ) => {
+        if (!isExternalPanelDrop(event, api.id)) return;
+        transferPanelToTarget(api.id, event);
+      };
+
+      if (acceptExternalDropsRef.current) {
+        externalDisposables.push(
+          api.onDidDrop((event) => {
+            handleExternalDrop(event);
+          }),
+          api.onUnhandledDragOverEvent((event) => {
+            const data = event.getData();
+            if (data?.panelId && data.viewId !== api.id) {
+              event.accept();
+            }
+          }),
+          api.onWillDrop((event) => {
+            if (!isExternalPanelDrop(event, api.id)) return;
+            // 根级 edge 落点：阻止 moveGroupOrPanel（跨实例会失败），改走 transfer
+            if (event.kind === "edge") {
+              event.preventDefault();
+              handleExternalDrop(event);
+            }
+          }),
+        );
+      }
+
+      disposablesRef.current = [
+        layoutDisposable,
+        removeDisposable,
+        activeDisposable,
+        ...externalDisposables,
+      ];
+
+      applyInitialLayout(api);
+
+      // 同步当前 active tab
+      if (activeTabId) {
+        const target = api.getPanel(activeTabId);
+        if (target) {
+          isSyncingRef.current = true;
+          try {
+            target.api.setActive();
+          } finally {
+            isSyncingRef.current = false;
+          }
         }
       }
     },
-    [
-      savedLayout,
-      activeTabId,
-      onSavedLayoutChange,
-      onActiveTabChange,
-      onCloseTab,
-    ],
+    [activeTabId, applyInitialLayout],
   );
 
-  if (tabs.length === 0) {
+  // 卸载时清理
+  useEffect(() => {
+    return () => {
+      for (const d of disposablesRef.current) d.dispose();
+      disposablesRef.current = [];
+      if (viewIdRef.current) {
+        unregisterDockviewInstance(viewIdRef.current);
+        viewIdRef.current = null;
+      }
+    };
+  }, []);
+
+  // 作为跨实例拖放目标时，即使无 tab 也需保持 dockview 挂载以接收 drop
+  const keepDockviewMounted = acceptExternalDrops;
+
+  if (tabs.length === 0 && !keepDockviewMounted) {
     return (
-      <div
-        className={`dockable-workspace rc-dock-wrap${className ? ` ${className}` : ""}`}
-      >
+      <div className={`dockable-workspace ${className ?? ""}`}>
         <div className="dockable-workspace__empty">{emptyContent}</div>
       </div>
     );
@@ -196,85 +547,28 @@ export function DockableWorkspace({
 
   return (
     <div
-      ref={workspaceRef}
-      className={`dockable-workspace rc-dock-wrap${className ? ` ${className}` : ""}`}
+      ref={wrapperRef}
+      className={`dockable-workspace ${className ?? ""}`}
     >
-      <RcDockLayout
-        layout={layoutForRcDock}
-        loadTab={loadTab}
-        saveTab={saveTab}
-        dropMode="edge"
-        onLayoutChange={handleLayoutChange}
-        afterPanelLoaded={(_saved, loaded) => {
-          for (const tab of loaded.tabs) {
-            if (tab.closable !== false) {
-              tab.closable = true;
-            }
-          }
-        }}
-        groups={{
-          "dockable-main": {
-            floatable: true,
-            tabLocked: false,
-            panelExtra: (panel: PanelData) => {
-              const panelTabIds = panel.tabs
-                .map((t) => t.id)
-                .filter(Boolean) as string[];
-              return (
-                <>
-                  {onAddTabRef.current && (
-                    <button
-                      className="dock-panel-add-btn drag-ignore"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAddTabRef.current?.();
-                      }}
-                      title="新建面板"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <line x1="8" y1="3" x2="8" y2="13" />
-                        <line x1="3" y1="8" x2="13" y2="8" />
-                      </svg>
-                    </button>
-                  )}
-                  {onClosePanelRef.current && panelTabIds.length > 0 && (
-                    <button
-                      className="dock-panel-close-btn drag-ignore"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onClosePanelRef.current?.(panelTabIds);
-                      }}
-                      title="关闭面板"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <line x1="4" y1="4" x2="12" y2="12" />
-                        <line x1="12" y1="4" x2="4" y2="12" />
-                      </svg>
-                    </button>
-                  )}
-                </>
-              );
-            },
-          },
-        }}
-        style={{ position: "absolute", inset: 0 }}
+      {tabs.length === 0 && emptyContent ? (
+        <div className="dockable-workspace__empty dockable-workspace__empty--overlay">
+          {emptyContent}
+        </div>
+      ) : null}
+      <DockviewReact
+        className="dockable-workspace__dockview"
+        components={components}
+        defaultTabComponent={defaultTabComponent}
+        leftHeaderActionsComponent={
+          createPanelRequest ? leftHeaderActions : undefined
+        }
+        noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
+        theme={themeDark}
+        dndStrategy="pointer"
+        onReady={handleReady}
       />
     </div>
   );
 }
 
-export type { LayoutBase as RcDockSavedLayout };
+export type { SerializedDockview as DockviewSavedLayout };

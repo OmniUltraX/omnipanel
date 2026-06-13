@@ -1,0 +1,230 @@
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import type { SerializedDockview } from "dockview-core";
+import {
+  collectPanelIds,
+  createDefaultLayout,
+  mergePanelsIntoLayout,
+  removePanelFromLayout,
+} from "../components/dock/dockViewLayout";
+import type { WorkspaceInfo } from "./workspaceStore";
+
+export type WorkspaceDockTabKind = "welcome" | "mirrored";
+
+export interface WorkspaceDockTab {
+  id: string;
+  label: string;
+  kind: WorkspaceDockTabKind;
+  /** 来源 dock 实例 scope（如 terminal / database） */
+  originScope?: string;
+  /** 来源模块中的原始 panel / tab id */
+  originPanelId?: string;
+  closable?: boolean;
+}
+
+export function welcomeTabId(workspaceId: string): string {
+  return `welcome:${workspaceId}`;
+}
+
+export function createWelcomeTab(workspace: WorkspaceInfo): WorkspaceDockTab {
+  return {
+    id: welcomeTabId(workspace.id),
+    label: workspace.name,
+    kind: "welcome",
+    closable: true,
+  };
+}
+
+function ensureWorkspaceTabs(
+  workspace: WorkspaceInfo,
+  tabs: WorkspaceDockTab[] | undefined,
+): WorkspaceDockTab[] {
+  const list = tabs ? [...tabs] : [];
+  if (list.length === 0) {
+    list.push(createWelcomeTab(workspace));
+  }
+  return list.map((tab) =>
+    tab.kind === "welcome" ? { ...tab, closable: true } : tab,
+  );
+}
+
+/** 组件侧派生 tabs 时使用；勿放入 zustand selector。 */
+export function resolveWorkspaceTabs(
+  workspace: WorkspaceInfo,
+  tabs: WorkspaceDockTab[] | undefined,
+): WorkspaceDockTab[] {
+  const list = tabs ? [...tabs] : [];
+  return list.map((tab) =>
+    tab.kind === "welcome" ? { ...tab, closable: true } : tab,
+  );
+}
+
+export function resolveWorkspaceActiveTabId(
+  workspace: WorkspaceInfo,
+  tabs: WorkspaceDockTab[],
+  activeTabId: string | undefined,
+): string {
+  if (tabs.length === 0) return "";
+  if (activeTabId && tabs.some((tab) => tab.id === activeTabId)) {
+    return activeTabId;
+  }
+  return tabs[0]?.id ?? "";
+}
+
+interface WorkspaceBottomDockState {
+  tabsByWorkspace: Record<string, WorkspaceDockTab[]>;
+  layoutByWorkspace: Record<string, SerializedDockview | null>;
+  activeTabByWorkspace: Record<string, string>;
+  /** 已被拖入底部工作区的来源 panel id，按 scope 分组 */
+  dockedOriginByScope: Record<string, string[]>;
+
+  ensureWelcomeTab: (workspaceId: string, workspace: WorkspaceInfo) => void;
+  setLayout: (workspaceId: string, layout: SerializedDockview | null) => void;
+  setActiveTabId: (workspaceId: string, tabId: string) => void;
+  addMirroredTab: (
+    workspaceId: string,
+    workspace: WorkspaceInfo,
+    tab: Omit<WorkspaceDockTab, "kind"> & { kind?: "mirrored" },
+  ) => WorkspaceDockTab;
+  removeTab: (workspaceId: string, workspace: WorkspaceInfo, tabId: string) => void;
+  isOriginDocked: (scope: string, originPanelId: string) => boolean;
+}
+
+export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
+  persist(
+    (set, get) => ({
+      tabsByWorkspace: {},
+      layoutByWorkspace: {},
+      activeTabByWorkspace: {},
+      dockedOriginByScope: {},
+
+      ensureWelcomeTab: (workspaceId, workspace) => {
+        const welcomeId = welcomeTabId(workspaceId);
+        const existing = get().tabsByWorkspace[workspaceId];
+        if (existing !== undefined) return;
+        set((state) => ({
+          tabsByWorkspace: {
+            ...state.tabsByWorkspace,
+            [workspaceId]: ensureWorkspaceTabs(workspace, undefined),
+          },
+          activeTabByWorkspace: {
+            ...state.activeTabByWorkspace,
+            [workspaceId]: welcomeId,
+          },
+        }));
+      },
+
+      setLayout: (workspaceId, layout) =>
+        set((state) => ({
+          layoutByWorkspace: { ...state.layoutByWorkspace, [workspaceId]: layout },
+        })),
+
+      setActiveTabId: (workspaceId, tabId) =>
+        set((state) => ({
+          activeTabByWorkspace: { ...state.activeTabByWorkspace, [workspaceId]: tabId },
+        })),
+
+      addMirroredTab: (workspaceId, workspace, tab) => {
+        const nextTab: WorkspaceDockTab = {
+          ...tab,
+          kind: "mirrored",
+          closable: tab.closable !== false,
+        };
+        set((state) => {
+          const current = state.tabsByWorkspace[workspaceId] ?? [];
+          const tabs = current.some((item) => item.id === nextTab.id)
+            ? current.map((item) => (item.id === nextTab.id ? nextTab : item))
+            : [...current, nextTab];
+          const dockedOriginByScope = { ...state.dockedOriginByScope };
+          if (nextTab.originScope && nextTab.originPanelId) {
+            const prev = new Set(dockedOriginByScope[nextTab.originScope] ?? []);
+            prev.add(nextTab.originPanelId);
+            dockedOriginByScope[nextTab.originScope] = [...prev];
+          }
+          return {
+            tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
+            activeTabByWorkspace: {
+              ...state.activeTabByWorkspace,
+              [workspaceId]: nextTab.id,
+            },
+            dockedOriginByScope,
+          };
+        });
+        return nextTab;
+      },
+
+      removeTab: (workspaceId, workspace, tabId) => {
+        set((state) => {
+          const current = state.tabsByWorkspace[workspaceId] ?? [];
+          const removed = current.find((tab) => tab.id === tabId);
+          if (!removed) return state;
+          const tabs = current.filter((tab) => tab.id !== tabId);
+          const dockedOriginByScope = { ...state.dockedOriginByScope };
+          if (removed.originScope && removed.originPanelId) {
+            const list = (dockedOriginByScope[removed.originScope] ?? []).filter(
+              (id) => id !== removed.originPanelId,
+            );
+            if (list.length === 0) {
+              delete dockedOriginByScope[removed.originScope];
+            } else {
+              dockedOriginByScope[removed.originScope] = list;
+            }
+          }
+          const prevLayout = state.layoutByWorkspace[workspaceId] ?? null;
+          const nextLayout = removePanelFromLayout(prevLayout, tabId);
+          const active = state.activeTabByWorkspace[workspaceId];
+          const nextActive =
+            active === tabId ? (tabs[0]?.id ?? "") : (active ?? tabs[0]?.id ?? "");
+          return {
+            tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
+            layoutByWorkspace: {
+              ...state.layoutByWorkspace,
+              [workspaceId]: nextLayout,
+            },
+            activeTabByWorkspace: {
+              ...state.activeTabByWorkspace,
+              [workspaceId]: nextActive,
+            },
+            dockedOriginByScope,
+          };
+        });
+      },
+
+      isOriginDocked: (scope, originPanelId) => {
+        const list = get().dockedOriginByScope[scope] ?? [];
+        return list.includes(originPanelId);
+      },
+    }),
+    {
+      name: "omnipanel.workspace-bottom-dock.v1",
+      version: 1,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        tabsByWorkspace: state.tabsByWorkspace,
+        layoutByWorkspace: state.layoutByWorkspace,
+        activeTabByWorkspace: state.activeTabByWorkspace,
+        dockedOriginByScope: state.dockedOriginByScope,
+      }),
+    },
+  ),
+);
+
+export function buildDefaultWorkspaceLayout(
+  workspace: WorkspaceInfo,
+  tabs: WorkspaceDockTab[],
+  activeTabId: string,
+): SerializedDockview {
+  const tabIds = tabs.map((tab) => tab.id);
+  return (
+    mergePanelsIntoLayout(null, tabIds, activeTabId) ??
+    createDefaultLayout(tabIds, activeTabId)
+  );
+}
+
+export function workspaceLayoutHasPanel(
+  layout: SerializedDockview | null,
+  panelId: string,
+): boolean {
+  if (!layout) return false;
+  return collectPanelIds(layout).has(panelId);
+}

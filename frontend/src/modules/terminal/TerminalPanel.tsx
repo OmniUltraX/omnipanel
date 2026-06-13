@@ -23,6 +23,7 @@ import { LOCAL_TERMINAL_RESOURCE_ID, buildSessionInfoForResource } from "./paneR
 import { TerminalTabPaneView } from "./TerminalPaneView";
 import { DockableWorkspace } from "../../components/dock";
 import { useTerminalDockLayoutStore } from "../../stores/terminalDockLayoutStore";
+import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   const resource = resolveResourceById(tab.session.resourceId);
@@ -64,6 +65,7 @@ export function TerminalPanel() {
 
   const dockLayout = useTerminalDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useTerminalDockLayoutStore((s) => s.setSavedLayout);
+  const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
 
   const paneSendersRef = useRef<Record<string, (cmd: string) => void>>({});
 
@@ -138,26 +140,20 @@ export function TerminalPanel() {
     [removeTab],
   );
 
-  const handleClosePanel = useCallback(
-    (tabIds: string[]) => {
-      for (const tabId of tabIds) {
-        handleCloseTab(tabId);
-      }
-    },
-    [handleCloseTab],
-  );
-
-  /** dock 面板上的 + 按钮回调：始终建一个本地终端。 */
-  const handleAddLocal = useCallback(() => {
+  /** 通过 dockview containerApi.addPanel 创建本地终端面板 */
+  const createPanelRequest = useCallback(() => {
     const name = workspaceActiveResource?.name ?? "本地终端";
     const id = addLocalTerminalTab(name);
     setActiveTab(id);
-    return id;
+    return { id, title: name };
   }, [addLocalTerminalTab, setActiveTab, workspaceActiveResource?.name]);
 
   const dockTabs = useMemo(
-    () => tabs.map((tab) => ({ id: tab.id, label: tabLabel(tab), closable: true })),
-    [tabs],
+    () =>
+      tabs
+        .filter((tab) => !isOriginDocked("terminal", tab.id))
+        .map((tab) => ({ id: tab.id, label: tabLabel(tab), closable: true })),
+    [tabs, isOriginDocked],
   );
 
   const paneServerOptions = useMemo(
@@ -285,15 +281,15 @@ export function TerminalPanel() {
   return (
     <DockableWorkspace
       className="term-dock-workspace"
+      dockScope="terminal"
       tabs={dockTabs}
       activeTabId={activeTabId ?? ""}
       onActiveTabChange={setActiveTab}
       onCloseTab={handleCloseTab}
-      onClosePanel={handleClosePanel}
+      createPanelRequest={createPanelRequest}
       savedLayout={dockLayout}
       onSavedLayoutChange={setDockLayout}
       renderPanel={renderDockPanel}
-      onAddTab={handleAddLocal}
       emptyContent={t("terminal.newSession.local")}
     />
   );

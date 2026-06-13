@@ -129,6 +129,201 @@
     min-width: 0 !important;
 }
 
+/* ─── 底部侧栏（SidebarBottom）───────────────────────────────────── */
+.dock-workspace.content-bottom .dock-panel-bottom {
+    border-top: 1px solid var(--border);
+    background: var(--bg-deeper);
+}
+
+.bottom-sidebar {
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 底部工程工作区：多实例切换 + DockWorkspace 布局 */
+.workspace-bottom-shell {
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace-bottom-titlebar {
+    height: var(--topbar-h);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-deeper);
+    flex-shrink: 0;
+    gap: var(--sp-2);
+    min-width: 0;
+}
+
+.workspace-bottom-titlebar--fullscreen {
+    background: var(--bg);
+}
+
+.workspace-bottom-titlebar-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    max-width: 40%;
+}
+
+.workspace-bottom-titlebar-spacer {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+}
+
+.workspace-bottom-titlebar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.workspace-bottom-titlebar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+}
+
+.workspace-bottom-titlebar-btn:hover {
+    color: var(--fg);
+    background: var(--bg-hover);
+}
+
+.workspace-bottom-fullscreen-shell {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 底部工程工作区全屏：同一实例铺满 workspace 主区域（保留状态栏） */
+.workspace--bottom-fullscreen > .topbar {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.workspace--bottom-fullscreen .workspace-body > .ai-dockview,
+.workspace--bottom-fullscreen .ai-dockview-resize-handle {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.workspace--bottom-fullscreen .content-bottom .dock-panel-main > .dock-layout > .dock-panel:not(.dock-panel-bottom),
+.workspace--bottom-fullscreen .content-bottom .dock-panel-main > .dock-layout > .dock-handle {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.workspace--bottom-fullscreen .content-bottom .dock-panel-bottom {
+    position: fixed;
+    left: var(--sidebar-w);
+    right: 0;
+    top: 0;
+    bottom: 26px;
+    z-index: 100;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+    border-top: none;
+}
+
+.workspace-bottom-host {
+    flex: 1;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    min-width: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.workspace-bottom-pane {
+    display: none;
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.workspace-bottom-pane--active {
+    display: flex;
+    flex-direction: column;
+}
+
+.workspace-bottom-pane:not(.workspace-bottom-pane--active) {
+    pointer-events: none;
+}
+
+.workspace-panel {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+}
+
+.workspace-panel__welcome {
+    background: var(--bg);
+}
+
+.workspace-mirror-placeholder {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    padding: var(--sp-6);
+    color: var(--muted);
+    text-align: center;
+}
+
+.workspace-mirror-placeholder__meta {
+    font-size: 12px;
+    color: var(--meta);
+}
+
+.workspace-terminal-mirror {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-deeper);
+}
+
 .resource-rail {
     height: 100%;
     width: 100%;
@@ -986,7 +1181,7 @@
     background: var(--accent);
 }
 
-/* ─── Dockable Workspace（rc-dock 通用拖拽停靠） ─────────────────────── */
+/* ─── Dockable Workspace（dockview 通用拖拽停靠） ─────────────────────── */
 .dockable-workspace {
     flex: 1;
     min-width: 0;
@@ -996,6 +1191,85 @@
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    --dv-tabs-and-actions-container-font-size: 12px;
+    --dv-tabs-and-actions-container-height: 32px;
+    --dv-sash-color: transparent;
+    --dv-active-sash-color: var(--accent);
+    --dv-drag-over-background-color: var(--accent-soft);
+}
+
+.dockable-workspace__dockview {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+/* dockview tab 栏与面板区域 */
+.dockable-workspace .dv-tabs-and-actions-container {
+    background: var(--bg-deeper);
+    border-bottom: 1px solid var(--border);
+    padding: 0 var(--sp-2);
+    align-items: stretch;
+}
+
+.dockable-workspace .dv-left-actions-container {
+    display: flex;
+    align-items: stretch;
+    align-self: stretch;
+    height: 100%;
+    flex-shrink: 0;
+}
+
+.dockable-workspace .dv-left-actions-container .dock-panel-add-btn {
+    height: 100%;
+    width: calc(var(--dv-tabs-and-actions-container-height) - 2px);
+    min-height: 0;
+    margin: 0;
+    border-radius: 0;
+}
+
+.dockable-workspace .dv-default-tab {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+.dockable-workspace .dv-default-tab.dv-active-tab,
+.dockable-workspace .dv-default-tab.dv-tab-dragging {
+    color: var(--fg);
+}
+
+.dockable-workspace .dv-default-tab.dv-active-tab {
+    border-bottom: 2px solid var(--accent);
+}
+
+.dockable-workspace .dv-content-container {
+    background: var(--bg);
+}
+
+.dockable-workspace .dock-panel-add-btn,
+.dockable-workspace .dock-panel-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--meta);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+}
+
+/* 左侧 header 添加按钮由上方 .dv-left-actions-container 规则覆盖高度 */
+
+.dockable-workspace .dock-panel-add-btn:hover,
+.dockable-workspace .dock-panel-close-btn:hover {
+    color: var(--fg);
+    background: var(--surface);
 }
 
 .rc-dock-wrap {
@@ -1010,6 +1284,13 @@
     align-items: center;
     justify-content: center;
     color: var(--meta);
+}
+
+.dockable-workspace__empty--overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
 }
 
 .dock-pane-surface {
@@ -2976,6 +3257,234 @@
 
     .statusbar-spacer {
         flex: 1;
+    }
+
+    /* ─── Statusbar 工作区按钮 ───────────────────────────────────────── */
+    .statusbar-workspace-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .statusbar-button {
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--meta);
+        cursor: pointer;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        font: inherit;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    .statusbar-button:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .statusbar-button--active {
+        background: var(--surface-hover);
+        color: var(--fg);
+        border-color: var(--border);
+    }
+
+    .statusbar-button-label {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .statusbar-button-chevron {
+        transition: transform 0.15s;
+    }
+
+    .statusbar-button--active .statusbar-button-chevron {
+        transform: rotate(180deg);
+    }
+
+    .statusbar-workspace-toggle--open {
+        color: var(--fg);
+    }
+
+    /* ─── 工作区弹层 (WorkspacePopover) ────────────────────────────── */
+    .workspace-popover-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1099;
+    }
+
+    .workspace-popover {
+        position: fixed;
+        z-index: 1100;
+        width: 280px;
+        max-height: 360px;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+    }
+
+    .workspace-popover-header {
+        padding: 8px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--meta);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .workspace-popover-list {
+        list-style: none;
+        margin: 0;
+        padding: 4px;
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .workspace-popover-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 10px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-2);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.1s, color 0.1s;
+    }
+
+    .workspace-popover-item:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .workspace-popover-item--active {
+        background: var(--accent-soft);
+        color: var(--accent);
+    }
+
+    .workspace-popover-item--active:hover {
+        background: var(--accent-soft);
+    }
+
+    .workspace-popover-item-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .workspace-popover-item-desc {
+        font-size: 11px;
+        color: var(--meta);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 120px;
+    }
+
+    .workspace-popover-item-check {
+        flex-shrink: 0;
+    }
+
+    .workspace-popover-footer {
+        border-top: 1px solid var(--border);
+        padding: 6px;
+    }
+
+    .workspace-popover-new {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 6px 10px;
+        border: 1px dashed var(--border);
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--meta);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .workspace-popover-new:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+        border-color: var(--accent);
+        border-style: solid;
+    }
+
+    .workspace-popover-create {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .workspace-popover-input {
+        flex: 1;
+        min-width: 0;
+        padding: 6px 8px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        font: inherit;
+        font-size: 12px;
+        outline: none;
+    }
+
+    .workspace-popover-input:focus {
+        border-color: var(--accent);
+    }
+
+    .workspace-popover-confirm,
+    .workspace-popover-cancel {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--meta);
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .workspace-popover-confirm {
+        color: var(--accent);
+        border-color: var(--accent);
+    }
+
+    .workspace-popover-confirm:hover {
+        background: var(--accent-soft);
+    }
+
+    .workspace-popover-cancel:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .workspace-popover-error {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--danger);
     }
 
     /* Quick stat cards */

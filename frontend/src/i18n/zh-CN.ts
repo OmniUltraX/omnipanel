@@ -332,6 +332,17 @@ export const zhCN = {
       openAi: "打开 AI 助手",
       commandPaletteHint: "Ctrl+K：命令面板",
       backendLogs: "后台日志",
+      expandWorkspace: "展开工作区",
+      collapseWorkspace: "收起工作区",
+    },
+    workspacePanel: {
+      resources: "资源",
+      welcomePrompt: "从其他模块拖入面板到此自由布局，或切换到模块继续工作",
+      fullscreen: "全屏显示工作区",
+      exitFullscreen: "退出全屏",
+      mirroredDatabase: "数据库面板已迁入工程工作区",
+      mirroredUnknown: "外部面板",
+      mirroredMissing: "源面板已不存在",
     },
     risk: {
       low: "低风险",

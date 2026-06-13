@@ -1,10 +1,87 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
 import { workspaceResources, getResourceById, type EnvironmentTag } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
+import { WorkspacePopover } from "./WorkspacePopover";
+
+function StatusBarWorkspaceControls() {
+  const { t } = useI18n();
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const isOpen = useBottomPanelStore((state) => state.isOpen);
+  const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
+  const requestExpand = useBottomPanelStore((state) => state.requestExpand);
+  const requestCollapse = useBottomPanelStore((state) => state.requestCollapse);
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const panelVisible = isOpen || isFullscreen;
+  const toggleLabel = panelVisible
+    ? isFullscreen
+      ? t("shell.workspacePanel.exitFullscreen")
+      : t("shell.statusbar.collapseWorkspace")
+    : t("shell.statusbar.expandWorkspace");
+
+  return (
+    <div className="statusbar-workspace-controls">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`statusbar-item statusbar-button${open ? " statusbar-button--active" : ""}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={workspace.name}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M3 9h18" />
+          <path d="M9 4v5" />
+        </svg>
+        <span className="statusbar-button-label">{workspace.name}</span>
+        <svg
+          className="statusbar-button-chevron"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          width="10"
+          height="10"
+          aria-hidden
+        >
+          <polyline points="6 15 12 9 18 15" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className={`statusbar-item statusbar-button statusbar-workspace-toggle${panelVisible ? " statusbar-workspace-toggle--open" : ""}`}
+        onClick={() => (panelVisible ? requestCollapse() : requestExpand())}
+        title={toggleLabel}
+        aria-label={toggleLabel}
+        aria-pressed={panelVisible}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
+          <rect x="3" y="4" width="18" height="16" rx="1.5" />
+          <path d="M3 15h18" />
+          {panelVisible ? (
+            <polyline points="8 18 12 14 16 18" />
+          ) : (
+            <polyline points="8 11 12 7 16 11" />
+          )}
+        </svg>
+      </button>
+      {open && (
+        <WorkspacePopover
+          anchorRef={buttonRef}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
 
 export function StatusBar() {
   const { t } = useI18n();
@@ -33,7 +110,7 @@ export function StatusBar() {
 
     return (
       <>
-      <div className="statusbar">
+        <div className="statusbar">
         <span className="statusbar-item">
           <span className="statusbar-dot green" />
           {terminalState}
@@ -59,7 +136,8 @@ export function StatusBar() {
         <span className="statusbar-item">GPU: wgpu</span>
         <span className="statusbar-item">UTF-8</span>
         <span className="statusbar-item">LF</span>
-      </div>
+          <StatusBarWorkspaceControls />
+        </div>
       </>
     );
   }
@@ -95,7 +173,8 @@ export function StatusBar() {
       <span className="statusbar-item" style={{ color: "var(--meta)" }}>
         {t("shell.statusbar.commandPaletteHint")}
       </span>
+      <StatusBarWorkspaceControls />
     </div>
-      </>
+    </>
   );
 }

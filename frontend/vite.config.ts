@@ -16,7 +16,7 @@ export default defineConfig({
       { find: "@repo-logo", replacement: path.resolve(frontendRoot, "../logo") },
       {
         find: "standardwebhooks-cjs",
-        replacement: path.join(frontendRoot, "node_modules/standardwebhooks/dist/index.js"),
+        replacement: path.resolve(frontendRoot, "../node_modules/standardwebhooks/dist/index.js"),
       },
       { find: "standardwebhooks", replacement: path.join(shimsDir, "standardwebhooks.ts") },
     ],
@@ -46,8 +46,10 @@ export default defineConfig({
       "@langchain/langgraph",
       "@langchain/langgraph-sdk",
       "js-tiktoken",
-      "langsmith",
-      "rc-dock",
+      "langsmith",
+      "dockview-react",
+      "dockview",
+      "dockview-core",
     ],
     exclude: [
       "node-ipc",

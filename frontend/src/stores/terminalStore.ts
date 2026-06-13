@@ -4,6 +4,18 @@ import type { Terminal } from "@xterm/xterm";
 
 let tabCounter = 0;
 
+/** 从已持久化的 tab id 恢复计数器，避免刷新后重复生成 tab-1 */
+function syncTabCounterFromTabs(tabs: Array<{ id: string }>): void {
+  let max = 0;
+  for (const tab of tabs) {
+    const match = /^tab-(\d+)$/.exec(tab.id);
+    if (match) {
+      max = Math.max(max, Number(match[1]));
+    }
+  }
+  tabCounter = max;
+}
+
 export function createTerminalTabId() {
   tabCounter += 1;
   return `tab-${tabCounter}`;
@@ -368,6 +380,7 @@ export const useTerminalStore = create<TerminalState>()(
         const tabs = (persisted.tabs ?? [])
           .map((item) => normalizePersistedTab(item))
           .filter((item): item is TerminalTab => item !== null);
+        syncTabCounterFromTabs(tabs);
         return {
           ...currentState,
           tabs,

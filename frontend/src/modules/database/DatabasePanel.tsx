@@ -56,6 +56,7 @@ import { DbPanelSurface } from "./DbPanelSurface";
 import { DockableWorkspace } from "../../components/dock";
 import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
+import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
 const INITIAL_SQL_TAB: SqlWorkspaceTab = {
@@ -134,6 +135,7 @@ export function DatabasePanel() {
   const setToolboxOpen = useDbToolboxStore((s) => s.setOpen);
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
+  const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
 
   const activeGroupNameFromStore = useMemo(
     () => getGroupName(activeGroupId),
@@ -1199,8 +1201,11 @@ export function DatabasePanel() {
   ]);
 
   const dockTabs = useMemo(
-    () => workspaceTabs.map((tab) => ({ id: tab.id, label: tab.label })),
-    [workspaceTabs],
+    () =>
+      workspaceTabs
+        .filter((tab) => !isOriginDocked("database", tab.id))
+        .map((tab) => ({ id: tab.id, label: tab.label })),
+    [workspaceTabs, isOriginDocked],
   );
 
   const renderDockPanel = useCallback(
@@ -1247,6 +1252,7 @@ export function DatabasePanel() {
       >
         <DockableWorkspace
           className="db-workspace"
+          dockScope="database"
           tabs={dockTabs}
           activeTabId={activeWorkspaceTabId}
           onActiveTabChange={setActiveWorkspaceTabId}

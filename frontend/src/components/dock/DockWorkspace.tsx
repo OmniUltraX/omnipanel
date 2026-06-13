@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { PanelProps } from "react-resizable-panels";
+import type { OnPanelResize, PanelImperativeHandle, PanelProps } from "react-resizable-panels";
 import { DockLayout } from "./DockLayout";
 import { DockPanel } from "./DockPanel";
 import { DockHandle } from "./DockHandle";
@@ -37,6 +37,10 @@ interface DockWorkspaceProps {
   bottomSizePx?: number;
   bottomMinPx?: number;
   bottomMaxPx?: number;
+  /** 外部用于命令式控制底部面板（如 expand / collapse）的 ref */
+  bottomPanelRef?: React.Ref<PanelImperativeHandle | null>;
+  /** 底部面板尺寸变化回调（用于同步展开/收起状态） */
+  onBottomPanelResize?: OnPanelResize;
   className?: string;
 }
 
@@ -56,6 +60,8 @@ export function DockWorkspace({
   bottomSizePx = 220,
   bottomMinPx = 160,
   bottomMaxPx = 420,
+  bottomPanelRef,
+  onBottomPanelResize,
   className,
 }: DockWorkspaceProps) {
   const rail = RAIL_PRESETS[leftPreset];
@@ -80,6 +86,8 @@ export function DockWorkspace({
         maxSize={bottomMaxPx}
         collapsible
         collapsedSize={0}
+        panelRef={bottomPanelRef}
+        onResize={onBottomPanelResize}
         className="dock-panel-bottom"
       >
         {bottom}
