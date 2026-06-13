@@ -9,6 +9,10 @@ import {
   type AiModelProvider,
 } from "../../stores/aiModelsStore";
 import {
+  useAcpServicesStore,
+  type AcpService,
+} from "../../stores/acpServicesStore";
+import {
   useSettingsStore,
   LOCALE_OPTIONS,
   UI_SCALE,
@@ -27,6 +31,7 @@ import {
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
+import { AddAcpServiceDialog } from "../../components/settings/AddAcpServiceDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { Button } from "../../components/ui/Button";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
@@ -77,7 +82,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "ai",
-    label: "AI 模型",
+    label: "AI",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
@@ -277,10 +282,8 @@ function KeybindingsSection() {
   );
 }
 
-function AiModelsSection() {
+function ModelsSection() {
   const { t } = useI18n();
-  const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
-  const setAiDisplayMode = useSettingsStore((s) => s.setAiDisplayMode);
   const providers = useAiModelsStore((s) => s.providers);
   const removeProvider = useAiModelsStore((s) => s.removeProvider);
   const refreshProviderModelsFromApi = useAiModelsStore((s) => s.refreshProviderModelsFromApi);
@@ -362,212 +365,210 @@ function AiModelsSection() {
   };
 
   return (
-    <div className="settings-panel active">
-      <div className="settings-section">
-        <div className="settings-section-header">
-          <div>
-            <h2>{t("settings.aiModels.title")}</h2>
-            <p className="section-desc">{t("settings.aiModels.description")}</p>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            className="ai-models-add-btn"
-            onClick={openAddDialog}
-            title={t("settings.aiModels.add.title")}
-            aria-label={t("settings.aiModels.add.title")}
+    <div className="settings-section">
+      <div className="settings-section-header">
+        <div>
+          <h2>{t("settings.aiModels.title")}</h2>
+          <p className="section-desc">{t("settings.aiModels.description")}</p>
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          className="ai-models-add-btn"
+          onClick={openAddDialog}
+          title={t("settings.aiModels.add.title")}
+          aria-label={t("settings.aiModels.add.title")}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            width="14"
+            height="14"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              width="14"
-              height="14"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            <span>{t("settings.aiModels.add.title")}</span>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>{t("settings.aiModels.add.title")}</span>
+        </Button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="ai-models-empty">
+          <ModuleEmptyState
+            preset="robot"
+            title={t("settings.aiModels.empty.title")}
+            desc={t("settings.aiModels.empty.desc")}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            style={{ marginTop: "var(--sp-3)" }}
+            onClick={openAddDialog}
+          >
+            {t("settings.aiModels.empty.cta")}
           </Button>
         </div>
-
-        {providers.length === 0 ? (
-          <div className="ai-models-empty">
-            <ModuleEmptyState
-              preset="robot"
-              title={t("settings.aiModels.empty.title")}
-              desc={t("settings.aiModels.empty.desc")}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              style={{ marginTop: "var(--sp-3)" }}
-              onClick={openAddDialog}
-            >
-              {t("settings.aiModels.empty.cta")}
-            </Button>
-          </div>
-        ) : (
-          <ul className="ai-models-list">
-            {providers.map((provider) => {
-              const isConfirmingDelete = confirmDeleteId === provider.id;
-              const hasModels = provider.modelNames.length > 0;
-              const isExpanded = expandedIds.has(provider.id);
-              const enabledCount = countEnabledModels(provider);
-              const isRefreshing = refreshingIds.has(provider.id);
-              const notice =
-                refreshNotice?.providerId === provider.id ? refreshNotice : null;
-              return (
-                <li key={provider.id} className="ai-provider-card">
-                  <div className="ai-provider-header">
-                    <div className="ai-provider-header-main">
-                      {hasModels ? (
-                        <button
-                          type="button"
-                          className="ai-provider-expand"
-                          aria-expanded={isExpanded}
-                          aria-label={t("settings.aiModels.toggleModels")}
-                          onClick={() => toggleExpanded(provider.id)}
+      ) : (
+        <ul className="ai-models-list">
+          {providers.map((provider) => {
+            const isConfirmingDelete = confirmDeleteId === provider.id;
+            const hasModels = provider.modelNames.length > 0;
+            const isExpanded = expandedIds.has(provider.id);
+            const enabledCount = countEnabledModels(provider);
+            const isRefreshing = refreshingIds.has(provider.id);
+            const notice =
+              refreshNotice?.providerId === provider.id ? refreshNotice : null;
+            return (
+              <li key={provider.id} className="ai-provider-card">
+                <div className="ai-provider-header">
+                  <div className="ai-provider-header-main">
+                    {hasModels ? (
+                      <button
+                        type="button"
+                        className="ai-provider-expand"
+                        aria-expanded={isExpanded}
+                        aria-label={t("settings.aiModels.toggleModels")}
+                        onClick={() => toggleExpanded(provider.id)}
+                      >
+                        {isExpanded ? "▾" : "▸"}
+                      </button>
+                    ) : (
+                      <span className="ai-provider-expand-placeholder" aria-hidden />
+                    )}
+                    <div className="ai-provider-summary">
+                      <div className="ai-provider-title-row">
+                        <span className="ai-provider-name">{provider.providerName}</span>
+                        <span
+                          className={`ai-model-row-standard ai-model-row-standard-${provider.apiStandard}`}
                         >
-                          {isExpanded ? "▾" : "▸"}
-                        </button>
-                      ) : (
-                        <span className="ai-provider-expand-placeholder" aria-hidden />
-                      )}
-                      <div className="ai-provider-summary">
-                        <div className="ai-provider-title-row">
-                          <span className="ai-provider-name">{provider.providerName}</span>
-                          <span
-                            className={`ai-model-row-standard ai-model-row-standard-${provider.apiStandard}`}
-                          >
-                            {provider.apiStandard === "openai" ? "OpenAI" : "Anthropic"}
+                          {provider.apiStandard === "openai" ? "OpenAI" : "Anthropic"}
+                        </span>
+                        {hasModels ? (
+                          <span className="ai-provider-model-count">
+                            {t("settings.aiModels.enabledCount", {
+                              enabled: enabledCount,
+                              total: provider.modelNames.length,
+                            })}
                           </span>
-                          {hasModels ? (
-                            <span className="ai-provider-model-count">
-                              {t("settings.aiModels.enabledCount", {
-                                enabled: enabledCount,
-                                total: provider.modelNames.length,
-                              })}
-                            </span>
-                          ) : (
-                            <span className="ai-provider-single-model">{t("settings.aiModels.noModelsYet")}</span>
-                          )}
-                        </div>
-                        <div className="ai-model-row-meta">
-                          <span className="ai-model-row-baseurl" title={provider.baseUrl}>
-                            {provider.baseUrl}
-                          </span>
-                          <span className="ai-model-row-sep">·</span>
-                          <span className="ai-model-row-key" title={provider.apiKey}>
-                            {maskApiKey(provider.apiKey)}
-                          </span>
-                        </div>
+                        ) : (
+                          <span className="ai-provider-single-model">{t("settings.aiModels.noModelsYet")}</span>
+                        )}
                       </div>
-                    </div>
-
-                    <div className="ai-model-row-actions">
-                      {isConfirmingDelete ? (
-                        <>
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => {
-                              removeProvider(provider.id);
-                              setConfirmDeleteId(null);
-                            }}
-                          >
-                            {t("settings.aiModels.confirmDelete")}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setConfirmDeleteId(null)}
-                          >
-                            {t("settings.aiModels.cancelDelete")}
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="ai-model-row-refresh"
-                            title={t("settings.aiModels.refresh.title")}
-                            aria-label={t("settings.aiModels.refresh.title")}
-                            disabled={isRefreshing}
-                            onClick={() => void handleRefreshModels(provider)}
-                          >
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              width="14"
-                              height="14"
-                              className={isRefreshing ? "icon-spin" : undefined}
-                            >
-                              <path d="M23 4v6h-6M1 20v-6h6" />
-                              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                            </svg>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="ai-model-row-edit"
-                            title={t("settings.aiModels.editBtn")}
-                            aria-label={t("settings.aiModels.editBtn")}
-                            onClick={() => openEditDialog(provider)}
-                          >
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              width="14"
-                              height="14"
-                            >
-                              <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                            </svg>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="ai-model-row-delete"
-                            title={t("settings.aiModels.deleteBtn")}
-                            aria-label={t("settings.aiModels.deleteBtn")}
-                            onClick={() => setConfirmDeleteId(provider.id)}
-                          >
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              width="14"
-                              height="14"
-                            >
-                              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                            </svg>
-                          </Button>
-                        </>
-                      )}
+                      <div className="ai-model-row-meta">
+                        <span className="ai-model-row-baseurl" title={provider.baseUrl}>
+                          {provider.baseUrl}
+                        </span>
+                        <span className="ai-model-row-sep">·</span>
+                        <span className="ai-model-row-key" title={provider.apiKey}>
+                          {maskApiKey(provider.apiKey)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {notice && (
-                    <div
-                      className={`ai-provider-refresh-notice ai-provider-refresh-notice--${notice.kind}`}
-                    >
-                      {notice.message}
-                    </div>
-                  )}
+                  <div className="ai-model-row-actions">
+                    {isConfirmingDelete ? (
+                      <>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            removeProvider(provider.id);
+                            setConfirmDeleteId(null);
+                          }}
+                        >
+                          {t("settings.aiModels.confirmDelete")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          {t("settings.aiModels.cancelDelete")}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ai-model-row-refresh"
+                          title={t("settings.aiModels.refresh.title")}
+                          aria-label={t("settings.aiModels.refresh.title")}
+                          disabled={isRefreshing}
+                          onClick={() => void handleRefreshModels(provider)}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                            className={isRefreshing ? "icon-spin" : undefined}
+                          >
+                            <path d="M23 4v6h-6M1 20v-6h6" />
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ai-model-row-edit"
+                          title={t("settings.aiModels.editBtn")}
+                          aria-label={t("settings.aiModels.editBtn")}
+                          onClick={() => openEditDialog(provider)}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                          >
+                            <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ai-model-row-delete"
+                          title={t("settings.aiModels.deleteBtn")}
+                          aria-label={t("settings.aiModels.deleteBtn")}
+                          onClick={() => setConfirmDeleteId(provider.id)}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                          >
+                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                          </svg>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-                  {hasModels && isExpanded ? <ProviderModelList provider={provider} /> : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+                {notice && (
+                  <div
+                    className={`ai-provider-refresh-notice ai-provider-refresh-notice--${notice.kind}`}
+                  >
+                    {notice.message}
+                  </div>
+                )}
+
+                {hasModels && isExpanded ? <ProviderModelList provider={provider} /> : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <AddModelDialog
         open={showDialog}
@@ -575,29 +576,264 @@ function AiModelsSection() {
         editProvider={editingProvider}
         onSaved={handleProviderSaved}
       />
+    </div>
+  );
+}
 
-      <div className="settings-section-divider" />
+function AcpServicesSection() {
+  const { t } = useI18n();
+  const services = useAcpServicesStore((s) => s.services);
+  const removeService = useAcpServicesStore((s) => s.removeService);
+  const setActive = useAcpServicesStore((s) => s.setActive);
 
-      <div className="settings-section">
-        <h2>{t("settings.aiDisplay.label")}</h2>
-        <p className="section-desc">{t("settings.aiDisplay.desc")}</p>
-        <div className="setting-row">
-          <div className="setting-label">
-            <h4>{t("settings.aiDisplay.label")}</h4>
-          </div>
-          <Select
-            className="setting-select"
-            size="sm"
-            value={aiDisplayMode}
-            onChange={(v) => setAiDisplayMode(v as AiDisplayMode)}
-            searchable={false}
-            options={[
-              { value: "subwindow", label: t("settings.aiDisplay.subwindow") },
-              { value: "dockview", label: t("settings.aiDisplay.dockview") },
-            ]}
-          />
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingService, setEditingService] = useState<AcpService | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const openAddDialog = () => {
+    setEditingService(null);
+    setShowDialog(true);
+  };
+
+  const openEditDialog = (service: AcpService) => {
+    setConfirmDeleteId(null);
+    setEditingService(service);
+    setShowDialog(true);
+  };
+
+  const closeDialog = () => {
+    setShowDialog(false);
+    setEditingService(null);
+  };
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-header">
+        <div>
+          <h2>{t("settings.acpServices.title")}</h2>
+          <p className="section-desc">{t("settings.acpServices.description")}</p>
         </div>
+        <Button
+          variant="primary"
+          size="sm"
+          className="ai-models-add-btn"
+          onClick={openAddDialog}
+          title={t("settings.acpServices.add.title")}
+          aria-label={t("settings.acpServices.add.title")}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            width="14"
+            height="14"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>{t("settings.acpServices.add.title")}</span>
+        </Button>
       </div>
+
+      {services.length === 0 ? (
+        <div className="ai-models-empty">
+          <ModuleEmptyState
+            preset="inbox"
+            title={t("settings.acpServices.empty.title")}
+            desc={t("settings.acpServices.empty.desc")}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            style={{ marginTop: "var(--sp-3)" }}
+            onClick={openAddDialog}
+          >
+            {t("settings.acpServices.empty.cta")}
+          </Button>
+        </div>
+      ) : (
+        <ul className="ai-models-list">
+          {services.map((service) => {
+            const isConfirmingDelete = confirmDeleteId === service.id;
+            return (
+              <li
+                key={service.id}
+                className={`ai-provider-card${service.isActive ? " ai-provider-card--active" : ""}`}
+              >
+                <div className="ai-provider-header">
+                  <div className="ai-provider-header-main">
+                    <span className="ai-provider-expand-placeholder" aria-hidden />
+                    <div className="ai-provider-summary">
+                      <div className="ai-provider-title-row">
+                        <span className="ai-provider-name">{service.name}</span>
+                        {service.isActive ? (
+                          <span className="ai-model-row-standard ai-model-row-standard-active">
+                            {t("settings.acpServices.activeBadge")}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="ai-model-row-meta">
+                        <span
+                          className="ai-model-row-baseurl"
+                          title={service.executablePath}
+                        >
+                          {service.executablePath || (
+                            <span className="acp-service-path-empty">
+                              {t("settings.acpServices.pathEmpty")}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ai-model-row-actions">
+                    {isConfirmingDelete ? (
+                      <>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            removeService(service.id);
+                            setConfirmDeleteId(null);
+                          }}
+                        >
+                          {t("settings.acpServices.confirmDelete")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          {t("settings.acpServices.cancelDelete")}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`ai-model-row-activate${service.isActive ? " is-active" : ""}`}
+                          disabled={service.isActive}
+                          onClick={() => setActive(service.id)}
+                          title={
+                            service.isActive
+                              ? t("settings.acpServices.activeTitle")
+                              : t("settings.acpServices.activateTitle")
+                          }
+                          aria-label={
+                            service.isActive
+                              ? t("settings.acpServices.activeTitle")
+                              : t("settings.acpServices.activateTitle")
+                          }
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                          >
+                            <path d="M12 2v10" />
+                            <path d="M5.6 5.6a9 9 0 1012.8 0" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ai-model-row-edit"
+                          title={t("settings.acpServices.editBtn")}
+                          aria-label={t("settings.acpServices.editBtn")}
+                          onClick={() => openEditDialog(service)}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                          >
+                            <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ai-model-row-delete"
+                          title={t("settings.acpServices.deleteBtn")}
+                          aria-label={t("settings.acpServices.deleteBtn")}
+                          onClick={() => setConfirmDeleteId(service.id)}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            width="14"
+                            height="14"
+                          >
+                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                          </svg>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <AddAcpServiceDialog
+        open={showDialog}
+        onClose={closeDialog}
+        editService={editingService}
+      />
+    </div>
+  );
+}
+
+function AiOtherSection() {
+  const { t } = useI18n();
+  const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
+  const setAiDisplayMode = useSettingsStore((s) => s.setAiDisplayMode);
+
+  return (
+    <div className="settings-section">
+      <h2>{t("settings.aiOther.title")}</h2>
+      <p className="section-desc">{t("settings.aiOther.desc")}</p>
+      <div className="setting-row">
+        <div className="setting-label">
+          <h4>{t("settings.aiDisplay.label")}</h4>
+          <p>{t("settings.aiDisplay.desc")}</p>
+        </div>
+        <Select
+          className="setting-select"
+          size="sm"
+          value={aiDisplayMode}
+          onChange={(v) => setAiDisplayMode(v as AiDisplayMode)}
+          searchable={false}
+          options={[
+            { value: "subwindow", label: t("settings.aiDisplay.subwindow") },
+            { value: "dockview", label: t("settings.aiDisplay.dockview") },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AiSection() {
+  return (
+    <div className="settings-panel active">
+      <ModelsSection />
+      <div className="settings-section-divider" />
+      <AcpServicesSection />
+      <div className="settings-section-divider" />
+      <AiOtherSection />
     </div>
   );
 }
@@ -624,7 +860,7 @@ export function SettingsPanel() {
   const [uiDensity, setUiDensity] = useState("标准");
   const [sidebarPos, setSidebarPos] = useState("左侧");
 
-  // AI settings are managed by the new AiModelsSection component.
+  // AI settings are managed by the new AiSection component.
 
   // Security settings state
   const [credentialStorage, setCredentialStorage] = useState("系统钥匙串");
@@ -1029,8 +1265,8 @@ export function SettingsPanel() {
         {/* Keybindings */}
         {activeSection === "keybindings" && <KeybindingsSection />}
 
-        {/* AI Models */}
-        {activeSection === "ai" && <AiModelsSection />}
+        {/* AI (Models / ACP Services / Other) */}
+        {activeSection === "ai" && <AiSection />}
 
         {/* Security */}
         {activeSection === "security" && (

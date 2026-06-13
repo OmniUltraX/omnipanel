@@ -6,8 +6,6 @@ import {
   useNavigate,
 } from "react-router-dom";
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -38,10 +36,6 @@ import { WorkflowPanel } from "./modules/workflow/WorkflowPanel";
 import { KnowledgePanel } from "./modules/knowledge/KnowledgePanel";
 import { TasksPanel } from "./modules/tasks/TasksPanel";
 import { SettingsPanel } from "./modules/settings/SettingsPanel";
-
-const AgentPanel = lazy(() =>
-  import("./modules/agent/AgentPanel").then((m) => ({ default: m.AgentPanel })),
-);
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
@@ -335,14 +329,6 @@ function AppShell() {
                       <Route path="/workflow" element={<WorkflowPanel />} />
                       <Route path="/knowledge" element={<KnowledgePanel />} />
                       <Route path="/tasks" element={<TasksPanel />} />
-                      <Route
-                        path="/agent"
-                        element={
-                          <Suspense fallback={null}>
-                            <AgentPanel />
-                          </Suspense>
-                        }
-                      />
                       <Route path="/settings" element={<SettingsPanel />} />
                     </Routes>
                   )}

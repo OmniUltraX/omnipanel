@@ -12834,7 +12834,6 @@
     }
 
     .method-select {
-        padding: 6px 8px;
         background: var(--bg-deeper);
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
@@ -15305,6 +15304,41 @@
     .ai-model-row-delete:hover {
         color: var(--danger);
         background: color-mix(in oklch, var(--danger) 12%, transparent);
+    }
+
+    /* ACP Services (与 AI 模型共用列表/卡片样式，仅追加 active 态与 activate 按钮) */
+    .ai-provider-card--active {
+        border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
+        background: color-mix(in oklch, var(--accent) 6%, var(--surface));
+    }
+
+    .ai-model-row-standard-active {
+        background: color-mix(in oklch, var(--accent) 14%, transparent);
+        color: var(--accent);
+    }
+
+    .acp-service-path-empty {
+        color: var(--muted);
+        font-style: italic;
+        font-family: inherit;
+    }
+
+    .ai-model-row-activate {
+        color: var(--meta);
+    }
+
+    .ai-model-row-activate:hover:not(:disabled) {
+        color: var(--accent);
+        background: color-mix(in oklch, var(--accent) 12%, transparent);
+    }
+
+    .ai-model-row-activate.is-active {
+        color: var(--accent);
+        background: color-mix(in oklch, var(--accent) 14%, transparent);
+    }
+
+    .ai-model-row-activate:disabled {
+        cursor: default;
     }
 
     /* Add Model dialog */
