@@ -351,7 +351,67 @@ function layoutNeedsMerge(
   for (const id of tabIds) {
     if (!existing.has(id)) return true;
   }
+  // 即使 panel 数量和 tabIds 一致，grid 中 leaf.views 引用的 id 仍可能不在
+  // panels 字典中（v3/v4 早期脏数据）。这种"views 漂移"会让 dockview 在
+  // _deserializer.fromJSON(panels[child]) 拿到 undefined 并抛出。检测到则要求
+  // 走 stripMissingPanels 重新对齐。
+  const viewsIds = collectViewIds(base);
+  for (const id of viewsIds) {
+    if (!allowed.has(id)) return true;
+  }
   return false;
+}
+
+/** 收集 grid 中所有 leaf.views 引用的 panel id（不依赖 panels 字典）。 */
+function collectViewIds(layout: SerializedDockview): Set<string> {
+  const ids = new Set<string>();
+  const walk = (node: SerializedNode | null | undefined) => {
+    if (!node) return;
+    if (isLeaf(node)) {
+      for (const id of node.data.views ?? []) ids.add(id);
+      return;
+    }
+    if (isBranch(node)) {
+      for (const child of node.data) walk(child);
+    }
+  };
+  walk(layout.grid?.root as SerializedNode | undefined);
+  return ids;
+}
+
+/** 校验已合并布局是否结构完好（panels↔views 一致 + 每个 leaf 有合法 id）。 */
+export function isLayoutUsable(
+  layout: SerializedDockview | null,
+): layout is SerializedDockview {
+  if (!layout) return false;
+  const panelIds = new Set(Object.keys(layout.panels ?? {}));
+  if (panelIds.size === 0) return false;
+  const root = layout.grid?.root as SerializedNode | undefined;
+  if (!root) return false;
+  let foundUsableLeaf = false;
+  const walk = (node: SerializedNode | null | undefined): boolean => {
+    if (!node) return true;
+    if (isLeaf(node)) {
+      if (typeof node.data?.id !== "string" || node.data.id.length === 0) return false;
+      const views = node.data.views ?? [];
+      if (views.length === 0) return false;
+      for (const id of views) {
+        if (!panelIds.has(id)) return false;
+      }
+      foundUsableLeaf = true;
+      return true;
+    }
+    if (isBranch(node)) {
+      if (!Array.isArray(node.data) || node.data.length === 0) return false;
+      for (const child of node.data) {
+        if (!walk(child)) return false;
+      }
+      return true;
+    }
+    return false;
+  };
+  if (!walk(root)) return false;
+  return foundUsableLeaf;
 }
 
 /**
@@ -369,6 +429,12 @@ export function mergePanelsIntoLayout(
 
   const allowed = new Set(tabIds);
   const cleaned = stripMissingPanels(base, allowed);
+  // stripMissingPanels 的"全空"兜底会产生一个无 id 的空 leaf —— 这种情况
+  // 当且仅当 panels 字典里有内容但 grid 中没有匹配 leaf 时出现，视为
+  // "views 漂移"，必须走 addMissingPanels 重建 grid。
+  if (!isLayoutUsable(cleaned)) {
+    return stripSideHeaderLayout(addMissingPanels(cleaned, tabIds));
+  }
   const missing = tabIds.filter((id) => !collectPanelIds(cleaned).has(id));
   if (missing.length === 0) return stripSideHeaderLayout(cleaned);
 

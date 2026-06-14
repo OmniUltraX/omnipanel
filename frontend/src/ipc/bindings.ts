@@ -20,6 +20,7 @@ export const commands = {
 	dbSaveSchemaFilters: (snapshot: SchemaFiltersSnapshot) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_filters", { snapshot })),
 	dbTestConnection: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_test_connection", { connection })),
 	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
+	dbCreateDatabase: (args: CreateDatabaseArgs) => typedError<string, string>(__TAURI_INVOKE("db_create_database", { args })),
 	dbIntrospectSchema: (connection: DbConnectionConfig, schema: string | null) => typedError<DbIntrospectResult, string>(__TAURI_INVOKE("db_introspect_schema", { connection, schema })),
 	dbIntrospectTable: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<DbTableSchema, string>(__TAURI_INVOKE("db_introspect_table", { connection, schema, table })),
 	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
@@ -435,6 +436,14 @@ export type Connection = {
 
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
 export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | "protocol";
+
+/**  创建数据库参数。name 必填；charset 可选，留空时使用服务器默认。 */
+export type CreateDatabaseArgs = {
+	connection: DbConnectionConfig,
+	name: string,
+	charset?: string | null,
+	collation?: string | null,
+};
 
 export type DbColumnMeta = {
 	name: string,

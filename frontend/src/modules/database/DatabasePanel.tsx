@@ -4,9 +4,12 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
+import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { SchemaBrowser, type SchemaTableSelection } from "./SchemaBrowser";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
+import { FormDialog } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
@@ -19,11 +22,13 @@ import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
   countTable,
+  createDatabase,
   fetchTableDdl,
   introspectSchema,
   introspectTable,
   listConnections,
   listDatabases,
+  MYSQL_CHARSET_PRESETS,
   previewTable,
   type DbColumnMeta,
   type DbConnectionConfig,
@@ -78,6 +83,153 @@ function readRowKeyValue(rowKey: string, colName: string): string {
   return "";
 }
 
+interface CreateDatabaseDialogProps {
+  open: boolean;
+  connection: DbConnectionConfig | null;
+  onCancel: () => void;
+  onCreated: (name: string) => void;
+}
+
+const RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
+const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
+
+function CreateDatabaseDialog({
+  open,
+  connection,
+  onCancel,
+  onCreated,
+}: CreateDatabaseDialogProps) {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  const [charset, setCharset] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setName("");
+      setCharset("");
+      setBusy(false);
+      setError(null);
+    }
+  }, [open, connection?.id]);
+
+  const validate = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return t("database.createDatabase.nameRequired");
+    if (trimmed.length > 64) return t("database.createDatabase.nameTooLong");
+    if (!DB_NAME_RE.test(trimmed)) return t("database.createDatabase.nameInvalid");
+    if (RESERVED_DB_NAMES.some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
+      return t("database.createDatabase.nameReserved", { name: trimmed });
+    }
+    return null;
+  };
+
+  const handleSubmit = async () => {
+    if (!connection) return;
+    const trimmed = name.trim();
+    const validationError = validate(trimmed);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const preset = charset
+        ? MYSQL_CHARSET_PRESETS.find((p) => p.value === charset)
+        : null;
+      const created = await createDatabase({
+        connection,
+        name: trimmed,
+        charset: charset || null,
+        collation: preset?.collation ?? null,
+      });
+      onCreated(created);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(t("database.createDatabase.failed", { message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const charsetOptions = [
+    { value: "", label: t("database.createDatabase.charsetServerDefault") },
+    ...MYSQL_CHARSET_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+  ];
+  const preset = charset
+    ? MYSQL_CHARSET_PRESETS.find((p) => p.value === charset)
+    : null;
+
+  return (
+    <FormDialog
+      open={open}
+      onClose={busy ? () => undefined : onCancel}
+      closeDisabled={busy}
+      title={t("database.createDatabase.title")}
+      subtitle={connection ? t("database.createDatabase.subtitle", { name: connection.name }) : undefined}
+      size="sm"
+      onCancel={onCancel}
+      cancelDisabled={busy}
+      status={error ? { kind: "error", message: error } : null}
+      primaryAction={{
+        label: busy ? t("database.createDatabase.creating") : t("database.createDatabase.create"),
+        disabled: busy,
+        onClick: () => void handleSubmit(),
+      }}
+    >
+      <div className="form-field">
+        <label className="form-label" htmlFor="create-db-name">
+          {t("database.createDatabase.nameLabel")}
+        </label>
+        <input
+          id="create-db-name"
+          className="input"
+          autoFocus
+          placeholder={t("database.createDatabase.namePlaceholder")}
+          value={name}
+          disabled={busy}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleSubmit();
+            }
+          }}
+          style={{ width: "100%" }}
+        />
+      </div>
+      <div className="form-field">
+        <label className="form-label" htmlFor="create-db-charset">
+          {t("database.createDatabase.charsetLabel")}
+        </label>
+        <Select
+          value={charset}
+          onChange={setCharset}
+          options={charsetOptions}
+          size="sm"
+          disabled={busy}
+        />
+      </div>
+      {preset && (
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--muted, #8e8e93)",
+            marginTop: "-2px",
+          }}
+        >
+          {t("database.createDatabase.collationLabel")}: <code>{preset.collation}</code>
+        </div>
+      )}
+    </FormDialog>
+  );
+}
+
 export function DatabasePanel() {
   const { t } = useI18n();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
@@ -87,6 +239,7 @@ export function DatabasePanel() {
   const addGroup = useDbGroupStore((s) => s.addGroup);
   const getGroupName = useDbGroupStore((s) => s.getGroupName);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<DbConnectionConfig | null>(null);
   const [schemaRefreshToken, setSchemaRefreshToken] = useState(0);
 
   const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
@@ -128,6 +281,20 @@ export function DatabasePanel() {
         x: number;
         y: number;
         selection: SchemaTableSelection;
+      }
+    | null
+  >(null);
+  const [connCtxMenu, setConnCtxMenu] = useState<
+    | {
+        x: number;
+        y: number;
+        connId: string;
+      }
+    | null
+  >(null);
+  const [createDbDialog, setCreateDbDialog] = useState<
+    | {
+        connId: string;
       }
     | null
   >(null);
@@ -712,6 +879,15 @@ export function DatabasePanel() {
     [],
   );
 
+  const handleContextConnection = useCallback(
+    (connId: string, event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setConnCtxMenu({ x: event.clientX, y: event.clientY, connId });
+    },
+    [],
+  );
+
   async function writeToClipboard(text: string): Promise<boolean> {
     const clip = navigator.clipboard;
     if (clip && typeof clip.writeText === "function") {
@@ -891,6 +1067,90 @@ export function DatabasePanel() {
       },
     ];
   }, [t, copyDdlForCurrentTable, copyNameForCurrentTable]);
+
+  const refreshConnDatabases = useCallback(
+    (connId: string) => {
+      const conn = connections.find((c) => c.id === connId);
+      if (!conn) return;
+      let cancelled = false;
+      void listDatabases(conn)
+        .then((names) => {
+          if (cancelled) return;
+          setDatabasesByConnId((prev) => ({ ...prev, [connId]: names }));
+          setDatabaseFilters((prev) => ({
+            ...prev,
+            [connId]: mergeFilter(prev[connId], names),
+          }));
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error("[DatabasePanel] listDatabases failed", err);
+          const fallback = conn.database.trim() ? [conn.database] : [];
+          setDatabasesByConnId((prev) => ({ ...prev, [connId]: fallback }));
+        });
+      return () => {
+        cancelled = true;
+      };
+    },
+    [connections],
+  );
+
+  const buildConnContextMenuItems = useCallback(() => {
+    const plusIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M8 3v10M3 8h10" />
+      </svg>
+    );
+    const refreshIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M2 8a6 6 0 0 1 10.5-3.9" />
+        <path d="M14 2v3h-3" />
+        <path d="M14 8a6 6 0 0 1-10.5 3.9" />
+        <path d="M2 14v-3h3" />
+      </svg>
+    );
+    const editIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M11 2l3 3-8 8H3v-3l8-8z" />
+        <path d="M2 14h12" />
+      </svg>
+    );
+    const connId = connCtxMenu?.connId;
+    const connection = connections.find((c) => c.id === connId);
+    return [
+      {
+        id: "edit-connection",
+        label: t("database.contextMenu.editConnection"),
+        icon: editIcon,
+        disabled: !connection,
+        onClick: () => {
+          if (!connection) return;
+          setEditingConnection(connection);
+          setDialogOpen(true);
+        },
+      },
+      {
+        id: "create-database",
+        label: t("database.contextMenu.createDatabase"),
+        icon: plusIcon,
+        disabled: !connId,
+        onClick: () => {
+          if (!connId) return;
+          setCreateDbDialog({ connId });
+        },
+      },
+      {
+        id: "refresh-databases",
+        label: t("database.contextMenu.refresh"),
+        icon: refreshIcon,
+        disabled: !connId,
+        onClick: () => {
+          if (!connId) return;
+          refreshConnDatabases(connId);
+        },
+      },
+    ];
+  }, [connCtxMenu?.connId, connections, refreshConnDatabases, t]);
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
@@ -1242,31 +1502,50 @@ export function DatabasePanel() {
             groups={groups}
             activeGroupId={activeGroupId}
             activeConnId={activeConnId}
-            onCreateConnection={() => setDialogOpen(true)}
+            onCreateConnection={() => {
+              setEditingConnection(null);
+              setDialogOpen(true);
+            }}
             onCreateGroup={() => void handleCreateGroup()}
             onSelectGroup={handleSelectGroup}
             onSelectConnection={handleSelectConnection}
             onNewQuery={openNewSqlTab}
             onSelectTable={handleSelectTable}
             onContextTable={handleContextTable}
+            onContextConnection={handleContextConnection}
             activeTableKey={activeTableKey}
             refreshToken={schemaRefreshToken}
           />
         }
       >
-        <DockableWorkspace
-          className="db-workspace"
-          dockScope="database"
-          tabs={dockTabs}
-          activeTabId={activeWorkspaceTabId}
-          onActiveTabChange={setActiveWorkspaceTabId}
-          onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
-          savedLayout={dockLayout}
-          onSavedLayoutChange={setDockLayout}
-          emptyContent={t("database.workspace.emptyTabs")}
-          renderPanel={renderDockPanel}
-          onTabContextMenu={handleDockTabContextMenu}
-        />
+        {dockTabs.length === 0 ? (
+          <WorkspaceEmptyPage
+            prompt={t("database.workspace.emptyTabs")}
+            actions={
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={openNewSqlTab}
+              >
+                {t("database.workspace.newQuery")}
+              </Button>
+            }
+          />
+        ) : (
+          <DockableWorkspace
+            className="db-workspace"
+            dockScope="database"
+            tabs={dockTabs}
+            activeTabId={activeWorkspaceTabId}
+            onActiveTabChange={setActiveWorkspaceTabId}
+            onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+            savedLayout={dockLayout}
+            onSavedLayoutChange={setDockLayout}
+            renderPanel={renderDockPanel}
+            onTabContextMenu={handleDockTabContextMenu}
+          />
+        )}
       </SidebarWorkspace>
       {ctxMenu && (
         <ContextMenu
@@ -1288,6 +1567,30 @@ export function DatabasePanel() {
           onClose={() => setTableCtxMenu(null)}
         />
       )}
+      {connCtxMenu && (
+        <ContextMenu
+          items={buildConnContextMenuItems()}
+          position={{ x: connCtxMenu.x, y: connCtxMenu.y }}
+          onClose={() => setConnCtxMenu(null)}
+        />
+      )}
+      <CreateDatabaseDialog
+        open={createDbDialog !== null}
+        connection={
+          createDbDialog
+            ? connections.find((c) => c.id === createDbDialog.connId) ?? null
+            : null
+        }
+        onCancel={() => setCreateDbDialog(null)}
+        onCreated={(_created) => {
+          const connId = createDbDialog?.connId;
+          setCreateDbDialog(null);
+          if (connId) {
+            refreshConnDatabases(connId);
+            setActiveConnId(connId);
+          }
+        }}
+      />
       {exportMenu && (
         <ContextMenu
           items={buildExportMenuItems()}
@@ -1348,10 +1651,17 @@ export function DatabasePanel() {
       </SubWindow>
       <ConnectionDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onSaved={() => setSchemaRefreshToken((token) => token + 1)}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingConnection(null);
+        }}
+        onSaved={() => {
+          setSchemaRefreshToken((token) => token + 1);
+          setEditingConnection(null);
+        }}
         defaultGroup={activeGroupName}
         groups={groups}
+        initialConnection={editingConnection}
       />
       {cellEdit && (() => {
         const colMeta = tableColumnMeta[cellEdit.tabId]?.find((c) => c.name === cellEdit.column);

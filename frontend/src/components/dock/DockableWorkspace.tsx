@@ -25,7 +25,9 @@ import {
   mergePanelsIntoLayout,
   collectPanelIds,
   normalizeDockLayout,
+  isLayoutUsable,
 } from "./dockViewLayout";
+import { DockErrorBoundary } from "./DockErrorBoundary";
 import {
   registerDockviewInstance,
   transferPanelToTarget,
@@ -267,10 +269,33 @@ export function DockableWorkspace({
     const pending = pendingSavedLayoutRef.current;
     const desired = mergePanelsIntoLayout(pending, tabsRef.current.map((t) => t.id), "");
     if (desired) {
-      try {
-        api.fromJSON(normalizeDockLayout(desired) ?? desired);
-      } catch {
-        api.clear();
+      // 二次校验：mergePanelsIntoLayout 通过只能说明 panel↔view 数量一致，
+      // 不代表 dockview 的 _deserializer.fromJSON 一定能消化（外部脏数据
+      // 可能在 panel 字典里塞入非法的 contentComponent / params 等）。这里
+      // 再加一层白名单检查 + try/catch 兜底；任何失败都把 api 完全清空，
+      // 让后续 addPanel 兜底路径接管。
+      const normalized = normalizeDockLayout(desired) ?? desired;
+      if (!isLayoutUsable(normalized)) {
+        pendingSavedLayoutRef.current = null;
+        onSavedLayoutChangeRef.current(null);
+        try {
+          api.clear();
+        } catch {
+          // 忽略：清空失败时下面的 addPanel 路径仍会重建
+        }
+      } else {
+        try {
+          api.fromJSON(normalized);
+        } catch (err) {
+          console.warn("[DockableWorkspace] fromJSON failed, resetting", err);
+          pendingSavedLayoutRef.current = null;
+          onSavedLayoutChangeRef.current(null);
+          try {
+            api.clear();
+          } catch {
+            // 忽略
+          }
+        }
       }
     }
     // 兜底：mergePanelsIntoLayout 应已生成完整布局；若 dockview 仍缺 panel，则补齐
@@ -436,14 +461,31 @@ export function DockableWorkspace({
     }
 
     if (savedLayout) {
-      try {
-        isSyncingRef.current = true;
-        const normalized = normalizeDockLayout(savedLayout) ?? savedLayout;
-        apiRef.current.fromJSON(normalized);
-      } catch {
-        // ignore
-      } finally {
-        isSyncingRef.current = false;
+      const normalized = normalizeDockLayout(savedLayout) ?? savedLayout;
+      if (!isLayoutUsable(normalized)) {
+        pendingSavedLayoutRef.current = null;
+        onSavedLayoutChangeRef.current(null);
+        try {
+          apiRef.current.clear();
+        } catch {
+          // 忽略
+        }
+      } else {
+        try {
+          isSyncingRef.current = true;
+          apiRef.current.fromJSON(normalized);
+        } catch (err) {
+          console.warn("[DockableWorkspace] fromJSON (savedLayout) failed, resetting", err);
+          pendingSavedLayoutRef.current = null;
+          onSavedLayoutChangeRef.current(null);
+          try {
+            apiRef.current.clear();
+          } catch {
+            // 忽略
+          }
+        } finally {
+          isSyncingRef.current = false;
+        }
       }
     } else {
       apiRef.current.clear();
@@ -590,23 +632,25 @@ export function DockableWorkspace({
       ref={wrapperRef}
       className={`dockable-workspace ${className ?? ""}`}
     >
-      {tabs.length === 0 && emptyContent ? (
-        <div className="dockable-workspace__empty dockable-workspace__empty--overlay">
-          {emptyContent}
-        </div>
-      ) : null}
-      <DockviewReact
-        className="dockable-workspace__dockview"
-        components={components}
-        defaultTabComponent={defaultTabComponent}
-        leftHeaderActionsComponent={
-          createPanelRequest ? leftHeaderActions : undefined
-        }
-        noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
-        theme={themeDark}
-        dndStrategy="pointer"
-        onReady={handleReady}
-      />
+      <DockErrorBoundary>
+        {tabs.length === 0 && emptyContent ? (
+          <div className="dockable-workspace__empty dockable-workspace__empty--overlay">
+            {emptyContent}
+          </div>
+        ) : null}
+        <DockviewReact
+          className="dockable-workspace__dockview"
+          components={components}
+          defaultTabComponent={defaultTabComponent}
+          leftHeaderActionsComponent={
+            createPanelRequest ? leftHeaderActions : undefined
+          }
+          noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
+          theme={themeDark}
+          dndStrategy="pointer"
+          onReady={handleReady}
+        />
+      </DockErrorBoundary>
     </div>
   );
 }

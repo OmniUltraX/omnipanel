@@ -3,10 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAiStore } from "../../stores/aiStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import type { AiConversation, AiMessage, ToolCallState } from "../../stores/aiStore";
+import type { AiMessage, ToolCallState } from "../../stores/aiStore";
 import { IconRobot } from "../ui/Icons";
 import { SubWindow } from "../ui/SubWindow";
-import { SidebarWorkspace } from "../ui/SidebarWorkspace";
 import { CommandSuggestion, isShellLanguage } from "./CommandSuggestion";
 import { useI18n } from "../../i18n";
 import { formatShortcut, useShortcutsStore } from "../../stores/shortcutsStore";
@@ -193,133 +192,6 @@ function MessageBubble({ msg, isLast }: { msg: AiMessage; isLast?: boolean }) {
   );
 }
 
-// ─── Session List (sidebar) ───
-
-function formatRelativeShort(ts: number): string {
-  const diff = Date.now() - ts;
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return "刚刚";
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d`;
-  return new Date(ts).toLocaleDateString();
-}
-
-export function AiSessionList({ rail = "left" }: { rail?: "left" | "right" }) {
-  const { t } = useI18n();
-  const conversations = useAiStore((s) => s.conversations);
-  const activeId = useAiStore((s) => s.activeConversationId);
-  const setActive = useAiStore((s) => s.setActiveConversation);
-  const createConversation = useAiStore((s) => s.createConversation);
-  const deleteConversation = useAiStore((s) => s.deleteConversation);
-
-  const handleCreate = () => {
-    createConversation();
-  };
-
-  return (
-    <aside
-      className={`ai-session-list${rail === "right" ? " ai-session-list--right" : ""}`}
-    >
-      <div className="ai-session-list-header">
-        <span className="ai-session-list-title">{t("ai.sessionList.title")}</span>
-        <button
-          type="button"
-          className="ai-session-list-add"
-          title={t("ai.newConversation")}
-          aria-label={t("ai.newConversation")}
-          onClick={handleCreate}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="ai-session-list-body">
-        {conversations.length === 0 ? (
-          <div className="ai-session-list-empty">{t("ai.noConversation")}</div>
-        ) : (
-          conversations.map((c) => (
-            <SessionRow
-              key={c.id}
-              conv={c}
-              active={c.id === activeId}
-              onSelect={() => setActive(c.id)}
-              onDelete={() => deleteConversation(c.id)}
-              deleteTitle={t("ai.sessionList.delete")}
-              emptyLabel={t("ai.sessionList.empty")}
-            />
-          ))
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function SessionRow({
-  conv,
-  active,
-  onSelect,
-  onDelete,
-  deleteTitle,
-  emptyLabel,
-}: {
-  conv: AiConversation;
-  active: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  deleteTitle: string;
-  emptyLabel: string;
-}) {
-  return (
-    <div
-      className={`ai-session-row ${active ? "active" : ""}`}
-      onClick={onSelect}
-      title={conv.title}
-    >
-      <div className="ai-session-row-main">
-        <span className="ai-session-row-title">{conv.title}</span>
-        <span className="ai-session-row-meta">
-          {conv.messages.length > 0 ? `${conv.messages.length} msgs` : emptyLabel}
-          <span className="ai-session-row-dot">·</span>
-          {formatRelativeShort(conv.updatedAt)}
-        </span>
-      </div>
-      <button
-        type="button"
-        className="ai-session-row-delete"
-        title={deleteTitle}
-        aria-label={deleteTitle}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 // ─── Shared: useAiChat hook（LangChain 流式对话） ───
 
 export function AiPanelBody() {
@@ -447,18 +319,11 @@ export function AiDrawer() {
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const closeDrawer = useAiStore((s) => s.closeDrawer);
   const isGenerating = useAiStore((s) => s.isGenerating);
-  const activeConversation = useAiStore((s) =>
-    s.conversations.find((c) => c.id === s.activeConversationId) ?? null
-  );
-
-  const title = activeConversation
-    ? `${t("ai.title")} · ${activeConversation.title}`
-    : t("ai.title");
 
   return (
     <SubWindow
       open={drawerOpen}
-      title={title}
+      title={t("ai.title")}
       onClose={closeDrawer}
       className="ai-subwindow"
       widthRatio={0.82}
@@ -470,13 +335,9 @@ export function AiDrawer() {
         </div>
       }
     >
-      <SidebarWorkspace
-        preset="ai"
-        className="ai-subwindow-content"
-        sidebar={<AiSessionList />}
-      >
+      <div className="ai-subwindow-content">
         <AiPanelBody />
-      </SidebarWorkspace>
+      </div>
     </SubWindow>
   );
 }

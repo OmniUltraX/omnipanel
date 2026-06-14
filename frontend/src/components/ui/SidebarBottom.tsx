@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { OnPanelResize, PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace } from "../dock";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
@@ -65,6 +72,16 @@ export function SidebarBottom({
       setIsOpen(!handle.isCollapsed());
     }
   }, [setIsOpen]);
+
+  // 挂载后让底栏默认收起：调用 collapse() 让 DOM 与 store 初始 isOpen=false 对齐，
+  // 然后 syncOpenState 把 isOpen 同步到实际 DOM 状态。
+  useLayoutEffect(() => {
+    const handle = bottomPanelRef.current;
+    if (handle && !handle.isCollapsed()) {
+      handle.collapse();
+    }
+    syncOpenState();
+  }, [syncOpenState]);
 
   useEffect(() => {
     if (expandSignal === 0) return;

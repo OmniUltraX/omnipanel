@@ -205,9 +205,10 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
     match connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => {
             let pool = mysql_pool(&connection).await?;
+            // 保留 information_schema / performance_schema / mysql / sys 等系统库，
+            // 让用户能浏览表/列结构；隐藏逻辑由前端 schemaFilters 按 connId 控制。
             let rows = sqlx::query(
                 "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA \
-                 WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys') \
                  ORDER BY SCHEMA_NAME",
             )
             .fetch_all(&pool)
@@ -219,6 +220,95 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
         }
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
+    }
+}
+
+/// 创建数据库参数。name 必填；charset 可选，留空时使用服务器默认。
+#[derive(Debug, Deserialize, specta::Type)]
+pub struct CreateDatabaseArgs {
+    pub connection: DbConnectionConfig,
+    pub name: String,
+    #[serde(default)]
+    pub charset: Option<String>,
+    #[serde(default)]
+    pub collation: Option<String>,
+}
+
+/// 校验数据库名：仅允许 ASCII 字母/数字/下划线/$，且首字符不能为数字，长度 1..=64。
+/// 同时屏蔽 MySQL 系统库名。
+fn validate_database_name(name: &str) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("数据库名不能为空".to_string());
+    }
+    if trimmed.len() > 64 {
+        return Err("数据库名长度不能超过 64 个字符".to_string());
+    }
+    let mut chars = trimmed.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' && first != '$' {
+        return Err("数据库名必须以字母、下划线或 $ 开头".to_string());
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+            return Err("数据库名仅允许字母、数字、下划线和 $".to_string());
+        }
+    }
+    const RESERVED: &[&str] = &[
+        "information_schema",
+        "performance_schema",
+        "mysql",
+        "sys",
+    ];
+    if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(trimmed)) {
+        return Err(format!("`{trimmed}` 是系统保留库名，请使用其他名称"));
+    }
+    Ok(trimmed.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, String> {
+    let name = validate_database_name(&args.name)?;
+    match args.connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => {
+            let pool = mysql_pool(&args.connection).await?;
+            // MySQL 标识符允许反引号转义；这里手工拼接以兼容老驱动，
+            // 先用反斜杠转义（实际为重复反引号），防止简单的 SQL 注入。
+            let escaped_name = name.replace('`', "``");
+            let charset_clause = match args.charset.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(cs) => {
+                    let escaped_cs = cs.replace('`', "``");
+                    format!(" CHARACTER SET `{escaped_cs}`")
+                }
+                None => String::new(),
+            };
+            let collation_clause = match args
+                .collation
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                Some(co) => {
+                    let escaped_co = co.replace('`', "``");
+                    format!(" COLLATE `{escaped_co}`")
+                }
+                None => String::new(),
+            };
+            let sql = format!(
+                "CREATE DATABASE `{escaped_name}`{charset_clause}{collation_clause}"
+            );
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(|e| format!("创建数据库失败：{e}"))?;
+            pool.close().await;
+            Ok(name)
+        }
+        _ => Err(format!(
+            "暂不支持在 {} 引擎上创建数据库",
+            args.connection.db_type
+        )),
     }
 }
 

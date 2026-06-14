@@ -11,6 +11,7 @@ use serde_json::Value;
 
 mod mysql;
 mod postgres;
+mod redis;
 mod sqlite;
 
 pub use mysql::mysql_connect_options;
@@ -61,6 +62,7 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
             Ok(Box::new(postgres::PgDriver::connect(params).await?))
         }
         "sqlite" | "sqlite3" => Ok(Box::new(sqlite::SqliteDriver::connect(params).await?)),
+        "redis" => Ok(Box::new(redis::RedisDriver::connect(params).await?)),
         other => Err(OmniError::invalid_input(format!(
             "不支持的数据库类型：{other}"
         ))),

@@ -25,6 +25,8 @@ import { DockerComposeDrawer } from "./DockerComposeDrawer";
 import { DockerFileEditor } from "./DockerFileEditor";
 import { Button } from "../../components/ui/Button";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
+import { RightSidebarWorkspace } from "../../components/ui/RightSidebarWorkspace";
+import { SubWindow } from "../../components/ui/SubWindow";
 import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
@@ -151,6 +153,7 @@ export function DockerPanel() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [drawerPopout, setDrawerPopout] = useState(false);
   const [showAddConn, setShowAddConn] = useState(false);
   const [editDockerConnection, setEditDockerConnection] = useState<Connection | undefined>();
   const [statsContainer, setStatsContainer] = useState<{ id: string; name: string } | null>(null);
@@ -165,6 +168,29 @@ export function DockerPanel() {
   const [localEngineStatus, setLocalEngineStatus] = useState<DockerLocalEngineStatus | null>(null);
   const [startingLocalEngine, setStartingLocalEngine] = useState(false);
   const startPollRef = useRef<number | null>(null);
+  const [drawerDetail, setDrawerDetail] = useState<DockerContainerDetail | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("info");
+
+  // 抽屉打开 / 切换容器时拉取详情；drwerId 关闭后清空。
+  useEffect(() => {
+    if (!drawerId) {
+      setDrawerDetail(null);
+      setDrawerLoading(false);
+      return;
+    }
+    setDrawerTab("info");
+    setDrawerLoading(true);
+    let cancelled = false;
+    void inspect(drawerId).then((d) => {
+      if (cancelled) return;
+      setDrawerDetail(d);
+      setDrawerLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawerId, inspect]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -225,6 +251,7 @@ export function DockerPanel() {
   // 切换连接时复位抽屉/筛选等本地 UI（顶栏 Tab 与业务数据按模块/连接缓存保留）。
   useEffect(() => {
     setDrawerId(null);
+    setDrawerPopout(false);
     setFilter("all");
     setQuery("");
     setSearchInput("");
@@ -309,7 +336,10 @@ export function DockerPanel() {
         if (res.ok) {
           recordAudit(`删除容器 ${container.name}`, `${selectedConnection?.name ?? ""} · docker rm -f ${container.name}`);
           showToast(`已删除容器 ${container.name}`);
-          if (drawerId === container.id) setDrawerId(null);
+          if (drawerId === container.id) {
+            setDrawerId(null);
+            setDrawerPopout(false);
+          }
         } else {
           showToast(`删除失败：${res.message ?? "未知错误"}`);
         }
@@ -521,25 +551,74 @@ export function DockerPanel() {
 
   return (
     <>
-      <SidebarWorkspace
-        preset="server"
+      <RightSidebarWorkspace
         sidebar={
-          <DockerSidebar
-            connections={connections}
-            activeConnectionId={selectedConnectionId}
-            loading={connectionsLoading}
-            scanning={scanning}
-            onSelect={selectConnection}
-            onCreate={() => {
-              setEditDockerConnection(undefined);
-              setShowAddConn(true);
-            }}
-            onScan={() => void handleScanSshDocker()}
-            onEditConnection={handleEditDockerConnection}
-            onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
-          />
+          drawerId && !drawerPopout ? (
+            <div className="drawer">
+              <ContainerDrawerBody
+                connectionId={selectedConnectionId}
+                containerId={drawerId}
+                canExec={probe?.capabilities?.canContainerExec ?? false}
+                canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
+                hostLabel={selectedConnection?.hostLabel ?? null}
+                sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
+                detail={drawerDetail}
+                loading={drawerLoading}
+                drawerTab={drawerTab}
+                onTabChange={setDrawerTab}
+                onAction={runContainerAction}
+                onRemove={confirmContainerRemove}
+                onNavigate={navigate}
+                onSendToAi={(detail) => {
+                  const s = detail.summary;
+                  const ports = s.ports.length
+                    ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
+                    : "无";
+                  const context = [
+                    `请帮我分析以下 Docker 容器的运行情况：`,
+                    `- 名称：${s.name}`,
+                    `- 镜像：${s.image}`,
+                    `- 状态：${s.state}（${s.statusText}）`,
+                    detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
+                    detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
+                    `- 端口：${ports}`,
+                    `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
+                  setAiDraft(context);
+                  openAiDrawer();
+                  recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
+                }}
+                onPopout={() => setDrawerPopout(true)}
+                onClose={() => {
+                  setDrawerId(null);
+                  setDrawerPopout(false);
+                }}
+              />
+            </div>
+          ) : null
         }
       >
+        <SidebarWorkspace
+          preset="server"
+          sidebar={
+            <DockerSidebar
+              connections={connections}
+              activeConnectionId={selectedConnectionId}
+              loading={connectionsLoading}
+              scanning={scanning}
+              onSelect={selectConnection}
+              onCreate={() => {
+                setEditDockerConnection(undefined);
+                setShowAddConn(true);
+              }}
+              onScan={() => void handleScanSshDocker()}
+              onEditConnection={handleEditDockerConnection}
+              onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
+            />
+          }
+        >
         <div className="docker-main">
           <div className="docker-layout">
         {connectionsLoading ? (
@@ -707,8 +786,16 @@ export function DockerPanel() {
                             {container.statusText || (container.running ? "Running" : "Exited")}
                           </span>
                         </div>
-                        <div className="text-sm" style={{ whiteSpace: "pre-line" }}>
-                          {container.ports.length > 0 ? container.ports.map((p) => portLabel(p)).join("\n") : "-"}
+                        <div className="port-tags">
+                          {container.ports.length > 0 ? (
+                            container.ports.map((p, i) => (
+                              <span key={i} className="tag port-tag" title={portLabel(p)}>
+                                {portLabel(p)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-sm text-muted">-</span>
+                          )}
                         </div>
                         <div className="text-sm text-muted">{container.networks.join(", ") || "-"}</div>
                         <div className="container-actions" onClick={(e) => e.stopPropagation()}>
@@ -1034,42 +1121,57 @@ export function DockerPanel() {
         )}
           </div>
         </div>
-      </SidebarWorkspace>
+        </SidebarWorkspace>
+      </RightSidebarWorkspace>
 
-      <ContainerDrawer
-        connectionId={selectedConnectionId}
-        containerId={drawerId}
-        canExec={probe?.capabilities?.canContainerExec ?? false}
-        canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
-        hostLabel={selectedConnection?.hostLabel ?? null}
-        sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
-        inspect={inspect}
-        onClose={() => setDrawerId(null)}
-        onAction={runContainerAction}
-        onRemove={confirmContainerRemove}
-        onNavigate={navigate}
-        onSendToAi={(detail) => {
-          const s = detail.summary;
-          const ports = s.ports.length
-            ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
-            : "无";
-          const context = [
-            `请帮我分析以下 Docker 容器的运行情况：`,
-            `- 名称：${s.name}`,
-            `- 镜像：${s.image}`,
-            `- 状态：${s.state}（${s.statusText}）`,
-            detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
-            detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
-            `- 端口：${ports}`,
-            `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
-          ]
-            .filter(Boolean)
-            .join("\n");
-          setAiDraft(context);
-          openAiDrawer();
-          recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
-        }}
-      />
+      <SubWindow
+        open={Boolean(drawerId) && drawerPopout}
+        onClose={() => setDrawerPopout(false)}
+        title={t("docker.drawer.popoutTitle", {
+          name: drawerDetail?.summary.name ?? "…",
+        })}
+        widthRatio={0.7}
+        heightRatio={0.85}
+      >
+        <div className="drawer">
+          <ContainerDrawerBody
+            connectionId={selectedConnectionId}
+            containerId={drawerId}
+            canExec={probe?.capabilities?.canContainerExec ?? false}
+            canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
+            hostLabel={selectedConnection?.hostLabel ?? null}
+            sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
+            detail={drawerDetail}
+            loading={drawerLoading}
+            drawerTab={drawerTab}
+            onTabChange={setDrawerTab}
+            onAction={runContainerAction}
+            onRemove={confirmContainerRemove}
+            onNavigate={navigate}
+            onSendToAi={(detail) => {
+              const s = detail.summary;
+              const ports = s.ports.length
+                ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
+                : "无";
+              const context = [
+                `请帮我分析以下 Docker 容器的运行情况：`,
+                `- 名称：${s.name}`,
+                `- 镜像：${s.image}`,
+                `- 状态：${s.state}（${s.statusText}）`,
+                detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
+                detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
+                `- 端口：${ports}`,
+                `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
+              ]
+                .filter(Boolean)
+                .join("\n");
+              setAiDraft(context);
+              openAiDrawer();
+              recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
+            }}
+          />
+        </div>
+      </SubWindow>
 
       <DockerImageDrawer
         imageId={imageDrawerId}
@@ -1203,227 +1305,223 @@ function portLabel(p: { ip: string | null; publicPort: number | null; privatePor
   return `${p.privatePort}/${p.protocol}`;
 }
 
-interface ContainerDrawerProps {
+interface ContainerDrawerBodyProps {
   connectionId: string | null;
   containerId: string | null;
   canExec: boolean;
   canStreamLogs: boolean;
   hostLabel: string | null;
   sourceLabel: string | null;
-  inspect: (id: string) => Promise<DockerContainerDetail | null>;
-  onClose: () => void;
+  detail: DockerContainerDetail | null;
+  loading: boolean;
+  drawerTab: DrawerTab;
+  onTabChange: (tab: DrawerTab) => void;
   onAction: (c: DockerContainerSummary, action: string, label: string) => void;
   onRemove: (c: DockerContainerSummary) => void;
   onNavigate: (path: string) => void;
   onSendToAi: (detail: DockerContainerDetail) => void;
+  /** 头部右上角"窗口化"按钮：未传则不渲染 */
+  onPopout?: () => void;
+  /** 头部右上角"关闭"按钮；未传则不渲染 */
+  onClose?: () => void;
 }
 
 type DrawerTab = "info" | "logs" | "terminal";
 
-function ContainerDrawer({
+function ContainerDrawerBody({
   connectionId,
   containerId,
   canExec,
   canStreamLogs,
   hostLabel,
   sourceLabel,
-  inspect,
-  onClose,
+  detail,
+  loading,
+  drawerTab,
+  onTabChange,
   onAction,
   onRemove,
   onNavigate,
   onSendToAi,
-}: ContainerDrawerProps) {
-  const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>("info");
-
-  useEffect(() => {
-    if (!containerId) {
-      setDetail(null);
-      return;
-    }
-    setDrawerTab("info");
-    setLoading(true);
-    let cancelled = false;
-    void inspect(containerId).then((d) => {
-      if (!cancelled) {
-        setDetail(d);
-        setLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [containerId, inspect]);
-
-  const open = Boolean(containerId);
-
+  onPopout,
+  onClose,
+}: ContainerDrawerBodyProps) {
+  const { t } = useI18n();
   return (
     <>
-      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
-      <div className={`drawer${open ? " show" : ""}`}>
-        {open && (
+      <div className="drawer-header">
+        <div className="container-icon" style={{ color: "var(--success)", width: 28, height: 28, display: "grid", placeItems: "center", background: "var(--success-soft)", borderRadius: "var(--r-sm)" }}>
+          <ContainerIcon />
+        </div>
+        <h2>{detail?.summary.name ?? "加载中…"}</h2>
+        {detail && (
+          <span className={`badge ${detail.summary.running ? "badge-success" : "badge-muted"}`}>
+            {detail.summary.running ? "运行中" : "已停止"}
+          </span>
+        )}
+        <div className="drawer-header-actions">
+          {onPopout ? (
+            <Button
+              variant="icon"
+              onClick={onPopout}
+              title={t("docker.drawer.popout")}
+              aria-label={t("docker.drawer.popout")}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                <rect x="2" y="2" width="9" height="9" rx="1" />
+                <path d="M5 11v2.5A1.5 1.5 0 0 0 6.5 15H12a1 1 0 0 0 1-1V8.5A1.5 1.5 0 0 0 11.5 7H11" />
+              </svg>
+            </Button>
+          ) : null}
+          {onClose ? (
+            <Button variant="icon" onClick={onClose} title="关闭" aria-label="关闭">
+              <CloseIcon size={16} />
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="drawer-subtabs">
+        <button className={`subtab${drawerTab === "info" ? " active" : ""}`} onClick={() => onTabChange("info")}>详情</button>
+        <button
+          className={`subtab${drawerTab === "logs" ? " active" : ""}`}
+          disabled={!canStreamLogs}
+          title={canStreamLogs ? "查看日志" : "当前连接不支持日志流式"}
+          onClick={() => onTabChange("logs")}
+        >
+          日志
+        </button>
+        {canExec && detail?.summary.running && (
+          <button className={`subtab${drawerTab === "terminal" ? " active" : ""}`} onClick={() => onTabChange("terminal")}>终端</button>
+        )}
+      </div>
+
+      <div className="drawer-body">
+        {loading && <div className="text-muted text-sm">加载容器详情…</div>}
+
+        {!loading && detail && drawerTab === "info" && (
           <>
-            <div className="drawer-header">
-              <div className="container-icon" style={{ color: "var(--success)", width: 28, height: 28, display: "grid", placeItems: "center", background: "var(--success-soft)", borderRadius: "var(--r-sm)" }}>
-                <ContainerIcon />
+            <div className="drawer-section">
+              <h4>容器信息</h4>
+              <dl className="drawer-kv">
+                <dt>ID</dt><dd className="text-muted">{detail.summary.shortId}</dd>
+                <dt>镜像</dt><dd>{detail.summary.image}</dd>
+                <dt>状态</dt><dd>{detail.summary.statusText || detail.summary.state}</dd>
+                {detail.command && (<><dt>命令</dt><dd className="text-muted">{detail.command}</dd></>)}
+                {detail.restartPolicy && (<><dt>重启策略</dt><dd>{detail.restartPolicy}</dd></>)}
+                {detail.exitCode != null && (<><dt>退出码</dt><dd>{detail.exitCode}</dd></>)}
+              </dl>
+            </div>
+
+            <div className="drawer-section">
+              <h4>端口</h4>
+              <dl className="drawer-kv">
+                {detail.summary.ports.length > 0 ? (
+                  detail.summary.ports.map((p, i) => (
+                    <div key={i} style={{ display: "contents" }}>
+                      <dt>{i === 0 ? "映射" : `端口 ${i + 1}`}</dt>
+                      <dd>{portLabel(p)}</dd>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: "contents" }}><dt>端口</dt><dd>-</dd></div>
+                )}
+              </dl>
+            </div>
+
+            <div className="drawer-section">
+              <h4>挂载</h4>
+              <dl className="drawer-kv">
+                {detail.mounts.length > 0 ? (
+                  detail.mounts.map((m, i) => (
+                    <div key={i} style={{ display: "contents" }}>
+                      <dt>{m.kind || "mount"}</dt>
+                      <dd className="text-sm">{m.source} → {m.destination}{m.readOnly ? " (ro)" : ""}</dd>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: "contents" }}><dt>挂载</dt><dd>-</dd></div>
+                )}
+              </dl>
+            </div>
+
+            <div className="drawer-section">
+              <h4>网络</h4>
+              <dl className="drawer-kv">
+                {detail.networks.length > 0 ? (
+                  detail.networks.map((n, i) => (
+                    <div key={i} style={{ display: "contents" }}>
+                      <dt>{n.name}</dt>
+                      <dd className="text-muted">{n.ipAddress ?? "-"}</dd>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: "contents" }}><dt>网络</dt><dd>-</dd></div>
+                )}
+              </dl>
+            </div>
+
+            {detail.env.length > 0 && (
+              <div className="drawer-section">
+                <h4>环境变量</h4>
+                <dl className="drawer-kv">
+                  {detail.env.map((e) => (
+                    <div key={e.key} style={{ display: "contents" }}>
+                      <dt>{e.key}</dt><dd className="text-sm">{e.value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
-              <h2>{detail?.summary.name ?? "加载中…"}</h2>
-              {detail && (
-                <span className={`badge ${detail.summary.running ? "badge-success" : "badge-muted"}`}>
-                  {detail.summary.running ? "运行中" : "已停止"}
-                </span>
-              )}
-              <Button variant="icon" onClick={onClose} title="关闭">
-                <CloseIcon size={16} />
-              </Button>
-            </div>
+            )}
 
-            <div className="drawer-subtabs">
-              <button className={`subtab${drawerTab === "info" ? " active" : ""}`} onClick={() => setDrawerTab("info")}>详情</button>
-              <button
-                className={`subtab${drawerTab === "logs" ? " active" : ""}`}
-                disabled={!canStreamLogs}
-                title={canStreamLogs ? "查看日志" : "当前连接不支持日志流式"}
-                onClick={() => setDrawerTab("logs")}
-              >
-                日志
-              </button>
-              {canExec && detail?.summary.running && (
-                <button className={`subtab${drawerTab === "terminal" ? " active" : ""}`} onClick={() => setDrawerTab("terminal")}>终端</button>
-              )}
-            </div>
-
-            <div className="drawer-body">
-              {loading && <div className="text-muted text-sm">加载容器详情…</div>}
-
-              {!loading && detail && drawerTab === "info" && (
-                <>
-                  <div className="drawer-section">
-                    <h4>容器信息</h4>
-                    <dl className="drawer-kv">
-                      <dt>ID</dt><dd className="text-muted">{detail.summary.shortId}</dd>
-                      <dt>镜像</dt><dd>{detail.summary.image}</dd>
-                      <dt>状态</dt><dd>{detail.summary.statusText || detail.summary.state}</dd>
-                      {detail.command && (<><dt>命令</dt><dd className="text-muted">{detail.command}</dd></>)}
-                      {detail.restartPolicy && (<><dt>重启策略</dt><dd>{detail.restartPolicy}</dd></>)}
-                      {detail.exitCode != null && (<><dt>退出码</dt><dd>{detail.exitCode}</dd></>)}
-                    </dl>
-                  </div>
-
-                  <div className="drawer-section">
-                    <h4>端口</h4>
-                    <dl className="drawer-kv">
-                      {detail.summary.ports.length > 0 ? (
-                        detail.summary.ports.map((p, i) => (
-                          <div key={i} style={{ display: "contents" }}>
-                            <dt>{i === 0 ? "映射" : `端口 ${i + 1}`}</dt>
-                            <dd>{portLabel(p)}</dd>
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ display: "contents" }}><dt>端口</dt><dd>-</dd></div>
-                      )}
-                    </dl>
-                  </div>
-
-                  <div className="drawer-section">
-                    <h4>挂载</h4>
-                    <dl className="drawer-kv">
-                      {detail.mounts.length > 0 ? (
-                        detail.mounts.map((m, i) => (
-                          <div key={i} style={{ display: "contents" }}>
-                            <dt>{m.kind || "mount"}</dt>
-                            <dd className="text-sm">{m.source} → {m.destination}{m.readOnly ? " (ro)" : ""}</dd>
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ display: "contents" }}><dt>挂载</dt><dd>-</dd></div>
-                      )}
-                    </dl>
-                  </div>
-
-                  <div className="drawer-section">
-                    <h4>网络</h4>
-                    <dl className="drawer-kv">
-                      {detail.networks.length > 0 ? (
-                        detail.networks.map((n, i) => (
-                          <div key={i} style={{ display: "contents" }}>
-                            <dt>{n.name}</dt>
-                            <dd className="text-muted">{n.ipAddress ?? "-"}</dd>
-                          </div>
-                        ))
-                      ) : (
-                        <div style={{ display: "contents" }}><dt>网络</dt><dd>-</dd></div>
-                      )}
-                    </dl>
-                  </div>
-
-                  {detail.env.length > 0 && (
-                    <div className="drawer-section">
-                      <h4>环境变量</h4>
-                      <dl className="drawer-kv">
-                        {detail.env.map((e) => (
-                          <div key={e.key} style={{ display: "contents" }}>
-                            <dt>{e.key}</dt><dd className="text-sm">{e.value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                  )}
-
-                  <div className="drawer-section">
-                    <h4>联动</h4>
-                    <div className="kv">
-                      <span className="k">引擎来源</span>
-                      <span className="v">{sourceLabel ?? "—"}</span>
-                    </div>
-                    <div className="kv">
-                      <span className="k">宿主机</span>
-                      <span className="v">{hostLabel ?? "—"}</span>
-                    </div>
-                    <div className="flex gap-2" style={{ flexWrap: "wrap", marginTop: "var(--sp-2)" }}>
-                      <Button variant="secondary" size="sm" onClick={() => onNavigate("/ssh")}>
-                        打开 SSH
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => onNavigate("/server")}>查看服务器</Button>
-                      <Button variant="secondary" size="sm" onClick={() => onSendToAi(detail)}>发送给 AI 分析</Button>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {!loading && detail && drawerTab === "logs" && (
-                <LogsView connectionId={connectionId} containerId={containerId} />
-              )}
-
-              {!loading && detail && drawerTab === "terminal" && connectionId && containerId && (
-                <div className="drawer-section">
-                  <h4>容器终端</h4>
-                  <DockerExecTerminal connectionId={connectionId} containerId={containerId} />
-                </div>
-              )}
-
-              {!loading && !detail && (
-                <div className="text-muted text-sm">无法获取容器详情，可能已被删除。</div>
-              )}
-
-              {detail && (
-                <div className="flex gap-2" style={{ marginTop: "var(--sp-4)" }}>
-                  {detail.summary.running ? (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "restart", "重启")}>重启</Button>
-                      <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "stop", "停止")}>停止</Button>
-                    </>
-                  ) : (
-                    <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "start", "启动")}>启动</Button>
-                  )}
-                  <Button variant="danger" size="sm" style={{ marginLeft: "auto" }} onClick={() => onRemove(detail.summary)}>删除</Button>
-                </div>
-              )}
+            <div className="drawer-section">
+              <h4>联动</h4>
+              <div className="kv">
+                <span className="k">引擎来源</span>
+                <span className="v">{sourceLabel ?? "—"}</span>
+              </div>
+              <div className="kv">
+                <span className="k">宿主机</span>
+                <span className="v">{hostLabel ?? "—"}</span>
+              </div>
+              <div className="flex gap-2" style={{ flexWrap: "wrap", marginTop: "var(--sp-2)" }}>
+                <Button variant="secondary" size="sm" onClick={() => onNavigate("/ssh")}>
+                  打开 SSH
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => onNavigate("/server")}>查看服务器</Button>
+                <Button variant="secondary" size="sm" onClick={() => onSendToAi(detail)}>发送给 AI 分析</Button>
+              </div>
             </div>
           </>
+        )}
+
+        {!loading && detail && drawerTab === "logs" && (
+          <LogsView connectionId={connectionId} containerId={containerId} />
+        )}
+
+        {!loading && detail && drawerTab === "terminal" && connectionId && containerId && (
+          <div className="drawer-section">
+            <h4>容器终端</h4>
+            <DockerExecTerminal connectionId={connectionId} containerId={containerId} />
+          </div>
+        )}
+
+        {!loading && !detail && (
+          <div className="text-muted text-sm">无法获取容器详情，可能已被删除。</div>
+        )}
+
+        {detail && (
+          <div className="flex gap-2" style={{ marginTop: "var(--sp-4)" }}>
+            {detail.summary.running ? (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "restart", "重启")}>重启</Button>
+                <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "stop", "停止")}>停止</Button>
+              </>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={() => onAction(detail.summary, "start", "启动")}>启动</Button>
+            )}
+            <Button variant="danger" size="sm" style={{ marginLeft: "auto" }} onClick={() => onRemove(detail.summary)}>删除</Button>
+          </div>
         )}
       </div>
     </>

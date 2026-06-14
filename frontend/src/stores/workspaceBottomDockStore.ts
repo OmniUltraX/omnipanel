@@ -6,6 +6,7 @@ import {
   createDefaultLayout,
   mergePanelsIntoLayout,
   removePanelFromLayout,
+  isLayoutUsable,
 } from "../components/dock/dockViewLayout";
 import type { WorkspaceInfo } from "./workspaceStore";
 
@@ -240,8 +241,8 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
       },
     }),
     {
-      name: "omnipanel.workspace-bottom-dock.v1",
-      version: 1,
+      name: "omnipanel.workspace-bottom-dock.v2",
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         tabsByWorkspace: state.tabsByWorkspace,
@@ -249,6 +250,30 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
         activeTabByWorkspace: state.activeTabByWorkspace,
         dockedOriginByScope: state.dockedOriginByScope,
       }),
+      migrate: (persistedState, _fromVersion) => {
+        // v1 期间可能写入了 panels↔views 漂移的 layout；逐个工作区校验。
+        const p = persistedState as
+          | {
+              layoutByWorkspace?: Record<string, SerializedDockview | null>;
+              tabsByWorkspace?: Record<string, WorkspaceDockTab[]>;
+            }
+          | undefined;
+        if (p?.layoutByWorkspace) {
+          const cleaned: Record<string, SerializedDockview | null> = {};
+          for (const [wsId, layout] of Object.entries(p.layoutByWorkspace)) {
+            const tabIds = (p.tabsByWorkspace?.[wsId] ?? []).map((t) => t.id);
+            // 已有 layout 且指向当前 tabs 的 panel：保留；否则丢弃。
+            if (isLayoutUsable(layout)) {
+              const viewsHaveAll = tabIds.every((id) => collectPanelIds(layout).has(id));
+              cleaned[wsId] = viewsHaveAll ? layout : null;
+            } else {
+              cleaned[wsId] = null;
+            }
+          }
+          return { ...p, layoutByWorkspace: cleaned } as typeof p;
+        }
+        return p as typeof p;
+      },
     },
   ),
 );

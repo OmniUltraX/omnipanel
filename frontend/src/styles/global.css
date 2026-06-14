@@ -1944,7 +1944,6 @@
 
     /* Inputs */
     .input {
-        padding: 6px 10px;
         background: var(--bg-deeper);
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
@@ -4212,6 +4211,212 @@
         flex-direction: column;
     }
 
+    .dashboard-home {
+        justify-content: center;
+        align-items: center;
+    }
+
+    .dock-error-boundary {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-2);
+        padding: var(--sp-5);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        color: var(--fg-2);
+        font-size: 12px;
+        text-align: center;
+        min-height: 120px;
+    }
+
+    .dock-error-boundary__title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .dock-error-boundary__message {
+        color: var(--muted);
+        max-width: 360px;
+    }
+
+    .dock-error-boundary__action {
+        margin-top: var(--sp-2);
+        padding: var(--sp-1) var(--sp-3);
+        background: var(--accent);
+        color: var(--bg);
+        border: 1px solid var(--accent);
+        border-radius: var(--r-sm);
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .dock-error-boundary__action:hover {
+        filter: brightness(1.08);
+    }
+
+    .dashboard-home-inner {
+        width: 100%;
+        max-width: 720px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--sp-5);
+    }
+
+    .dashboard-logo {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .dashboard-logo .app-logo {
+        border-radius: 14px;
+    }
+
+    .dashboard-logo-name {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--fg);
+    }
+
+    .dashboard-input-shell {
+        width: 100%;
+        display: flex;
+        align-items: flex-end;
+        gap: var(--sp-2);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+        transition: border-color 0.12s, box-shadow 0.12s;
+    }
+
+    .dashboard-input-shell:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .dashboard-input {
+        flex: 1;
+        resize: none;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--fg);
+        font: inherit;
+        font-size: 13px;
+        line-height: 1.5;
+        padding: var(--sp-2) 0;
+        min-height: 22px;
+        max-height: 180px;
+        font-family: inherit;
+    }
+
+    .dashboard-input::placeholder {
+        color: var(--muted);
+    }
+
+    .dashboard-send {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg-1);
+        color: var(--muted);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s, border-color 0.12s, opacity 0.12s;
+    }
+
+    .dashboard-send svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .dashboard-send:not(:disabled) {
+        background: var(--accent);
+        color: var(--bg);
+        border-color: var(--accent);
+    }
+
+    .dashboard-send:not(:disabled):hover {
+        filter: brightness(1.08);
+    }
+
+    .dashboard-send:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .dashboard-workspace-list {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        justify-content: center;
+    }
+
+    .workspace-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--fg-2);
+        font-size: 12px;
+        cursor: pointer;
+        transition: border-color 0.12s, color 0.12s, background 0.12s;
+        max-width: 260px;
+    }
+
+    .workspace-pill:hover {
+        border-color: var(--accent);
+        color: var(--fg);
+    }
+
+    .workspace-pill.is-active {
+        border-color: var(--accent);
+        color: var(--fg);
+        background: var(--accent-soft);
+    }
+
+    .workspace-pill-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+        flex-shrink: 0;
+    }
+
+    .workspace-pill.is-active .workspace-pill-dot {
+        background: var(--accent);
+    }
+
+    .workspace-pill-name {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+    }
+
+    .workspace-pill-env {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
     .dash-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -5456,6 +5661,96 @@
     .ai-session-row-delete:hover {
         color: var(--danger);
         background: color-mix(in oklch, var(--danger) 12%, transparent);
+    }
+
+    /* AI 历史会话按钮（嵌入 chat pane 右上角） */
+    .ai-history-btn {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        z-index: 5;
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        color: var(--muted);
+        background: color-mix(in oklch, var(--surface) 70%, transparent);
+        border: 1px solid var(--border-soft);
+        backdrop-filter: blur(6px);
+        transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.12s;
+    }
+
+    .ai-history-btn:hover,
+    .ai-history-btn.is-open {
+        color: var(--fg);
+        background: var(--surface);
+        border-color: var(--accent);
+    }
+
+    .ai-history-btn.is-open {
+        transform: rotate(-15deg);
+    }
+
+    .ai-history-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* AI 历史会话 popover */
+    .ai-session-popover {
+        position: absolute;
+        top: 42px;
+        right: 10px;
+        z-index: 20;
+        width: 280px;
+        max-height: min(60vh, 480px);
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: 0 10px 30px color-mix(in oklch, var(--bg) 60%, transparent);
+        overflow: hidden;
+        animation: ai-session-popover-in 0.14s ease-out;
+    }
+
+    .ai-session-popover .ai-session-list-header {
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .ai-session-popover-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 6px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .ai-session-popover .ai-session-list-empty {
+        padding: 24px 12px;
+    }
+
+    .ai-session-popover .ai-session-row {
+        margin: 0 6px;
+        transform: none;
+    }
+
+    .ai-session-popover .ai-session-row:hover {
+        transform: none;
+    }
+
+    @keyframes ai-session-popover-in {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .ai-context-chip-bar {
@@ -8238,6 +8533,14 @@
         color: var(--accent);
     }
 
+    .tree-engine-logo {
+        width: 14px;
+        height: 14px;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
+    }
+
     .tree-node--database .tree-label {
         font-weight: 500;
         color: var(--fg-2);
@@ -9095,6 +9398,15 @@
         place-items: center;
         background: var(--bg-deeper);
         border-radius: var(--r-sm);
+        overflow: hidden;
+    }
+
+    .engine-chip-icon .engine-chip-logo {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
     }
 
     .form-select-group {
@@ -10989,6 +11301,22 @@
         transform: translateX(0);
     }
 
+    /* 当 drawer 嵌入右侧（.dock-panel-right）或左侧（.dock-panel-left）边栏，
+       或悬浮窗（.subwindow-body）时，不再使用 fixed + 滑入动画：作为普通流式
+       内容占满整个容器。 */
+    .dock-panel-right .drawer,
+    .dock-panel-left .drawer,
+    .subwindow-body .drawer {
+        position: static;
+        transform: none;
+        width: 100%;
+        height: 100%;
+        transition: none;
+        border-left: none;
+        border-right: none;
+        background: transparent;
+    }
+
     .drawer-header {
         display: flex;
         align-items: center;
@@ -11003,6 +11331,13 @@
         flex: 1;
     }
 
+    .drawer-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto;
+    }
+
     .drawer-body {
         flex: 1;
         overflow-y: auto;
@@ -11011,6 +11346,15 @@
 
     .drawer-section {
         margin-bottom: var(--sp-6);
+        /* 当 section 是父 flex 容器的子项时，让它延展高度占满剩余空间 */
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .drawer-section:last-child {
+        margin-bottom: 0;
+        flex: 1;
     }
 
     .drawer-section h4 {
@@ -11211,6 +11555,22 @@
         display: flex;
         align-items: center;
         justify-content: center;
+    }
+
+    .container-card .port-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .container-card .port-tag {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
     }
 
     .docker-files-tab {

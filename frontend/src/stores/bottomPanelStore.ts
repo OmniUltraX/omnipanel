@@ -25,7 +25,7 @@ interface BottomPanelState {
 export const useBottomPanelStore = create<BottomPanelState>((set, get) => ({
   expandSignal: 0,
   collapseSignal: 0,
-  isOpen: true,
+  isOpen: false,
   isFullscreen: false,
   requestExpand: () =>
     set((state) => ({

@@ -11,6 +11,8 @@ import {
 } from "./api";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { getEngineIconByType } from "./engineIcons";
 import {
   DatabaseFilterDialog,
   getVisibleItems,
@@ -71,6 +73,7 @@ interface TreeNodeProps {
   onSelect?: () => void;
   onLabelClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
+  iconUrl?: string | null;
 }
 
 function TreeNode({
@@ -87,6 +90,7 @@ function TreeNode({
   onSelect,
   onLabelClick,
   onContextMenu,
+  iconUrl,
 }: TreeNodeProps) {
   const indent = depth * 16 + 8;
 
@@ -114,14 +118,18 @@ function TreeNode({
         )}
       </span>
       <span className="tree-icon">
-        {type === "connection" && (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
-            <rect x="2" y="2" width="20" height="8" rx="2" />
-            <rect x="2" y="14" width="20" height="8" rx="2" />
-            <circle cx="6" cy="6" r="1" fill="currentColor" />
-            <circle cx="6" cy="18" r="1" fill="currentColor" />
-          </svg>
-        )}
+        {type === "connection" ? (
+          iconUrl ? (
+            <img src={iconUrl} alt="" className="tree-engine-logo" draggable={false} />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+              <rect x="2" y="2" width="20" height="8" rx="2" />
+              <rect x="2" y="14" width="20" height="8" rx="2" />
+              <circle cx="6" cy="6" r="1" fill="currentColor" />
+              <circle cx="6" cy="18" r="1" fill="currentColor" />
+            </svg>
+          )
+        ) : null}
         {type === "database" && (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -230,6 +238,7 @@ interface SchemaBrowserProps {
   onNewQuery?: () => void;
   onSelectTable?: (selection: SchemaTableSelection) => void;
   onContextTable?: (selection: SchemaTableSelection, event: ReactMouseEvent) => void;
+  onContextConnection?: (connId: string, event: ReactMouseEvent) => void;
   activeTableKey?: string | null;
   refreshToken?: number;
 }
@@ -245,10 +254,12 @@ export function SchemaBrowser({
   onNewQuery,
   onSelectTable,
   onContextTable,
+  onContextConnection,
   activeTableKey = null,
   refreshToken = 0,
 }: SchemaBrowserProps) {
   const { t } = useI18n();
+  const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [connections, setConnections] = useState<LoadedConnection[]>([]);
@@ -838,6 +849,8 @@ export function SchemaBrowser({
           const totalCount = allDatabases.length;
           const isFiltered = totalCount > 0 && visibleCount < totalCount;
 
+          const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
+
           return (
             <div key={conn.config.id}>
               <TreeNode
@@ -849,6 +862,12 @@ export function SchemaBrowser({
                 onToggle={() => toggle(connId)}
                 active={activeConnId === conn.config.id}
                 onLabelClick={() => onSelectConnection?.(conn.config.id)}
+                onContextMenu={
+                  onContextConnection
+                    ? (e) => onContextConnection(conn.config.id, e)
+                    : undefined
+                }
+                iconUrl={engineIconUrl}
                 meta={
                   conn.loadingDatabases
                     ? t("common.loading")

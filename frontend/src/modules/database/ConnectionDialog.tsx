@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { FormDialog } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
+import type { DbConnectionConfig } from "./api";
 import {
   type ConnectionFormData,
+  connectionToForm,
   formToConnection,
   isSupportedEngine,
   saveConnection,
   testConnection,
 } from "./api";
-
-type DbEngine = ConnectionFormData["engine"];
+import { getEngineIcon, type DbEngine } from "./engineIcons";
 
 const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   postgresql: { port: "5432", icon: "PG" },
@@ -40,6 +42,8 @@ interface ConnectionDialogProps {
   onSaved?: () => void;
   defaultGroup?: string;
   groups?: DbConnectionGroup[];
+  /** 传入已有连接表示编辑模式，表单会回显该连接数据。 */
+  initialConnection?: DbConnectionConfig | null;
 }
 
 export function ConnectionDialog({
@@ -48,8 +52,10 @@ export function ConnectionDialog({
   onSaved,
   defaultGroup = "默认",
   groups = [],
+  initialConnection,
 }: ConnectionDialogProps) {
   const { t } = useI18n();
+  const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM, group: defaultGroup });
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
     null
@@ -57,15 +63,21 @@ export function ConnectionDialog({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const isEditMode = Boolean(initialConnection);
+
   useEffect(() => {
     if (!open) {
       return;
     }
-    setForm({ ...EMPTY_FORM, group: defaultGroup });
+    setForm(
+      initialConnection
+        ? connectionToForm(initialConnection)
+        : { ...EMPTY_FORM, group: defaultGroup }
+    );
     setStatus(null);
     setTesting(false);
     setSaving(false);
-  }, [open, defaultGroup]);
+  }, [open, defaultGroup, initialConnection]);
 
   const update = <K extends keyof ConnectionFormData>(key: K, value: ConnectionFormData[K]) => {
     setStatus(null);
@@ -107,7 +119,7 @@ export function ConnectionDialog({
     setSaving(true);
     setStatus(null);
     try {
-      await saveConnection(formToConnection(form));
+      await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
       onSaved?.();
       onClose();
     } catch (error) {
@@ -152,7 +164,7 @@ export function ConnectionDialog({
     <FormDialog
       open={open}
       onClose={onClose}
-      title={t("database.dialog.title")}
+      title={t(isEditMode ? "database.dialog.editTitle" : "database.dialog.title")}
       onCancel={onClose}
       cancelDisabled={busy}
       status={status}
@@ -173,16 +185,30 @@ export function ConnectionDialog({
           <div className="form-field">
             <label className="form-label">{t("database.dialog.engine")}</label>
             <div className="engine-grid">
-              {(Object.keys(ENGINE_DEFAULTS) as DbEngine[]).map((engine) => (
-                <button
-                  key={engine}
-                  className={`engine-chip${form.engine === engine ? " engine-chip--active" : ""}`}
-                  onClick={() => handleEngineChange(engine)}
-                >
-                  <span className="engine-chip-icon">{ENGINE_DEFAULTS[engine].icon}</span>
-                  <span className="engine-chip-label">{engine}</span>
-                </button>
-              ))}
+              {(Object.keys(ENGINE_DEFAULTS) as DbEngine[]).map((engine) => {
+                const iconUrl = getEngineIcon(engine, resolvedTheme);
+                return (
+                  <button
+                    key={engine}
+                    className={`engine-chip${form.engine === engine ? " engine-chip--active" : ""}`}
+                    onClick={() => handleEngineChange(engine)}
+                  >
+                    <span className="engine-chip-icon">
+                      {iconUrl ? (
+                        <img
+                          src={iconUrl}
+                          alt=""
+                          className="engine-chip-logo"
+                          draggable={false}
+                        />
+                      ) : (
+                        ENGINE_DEFAULTS[engine].icon
+                      )}
+                    </span>
+                    <span className="engine-chip-label">{engine}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -237,7 +263,7 @@ export function ConnectionDialog({
           <div className="form-field">
             <label className="form-label">
               {t("database.dialog.database")}
-              {!isFileBased && (
+              {!isFileBased && form.engine !== "redis" && (
                 <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.6 }}>
                   ({t("database.dialog.optional")})
                 </span>
@@ -258,13 +284,13 @@ export function ConnectionDialog({
             />
           </div>
 
-          {!isFileBased && form.engine !== "redis" && (
+          {!isFileBased && (
             <div className="form-row">
               <div className="form-field" style={{ flex: 1 }}>
                 <label className="form-label">{t("database.dialog.username")}</label>
                 <input
                   className="input"
-                  placeholder="postgres"
+                  placeholder={form.engine === "redis" ? "default" : "postgres"}
                   value={form.username}
                   onChange={(e) => update("username", e.target.value)}
                   style={{ width: "100%" }}
@@ -284,7 +310,7 @@ export function ConnectionDialog({
             </div>
           )}
 
-          {!isFileBased && (
+          {!isFileBased && form.engine !== "redis" && (
             <div className="form-field">
               <label className="form-check">
                 <input

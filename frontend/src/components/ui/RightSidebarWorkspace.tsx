@@ -40,7 +40,9 @@ export function RightSidebarWorkspace({
       rightPreset={preset}
       rightSizePx={sidebarSizePx}
       rightMinPx={sidebarMinPx}
-      rightMaxPx={sidebarMaxPx}
+      // 右侧边栏最大宽度默认限制为窗口宽度的 60%，避免在大窗口下被拉得过宽。
+      // 调用方仍可通过 sidebarMaxPx 或 preset 显式覆盖。
+      rightMaxPx={sidebarMaxPx ?? "60%"}
       className={className}
     />
   );
