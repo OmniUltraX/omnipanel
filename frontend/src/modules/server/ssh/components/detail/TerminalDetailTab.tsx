@@ -1,5 +1,5 @@
-import type { WorkspaceResource } from "../../../../../lib/resourceRegistry";
-import { SshTerminalWorkspace } from "../../terminal/SshTerminalWorkspace";
+import type { WorkspaceResource } from "@/lib/resourceRegistry";
+import { SshTerminalWorkspace } from "@/modules/server/ssh/terminal/SshTerminalWorkspace";
 
 type Props = {
   activeResource: WorkspaceResource | null;

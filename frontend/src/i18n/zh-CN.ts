@@ -512,6 +512,10 @@ export const zhCN = {
     },
   },
   database: {
+    tabs: {
+      query: "数据查询",
+      transfer: "数据传输",
+    },
     sidebar: {
       title: "Schema",
       search: "搜索表…",
@@ -616,7 +620,7 @@ export const zhCN = {
     runSql: "执行 SQL",
     running: "执行中…",
     toolbox: {
-      open: "数据库工具箱",
+      open: "数据传输",
       tabs: {
         dataSync: "数据同步",
         schemaSync: "结构同步",
@@ -781,6 +785,7 @@ export const zhCN = {
     },
     sideTabs: {
       files: "文件",
+      monitor: "系统监控",
     },
     actions: {
       command: "终端命令",

@@ -14,6 +14,7 @@ pub mod panel;
 pub mod protocol;
 pub mod proxy;
 pub mod ssh;
+pub mod system;
 pub mod task;
 pub mod terminal;
 pub mod updater;

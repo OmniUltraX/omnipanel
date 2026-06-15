@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
@@ -45,8 +46,6 @@ import {
   type SqlWorkspaceTab,
 } from "./workspaceTabs";
 import { CellEditorDialog } from "./cell_editor";
-import { SubWindow } from "../../components/ui/SubWindow";
-import { useDbToolboxStore } from "../../stores/dbToolboxStore";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import {
   createDefaultSqlTabState,
@@ -72,6 +71,8 @@ import {
 } from "./dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 
 const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
 import {
@@ -92,6 +93,9 @@ const INITIAL_SQL_TAB: SqlWorkspaceTab = {
   kind: "sql",
   label: makeSqlTabLabel(1),
 };
+
+type DbModuleTab = "query" | "transfer";
+const DB_MODULE_TABS: DbModuleTab[] = ["query", "transfer"];
 
 function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabState {
   return {
@@ -278,6 +282,13 @@ function CreateDatabaseDialog({
 
 export function DatabasePanel() {
   const { t } = useI18n();
+  const location = useLocation();
+  const isActiveRoute = location.pathname === "/database";
+  const [moduleTab, setModuleTab] = usePersistedModuleTab(
+    "database-workspace",
+    "query",
+    DB_MODULE_TABS,
+  );
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const groups = useDbGroupStore((s) => s.groups);
   const activeGroupId = useDbGroupStore((s) => s.activeGroupId);
@@ -344,8 +355,6 @@ export function DatabasePanel() {
       }
     | null
   >(null);
-  const toolboxOpen = useDbToolboxStore((s) => s.open);
-  const setToolboxOpen = useDbToolboxStore((s) => s.setOpen);
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
@@ -366,6 +375,22 @@ export function DatabasePanel() {
   const activeConn = useMemo(
     () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
     [groupConnections, activeConnId],
+  );
+
+  const topbarTabs = useMemo(
+    () => [
+      { id: "query", label: t("database.tabs.query"), active: moduleTab === "query" },
+      { id: "transfer", label: t("database.tabs.transfer"), active: moduleTab === "transfer" },
+    ],
+    [moduleTab, t],
+  );
+
+  useTopbarTabs(
+    topbarTabs,
+    {
+      onSelect: (id) => setModuleTab(id as DbModuleTab),
+    },
+    { mode: "segment", enabled: isActiveRoute },
   );
 
   const activeGroupName = useMemo(
@@ -1767,7 +1792,15 @@ export function DatabasePanel() {
     [],
   );
 
-  return (
+  return moduleTab === "transfer" ? (
+    <div className="db-module-transfer">
+      <DatabaseToolbox
+        connections={groupConnections}
+        initialSourceConnectionId={activeConn?.id}
+        initialSourceDatabase={activeSqlDatabase}
+      />
+    </div>
+  ) : (
     <DbWorkspaceProvider value={ctxValue}>
       <SidebarWorkspace
         preset="schema"
@@ -1923,17 +1956,6 @@ export function DatabasePanel() {
           );
         })()}
       </Modal>
-      <SubWindow
-        open={toolboxOpen}
-        title={t("database.toolbox.open")}
-        onClose={() => setToolboxOpen(false)}
-      >
-        <DatabaseToolbox
-          connections={groupConnections}
-          initialSourceConnectionId={activeConn?.id}
-          initialSourceDatabase={activeSqlDatabase}
-        />
-      </SubWindow>
       <ConnectionDialog
         open={dialogOpen}
         onClose={() => {

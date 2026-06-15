@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useSshStats, type HostSystemStats } from "../../../../../stores/sshStatsStore";
-import { useSshMonitoring } from "../../hooks/useSshMonitoring";
-import { useI18n } from "../../../../../i18n";
+import { useSshStats, type HostSystemStats } from "@/stores/sshStatsStore";
+import { useSshMonitoring } from "@/modules/server/ssh/hooks/useSshMonitoring";
+import { useI18n } from "@/i18n";
 
 type Props = {
   activeResource: { id: string } | null;

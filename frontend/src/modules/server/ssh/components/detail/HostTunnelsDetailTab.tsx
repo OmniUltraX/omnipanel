@@ -1,5 +1,5 @@
-import { TunnelPanel } from "../../../../../components/tunnel";
-import type { WorkspaceResource } from "../../../../../lib/resourceRegistry";
+import { TunnelPanel } from "@/components/tunnel";
+import type { WorkspaceResource } from "@/lib/resourceRegistry";
 
 type Props = {
   activeResource: WorkspaceResource | null;

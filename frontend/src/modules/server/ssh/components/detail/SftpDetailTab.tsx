@@ -1,4 +1,4 @@
-import { SftpPanel } from "../../../../../components/sftp";
+import { SftpPanel } from "@/components/sftp";
 
 type Props = {
   activeResource: { id: string } | null;

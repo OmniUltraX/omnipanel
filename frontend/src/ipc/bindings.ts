@@ -234,6 +234,14 @@ export const commands = {
 	sshPoolProcessDetail: (resourceId: string, pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_process_detail", { resourceId, pid })),
 	/**  强制终止远程进程（默认 SIGKILL）。 */
 	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal })),
+	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
+	localFetchStats: () => typedError<HostSystemStats, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
+	/**  列出本机进程。 */
+	localListProcesses: () => typedError<SshProcessInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("local_list_processes")),
+	/**  查询本机进程详情。 */
+	localProcessDetail: (pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_process_detail", { pid })),
+	/**  强制终止本机进程。 */
+	localKillProcess: (pid: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_kill_process", { pid })),
 	/**
 	 *  创建 SSH 隧道（端口转发）。
 	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行。

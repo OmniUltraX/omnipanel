@@ -516,6 +516,10 @@ export const enUS: TranslationDict = {
     },
   },
   database: {
+    tabs: {
+      query: "Data Query",
+      transfer: "Data Transfer",
+    },
     sidebar: {
       title: "Schema",
       search: "Search tables…",
@@ -620,7 +624,7 @@ export const enUS: TranslationDict = {
     runSql: "Run SQL",
     running: "Running…",
     toolbox: {
-      open: "Database toolbox",
+      open: "Data Transfer",
       tabs: {
         dataSync: "Data sync",
         schemaSync: "Schema sync",
@@ -785,6 +789,7 @@ export const enUS: TranslationDict = {
     },
     sideTabs: {
       files: "Files",
+      monitor: "System Monitor",
     },
     actions: {
       command: "Terminal Command",

@@ -57,6 +57,7 @@ urlencoding = "2"
 
 # Terminal
 portable-pty = "0.8"
+sysinfo = "0.33"
 
 # SSH（用 ring 后端，避免 aws-lc-rs 在 Windows 需要 NASM 构建链）
 russh = { version = "0.54", default-features = false, features = ["flate2", "ring", "rsa"] }
