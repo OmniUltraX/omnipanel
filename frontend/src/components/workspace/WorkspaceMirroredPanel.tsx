@@ -1,5 +1,6 @@
 import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
+import { DatabaseTabDockPane } from "../../modules/database/DatabaseTabDockPane";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 
 interface WorkspaceMirroredPanelProps {
@@ -24,10 +25,7 @@ export function WorkspaceMirroredPanel({ tab, isActive }: WorkspaceMirroredPanel
 
   if (tab.originScope === "database" && tab.originPanelId) {
     return (
-      <div className="workspace-mirror-placeholder">
-        <p>{t("shell.workspacePanel.mirroredDatabase")}</p>
-        <span className="workspace-mirror-placeholder__meta">{tab.label}</span>
-      </div>
+      <DatabaseTabDockPane tabId={tab.originPanelId} isActive={isActive} />
     );
   }
 

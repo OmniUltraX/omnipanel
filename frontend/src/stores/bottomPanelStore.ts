@@ -20,6 +20,7 @@ interface BottomPanelState {
   enterFullscreen: () => void;
   exitFullscreen: () => void;
   toggleFullscreen: () => void;
+  toggleOpen: () => void;
 }
 
 export const useBottomPanelStore = create<BottomPanelState>((set, get) => ({
@@ -56,6 +57,14 @@ export const useBottomPanelStore = create<BottomPanelState>((set, get) => ({
         isOpen: true,
         expandSignal: state.expandSignal + 1,
       }));
+    }
+  },
+  toggleOpen: () => {
+    const { isOpen, isFullscreen } = get();
+    if (isOpen || isFullscreen) {
+      get().requestCollapse();
+    } else {
+      get().requestExpand();
     }
   },
 }));

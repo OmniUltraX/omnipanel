@@ -432,6 +432,7 @@ export const zhCN = {
       noColumns: "无字段",
       noIndexes: "无索引",
       detailsFailed: "加载表结构失败",
+      loadMore: "加载更多…",
     },
     groups: {
       new: "新建分组",
@@ -1327,6 +1328,7 @@ export const zhCN = {
         switchTab: "切换标签",
         commandPalette: "命令面板",
         toggleAi: "切换 AI 面板",
+        toggleBottomWorkspace: "展开/隐藏底部工作区",
         splitVertical: "垂直分屏",
         splitHorizontal: "水平分屏",
         searchTerminal: "搜索终端",

@@ -218,6 +218,14 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             pool.close().await;
             Ok(databases)
         }
+        "redis" => {
+            let preset = connection.database.trim();
+            if !preset.is_empty() {
+                return Ok(vec![preset.to_string()]);
+            }
+            // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
+            Ok((0..16).map(|n| n.to_string()).collect())
+        }
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
     }

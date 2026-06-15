@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
@@ -62,6 +62,14 @@ import { DockableWorkspace } from "../../components/dock";
 import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
+import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
+
+const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
+import {
+  canAcceptSchemaTreeDrop,
+  parseSchemaTreeItemFromDrop,
+  setActiveSchemaDragItem,
+} from "./schemaTreeItem";
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
 const INITIAL_SQL_TAB: SqlWorkspaceTab = {
@@ -303,6 +311,9 @@ export function DatabasePanel() {
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
+  const dockedDatabaseTabIds = useWorkspaceBottomDockStore(
+    (s) => s.dockedOriginByScope.database ?? EMPTY_DOCKED_DATABASE_TABS,
+  );
 
   const activeGroupNameFromStore = useMemo(
     () => getGroupName(activeGroupId),
@@ -1212,6 +1223,26 @@ export function DatabasePanel() {
     [loadTablePreview, tablePreviews, workspaceTabs],
   );
 
+  const handleExternalSchemaDrop = useCallback(
+    (dataTransfer: DataTransfer) => {
+      const item = parseSchemaTreeItemFromDrop(dataTransfer);
+      if (!item || item.type !== "table") return;
+      if (!item.connId || !item.dbName || !item.tableName) return;
+
+      const connection = connections.find((c) => c.id === item.connId);
+      if (!connection) return;
+
+      handleSelectTable({
+        connId: item.connId,
+        dbName: item.dbName,
+        tableName: item.tableName,
+        connection,
+      });
+      setActiveSchemaDragItem(null);
+    },
+    [connections, handleSelectTable],
+  );
+
   const openNewSqlTab = useCallback(() => {
     const tabId = makeSqlTabId();
     const sqlTabCount = workspaceTabs.length + 1;
@@ -1460,6 +1491,23 @@ export function DatabasePanel() {
     schemaByKey, schemaLoadingKey, setActiveConnId, sqlCompletionSchemas, connectionForSql,
   ]);
 
+  const mirrorRevisionsRef = useRef(new Map<string, string>());
+
+  useLayoutEffect(() => {
+    mirrorRevisionsRef.current = publishDbWorkspaceMirror(
+      ctxValue,
+      dockedDatabaseTabIds,
+      mirrorRevisionsRef.current,
+    );
+    return () => {
+      mirrorRevisionsRef.current = publishDbWorkspaceMirror(
+        null,
+        [],
+        mirrorRevisionsRef.current,
+      );
+    };
+  }, [ctxValue, dockedDatabaseTabIds]);
+
   const dockTabs = useMemo(
     () =>
       workspaceTabs
@@ -1544,6 +1592,8 @@ export function DatabasePanel() {
             onSavedLayoutChange={setDockLayout}
             renderPanel={renderDockPanel}
             onTabContextMenu={handleDockTabContextMenu}
+            canAcceptExternalDrop={canAcceptSchemaTreeDrop}
+            onExternalDrop={handleExternalSchemaDrop}
           />
         )}
       </SidebarWorkspace>

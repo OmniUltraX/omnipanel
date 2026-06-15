@@ -67,6 +67,10 @@ export interface DockableWorkspaceProps {
   dockScope?: string;
   /** 是否接受其他 dockview 拖入的 panel */
   acceptExternalDrops?: boolean;
+  /** dragover：是否接受来自外部的 HTML5 拖放 */
+  canAcceptExternalDrop?: (dataTransfer: DataTransfer) => boolean;
+  /** drop：处理外部 HTML5 拖放（如 Schema 树节点） */
+  onExternalDrop?: (dataTransfer: DataTransfer) => void;
   /** 自定义 tab group chip 标签与颜色 */
   resolveTabGroupMeta?: (
     panelType: string,
@@ -108,6 +112,8 @@ export function DockableWorkspace({
   createPanelRequest,
   dockScope,
   acceptExternalDrops = false,
+  canAcceptExternalDrop,
+  onExternalDrop,
   resolveTabGroupMeta,
 }: DockableWorkspaceProps) {
   const apiRef = useRef<DockviewApi | null>(null);
@@ -134,6 +140,10 @@ export function DockableWorkspace({
   dockScopeRef.current = dockScope;
   const acceptExternalDropsRef = useRef(acceptExternalDrops);
   acceptExternalDropsRef.current = acceptExternalDrops;
+  const canAcceptExternalDropRef = useRef(canAcceptExternalDrop);
+  canAcceptExternalDropRef.current = canAcceptExternalDrop;
+  const onExternalDropRef = useRef(onExternalDrop);
+  onExternalDropRef.current = onExternalDrop;
   const onTabContextMenuRef = useRef(onTabContextMenu);
   onTabContextMenuRef.current = onTabContextMenu;
   const tabsRef = useRef(tabs);
@@ -573,6 +583,29 @@ export function DockableWorkspace({
               event.preventDefault();
               handleExternalDrop(event);
             }
+          }),
+        );
+      }
+
+      if (canAcceptExternalDropRef.current || onExternalDropRef.current) {
+        externalDisposables.push(
+          api.onUnhandledDragOverEvent((event) => {
+            const canAccept = canAcceptExternalDropRef.current;
+            if (!canAccept) return;
+            if (!(event.nativeEvent instanceof DragEvent)) return;
+            const dataTransfer = event.nativeEvent.dataTransfer;
+            if (!dataTransfer || !canAccept(dataTransfer)) return;
+            event.accept();
+          }),
+          api.onWillDrop((event) => {
+            const canAccept = canAcceptExternalDropRef.current;
+            const onDrop = onExternalDropRef.current;
+            if (!canAccept || !onDrop) return;
+            if (!(event.nativeEvent instanceof DragEvent)) return;
+            const dataTransfer = event.nativeEvent.dataTransfer;
+            if (!dataTransfer || !canAccept(dataTransfer)) return;
+            event.preventDefault();
+            onDrop(dataTransfer);
           }),
         );
       }

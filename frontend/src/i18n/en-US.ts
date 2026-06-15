@@ -436,6 +436,7 @@ export const enUS: TranslationDict = {
       noColumns: "No columns",
       noIndexes: "No indexes",
       detailsFailed: "Failed to load table structure",
+      loadMore: "Load more…",
     },
     groups: {
       new: "New Group",
@@ -1368,6 +1369,7 @@ export const enUS: TranslationDict = {
         switchTab: "Switch Tab",
         commandPalette: "Command Palette",
         toggleAi: "Toggle AI Panel",
+        toggleBottomWorkspace: "Toggle Bottom Workspace",
         splitVertical: "Split Vertically",
         splitHorizontal: "Split Horizontally",
         searchTerminal: "Search Terminal",

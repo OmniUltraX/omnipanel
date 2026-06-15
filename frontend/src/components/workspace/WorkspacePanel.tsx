@@ -10,6 +10,7 @@ import {
   resolveWorkspaceTabs,
   useWorkspaceBottomDockStore,
 } from "../../stores/workspaceBottomDockStore";
+import { getDbWorkspaceMirrorContext } from "../../stores/dbWorkspaceMirrorStore";
 import { WorkspaceMirroredPanel } from "./WorkspaceMirroredPanel";
 
 interface WorkspacePanelProps {
@@ -110,6 +111,21 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     [removeTab, workspace, workspaceId],
   );
 
+  const handleActiveTabChange = useCallback(
+    (tabId: string) => {
+      setActiveTabId(workspaceId, tabId);
+      const tab = tabs.find((item) => item.id === tabId);
+      if (
+        tab?.kind === "mirrored" &&
+        tab.originScope === "database" &&
+        tab.originPanelId
+      ) {
+        getDbWorkspaceMirrorContext()?.setActiveTabId(tab.originPanelId);
+      }
+    },
+    [setActiveTabId, tabs, workspaceId],
+  );
+
   return (
     <DockableWorkspace
       className="workspace-panel"
@@ -117,7 +133,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
       acceptExternalDrops
       tabs={dockTabs}
       activeTabId={activeTabId}
-      onActiveTabChange={(tabId) => setActiveTabId(workspaceId, tabId)}
+      onActiveTabChange={handleActiveTabChange}
       onCloseTab={handleCloseTab}
       savedLayout={savedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}

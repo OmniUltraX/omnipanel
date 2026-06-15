@@ -38,6 +38,7 @@ import { TasksPanel } from "./modules/tasks/TasksPanel";
 import { SettingsPanel } from "./modules/settings/SettingsPanel";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
+import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
 import { useTopbarStore } from "./stores/topbarStore";
@@ -173,6 +174,7 @@ const TOPBAR_TAB_ROUTES = [
 
 function AppShell() {
   useAiDrawerShortcut();
+  useBottomWorkspaceShortcut();
   const location = useLocation();
   const navigate = useNavigate();
   const title = getRouteTitle(location.pathname);
@@ -344,6 +346,11 @@ function AppShell() {
           )}
           {aiDisplayMode === "dockview" ? <AiDockView /> : null}
         </div>
+        <div
+          id="workspace-bottom-fullscreen-root"
+          className="workspace-bottom-fullscreen-shell"
+          aria-hidden={!isBottomFullscreen}
+        />
         <StatusBar />
       </div>
       {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}

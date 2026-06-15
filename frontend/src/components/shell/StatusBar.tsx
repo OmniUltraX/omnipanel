@@ -13,8 +13,7 @@ function StatusBarWorkspaceControls() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const isOpen = useBottomPanelStore((state) => state.isOpen);
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
-  const requestExpand = useBottomPanelStore((state) => state.requestExpand);
-  const requestCollapse = useBottomPanelStore((state) => state.requestCollapse);
+  const toggleOpen = useBottomPanelStore((state) => state.toggleOpen);
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -58,7 +57,7 @@ function StatusBarWorkspaceControls() {
       <button
         type="button"
         className={`statusbar-item statusbar-button statusbar-workspace-toggle${panelVisible ? " statusbar-workspace-toggle--open" : ""}`}
-        onClick={() => (panelVisible ? requestCollapse() : requestExpand())}
+        onClick={() => toggleOpen()}
         title={toggleLabel}
         aria-label={toggleLabel}
         aria-pressed={panelVisible}

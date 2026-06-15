@@ -31,6 +31,7 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "switch-tab", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"] },
   { id: "command-palette", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
   { id: "toggle-ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Mod", "`"] },
+  { id: "toggle-bottom-workspace", labelKey: "settings.keybindings.items.toggleBottomWorkspace", defaultKeys: ["Alt", "KeyW"] },
   { id: "split-vertical", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "\\"] },
   { id: "split-horizontal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "\\"] },
   { id: "search-terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "F"] },

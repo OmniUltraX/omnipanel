@@ -24,6 +24,8 @@ type GroupPanelViewState = {
   id?: string;
   views?: string[];
   activeView?: string;
+  /** 旧版 dockview 侧/底 Tab 栏字段，加载时由 stripSideHeaderLayout 剥除 */
+  headerPosition?: string;
 };
 
 interface SerializedLeaf {

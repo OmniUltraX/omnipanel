@@ -221,15 +221,32 @@
 }
 
 .workspace-bottom-fullscreen-shell {
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-    display: flex;
+    display: none;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg);
 }
 
-/* 底部工程工作区全屏：同一实例铺满 workspace 主区域（保留状态栏） */
+.workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell {
+    display: flex;
+    position: fixed;
+    left: var(--sidebar-w);
+    right: 0;
+    top: 0;
+    bottom: 26px;
+    z-index: 100;
+}
+
+.workspace-bottom-shell-placeholder {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    pointer-events: none;
+}
+
+/* 底部工程工作区全屏：隐藏顶栏与主内容区，保留状态栏 */
 .workspace--bottom-fullscreen > .topbar {
     visibility: hidden;
     pointer-events: none;
@@ -248,21 +265,33 @@
 }
 
 .workspace--bottom-fullscreen .content-bottom .dock-panel-bottom {
-    position: fixed;
-    left: var(--sidebar-w);
-    right: 0;
-    top: 0;
-    bottom: 26px;
-    z-index: 100;
-    height: auto !important;
-    max-height: none !important;
-    flex: none !important;
+    flex: 0 0 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
     border-top: none;
+}
+
+.workspace--bottom-fullscreen .statusbar {
+    position: relative;
+    z-index: 101;
+}
+
+.workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell .workspace-bottom-shell {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+
+.workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell .workspace-bottom-titlebar {
+    flex-shrink: 0;
+    z-index: 2;
 }
 
 .workspace-bottom-host {
     flex: 1;
-    height: 100%;
     width: 100%;
     min-height: 0;
     min-width: 0;
@@ -292,7 +321,8 @@
     flex: 1;
     min-height: 0;
     min-width: 0;
-    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .workspace-panel__welcome {
@@ -326,6 +356,17 @@
     flex-direction: column;
     overflow: hidden;
     background: var(--bg-deeper);
+}
+
+.workspace-database-mirror {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
 }
 
 .resource-rail {
@@ -8641,6 +8682,34 @@
 
     .schema-filter-btn--depth-2 {
         margin-left: calc(var(--sp-2) + 32px);
+    }
+
+    .schema-load-more-btn {
+        display: block;
+        width: calc(100% - var(--sp-4));
+        margin: 2px var(--sp-2) 4px var(--sp-2);
+        padding: 4px var(--sp-2);
+        border: none;
+        background: transparent;
+        text-align: left;
+        font-size: 11px;
+        color: var(--text-secondary, #8e8e93);
+        cursor: pointer;
+        border-radius: var(--r-sm);
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .schema-load-more-btn:hover {
+        background: var(--surface-hover);
+        color: var(--accent);
+    }
+
+    .tree-node--draggable {
+        cursor: grab;
+    }
+
+    .tree-node--draggable:active {
+        cursor: grabbing;
     }
 
     .db-filter-dialog {
