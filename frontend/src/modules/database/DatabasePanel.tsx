@@ -1732,12 +1732,19 @@ export function DatabasePanel() {
     () =>
       workspaceTabs
         .filter((tab) => !isOriginDocked("database", tab.id))
-        .map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          panelType: "database",
-        })),
-    [workspaceTabs, isOriginDocked],
+        .map((tab) => {
+          const isTableTab =
+            tabModes[tab.id] === "data" ||
+            Boolean(tablePreviews[tab.id]?.tableName);
+          return {
+            id: tab.id,
+            label: tab.label,
+            panelType: "database",
+            icon: isTableTab ? ("table" as const) : ("sql" as const),
+            tooltip: tab.label,
+          };
+        }),
+    [workspaceTabs, isOriginDocked, tablePreviews, tabModes],
   );
 
   const renderDockPanel = useCallback(
@@ -1809,6 +1816,8 @@ export function DatabasePanel() {
           <DockableWorkspace
             className="db-workspace"
             dockScope="database"
+            defaultHeaderPosition="bottom"
+            enableTabGroups={false}
             tabs={dockTabs}
             activeTabId={activeWorkspaceTabId}
             onActiveTabChange={setActiveWorkspaceTabId}

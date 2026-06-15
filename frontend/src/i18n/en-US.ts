@@ -783,6 +783,9 @@ export const enUS: TranslationDict = {
       sshSession: "SSH remote session",
       dangerConfirm: "Generate Danger Confirmation",
     },
+    sideTabs: {
+      files: "Files",
+    },
     actions: {
       command: "Terminal Command",
       dangerDemo: "Dangerous Command Demo",
@@ -808,6 +811,7 @@ export const enUS: TranslationDict = {
       sftp: "SFTP",
       tunnels: "Tunnels",
       monitoring: "Monitoring",
+      processes: "Processes",
     },
     connect: "Connect",
     status: {

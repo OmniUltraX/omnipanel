@@ -1369,6 +1369,45 @@
     border-bottom: 2px solid var(--accent);
 }
 
+/* Tab 栏在底部：激活指示条改到顶边，分隔线改到 Tab 栏上方 */
+.dockable-workspace.dock-header-bottom .dv-tabs-and-actions-container {
+    border-bottom: none;
+    border-top: 1px solid var(--border);
+}
+
+.dockable-workspace.dock-header-bottom .dv-default-tab.dv-active-tab {
+    border-bottom: none;
+    border-top: 2px solid var(--accent);
+}
+
+.dock-tab-header-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    min-width: 0;
+}
+
+.dock-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 侧栏 Tab（left/right）：仅图标，收窄宽度 */
+.dockable-workspace.dock-header-left .dv-tabs-and-actions-container,
+.dockable-workspace.dock-header-right .dv-tabs-and-actions-container {
+    width: 36px;
+    min-width: 36px;
+    padding: var(--sp-1) 0;
+}
+
+.dockable-workspace.dock-header-left .dock-tab-header-inner,
+.dockable-workspace.dock-header-right .dock-tab-header-inner {
+    justify-content: center;
+    max-width: none;
+}
+
 .dockable-workspace .dv-content-container {
     background: var(--bg);
 }
@@ -1762,72 +1801,409 @@
     background: var(--bg);
 }
 
-/* 终端模块 rc-dock 工作区 */
-.term-dock-workspace {
+/* 终端模块工作区（顶栏 session Tab + 单面板切换，无 dockview） */
+.term-workspace {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-deeper);
+}
+
+.term-workspace-pane {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+}
+
+.term-workspace-pane.is-active {
+    display: flex;
+}
+
+.term-workspace__empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--meta);
+    font-size: 13px;
+}
+
+/* AdvanceTerminal：终端 + 可拖拽右侧工具栏（SFTP / 隧道） */
+.advance-terminal {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.advance-terminal--local {
+    background: var(--bg-deeper);
+}
+
+.advance-terminal-split {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+.advance-terminal-main {
+    min-width: 0;
+    background: var(--bg-deeper);
+}
+
+.advance-terminal-side {
+    min-width: 0;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
+
+.advance-terminal-side-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-deeper);
+    overflow-x: auto;
+}
+
+.advance-terminal-side-tab {
+    flex: 1 0 auto;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: var(--sp-2) var(--sp-3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.advance-terminal-side-tab:hover {
+    color: var(--fg);
+}
+
+.advance-terminal-side-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+}
+
+.advance-terminal-side-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: var(--sp-2);
+}
+
+.advance-terminal-sftp-stack {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    gap: var(--sp-2);
+}
+
+.advance-terminal-sftp-stack .ssh-ov {
+    flex: 0 0 auto;
+    min-height: 0;
+    height: auto;
+    padding: 0;
+    overflow: visible;
+}
+
+.advance-terminal-sftp-stack .ssh-ov--embedded.ssh-ov--loading,
+.advance-terminal-sftp-stack .ssh-ov--embedded.ssh-ov--error {
+    min-height: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+.advance-terminal-sftp-stack .ssh-ov--embedded .ssh-ov-loading {
+    flex-direction: row;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-deeper);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+}
+
+.advance-terminal-sftp-stack .ssh-ov--embedded .ssh-ov-loading p {
+    margin: 0;
+    font-size: 11px;
+}
+
+.advance-terminal-sftp-stack .ssh-ov-cards {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-2);
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card {
+    padding: var(--sp-2) var(--sp-3);
+    gap: var(--sp-2);
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card-icon {
+    width: 28px;
+    height: 28px;
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card-label {
+    font-size: 10px;
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card-pct {
+    font-size: 18px;
+}
+
+.advance-terminal-sftp-stack .ssh-ov-card-details {
+    display: none;
+}
+
+.advance-terminal-sftp-stack .sftp-panel {
     flex: 1;
     min-height: 0;
 }
 
-.term-dock-workspace .dock-pane-surface {
+.advance-terminal-side .proc-panel {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+.advance-terminal-side-body:has(.proc-panel) {
+    padding: 0;
+}
+
+/* 终端侧栏内 SFTP / Tunnel / 本地文件面板布局复用 */
+.advance-terminal-side .sftp-panel,
+.advance-terminal-side .local-file-panel,
+.advance-terminal-side .tunnel-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    height: 100%;
+    min-height: 0;
+}
+
+.advance-terminal-side .sftp-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+.advance-terminal-side .sftp-path {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
     background: var(--bg-deeper);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 2px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
 }
 
-.term-dock-workspace .dock-panel-content {
-    background: var(--bg-deeper);
+.advance-terminal-side .sftp-path-crumbs {
+    display: flex;
+    align-items: center;
+    min-width: 0;
 }
 
-.term-dock-workspace .term-pane {
-    border-right: none;
-}
-
-.term-dock-workspace .dock-panel {
+.advance-terminal-side .sftp-path-seg {
+    background: none;
     border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 2px 0;
 }
 
-.term-dock-workspace .dock-bar {
-    opacity: 0;
-    transition: opacity 0.2s ease-in-out;
-    pointer-events: none;
+.advance-terminal-side .sftp-path-edit-hit {
+    flex: 1;
+    align-self: stretch;
+    min-width: 24px;
+    border: none;
+    background: transparent;
+    cursor: text;
 }
 
-.term-dock-workspace .dock-panel:hover .dock-bar,
-.term-dock-workspace .dock-panel-active .dock-bar {
-    opacity: 1;
-    pointer-events: auto;
+.advance-terminal-side .sftp-path-input {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
 }
 
-.term-dock-workspace .dock-panel::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 8px;
-    z-index: 10;
+.advance-terminal-side .sftp-quick-paths--top {
+    display: flex;
+    gap: var(--sp-2);
+    flex-shrink: 0;
+    flex-wrap: wrap;
 }
 
-.term-dock-workspace .dock-panel:hover::before {
-    display: none;
-}
-
-/* 在终端场景下 rc-dock tab 始终可见，避免出现"无 tab 栏"的体验 */
-.term-dock-workspace .dock-bar {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.term-dock-workspace .dock-tab-btn {
+.advance-terminal-side .sftp-quick-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--fg-2);
     cursor: pointer;
 }
 
-.term-dock-workspace .dock-tab-active .dock-tab-btn {
-    color: var(--fg);
+.advance-terminal-side .sftp-table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--bg-deeper);
+}
+
+.advance-terminal-side .sftp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.advance-terminal-side .sftp-table th {
+    text-align: left;
+    padding: var(--sp-1) var(--sp-2);
+    border-bottom: 1px solid var(--border);
+    color: var(--meta);
+    font-size: 11px;
+}
+
+.advance-terminal-side .sftp-table td {
+    padding: var(--sp-1) var(--sp-2);
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.advance-terminal-side .sftp-col-name {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+}
+
+.advance-terminal-side .sftp-empty,
+.advance-terminal-side .sftp-error,
+.advance-terminal-side .sftp-info {
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.advance-terminal-side .sftp-error {
+    color: var(--danger);
+}
+
+.advance-terminal-side .sftp-mkdir-bar {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.advance-terminal-side .tunnel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-shrink: 0;
+}
+
+.advance-terminal-side .tunnel-label {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+}
+
+.advance-terminal-side .tunnel-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+
+.advance-terminal-side .tunnel-item {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-2);
+    background: var(--bg-deeper);
+}
+
+.advance-terminal-side .tunnel-item-main {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+
+.advance-terminal-side .tunnel-endpoint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-2);
+}
+
+.advance-terminal-side .tunnel-bind-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+}
+
+.advance-terminal-side .tunnel-delete-btn {
+    background: none;
+    border: none;
+    color: var(--meta);
+    cursor: pointer;
+    padding: 2px;
+}
+
+.advance-terminal-side .tunnel-delete-btn:hover {
+    color: var(--danger);
 }
 
 /* 数据库模块工作区 */
 .db-workspace.db-workspace {
     flex: 1;
     min-height: 0;
+}
+
+.db-workspace.dock-header-bottom .dv-tabs-and-actions-container {
+    flex-shrink: 0;
+    background: var(--bg-deeper);
 }
 
 .db-workspace .db-dock-pane {
@@ -7658,6 +8034,27 @@
     }
 
     /* SSH Overview cards */
+    .ssh-ov-page {
+        padding: var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .ssh-ov-page > .ssh-ov {
+        flex: 0 0 auto;
+        padding: 0;
+        overflow: visible;
+    }
+
+    .ssh-ov-page > .proc-panel {
+        flex: 1;
+        min-height: 0;
+    }
+
     .ssh-ov {
         padding: var(--sp-4);
         display: flex;
@@ -7806,6 +8203,36 @@
         border-radius: 50%;
         background: var(--meta);
         flex-shrink: 0;
+    }
+
+    .ssh-ov--compact {
+        padding: 0;
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .ssh-ov--compact .ssh-ov-cards {
+        grid-template-columns: 1fr;
+        gap: var(--sp-2);
+    }
+
+    .ssh-ov--compact .ssh-ov-card {
+        padding: var(--sp-3);
+        gap: var(--sp-2);
+    }
+
+    .ssh-ov--compact .ssh-ov-card-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    .ssh-ov--compact .ssh-ov-card-pct {
+        font-size: 22px;
+    }
+
+    .ssh-ov--compact .ssh-ov-card-details {
+        font-size: 11px;
     }
 
     /* SFTP panel */

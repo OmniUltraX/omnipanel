@@ -779,6 +779,9 @@ export const zhCN = {
       sshSession: "SSH 远程会话",
       dangerConfirm: "生成危险确认",
     },
+    sideTabs: {
+      files: "文件",
+    },
     actions: {
       command: "终端命令",
       dangerDemo: "危险命令演示",
@@ -804,6 +807,7 @@ export const zhCN = {
       sftp: "SFTP",
       tunnels: "隧道",
       monitoring: "监控",
+      processes: "进程",
     },
     connect: "连接",
     status: {

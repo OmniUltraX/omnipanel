@@ -14,7 +14,7 @@ export function WorkspaceMirroredPanel({ tab, isActive }: WorkspaceMirroredPanel
 
   if (tab.originScope === "terminal" && tab.originPanelId) {
     return (
-      <div className="workspace-terminal-mirror term-dock-workspace">
+      <div className="workspace-terminal-mirror">
         <TerminalTabDockPane
           tabId={tab.originPanelId}
           isActive={isActive}

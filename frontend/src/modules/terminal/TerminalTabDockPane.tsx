@@ -1,5 +1,4 @@
-import { TerminalTabPaneView } from "./TerminalPaneView";
-import { useTerminalTabDockPane } from "./useTerminalTabDockPane";
+import { AdvanceTerminal } from "./AdvanceTerminal";
 
 interface TerminalTabDockPaneProps {
   tabId: string;
@@ -7,13 +6,17 @@ interface TerminalTabDockPaneProps {
   onActivate?: () => void;
 }
 
-/** 终端模块 dock 与底部工作区镜像共用的完整面板（含 header + 终端区 + 命令输入） */
+/** 终端模块 dock 与底部工作区镜像共用的完整面板（终端 + 可选右侧工具栏） */
 export function TerminalTabDockPane({
   tabId,
   isActive,
   onActivate,
 }: TerminalTabDockPaneProps) {
-  const { paneProps } = useTerminalTabDockPane(tabId, isActive, onActivate);
-  if (!paneProps) return null;
-  return <TerminalTabPaneView {...paneProps} />;
+  return (
+    <AdvanceTerminal
+      tabId={tabId}
+      isActive={isActive}
+      onActivate={onActivate}
+    />
+  );
 }

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
@@ -8,19 +8,30 @@ import { disposeTabBackendSessions } from "../../hooks/useTerminal";
 import { clearPaneBackendPending } from "../../hooks/useTerminal";
 import {
   resolveResourceById,
+  useSshHostResources,
 } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { useTopbarTabs } from "../../hooks/useTopbarTabs";
+import type { TopbarTabDef } from "../../stores/topbarStore";
+import { navigateToPath } from "../../lib/terminalSession";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { TerminalTabDockPane } from "./TerminalTabDockPane";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
-import { DockableWorkspace } from "../../components/dock";
-import { useTerminalDockLayoutStore } from "../../stores/terminalDockLayoutStore";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   const resource = resolveResourceById(tab.session.resourceId);
   return resource?.name ?? tab.title ?? fallbackName ?? tab.session.resourceId;
+}
+
+function topbarTabStatus(
+  status: TerminalTab["status"],
+): TopbarTabDef["status"] {
+  if (status === "connected") return "connected";
+  if (status === "connecting") return "connecting";
+  if (status === "disconnected") return "offline";
+  return "idle";
 }
 
 export function TerminalPanel() {
@@ -32,7 +43,9 @@ export function TerminalPanel() {
   const removeTab = useTerminalStore((state) => state.removeTab);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const openOrFocusLocalTab = useTerminalStore((state) => state.openOrFocusLocalTab);
+  const openOrFocusSshTab = useTerminalStore((state) => state.openOrFocusSshTab);
   const addLocalTerminalTab = useTerminalStore((state) => state.addLocalTerminalTab);
+  const sshHosts = useSshHostResources();
 
   const workspaceActiveResourceId = useWorkspaceStore(
     (state) => state.activeResourceId,
@@ -42,8 +55,6 @@ export function TerminalPanel() {
     resolveResourceById(LOCAL_TERMINAL_RESOURCE_ID);
   const selectResource = useWorkspaceStore((state) => state.selectResource);
 
-  const dockLayout = useTerminalDockLayoutStore((s) => s.savedLayout);
-  const setDockLayout = useTerminalDockLayoutStore((s) => s.setSavedLayout);
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
 
   // 进入模块时若没有任何 Tab，则自动建一个本地终端
@@ -86,51 +97,119 @@ export function TerminalPanel() {
     [removeTab],
   );
 
-  /** 通过 dockview containerApi.addPanel 创建本地终端面板 */
-  const createPanelRequest = useCallback(() => {
-    const name = workspaceActiveResource?.name ?? "本地终端";
-    const id = addLocalTerminalTab(name);
-    setActiveTab(id);
-    return { id, title: name };
-  }, [addLocalTerminalTab, setActiveTab, workspaceActiveResource?.name]);
-
-  const dockTabs = useMemo(
-    () =>
-      tabs
-        .filter((tab) => !isOriginDocked("terminal", tab.id))
-        .map((tab) => ({
-          id: tab.id,
-          label: tabLabel(tab),
-          panelType: "terminal",
-          closable: true,
-        })),
+  const visibleTabs = useMemo(
+    () => tabs.filter((tab) => !isOriginDocked("terminal", tab.id)),
     [tabs, isOriginDocked],
   );
 
-  const renderDockPanel = useCallback(
-    (tabId: string) => (
-      <TerminalTabDockPane
-        tabId={tabId}
-        isActive={tabId === activeTabId}
-        onActivate={() => setActiveTab(tabId)}
-      />
-    ),
-    [activeTabId, setActiveTab],
+  const topbarTabs = useMemo(
+    () =>
+      visibleTabs.map((tab) => ({
+        id: tab.id,
+        label: tabLabel(tab),
+        active: tab.id === activeTabId,
+        closable: true,
+        status: topbarTabStatus(tab.status),
+      })),
+    [visibleTabs, activeTabId],
   );
 
+  const addMenuItems = useMemo(
+    () => [
+      {
+        id: LOCAL_TERMINAL_RESOURCE_ID,
+        label: t("terminal.newSession.local"),
+        subtitle: t("terminal.newSession.localDesc"),
+      },
+      ...sshHosts.map((host) => ({
+        id: host.id,
+        label: host.name,
+        subtitle: host.subtitle,
+      })),
+      {
+        id: "manage-hosts",
+        label: t("terminal.newSession.manageHosts"),
+        subtitle: t("terminal.newSession.manageHostsDesc"),
+        dividerBefore: true,
+      },
+    ],
+    [sshHosts, t],
+  );
+
+  const handleTopbarAdd = useCallback(() => {
+    const name = workspaceActiveResource?.name ?? t("terminal.newSession.local");
+    const id = addLocalTerminalTab(name);
+    setActiveTab(id);
+  }, [addLocalTerminalTab, setActiveTab, workspaceActiveResource?.name, t]);
+
+  const handleTopbarAddMenuSelect = useCallback(
+    (id: string) => {
+      if (id === "manage-hosts") {
+        navigateToPath("/ssh");
+        return;
+      }
+      if (id === LOCAL_TERMINAL_RESOURCE_ID) {
+        const tabId = openOrFocusLocalTab(t("terminal.newSession.local"));
+        selectResource(LOCAL_TERMINAL_RESOURCE_ID);
+        setActiveTab(tabId);
+        return;
+      }
+      const host = sshHosts.find((item) => item.id === id);
+      if (host) {
+        const tabId = openOrFocusSshTab(host.id, host.name);
+        selectResource(host.id);
+        setActiveTab(tabId);
+      }
+    },
+    [
+      openOrFocusLocalTab,
+      openOrFocusSshTab,
+      selectResource,
+      setActiveTab,
+      sshHosts,
+      t,
+    ],
+  );
+
+  useTopbarTabs(
+    topbarTabs,
+    {
+      onSelect: setActiveTab,
+      onClose: handleCloseTab,
+      onAdd: handleTopbarAdd,
+      addMenuItems,
+      onAddMenuSelect: handleTopbarAddMenuSelect,
+    },
+    {
+      mode: "session",
+      showAddTab: true,
+      addTabTitle: t("shell.topbar.newTab"),
+      enabled: isActiveRoute,
+    },
+  );
+
+  if (visibleTabs.length === 0) {
+    return (
+      <div className="term-workspace">
+        <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
+      </div>
+    );
+  }
+
   return (
-    <DockableWorkspace
-      className="term-dock-workspace"
-      dockScope="terminal"
-      tabs={dockTabs}
-      activeTabId={activeTabId ?? ""}
-      onActiveTabChange={setActiveTab}
-      onCloseTab={handleCloseTab}
-      createPanelRequest={createPanelRequest}
-      savedLayout={dockLayout}
-      onSavedLayoutChange={setDockLayout}
-      renderPanel={renderDockPanel}
-      emptyContent={t("terminal.newSession.local")}
-    />
+    <div className="term-workspace">
+      {visibleTabs.map((tab) => (
+        <div
+          key={tab.id}
+          className={`term-workspace-pane${tab.id === activeTabId ? " is-active" : ""}`}
+        >
+          <TerminalTabDockPane
+            tabId={tab.id}
+            isActive={tab.id === activeTabId}
+            onActivate={() => setActiveTab(tab.id)}
+          />
+        </div>
+      ))}
+    </div>
   );
 }

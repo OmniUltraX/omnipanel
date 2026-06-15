@@ -8,7 +8,6 @@ import {
 } from "react";
 import {
   DockviewReact,
-  DockviewDefaultTab,
   type DockviewApi,
   type DockviewReadyEvent,
   type IDockviewHeaderActionsProps,
@@ -33,7 +32,14 @@ import {
   transferPanelToTarget,
   unregisterDockviewInstance,
 } from "../../lib/dockviewRegistry";
-import { syncTabGroupsByPanelType } from "./dockTabGroups";
+import { syncTabGroupsByPanelType, clearTabGroups } from "./dockTabGroups";
+import { DockTabHeader } from "./DockTabHeader";
+import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
+import type { DockTabIconKind } from "./DockTabIcon";
+import {
+  syncGroupHeaderPosition,
+  type DockHeaderPosition,
+} from "./dockHeaderPosition";
 
 export interface DockableTab {
   id: string;
@@ -41,6 +47,10 @@ export interface DockableTab {
   /** 面板类型：同模块面板共享类型，用于 tab group 折叠 */
   panelType: string;
   closable?: boolean;
+  /** Tab 图标（窄侧栏仅显示图标，完整标题走 tooltip） */
+  icon?: DockTabIconKind;
+  /** 悬停提示；默认使用 label */
+  tooltip?: string;
 }
 
 export interface DockableWorkspaceProps {
@@ -75,10 +85,17 @@ export interface DockableWorkspaceProps {
   resolveTabGroupMeta?: (
     panelType: string,
   ) => Partial<{ label: string; color: string }> | undefined;
+  /** dockview group Tab 栏默认方位；`right` / `left` 为竖排侧栏 */
+  defaultHeaderPosition?: DockHeaderPosition;
+  /** 为 false 时不按 panelType 折叠为 tab group（数据库等同类型多 Tab 需直接展示） */
+  enableTabGroups?: boolean;
 }
 
 interface PanelParams {
   tabId: string;
+  label?: string;
+  icon?: DockTabIconKind;
+  tooltip?: string;
 }
 
 const COMPONENT_NAME = "dockable-content";
@@ -115,6 +132,8 @@ export function DockableWorkspace({
   canAcceptExternalDrop,
   onExternalDrop,
   resolveTabGroupMeta,
+  defaultHeaderPosition = "top",
+  enableTabGroups = true,
 }: DockableWorkspaceProps) {
   const apiRef = useRef<DockviewApi | null>(null);
   const viewIdRef = useRef<string | null>(null);
@@ -150,15 +169,24 @@ export function DockableWorkspace({
   tabsRef.current = tabs;
   const resolveTabGroupMetaRef = useRef(resolveTabGroupMeta);
   resolveTabGroupMetaRef.current = resolveTabGroupMeta;
+  const defaultHeaderPositionRef = useRef(defaultHeaderPosition);
+  defaultHeaderPositionRef.current = defaultHeaderPosition;
+  const enableTabGroupsRef = useRef(enableTabGroups);
+  enableTabGroupsRef.current = enableTabGroups;
 
   const syncTabGroups = useCallback((api: DockviewApi, manageLock = true) => {
     if (manageLock) isSyncingRef.current = true;
     try {
-      syncTabGroupsByPanelType(
-        api,
-        tabsRef.current,
-        resolveTabGroupMetaRef.current,
-      );
+      if (enableTabGroupsRef.current) {
+        syncTabGroupsByPanelType(
+          api,
+          tabsRef.current,
+          resolveTabGroupMetaRef.current,
+        );
+      } else {
+        clearTabGroups(api);
+      }
+      syncGroupHeaderPosition(api, defaultHeaderPositionRef.current);
     } finally {
       if (manageLock) isSyncingRef.current = false;
     }
@@ -176,7 +204,7 @@ export function DockableWorkspace({
     [],
   );
 
-  // 自定义 tab：标签从 tabsRef 中按 id 取最新，支持 onContextMenu
+  // 自定义 tab：元数据通过 panel params 同步，确保图标/标题更新能触发重渲染
   const defaultTabComponent = useCallback(
     (props: IDockviewPanelHeaderProps<PanelParams>) => {
       const tabId = props.params?.tabId ?? props.api.id;
@@ -193,13 +221,11 @@ export function DockableWorkspace({
           }
         : undefined;
       return (
-        <DockviewDefaultTab
+        <DockTabHeader
           {...props}
-          hideClose={!closable}
+          closable={closable}
           onContextMenu={handleContextMenu}
-        >
-          {tab?.label ?? tabId}
-        </DockviewDefaultTab>
+        />
       );
     },
     [],
@@ -314,10 +340,7 @@ export function DockableWorkspace({
       isSyncingRef.current = true;
       try {
         for (const tab of tabsRef.current) {
-          const panel = api.getPanel(tab.id);
-          if (panel && panel.api.title !== tab.label) {
-            panel.api.setTitle(tab.label);
-          }
+          syncPanelTabParams(api, tab);
         }
       } finally {
         isSyncingRef.current = false;
@@ -333,10 +356,7 @@ export function DockableWorkspace({
     try {
       for (const tab of tabsRef.current) {
         if (existing.has(tab.id)) {
-          const panel = api.getPanel(tab.id);
-          if (panel && panel.api.title !== tab.label) {
-            panel.api.setTitle(tab.label);
-          }
+          syncPanelTabParams(api, tab);
           continue;
         }
         try {
@@ -344,7 +364,7 @@ export function DockableWorkspace({
           const options: Parameters<typeof api.addPanel>[0] = {
             id: tab.id,
             component: COMPONENT_NAME,
-            params: { tabId: tab.id },
+            params: tabParamsFromDockableTab(tab),
             title: tab.label,
             inactive: true,
           };
@@ -412,7 +432,7 @@ export function DockableWorkspace({
           const options: Parameters<typeof api.addPanel>[0] = {
             id: tab.id,
             component: COMPONENT_NAME,
-            params: { tabId: tab.id },
+            params: tabParamsFromDockableTab(tab),
             title: tab.label,
             inactive: true,
           };
@@ -424,10 +444,7 @@ export function DockableWorkspace({
           }
           api.addPanel(options);
         } else {
-          const panel = api.getPanel(tab.id);
-          if (panel && panel.api.title !== tab.label) {
-            panel.api.setTitle(tab.label);
-          }
+          syncPanelTabParams(api, tab);
         }
       }
       syncTabGroups(api, false);
@@ -654,7 +671,7 @@ export function DockableWorkspace({
 
   if (tabs.length === 0 && !keepDockviewMounted) {
     return (
-      <div className={`dockable-workspace ${className ?? ""}`}>
+      <div className={`dockable-workspace dock-header-${defaultHeaderPosition}${className ? ` ${className}` : ""}`}>
         <div className="dockable-workspace__empty">{emptyContent}</div>
       </div>
     );
@@ -663,7 +680,7 @@ export function DockableWorkspace({
   return (
     <div
       ref={wrapperRef}
-      className={`dockable-workspace ${className ?? ""}`}
+      className={`dockable-workspace dock-header-${defaultHeaderPosition}${className ? ` ${className}` : ""}`}
     >
       <DockErrorBoundary>
         {tabs.length === 0 && emptyContent ? (
@@ -681,6 +698,7 @@ export function DockableWorkspace({
           noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
           theme={themeDark}
           dndStrategy="pointer"
+          defaultHeaderPosition={defaultHeaderPosition}
           onReady={handleReady}
         />
       </DockErrorBoundary>

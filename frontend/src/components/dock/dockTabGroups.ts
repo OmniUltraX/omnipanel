@@ -110,3 +110,20 @@ export function syncTabGroupsByPanelType(
     }
   }
 }
+
+/** 解散所有 tab group，恢复每个 panel 独立 Tab（用于数据库等同类型多 Tab 场景）。 */
+export function clearTabGroups(api: DockviewApi): void {
+  if (!supportsTabGroups(api)) return;
+
+  for (const group of api.groups) {
+    const groupId = group.id;
+    for (const panel of group.panels) {
+      if (api.getTabGroupForPanel({ groupId, panelId: panel.id })) {
+        api.removePanelFromTabGroup({ groupId, panelId: panel.id });
+      }
+    }
+    for (const tabGroup of api.getTabGroups({ groupId })) {
+      api.dissolveTabGroup({ groupId, tabGroupId: tabGroup.id });
+    }
+  }
+}
