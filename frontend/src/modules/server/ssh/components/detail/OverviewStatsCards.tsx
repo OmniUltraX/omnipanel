@@ -1,12 +1,12 @@
-import { Button } from "../../../../../components/ui/Button";
-import { useI18n } from "../../../../../i18n";
+import { Button } from "@/components/ui/Button";
+import { useI18n } from "@/i18n";
 import {
   formatBytes,
   formatUsageBytes,
   safePercent,
   type HostSystemStats,
-} from "../../../../../stores/sshStatsStore";
-import type { OverviewPhase } from "../../hooks/useSshOverview";
+} from "@/stores/sshStatsStore";
+import type { OverviewPhase } from "@/modules/server/ssh/hooks/useSshOverview";
 
 function CpuIcon() {
   return (

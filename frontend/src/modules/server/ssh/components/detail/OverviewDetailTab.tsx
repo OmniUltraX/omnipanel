@@ -1,5 +1,5 @@
-import { useSshOverview } from "../../hooks/useSshOverview";
-import type { SshManagerContext } from "../../hooks/useSshManager";
+import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
+import type { SshManagerContext } from "@/modules/server/ssh/hooks/useSshManager";
 import { OverviewStatsCards } from "./OverviewStatsCards";
 import { ProcessListPanel } from "./ProcessListPanel";
 

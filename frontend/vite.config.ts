@@ -16,6 +16,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: "@repo-logo", replacement: path.resolve(frontendRoot, "../logo") },
+      { find: "@/", replacement: `${path.resolve(frontendRoot, "src")}/` },
       {
         find: "standardwebhooks-cjs",
         replacement: requireFromFrontend.resolve("standardwebhooks/dist/index.js"),

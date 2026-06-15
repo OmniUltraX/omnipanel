@@ -1,19 +1,28 @@
 import { useCallback, useMemo, useState } from "react";
-import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
-import { LocalFilePanel } from "../../components/files";
-import { SftpPanel } from "../../components/sftp";
-import { TunnelPanel } from "../../components/tunnel";
-import { useI18n } from "../../i18n";
-import { OverviewStatsCards } from "../server/ssh/components/detail/OverviewStatsCards";
-import { ProcessListPanel } from "../server/ssh/components/detail/ProcessListPanel";
-import { useSshOverview } from "../server/ssh/hooks/useSshOverview";
-import type { DetailTab } from "../server/ssh/types";
+import {
+  DockHandle,
+  DockLayout,
+  DockPanel,
+  DockableWorkspace,
+  type DockableTab,
+  type SerializedDockview,
+} from "@/components/dock";
+import { LocalFilePanel } from "@/components/files";
+import { SftpPanel } from "@/components/sftp";
+import { TunnelPanel } from "@/components/tunnel";
+import { useI18n } from "@/i18n";
+import { OverviewStatsCards } from "@/modules/server/ssh/components/detail/OverviewStatsCards";
+import { ProcessListPanel } from "@/modules/server/ssh/components/detail/ProcessListPanel";
+import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
+import type { DetailTab } from "@/modules/server/ssh/types";
+import { LOCAL_TERMINAL_RESOURCE_ID } from "@/modules/terminal/paneResource";
 import { TerminalTabPaneView } from "./TerminalPaneView";
+import { useLocalOverview } from "./useLocalOverview";
 import { useTerminalTabDockPane } from "./useTerminalTabDockPane";
 
-type RemoteSideTab = "sftp" | "tunnel" | "processes";
-type LocalSideTab = "files";
-type SideTab = RemoteSideTab | LocalSideTab;
+type LocalSidePanelId = "files" | "monitor";
+type RemoteSidePanelId = "sftp" | "tunnel" | "processes";
+type SidePanelId = LocalSidePanelId | RemoteSidePanelId;
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -31,9 +40,10 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   );
   const isLocal = tab?.session.type === "local";
 
-  const [sideTab, setSideTab] = useState<SideTab>(isLocal ? "files" : "sftp");
-
   const resourceId = isRemoteSsh && resource ? resource.id : null;
+  const sshOverview = useSshOverview(resourceId);
+  const localOverview = useLocalOverview(isLocal && isActive);
+
   const {
     phase,
     stats,
@@ -43,12 +53,110 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     refreshing,
     refreshProcesses,
     refresh,
-  } = useSshOverview(resourceId);
+  } = isLocal ? localOverview : sshOverview;
+
+  const sideTabs = useMemo((): DockableTab[] => {
+    if (isLocal) {
+      return [
+        {
+          id: "files",
+          label: t("terminal.sideTabs.files"),
+          panelType: "terminal-side",
+          closable: false,
+        },
+        {
+          id: "monitor",
+          label: t("terminal.sideTabs.monitor"),
+          panelType: "terminal-side",
+          closable: false,
+        },
+      ];
+    }
+    return [
+      {
+        id: "sftp",
+        label: t("ssh.detailTabs.sftp"),
+        panelType: "terminal-side",
+        closable: false,
+      },
+      {
+        id: "tunnel",
+        label: t("ssh.detailTabs.tunnels"),
+        panelType: "terminal-side",
+        closable: false,
+      },
+      {
+        id: "processes",
+        label: t("ssh.detailTabs.processes"),
+        panelType: "terminal-side",
+        closable: false,
+      },
+    ];
+  }, [isLocal, t]);
+
+  const defaultSideTab = isLocal ? "files" : "sftp";
+  const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(defaultSideTab);
+  const [sideLayout, setSideLayout] = useState<SerializedDockview | null>(null);
 
   const handleDetailTab = useCallback((detailTab: DetailTab) => {
-    if (detailTab === "sftp") setSideTab("sftp");
-    if (detailTab === "tunnels") setSideTab("tunnel");
+    if (detailTab === "sftp") setActiveSideTab("sftp");
+    if (detailTab === "tunnels") setActiveSideTab("tunnel");
   }, []);
+
+  const renderMonitorStack = useCallback(
+    (processResourceId: string, enableTunnels: boolean) => (
+      <div className="advance-terminal-monitor-stack">
+        <OverviewStatsCards
+          embedded
+          phase={phase}
+          stats={stats}
+          error={error}
+          onRetry={() => refresh()}
+        />
+        <ProcessListPanel
+          resourceId={processResourceId}
+          processes={processes}
+          loading={refreshing}
+          refreshing={refreshing}
+          updatedAt={updatedAt}
+          setDetailTab={handleDetailTab}
+          onRefresh={refreshProcesses}
+          enableTunnels={enableTunnels}
+        />
+      </div>
+    ),
+    [
+      phase,
+      stats,
+      error,
+      processes,
+      refreshing,
+      updatedAt,
+      handleDetailTab,
+      refresh,
+      refreshProcesses,
+    ],
+  );
+
+  const renderSidePanel = useCallback(
+    (panelId: string) => {
+      if (isLocal) {
+        if (panelId === "files") return <LocalFilePanel />;
+        if (panelId === "monitor") {
+          return renderMonitorStack(LOCAL_TERMINAL_RESOURCE_ID, false);
+        }
+        return null;
+      }
+      if (!resource) return null;
+      if (panelId === "sftp") return <SftpPanel resourceId={resource.id} />;
+      if (panelId === "tunnel") return <TunnelPanel activeResource={resource} />;
+      if (panelId === "processes") {
+        return renderMonitorStack(resource.id, true);
+      }
+      return null;
+    },
+    [isLocal, resource, renderMonitorStack],
+  );
 
   if (!paneProps) return null;
 
@@ -61,81 +169,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       </div>
     );
   }
-
-  const sideTabs = isLocal ? (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={sideTab === "files"}
-      className={`advance-terminal-side-tab${sideTab === "files" ? " active" : ""}`}
-      onClick={() => setSideTab("files")}
-    >
-      {t("terminal.sideTabs.files")}
-    </button>
-  ) : (
-    <>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={sideTab === "sftp"}
-        className={`advance-terminal-side-tab${sideTab === "sftp" ? " active" : ""}`}
-        onClick={() => setSideTab("sftp")}
-      >
-        {t("ssh.detailTabs.sftp")}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={sideTab === "tunnel"}
-        className={`advance-terminal-side-tab${sideTab === "tunnel" ? " active" : ""}`}
-        onClick={() => setSideTab("tunnel")}
-      >
-        {t("ssh.detailTabs.tunnels")}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={sideTab === "processes"}
-        className={`advance-terminal-side-tab${sideTab === "processes" ? " active" : ""}`}
-        onClick={() => setSideTab("processes")}
-      >
-        {t("ssh.detailTabs.processes")}
-      </button>
-    </>
-  );
-
-  const sideBody = isLocal ? (
-    sideTab === "files" && <LocalFilePanel />
-  ) : (
-    resource && (
-      <>
-        {sideTab === "sftp" && (
-          <div className="advance-terminal-sftp-stack">
-            <OverviewStatsCards
-              embedded
-              phase={phase}
-              stats={stats}
-              error={error}
-              onRetry={() => refresh()}
-            />
-            <SftpPanel resourceId={resource.id} />
-          </div>
-        )}
-        {sideTab === "tunnel" && <TunnelPanel activeResource={resource} />}
-        {sideTab === "processes" && (
-          <ProcessListPanel
-            resourceId={resource.id}
-            processes={processes}
-            loading={refreshing}
-            refreshing={refreshing}
-            updatedAt={updatedAt}
-            setDetailTab={handleDetailTab}
-            onRefresh={refreshProcesses}
-          />
-        )}
-      </>
-    )
-  );
 
   return (
     <div className="advance-terminal">
@@ -154,12 +187,18 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           maxSize="60%"
           className="advance-terminal-side"
         >
-          <div className="advance-terminal-side-tabs" role="tablist">
-            {sideTabs}
-          </div>
-          <div className="advance-terminal-side-body" role="tabpanel">
-            {sideBody}
-          </div>
+          <DockableWorkspace
+            className="advance-terminal-side-dock"
+            tabs={sideTabs}
+            activeTabId={activeSideTab}
+            onActiveTabChange={(id) => setActiveSideTab(id as SidePanelId)}
+            onCloseTab={() => {}}
+            savedLayout={sideLayout}
+            onSavedLayoutChange={setSideLayout}
+            renderPanel={renderSidePanel}
+            enableTabGroups={false}
+            defaultHeaderPosition="top"
+          />
         </DockPanel>
       </DockLayout>
     </div>

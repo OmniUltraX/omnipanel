@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "../../../../../components/ui/Button";
-import { useI18n } from "../../../../../i18n";
+import { Button } from "@/components/ui/Button";
+import { useI18n } from "@/i18n";
 import {
   commands,
   type SshProcessDetail,
   type SshProcessInfo,
   type SshProcessPort,
-} from "../../../../../ipc/bindings";
-import { formatBytes } from "../../../../../stores/sshStatsStore";
+} from "@/ipc/bindings";
+import { formatBytes } from "@/stores/sshStatsStore";
 import {
   navigateToSftpPath,
   navigateToTerminalPath,
-} from "../../../../../stores/sshDetailNavigationStore";
-import type { DetailTab } from "../../types";
-import { buildProcessDirectoryList } from "../../utils/parseCommandPaths";
+} from "@/stores/sshDetailNavigationStore";
+import { isLocalTerminalResource } from "@/modules/terminal/paneResource";
+import type { DetailTab } from "@/modules/server/ssh/types";
+import { buildProcessDirectoryList } from "@/modules/server/ssh/utils/parseCommandPaths";
 
 type Props = {
   resourceId: string | null;
@@ -55,6 +56,7 @@ export function ProcessDetailDrawer({
 
   const open = process != null;
   const commandText = detail?.commandLine || process?.command || "";
+  const isLocal = isLocalTerminalResource(resourceId);
 
   useEffect(() => {
     if (!resourceId || !process) {
@@ -69,8 +71,11 @@ export function ProcessDetailDrawer({
     setDetailError(null);
     setDetailLoading(true);
 
-    commands
-      .sshPoolProcessDetail(resourceId, process.pid)
+    const detailPromise = isLocal
+      ? commands.localProcessDetail(process.pid)
+      : commands.sshPoolProcessDetail(resourceId, process.pid);
+
+    detailPromise
       .then((res) => {
         if (cancelled) return;
         if (res.status === "ok") {
@@ -89,14 +94,16 @@ export function ProcessDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [resourceId, process?.pid]);
+  }, [resourceId, process?.pid, isLocal]);
 
   async function handleForceKill() {
     if (!resourceId || !process) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await commands.sshPoolKillProcess(resourceId, process.pid, 9);
+      const res = isLocal
+        ? await commands.localKillProcess(process.pid)
+        : await commands.sshPoolKillProcess(resourceId, process.pid, 9);
       if (res.status === "ok") {
         setConfirmKill(false);
         onKilled();
@@ -200,35 +207,44 @@ export function ProcessDetailDrawer({
                   <ul className="ssh-process-drawer-files">
                     {paths.map((path) => (
                       <li key={path} className="ssh-process-drawer-file">
-                        <button
-                          type="button"
-                          className="ssh-process-drawer-file-path"
-                          title={t("ssh.processDetail.openSftp")}
-                          onClick={() => handleOpenSftp(path)}
-                        >
-                          {path}
-                        </button>
-                        <div className="ssh-process-drawer-file-actions">
-                          <Button
-                            variant="ghost"
-                            size="xs"
+                        {isLocal ? (
+                          <span className="ssh-process-drawer-file-path">{path}</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ssh-process-drawer-file-path"
+                            title={t("ssh.processDetail.openSftp")}
                             onClick={() => handleOpenSftp(path)}
                           >
-                            SFTP
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => handleOpenTerminal(path)}
-                          >
-                            {t("ssh.detailTabs.terminal")}
-                          </Button>
+                            {path}
+                          </button>
+                        )}
+                        <div className="ssh-process-drawer-file-actions">
+                          {!isLocal && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => handleOpenSftp(path)}
+                              >
+                                SFTP
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => handleOpenTerminal(path)}
+                              >
+                                {t("ssh.detailTabs.terminal")}
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </li>
                     ))}
                   </ul>
                 )}
               </section>
+              {!isLocal && (
               <section className="ssh-process-drawer-section">
                 <h4>{t("ssh.processList.ports")}</h4>
                 {(process.ports ?? []).length === 0 ? (
@@ -253,6 +269,7 @@ export function ProcessDetailDrawer({
                   </ul>
                 )}
               </section>
+              )}
               {error && <div className="proc-error">{error}</div>}
             </div>
             <footer className="ssh-process-drawer-footer">

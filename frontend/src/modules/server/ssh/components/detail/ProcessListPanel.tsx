@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useI18n } from "../../../../../i18n";
-import type { SshProcessInfo, SshProcessPort } from "../../../../../ipc/bindings";
-import { formatBytes } from "../../../../../stores/sshStatsStore";
-import type { DetailTab } from "../../types";
+import { useI18n } from "@/i18n";
+import type { SshProcessInfo, SshProcessPort } from "@/ipc/bindings";
+import { formatBytes } from "@/stores/sshStatsStore";
+import type { DetailTab } from "@/modules/server/ssh/types";
 import { ProcessDetailDrawer } from "./ProcessDetailDrawer";
 import { TunnelCreateDialog, type TunnelDraft } from "./TunnelCreateDialog";
 
@@ -17,6 +17,8 @@ export type ProcessListPanelProps = {
   updatedAt: number | null;
   onRefresh: () => void;
   setDetailTab: (tab: DetailTab) => void;
+  /** 为 false 时不展示端口隧道入口（本机进程列表） */
+  enableTunnels?: boolean;
 };
 
 export function ProcessListPanel({
@@ -27,6 +29,7 @@ export function ProcessListPanel({
   updatedAt,
   onRefresh,
   setDetailTab,
+  enableTunnels = true,
 }: ProcessListPanelProps) {
   const { t } = useI18n();
   const [page, setPage] = useState(0);
@@ -191,7 +194,7 @@ export function ProcessListPanel({
                   </td>
                 ))}
                 <td className="proc-cell-ports">
-                  {(p.ports ?? []).length === 0 ? (
+                  {!enableTunnels || (p.ports ?? []).length === 0 ? (
                     "—"
                   ) : (
                     <div className="proc-ports-inner">
@@ -257,7 +260,7 @@ export function ProcessListPanel({
         onPortClick={openTunnelDialog}
       />
       <TunnelCreateDialog
-        open={tunnelDraft != null}
+        open={enableTunnels && tunnelDraft != null}
         resourceId={resourceId}
         draft={tunnelDraft}
         onClose={() => setTunnelDraft(null)}

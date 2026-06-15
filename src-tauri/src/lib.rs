@@ -136,6 +136,10 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_pool_load_processes,
         commands::ssh::ssh_pool_process_detail,
         commands::ssh::ssh_pool_kill_process,
+        commands::system::local_fetch_stats,
+        commands::system::local_list_processes,
+        commands::system::local_process_detail,
+        commands::system::local_kill_process,
         commands::ssh::ssh_create_tunnel,
         commands::ssh::ssh_close_tunnel,
         commands::ssh::ssh_list_tunnels,
@@ -509,6 +513,11 @@ pub fn run() {
             commands::ssh::ssh_pool_load_processes,
             commands::ssh::ssh_pool_process_detail,
             commands::ssh::ssh_pool_kill_process,
+            // Local system monitor
+            commands::system::local_fetch_stats,
+            commands::system::local_list_processes,
+            commands::system::local_process_detail,
+            commands::system::local_kill_process,
             // Updater
             commands::updater::check_update,
             commands::updater::install_update,

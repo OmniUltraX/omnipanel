@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { FormDialog } from "../../../../../components/ui/FormDialog";
-import { Select } from "../../../../../components/ui/Select";
-import { useI18n } from "../../../../../i18n";
-import { commands } from "../../../../../ipc/bindings";
+import { FormDialog } from "@/components/ui/FormDialog";
+import { Select } from "@/components/ui/Select";
+import { useI18n } from "@/i18n";
+import { commands } from "@/ipc/bindings";
 
 export type TunnelDraft = {
   remotePort: number;
