@@ -61,6 +61,15 @@ import { DbPanelSurface } from "./DbPanelSurface";
 import { DockableWorkspace } from "../../components/dock";
 import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
+import {
+  schedulePersistWorkspaceSession,
+  useDbWorkspaceSessionStore,
+} from "../../stores/dbWorkspaceSessionStore";
+import {
+  buildWorkspaceSessionSnapshot,
+  sanitizeWorkspaceSession,
+  type DbSqlTabStateSnapshot,
+} from "./dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
 
@@ -70,6 +79,12 @@ import {
   parseSchemaTreeItemFromDrop,
   setActiveSchemaDragItem,
 } from "./schemaTreeItem";
+import {
+  registerSchemaTreeDropListener,
+  SCHEMA_TREE_DROP_ZONE_ATTR,
+} from "./schemaTreePointerDrag";
+import { logSchemaTreeDrop } from "./schemaTreeDragLog";
+import type { SchemaTreeItem } from "./schemaTreeItem";
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
 const INITIAL_SQL_TAB: SqlWorkspaceTab = {
@@ -77,6 +92,29 @@ const INITIAL_SQL_TAB: SqlWorkspaceTab = {
   kind: "sql",
   label: makeSqlTabLabel(1),
 };
+
+function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabState {
+  return {
+    ...createDefaultSqlTabState(snap.database),
+    sql: snap.sql,
+    database: snap.database,
+    cursorOffset: snap.cursorOffset,
+    result: null,
+    error: null,
+    elapsed: null,
+    running: false,
+  };
+}
+
+function applyDefaultWorkspaceSession(
+  setWorkspaceTabs: (tabs: SqlWorkspaceTab[]) => void,
+  setActiveWorkspaceTabId: (id: string) => void,
+  setSqlTabStates: (states: Record<string, SqlTabState>) => void,
+): void {
+  setWorkspaceTabs([INITIAL_SQL_TAB]);
+  setActiveWorkspaceTabId(INITIAL_SQL_TAB_ID);
+  setSqlTabStates({ [INITIAL_SQL_TAB_ID]: createDefaultSqlTabState() });
+}
 
 
 /** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL。 */
@@ -252,12 +290,12 @@ export function DatabasePanel() {
 
   const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
-  const [sqlTabStates, setSqlTabStates] = useState<Record<string, SqlTabState>>(() => ({
-    [INITIAL_SQL_TAB_ID]: createDefaultSqlTabState(),
-  }));
+  const [sqlTabStates, setSqlTabStates] = useState<Record<string, SqlTabState>>({});
 
-  const [workspaceTabs, setWorkspaceTabs] = useState<SqlWorkspaceTab[]>([INITIAL_SQL_TAB]);
-  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState(INITIAL_SQL_TAB_ID);
+  const [workspaceTabs, setWorkspaceTabs] = useState<SqlWorkspaceTab[]>([]);
+  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState("");
+  const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
+  const tablePreviewRestoreDoneRef = useRef(false);
   const [tablePreviews, setTablePreviews] = useState<Record<string, TablePreviewState>>({});
   const [activeTableKey, setActiveTableKey] = useState<string | null>(null);
   const [tableColumnMeta, setTableColumnMeta] = useState<Record<string, DbColumnMeta[]>>({});
@@ -369,6 +407,165 @@ export function DatabasePanel() {
   useEffect(() => {
     void refreshConnections();
   }, [refreshConnections, schemaRefreshToken]);
+
+  useEffect(() => {
+    const bootstrapWorkspace = () => {
+      const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
+      if (!session) {
+        applyDefaultWorkspaceSession(setWorkspaceTabs, setActiveWorkspaceTabId, setSqlTabStates);
+        setWorkspaceInitialized(true);
+        return;
+      }
+
+      setWorkspaceTabs(session.tabs);
+      setActiveWorkspaceTabId(session.activeTabId);
+
+      const restoredSql: Record<string, SqlTabState> = {};
+      for (const tab of session.tabs) {
+        const snap = session.sqlTabStates[tab.id];
+        restoredSql[tab.id] = snap
+          ? restoreSqlTabStateFromSnapshot(snap)
+          : createDefaultSqlTabState();
+      }
+      setSqlTabStates(restoredSql);
+
+      const restoredPreviews: Record<string, TablePreviewState> = {};
+      for (const [tabId, meta] of Object.entries(session.tablePreviewMeta)) {
+        restoredPreviews[tabId] = {
+          ...createDefaultTablePreviewState(),
+          loading: true,
+          connId: meta.connId,
+          dbName: meta.dbName,
+          tableName: meta.tableName,
+          page: meta.page,
+          pageSize: meta.pageSize,
+        };
+      }
+      setTablePreviews(restoredPreviews);
+      setTabModes(session.tabModes);
+
+      const activeMeta = session.tablePreviewMeta[session.activeTabId];
+      if (activeMeta) {
+        setActiveConnId(activeMeta.connId);
+        setActiveTableKey(
+          makeTableTabKey(activeMeta.connId, activeMeta.dbName, activeMeta.tableName),
+        );
+      }
+
+      setWorkspaceInitialized(true);
+    };
+
+    if (useDbWorkspaceSessionStore.persist.hasHydrated()) {
+      bootstrapWorkspace();
+      return;
+    }
+
+    return useDbWorkspaceSessionStore.persist.onFinishHydration(bootstrapWorkspace);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceInitialized) {
+      return;
+    }
+    if (workspaceTabs.length === 0) {
+      schedulePersistWorkspaceSession(null);
+      return;
+    }
+    schedulePersistWorkspaceSession(
+      buildWorkspaceSessionSnapshot({
+        tabs: workspaceTabs,
+        activeTabId: activeWorkspaceTabId,
+        sqlTabStates,
+        tablePreviews,
+        tabModes,
+      }),
+    );
+  }, [
+    workspaceInitialized,
+    workspaceTabs,
+    activeWorkspaceTabId,
+    sqlTabStates,
+    tablePreviews,
+    tabModes,
+  ]);
+
+  useEffect(() => {
+    if (!workspaceInitialized || connections.length === 0 || tablePreviewRestoreDoneRef.current) {
+      return;
+    }
+
+    const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
+    if (!session?.tablePreviewMeta || Object.keys(session.tablePreviewMeta).length === 0) {
+      tablePreviewRestoreDoneRef.current = true;
+      return;
+    }
+
+    tablePreviewRestoreDoneRef.current = true;
+
+    for (const [tabId, meta] of Object.entries(session.tablePreviewMeta)) {
+      const connection = connections.find((item) => item.id === meta.connId);
+      if (!connection) {
+        setTablePreviews((prev) => ({
+          ...prev,
+          [tabId]: {
+            ...(prev[tabId] ?? createDefaultTablePreviewState()),
+            loading: false,
+            error: "Connection not found",
+            connId: meta.connId,
+            dbName: meta.dbName,
+            tableName: meta.tableName,
+            page: meta.page,
+            pageSize: meta.pageSize,
+          },
+        }));
+        continue;
+      }
+
+      const connForSchema = { ...connection, database: meta.dbName };
+      void introspectTable(connection, meta.dbName, meta.tableName)
+        .then((schema) => {
+          setTableColumnMeta((prev) => ({ ...prev, [tabId]: schema.columns }));
+        })
+        .catch(() => {});
+
+      void Promise.all([
+        countTable(connForSchema, meta.tableName, meta.dbName),
+        previewTable(connForSchema, meta.tableName, meta.pageSize, meta.page * meta.pageSize),
+      ])
+        .then(([totalRows, data]) => {
+          setTablePreviews((prev) => ({
+            ...prev,
+            [tabId]: {
+              ...(prev[tabId] ?? createDefaultTablePreviewState()),
+              loading: false,
+              error: null,
+              data,
+              totalRows,
+              page: meta.page,
+              pageSize: meta.pageSize,
+              connId: meta.connId,
+              dbName: meta.dbName,
+              tableName: meta.tableName,
+            },
+          }));
+        })
+        .catch((error) => {
+          setTablePreviews((prev) => ({
+            ...prev,
+            [tabId]: {
+              ...(prev[tabId] ?? createDefaultTablePreviewState()),
+              loading: false,
+              error: typeof error === "string" ? error : String(error),
+              connId: meta.connId,
+              dbName: meta.dbName,
+              tableName: meta.tableName,
+              page: meta.page,
+              pageSize: meta.pageSize,
+            },
+          }));
+        });
+    }
+  }, [workspaceInitialized, connections]);
 
   useEffect(() => {
     setActiveConnId((prev) => {
@@ -1223,14 +1420,19 @@ export function DatabasePanel() {
     [loadTablePreview, tablePreviews, workspaceTabs],
   );
 
-  const handleExternalSchemaDrop = useCallback(
-    (dataTransfer: DataTransfer) => {
-      const item = parseSchemaTreeItemFromDrop(dataTransfer);
-      if (!item || item.type !== "table") return;
-      if (!item.connId || !item.dbName || !item.tableName) return;
+  const applySchemaTableDrop = useCallback(
+    (item: SchemaTreeItem) => {
+      if (item.type !== "table") {
+        return;
+      }
+      if (!item.connId || !item.dbName || !item.tableName) {
+        return;
+      }
 
       const connection = connections.find((c) => c.id === item.connId);
-      if (!connection) return;
+      if (!connection) {
+        return;
+      }
 
       handleSelectTable({
         connId: item.connId,
@@ -1242,6 +1444,24 @@ export function DatabasePanel() {
     },
     [connections, handleSelectTable],
   );
+
+  const handleExternalSchemaDrop = useCallback(
+    (dataTransfer: DataTransfer) => {
+      const item = parseSchemaTreeItemFromDrop(dataTransfer);
+      logSchemaTreeDrop(item?.type ?? "unknown", "workspace");
+      if (!item) {
+        return;
+      }
+      applySchemaTableDrop(item);
+    },
+    [applySchemaTableDrop],
+  );
+
+  useEffect(() => {
+    return registerSchemaTreeDropListener((item) => {
+      applySchemaTableDrop(item);
+    });
+  }, [applySchemaTableDrop]);
 
   const openNewSqlTab = useCallback(() => {
     const tabId = makeSqlTabId();
@@ -1566,7 +1786,12 @@ export function DatabasePanel() {
           />
         }
       >
-        {dockTabs.length === 0 ? (
+        <div
+          className="db-workspace-drop-zone"
+          data-schema-drop-type="workspace"
+          {...{ [SCHEMA_TREE_DROP_ZONE_ATTR]: "" }}
+        >
+        {!workspaceInitialized ? null : dockTabs.length === 0 ? (
           <WorkspaceEmptyPage
             prompt={t("database.workspace.emptyTabs")}
             actions={
@@ -1596,6 +1821,7 @@ export function DatabasePanel() {
             onExternalDrop={handleExternalSchemaDrop}
           />
         )}
+        </div>
       </SidebarWorkspace>
       {ctxMenu && (
         <ContextMenu

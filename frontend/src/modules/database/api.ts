@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SchemaFiltersSnapshot } from "./schemaFilters";
+import type { SchemaTreeExpandedSnapshot } from "./schemaTreeExpanded";
 
 export interface DbConnectionConfig {
   id: string;
@@ -94,6 +95,14 @@ export async function loadSchemaFilters(): Promise<SchemaFiltersSnapshot> {
 
 export async function saveSchemaFilters(snapshot: SchemaFiltersSnapshot): Promise<void> {
   return invoke<void>("db_save_schema_filters", { snapshot });
+}
+
+export async function loadSchemaTreeExpanded(): Promise<SchemaTreeExpandedSnapshot> {
+  return invoke<SchemaTreeExpandedSnapshot>("db_load_schema_tree_expanded");
+}
+
+export async function saveSchemaTreeExpanded(snapshot: SchemaTreeExpandedSnapshot): Promise<void> {
+  return invoke<void>("db_save_schema_tree_expanded", { snapshot });
 }
 
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {

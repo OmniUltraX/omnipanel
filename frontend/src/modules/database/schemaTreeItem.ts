@@ -89,56 +89,67 @@ export function handleSchemaTreeDragStart(
 
   const text = getSchemaTreeDragText(item);
   setActiveSchemaDragItem(item);
-  event.dataTransfer.setData("text/plain", text);
-  event.dataTransfer.setData(SCHEMA_TREE_DRAG_MIME, JSON.stringify(item));
-  event.dataTransfer.effectAllowed = "copy";
 
-  switch (item.type) {
-    case "connection":
-      event.dataTransfer.setData("text/x-omnipanel-schema-connection", item.connId ?? item.id);
-      break;
-    case "database":
-      event.dataTransfer.setData(
-        "text/x-omnipanel-schema-database",
-        JSON.stringify({ connId: item.connId, dbName: item.dbName ?? item.label }),
-      );
-      break;
-    case "table":
-      event.dataTransfer.setData(
-        "text/x-omnipanel-schema-table",
-        JSON.stringify({
-          connId: item.connId,
-          dbName: item.dbName,
-          tableName: item.tableName ?? item.label,
-        }),
-      );
-      break;
-    case "column":
-      event.dataTransfer.setData(
-        "text/x-omnipanel-schema-column",
-        JSON.stringify({
-          connId: item.connId,
-          dbName: item.dbName,
-          tableName: item.tableName,
-          columnName: item.columnName ?? item.label,
-          columnType: item.columnType,
-        }),
-      );
-      break;
-    case "index":
-      event.dataTransfer.setData(
-        "text/x-omnipanel-schema-index",
-        JSON.stringify({
-          connId: item.connId,
-          dbName: item.dbName,
-          tableName: item.tableName,
-          indexName: item.indexName ?? item.label,
-        }),
-      );
-      break;
-    default:
-      break;
+  try {
+    event.dataTransfer.setData("text/plain", text);
+    event.dataTransfer.setData(SCHEMA_TREE_DRAG_MIME, JSON.stringify(item));
+    event.dataTransfer.effectAllowed = "copy";
+
+    switch (item.type) {
+      case "connection":
+        event.dataTransfer.setData("text/x-omnipanel-schema-connection", item.connId ?? item.id);
+        break;
+      case "database":
+        event.dataTransfer.setData(
+          "text/x-omnipanel-schema-database",
+          JSON.stringify({ connId: item.connId, dbName: item.dbName ?? item.label }),
+        );
+        break;
+      case "table":
+        event.dataTransfer.setData(
+          "text/x-omnipanel-schema-table",
+          JSON.stringify({
+            connId: item.connId,
+            dbName: item.dbName,
+            tableName: item.tableName ?? item.label,
+          }),
+        );
+        break;
+      case "column":
+        event.dataTransfer.setData(
+          "text/x-omnipanel-schema-column",
+          JSON.stringify({
+            connId: item.connId,
+            dbName: item.dbName,
+            tableName: item.tableName,
+            columnName: item.columnName ?? item.label,
+            columnType: item.columnType,
+          }),
+        );
+        break;
+      case "index":
+        event.dataTransfer.setData(
+          "text/x-omnipanel-schema-index",
+          JSON.stringify({
+            connId: item.connId,
+            dbName: item.dbName,
+            tableName: item.tableName,
+            indexName: item.indexName ?? item.label,
+          }),
+        );
+        break;
+      default:
+        break;
+    }
+  } catch {
+    setActiveSchemaDragItem(null);
+    event.preventDefault();
   }
+}
+
+/** Schema 树拖动结束：清理 active 项。 */
+export function handleSchemaTreeDragEnd(_item: SchemaTreeItem): void {
+  setActiveSchemaDragItem(null);
 }
 
 export function buildGroupTreeItem(groupId: string, label: string): SchemaTreeItem {

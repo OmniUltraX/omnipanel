@@ -11,6 +11,7 @@ import {
 } from "./api";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
+import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getEngineIconByType } from "./engineIcons";
 import {
@@ -29,10 +30,16 @@ import {
   buildIndexTreeItem,
   buildTableTreeItem,
   handleSchemaTreeDragStart,
+  handleSchemaTreeDragEnd,
   isSchemaTreeItemDraggable,
-  setActiveSchemaDragItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
+import {
+  handleSchemaTreePointerDown,
+  registerSchemaTreeReorderListener,
+  shouldSuppressSchemaTreeClick,
+} from "./schemaTreePointerDrag";
+import { reorderOrderedNames } from "./schemaTreeReorder";
 import {
   nextSchemaChildLimit,
   paginateSchemaChildren,
@@ -87,6 +94,8 @@ interface TreeNodeProps {
   onLabelClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   iconUrl?: string | null;
+  reorderScope?: string;
+  reorderName?: string;
 }
 
 function SchemaLoadMoreButton({
@@ -128,6 +137,8 @@ function TreeNode({
   onLabelClick,
   onContextMenu,
   iconUrl,
+  reorderScope,
+  reorderName,
 }: TreeNodeProps) {
   const { type, label } = item;
   const indent = depth * 16 + 8;
@@ -137,9 +148,19 @@ function TreeNode({
     <div
       className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${draggable ? " tree-node--draggable" : ""}`}
       style={{ paddingLeft: indent }}
+      data-schema-item-type={type}
+      {...(reorderScope && reorderName
+        ? {
+            "data-schema-reorder-scope": reorderScope,
+            "data-schema-reorder-name": reorderName,
+          }
+        : {})}
       draggable={draggable}
-      onDragStart={draggable ? (event) => handleSchemaTreeDragStart(item, event) : undefined}
-      onDragEnd={draggable ? () => setActiveSchemaDragItem(null) : undefined}
+      onPointerDown={draggable ? (event) => handleSchemaTreePointerDown(item, event) : undefined}
+      onDragStart={
+        draggable ? (event) => handleSchemaTreeDragStart(item, event) : undefined
+      }
+      onDragEnd={draggable ? () => handleSchemaTreeDragEnd(item) : undefined}
       onContextMenu={onContextMenu}
     >
       <span
@@ -204,6 +225,9 @@ function TreeNode({
       <span
         className="tree-label"
         onClick={() => {
+          if (shouldSuppressSchemaTreeClick()) {
+            return;
+          }
           if (onLabelClick) {
             onLabelClick();
             return;
@@ -303,7 +327,10 @@ export function SchemaBrowser({
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const expandedNodeIds = useDbSchemaTreeExpandedStore((s) => s.expandedNodeIds);
+  const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
+  const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
+  const updateExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
   const [childVisibleLimits, setChildVisibleLimits] = useState<Record<string, number>>({});
   const [connections, setConnections] = useState<LoadedConnection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -326,6 +353,7 @@ export function SchemaBrowser({
   const loadingTablesRef = useRef(new Set<string>());
   const loadingTableDetailsRef = useRef(new Set<string>());
   const pendingDatabaseLoadsRef = useRef(new Map<string, Promise<DbConnectionConfig | null>>());
+  const expandedRestoreDoneRef = useRef(false);
 
   connectionsRef.current = connections;
 
@@ -368,19 +396,73 @@ export function SchemaBrowser({
   useEffect(() => {
     if (!activeGroupId) return;
     const groupNodeId = `grp:${activeGroupId}`;
-    setExpanded((prev) => {
+    updateExpanded((prev) => {
       if (prev.has(groupNodeId)) return prev;
       const next = new Set(prev);
       next.add(groupNodeId);
       return next;
     });
-  }, [activeGroupId]);
+  }, [activeGroupId, updateExpanded]);
 
   useEffect(() => {
     if (!filtersHydrated) {
       void hydrateSchemaFilters();
     }
   }, [filtersHydrated, hydrateSchemaFilters]);
+
+  useEffect(() => {
+    if (!expandedHydrated) {
+      void hydrateSchemaExpanded();
+    }
+  }, [expandedHydrated, hydrateSchemaExpanded]);
+
+  useEffect(() => {
+    return registerSchemaTreeReorderListener((item, target) => {
+      if (target.kind === "database" && item.connId && item.dbName) {
+        setDatabaseFilters((prev) => {
+          const existing = prev[item.connId!];
+          if (!existing) {
+            return prev;
+          }
+          const nextOrder = reorderOrderedNames(
+            existing.orderedNames,
+            item.dbName!,
+            target.insertBeforeName,
+          );
+          if (!nextOrder) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [item.connId!]: { ...existing, orderedNames: nextOrder },
+          };
+        });
+        return;
+      }
+
+      if (target.kind === "table" && item.connId && item.dbName && item.tableName) {
+        const key = makeTableFilterKey(item.connId, item.dbName);
+        setTableFilters((prev) => {
+          const existing = prev[key];
+          if (!existing) {
+            return prev;
+          }
+          const nextOrder = reorderOrderedNames(
+            existing.orderedNames,
+            item.tableName!,
+            target.insertBeforeName,
+          );
+          if (!nextOrder) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [key]: { ...existing, orderedNames: nextOrder },
+          };
+        });
+      }
+    });
+  }, [setDatabaseFilters, setTableFilters]);
 
   const ensureDatabasesLoaded = useCallback(async (connId: string): Promise<DbConnectionConfig | null> => {
     const pending = pendingDatabaseLoadsRef.current.get(connId);
@@ -632,6 +714,54 @@ export function SchemaBrowser({
     [],
   );
 
+  const loadExpandedNodeData = useCallback(
+    (id: string) => {
+      if (id.startsWith("conn:")) {
+        void ensureDatabasesLoaded(id.slice(5));
+        return;
+      }
+
+      const parsed = parseDbNodeId(id);
+      if (parsed) {
+        void (async () => {
+          const config = await ensureDatabasesLoaded(parsed.connId);
+          if (config) {
+            await ensureTablesLoaded(parsed.connId, parsed.dbName, config);
+          }
+        })();
+        return;
+      }
+
+      const tableParsed = parseTableNodeId(id);
+      if (tableParsed) {
+        void (async () => {
+          const config = await ensureDatabasesLoaded(tableParsed.connId);
+          if (config) {
+            await ensureTablesLoaded(tableParsed.connId, tableParsed.dbName, config);
+            await ensureTableDetailsLoaded(
+              tableParsed.connId,
+              tableParsed.dbName,
+              tableParsed.tableName,
+              config,
+            );
+          }
+        })();
+      }
+    },
+    [ensureDatabasesLoaded, ensureTablesLoaded, ensureTableDetailsLoaded],
+  );
+
+  useEffect(() => {
+    if (!expandedHydrated || loading || expandedRestoreDoneRef.current) {
+      return;
+    }
+    expandedRestoreDoneRef.current = true;
+    const ids = useDbSchemaTreeExpandedStore.getState().expandedNodeIds;
+    for (const id of ids) {
+      loadExpandedNodeData(id);
+    }
+  }, [expandedHydrated, loading, loadExpandedNodeData]);
+
   const loadMoreChildren = useCallback((parentNodeId: string) => {
     setChildVisibleLimits((prev) => ({
       ...prev,
@@ -640,8 +770,8 @@ export function SchemaBrowser({
   }, []);
 
   const toggle = (id: string) => {
-    const willExpand = !expanded.has(id);
-    setExpanded((prev) => {
+    const willExpand = !expandedNodeIds.has(id);
+    updateExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -655,37 +785,11 @@ export function SchemaBrowser({
       return;
     }
 
-    if (id.startsWith("conn:")) {
-      void ensureDatabasesLoaded(id.slice(5));
-      return;
-    }
-
-    const parsed = parseDbNodeId(id);
-    if (parsed) {
-      void (async () => {
-        const config = await ensureDatabasesLoaded(parsed.connId);
-        if (config) {
-          await ensureTablesLoaded(parsed.connId, parsed.dbName, config);
-        }
-      })();
-      return;
-    }
+    loadExpandedNodeData(id);
 
     const tableParsed = parseTableNodeId(id);
     if (tableParsed) {
-      void (async () => {
-        const config = await ensureDatabasesLoaded(tableParsed.connId);
-        if (config) {
-          await ensureTablesLoaded(tableParsed.connId, tableParsed.dbName, config);
-          await ensureTableDetailsLoaded(
-            tableParsed.connId,
-            tableParsed.dbName,
-            tableParsed.tableName,
-            config,
-          );
-        }
-      })();
-      setExpanded((prev) => {
+      updateExpanded((prev) => {
         const next = new Set(prev);
         next.add(tableColumnsFolderId(id));
         next.add(tableIndexesFolderId(id));
@@ -864,7 +968,7 @@ export function SchemaBrowser({
         )}
         {groupSections.map(({ group, connections: groupConns }) => {
           const groupNodeId = `grp:${group.id}`;
-          const groupExpanded = expanded.has(groupNodeId);
+          const groupExpanded = expandedNodeIds.has(groupNodeId);
           const totalInGroup = connections.filter((conn) =>
             connectionMatchesGroup(conn.config, group.name),
           ).length;
@@ -891,7 +995,7 @@ export function SchemaBrowser({
               {groupExpanded &&
                 pagedGroupConns.visible.map((conn) => {
           const connId = `conn:${conn.config.id}`;
-          const connExpanded = expanded.has(connId);
+          const connExpanded = expandedNodeIds.has(connId);
           const allDatabases = conn.databases ?? [];
           const filter = databaseFilters[conn.config.id];
           const visibleDatabases = getVisibleItems(allDatabases, filter);
@@ -964,7 +1068,7 @@ export function SchemaBrowser({
                 !conn.loadingDatabases &&
                 pagedDatabases.visible.map((db) => {
                   const dbId = `db:${conn.config.id}:${db.name}`;
-                  const dbExpanded = expanded.has(dbId);
+                  const dbExpanded = expandedNodeIds.has(dbId);
                   const allTables = db.tables ?? [];
                   const tableFilter = tableFilters[makeTableFilterKey(conn.config.id, db.name)];
                   const visibleTables = getVisibleItems(allTables, tableFilter);
@@ -981,6 +1085,8 @@ export function SchemaBrowser({
                         depth={2}
                         expanded={dbExpanded}
                         onToggle={() => toggle(dbId)}
+                        reorderScope={conn.config.id}
+                        reorderName={db.name}
                         meta={
                           db.loadingTables
                             ? t("common.loading")
@@ -1048,11 +1154,11 @@ export function SchemaBrowser({
                       {dbExpanded &&
                         pagedTables.visible.map((tbl) => {
                           const tableKey = makeTableNodeId(conn.config.id, db.name, tbl.name);
-                          const tableExpanded = expanded.has(tableKey);
+                          const tableExpanded = expandedNodeIds.has(tableKey);
                           const colsFolderId = tableColumnsFolderId(tableKey);
                           const idxFolderId = tableIndexesFolderId(tableKey);
-                          const colsExpanded = expanded.has(colsFolderId);
-                          const idxExpanded = expanded.has(idxFolderId);
+                          const colsExpanded = expandedNodeIds.has(colsFolderId);
+                          const idxExpanded = expandedNodeIds.has(idxFolderId);
                           const columns = tbl.columns ?? [];
                           const indexes = tbl.indexes ?? [];
                           const pagedColumns = paginateSchemaChildren(columns, colsFolderId, childVisibleLimits);
@@ -1080,6 +1186,8 @@ export function SchemaBrowser({
                                 depth={3}
                                 expanded={tableExpanded}
                                 onToggle={() => toggle(tableKey)}
+                                reorderScope={makeTableFilterKey(conn.config.id, db.name)}
+                                reorderName={tbl.name}
                                 hasChildren
                                 active={activeTableKey === tableKey}
                                 onLabelClick={() =>

@@ -18,6 +18,8 @@ export const commands = {
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
 	dbLoadSchemaFilters: () => typedError<SchemaFiltersSnapshot, string>(__TAURI_INVOKE("db_load_schema_filters")),
 	dbSaveSchemaFilters: (snapshot: SchemaFiltersSnapshot) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_filters", { snapshot })),
+	dbLoadSchemaTreeExpanded: () => typedError<SchemaTreeExpandedSnapshot, string>(__TAURI_INVOKE("db_load_schema_tree_expanded")),
+	dbSaveSchemaTreeExpanded: (snapshot: SchemaTreeExpandedSnapshot) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_tree_expanded", { snapshot })),
 	dbTestConnection: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_test_connection", { connection })),
 	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
 	dbCreateDatabase: (args: CreateDatabaseArgs) => typedError<string, string>(__TAURI_INVOKE("db_create_database", { args })),
@@ -1230,6 +1232,11 @@ export type SchemaFilterRecord = {
 export type SchemaFiltersSnapshot = {
 	databaseFilters?: { [key in string]: SchemaFilterRecord },
 	tableFilters?: { [key in string]: SchemaFilterRecord },
+};
+
+/**  Schema 树已展开节点 id 快照（与前端 `expanded` Set 的 key 一致）。 */
+export type SchemaTreeExpandedSnapshot = {
+	expandedNodeIds?: string[],
 };
 
 /**  SFTP 目录项。 */

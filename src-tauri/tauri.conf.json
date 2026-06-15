@@ -20,7 +20,7 @@
         "decorations": false,
         "transparent": false,
         "resizable": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": true
       }
     ],
     "security": {

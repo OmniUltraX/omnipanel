@@ -63,6 +63,11 @@ pub fn database_schema_filters_path() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::DATABASE)?.join("schema-filters.json"))
 }
 
+/// Schema 树展开状态：`~/.omnipd/database/schema-tree-expanded.json`。
+pub fn database_schema_tree_expanded_path() -> OmniResult<PathBuf> {
+    Ok(module_dir(modules::DATABASE)?.join("schema-tree-expanded.json"))
+}
+
 fn map_io(err: std::io::Error) -> OmniError {
     OmniError::new(ErrorCode::Io, "读写应用数据目录失败").with_cause(err.to_string())
 }

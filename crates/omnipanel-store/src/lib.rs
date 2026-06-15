@@ -7,6 +7,7 @@ mod http;
 mod knowledge;
 mod paths;
 mod schema_filters;
+mod schema_tree_expanded;
 mod storage;
 mod task;
 mod vault;
@@ -20,11 +21,16 @@ pub use database::{
 pub use http::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
 pub use paths::{
-    database_connections_path, database_schema_filters_path, meta_db_path, module_dir, omnipd_root,
+    database_connections_path, database_schema_filters_path, database_schema_tree_expanded_path,
+    meta_db_path, module_dir, omnipd_root,
 };
 pub use schema_filters::{
     SchemaFilterRecord, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
     save_schema_filters,
+};
+pub use schema_tree_expanded::{
+    SchemaTreeExpandedSnapshot, load_schema_tree_expanded, prune_connection_expanded,
+    save_schema_tree_expanded,
 };
 pub use storage::{AuditEntry, Storage};
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};

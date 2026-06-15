@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use omnipanel_db::{DbParams, QueryResult, mysql_connect_options};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
-    DbConnectionConfig, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
-    save_schema_filters,
+    DbConnectionConfig, SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_filters,
+    load_schema_tree_expanded, prune_connection_expanded, prune_connection_filters,
+    save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -175,6 +176,9 @@ pub async fn db_delete_connection(state: State<'_, AppState>, id: String) -> Res
     let mut filters = load_schema_filters().map_err(|e| e.to_string())?;
     prune_connection_filters(&mut filters, &id);
     save_schema_filters(&filters).map_err(|e| e.to_string())?;
+    let mut expanded = load_schema_tree_expanded().map_err(|e| e.to_string())?;
+    prune_connection_expanded(&mut expanded, &id);
+    save_schema_tree_expanded(&expanded).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -188,6 +192,20 @@ pub async fn db_load_schema_filters() -> Result<SchemaFiltersSnapshot, String> {
 #[specta::specta]
 pub async fn db_save_schema_filters(snapshot: SchemaFiltersSnapshot) -> Result<(), String> {
     save_schema_filters(&snapshot).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_load_schema_tree_expanded() -> Result<SchemaTreeExpandedSnapshot, String> {
+    load_schema_tree_expanded().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_save_schema_tree_expanded(
+    snapshot: SchemaTreeExpandedSnapshot,
+) -> Result<(), String> {
+    save_schema_tree_expanded(&snapshot).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
