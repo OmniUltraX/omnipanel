@@ -15,6 +15,7 @@ export const zhCN = {
   knowledge: {
     tabs: {
       library: "知识库",
+      todos: "待办项",
     },
     categories: "分类",
     tags: "标签",
@@ -104,6 +105,34 @@ export const zhCN = {
     createdAt: "创建时间",
     updatedAt: "更新时间",
     confirmDelete: "确定删除此条目？",
+    titleRequired: "请填写标题",
+    editor: "编辑",
+    preview: "预览",
+    contentPlaceholder: "在此输入 Markdown…",
+    previewEmpty: "*暂无内容*",
+    tree: {
+      new: "新建",
+      newFolder: "新建文件夹",
+      newDocument: "新建文档",
+      rename: "重命名",
+      duplicate: "复制",
+      folderHint: "选择左侧文档进行编辑，或在此文件夹下新建内容",
+    },
+    todos: {
+      newList: "新建列表",
+      empty: "暂无待办列表",
+      emptyHint: "点击右上角按钮创建第一个待办列表",
+      emptyItems: "暂无待办内容",
+      editList: "编辑待办列表",
+      addItem: "添加待办",
+      itemPlaceholder: "输入待办内容…",
+      listTitlePlaceholder: "列表标题",
+      untitled: "未命名列表",
+      progress: "{done}/{total}",
+      moreItems: "还有 {count} 项…",
+      toggleItem: "切换第 {index} 项",
+      confirmDelete: "确定删除此待办列表？",
+    },
     types: {
       snippet: "命令片段",
       case: "故障案例",
@@ -275,7 +304,21 @@ export const zhCN = {
   quickInput: {
     required: "请输入内容",
   },
+  formDialog: {
+    clipboard: {
+      aiRecognize: "AI识别",
+      placeholder: "点击右侧按钮读取剪贴板内容",
+      emptyClipboard: "剪贴板为空",
+      unavailable: "当前环境无法读取剪贴板",
+      readFailed: "读取剪贴板失败",
+    },
+  },
   ui: {
+    imagePreview: {
+      alt: "图片",
+      close: "关闭预览",
+      zoomHint: "点击放大预览",
+    },
     select: {
       searchPlaceholder: "搜索…",
       noResults: "无匹配项",
@@ -550,6 +593,8 @@ export const zhCN = {
       noIndexes: "无索引",
       detailsFailed: "加载表结构失败",
       loadMore: "加载更多…",
+      connectionEnabled: "已启用",
+      connectionDisabled: "已关闭",
     },
     tablesPanel: {
       title: "数据表",
@@ -590,6 +635,8 @@ export const zhCN = {
       createDatabase: "创建数据库…",
       refresh: "刷新数据库",
       editConnection: "编辑连接…",
+      openConnection: "打开",
+      closeConnection: "关闭",
       deleteConnection: "删除连接",
     },
     createDatabase: {

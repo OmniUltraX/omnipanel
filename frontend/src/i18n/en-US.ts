@@ -17,6 +17,7 @@ export const enUS: TranslationDict = {
   knowledge: {
     tabs: {
       library: "Knowledge Base",
+      todos: "Todos",
     },
     categories: "Categories",
     tags: "Tags",
@@ -106,6 +107,34 @@ export const enUS: TranslationDict = {
     createdAt: "Created",
     updatedAt: "Updated",
     confirmDelete: "Delete this entry?",
+    titleRequired: "Title is required",
+    editor: "Edit",
+    preview: "Preview",
+    contentPlaceholder: "Write Markdown here…",
+    previewEmpty: "*No content yet*",
+    tree: {
+      new: "New",
+      newFolder: "New Folder",
+      newDocument: "New Document",
+      rename: "Rename",
+      duplicate: "Duplicate",
+      folderHint: "Select a document to edit, or create content under this folder",
+    },
+    todos: {
+      newList: "New List",
+      empty: "No todo lists yet",
+      emptyHint: "Click the button above to create your first list",
+      emptyItems: "No items yet",
+      editList: "Edit Todo List",
+      addItem: "Add Item",
+      itemPlaceholder: "Todo item…",
+      listTitlePlaceholder: "List title",
+      untitled: "Untitled List",
+      progress: "{done}/{total}",
+      moreItems: "{count} more…",
+      toggleItem: "Toggle item {index}",
+      confirmDelete: "Delete this todo list?",
+    },
     types: {
       snippet: "Command Snippet",
       case: "Incident Case",
@@ -279,7 +308,21 @@ export const enUS: TranslationDict = {
   quickInput: {
     required: "Please enter a value",
   },
+  formDialog: {
+    clipboard: {
+      aiRecognize: "AI Recognize",
+      placeholder: "Click the button to read clipboard",
+      emptyClipboard: "Clipboard is empty",
+      unavailable: "Clipboard is unavailable in this environment",
+      readFailed: "Failed to read clipboard",
+    },
+  },
   ui: {
+    imagePreview: {
+      alt: "Image",
+      close: "Close preview",
+      zoomHint: "Click to zoom",
+    },
     select: {
       searchPlaceholder: "Search…",
       noResults: "No matches",
@@ -554,6 +597,8 @@ export const enUS: TranslationDict = {
       noIndexes: "No indexes",
       detailsFailed: "Failed to load table structure",
       loadMore: "Load more…",
+      connectionEnabled: "Enabled",
+      connectionDisabled: "Disabled",
     },
     tablesPanel: {
       title: "Tables",
@@ -594,6 +639,8 @@ export const enUS: TranslationDict = {
       createDatabase: "Create Database…",
       refresh: "Refresh databases",
       editConnection: "Edit Connection…",
+      openConnection: "Open",
+      closeConnection: "Close",
       deleteConnection: "Delete Connection",
     },
     createDatabase: {

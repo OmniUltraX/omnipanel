@@ -60,7 +60,7 @@ impl DbDriver for MySqlDriver {
             .fetch_one(&self.pool)
             .await
             .map_err(map_sqlx_err)?;
-        Ok(row.get::<String, _>("version"))
+        Ok(decode_text_column(&row, "version").unwrap_or_else(|| "unknown".into()))
     }
 
     async fn list_tables(&self) -> OmniResult<Vec<String>> {
@@ -71,7 +71,10 @@ impl DbDriver for MySqlDriver {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
-        Ok(rows.iter().map(|r| r.get::<String, _>(0)).collect())
+        Ok(rows
+            .iter()
+            .filter_map(|r| decode_text_column(r, 0))
+            .collect())
     }
 
     async fn execute(&self, sql: &str) -> OmniResult<QueryResult> {
@@ -175,8 +178,26 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     }
     match row.try_get::<String, _>(index) {
         Ok(v) => Value::String(v),
-        Err(_) => Value::Null,
+        Err(_) => row
+            .try_get::<Vec<u8>, _>(index)
+            .ok()
+            .map(|bytes| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+            .unwrap_or(Value::Null),
     }
+}
+
+/// information_schema 等系统表在部分 MySQL/MariaDB 上会以 VARBINARY 返回标识符列。
+fn decode_text_column<I>(row: &MySqlRow, index: I) -> Option<String>
+where
+    I: sqlx::ColumnIndex<MySqlRow>,
+{
+    row.try_get::<String, _>(&index)
+        .ok()
+        .or_else(|| {
+            row.try_get::<Vec<u8>, _>(&index)
+                .ok()
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        })
 }
 
 /// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。

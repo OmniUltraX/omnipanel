@@ -5,6 +5,7 @@ mod connection;
 mod database;
 mod http;
 mod knowledge;
+mod knowledge_todo;
 mod paths;
 mod schema_filters;
 mod schema_tree_expanded;
@@ -20,6 +21,7 @@ pub use database::{
 };
 pub use http::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
+pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
 pub use paths::{
     database_connections_path, database_schema_filters_path, database_schema_tree_expanded_path,
     meta_db_path, module_dir, omnipd_root,

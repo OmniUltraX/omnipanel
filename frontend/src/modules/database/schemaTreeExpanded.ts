@@ -2,3 +2,7 @@
 export interface SchemaTreeExpandedSnapshot {
   expandedNodeIds: string[];
 }
+
+export function connectionNodeId(connId: string): string {
+  return `conn:${connId}`;
+}

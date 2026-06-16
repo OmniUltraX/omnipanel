@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
+import { FormDialogClipboardBar } from "./FormDialogClipboardBar";
 import { useI18n } from "../../i18n";
+import type { ClipboardSnapshot } from "../../lib/readLatestClipboard";
 
 const CLOSE_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden>
@@ -44,6 +46,9 @@ export interface FormDialogProps {
   status?: { kind: FormDialogStatusKind; message: string } | null;
   actions?: FormDialogAction[];
   primaryAction?: FormDialogAction;
+  /** 顶部剪贴板 AI 识别栏，默认开启 */
+  clipboardAssist?: boolean;
+  onClipboardRecognize?: (snapshot: ClipboardSnapshot | null) => void;
 }
 
 function renderAction(action: FormDialogAction, fallbackKey: string) {
@@ -82,6 +87,8 @@ export function FormDialog({
   status,
   actions,
   primaryAction,
+  clipboardAssist = true,
+  onClipboardRecognize,
 }: FormDialogProps) {
   const { t } = useI18n();
 
@@ -152,6 +159,10 @@ export function FormDialog({
             </Button>
           ) : null}
         </div>
+
+        {clipboardAssist ? (
+          <FormDialogClipboardBar open={open} onRecognize={onClipboardRecognize} />
+        ) : null}
 
         {beforeBody}
 

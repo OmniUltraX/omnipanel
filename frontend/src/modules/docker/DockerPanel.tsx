@@ -7,6 +7,7 @@ import { useDockerTopbarStore } from "../../stores/dockerTopbarStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
 import { ModuleSegmentDock } from "../../components/dock";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import {
   useContainerLogStream,
   useDockerWorkspace,
@@ -218,7 +219,7 @@ export function DockerPanel() {
 
   const handleDeleteDockerConnection = async (connectionId: string) => {
     if (isBuiltinLocalDockerConnection(connectionId)) return;
-    if (!window.confirm(t("docker.sidebar.deleteConfirm"))) return;
+    if (!(await appConfirm(t("docker.sidebar.deleteConfirm")))) return;
     await removeStoredConnection(connectionId);
     void reloadConnections();
     showToast(t("docker.sidebar.deleted"));

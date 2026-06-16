@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useI18n } from "../../i18n";
 import { clearAppLayoutCache, clearAppUserData } from "../../lib/appDataReset";
+import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/Button";
 
 export function DataBackupSection() {
@@ -11,7 +12,7 @@ export function DataBackupSection() {
   const [error, setError] = useState<string | null>(null);
 
   const handleClearCache = async () => {
-    if (!window.confirm(t("settings.data.clearCacheConfirm"))) return;
+    if (!(await appConfirm(t("settings.data.clearCacheConfirm")))) return;
     setClearingCache(true);
     setError(null);
     setNotice(null);
@@ -26,7 +27,7 @@ export function DataBackupSection() {
   };
 
   const handleClearUserData = async () => {
-    if (!window.confirm(t("settings.data.clearUserDataConfirm"))) return;
+    if (!(await appConfirm(t("settings.data.clearUserDataConfirm")))) return;
     setClearingUserData(true);
     setError(null);
     setNotice(null);

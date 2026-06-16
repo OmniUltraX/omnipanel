@@ -178,6 +178,25 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE connections ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     "#,
+    // v6 — 知识库树形结构（文件夹 / 文档）
+    r#"
+    ALTER TABLE knowledge_entries ADD COLUMN parent_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE knowledge_entries ADD COLUMN node_type TEXT NOT NULL DEFAULT 'document';
+    ALTER TABLE knowledge_entries ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_entries(parent_id, sort_order);
+    "#,
+    // v7 — 知识库待办列表
+    r#"
+    CREATE TABLE IF NOT EXISTS knowledge_todo_lists (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        items TEXT NOT NULL DEFAULT '[]',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_todo_sort ON knowledge_todo_lists(sort_order, updated_at);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

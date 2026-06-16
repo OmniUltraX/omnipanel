@@ -9,6 +9,7 @@ import {
   listConnections,
   listDatabases,
   listTables,
+  isConnectionEnabled,
 } from "./api";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
@@ -99,6 +100,8 @@ interface TreeNodeProps {
   reorderName?: string;
   onMetaClick?: () => void;
   metaTitle?: string;
+  /** 连接节点：是否启用（禁用与树折叠无关） */
+  connectionEnabled?: boolean;
 }
 
 function SchemaLoadMoreButton({
@@ -144,14 +147,22 @@ function TreeNode({
   reorderName,
   onMetaClick,
   metaTitle,
+  connectionEnabled = true,
 }: TreeNodeProps) {
+  const { t } = useI18n();
   const { type, label } = item;
   const indent = depth * 16 + 8;
   const draggable = isSchemaTreeItemDraggable(type);
+  const isConnection = type === "connection";
+  const connectionStateClass = isConnection
+    ? connectionEnabled
+      ? " tree-node--connection-enabled"
+      : " tree-node--connection-disabled"
+    : "";
 
   return (
     <div
-      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${draggable ? " tree-node--draggable" : ""}`}
+      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${draggable ? " tree-node--draggable" : ""}${connectionStateClass}`}
       style={{ paddingLeft: indent }}
       data-schema-item-type={type}
       {...(reorderScope && reorderName
@@ -227,6 +238,17 @@ function TreeNode({
           </svg>
         )}
       </span>
+      {isConnection && (
+        <span
+          className={`tree-conn-status${connectionEnabled ? " tree-conn-status--enabled" : " tree-conn-status--disabled"}`}
+          title={
+            connectionEnabled
+              ? t("database.sidebar.connectionEnabled")
+              : t("database.sidebar.connectionDisabled")
+          }
+          aria-hidden
+        />
+      )}
       <span
         className="tree-label"
         onClick={() => {
@@ -507,6 +529,9 @@ export function SchemaBrowser({
     if (!current) {
       return null;
     }
+    if (!isConnectionEnabled(current.config)) {
+      return null;
+    }
     if (current.databases !== undefined) {
       return current.config;
     }
@@ -750,7 +775,12 @@ export function SchemaBrowser({
   const loadExpandedNodeData = useCallback(
     (id: string) => {
       if (id.startsWith("conn:")) {
-        void ensureDatabasesLoaded(id.slice(5));
+        const connId = id.slice(5);
+        const conn = connectionsRef.current.find((item) => item.config.id === connId);
+        if (conn && !isConnectionEnabled(conn.config)) {
+          return;
+        }
+        void ensureDatabasesLoaded(connId);
         return;
       }
 
@@ -803,6 +833,14 @@ export function SchemaBrowser({
   }, []);
 
   const toggle = (id: string) => {
+    if (id.startsWith("conn:")) {
+      const connId = id.slice(5);
+      const conn = connectionsRef.current.find((item) => item.config.id === connId);
+      if (conn && !isConnectionEnabled(conn.config)) {
+        return;
+      }
+    }
+
     const willExpand = !expandedNodeIds.has(id);
     updateExpanded((prev) => {
       const next = new Set(prev);
@@ -997,6 +1035,7 @@ export function SchemaBrowser({
 
           const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
           const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
+          const connEnabled = isConnectionEnabled(conn.config);
 
           return (
             <div key={conn.config.id}>
@@ -1006,6 +1045,7 @@ export function SchemaBrowser({
                 expanded={connExpanded}
                 onToggle={() => toggle(connId)}
                 active={activeConnId === conn.config.id}
+                connectionEnabled={connEnabled}
                 onLabelClick={() => onSelectConnection?.(conn.config.id)}
                 onContextMenu={
                   onContextConnection
@@ -1014,32 +1054,41 @@ export function SchemaBrowser({
                 }
                 iconUrl={engineIconUrl}
                 meta={
-                  conn.loadingDatabases
-                    ? t("common.loading")
-                    : conn.databases
-                      ? isFiltered
-                        ? `${visibleCount}/${totalCount} DB`
-                        : `${totalCount} DB`
-                      : conn.config.db_type
+                  !connEnabled
+                    ? t("database.sidebar.connectionDisabled")
+                    : conn.loadingDatabases
+                      ? t("common.loading")
+                      : conn.databases
+                        ? isFiltered
+                          ? `${visibleCount}/${totalCount} DB`
+                          : `${totalCount} DB`
+                        : conn.config.db_type
                 }
                 onMetaClick={
-                  conn.databases && !conn.loadingDatabases && totalCount > 0
+                  connEnabled &&
+                  conn.databases &&
+                  !conn.loadingDatabases &&
+                  totalCount > 0
                     ? () => setFilterDialogConnId(conn.config.id)
                     : undefined
                 }
                 metaTitle={
-                  conn.databases && !conn.loadingDatabases && totalCount > 0
+                  connEnabled &&
+                  conn.databases &&
+                  !conn.loadingDatabases &&
+                  totalCount > 0
                     ? t("database.sidebar.filterDisplay")
                     : undefined
                 }
-                hasChildren
+                hasChildren={connEnabled}
               />
-              {connExpanded && conn.databasesError && (
+              {connEnabled && connExpanded && conn.databasesError && (
                 <div style={{ padding: "4px 24px", fontSize: "11px", color: "var(--color-danger, #ff3b30)" }}>
                   {conn.databasesError}
                 </div>
               )}
-              {connExpanded &&
+              {connEnabled &&
+                connExpanded &&
                 !conn.loadingDatabases &&
                 totalCount === 0 &&
                 !conn.databasesError && (
@@ -1047,7 +1096,8 @@ export function SchemaBrowser({
                     {t("database.sidebar.noDatabases")}
                   </div>
                 )}
-              {connExpanded &&
+              {connEnabled &&
+                connExpanded &&
                 !conn.loadingDatabases &&
                 visibleCount === 0 &&
                 totalCount > 0 && (
@@ -1055,7 +1105,8 @@ export function SchemaBrowser({
                     {t("database.sidebar.filterHidden")}
                   </div>
                 )}
-              {connExpanded &&
+              {connEnabled &&
+                connExpanded &&
                 !conn.loadingDatabases &&
                 pagedDatabases.visible.map((db) => {
                   const dbId = makeDatabaseNodeId(conn.config.id, db.name);
@@ -1355,7 +1406,7 @@ export function SchemaBrowser({
                     </div>
                   );
                 })}
-              {connExpanded && !conn.loadingDatabases && pagedDatabases.hasMore && (
+              {connEnabled && connExpanded && !conn.loadingDatabases && pagedDatabases.hasMore && (
                 <SchemaLoadMoreButton
                   depth={2}
                   remaining={pagedDatabases.remaining}

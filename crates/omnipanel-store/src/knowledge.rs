@@ -29,6 +29,19 @@ pub struct KnowledgeEntry {
     #[serde(default)]
     #[specta(type = f64)]
     pub updated_at: i64,
+    /// 父节点 id，空字符串表示根级
+    #[serde(default)]
+    pub parent_id: String,
+    /// "folder" | "document"
+    #[serde(default = "default_node_type")]
+    pub node_type: String,
+    #[serde(default)]
+    #[specta(type = f64)]
+    pub sort_order: i64,
+}
+
+fn default_node_type() -> String {
+    "document".to_string()
 }
 
 /// FTS5 搜索结果：原文 + snippet 摘要。
@@ -50,7 +63,7 @@ impl Storage {
         tag: Option<&str>,
     ) -> OmniResult<Vec<KnowledgeEntry>> {
         let mut sql = String::from(
-            "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at
+            "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order
              FROM knowledge_entries WHERE 1=1",
         );
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -63,7 +76,7 @@ impl Storage {
             sql.push_str(" AND tags LIKE ?");
             params.push(Box::new(format!("%\"{}\"%", t)));
         }
-        sql.push_str(" ORDER BY updated_at DESC");
+        sql.push_str(" ORDER BY sort_order ASC, updated_at DESC");
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
@@ -74,7 +87,7 @@ impl Storage {
     pub fn get_knowledge(&self, id: &str) -> OmniResult<Option<KnowledgeEntry>> {
         Ok(self
             .query_knowledge(
-                "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at
+                "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order
                  FROM knowledge_entries WHERE id = ?1",
                 [id],
             )?
@@ -89,8 +102,8 @@ impl Storage {
         })?;
         self.conn()
             .execute(
-                "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                  ON CONFLICT(id) DO UPDATE SET
                     kind = excluded.kind,
                     title = excluded.title,
@@ -101,7 +114,10 @@ impl Storage {
                     env_tag = excluded.env_tag,
                     language = excluded.language,
                     usage_count = excluded.usage_count,
-                    updated_at = excluded.updated_at",
+                    updated_at = excluded.updated_at,
+                    parent_id = excluded.parent_id,
+                    node_type = excluded.node_type,
+                    sort_order = excluded.sort_order",
                 rusqlite::params![
                     entry.id,
                     entry.kind,
@@ -115,6 +131,9 @@ impl Storage {
                     entry.usage_count,
                     entry.created_at,
                     entry.updated_at,
+                    entry.parent_id,
+                    entry.node_type,
+                    entry.sort_order,
                 ],
             )
             .map_err(map_sqlite)?;
@@ -147,18 +166,18 @@ impl Storage {
             .join(" ");
 
         let sql = if kind.is_some() {
-            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at,
+            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order,
                     snippet(knowledge_fts, 1, '<mark>', '</mark>', '...', 32) as snip
              FROM knowledge_fts f
              JOIN knowledge_entries e ON e.rowid = f.rowid
-             WHERE knowledge_fts MATCH ?1 AND e.kind = ?2
+             WHERE knowledge_fts MATCH ?1 AND e.kind = ?2 AND e.node_type = 'document'
              ORDER BY rank"
         } else {
-            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at,
+            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order,
                     snippet(knowledge_fts, 1, '<mark>', '</mark>', '...', 32) as snip
              FROM knowledge_fts f
              JOIN knowledge_entries e ON e.rowid = f.rowid
-             WHERE knowledge_fts MATCH ?1
+             WHERE knowledge_fts MATCH ?1 AND e.node_type = 'document'
              ORDER BY rank"
         };
 
@@ -169,7 +188,7 @@ impl Storage {
                 .query_map(rusqlite::params![fts_query, k], |row| {
                     Ok(KnowledgeSearchResult {
                         entry: Self::row_to_entry(row)?,
-                        snippet: row.get::<_, String>(12)?,
+                        snippet: row.get::<_, String>(15)?,
                         score: 0, // 占位，稍后计算
                     })
                 })
@@ -182,7 +201,7 @@ impl Storage {
                 .query_map([fts_query], |row| {
                     Ok(KnowledgeSearchResult {
                         entry: Self::row_to_entry(row)?,
-                        snippet: row.get::<_, String>(12)?,
+                        snippet: row.get::<_, String>(15)?,
                         score: 0, // 占位，稍后计算
                     })
                 })
@@ -282,6 +301,9 @@ impl Storage {
             usage_count: row.get(9)?,
             created_at: row.get(10)?,
             updated_at: row.get(11)?,
+            parent_id: row.get(12)?,
+            node_type: row.get(13)?,
+            sort_order: row.get(14)?,
         })
     }
 
@@ -320,6 +342,9 @@ mod tests {
             usage_count: 0,
             created_at: 1_700_000_000,
             updated_at: 1_700_000_000,
+            parent_id: String::new(),
+            node_type: "document".into(),
+            sort_order: 0,
         }
     }
 

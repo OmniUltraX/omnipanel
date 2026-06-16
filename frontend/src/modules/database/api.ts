@@ -14,6 +14,13 @@ export interface DbConnectionConfig {
   ssl: boolean;
   group: string;
   status: string;
+  /** 是否启用；`false` 时连接在侧栏显示为已关闭且不可展开查询 */
+  enabled?: boolean;
+}
+
+/** 未显式设为 `false` 时视为启用（兼容旧配置）。 */
+export function isConnectionEnabled(connection: Pick<DbConnectionConfig, "enabled">): boolean {
+  return connection.enabled !== false;
 }
 
 const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
@@ -64,6 +71,7 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     ssl: form.ssl,
     group: form.group.trim() || "默认",
     status: "unknown",
+    enabled: true,
   };
 }
 
