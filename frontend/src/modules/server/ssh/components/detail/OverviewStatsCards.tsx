@@ -99,6 +99,8 @@ export type OverviewStatsCardsProps = {
   compact?: boolean;
   /** 嵌入侧栏（如 SFTP 上方），加载态不占满整块区域 */
   embedded?: boolean;
+  /** 加载中文案，默认使用 SSH 概览文案 */
+  loadingMessage?: string;
 };
 
 export function OverviewStatsCards({
@@ -109,8 +111,10 @@ export function OverviewStatsCards({
   onRetry,
   compact = false,
   embedded = false,
+  loadingMessage,
 }: OverviewStatsCardsProps) {
   const { t } = useI18n();
+  const loadingText = loadingMessage ?? t("ssh.overview.loading");
 
   const cpuPct = stats ? Math.round(stats.cpuUsage ?? 0) : 0;
   const memPct = stats
@@ -152,7 +156,7 @@ export function OverviewStatsCards({
       <div className={`ssh-ov ssh-ov--loading${classSuffix}`}>
         <div className="ssh-ov-loading">
           <span className="ssh-ov-loading-spinner" aria-hidden />
-          <p>{t("ssh.overview.loading")}</p>
+          <p>{loadingText}</p>
         </div>
       </div>
     );

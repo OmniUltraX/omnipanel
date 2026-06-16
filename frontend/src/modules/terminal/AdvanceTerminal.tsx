@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DockHandle,
   DockLayout,
@@ -96,7 +96,17 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
 
   const defaultSideTab = isLocal ? "files" : "sftp";
   const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(defaultSideTab);
-  const [sideLayout, setSideLayout] = useState<SerializedDockview | null>(null);
+  /** 仅用 ref 持久化布局，避免 savedLayout=null 时 DockableWorkspace 清空已创建的面板 */
+  const sideLayoutRef = useRef<SerializedDockview | null>(null);
+  const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
+    sideLayoutRef.current = layout;
+  }, []);
+
+  useEffect(() => {
+    if (!sideTabs.some((tab) => tab.id === activeSideTab)) {
+      setActiveSideTab((sideTabs[0]?.id ?? defaultSideTab) as SidePanelId);
+    }
+  }, [activeSideTab, defaultSideTab, sideTabs]);
 
   const handleDetailTab = useCallback((detailTab: DetailTab) => {
     if (detailTab === "sftp") setActiveSideTab("sftp");
@@ -104,13 +114,16 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   }, []);
 
   const renderMonitorStack = useCallback(
-    (processResourceId: string, enableTunnels: boolean) => (
+    (processResourceId: string, enableTunnels: boolean, localMonitor = false) => (
       <div className="advance-terminal-monitor-stack">
         <OverviewStatsCards
           embedded
           phase={phase}
           stats={stats}
           error={error}
+          loadingMessage={
+            localMonitor ? t("terminal.monitor.loading") : undefined
+          }
           onRetry={() => refresh()}
         />
         <ProcessListPanel
@@ -135,6 +148,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       handleDetailTab,
       refresh,
       refreshProcesses,
+      t,
     ],
   );
 
@@ -143,7 +157,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       if (isLocal) {
         if (panelId === "files") return <LocalFilePanel />;
         if (panelId === "monitor") {
-          return renderMonitorStack(LOCAL_TERMINAL_RESOURCE_ID, false);
+          return renderMonitorStack(LOCAL_TERMINAL_RESOURCE_ID, false, true);
         }
         return null;
       }
@@ -188,13 +202,14 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           className="advance-terminal-side"
         >
           <DockableWorkspace
+            key={`${tabId}-${isLocal ? "local" : "remote"}`}
             className="advance-terminal-side-dock"
             tabs={sideTabs}
             activeTabId={activeSideTab}
             onActiveTabChange={(id) => setActiveSideTab(id as SidePanelId)}
             onCloseTab={() => {}}
-            savedLayout={sideLayout}
-            onSavedLayoutChange={setSideLayout}
+            savedLayout={null}
+            onSavedLayoutChange={handleSideLayoutChange}
             renderPanel={renderSidePanel}
             enableTabGroups={false}
             defaultHeaderPosition="top"

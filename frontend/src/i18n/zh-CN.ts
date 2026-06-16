@@ -787,6 +787,9 @@ export const zhCN = {
       files: "文件",
       monitor: "系统监控",
     },
+    monitor: {
+      loading: "正在加载本机监控数据…",
+    },
     actions: {
       command: "终端命令",
       dangerDemo: "危险命令演示",

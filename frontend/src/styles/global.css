@@ -1861,6 +1861,7 @@
 .advance-terminal-side {
     min-width: 0;
     min-height: 0;
+    flex: 1;
     background: var(--bg);
     border-left: 1px solid var(--border);
     display: flex;
@@ -1868,7 +1869,7 @@
     overflow: hidden;
 }
 
-.advance-terminal-side-dock {
+.advance-terminal-side-dock.dockable-workspace {
     flex: 1;
     min-height: 0;
     min-width: 0;
