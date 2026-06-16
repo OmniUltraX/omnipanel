@@ -53,6 +53,7 @@ export function QuickInputDialog({
       subtitle={subtitle}
       size="sm"
       className="quick-input-dialog"
+      clipboardAssist={false}
       onCancel={onCancel}
       primaryAction={{ label: t("common.confirm"), onClick: submit }}
     >

@@ -20,6 +20,7 @@
     "core:event:allow-listen",
     "shell:default",
     "dialog:default",
+    "dialog:allow-confirm",
     "fs:default"
   ]
 }

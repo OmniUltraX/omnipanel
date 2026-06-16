@@ -1,5 +1,5 @@
 use omnipanel_error::OmniError;
-use omnipanel_store::{KnowledgeEntry, KnowledgeSearchResult};
+use omnipanel_store::{KnowledgeEntry, KnowledgeSearchResult, KnowledgeTodoList};
 use tauri::State;
 
 use crate::state::AppState;
@@ -75,4 +75,36 @@ pub async fn knowledge_increment_usage(
 ) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
     storage.increment_usage(&id)
+}
+
+/// 列出全部待办列表。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_todo_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<KnowledgeTodoList>, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.list_knowledge_todos()
+}
+
+/// 保存（新建或更新）待办列表。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_todo_save(
+    state: State<'_, AppState>,
+    list: KnowledgeTodoList,
+) -> Result<(), OmniError> {
+    let storage = state.storage.lock().await;
+    storage.save_knowledge_todo(&list)
+}
+
+/// 删除待办列表。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_todo_delete(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), OmniError> {
+    let storage = state.storage.lock().await;
+    storage.delete_knowledge_todo(&id)
 }

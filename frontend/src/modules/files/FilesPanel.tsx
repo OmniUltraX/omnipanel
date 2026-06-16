@@ -8,6 +8,7 @@ import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ModuleSegmentDock } from "../../components/dock";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import type { Connection, FileEntry, FileManagerConnectionInfo } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
@@ -325,7 +326,7 @@ function FilesBrowserView() {
   }, [activeId, currentPath, loadDir, protocol, t]);
 
   const handleDelete = useCallback(async (entry: FileEntry) => {
-    if (!window.confirm(t("files.actions.deleteConfirm", { name: entry.name }))) return;
+    if (!(await appConfirm(t("files.actions.deleteConfirm", { name: entry.name })))) return;
     try {
       await deleteRemote(activeId, entry.path);
       setSelected(null);
@@ -363,7 +364,7 @@ function FilesBrowserView() {
 
   const handleDeleteConnection = useCallback(async (conn: FileManagerConnectionInfo) => {
     if (conn.id === LOCAL_CONNECTION_ID) return;
-    if (!window.confirm(t("files.context.deleteConnConfirm", { name: conn.name }))) return;
+    if (!(await appConfirm(t("files.context.deleteConnConfirm", { name: conn.name })))) return;
     try {
       await removeConnection(conn.id);
       await loadConnections();

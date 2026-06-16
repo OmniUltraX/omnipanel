@@ -12,6 +12,7 @@ import {
 } from "../../lib/sshGroups";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import { ResourceTags } from "../ui/ResourceTags";
 import {
   syncFromOpenSshConfig,
@@ -262,7 +263,7 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
     if (listCtxMenu?.kind !== "host" || deleting) return;
     const host = listCtxMenu.host;
     setListCtxMenu(null);
-    if (!window.confirm(t("ssh.dialog.confirmDelete", { name: host.name }))) return;
+    if (!(await appConfirm(t("ssh.dialog.confirmDelete", { name: host.name })))) return;
     setDeleting(true);
     try {
       const ids = getLinkedConnectionIds(connections, host.id);

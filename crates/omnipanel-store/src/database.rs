@@ -26,6 +26,13 @@ pub struct DbConnectionConfig {
     pub group: String,
     #[serde(default)]
     pub status: String,
+    /// 是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -182,6 +189,7 @@ mod tests {
             ssl: false,
             group: "默认".into(),
             status: "unknown".into(),
+            enabled: true,
         }
     }
 

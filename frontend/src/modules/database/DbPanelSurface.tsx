@@ -7,6 +7,7 @@ import { TableDataGrid } from "./TableDataGrid";
 import { SqlEditor } from "./SqlEditor";
 import { useI18n } from "../../i18n";
 import { createDefaultSqlTabState } from "./dbWorkspaceState";
+import { isConnectionEnabled } from "./api";
 
 interface DbPanelSurfaceProps {
   tab: SqlWorkspaceTab;
@@ -64,7 +65,13 @@ export function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
           options={
             ws.groupConnections.length === 0
               ? [{ value: "", label: t("database.results.noConnection"), disabled: true }]
-              : ws.groupConnections.map((conn) => ({ value: conn.id, label: conn.name }))
+              : ws.groupConnections.map((conn) => ({
+                  value: conn.id,
+                  label: isConnectionEnabled(conn)
+                    ? conn.name
+                    : `${conn.name} (${t("database.sidebar.connectionDisabled")})`,
+                  disabled: !isConnectionEnabled(conn),
+                }))
           }
         />
         <Select

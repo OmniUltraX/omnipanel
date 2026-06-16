@@ -314,6 +314,11 @@ export const commands = {
 	usageCount: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
+	/**  父节点 id，空字符串表示根级 */
+	parentId?: string,
+	/**  "folder" | "document" */
+	nodeType?: string,
+	sortOrder?: number | null,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_get", { id })),
 	/**  保存（新建或更新）知识条目。 */
 	knowledgeSave: (entry: KnowledgeEntry) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save", { entry })),
@@ -325,6 +330,12 @@ export const commands = {
 	knowledgeTags: () => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_tags")),
 	/**  递增使用次数。 */
 	knowledgeIncrementUsage: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_increment_usage", { id })),
+	/**  列出全部待办列表。 */
+	knowledgeTodoList: () => typedError<KnowledgeTodoList[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_list")),
+	/**  保存（新建或更新）待办列表。 */
+	knowledgeTodoSave: (list: KnowledgeTodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_save", { list })),
+	/**  删除待办列表。 */
+	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
 	/**  列出所有工作流。 */
 	workflowList: () => typedError<Workflow[], OmniError_Serialize>(__TAURI_INVOKE("workflow_list")),
 	/**  按 id 获取工作流详情（含步骤）。 */
@@ -499,6 +510,8 @@ export type DbConnectionConfig = {
 	ssl?: boolean,
 	group?: string,
 	status?: string,
+	/**  是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。 */
+	enabled?: boolean,
 };
 
 export type DbIndexMeta = {
@@ -1155,6 +1168,11 @@ export type KnowledgeEntry = {
 	usageCount: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
+	/**  父节点 id，空字符串表示根级 */
+	parentId?: string,
+	/**  "folder" | "document" */
+	nodeType?: string,
+	sortOrder?: number | null,
 };
 
 /**  FTS5 搜索结果：原文 + snippet 摘要。 */
@@ -1163,6 +1181,23 @@ export type KnowledgeSearchResult = {
 	snippet: string,
 	/**  关键词相关性评分（0-100），分数越高越相关。 */
 	score: number | null,
+};
+
+/**  待办列表中的单项。 */
+export type KnowledgeTodoItem = {
+	id: string,
+	text: string,
+	done: boolean,
+};
+
+/**  知识库待办列表。 */
+export type KnowledgeTodoList = {
+	id: string,
+	title: string,
+	items: KnowledgeTodoItem[],
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
 };
 
 export type MemoryStats = {

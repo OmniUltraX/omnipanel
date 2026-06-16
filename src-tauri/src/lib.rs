@@ -170,6 +170,9 @@ fn export_ipc_bindings() {
         commands::knowledge::knowledge_search,
         commands::knowledge::knowledge_tags,
         commands::knowledge::knowledge_increment_usage,
+        commands::knowledge::knowledge_todo_list,
+        commands::knowledge::knowledge_todo_save,
+        commands::knowledge::knowledge_todo_delete,
         // Workflow（工作流）
         commands::workflow::workflow_list,
         commands::workflow::workflow_get,
@@ -547,6 +550,9 @@ pub fn run() {
             commands::knowledge::knowledge_search,
             commands::knowledge::knowledge_tags,
             commands::knowledge::knowledge_increment_usage,
+            commands::knowledge::knowledge_todo_list,
+            commands::knowledge::knowledge_todo_save,
+            commands::knowledge::knowledge_todo_delete,
             // Workflow（工作流）
             commands::workflow::workflow_list,
             commands::workflow::workflow_get,

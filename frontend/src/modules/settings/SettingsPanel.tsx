@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { detectMonospaceFonts } from "../../lib/systemFonts";
+import { appConfirm } from "../../lib/appConfirm";
 import {
   countEnabledModels,
   useAiModelsStore,
@@ -915,7 +916,7 @@ export function SettingsPanel() {
 
   const installUpdateFn = async () => {
     if (!updateInfo?.available) return;
-    const confirmed = window.confirm(
+    const confirmed = await appConfirm(
       t("settings.update.confirmInstall", { version: updateInfo.version })
     );
     if (!confirmed) return;

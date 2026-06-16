@@ -10,6 +10,7 @@ import { useDbWorkspaceSessionStore } from "../stores/dbWorkspaceSessionStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
+import { useKnowledgeTodoStore } from "../stores/knowledgeTodoStore";
 import { BUILTIN_SERVER_GROUPS, useServerGroupStore } from "../stores/serverGroupStore";
 import { useServerTabStore } from "../stores/serverTabStore";
 import {
@@ -93,10 +94,22 @@ export async function clearAppUserData(): Promise<void> {
   }
   useKnowledgeStore.setState({
     entries: [],
-    searchResults: [],
-    allTags: [],
+    expandedIds: [],
     selectedEntryId: null,
-    editingEntry: null,
+    searchQuery: "",
+    draftById: {},
+    error: null,
+  });
+
+  const todoRes = await commands.knowledgeTodoList();
+  if (todoRes.status === "ok") {
+    for (const list of todoRes.data) {
+      await commands.knowledgeTodoDelete(list.id);
+    }
+  }
+  useKnowledgeTodoStore.setState({
+    lists: [],
+    editingId: null,
     error: null,
   });
 

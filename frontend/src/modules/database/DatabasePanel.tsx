@@ -16,6 +16,7 @@ import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../compone
 import { useActionStore } from "../../stores/actionStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
+import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
@@ -32,6 +33,8 @@ import {
   listDatabases,
   MYSQL_CHARSET_PRESETS,
   previewTable,
+  saveConnection,
+  isConnectionEnabled,
   type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
@@ -91,6 +94,7 @@ import {
   SCHEMA_TREE_DROP_ZONE_ATTR,
 } from "./schemaTreePointerDrag";
 import { logSchemaTreeDrop } from "./schemaTreeDragLog";
+import { connectionNodeId } from "./schemaTreeExpanded";
 import type { SchemaTreeItem } from "./schemaTreeItem";
 
 const INITIAL_SQL_TAB_ID = makeSqlTabId();
@@ -355,6 +359,7 @@ export function DatabasePanel() {
       }
     | null
   >(null);
+  const updateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
   const [createDbDialog, setCreateDbDialog] = useState<
     | {
         connId: string;
@@ -416,11 +421,18 @@ export function DatabasePanel() {
       const list = await listConnections();
       setConnections(list);
       setActiveConnId((prev) => {
-        if (prev && list.some((item) => item.id === prev)) {
-          return prev;
+        const pickEnabled = (items: DbConnectionConfig[]) =>
+          items.find((item) => isConnectionEnabled(item));
+        if (prev) {
+          const current = list.find((item) => item.id === prev);
+          if (current && isConnectionEnabled(current)) {
+            return prev;
+          }
         }
-        const inGroup = list.find((item) => connectionMatchesGroup(item, activeGroupName));
-        return inGroup?.id ?? list[0]?.id ?? null;
+        const inGroup = list.find(
+          (item) => connectionMatchesGroup(item, activeGroupName) && isConnectionEnabled(item),
+        );
+        return inGroup?.id ?? pickEnabled(list)?.id ?? null;
       });
     } catch {
       // 非 Tauri 环境（纯前端 dev）忽略。
@@ -615,7 +627,7 @@ export function DatabasePanel() {
   const activeSqlDatabase = activeSqlTabState?.database ?? "";
 
   const connectionForSql = useMemo(() => {
-    if (!activeConn) {
+    if (!activeConn || !isConnectionEnabled(activeConn)) {
       return null;
     }
     if (!activeSqlDatabase.trim()) {
@@ -1127,6 +1139,28 @@ export function DatabasePanel() {
     [],
   );
 
+  const toggleConnectionEnabled = useCallback(
+    async (connId: string, enabled: boolean) => {
+      const connection = connections.find((c) => c.id === connId);
+      if (!connection) return;
+      try {
+        await saveConnection({ ...connection, enabled });
+        if (!enabled) {
+          updateSchemaExpanded((prev) => {
+            const next = new Set(prev);
+            next.delete(connectionNodeId(connId));
+            return next;
+          });
+          setActiveConnId((prev) => (prev === connId ? null : prev));
+        }
+        setSchemaRefreshToken((token) => token + 1);
+      } catch (err) {
+        console.error("[DatabasePanel] toggleConnectionEnabled failed", err);
+      }
+    },
+    [connections, updateSchemaExpanded],
+  );
+
   async function writeToClipboard(text: string): Promise<boolean> {
     const clip = navigator.clipboard;
     if (clip && typeof clip.writeText === "function") {
@@ -1354,9 +1388,34 @@ export function DatabasePanel() {
         <path d="M2 14h12" />
       </svg>
     );
+    const openIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M3 6l5-4 5 4" />
+        <path d="M8 2v12" />
+      </svg>
+    );
+    const closeIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M3 10l5 4 5-4" />
+        <path d="M8 14V2" />
+      </svg>
+    );
     const connId = connCtxMenu?.connId;
     const connection = connections.find((c) => c.id === connId);
+    const connEnabled = connection ? isConnectionEnabled(connection) : false;
     return [
+      {
+        id: connEnabled ? "disable-connection" : "enable-connection",
+        label: connEnabled
+          ? t("database.contextMenu.closeConnection")
+          : t("database.contextMenu.openConnection"),
+        icon: connEnabled ? closeIcon : openIcon,
+        disabled: !connection,
+        onClick: () => {
+          if (!connection) return;
+          void toggleConnectionEnabled(connection.id, !connEnabled);
+        },
+      },
       {
         id: "edit-connection",
         label: t("database.contextMenu.editConnection"),
@@ -1372,7 +1431,7 @@ export function DatabasePanel() {
         id: "create-database",
         label: t("database.contextMenu.createDatabase"),
         icon: plusIcon,
-        disabled: !connId,
+        disabled: !connId || !connEnabled,
         onClick: () => {
           if (!connId) return;
           setCreateDbDialog({ connId });
@@ -1382,14 +1441,14 @@ export function DatabasePanel() {
         id: "refresh-databases",
         label: t("database.contextMenu.refresh"),
         icon: refreshIcon,
-        disabled: !connId,
+        disabled: !connId || !connEnabled,
         onClick: () => {
           if (!connId) return;
           refreshConnDatabases(connId);
         },
       },
     ];
-  }, [connCtxMenu?.connId, connections, refreshConnDatabases, t]);
+  }, [connCtxMenu?.connId, connections, refreshConnDatabases, toggleConnectionEnabled, t]);
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {

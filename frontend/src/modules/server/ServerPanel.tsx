@@ -9,6 +9,7 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useServerGroupStore } from "../../stores/serverGroupStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import {
   ServerWorkspace,
   useServerWorkspaceTabState,
@@ -104,7 +105,7 @@ export function ServerPanel() {
 
   const handleDeleteServer = useCallback(
     async (serverId: string) => {
-      if (!window.confirm(t("server.sidebar.delete"))) return;
+      if (!(await appConfirm(t("server.sidebar.delete")))) return;
       await removeConn(serverId);
     },
     [removeConn, t],
