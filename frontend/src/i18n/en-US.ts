@@ -791,6 +791,9 @@ export const enUS: TranslationDict = {
       files: "Files",
       monitor: "System Monitor",
     },
+    monitor: {
+      loading: "Loading local system metrics…",
+    },
     actions: {
       command: "Terminal Command",
       dangerDemo: "Dangerous Command Demo",

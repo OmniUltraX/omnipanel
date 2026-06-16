@@ -96,6 +96,8 @@ interface PanelParams {
   label?: string;
   icon?: DockTabIconKind;
   tooltip?: string;
+  /** 递增以触发 panel 内容重渲染（renderPanel 通过 ref 注入，需靠 params 变更通知 dockview） */
+  contentRev?: number;
 }
 
 const COMPONENT_NAME = "dockable-content";
@@ -143,6 +145,8 @@ export function DockableWorkspace({
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
   // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
   const lastWrittenLayoutRef = useRef<SerializedDockview | null>(null);
+  /** 上一轮 effect 见到的 savedLayout prop；区分「始终 null」与「外部主动清空持久化布局」 */
+  const prevSavedLayoutPropRef = useRef<SerializedDockview | null | undefined>(undefined);
 
   // 回调 ref —— 避免 children 重渲染
   const renderPanelRef = useRef(renderPanel);
@@ -192,7 +196,24 @@ export function DockableWorkspace({
     }
   }, []);
 
-  // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId
+  const bumpPanelContentRev = useCallback((api: DockviewApi) => {
+    isSyncingRef.current = true;
+    try {
+      for (const tab of tabsRef.current) {
+        const panel = api.getPanel(tab.id);
+        if (!panel) continue;
+        const current = (panel.api.getParameters() ?? {}) as PanelParams;
+        panel.api.updateParameters({
+          ...current,
+          contentRev: (current.contentRev ?? 0) + 1,
+        });
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, []);
+
+  // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId + contentRev
   const components = useMemo(
     () => ({
       [COMPONENT_NAME]: (props: IDockviewPanelProps<PanelParams>) => (
@@ -203,6 +224,13 @@ export function DockableWorkspace({
     }),
     [],
   );
+
+  // renderPanel 变更时 bump contentRev，否则 dockview 不会重绘 panel 内容
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    bumpPanelContentRev(api);
+  }, [renderPanel, bumpPanelContentRev]);
 
   // 自定义 tab：元数据通过 panel params 同步，确保图标/标题更新能触发重渲染
   const defaultTabComponent = useCallback(
@@ -350,6 +378,7 @@ export function DockableWorkspace({
       if (acceptExternalDropsRef.current) {
         ensureExternalDropTarget(api);
       }
+      bumpPanelContentRev(api);
       return;
     }
     isSyncingRef.current = true;
@@ -389,7 +418,8 @@ export function DockableWorkspace({
     if (acceptExternalDropsRef.current) {
       ensureExternalDropTarget(api);
     }
-  }, [syncTabGroups]);
+    bumpPanelContentRev(api);
+  }, [syncTabGroups, bumpPanelContentRev]);
 
   // 同步 tab 变更（添加/删除/重命名）
   useEffect(() => {
@@ -515,8 +545,18 @@ export function DockableWorkspace({
         }
       }
     } else {
-      apiRef.current.clear();
+      // savedLayout 为 null 时：仅当外部曾传入非 null 布局再置 null 才清空。
+      // 避免 onReady 已创建默认面板后，本 effect 因 savedLayout 恒为 null 误调 clear()。
+      const prevProp = prevSavedLayoutPropRef.current;
+      if (prevProp !== undefined && prevProp !== null) {
+        try {
+          apiRef.current.clear();
+        } catch {
+          // 忽略
+        }
+      }
     }
+    prevSavedLayoutPropRef.current = savedLayout;
     lastWrittenLayoutRef.current = savedLayout;
     if (apiRef.current) {
       syncTabGroups(apiRef.current);
