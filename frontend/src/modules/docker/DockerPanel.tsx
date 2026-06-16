@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useDockerTopbarStore } from "../../stores/dockerTopbarStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
 import { ModuleSegmentDock } from "../../components/dock";
 import { useI18n } from "../../i18n";
@@ -25,8 +26,7 @@ import { DockerComposeDrawer } from "./DockerComposeDrawer";
 import { DockerFileEditor } from "./DockerFileEditor";
 import { Button } from "../../components/ui/Button";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
-import { RightSidebarWorkspace } from "../../components/ui/RightSidebarWorkspace";
-import { SubWindow } from "../../components/ui/SubWindow";
+import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
@@ -146,14 +146,23 @@ export function DockerPanel() {
     scanSshDockerHosts,
   } = docker;
 
+  const isOffline = probe?.status === "offline";
+  const partialLoadFailure =
+    !dataLoading &&
+    !dataRefreshing &&
+    !isOffline &&
+    (overview?.summary.containersTotal ?? 0) > 0 &&
+    containers.length === 0;
+
   const [filter, setFilter] = useState<ContainerFilter>("all");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [partialLoadDismissed, setPartialLoadDismissed] = useState(false);
+  const partialLoadAutoRetryRef = useRef(0);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [drawerPopout, setDrawerPopout] = useState(false);
   const [showAddConn, setShowAddConn] = useState(false);
   const [editDockerConnection, setEditDockerConnection] = useState<Connection | undefined>();
   const [statsContainer, setStatsContainer] = useState<{ id: string; name: string } | null>(null);
@@ -251,11 +260,12 @@ export function DockerPanel() {
   // 切换连接时复位抽屉/筛选等本地 UI（顶栏 Tab 与业务数据按模块/连接缓存保留）。
   useEffect(() => {
     setDrawerId(null);
-    setDrawerPopout(false);
     setFilter("all");
     setQuery("");
     setSearchInput("");
     setErrorDismissed(false);
+    setPartialLoadDismissed(false);
+    partialLoadAutoRetryRef.current = 0;
     setSelectedContainers(new Set());
     setSelectedImages(new Set());
   }, [selectedConnectionId]);
@@ -338,7 +348,6 @@ export function DockerPanel() {
           showToast(`已删除容器 ${container.name}`);
           if (drawerId === container.id) {
             setDrawerId(null);
-            setDrawerPopout(false);
           }
         } else {
           showToast(`删除失败：${res.message ?? "未知错误"}`);
@@ -421,7 +430,6 @@ export function DockerPanel() {
     });
   };
 
-  const isOffline = probe?.status === "offline";
   const isLocalEngine = selectedConnection?.source === "local-engine";
   const showLocalEngineWelcome =
     isLocalEngine &&
@@ -459,6 +467,44 @@ export function DockerPanel() {
     () => workspaceTopbarTabs.map(({ id, label }) => ({ id, label })),
     [workspaceTopbarTabs],
   );
+  
+  useEffect(() => {
+    const setRefresh = useDockerTopbarStore.getState().setRefresh;
+    const canRefresh =
+      isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
+    if (!canRefresh) {
+      setRefresh(null, false);
+      return;
+    }
+    setRefresh(refresh, dataRefreshing);
+    return () => setRefresh(null, false);
+  }, [
+    isActiveRoute,
+    connectionsLoading,
+    connections.length,
+    selectedConnectionId,
+    refresh,
+    dataRefreshing,
+  ]);
+
+  useEffect(() => {
+    const setRefresh = useDockerTopbarStore.getState().setRefresh;
+    const canRefresh =
+      isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
+    if (!canRefresh) {
+      setRefresh(null, false);
+      return;
+    }
+    setRefresh(refresh, dataRefreshing);
+    return () => setRefresh(null, false);
+  }, [
+    isActiveRoute,
+    connectionsLoading,
+    connections.length,
+    selectedConnectionId,
+    refresh,
+    dataRefreshing,
+  ]);
 
   useEffect(() => {
     const setHint = useStatusBarStore.getState().setHint;
@@ -469,6 +515,23 @@ export function DockerPanel() {
     }
     return () => setHint(null);
   }, [isActiveRoute, dataRefreshing, t]);
+
+  // 概览统计已到位但列表未齐时自动重试，避免 SSH 串行加载中途被取消后一直卡住。
+  useEffect(() => {
+    if (!isActiveRoute || !partialLoadFailure || dataLoading || dataRefreshing) return;
+    if (partialLoadAutoRetryRef.current >= 2) return;
+    const timer = window.setTimeout(() => {
+      partialLoadAutoRetryRef.current += 1;
+      refresh();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [isActiveRoute, partialLoadFailure, dataLoading, dataRefreshing, refresh]);
+
+  useEffect(() => {
+    if (!partialLoadFailure) {
+      partialLoadAutoRetryRef.current = 0;
+    }
+  }, [partialLoadFailure]);
 
   const toggleContainerSelect = (id: string) => {
     setSelectedContainers((prev) => {
@@ -552,55 +615,6 @@ export function DockerPanel() {
         onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
         enabled={isActiveRoute}
         renderPanel={(tabId) => (
-      <RightSidebarWorkspace
-        sidebar={
-          drawerId && !drawerPopout ? (
-            <div className="drawer">
-              <ContainerDrawerBody
-                connectionId={selectedConnectionId}
-                containerId={drawerId}
-                canExec={probe?.capabilities?.canContainerExec ?? false}
-                canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
-                hostLabel={selectedConnection?.hostLabel ?? null}
-                sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
-                detail={drawerDetail}
-                loading={drawerLoading}
-                drawerTab={drawerTab}
-                onTabChange={setDrawerTab}
-                onAction={runContainerAction}
-                onRemove={confirmContainerRemove}
-                onNavigate={navigate}
-                onSendToAi={(detail) => {
-                  const s = detail.summary;
-                  const ports = s.ports.length
-                    ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
-                    : "无";
-                  const context = [
-                    `请帮我分析以下 Docker 容器的运行情况：`,
-                    `- 名称：${s.name}`,
-                    `- 镜像：${s.image}`,
-                    `- 状态：${s.state}（${s.statusText}）`,
-                    detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
-                    detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
-                    `- 端口：${ports}`,
-                    `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
-                  ]
-                    .filter(Boolean)
-                    .join("\n");
-                  setAiDraft(context);
-                  openAiDrawer();
-                  recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
-                }}
-                onPopout={() => setDrawerPopout(true)}
-                onClose={() => {
-                  setDrawerId(null);
-                  setDrawerPopout(false);
-                }}
-              />
-            </div>
-          ) : null
-        }
-      >
         <SidebarWorkspace
           preset="server"
           sidebar={
@@ -658,6 +672,29 @@ export function DockerPanel() {
                 <IconAlertTriangle size={16} className="docker-error-icon" />
                 <span className="docker-error-text">{error}</span>
                 <button className="docker-error-dismiss" onClick={() => setErrorDismissed(true)}>×</button>
+              </div>
+            )}
+
+            {partialLoadFailure && !partialLoadDismissed && (
+              <div className="docker-floating-notice" role="status">
+                <IconAlertTriangle size={16} className="docker-error-icon" />
+                <span className="docker-floating-notice-text">部分数据仍在加载，可点击顶栏刷新重试</span>
+                <button
+                  type="button"
+                  className="docker-floating-notice-action"
+                  disabled={dataRefreshing}
+                  onClick={() => refresh()}
+                >
+                  {dataRefreshing ? t("docker.overview.refreshing") : t("common.refresh")}
+                </button>
+                <button
+                  type="button"
+                  className="docker-floating-notice-dismiss"
+                  aria-label={t("common.cancel")}
+                  onClick={() => setPartialLoadDismissed(true)}
+                >
+                  ×
+                </button>
               </div>
             )}
 
@@ -753,7 +790,9 @@ export function DockerPanel() {
                   </div>
                   {filteredContainers.length === 0 ? (
                     <div className="docker-empty" style={{ minHeight: 120 }}>
-                      {dataLoading && containers.length === 0 ? "加载中…" : (
+                      {dataLoading && containers.length === 0 ? "加载中…" : partialLoadFailure ? (
+                        <div className="text-muted text-sm">容器列表加载未完成，请点击顶栏刷新按钮重试。</div>
+                      ) : (
                         <ModuleEmptyState
                           preset="container"
                           title="暂无容器"
@@ -1123,58 +1162,58 @@ export function DockerPanel() {
           </div>
         </div>
         </SidebarWorkspace>
-      </RightSidebarWorkspace>
         )}
       />
 
-      <SubWindow
-        open={Boolean(drawerId) && drawerPopout}
-        onClose={() => setDrawerPopout(false)}
-        title={t("docker.drawer.popoutTitle", {
+      <DetailPanelShell
+        open={Boolean(drawerId)}
+        onClose={() => setDrawerId(null)}
+        ariaLabel={t("docker.drawer.containerDetail")}
+        floatingTitle={t("docker.drawer.popoutTitle", {
           name: drawerDetail?.summary.name ?? "…",
         })}
+        variant="drawer"
         widthRatio={0.7}
         heightRatio={0.85}
       >
-        <div className="drawer">
-          <ContainerDrawerBody
-            connectionId={selectedConnectionId}
-            containerId={drawerId}
-            canExec={probe?.capabilities?.canContainerExec ?? false}
-            canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
-            hostLabel={selectedConnection?.hostLabel ?? null}
-            sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
-            detail={drawerDetail}
-            loading={drawerLoading}
-            drawerTab={drawerTab}
-            onTabChange={setDrawerTab}
-            onAction={runContainerAction}
-            onRemove={confirmContainerRemove}
-            onNavigate={navigate}
-            onSendToAi={(detail) => {
-              const s = detail.summary;
-              const ports = s.ports.length
-                ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
-                : "无";
-              const context = [
-                `请帮我分析以下 Docker 容器的运行情况：`,
-                `- 名称：${s.name}`,
-                `- 镜像：${s.image}`,
-                `- 状态：${s.state}（${s.statusText}）`,
-                detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
-                detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
-                `- 端口：${ports}`,
-                `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
-              ]
-                .filter(Boolean)
-                .join("\n");
-              setAiDraft(context);
-              openAiDrawer();
-              recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
-            }}
-          />
-        </div>
-      </SubWindow>
+        <ContainerDrawerBody
+          connectionId={selectedConnectionId}
+          containerId={drawerId}
+          canExec={probe?.capabilities?.canContainerExec ?? false}
+          canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
+          hostLabel={selectedConnection?.hostLabel ?? null}
+          sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
+          detail={drawerDetail}
+          loading={drawerLoading}
+          drawerTab={drawerTab}
+          onTabChange={setDrawerTab}
+          onAction={runContainerAction}
+          onRemove={confirmContainerRemove}
+          onNavigate={navigate}
+          onSendToAi={(detail) => {
+            const s = detail.summary;
+            const ports = s.ports.length
+              ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
+              : "无";
+            const context = [
+              `请帮我分析以下 Docker 容器的运行情况：`,
+              `- 名称：${s.name}`,
+              `- 镜像：${s.image}`,
+              `- 状态：${s.state}（${s.statusText}）`,
+              detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
+              detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
+              `- 端口：${ports}`,
+              `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
+            ]
+              .filter(Boolean)
+              .join("\n");
+            setAiDraft(context);
+            openAiDrawer();
+            recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
+          }}
+          onClose={() => setDrawerId(null)}
+        />
+      </DetailPanelShell>
 
       <DockerImageDrawer
         imageId={imageDrawerId}
@@ -1278,22 +1317,23 @@ export function DockerPanel() {
       />
 
       {statsContainer && (
-        <>
-          <div className="drawer-overlay show" onClick={() => setStatsContainer(null)} />
-          <aside
-            className="docker-drawer docker-stats-drawer show"
-            role="dialog"
-            aria-label="资源监控"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <DockerStatsPanel
-              connectionId={selectedConnectionId}
-              containerId={statsContainer.id}
-              containerName={statsContainer.name}
-              onClose={() => setStatsContainer(null)}
-            />
-          </aside>
-        </>
+        <DetailPanelShell
+          open
+          onClose={() => setStatsContainer(null)}
+          ariaLabel="资源监控"
+          floatingTitle={`资源监控 — ${statsContainer.name}`}
+          variant="drawer"
+          drawerClassName="docker-stats-drawer"
+          widthRatio={0.45}
+          heightRatio={0.7}
+        >
+          <DockerStatsPanel
+            connectionId={selectedConnectionId}
+            containerId={statsContainer.id}
+            containerName={statsContainer.name}
+            onClose={() => setStatsContainer(null)}
+          />
+        </DetailPanelShell>
       )}
 
       {toast && <div className="docker-toast">{toast}</div>}
@@ -1323,9 +1363,6 @@ interface ContainerDrawerBodyProps {
   onRemove: (c: DockerContainerSummary) => void;
   onNavigate: (path: string) => void;
   onSendToAi: (detail: DockerContainerDetail) => void;
-  /** 头部右上角"窗口化"按钮：未传则不渲染 */
-  onPopout?: () => void;
-  /** 头部右上角"关闭"按钮；未传则不渲染 */
   onClose?: () => void;
 }
 
@@ -1346,10 +1383,24 @@ function ContainerDrawerBody({
   onRemove,
   onNavigate,
   onSendToAi,
-  onPopout,
   onClose,
 }: ContainerDrawerBodyProps) {
-  const { t } = useI18n();
+  const [terminalReady, setTerminalReady] = useState(false);
+
+  useEffect(() => {
+    if (drawerTab === "terminal") {
+      setTerminalReady(true);
+    }
+  }, [drawerTab]);
+
+  useEffect(() => {
+    setTerminalReady(false);
+  }, [containerId]);
+
+  const canShowTerminal = Boolean(
+    !loading && detail?.summary.running && canExec && connectionId && containerId,
+  );
+
   return (
     <>
       <div className="drawer-header">
@@ -1363,19 +1414,7 @@ function ContainerDrawerBody({
           </span>
         )}
         <div className="drawer-header-actions">
-          {onPopout ? (
-            <Button
-              variant="icon"
-              onClick={onPopout}
-              title={t("docker.drawer.popout")}
-              aria-label={t("docker.drawer.popout")}
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-                <rect x="2" y="2" width="9" height="9" rx="1" />
-                <path d="M5 11v2.5A1.5 1.5 0 0 0 6.5 15H12a1 1 0 0 0 1-1V8.5A1.5 1.5 0 0 0 11.5 7H11" />
-              </svg>
-            </Button>
-          ) : null}
+          <DetailPanelModeToggle />
           {onClose ? (
             <Button variant="icon" onClick={onClose} title="关闭" aria-label="关闭">
               <CloseIcon size={16} />
@@ -1502,10 +1541,14 @@ function ContainerDrawerBody({
           <LogsView connectionId={connectionId} containerId={containerId} />
         )}
 
-        {!loading && detail && drawerTab === "terminal" && connectionId && containerId && (
-          <div className="drawer-section">
+        {canShowTerminal && terminalReady && (
+          <div className="drawer-section docker-exec-drawer-section" hidden={drawerTab !== "terminal"}>
             <h4>容器终端</h4>
-            <DockerExecTerminal connectionId={connectionId} containerId={containerId} />
+            <DockerExecTerminal
+              connectionId={connectionId!}
+              containerId={containerId!}
+              visible={drawerTab === "terminal"}
+            />
           </div>
         )}
 

@@ -312,6 +312,10 @@ export const zhCN = {
     newConnection: "新建连接",
     addHost: "添加主机",
   },
+    detailPanel: {
+      modeDrawer: "切换为右侧抽屉",
+      modeFloating: "切换为浮动窗口",
+    },
     statusbar: {
       resourcesOnline: "{count} 个资源在线",
       current: "当前：{name}",
@@ -1113,6 +1117,7 @@ export const zhCN = {
       pruneConfirm: "生成清理确认",
     },
     drawer: {
+      containerDetail: "容器详情",
       popout: "在窗口中打开",
       popoutTitle: "容器 — {name}",
       close: "关闭侧栏",
@@ -1454,6 +1459,12 @@ export const zhCN = {
       desc: "选择 AI 助手面板的弹出方式",
       subwindow: "居中弹窗",
       dockview: "右侧停靠面板",
+    },
+    detailPanel: {
+      label: "详情面板默认形态",
+      desc: "容器、镜像、SSH 进程等详情页的默认打开方式，可在详情页内随时切换",
+      drawer: "右侧抽屉",
+      floating: "浮动窗口",
     },
     aiOther: {
       title: "其他",

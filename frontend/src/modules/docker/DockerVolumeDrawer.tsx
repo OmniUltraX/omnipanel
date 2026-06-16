@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import type { DockerVolumeDetail } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
 import type { DockerActionResult } from "./useDockerWorkspace";
@@ -65,8 +66,7 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
 
   return (
     <>
-      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
-      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="卷详情" aria-hidden={!open}>
+      <DetailPanelShell open={open} onClose={onClose} ariaLabel="卷详情" floatingTitle={name ?? "卷"}>
         {open && name && (
           <>
         <header className="docker-drawer-header">
@@ -74,7 +74,10 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
             <div className="docker-drawer-eyebrow">卷</div>
             <h2 title={name}>{name}</h2>
           </div>
-          <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          <div className="docker-drawer-header-actions">
+            <DetailPanelModeToggle />
+            <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          </div>
         </header>
         <div className="docker-drawer-body">
           {loading && <div className="docker-empty">加载中…</div>}
@@ -141,7 +144,7 @@ export function DockerVolumeDrawer({ name, onClose, inspectVolume, onRemove }: D
         </footer>
           </>
         )}
-      </aside>
+      </DetailPanelShell>
       {confirm && (
         <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />
       )}

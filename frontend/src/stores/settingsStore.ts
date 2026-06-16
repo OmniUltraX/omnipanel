@@ -58,6 +58,9 @@ export const DEFAULT_PROXY: ProxyConfig = {
 
 export type AiDisplayMode = "subwindow" | "dockview";
 
+/** 详情面板呈现方式：右侧滑入抽屉 / 居中浮动窗口 */
+export type DetailPanelMode = "drawer" | "floating";
+
 export type TerminalCursorStyle = "block" | "bar" | "underline";
 
 export const AI_DOCK_WIDTH_MIN = 300;
@@ -72,6 +75,7 @@ interface SettingsState {
   proxy: ProxyConfig;
   aiDisplayMode: AiDisplayMode;
   aiDockWidth: number;
+  detailPanelMode: DetailPanelMode;
   terminalFontFamily: string;
   terminalFontSize: number;
   terminalLineHeight: number;
@@ -89,6 +93,7 @@ interface SettingsState {
   setProxy: (proxy: ProxyConfig) => void;
   setAiDisplayMode: (mode: AiDisplayMode) => void;
   setAiDockWidth: (width: number) => void;
+  setDetailPanelMode: (mode: DetailPanelMode) => void;
   setTerminalSettings: (patch: Partial<Pick<SettingsState,
     "terminalFontFamily" | "terminalFontSize" | "terminalLineHeight" |
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
@@ -152,6 +157,7 @@ export const useSettingsStore = create<SettingsState>()(
       proxy: { ...DEFAULT_PROXY },
       aiDisplayMode: "subwindow",
       aiDockWidth: AI_DOCK_WIDTH_DEFAULT,
+      detailPanelMode: "drawer",
       terminalFontFamily: "Cascadia Code",
       terminalFontSize: 13,
       terminalLineHeight: 1.6,
@@ -182,6 +188,7 @@ export const useSettingsStore = create<SettingsState>()(
       setProxy: (proxy) => set({ proxy }),
       setAiDisplayMode: (aiDisplayMode) => set({ aiDisplayMode }),
       setAiDockWidth: (aiDockWidth) => set({ aiDockWidth }),
+      setDetailPanelMode: (detailPanelMode) => set({ detailPanelMode }),
       setTerminalSettings: (patch) => set(patch),
     }),
     {
@@ -196,6 +203,7 @@ export const useSettingsStore = create<SettingsState>()(
         proxy: state.proxy,
         aiDisplayMode: state.aiDisplayMode,
         aiDockWidth: state.aiDockWidth,
+        detailPanelMode: state.detailPanelMode,
         terminalFontFamily: state.terminalFontFamily,
         terminalFontSize: state.terminalFontSize,
         terminalLineHeight: state.terminalLineHeight,
