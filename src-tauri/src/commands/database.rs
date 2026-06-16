@@ -280,12 +280,7 @@ fn validate_database_name(name: &str) -> Result<String, String> {
             return Err("数据库名仅允许字母、数字、下划线和 $".to_string());
         }
     }
-    const RESERVED: &[&str] = &[
-        "information_schema",
-        "performance_schema",
-        "mysql",
-        "sys",
-    ];
+    const RESERVED: &[&str] = &["information_schema", "performance_schema", "mysql", "sys"];
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(trimmed)) {
         return Err(format!("`{trimmed}` 是系统保留库名，请使用其他名称"));
     }
@@ -302,7 +297,12 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
             // MySQL 标识符允许反引号转义；这里手工拼接以兼容老驱动，
             // 先用反斜杠转义（实际为重复反引号），防止简单的 SQL 注入。
             let escaped_name = name.replace('`', "``");
-            let charset_clause = match args.charset.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let charset_clause = match args
+                .charset
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 Some(cs) => {
                     let escaped_cs = cs.replace('`', "``");
                     format!(" CHARACTER SET `{escaped_cs}`")
@@ -321,9 +321,7 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 }
                 None => String::new(),
             };
-            let sql = format!(
-                "CREATE DATABASE `{escaped_name}`{charset_clause}{collation_clause}"
-            );
+            let sql = format!("CREATE DATABASE `{escaped_name}`{charset_clause}{collation_clause}");
             sqlx::query(&sql)
                 .execute(&pool)
                 .await

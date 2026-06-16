@@ -68,8 +68,12 @@ export function Topbar({ title, children, hidden = false }: TopbarProps) {
     }
   };
 
+  if (hidden) {
+    return null;
+  }
+
   return (
-    <div className={`topbar${hidden ? " topbar--hidden" : ""}`} onDoubleClick={handleDoubleClick}>
+    <div className="topbar" onDoubleClick={handleDoubleClick}>
       <span className="topbar-title" data-tauri-drag-region>
         {title}
       </span>

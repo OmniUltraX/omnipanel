@@ -11,8 +11,8 @@ use crate::protocol::serial::SerialSession;
 use crate::protocol::sniffer::SnifferSession;
 use crate::protocol::ws::WsSession;
 use omnipanel_core::terminal::Terminal;
-use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_docker::DockerExecSession;
+use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{DatabaseConnectionStore, Storage};
 
@@ -38,6 +38,7 @@ use crate::output_buffer::{self, OutputBuffers};
 pub struct DockerExecSessionEntry {
     pub session: DockerExecSession,
     pub connection_id: String,
+    pub container_id: String,
 }
 
 pub struct AppState {

@@ -54,96 +54,97 @@ export const commands = {
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
 	/**
-	 *  列出全部 Docker 连接：内建本地 Engine + 已保存的 docker 类型连接。
-	 *  不在此处做连通性探测（避免逐一连接远端阻塞），状态由 `docker_probe_connection` 按需更新。
+	 *  ???? Docker ??????? Engine + ???? docker ?????
+	 *  ?????????????????????????? `docker_probe_connection` ?????
 	 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
-	/**  探测连接连通性与能力。 */
+	/**  ??????????? */
 	dockerProbeConnection: (connectionId: string) => typedError<DockerProbe, OmniError_Serialize>(__TAURI_INVOKE("docker_probe_connection", { connectionId })),
-	/**  本地 Docker Engine 安装与运行状态（仅本机）。 */
+	dockerResetSshSession: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_reset_ssh_session", { connectionId })),
+	/**  ?? Docker Engine ????????????? */
 	dockerGetLocalEngineStatus: () => typedError<DockerLocalEngineStatus, OmniError_Serialize>(__TAURI_INVOKE("docker_get_local_engine_status")),
-	/**  一键启动本地 Docker Desktop（已安装但未运行时）。 */
+	/**  ?????? Docker Desktop??????????? */
 	dockerStartLocalEngine: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_start_local_engine")),
-	/**  连接总览统计。 */
+	/**  ??????? */
 	dockerGetOverview: (connectionId: string) => typedError<DockerOverview, OmniError_Serialize>(__TAURI_INVOKE("docker_get_overview", { connectionId })),
-	/**  `docker system df` 磁盘占用汇总。 */
+	/**  `docker system df` ??????? */
 	dockerGetSystemDiskUsage: (connectionId: string) => typedError<DockerSystemDiskUsage, OmniError_Serialize>(__TAURI_INVOKE("docker_get_system_disk_usage", { connectionId })),
-	/**  容器列表。`filter` 取 all/running/stopped。 */
+	/**  ?????`filter` ? all/running/stopped? */
 	dockerListContainers: (connectionId: string, filter: string | null) => typedError<DockerContainerSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_containers", { connectionId, filter })),
-	/**  容器详情。 */
+	/**  ????? */
 	dockerInspectContainer: (connectionId: string, containerId: string) => typedError<DockerContainerDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_container", { connectionId, containerId })),
 	/**
-	 *  容器生命周期动作：start/stop/restart/kill/pause/unpause/remove。
-	 *  高风险动作（kill/remove）应在前端完成二次确认后再调用。
+	 *  ?????????start/stop/restart/kill/pause/unpause/remove?
+	 *  ??????kill/remove????????????????
 	 */
 	dockerContainerAction: (connectionId: string, containerId: string, action: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_container_action", { connectionId, containerId, action })),
-	/**  一次性拉取容器日志（tail 行）。流式跟随用 `docker_stream_container_logs`。 */
+	/**  ??????????tail ???????? `docker_stream_container_logs`? */
 	dockerContainerLogs: (connectionId: string, containerId: string, tail: number) => typedError<DockerLogLine[], OmniError_Serialize>(__TAURI_INVOKE("docker_container_logs", { connectionId, containerId, tail })),
 	/**
-	 *  开始流式跟随容器日志。返回 streamId；日志行通过 `docker-log` 事件回传，
-	 *  结束/出错通过 `docker-log-end` 事件通知。本地 Engine 支持真正 follow；
-	 *  SSH Engine 当前为一次性 tail（follow 后续增强）。
+	 *  ????????????? streamId?????? `docker-log` ?????
+	 *  ??/???? `docker-log-end` ??????? Engine ???? follow?
+	 *  SSH Engine ?????? tail?follow ??????
 	 */
 	dockerStreamContainerLogs: (connectionId: string, containerId: string, tail: number, follow: boolean) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_container_logs", { connectionId, containerId, tail, follow })),
-	/**  停止一个日志流。 */
+	/**  ???????? */
 	dockerStopLogStream: (streamId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_stop_log_stream", { streamId })),
-	/**  镜像列表。 */
+	/**  ????? */
 	dockerListImages: (connectionId: string) => typedError<DockerImageSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_images", { connectionId })),
-	/**  删除镜像（高风险，前端需确认）。 */
+	/**  ???????????????? */
 	dockerRemoveImage: (connectionId: string, imageId: string, force: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_image", { connectionId, imageId, force })),
-	/**  清理悬空镜像（高风险，前端需确认）。 */
+	/**  ?????????????????? */
 	dockerPruneImages: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_images", { connectionId })),
-	/**  清理构建缓存（高风险，前端需确认）。 */
+	/**  ?????????????????? */
 	dockerPruneBuildCache: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_build_cache", { connectionId })),
-	/**  镜像详情（`docker inspect`）。 */
+	/**  ?????`docker inspect`?? */
 	dockerInspectImage: (connectionId: string, imageId: string) => typedError<DockerImageDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_image", { connectionId, imageId })),
-	/**  镜像历史层（`docker history`）。 */
+	/**  ??????`docker history`?? */
 	dockerImageHistory: (connectionId: string, imageId: string) => typedError<DockerImageHistoryLayer[], OmniError_Serialize>(__TAURI_INVOKE("docker_image_history", { connectionId, imageId })),
 	/**
-	 *  创建容器交互终端会话（仅本地 Engine）。返回 sessionId；
-	 *  终端输出复用 `terminal-output` 事件，前端可直接用 xterm 绑定该 sessionId。
+	 *  Create container interactive terminal session. Returns sessionId;
+	 *  output is emitted via `terminal-output` events for xterm binding.
 	 */
 	dockerCreateExecSession: (connectionId: string, containerId: string, shell: string | null, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_exec_session", { connectionId, containerId, shell, cols, rows })),
-	/**  写入容器终端 stdin。 */
+	/**  ?????? stdin? */
 	dockerExecWrite: (sessionId: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_write", { sessionId, data })),
-	/**  调整容器终端尺寸。 */
+	/**  ????????? */
 	dockerExecResize: (sessionId: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_resize", { sessionId, cols, rows })),
-	/**  关闭容器终端会话（丢弃 stdin 写端即关闭）。 */
+	/**  ??????????? stdin ??????? */
 	dockerExecClose: (sessionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_close", { sessionId })),
-	/**  识别 Compose 项目（按容器标签聚合）。 */
+	/**  ?? Compose ???????????? */
 	dockerListComposeProjects: (connectionId: string) => typedError<DockerComposeProject[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_compose_projects", { connectionId })),
-	/**  Compose 生命周期（up/down/restart/pull/logs）。 */
+	/**  Compose ?????up/down/restart/pull/logs?? */
 	dockerComposeAction: (connectionId: string, action: DockerComposeAction, request: DockerComposeRequest) => typedError<DockerComposeResult, OmniError_Serialize>(__TAURI_INVOKE("docker_compose_action", { connectionId, action, request })),
 	dockerListNetworks: (connectionId: string) => typedError<DockerNetworkSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_networks", { connectionId })),
 	dockerCreateNetwork: (connectionId: string, request: DockerCreateNetworkRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_network", { connectionId, request })),
 	dockerRemoveNetwork: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_network", { connectionId, name })),
-	/**  网络详情（`docker network inspect`）。 */
+	/**  ?????`docker network inspect`?? */
 	dockerInspectNetwork: (connectionId: string, name: string) => typedError<DockerNetworkDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_network", { connectionId, name })),
 	dockerConnectNetwork: (connectionId: string, network: string, containerId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_connect_network", { connectionId, network, containerId })),
 	dockerDisconnectNetwork: (connectionId: string, network: string, containerId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_disconnect_network", { connectionId, network, containerId })),
 	dockerListVolumes: (connectionId: string) => typedError<DockerVolumeSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_volumes", { connectionId })),
 	dockerCreateVolume: (connectionId: string, request: DockerCreateVolumeRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_volume", { connectionId, request })),
 	dockerRemoveVolume: (connectionId: string, name: string, force: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_volume", { connectionId, name, force })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  ????`docker volume inspect`?? */
 	dockerInspectVolume: (connectionId: string, name: string) => typedError<DockerVolumeDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_volume", { connectionId, name })),
 	dockerPruneVolumes: (connectionId: string) => typedError<DockerPruneVolumesResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_volumes", { connectionId })),
 	dockerListContainerDir: (connectionId: string, containerId: string, path: string) => typedError<DockerFileEntry[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_container_dir", { connectionId, containerId, path })),
 	dockerReadContainerFile: (connectionId: string, containerId: string, path: string, maxBytes: number) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("docker_read_container_file", { connectionId, containerId, path, maxBytes })),
 	dockerWriteContainerFile: (connectionId: string, containerId: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_container_file", { connectionId, containerId, path, data })),
-	/**  拉取镜像。进度通过 `docker_image_progress` 事件向指定 `progress_channel` 投递。 */
+	/**  ????????? `docker_image_progress` ????? `progress_channel` ??? */
 	dockerPullImage: (connectionId: string, image: string, progressChannel: string) => typedError<DockerPullResult, OmniError_Serialize>(__TAURI_INVOKE("docker_pull_image", { connectionId, image, progressChannel })),
-	/**  推送镜像。进度通过 `docker_image_progress` 事件向指定 `progress_channel` 投递。 */
+	/**  ????????? `docker_image_progress` ????? `progress_channel` ??? */
 	dockerPushImage: (connectionId: string, image: string, progressChannel: string) => typedError<DockerPullResult, OmniError_Serialize>(__TAURI_INVOKE("docker_push_image", { connectionId, image, progressChannel })),
-	/**  给本地或远端镜像打 tag。 */
+	/**  ????????? tag? */
 	dockerTagImage: (connectionId: string, source: string, target: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_tag_image", { connectionId, source, target })),
-	/**  构建镜像（Dockerfile）。进度通过 `progress_channel` 事件上报。 */
+	/**  ?????Dockerfile?????? `progress_channel` ????? */
 	dockerBuildImage: (connectionId: string, context: DockerBuildContext, progressChannel: string) => typedError<DockerBuildResult, OmniError_Serialize>(__TAURI_INVOKE("docker_build_image", { connectionId, context, progressChannel })),
 	/**
-	 *  启动容器 stats 实时流。返回 streamId；每次统计通过 `docker-stats` 事件回传，
-	 *  结束/出错通过 `docker-stats-end` 事件通知。
+	 *  ???? stats ?????? streamId??????? `docker-stats` ?????
+	 *  ??/???? `docker-stats-end` ?????
 	 */
 	dockerStreamStats: (connectionId: string, containerId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_stats", { connectionId, containerId })),
-	/**  停止一个 stats 流。 */
+	/**  ???? stats ?? */
 	dockerStopStatsStream: (streamId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_stop_stats_stream", { streamId })),
 	/**
 	 *  Probe a remote SSH host for Docker daemon availability.
@@ -155,9 +156,9 @@ export const commands = {
 	 *  Returns connections that are in "connected" state in the SSH pool.
 	 */
 	dockerListSshHosts: () => typedError<SshHostInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_ssh_hosts")),
-	/**  扫描全部已配置 SSH 连接中的 Docker 服务，并按需自动保存为 Docker 连接。 */
+	/**  ??????? SSH ???? Docker ??????????? Docker ??? */
 	dockerScanSshDockerHosts: (autoSave: boolean) => typedError<DockerScanResult, OmniError_Serialize>(__TAURI_INVOKE("docker_scan_ssh_docker_hosts", { autoSave })),
-	/**  创建容器。返回新容器 ID。 */
+	/**  ?????????? ID? */
 	dockerCreateContainer: (connectionId: string, request: DockerCreateContainerRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_container", { connectionId, request })),
 	dockerSwarmInit: (connectionId: string, listenAddr: string | null, advertiseAddr: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_swarm_init", { connectionId, listenAddr, advertiseAddr })),
 	dockerSwarmJoin: (connectionId: string, remoteAddrs: string[], token: string, listenAddr: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_swarm_join", { connectionId, remoteAddrs, token, listenAddr })),
@@ -931,7 +932,7 @@ export type DockerResourceSummary = {
 	images: number,
 };
 
-/**  单台 SSH 主机 Docker 扫描条目。 */
+/**  ?? SSH ?? Docker ????? */
 export type DockerScanItemResult = {
 	sshConnectionId: string,
 	sshName: string,
@@ -943,7 +944,7 @@ export type DockerScanItemResult = {
 	error: string | null,
 };
 
-/**  批量扫描已配置 SSH 中的 Docker 服务汇总。 */
+/**  ??????? SSH ?? Docker ????? */
 export type DockerScanResult = {
 	scanned: number,
 	created: number,

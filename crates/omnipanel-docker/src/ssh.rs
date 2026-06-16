@@ -199,13 +199,7 @@ impl DockerAdapter for SshDockerAdapter {
         token: &str,
         listen_addr: Option<&str>,
     ) -> OmniResult<()> {
-        swarm_join(
-            &*self.session,
-            remote_addrs,
-            token,
-            listen_addr,
-        )
-        .await
+        swarm_join(&*self.session, remote_addrs, token, listen_addr).await
     }
     async fn swarm_leave(&self, force: bool) -> OmniResult<()> {
         swarm_leave(&*self.session, force).await
@@ -460,13 +454,41 @@ pub async fn create_exec(
     cols: u16,
     rows: u16,
 ) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
-    let cmd = format!(
-        "docker exec -i {} {}",
+    let cmd_interactive = format!(
+        "docker exec -it {} {}",
         shell_quote(container_id),
         shell_quote(shell)
     );
+    match create_exec_with_cmd(session, &cmd_interactive, cols, rows).await {
+        Ok(pair) => Ok(pair),
+        Err(err) if is_docker_exec_tty_error(&err) => {
+            let cmd_stdin = format!(
+                "docker exec -i {} {}",
+                shell_quote(container_id),
+                shell_quote(shell)
+            );
+            create_exec_with_cmd(session, &cmd_stdin, cols, rows).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn is_docker_exec_tty_error(err: &OmniError) -> bool {
+    let msg = format!("{}{}", err.message, err.cause.as_deref().unwrap_or(""));
+    msg.contains("not a TTY")
+        || msg.contains("input device is not a TTY")
+        || msg.contains("cannot enable tty mode")
+        || msg.contains("the TTY")
+}
+
+async fn create_exec_with_cmd(
+    session: &SshSession,
+    cmd: &str,
+    cols: u16,
+    rows: u16,
+) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
     let (tx, rx) = mpsc::unbounded_channel::<StreamChunk>();
-    let pty: SshPtySession = session.exec_pty(&cmd, cols, rows, tx).await?;
+    let pty: SshPtySession = session.exec_pty(cmd, cols, rows, tx).await?;
     let output: DockerExecOutput = Box::pin(rx_to_output_stream(rx));
     Ok((DockerExecSession::Ssh(pty), output))
 }

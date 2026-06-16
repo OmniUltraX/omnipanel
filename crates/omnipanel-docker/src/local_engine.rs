@@ -5,9 +5,9 @@ use std::process::{Command, Stdio};
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 
+use crate::DockerAdapter;
 use crate::local::LocalDockerAdapter;
 use crate::model::{DockerConnectionStatus, DockerLocalEngineStatus};
-use crate::DockerAdapter;
 
 fn path_exists(path: &Path) -> bool {
     path.exists()
@@ -47,9 +47,7 @@ fn docker_desktop_exe() -> Option<PathBuf> {
         candidates.push(PathBuf::from(p).join("Docker/Docker/Docker Desktop.exe"));
     }
     if let Ok(p) = std::env::var("LOCALAPPDATA") {
-        candidates.push(
-            PathBuf::from(p).join("Programs/Docker/Docker/Docker Desktop.exe"),
-        );
+        candidates.push(PathBuf::from(p).join("Programs/Docker/Docker/Docker Desktop.exe"));
     }
     candidates.into_iter().find(|p| path_exists(p))
 }

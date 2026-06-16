@@ -1182,6 +1182,11 @@
     --shell-dv-tab-bar-h: var(--topbar-h);
 }
 
+/* 须在 @layer 外，避免 Tailwind layer 级联导致 hidden 顶栏仍可见 */
+.topbar.topbar--hidden {
+    display: none !important;
+}
+
 .workspace {
     grid-column: 2;
     grid-row: 1;
@@ -13012,7 +13017,8 @@
         overflow: hidden;
     }
 
-    .docker-exec-drawer-section[hidden] {
+    .docker-exec-drawer-section[hidden],
+    .docker-drawer-tab-panel[hidden] {
         display: none !important;
     }
 

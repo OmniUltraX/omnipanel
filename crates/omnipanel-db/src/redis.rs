@@ -120,10 +120,8 @@ impl DbDriver for RedisDriver {
             }
             "list" => {
                 let stop = (limit.max(1) - 1).try_into().unwrap_or(isize::MAX);
-                let values: Vec<String> = conn
-                    .lrange(table, 0, stop)
-                    .await
-                    .map_err(map_redis_err)?;
+                let values: Vec<String> =
+                    conn.lrange(table, 0, stop).await.map_err(map_redis_err)?;
                 Ok(QueryResult {
                     columns: vec!["index".to_string(), "value".to_string()],
                     rows: values
@@ -138,10 +136,7 @@ impl DbDriver for RedisDriver {
                 let values: Vec<String> = conn.smembers(table).await.map_err(map_redis_err)?;
                 Ok(QueryResult {
                     columns: vec!["member".to_string()],
-                    rows: values
-                        .into_iter()
-                        .map(|v| vec![Value::String(v)])
-                        .collect(),
+                    rows: values.into_iter().map(|v| vec![Value::String(v)]).collect(),
                     rows_affected: 0,
                 })
             }
@@ -160,10 +155,8 @@ impl DbDriver for RedisDriver {
                 })
             }
             "hash" => {
-                let fields: Vec<(String, String)> = conn
-                    .hgetall(table)
-                    .await
-                    .map_err(map_redis_err)?;
+                let fields: Vec<(String, String)> =
+                    conn.hgetall(table).await.map_err(map_redis_err)?;
                 Ok(QueryResult {
                     columns: vec!["field".to_string(), "value".to_string()],
                     rows: fields
@@ -289,7 +282,9 @@ fn to_query_result(value: redis::Value, command_name: String) -> OmniResult<Quer
         }),
         redis::Value::BulkString(bytes) => Ok(QueryResult {
             columns: vec!["result".to_string()],
-            rows: vec![vec![Value::String(String::from_utf8_lossy(&bytes).into_owned())]],
+            rows: vec![vec![Value::String(
+                String::from_utf8_lossy(&bytes).into_owned(),
+            )]],
             rows_affected: 0,
         }),
         redis::Value::Array(items) => {
@@ -374,8 +369,12 @@ fn redis_value_to_json(value: redis::Value) -> Value {
     match value {
         redis::Value::Nil => Value::Null,
         redis::Value::Int(n) => serde_json::json!(n),
-        redis::Value::BulkString(bytes) => Value::String(String::from_utf8_lossy(&bytes).into_owned()),
-        redis::Value::Array(items) => Value::Array(items.into_iter().map(redis_value_to_json).collect()),
+        redis::Value::BulkString(bytes) => {
+            Value::String(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        redis::Value::Array(items) => {
+            Value::Array(items.into_iter().map(redis_value_to_json).collect())
+        }
         redis::Value::SimpleString(s) => Value::String(s),
         redis::Value::Okay => Value::String("OK".to_string()),
         redis::Value::Map(map) => Value::Object(
@@ -383,7 +382,9 @@ fn redis_value_to_json(value: redis::Value) -> Value {
                 .map(|(k, v)| (redis_value_to_string(k), redis_value_to_json(v)))
                 .collect(),
         ),
-        redis::Value::Set(items) => Value::Array(items.into_iter().map(redis_value_to_json).collect()),
+        redis::Value::Set(items) => {
+            Value::Array(items.into_iter().map(redis_value_to_json).collect())
+        }
         redis::Value::Double(f) => serde_json::json!(f),
         redis::Value::Boolean(b) => Value::Bool(b),
         redis::Value::VerbatimString { format: _, text } => Value::String(text),
@@ -411,8 +412,25 @@ fn json_opt<T: Into<Value>>(v: Option<T>) -> Value {
 fn is_write_command(name: &str) -> bool {
     matches!(
         name,
-        "SET" | "SETEX" | "SETNX" | "MSET" | "HSET" | "HMSET" | "LPUSH" | "RPUSH" | "SADD"
-            | "ZADD" | "DEL" | "HDEL" | "LDEL" | "SDEL" | "ZREM" | "EXPIRE" | "PEXPIRE"
-            | "RENAME" | "FLUSHDB" | "FLUSHALL"
+        "SET"
+            | "SETEX"
+            | "SETNX"
+            | "MSET"
+            | "HSET"
+            | "HMSET"
+            | "LPUSH"
+            | "RPUSH"
+            | "SADD"
+            | "ZADD"
+            | "DEL"
+            | "HDEL"
+            | "LDEL"
+            | "SDEL"
+            | "ZREM"
+            | "EXPIRE"
+            | "PEXPIRE"
+            | "RENAME"
+            | "FLUSHDB"
+            | "FLUSHALL"
     )
 }

@@ -154,6 +154,8 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
   // 用 ref 保存当前选中连接与镜像列表，避免闭包捕获过期值。
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = state.selectedConnectionId;
+  const connectionsRef = useRef(state.connections);
+  connectionsRef.current = state.connections;
   const connectionCacheRef = useRef<Map<string, DockerConnectionCache>>(new Map());
   const imagesRef = useRef<DockerImageSummary[]>([]);
   imagesRef.current = state.images;
@@ -260,23 +262,27 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
       const fetchBatch = async (
         keys: DockerResourceKey[],
         applyPatch: (patch: Partial<DockerConnectionCache>) => void,
-      ) => {
+      ): Promise<string | null> => {
+        let lastError: string | null = null;
         for (const key of keys) {
-          if (resourceSeq !== resourceSeqRef.current || selectedRef.current !== connectionId) return;
+          if (resourceSeq !== resourceSeqRef.current || selectedRef.current !== connectionId) return lastError;
           try {
             const data = await fetchers[key]();
-            if (resourceSeq !== resourceSeqRef.current || selectedRef.current !== connectionId) return;
+            if (resourceSeq !== resourceSeqRef.current || selectedRef.current !== connectionId) return lastError;
             applyPatch({
               [key]: data,
+              error: null,
               fetchedResources: {
                 ...connectionCacheRef.current.get(connectionId)?.fetchedResources,
                 [key]: true,
               },
             } as Partial<DockerConnectionCache>);
-          } catch {
-            // 失败时不标记为已加载，便于后续 Tab 切换或刷新重试。
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            lastError = message;
           }
         }
+        return lastError;
       };
 
       let missing = getMissing();
@@ -304,14 +310,33 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
         }));
       };
 
-      await fetchBatch(missing, applyPatch);
+      let lastBatchError = await fetchBatch(missing, applyPatch);
 
       for (let round = 1; round < RESOURCE_LOAD_ROUNDS; round += 1) {
         missing = getMissing();
         if (missing.length === 0) break;
         if (resourceSeq !== resourceSeqRef.current || selectedRef.current !== connectionId) break;
+        if (
+          connectionsRef.current.find((c) => c.connectionId === connectionId)?.source === "ssh-engine"
+        ) {
+          try {
+            await commands.dockerResetSshSession(connectionId);
+          } catch {
+            // 重置失败不阻断后续重试
+          }
+        }
         await sleep(RESOURCE_RETRY_DELAY_MS);
-        await fetchBatch(missing, applyPatch);
+        lastBatchError = (await fetchBatch(missing, applyPatch)) ?? lastBatchError;
+      }
+
+      if (
+        getMissing().length > 0 &&
+        lastBatchError &&
+        resourceSeq === resourceSeqRef.current &&
+        selectedRef.current === connectionId
+      ) {
+        saveConnectionCache(connectionId, { error: lastBatchError });
+        setState((s) => ({ ...s, error: lastBatchError }));
       }
 
       if (resourceSeq === resourceSeqRef.current && selectedRef.current === connectionId) {
@@ -421,8 +446,9 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
       setState((s) => ({
         ...s,
         ...cached,
+        error: null,
         dataLoading: false,
-        dataRefreshing: false,
+        dataRefreshing: true,
       }));
       void loadConnectionProbe(id, { silent: true });
       return;
@@ -468,10 +494,21 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
       for (const key of TAB_RESOURCES[tab]) {
         delete clearedFetched[key];
       }
-      saveConnectionCache(id, { fetchedResources: clearedFetched });
+      saveConnectionCache(id, { fetchedResources: clearedFetched, error: null });
     }
     resourceSeqRef.current += 1;
-    void loadConnectionProbe(id, { silent: true });
+    setState((s) => ({ ...s, error: null, dataRefreshing: true }));
+
+    const isSshEngine =
+      connectionsRef.current.find((c) => c.connectionId === id)?.source === "ssh-engine";
+    const reload = () => {
+      void loadConnectionProbe(id, { silent: true });
+    };
+    if (isSshEngine) {
+      void commands.dockerResetSshSession(id).finally(reload);
+    } else {
+      reload();
+    }
   }, [loadConnectionProbe, saveConnectionCache]);
 
   /** 仅刷新容器列表（动作后轻量刷新）。 */
@@ -480,9 +517,11 @@ export function useDockerWorkspace(activeTab: DockerWorkspaceTab) {
     if (!id) return;
     try {
       const containers = await unwrap(commands.dockerListContainers(id, null));
-      patchSelectedConnectionData({ containers });
-    } catch {
-      /* 忽略，保留旧数据 */
+      patchSelectedConnectionData({ containers, error: null });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      patchSelectedConnectionData({ error: message });
+      setState((s) => ({ ...s, error: message }));
     }
   }, [patchSelectedConnectionData]);
 

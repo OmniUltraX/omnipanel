@@ -226,6 +226,8 @@ impl StreamChunk {
 pub struct SshStreamHandle {
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
+    /// 流式 exec 持有 channel 期间占用 exec 槽位，任务结束才释放。
+    _exec_permit: OwnedSemaphorePermit,
 }
 
 impl SshStreamHandle {
@@ -252,12 +254,20 @@ impl Drop for SshStreamHandle {
 /// PTY exec 通道输出（与 `StreamChunk` 同义，分开名字以保持可读性）。
 pub type PtyChunk = StreamChunk;
 
+enum PtyMsg {
+    Data(Vec<u8>),
+    Resize(u16, u16),
+    Close,
+}
+
 /// PTY exec 会话：可写 stdin、可 resize、可流式读取 stdout/stderr。
 /// 用于 `docker exec -it <id> /bin/sh` 这类需要 TTY 的交互式容器终端。
 pub struct SshPtySession {
-    channel: Arc<tokio::sync::Mutex<Channel<russh::client::Msg>>>,
+    tx: mpsc::UnboundedSender<PtyMsg>,
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
+    /// PTY 长连接占用 exec 槽位直至 close。
+    _exec_permit: OwnedSemaphorePermit,
     /// 同一会话只允许一个 PTY exec，防止快速重进时堆叠 channel。
     _pty_permit: OwnedSemaphorePermit,
 }
@@ -265,25 +275,22 @@ pub struct SshPtySession {
 impl SshPtySession {
     /// 写 stdin。
     pub async fn write(&self, data: &[u8]) -> OmniResult<()> {
-        let ch = self.channel.lock().await;
-        ch.data(data).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "写入 PTY stdin 失败").with_cause(e.to_string())
-        })
+        self.tx
+            .send(PtyMsg::Data(data.to_vec()))
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话已关闭，无法写入"))
     }
 
     /// 调整 PTY 尺寸。
     pub async fn resize(&self, cols: u16, rows: u16) -> OmniResult<()> {
-        let ch = self.channel.lock().await;
-        ch.window_change(cols as u32, rows as u32, 0, 0)
-            .await
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Ssh, "调整 PTY 尺寸失败").with_cause(e.to_string())
-            })
+        self.tx
+            .send(PtyMsg::Resize(cols, rows))
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话已关闭，无法调整尺寸"))
     }
 
-    /// 主动关闭会话：先通知读任务退出（由读任务统一 close channel），避免与读任务争锁死锁。
+    /// 主动关闭会话：通知 PTY 任务退出，由任务统一关闭 SSH channel。
     pub async fn close(mut self) -> OmniResult<()> {
         self.stop.store(true, Ordering::Relaxed);
+        let _ = self.tx.send(PtyMsg::Close);
         if let Some(task) = self._task.take() {
             let _ = tokio::time::timeout(Duration::from_secs(8), task).await;
         }
@@ -294,6 +301,7 @@ impl SshPtySession {
 impl Drop for SshPtySession {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        let _ = self.tx.send(PtyMsg::Close);
     }
 }
 
@@ -352,6 +360,71 @@ async fn run_stream_task(
     }
 }
 
+async fn run_pty_task(
+    channel: &mut Channel<russh::client::Msg>,
+    tx: mpsc::UnboundedSender<StreamChunk>,
+    mut rx: mpsc::UnboundedReceiver<PtyMsg>,
+    stop: Arc<AtomicBool>,
+) {
+    let mut exit_code: i32 = 0;
+    let mut saw_exit = false;
+    loop {
+        tokio::select! {
+            msg = channel.wait() => {
+                match msg {
+                    Some(ChannelMsg::Data { ref data }) => {
+                        if tx.send(StreamChunk::Stdout(data.to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Some(ChannelMsg::ExtendedData { ref data, ext }) => {
+                        let chunk = if ext == 1 {
+                            StreamChunk::Stderr(data.to_vec())
+                        } else {
+                            StreamChunk::Stdout(data.to_vec())
+                        };
+                        if tx.send(chunk).is_err() {
+                            break;
+                        }
+                    }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => {
+                        exit_code = exit_status as i32;
+                        saw_exit = true;
+                    }
+                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            msg = rx.recv() => {
+                match msg {
+                    Some(PtyMsg::Data(data)) => {
+                        if channel.data(data.as_slice()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(PtyMsg::Resize(cols, rows)) => {
+                        let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
+                    }
+                    Some(PtyMsg::Close) | None => {
+                        break;
+                    }
+                }
+            }
+            _ = wait_stop(&stop) => {
+                break;
+            }
+        }
+    }
+    close_exec_channel(channel).await;
+    if saw_exit {
+        let _ = tx.send(StreamChunk::Exit(exit_code));
+    } else {
+        let _ = tx.send(StreamChunk::Closed);
+    }
+}
+
 async fn wait_stop(stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -378,11 +451,16 @@ enum ShellMsg {
     Resize(u16, u16),
 }
 
+/// 单条 SSH 连接上允许同时打开的 exec/SFTP channel 上限（OpenSSH MaxSessions 默认 10）。
+const EXEC_CHANNEL_LIMIT: usize = 6;
+
 /// 一个已建立的 SSH 会话：持有 client handle（用于 SFTP）与 shell 输入通道。
 /// 当 `shell_tx` 为 None 时仅支持 `exec_command` / SFTP 操作（连接池模式）。
 pub struct SshSession {
     session: client::Handle<Client>,
     shell_tx: Option<mpsc::UnboundedSender<ShellMsg>>,
+    /// 限制同连接上并发 exec/SFTP channel，避免「打开 SSH exec 通道失败」。
+    exec_gate: Arc<Semaphore>,
     /// 交互式 PTY exec 串行化（docker exec -it 等），避免同连接上堆叠多个 PTY channel。
     pty_gate: Arc<Semaphore>,
 }
@@ -485,6 +563,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: Some(shell_tx),
+            exec_gate: Arc::new(Semaphore::new(EXEC_CHANNEL_LIMIT)),
             pty_gate: Arc::new(Semaphore::new(1)),
         })
     }
@@ -529,6 +608,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: None,
+            exec_gate: Arc::new(Semaphore::new(EXEC_CHANNEL_LIMIT)),
             pty_gate: Arc::new(Semaphore::new(1)),
         })
     }
@@ -558,6 +638,13 @@ impl SshSession {
     /// 在独立 exec channel 上运行一条命令并捕获 stdout/stderr 与退出码。
     /// 不影响交互 shell channel，可与之并存（Docker SSH adapter 用于调用远端 `docker` CLI）。
     pub async fn exec_capture(&self, command: &str) -> OmniResult<ExecOutput> {
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
+
         let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
         })?;
@@ -608,12 +695,21 @@ impl SshSession {
         command: &str,
         tx: mpsc::UnboundedSender<StreamChunk>,
     ) -> OmniResult<SshStreamHandle> {
+        let exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
+
         let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
         })?;
         if let Err(e) = channel.exec(true, command).await {
             close_exec_channel(&mut channel).await;
-            return Err(OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string()));
+            return Err(
+                OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
+            );
         }
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -626,6 +722,7 @@ impl SshSession {
         Ok(SshStreamHandle {
             stop,
             _task: Some(task),
+            _exec_permit: exec_permit,
         })
     }
 
@@ -639,16 +736,37 @@ impl SshSession {
         rows: u16,
         tx: mpsc::UnboundedSender<StreamChunk>,
     ) -> OmniResult<SshPtySession> {
-        let pty_permit = tokio::time::timeout(Duration::from_secs(15), self.pty_gate.clone().acquire_owned())
-            .await
-            .map_err(|_| OmniError::new(ErrorCode::Ssh, "等待 PTY 资源超时，请关闭其他容器终端后重试"))?
-            .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话资源不可用"))?;
+        let pty_permit = tokio::time::timeout(
+            Duration::from_secs(15),
+            self.pty_gate.clone().acquire_owned(),
+        )
+        .await
+        .map_err(|_| {
+            OmniError::new(
+                ErrorCode::Ssh,
+                "等待 PTY 资源超时，请关闭其他容器终端后重试",
+            )
+        })?
+        .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话资源不可用"))?;
+
+        let exec_permit = tokio::time::timeout(
+            Duration::from_secs(15),
+            self.exec_gate.clone().acquire_owned(),
+        )
+        .await
+        .map_err(|_| {
+            OmniError::new(
+                ErrorCode::Ssh,
+                "等待 SSH exec 资源超时，请关闭其他容器终端后重试",
+            )
+        })?
+        .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
         let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH PTY 通道失败").with_cause(e.to_string())
         })?;
         if let Err(e) = channel
-            .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+            .request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
         {
             close_exec_channel(&mut channel).await;
@@ -661,21 +779,18 @@ impl SshSession {
             );
         }
 
-        // 复用已打开的 exec channel（而非创建第二个空 channel）。
-        let shared: Arc<tokio::sync::Mutex<Channel<russh::client::Msg>>> =
-            Arc::new(tokio::sync::Mutex::new(channel));
-        let reader_shared = shared.clone();
+        let (pty_tx, pty_rx) = mpsc::unbounded_channel::<PtyMsg>();
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
         let task = tokio::spawn(async move {
-            let mut guard = reader_shared.lock().await;
-            run_stream_task(&mut guard, tx, stop_clone).await;
+            run_pty_task(&mut channel, tx, pty_rx, stop_clone).await;
         });
 
         Ok(SshPtySession {
-            channel: shared,
+            tx: pty_tx,
             stop,
             _task: Some(task),
+            _exec_permit: exec_permit,
             _pty_permit: pty_permit,
         })
     }

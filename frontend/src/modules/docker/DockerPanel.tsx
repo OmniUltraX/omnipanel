@@ -1176,43 +1176,46 @@ export function DockerPanel() {
         widthRatio={0.7}
         heightRatio={0.85}
       >
-        <ContainerDrawerBody
-          connectionId={selectedConnectionId}
-          containerId={drawerId}
-          canExec={probe?.capabilities?.canContainerExec ?? false}
-          canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
-          hostLabel={selectedConnection?.hostLabel ?? null}
-          sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
-          detail={drawerDetail}
-          loading={drawerLoading}
-          drawerTab={drawerTab}
-          onTabChange={setDrawerTab}
-          onAction={runContainerAction}
-          onRemove={confirmContainerRemove}
-          onNavigate={navigate}
-          onSendToAi={(detail) => {
-            const s = detail.summary;
-            const ports = s.ports.length
-              ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
-              : "无";
-            const context = [
-              `请帮我分析以下 Docker 容器的运行情况：`,
-              `- 名称：${s.name}`,
-              `- 镜像：${s.image}`,
-              `- 状态：${s.state}（${s.statusText}）`,
-              detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
-              detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
-              `- 端口：${ports}`,
-              `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
-            ]
-              .filter(Boolean)
-              .join("\n");
-            setAiDraft(context);
-            openAiDrawer();
-            recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
-          }}
-          onClose={() => setDrawerId(null)}
-        />
+        {drawerId ? (
+          <ContainerDrawerBody
+            key={`${selectedConnectionId ?? "unknown"}:${drawerId}`}
+            connectionId={selectedConnectionId}
+            containerId={drawerId}
+            canExec={probe?.capabilities?.canContainerExec ?? false}
+            canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
+            hostLabel={selectedConnection?.hostLabel ?? null}
+            sourceLabel={selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : null}
+            detail={drawerDetail}
+            loading={drawerLoading}
+            drawerTab={drawerTab}
+            onTabChange={setDrawerTab}
+            onAction={runContainerAction}
+            onRemove={confirmContainerRemove}
+            onNavigate={navigate}
+            onSendToAi={(detail) => {
+              const s = detail.summary;
+              const ports = s.ports.length
+                ? s.ports.map((p) => `${p.publicPort ?? "-"}->${p.privatePort}/${p.protocol}`).join(", ")
+                : "无";
+              const context = [
+                `请帮我分析以下 Docker 容器的运行情况：`,
+                `- 名称：${s.name}`,
+                `- 镜像：${s.image}`,
+                `- 状态：${s.state}（${s.statusText}）`,
+                detail.exitCode != null ? `- 退出码：${detail.exitCode}` : null,
+                detail.restartPolicy ? `- 重启策略：${detail.restartPolicy}` : null,
+                `- 端口：${ports}`,
+                `- 来源：${selectedConnection ? SOURCE_LABEL[selectedConnection.source] ?? selectedConnection.source : "未知"} · ${selectedConnection?.hostLabel ?? ""}`,
+              ]
+                .filter(Boolean)
+                .join("\n");
+              setAiDraft(context);
+              openAiDrawer();
+              recordAudit(`发送容器上下文给 AI：${s.name}`, `${selectedConnection?.name ?? ""} · ${s.image}`);
+            }}
+            onClose={() => setDrawerId(null)}
+          />
+        ) : null}
       </DetailPanelShell>
 
       <DockerImageDrawer
@@ -1385,21 +1388,30 @@ function ContainerDrawerBody({
   onSendToAi,
   onClose,
 }: ContainerDrawerBodyProps) {
-  const [terminalReady, setTerminalReady] = useState(false);
-
-  useEffect(() => {
-    if (drawerTab === "terminal") {
-      setTerminalReady(true);
-    }
-  }, [drawerTab]);
-
-  useEffect(() => {
-    setTerminalReady(false);
-  }, [containerId]);
+  const [logsMounted, setLogsMounted] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(false);
 
   const canShowTerminal = Boolean(
     !loading && detail?.summary.running && canExec && connectionId && containerId,
   );
+
+  // 切换容器时重置；同一容器内 Tab 仅隐藏/显示，不断开日志流与 exec PTY。
+  useEffect(() => {
+    setLogsMounted(false);
+    setTerminalMounted(false);
+  }, [containerId, connectionId]);
+
+  useEffect(() => {
+    if (drawerTab === "logs" && canStreamLogs && connectionId && containerId) {
+      setLogsMounted(true);
+    }
+  }, [drawerTab, canStreamLogs, connectionId, containerId]);
+
+  useEffect(() => {
+    if (drawerTab === "terminal" && canShowTerminal) {
+      setTerminalMounted(true);
+    }
+  }, [drawerTab, canShowTerminal]);
 
   return (
     <>
@@ -1537,11 +1549,13 @@ function ContainerDrawerBody({
           </>
         )}
 
-        {!loading && detail && drawerTab === "logs" && (
-          <LogsView connectionId={connectionId} containerId={containerId} />
+        {!loading && detail && logsMounted && (
+          <div className="drawer-section docker-drawer-tab-panel" hidden={drawerTab !== "logs"}>
+            <LogsView connectionId={connectionId} containerId={containerId} />
+          </div>
         )}
 
-        {canShowTerminal && terminalReady && (
+        {canShowTerminal && terminalMounted && (
           <div className="drawer-section docker-exec-drawer-section" hidden={drawerTab !== "terminal"}>
             <h4>容器终端</h4>
             <DockerExecTerminal

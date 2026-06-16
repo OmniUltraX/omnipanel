@@ -1,7 +1,7 @@
 use omnipanel_error::OmniError;
 use omnipanel_ssh::{SshProcessDetail, SshProcessInfo};
 
-use crate::background::{local_system, HostSystemStats};
+use crate::background::{HostSystemStats, local_system};
 
 /// 拉取本机 CPU / 内存 / 磁盘指标。
 #[tauri::command]

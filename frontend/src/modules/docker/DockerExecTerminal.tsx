@@ -7,11 +7,25 @@ import { commands } from "../../ipc/bindings";
 const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+const EXEC_SHELLS = ["/bin/bash", "/bin/sh", "bash", "sh"];
+
 function decodeBase64(b64: string): Uint8Array {
   const bin = atob(b64);
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
   return arr;
+}
+
+function isShellStartupFailure(output: string) {
+  const msg = output.toLowerCase();
+  return (
+    msg.includes("进入容器终端超时") ||
+    msg.includes("container terminal timed out") ||
+    msg.includes("executable file not found") ||
+    msg.includes("no such file or directory") ||
+    msg.includes("oci runtime exec failed") ||
+    msg.includes(": not found")
+  );
 }
 
 async function closeExecSession(sessionId: string | null) {
@@ -40,6 +54,15 @@ export function DockerExecTerminal({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
+  const shellIndexRef = useRef(0);
+  const shellOutputRef = useRef("");
+  const sessionStartedAtRef = useRef(0);
+  const hasUserInputRef = useRef(false);
+  const visibleRef = useRef(visible);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -68,34 +91,26 @@ export function DockerExecTerminal({
     fitRef.current = fitAddon;
 
     const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    const start = async () => {
+    const startSession = async (shellIndex: number) => {
+      const shell = EXEC_SHELLS[shellIndex];
+      shellIndexRef.current = shellIndex;
+      shellOutputRef.current = "";
+      sessionIdRef.current = null;
+      sessionStartedAtRef.current = 0;
+      hasUserInputRef.current = false;
+
       try {
-        unlistenOutput = await listen<{ session_id: string; data: string }>(
-          "terminal-output",
-          (ev) => {
-            if (destroyed || ev.payload.session_id !== sessionIdRef.current) return;
-            term.write(decodeBase64(ev.payload.data));
-          },
-        );
-        unlistenEvent = await listen<{ session_id: string; event: string }>(
-          "terminal-event",
-          (ev) => {
-            if (destroyed || ev.payload.session_id !== sessionIdRef.current) return;
-            if (ev.payload.event === "exited") {
-              term.writeln("\r\n\x1b[33m[会话已结束]\x1b[0m");
-            }
-          },
-        );
-
         if (destroyed) return;
 
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
+        term.writeln(`\x1b[90m正在尝试 ${shell}…\x1b[0m`);
         const res = await commands.dockerCreateExecSession(
           connectionId,
           containerId,
-          null,
+          shell,
           cols,
           rows,
         );
@@ -109,16 +124,73 @@ export function DockerExecTerminal({
 
         if (res.status === "ok") {
           sessionIdRef.current = res.data;
+          sessionStartedAtRef.current = Date.now();
           term.reset();
           term.focus();
+          void commands.dockerExecResize(
+            res.data,
+            Math.max(term.cols, 80),
+            Math.max(term.rows, 24),
+          );
         } else {
+          if (isShellStartupFailure(res.error.message) && shellIndex < EXEC_SHELLS.length - 1) {
+            await startSession(shellIndex + 1);
+            return;
+          }
+          startedRef.current = false;
           term.writeln(`\r\n\x1b[31m无法进入容器：${res.error.message}\x1b[0m`);
         }
       } catch (e) {
         if (!destroyed) {
+          startedRef.current = false;
           term.writeln(`\r\n\x1b[31m无法进入容器：${String(e)}\x1b[0m`);
         }
       }
+    };
+
+    const start = async () => {
+      unlistenOutput = await listen<{ session_id: string; data: string }>(
+        "terminal-output",
+        (ev) => {
+          if (destroyed || ev.payload.session_id !== sessionIdRef.current) return;
+          const data = decodeBase64(ev.payload.data);
+          shellOutputRef.current += decoder.decode(data, { stream: true });
+          if (shellOutputRef.current.length > 4096) {
+            shellOutputRef.current = shellOutputRef.current.slice(-4096);
+          }
+          term.write(data);
+        },
+      );
+      unlistenEvent = await listen<{ session_id: string; event: string }>(
+        "terminal-event",
+        (ev) => {
+          if (destroyed || ev.payload.session_id !== sessionIdRef.current) return;
+          if (ev.payload.event !== "exited") return;
+
+          const exitedSession = sessionIdRef.current;
+          sessionIdRef.current = null;
+          const shellIndex = shellIndexRef.current;
+          const startupWindowMs = Date.now() - sessionStartedAtRef.current;
+          const shouldRetry =
+            startupWindowMs < 5000 &&
+            !hasUserInputRef.current &&
+            isShellStartupFailure(shellOutputRef.current) &&
+            shellIndex < EXEC_SHELLS.length - 1;
+
+          if (shouldRetry) {
+            const nextShell = EXEC_SHELLS[shellIndex + 1];
+            term.writeln(`\r\n\x1b[33m当前 shell 不可用，正在切换到 ${nextShell}…\x1b[0m`);
+            void closeExecSession(exitedSession).finally(() => {
+              if (!destroyed) void startSession(shellIndex + 1);
+            });
+            return;
+          }
+
+          term.writeln("\r\n\x1b[33m[会话已结束]\x1b[0m");
+        },
+      );
+
+      await startSession(0);
     };
 
     void start();
@@ -126,17 +198,22 @@ export function DockerExecTerminal({
     const dataDisposable = term.onData((data) => {
       const sid = sessionIdRef.current;
       if (!sid) return;
+      hasUserInputRef.current = true;
       void commands.dockerExecWrite(sid, Array.from(encoder.encode(data)));
     });
 
     resizeObserver = new ResizeObserver(() => {
-      if (!fitAddon || !term) return;
+      if (!visibleRef.current || !fitAddon || !term) return;
       fitAddon.fit();
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         const sid = sessionIdRef.current;
-        if (destroyed || !sid || !term) return;
-        void commands.dockerExecResize(sid, term.cols, term.rows);
+        if (destroyed || !visibleRef.current || !sid || !term) return;
+        void commands.dockerExecResize(
+          sid,
+          Math.max(term.cols, 1),
+          Math.max(term.rows, 1),
+        );
       }, 120);
     });
     resizeObserver.observe(el);
@@ -170,6 +247,7 @@ export function DockerExecTerminal({
       if (sid) {
         void commands.dockerExecResize(sid, Math.max(term.cols, 1), Math.max(term.rows, 1));
       }
+      term.refresh(0, Math.max(term.rows - 1, 0));
       term.focus();
     });
     return () => cancelAnimationFrame(frame);

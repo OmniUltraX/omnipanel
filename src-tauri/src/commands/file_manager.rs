@@ -7,11 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshAuth, SshConfig, SshSession};
 use omnipanel_store::{Connection, ConnectionKind, Vault};
-use serde::{Deserialize, Serialize};
-use specta::Type;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use suppaftp::FtpStream;
 use tauri::State;
 
@@ -146,9 +146,9 @@ fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
         return Err(OmniError::new(ErrorCode::InvalidInput, "不是目录"));
     }
     let mut entries = Vec::new();
-    for entry in std::fs::read_dir(&p).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取目录失败").with_cause(e.to_string())
-    })? {
+    for entry in std::fs::read_dir(&p)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取目录失败").with_cause(e.to_string()))?
+    {
         let entry = entry.map_err(|e| {
             OmniError::new(ErrorCode::Io, "读取目录项失败").with_cause(e.to_string())
         })?;
@@ -184,40 +184,36 @@ fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
     entries.sort_by(|a, b| {
         let ad = a.kind == "dir";
         let bd = b.kind == "dir";
-        ad.cmp(&bd).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        ad.cmp(&bd)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     Ok(entries)
 }
 
 fn local_mkdir(path: &str) -> Result<(), OmniError> {
-    std::fs::create_dir_all(path).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "创建目录失败").with_cause(e.to_string())
-    })
+    std::fs::create_dir_all(path)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "创建目录失败").with_cause(e.to_string()))
 }
 
 fn local_rename(old: &str, new: &str) -> Result<(), OmniError> {
-    std::fs::rename(old, new).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "重命名失败").with_cause(e.to_string())
-    })
+    std::fs::rename(old, new)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "重命名失败").with_cause(e.to_string()))
 }
 
 fn local_delete(path: &str) -> Result<(), OmniError> {
     let p = Path::new(path);
     if p.is_dir() {
-        std::fs::remove_dir_all(p).map_err(|e| {
-            OmniError::new(ErrorCode::Io, "删除目录失败").with_cause(e.to_string())
-        })
+        std::fs::remove_dir_all(p)
+            .map_err(|e| OmniError::new(ErrorCode::Io, "删除目录失败").with_cause(e.to_string()))
     } else {
-        std::fs::remove_file(p).map_err(|e| {
-            OmniError::new(ErrorCode::Io, "删除文件失败").with_cause(e.to_string())
-        })
+        std::fs::remove_file(p)
+            .map_err(|e| OmniError::new(ErrorCode::Io, "删除文件失败").with_cause(e.to_string()))
     }
 }
 
 fn local_read(path: &str, max_bytes: u64) -> Result<Vec<u8>, OmniError> {
-    let data = std::fs::read(path).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string())
-    })?;
+    let data = std::fs::read(path)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string()))?;
     if data.len() as u64 > max_bytes {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
@@ -233,9 +229,8 @@ fn local_write(path: &str, data: &[u8]) -> Result<(), OmniError> {
             std::fs::create_dir_all(parent).ok();
         }
     }
-    std::fs::write(path, data).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "写入文件失败").with_cause(e.to_string())
-    })
+    std::fs::write(path, data)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "写入文件失败").with_cause(e.to_string()))
 }
 
 // ─── SFTP backend ────────────────────────────────────────────────────────────
@@ -306,7 +301,11 @@ fn sftp_entry_to_file(entry: &omnipanel_ssh::SftpEntry, base: &str) -> FileEntry
     FileEntry {
         name: entry.name.clone(),
         path: join_posix(base, &entry.name),
-        kind: if entry.is_dir { "dir".into() } else { "file".into() },
+        kind: if entry.is_dir {
+            "dir".into()
+        } else {
+            "file".into()
+        },
         size: entry.size,
         modified: 0,
         permissions: None,
@@ -436,14 +435,8 @@ fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniErro
             endpoint: cfg.endpoint.clone(),
         }
     };
-    let creds = Credentials::new(
-        Some(&cfg.access_key),
-        Some(secret),
-        None,
-        None,
-        None,
-    )
-    .map_err(|e| OmniError::new(ErrorCode::Auth, "S3 凭据无效").with_cause(e.to_string()))?;
+    let creds = Credentials::new(Some(&cfg.access_key), Some(secret), None, None, None)
+        .map_err(|e| OmniError::new(ErrorCode::Auth, "S3 凭据无效").with_cause(e.to_string()))?;
     Bucket::new(&cfg.bucket, region, creds).map_err(|e| {
         OmniError::new(ErrorCode::Connection, "创建 S3 客户端失败").with_cause(e.to_string())
     })
@@ -465,7 +458,11 @@ fn normalize_s3_prefix(path: &str, cfg: &FileConnConfig) -> String {
     }
 }
 
-async fn list_s3_dir(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<Vec<FileEntry>, OmniError> {
+async fn list_s3_dir(
+    cfg: &FileConnConfig,
+    secret: &str,
+    path: &str,
+) -> Result<Vec<FileEntry>, OmniError> {
     let bucket = s3_bucket(cfg, secret)?;
     let prefix = normalize_s3_prefix(path, cfg);
     let pages = bucket
@@ -715,14 +712,15 @@ pub async fn file_read_file(
                 Ok(buf)
             })
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+            })?
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            let response = bucket
-                .get_object(&path)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string()))?;
+            let response = bucket.get_object(&path).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
+            })?;
             let data: Vec<u8> = response.bytes().to_vec();
             if data.len() as u64 > max_bytes {
                 return Err(OmniError::new(ErrorCode::InvalidInput, "文件过大"));
@@ -774,20 +772,22 @@ pub async fn file_upload_file(
                     .and_then(|n| n.to_str())
                     .unwrap_or(&path);
                 use std::io::Cursor;
-                ftp.put_file(fname, &mut Cursor::new(data))
-                    .map_err(|e| OmniError::new(ErrorCode::Io, "FTP 上传失败").with_cause(e.to_string()))?;
+                ftp.put_file(fname, &mut Cursor::new(data)).map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "FTP 上传失败").with_cause(e.to_string())
+                })?;
                 let _ = ftp.quit();
                 Ok(())
             })
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+            })?
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            bucket
-                .put_object(&path, &data)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string()))?;
+            bucket.put_object(&path, &data).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
+            })?;
             Ok(())
         }
     }
@@ -847,7 +847,9 @@ pub async fn file_mkdir(
                 Ok(())
             })
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+            })?
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
@@ -856,10 +858,9 @@ pub async fn file_mkdir(
             } else {
                 format!("{path}/")
             };
-            bucket
-                .put_object(&key, &[] as &[u8])
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string()))?;
+            bucket.put_object(&key, &[] as &[u8]).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string())
+            })?;
             Ok(())
         }
     }
@@ -902,23 +903,22 @@ pub async fn file_rename(
                 Ok(())
             })
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+            })?
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            let response = bucket
-                .get_object(&old_path)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 读取对象失败").with_cause(e.to_string()))?;
+            let response = bucket.get_object(&old_path).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 读取对象失败").with_cause(e.to_string())
+            })?;
             let bytes = response.bytes();
-            bucket
-                .put_object(&new_path, bytes)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string()))?;
-            bucket
-                .delete_object(&old_path)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string()))?;
+            bucket.put_object(&new_path, bytes).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string())
+            })?;
+            bucket.delete_object(&old_path).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string())
+            })?;
             Ok(())
         }
     }
@@ -965,14 +965,15 @@ pub async fn file_delete(
                 Ok(())
             })
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+            })?
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            bucket
-                .delete_object(&path)
-                .await
-                .map_err(|e| OmniError::new(ErrorCode::Io, "S3 删除失败").with_cause(e.to_string()))?;
+            bucket.delete_object(&path).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 删除失败").with_cause(e.to_string())
+            })?;
             Ok(())
         }
     }
