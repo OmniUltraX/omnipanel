@@ -25,12 +25,11 @@ use omnipanel_docker::{
     bollard,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_ssh::{SshConfig, SshEvent, SshSession, SshSink};
+use omnipanel_ssh::{SshConfig, SshSession};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::Mutex;
 
-use crate::state::AppState;
+use crate::state::{AppState, DockerExecSessionEntry};
 
 /// 内建本地 Engine 连接 id（不落库，始终可用）。
 const LOCAL_CONNECTION_ID: &str = "docker-local";
@@ -73,7 +72,7 @@ struct OnePanelConfigDto {
 enum DockerTarget {
     Local,
     Remote(bollard::Docker),
-    Ssh(Arc<Mutex<SshSession>>),
+    Ssh(Arc<SshSession>),
     OnePanel(OnePanelAdapter),
 }
 
@@ -158,7 +157,7 @@ async fn ensure_docker_ssh(
     state: &AppState,
     connection_id: &str,
     ssh: SshConfig,
-) -> Result<Arc<Mutex<SshSession>>, OmniError> {
+) -> Result<Arc<SshSession>, OmniError> {
     // 1. Docker 专用池命中
     {
         let pool = state.docker_ssh_sessions.lock().await;
@@ -167,8 +166,7 @@ async fn ensure_docker_ssh(
         }
     }
 
-    // 2. 尝试从 SSH 连接池复用（bound_ssh_connection_id 或按 host:port 匹配）
-    //    先查存储中的 Docker 连接配置，看是否有 bound_ssh_connection_id
+    // 2. 绑定 SSH 连接时复用 SSH 模块连接池中的已有会话
     let bound_id: Option<String> = {
         let storage = state.storage.lock().await;
         storage.get_connection(connection_id)?.and_then(|c| {
@@ -179,25 +177,27 @@ async fn ensure_docker_ssh(
     };
 
     if let Some(ref ssh_id) = bound_id {
-        // 从 SSH 池获取配置，建立专用 Docker 会话（exec-only，无 shell）
-        if let Some(ssh_config) = state.ssh_pool.get_ssh_config(ssh_id).await {
-            tracing::info!("Docker 连接 {connection_id} 使用 SSH 配置 {ssh_id} 建立专用会话");
-            let sink: SshSink = Arc::new(|_: SshEvent| {});
-            let session = SshSession::connect(ssh_config, 80, 24, sink).await?;
-            let handle = Arc::new(Mutex::new(session));
-            let mut pool = state.docker_ssh_sessions.lock().await;
-            pool.insert(connection_id.to_string(), handle.clone());
-            return Ok(handle);
+        match state.ssh_pool.ensure_session(ssh_id).await {
+            Ok(pool_session) => {
+                tracing::info!("Docker 连接 {connection_id} 复用 SSH 池会话 {ssh_id}");
+                let mut pool = state.docker_ssh_sessions.lock().await;
+                pool.insert(connection_id.to_string(), pool_session.clone());
+                return Ok(pool_session);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Docker 连接 {connection_id} 无法复用 SSH 池 {ssh_id}，将建立独立 exec 会话: {}",
+                    e.message
+                );
+            }
         }
     }
 
-    // 3. 建立新连接
-    let sink: SshSink = Arc::new(|_: SshEvent| {});
-    let session = SshSession::connect(ssh, 80, 24, sink).await?;
-    let handle = Arc::new(Mutex::new(session));
+    // 3. 建立 exec-only 会话（无交互 shell，避免占用额外 channel）
+    let session = Arc::new(SshSession::connect_no_shell(ssh).await?);
     let mut pool = state.docker_ssh_sessions.lock().await;
-    pool.insert(connection_id.to_string(), handle.clone());
-    Ok(handle)
+    pool.insert(connection_id.to_string(), session.clone());
+    Ok(session)
 }
 
 /// 目标 → 统一 adapter 对象。
@@ -460,9 +460,8 @@ pub async fn docker_stream_container_logs(
                     .await
             }
             DockerTarget::Ssh(session) => {
-                let guard = session.lock().await;
                 omnipanel_docker::ssh::stream_logs(
-                    &*guard,
+                    &*session,
                     &container_id,
                     tail as i64,
                     follow,
@@ -564,9 +563,8 @@ pub async fn docker_stream_stats(
                     .await
             }
             DockerTarget::Ssh(session) => {
-                let guard = session.lock().await;
                 omnipanel_docker::ssh::stream_stats(
-                    &*guard,
+                    &*session,
                     &container_id,
                     stop_for_task.clone(),
                     sink,
@@ -691,6 +689,30 @@ pub async fn docker_prune_build_cache(
         .await
 }
 
+/// 关闭同一 Docker 连接上所有 exec 会话（PTY 按 SSH 连接串行，须先释放旧会话）。
+async fn close_docker_exec_for_connection(state: &AppState, connection_id: &str) {
+    loop {
+        let next = {
+            let mut map = state.docker_exec_sessions.lock().await;
+            let key = map
+                .iter()
+                .find(|(_, entry)| entry.connection_id == connection_id)
+                .map(|(id, _)| id.clone());
+            key.and_then(|id| map.remove(&id))
+        };
+        match next {
+            Some(entry) => {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(8),
+                    entry.session.close(),
+                )
+                .await;
+            }
+            None => break,
+        }
+    }
+}
+
 /// 创建容器交互终端会话（仅本地 Engine）。返回 sessionId；
 /// 终端输出复用 `terminal-output` 事件，前端可直接用 xterm 绑定该 sessionId。
 #[tauri::command]
@@ -703,6 +725,8 @@ pub async fn docker_create_exec_session(
     cols: u16,
     rows: u16,
 ) -> Result<String, OmniError> {
+    close_docker_exec_for_connection(&state, &connection_id).await;
+
     let target = resolve_target(&state, &connection_id).await?;
     let (session, output): (omnipanel_docker::DockerExecSession, _);
 
@@ -721,11 +745,10 @@ pub async fn docker_create_exec_session(
             session = pair.0;
             output = pair.1;
         }
-        DockerTarget::Ssh(ssh_arc) => {
+        DockerTarget::Ssh(ssh_session) => {
             let shell_str = shell.unwrap_or_else(|| "/bin/sh".to_string());
-            let guard = ssh_arc.lock().await;
             let pair =
-                omnipanel_docker::ssh::create_exec(&*guard, &container_id, &shell_str, cols, rows)
+                omnipanel_docker::ssh::create_exec(&*ssh_session, &container_id, &shell_str, cols, rows)
                     .await?;
             session = pair.0;
             output = pair.1;
@@ -749,7 +772,14 @@ pub async fn docker_create_exec_session(
         .docker_exec_sessions
         .lock()
         .await
-        .insert(session_id.clone(), session);
+        .insert(
+            session_id.clone(),
+            DockerExecSessionEntry {
+                session,
+                connection_id: connection_id.clone(),
+                container_id: container_id.clone(),
+            },
+        );
 
     let app = state.app_handle.clone();
     let sid = session_id.clone();
@@ -770,7 +800,9 @@ pub async fn docker_create_exec_session(
             "terminal-event",
             serde_json::json!({ "session_id": sid, "event": "exited" }),
         );
-        sessions.lock().await.remove(&sid);
+        if let Some(entry) = sessions.lock().await.remove(&sid) {
+            let _ = entry.session.close().await;
+        }
     });
 
     Ok(session_id)
@@ -785,13 +817,13 @@ pub async fn docker_exec_write(
     data: Vec<u8>,
 ) -> Result<(), OmniError> {
     let sessions = state.docker_exec_sessions.lock().await;
-    let session = sessions.get(&session_id).ok_or_else(|| {
+    let entry = sessions.get(&session_id).ok_or_else(|| {
         OmniError::new(
             ErrorCode::NotFound,
             format!("容器终端会话 {session_id} 不存在"),
         )
     })?;
-    session.write(&data).await
+    entry.session.write(&data).await
 }
 
 /// 调整容器终端尺寸。
@@ -804,8 +836,8 @@ pub async fn docker_exec_resize(
     rows: u16,
 ) -> Result<(), OmniError> {
     let sessions = state.docker_exec_sessions.lock().await;
-    if let Some(session) = sessions.get(&session_id) {
-        session.resize(cols, rows).await?;
+    if let Some(entry) = sessions.get(&session_id) {
+        entry.session.resize(cols, rows).await?;
     }
     Ok(())
 }
@@ -817,7 +849,9 @@ pub async fn docker_exec_close(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), OmniError> {
-    state.docker_exec_sessions.lock().await.remove(&session_id);
+    if let Some(entry) = state.docker_exec_sessions.lock().await.remove(&session_id) {
+        entry.session.close().await?;
+    }
     Ok(())
 }
 

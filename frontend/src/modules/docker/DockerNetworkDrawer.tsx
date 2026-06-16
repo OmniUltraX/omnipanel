@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import type { DockerNetworkDetail } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
 import type { DockerActionResult } from "./useDockerWorkspace";
@@ -53,8 +54,7 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
 
   return (
     <>
-      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
-      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="网络详情" aria-hidden={!open}>
+      <DetailPanelShell open={open} onClose={onClose} ariaLabel="网络详情" floatingTitle={name ?? "网络"}>
         {open && name && (
           <>
         <header className="docker-drawer-header">
@@ -62,7 +62,10 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
             <div className="docker-drawer-eyebrow">网络</div>
             <h2>{name}</h2>
           </div>
-          <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          <div className="docker-drawer-header-actions">
+            <DetailPanelModeToggle />
+            <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          </div>
         </header>
         <div className="docker-drawer-body">
           {loading && <div className="docker-empty">加载中…</div>}
@@ -178,7 +181,7 @@ export function DockerNetworkDrawer({ name, onClose, inspectNetwork, onRemove }:
         </footer>
           </>
         )}
-      </aside>
+      </DetailPanelShell>
       {confirm && (
         <ConfirmModal confirm={confirm} onCancel={() => setConfirm(null)} />
       )}

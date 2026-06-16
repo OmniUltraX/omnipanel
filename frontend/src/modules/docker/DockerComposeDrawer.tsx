@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import type { DockerComposeProject } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import type { DockerComposeAction } from "../../ipc/bindings";
@@ -41,8 +42,12 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
 
   return (
     <>
-      <div className={`drawer-overlay${open ? " show" : ""}`} onClick={onClose} />
-      <aside className={`docker-drawer${open ? " show" : ""}`} role="dialog" aria-label="Compose 项目详情" aria-hidden={!open}>
+      <DetailPanelShell
+        open={open}
+        onClose={onClose}
+        ariaLabel="Compose 项目详情"
+        floatingTitle={project?.name ?? "Compose"}
+      >
         {open && project && (
           <>
         <header className="docker-drawer-header">
@@ -50,7 +55,10 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
             <div className="docker-drawer-eyebrow">Compose</div>
             <h2 title={project.name}>{project.name}</h2>
           </div>
-          <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          <div className="docker-drawer-header-actions">
+            <DetailPanelModeToggle />
+            <Button variant="icon" onClick={onClose} title="关闭">×</Button>
+          </div>
         </header>
 
         <div className="drawer-subtabs" style={{ padding: "0 16px" }}>
@@ -194,7 +202,7 @@ export function DockerComposeDrawer({ project, onClose, onAction }: DockerCompos
         </footer>
           </>
         )}
-      </aside>
+      </DetailPanelShell>
     </>
   );
 }

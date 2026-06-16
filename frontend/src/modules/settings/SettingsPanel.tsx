@@ -22,6 +22,7 @@ import {
   type Locale,
   type ProxyProtocol,
   type AiDisplayMode,
+  type DetailPanelMode,
 } from "../../stores/settingsStore";
 import {
   SHORTCUT_DEFS,
@@ -856,7 +857,7 @@ export function SettingsPanel() {
   const setProxy = useSettingsStore((s) => s.setProxy);
 
   // Appearance settings state
-  const { theme, setTheme, accentColor, setAccentColor } = useSettingsStore();
+  const { theme, setTheme, accentColor, setAccentColor, detailPanelMode, setDetailPanelMode } = useSettingsStore();
   const [uiDensity, setUiDensity] = useState("标准");
   const [sidebarPos, setSidebarPos] = useState("左侧");
 
@@ -1243,6 +1244,23 @@ export function SettingsPanel() {
                     );
                   })}
                 </div>
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.detailPanel.label")}</h4>
+                  <p>{t("settings.detailPanel.desc")}</p>
+                </div>
+                <Select
+                  className="setting-select"
+                  size="sm"
+                  value={detailPanelMode}
+                  onChange={(v) => setDetailPanelMode(v as DetailPanelMode)}
+                  searchable={false}
+                  options={[
+                    { value: "drawer", label: t("settings.detailPanel.drawer") },
+                    { value: "floating", label: t("settings.detailPanel.floating") },
+                  ]}
+                />
               </div>
               <div className="setting-row">
                 <div className="setting-label">

@@ -12,7 +12,7 @@ use futures::Stream;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::{SshPtySession, SshSession, SshStreamHandle, StreamChunk};
 use serde::Deserialize;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::compose::{ComposeContainerRow, aggregate_compose};
 use crate::local::{DockerExecOutput, DockerExecSession, to_container_detail};
@@ -22,11 +22,11 @@ use crate::{ContainerFilter, DockerAdapter, normalize_name, short_id};
 /// SSH 宿主机 Docker 适配器：持有一个可复用的 `SshSession`（由命令层缓存于会话池），
 /// 每次操作在独立 exec channel 上调用远端 `docker` CLI。
 pub struct SshDockerAdapter {
-    session: Arc<Mutex<SshSession>>,
+    session: Arc<SshSession>,
 }
 
 impl SshDockerAdapter {
-    pub fn new(session: Arc<Mutex<SshSession>>) -> Self {
+    pub fn new(session: Arc<SshSession>) -> Self {
         Self { session }
     }
 }
@@ -34,77 +34,77 @@ impl SshDockerAdapter {
 #[async_trait]
 impl DockerAdapter for SshDockerAdapter {
     async fn probe(&self) -> OmniResult<DockerProbe> {
-        probe(&*self.session.lock().await).await
+        probe(&*self.session).await
     }
     async fn overview(&self) -> OmniResult<DockerOverview> {
-        overview(&*self.session.lock().await).await
+        overview(&*self.session).await
     }
     async fn list_containers(
         &self,
         filter: ContainerFilter,
     ) -> OmniResult<Vec<DockerContainerSummary>> {
-        list_containers(&*self.session.lock().await, filter).await
+        list_containers(&*self.session, filter).await
     }
     async fn inspect_container(&self, id: &str) -> OmniResult<DockerContainerDetail> {
-        inspect_container(&*self.session.lock().await, id).await
+        inspect_container(&*self.session, id).await
     }
     async fn container_action(&self, id: &str, action: DockerContainerAction) -> OmniResult<()> {
-        container_action(&*self.session.lock().await, id, action).await
+        container_action(&*self.session, id, action).await
     }
     async fn create_container(&self, req: &DockerCreateContainerRequest) -> OmniResult<String> {
-        create_container(&*self.session.lock().await, req).await
+        create_container(&*self.session, req).await
     }
     async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>> {
-        container_logs(&*self.session.lock().await, id, tail).await
+        container_logs(&*self.session, id, tail).await
     }
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
-        list_images(&*self.session.lock().await).await
+        list_images(&*self.session).await
     }
     async fn remove_image(&self, id: &str, force: bool) -> OmniResult<()> {
-        remove_image(&*self.session.lock().await, id, force).await
+        remove_image(&*self.session, id, force).await
     }
     async fn prune_images(&self) -> OmniResult<DockerPruneResult> {
-        prune_images(&*self.session.lock().await).await
+        prune_images(&*self.session).await
     }
     async fn inspect_image(&self, id: &str) -> OmniResult<DockerImageDetail> {
-        inspect_image(&*self.session.lock().await, id).await
+        inspect_image(&*self.session, id).await
     }
     async fn image_history(&self, id: &str) -> OmniResult<Vec<DockerImageHistoryLayer>> {
-        image_history(&*self.session.lock().await, id).await
+        image_history(&*self.session, id).await
     }
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>> {
-        list_compose_projects(&*self.session.lock().await).await
+        list_compose_projects(&*self.session).await
     }
     async fn pull_image(
         &self,
         image: &str,
         progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerPullResult> {
-        pull_image(&*self.session.lock().await, image, progress).await
+        pull_image(&*self.session, image, progress).await
     }
     async fn push_image(
         &self,
         image: &str,
         progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerPullResult> {
-        push_image(&*self.session.lock().await, image, progress).await
+        push_image(&*self.session, image, progress).await
     }
     async fn tag_image(&self, source: &str, target: &str) -> OmniResult<()> {
-        tag_image(&*self.session.lock().await, source, target).await
+        tag_image(&*self.session, source, target).await
     }
     async fn build_image(
         &self,
         ctx: &DockerBuildContext,
         progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerBuildResult> {
-        build_image(&*self.session.lock().await, ctx, progress).await
+        build_image(&*self.session, ctx, progress).await
     }
     async fn compose_action(
         &self,
         action: DockerComposeAction,
         req: &DockerComposeRequest,
     ) -> OmniResult<DockerComposeResult> {
-        compose_action(&*self.session.lock().await, action, req).await
+        compose_action(&*self.session, action, req).await
     }
     async fn stream_stats(
         &self,
@@ -112,61 +112,61 @@ impl DockerAdapter for SshDockerAdapter {
         stop: Arc<std::sync::atomic::AtomicBool>,
         sink: Box<dyn FnMut(DockerContainerStats) + Send>,
     ) -> OmniResult<()> {
-        stream_stats(&*self.session.lock().await, container_id, stop, sink).await
+        stream_stats(&*self.session, container_id, stop, sink).await
     }
     async fn list_networks(&self) -> OmniResult<Vec<DockerNetworkSummary>> {
-        list_networks(&*self.session.lock().await).await
+        list_networks(&*self.session).await
     }
     async fn create_network(&self, req: &DockerCreateNetworkRequest) -> OmniResult<String> {
-        create_network(&*self.session.lock().await, req).await
+        create_network(&*self.session, req).await
     }
     async fn remove_network(&self, name: &str) -> OmniResult<()> {
-        remove_network(&*self.session.lock().await, name).await
+        remove_network(&*self.session, name).await
     }
     async fn connect_container_to_network(
         &self,
         network: &str,
         container_id: &str,
     ) -> OmniResult<()> {
-        connect_container_to_network(&*self.session.lock().await, network, container_id).await
+        connect_container_to_network(&*self.session, network, container_id).await
     }
     async fn disconnect_container_from_network(
         &self,
         network: &str,
         container_id: &str,
     ) -> OmniResult<()> {
-        disconnect_container_from_network(&*self.session.lock().await, network, container_id).await
+        disconnect_container_from_network(&*self.session, network, container_id).await
     }
     async fn inspect_network(&self, id: &str) -> OmniResult<DockerNetworkDetail> {
-        inspect_network(&*self.session.lock().await, id).await
+        inspect_network(&*self.session, id).await
     }
     async fn list_volumes(&self) -> OmniResult<Vec<DockerVolumeSummary>> {
-        list_volumes(&*self.session.lock().await).await
+        list_volumes(&*self.session).await
     }
     async fn create_volume(&self, req: &DockerCreateVolumeRequest) -> OmniResult<String> {
-        create_volume(&*self.session.lock().await, req).await
+        create_volume(&*self.session, req).await
     }
     async fn remove_volume(&self, name: &str, force: bool) -> OmniResult<()> {
-        remove_volume(&*self.session.lock().await, name, force).await
+        remove_volume(&*self.session, name, force).await
     }
     async fn inspect_volume(&self, name: &str) -> OmniResult<DockerVolumeDetail> {
-        inspect_volume(&*self.session.lock().await, name).await
+        inspect_volume(&*self.session, name).await
     }
     async fn prune_volumes(&self) -> OmniResult<DockerPruneVolumesResult> {
-        prune_volumes(&*self.session.lock().await).await
+        prune_volumes(&*self.session).await
     }
     async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage> {
-        system_disk_usage(&*self.session.lock().await).await
+        system_disk_usage(&*self.session).await
     }
     async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult> {
-        prune_build_cache(&*self.session.lock().await).await
+        prune_build_cache(&*self.session).await
     }
     async fn list_container_dir(
         &self,
         container_id: &str,
         path: &str,
     ) -> OmniResult<Vec<DockerFileEntry>> {
-        list_container_dir(&*self.session.lock().await, container_id, path).await
+        list_container_dir(&*self.session, container_id, path).await
     }
     async fn read_container_file(
         &self,
@@ -174,7 +174,7 @@ impl DockerAdapter for SshDockerAdapter {
         path: &str,
         max_bytes: i64,
     ) -> OmniResult<Vec<u8>> {
-        read_container_file(&*self.session.lock().await, container_id, path, max_bytes).await
+        read_container_file(&*self.session, container_id, path, max_bytes).await
     }
     async fn write_container_file(
         &self,
@@ -182,7 +182,7 @@ impl DockerAdapter for SshDockerAdapter {
         path: &str,
         data: Vec<u8>,
     ) -> OmniResult<()> {
-        write_container_file(&*self.session.lock().await, container_id, path, data).await
+        write_container_file(&*self.session, container_id, path, data).await
     }
 
     // ── Swarm ──
@@ -191,7 +191,7 @@ impl DockerAdapter for SshDockerAdapter {
         listen_addr: Option<&str>,
         advertise_addr: Option<&str>,
     ) -> OmniResult<String> {
-        swarm_init(&*self.session.lock().await, listen_addr, advertise_addr).await
+        swarm_init(&*self.session, listen_addr, advertise_addr).await
     }
     async fn swarm_join(
         &self,
@@ -200,7 +200,7 @@ impl DockerAdapter for SshDockerAdapter {
         listen_addr: Option<&str>,
     ) -> OmniResult<()> {
         swarm_join(
-            &*self.session.lock().await,
+            &*self.session,
             remote_addrs,
             token,
             listen_addr,
@@ -208,16 +208,16 @@ impl DockerAdapter for SshDockerAdapter {
         .await
     }
     async fn swarm_leave(&self, force: bool) -> OmniResult<()> {
-        swarm_leave(&*self.session.lock().await, force).await
+        swarm_leave(&*self.session, force).await
     }
     async fn swarm_inspect(&self) -> OmniResult<serde_json::Value> {
-        swarm_inspect(&*self.session.lock().await).await
+        swarm_inspect(&*self.session).await
     }
     async fn service_list(&self) -> OmniResult<Vec<DockerServiceSummary>> {
-        service_list(&*self.session.lock().await).await
+        service_list(&*self.session).await
     }
     async fn service_create(&self, req: &DockerCreateServiceRequest) -> OmniResult<String> {
-        service_create(&*self.session.lock().await, req).await
+        service_create(&*self.session, req).await
     }
     async fn service_update(
         &self,
@@ -225,19 +225,19 @@ impl DockerAdapter for SshDockerAdapter {
         replicas: Option<u64>,
         image: Option<&str>,
     ) -> OmniResult<()> {
-        service_update(&*self.session.lock().await, id, replicas, image).await
+        service_update(&*self.session, id, replicas, image).await
     }
     async fn service_remove(&self, id: &str) -> OmniResult<()> {
-        service_remove(&*self.session.lock().await, id).await
+        service_remove(&*self.session, id).await
     }
     async fn service_logs(&self, id: &str, tail: Option<&str>) -> OmniResult<String> {
-        service_logs(&*self.session.lock().await, id, tail).await
+        service_logs(&*self.session, id, tail).await
     }
     async fn node_list(&self) -> OmniResult<Vec<DockerNodeSummary>> {
-        node_list(&*self.session.lock().await).await
+        node_list(&*self.session).await
     }
     async fn node_inspect(&self, id: &str) -> OmniResult<serde_json::Value> {
-        node_inspect(&*self.session.lock().await, id).await
+        node_inspect(&*self.session, id).await
     }
     async fn node_update(
         &self,
@@ -245,10 +245,10 @@ impl DockerAdapter for SshDockerAdapter {
         availability: Option<&str>,
         labels: Option<Vec<DockerKeyValue>>,
     ) -> OmniResult<()> {
-        node_update(&*self.session.lock().await, id, availability, labels).await
+        node_update(&*self.session, id, availability, labels).await
     }
     async fn node_remove(&self, id: &str, force: bool) -> OmniResult<()> {
-        node_remove(&*self.session.lock().await, id, force).await
+        node_remove(&*self.session, id, force).await
     }
     async fn stack_deploy(
         &self,
@@ -256,16 +256,16 @@ impl DockerAdapter for SshDockerAdapter {
         compose_content: &str,
         env: Option<Vec<String>>,
     ) -> OmniResult<()> {
-        stack_deploy(&*self.session.lock().await, name, compose_content, env).await
+        stack_deploy(&*self.session, name, compose_content, env).await
     }
     async fn stack_list(&self) -> OmniResult<Vec<DockerStackSummary>> {
-        stack_list(&*self.session.lock().await).await
+        stack_list(&*self.session).await
     }
     async fn stack_remove(&self, name: &str) -> OmniResult<()> {
-        stack_remove(&*self.session.lock().await, name).await
+        stack_remove(&*self.session, name).await
     }
     async fn stack_services(&self, name: &str) -> OmniResult<Vec<DockerServiceSummary>> {
-        stack_services(&*self.session.lock().await, name).await
+        stack_services(&*self.session, name).await
     }
 }
 
@@ -461,7 +461,7 @@ pub async fn create_exec(
     rows: u16,
 ) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
     let cmd = format!(
-        "docker exec -it {} {}",
+        "docker exec -i {} {}",
         shell_quote(container_id),
         shell_quote(shell)
     );

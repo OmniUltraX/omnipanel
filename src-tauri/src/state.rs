@@ -12,6 +12,7 @@ use crate::protocol::sniffer::SnifferSession;
 use crate::protocol::ws::WsSession;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
+use omnipanel_docker::DockerExecSession;
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{DatabaseConnectionStore, Storage};
 
@@ -32,6 +33,13 @@ use crate::background::SshPool;
 use crate::commands::ssh::SshTunnelInfo;
 use crate::log_store::LogStore;
 use crate::output_buffer::{self, OutputBuffers};
+
+/// Docker 容器交互终端会话条目（含归属，便于切换/重进时回收旧 PTY）。
+pub struct DockerExecSessionEntry {
+    pub session: DockerExecSession,
+    pub connection_id: String,
+    pub container_id: String,
+}
 
 pub struct AppState {
     pub serial_sessions: Arc<Mutex<HashMap<String, SerialSession>>>,
@@ -59,13 +67,13 @@ pub struct AppState {
     /// 后台任务日志存储。
     pub log_store: LogStore,
     /// Docker SSH-Engine 连接的复用会话池（按 docker 连接 id 索引）。
-    pub docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
+    pub docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
     /// 活跃 Docker 日志流的停止句柄（按 streamId 索引）。
     pub docker_log_streams: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 活跃 Docker stats 流的停止句柄（按 streamId 索引）。
     pub docker_stats_streams: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 活跃 Docker 容器交互终端会话（按 sessionId 索引）。
-    pub docker_exec_sessions: Arc<Mutex<HashMap<String, omnipanel_docker::DockerExecSession>>>,
+    pub docker_exec_sessions: Arc<Mutex<HashMap<String, DockerExecSessionEntry>>>,
     /// 活跃 SSH 隧道（按 tunnelId 索引）。
     pub ssh_tunnels: Arc<Mutex<HashMap<String, SshTunnelInfo>>>,
     /// 正在运行的工作流执行（按 executionId 索引，AtomicBool 为 cancel flag）。

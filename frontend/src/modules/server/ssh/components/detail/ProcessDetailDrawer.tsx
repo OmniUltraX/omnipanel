@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "@/components/ui/DetailPanelShell";
 import { useI18n } from "@/i18n";
 import {
   commands,
@@ -132,16 +133,14 @@ export function ProcessDetailDrawer({
 
   return (
     <>
-      <div
-        className={`drawer-overlay${open ? " show" : ""}`}
-        onClick={onClose}
-        aria-hidden={!open}
-      />
-      <aside
-        className={`drawer ssh-process-drawer${open ? " show" : ""}`}
-        role="dialog"
-        aria-label={t("ssh.processDetail.title")}
-        aria-hidden={!open}
+      <DetailPanelShell
+        open={open}
+        onClose={onClose}
+        ariaLabel={t("ssh.processDetail.title")}
+        floatingTitle={`${t("ssh.processDetail.title")} — PID ${process?.pid ?? ""}`}
+        variant="drawer"
+        widthRatio={0.5}
+        heightRatio={0.8}
       >
         {open && process && (
           <>
@@ -153,9 +152,12 @@ export function ProcessDetailDrawer({
                   <span className="ssh-process-drawer-user">{process.user}</span>
                 </h2>
               </div>
-              <Button variant="icon" onClick={onClose} title={t("ssh.keys.cancel")}>
-                ×
-              </Button>
+              <div className="docker-drawer-header-actions">
+                <DetailPanelModeToggle />
+                <Button variant="icon" onClick={onClose} title={t("ssh.keys.cancel")}>
+                  ×
+                </Button>
+              </div>
             </header>
             <div className="drawer-body ssh-process-drawer-body">
               <section className="ssh-process-drawer-section">
@@ -293,7 +295,7 @@ export function ProcessDetailDrawer({
             </footer>
           </>
         )}
-      </aside>
+      </DetailPanelShell>
     </>
   );
 }

@@ -48,6 +48,7 @@ import { openSshTerminalSession } from "./lib/terminalSession";
 import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
+import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 
 function TopbarPageActions() {
   const { t } = useI18n();
@@ -55,6 +56,8 @@ function TopbarPageActions() {
   const path = location.pathname;
   const activeResourceId = useWorkspaceStore((state) => state.activeResourceId);
   const activeResource = getResourceById(activeResourceId);
+  const dockerRefresh = useDockerTopbarStore((s) => s.refresh);
+  const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
 
   if (path === "/terminal") {
     return null;
@@ -127,6 +130,31 @@ function TopbarPageActions() {
           {t("protocol.actions.newTab")}
         </Button>
       </>
+    );
+  }
+
+  if (path === "/docker" && dockerRefresh) {
+    return (
+      <Button
+        variant="icon"
+        title={t("common.refresh")}
+        aria-label={t("common.refresh")}
+        disabled={dockerRefreshing}
+        onClick={dockerRefresh}
+      >
+        <svg
+          className={dockerRefreshing ? "icon-spin" : undefined}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          width="16"
+          height="16"
+        >
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
+        </svg>
+      </Button>
     );
   }
 

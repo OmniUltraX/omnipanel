@@ -78,6 +78,14 @@ impl DockerExecSession {
             Self::Ssh(pty) => pty.resize(cols, rows).await,
         }
     }
+
+    /// 关闭会话并释放底层 SSH exec / bollard 资源。
+    pub async fn close(self) -> OmniResult<()> {
+        match self {
+            Self::Local { .. } => Ok(()),
+            Self::Ssh(pty) => pty.close().await,
+        }
+    }
 }
 
 use crate::compose::{ComposeContainerRow, aggregate_compose};

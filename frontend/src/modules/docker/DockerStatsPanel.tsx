@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../../components/ui/Button";
+import { DetailPanelModeToggle } from "../../components/ui/DetailPanelShell";
 import { CloseIcon } from "./icons";
 
 interface ContainerStats {
@@ -108,13 +109,14 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
   return (
     <div className="docker-stats-panel">
       <div className="docker-stats-header">
-        <strong>资源监控 — {containerName}</strong>
+        <strong className="detail-panel-floating-hide">资源监控 — {containerName}</strong>
         <div className="flex items-center gap-2">
+          <DetailPanelModeToggle />
           <label className="text-sm text-muted" style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             实时刷新
           </label>
-          <Button variant="icon" onClick={onClose} title="关闭">
+          <Button variant="icon" className="detail-panel-floating-hide" onClick={onClose} title="关闭">
             <CloseIcon />
           </Button>
         </div>

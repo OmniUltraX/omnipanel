@@ -26,7 +26,7 @@ use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, ssh_key};
 use russh::{Channel, ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
 /// SSH 认证方式。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -258,6 +258,8 @@ pub struct SshPtySession {
     channel: Arc<tokio::sync::Mutex<Channel<russh::client::Msg>>>,
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
+    /// 同一会话只允许一个 PTY exec，防止快速重进时堆叠 channel。
+    _pty_permit: OwnedSemaphorePermit,
 }
 
 impl SshPtySession {
@@ -279,22 +281,28 @@ impl SshPtySession {
             })
     }
 
-    /// 主动关闭会话。
+    /// 主动关闭会话：先通知读任务退出（由读任务统一 close channel），避免与读任务争锁死锁。
     pub async fn close(mut self) -> OmniResult<()> {
         self.stop.store(true, Ordering::Relaxed);
-        {
-            let ch = self.channel.lock().await;
-            let _ = ch.eof().await;
-            let _ = ch.close().await;
-        }
         if let Some(task) = self._task.take() {
-            let _ = task.await;
+            let _ = tokio::time::timeout(Duration::from_secs(8), task).await;
         }
         Ok(())
     }
 }
 
-/// 读任务的实际逻辑：循环消费 channel 数据，按通道类型发往 tx，stop 触发时关闭 channel。
+impl Drop for SshPtySession {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// 读任务的实际逻辑：循环消费 channel 数据，按通道类型发往 tx，结束时关闭 channel。
+async fn close_exec_channel(channel: &mut Channel<russh::client::Msg>) {
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
+}
+
 async fn run_stream_task(
     channel: &mut Channel<russh::client::Msg>,
     tx: mpsc::UnboundedSender<StreamChunk>,
@@ -332,12 +340,11 @@ async fn run_stream_task(
                 }
             }
             _ = wait_stop(&stop) => {
-                let _ = channel.eof().await;
-                let _ = channel.close().await;
                 break;
             }
         }
     }
+    close_exec_channel(channel).await;
     if saw_exit {
         let _ = tx.send(StreamChunk::Exit(exit_code));
     } else {
@@ -346,12 +353,8 @@ async fn run_stream_task(
 }
 
 async fn wait_stop(stop: &AtomicBool) {
-    // 简单轮询：100ms 一次，足够 UI 流式跟随的颗粒度。
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    while !stop.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -380,6 +383,8 @@ enum ShellMsg {
 pub struct SshSession {
     session: client::Handle<Client>,
     shell_tx: Option<mpsc::UnboundedSender<ShellMsg>>,
+    /// 交互式 PTY exec 串行化（docker exec -it 等），避免同连接上堆叠多个 PTY channel。
+    pty_gate: Arc<Semaphore>,
 }
 
 impl SshSession {
@@ -480,6 +485,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: Some(shell_tx),
+            pty_gate: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -523,6 +529,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: None,
+            pty_gate: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -554,36 +561,43 @@ impl SshSession {
         let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
         })?;
-        channel.exec(true, command).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
-        })?;
 
-        let mut stdout: Vec<u8> = Vec::new();
-        let mut stderr: Vec<u8> = Vec::new();
-        let mut exit_code: i32 = 0;
+        let result: OmniResult<ExecOutput> = async {
+            channel.exec(true, command).await.map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
+            })?;
 
-        while let Some(msg) = channel.wait().await {
-            match msg {
-                ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
-                ChannelMsg::ExtendedData { ref data, ext } => {
-                    // ext == 1 为 stderr，其余并入 stdout。
-                    if ext == 1 {
-                        stderr.extend_from_slice(data);
-                    } else {
-                        stdout.extend_from_slice(data);
+            let mut stdout: Vec<u8> = Vec::new();
+            let mut stderr: Vec<u8> = Vec::new();
+            let mut exit_code: i32 = 0;
+
+            while let Some(msg) = channel.wait().await {
+                match msg {
+                    ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
+                    ChannelMsg::ExtendedData { ref data, ext } => {
+                        // ext == 1 为 stderr，其余并入 stdout。
+                        if ext == 1 {
+                            stderr.extend_from_slice(data);
+                        } else {
+                            stdout.extend_from_slice(data);
+                        }
                     }
+                    ChannelMsg::ExitStatus { exit_status } => exit_code = exit_status as i32,
+                    ChannelMsg::Eof | ChannelMsg::Close => break,
+                    _ => {}
                 }
-                ChannelMsg::ExitStatus { exit_status } => exit_code = exit_status as i32,
-                ChannelMsg::Eof | ChannelMsg::Close => break,
-                _ => {}
             }
-        }
 
-        Ok(ExecOutput {
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
-            exit_code,
-        })
+            Ok(ExecOutput {
+                stdout: String::from_utf8_lossy(&stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                exit_code,
+            })
+        }
+        .await;
+
+        close_exec_channel(&mut channel).await;
+        result
     }
 
     /// 在独立 exec channel 上以流式方式运行命令，stdout/stderr 实时写入 `tx`。
@@ -597,9 +611,10 @@ impl SshSession {
         let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
         })?;
-        channel.exec(true, command).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
-        })?;
+        if let Err(e) = channel.exec(true, command).await {
+            close_exec_channel(&mut channel).await;
+            return Err(OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string()));
+        }
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
@@ -624,18 +639,27 @@ impl SshSession {
         rows: u16,
         tx: mpsc::UnboundedSender<StreamChunk>,
     ) -> OmniResult<SshPtySession> {
-        let channel = self.session.channel_open_session().await.map_err(|e| {
+        let pty_permit = tokio::time::timeout(Duration::from_secs(15), self.pty_gate.clone().acquire_owned())
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "等待 PTY 资源超时，请关闭其他容器终端后重试"))?
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话资源不可用"))?;
+
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SSH PTY 通道失败").with_cause(e.to_string())
         })?;
-        channel
+        if let Err(e) = channel
             .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Ssh, "请求 PTY 失败").with_cause(e.to_string())
-            })?;
-        channel.exec(true, command).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "发起 PTY exec 命令失败").with_cause(e.to_string())
-        })?;
+        {
+            close_exec_channel(&mut channel).await;
+            return Err(OmniError::new(ErrorCode::Ssh, "请求 PTY 失败").with_cause(e.to_string()));
+        }
+        if let Err(e) = channel.exec(true, command).await {
+            close_exec_channel(&mut channel).await;
+            return Err(
+                OmniError::new(ErrorCode::Ssh, "发起 PTY exec 命令失败").with_cause(e.to_string())
+            );
+        }
 
         // 复用已打开的 exec channel（而非创建第二个空 channel）。
         let shared: Arc<tokio::sync::Mutex<Channel<russh::client::Msg>>> =
@@ -652,6 +676,7 @@ impl SshSession {
             channel: shared,
             stop,
             _task: Some(task),
+            _pty_permit: pty_permit,
         })
     }
 

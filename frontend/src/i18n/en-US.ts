@@ -316,6 +316,10 @@ export const enUS: TranslationDict = {
     newConnection: "New Connection",
     addHost: "Add Host",
   },
+    detailPanel: {
+      modeDrawer: "Switch to right drawer",
+      modeFloating: "Switch to floating window",
+    },
     statusbar: {
       resourcesOnline: "{count} resources online",
       current: "Current: {name}",
@@ -1151,6 +1155,7 @@ export const enUS: TranslationDict = {
       pruneConfirm: "Generate Prune Confirmation",
     },
     drawer: {
+      containerDetail: "Container details",
       popout: "Open in window",
       popoutTitle: "Container — {name}",
       close: "Close drawer",
@@ -1492,6 +1497,12 @@ export const enUS: TranslationDict = {
       desc: "Choose how the AI assistant panel is displayed",
       subwindow: "Center popup window",
       dockview: "Right dock panel",
+    },
+    detailPanel: {
+      label: "Detail panel default mode",
+      desc: "Default layout for container, image, SSH process details; switch anytime in the panel header",
+      drawer: "Right drawer",
+      floating: "Floating window",
     },
     aiOther: {
       title: "Other",
