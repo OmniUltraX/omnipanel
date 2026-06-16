@@ -467,8 +467,25 @@ export function DockerPanel() {
     () => workspaceTopbarTabs.map(({ id, label }) => ({ id, label })),
     [workspaceTopbarTabs],
   );
-  const showTopbarTabs =
-    isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
+  
+  useEffect(() => {
+    const setRefresh = useDockerTopbarStore.getState().setRefresh;
+    const canRefresh =
+      isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
+    if (!canRefresh) {
+      setRefresh(null, false);
+      return;
+    }
+    setRefresh(refresh, dataRefreshing);
+    return () => setRefresh(null, false);
+  }, [
+    isActiveRoute,
+    connectionsLoading,
+    connections.length,
+    selectedConnectionId,
+    refresh,
+    dataRefreshing,
+  ]);
 
   useEffect(() => {
     const setRefresh = useDockerTopbarStore.getState().setRefresh;
@@ -591,6 +608,13 @@ export function DockerPanel() {
 
   return (
     <>
+      <ModuleSegmentDock
+        className="docker-module-dock"
+        tabs={dockerSegmentTabs}
+        activeTabId={tab}
+        onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
+        enabled={isActiveRoute}
+        renderPanel={(tabId) => (
         <SidebarWorkspace
           preset="server"
           sidebar={
@@ -633,14 +657,6 @@ export function DockerPanel() {
           <div className="docker-empty">请选择一个 Docker 连接</div>
         ) : (
           <>
-            <ModuleSegmentDock
-              className="docker-module-dock"
-              tabs={dockerSegmentTabs}
-              activeTabId={tab}
-              onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
-              enabled={showTopbarTabs}
-              renderPanel={(tabId) => (
-                <>
             {isOffline && !showLocalEngineWelcome && (
               <div className="docker-empty" style={{ minHeight: 80, padding: "16px 0" }}>
                 <div className="docker-empty-title">Docker 未安装或未启动</div>
@@ -1141,14 +1157,13 @@ export function DockerPanel() {
               )
             )}
             </div>
-                </>
-              )}
-            />
           </>
         )}
           </div>
         </div>
         </SidebarWorkspace>
+        )}
+      />
 
       <DetailPanelShell
         open={Boolean(drawerId)}
@@ -1370,7 +1385,6 @@ function ContainerDrawerBody({
   onSendToAi,
   onClose,
 }: ContainerDrawerBodyProps) {
-  const { t } = useI18n();
   const [terminalReady, setTerminalReady] = useState(false);
 
   useEffect(() => {

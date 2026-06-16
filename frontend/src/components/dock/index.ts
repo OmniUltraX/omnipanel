@@ -21,7 +21,17 @@ export {
   removePanelFromLayout,
   diffRemovedPanelIds,
   normalizeDockLayout,
+  describeDockLayout,
+  type DockLayoutSnapshot,
+  type DockGroupSnapshot,
+  type DockPanelPlacement,
+  type DockGroupRegion,
 } from "./dockViewLayout";
+export {
+  resolveDockWindowChromeLayout,
+  resolveSegmentWindowChromeHosts,
+  type DockWindowChromeLayout,
+} from "./dockWindowChromeLayout";
 export {
   DOCK_PANEL_TYPES,
   PANEL_TYPE_PARAM,

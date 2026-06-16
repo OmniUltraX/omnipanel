@@ -18,7 +18,7 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { TerminalTabDockPane } from "./TerminalTabDockPane";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
-import { DockableWorkspace } from "../../components/dock";
+import { ModuleSegmentDock } from "../../components/dock";
 import {
   removeTabFromTerminalLayout,
   useTerminalDockLayoutStore,
@@ -265,7 +265,7 @@ export function TerminalPanel() {
 
   if (visibleTabs.length === 0) {
     return (
-      <div className="term-workspace-dock term-workspace-dock--empty">
+      <div className="module-root-dock module-root-dock--empty">
         <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
       </div>
     );
@@ -273,11 +273,9 @@ export function TerminalPanel() {
 
   return (
     <>
-      <DockableWorkspace
-        className="term-workspace-dock"
+      <ModuleSegmentDock
+        className="terminal-module-dock"
         dockScope="terminal"
-        tabStyle="topbar"
-        enableTabGroups={false}
         tabs={dockTabs}
         activeTabId={activeTabId ?? visibleTabs[0]?.id ?? ""}
         onActiveTabChange={setActiveTab}
@@ -287,7 +285,7 @@ export function TerminalPanel() {
         renderPanel={renderDockPanel}
         onTabContextMenu={handleDockTabContextMenu}
         addTabConfig={addTabConfig}
-        windowControl
+        enabled={isActiveRoute}
         emptyContent={
           <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
         }

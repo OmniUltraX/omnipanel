@@ -168,7 +168,7 @@ export function ServerPanel() {
         tabs={segmentTabs}
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as ServerWorkspaceTab)}
-        enabled={isActiveRoute && !!activeServer}
+        enabled={isActiveRoute}
         renderPanel={renderPanel}
       />
       <ServerConnectionDialog

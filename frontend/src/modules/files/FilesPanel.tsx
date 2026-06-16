@@ -3,27 +3,22 @@ import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plug
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { useI18n } from "../../i18n";
 import type { Connection, FileEntry, FileManagerConnectionInfo } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
 import { quickInput } from "../../stores/quickInputStore";
 import { FileConnectionDialog } from "./FileConnectionDialog";
+import { FilesSidebar } from "./FilesSidebar";
 import {
-  ConnProtocolIcon,
   IconGridView,
   IconListView,
-  IconLocalConn,
   IconNavBack,
   IconNavForward,
   IconNavUp,
   IconNewFolder,
-  IconQuickDesktop,
-  IconQuickDocuments,
-  IconQuickDownloads,
-  IconQuickHome,
   IconRefresh,
-  IconS3Conn,
   IconSearch,
   IconUpload,
 } from "./FilesPanelIcons";
@@ -54,17 +49,6 @@ type ViewMode = "list" | "grid";
 type FileCtxState = { kind: "file"; x: number; y: number; entry: FileEntry };
 type ConnCtxState = { kind: "conn"; x: number; y: number; conn: FileManagerConnectionInfo };
 type CtxState = FileCtxState | ConnCtxState | null;
-
-function groupTitleIcon(group: string, protocol?: string) {
-  if (group.includes("S3") || protocol === "s3") return <IconS3Conn />;
-  if (group.includes("本地") || protocol === "local") return <IconLocalConn />;
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="8" cy="8" r="6" />
-      <path d="M2 8h12M8 2c2 2 2 6 0 8s-2 4-2 4" />
-    </svg>
-  );
-}
 
 function splitBreadcrumb(path: string, protocol: string): { label: string; path: string }[] {
   if (!path) return [{ label: protocol === "local" ? "~" : "/", path: "" }];
@@ -478,55 +462,22 @@ export function FilesPanel() {
   const canForward = historyIndex >= 0 && historyIndex < history.length - 1;
 
   return (
-    <div className="fm-layout">
-      <aside className="fm-sidebar">
-        <div className="fm-sidebar-header">
-          <h3>{t("files.sidebar.title")}</h3>
-          <button type="button" title={t("files.sidebar.add")} onClick={openNewConnectionDialog}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M8 3v10M3 8h10" />
-            </svg>
-          </button>
-        </div>
-        <div className="fm-connections">
-          {groupedConnections.map(([group, items]) => (
-            <div key={group} className="fm-conn-group">
-              <div className="fm-conn-group-title">
-                {groupTitleIcon(group, items[0]?.protocol)}
-                {group}
-              </div>
-              {items.map((conn) => (
-                <div
-                  key={conn.id}
-                  className={`fm-conn-item${conn.id === activeId ? " active" : ""}`}
-                  onClick={() => void selectConnection(conn)}
-                  onContextMenu={(e) => handleConnContextMenu(e, conn)}
-                >
-                  <ConnProtocolIcon protocol={conn.protocol} />
-                  <span className="conn-name">{conn.name}</span>
-                  <span className={`conn-status ${conn.status === "online" ? "online" : "offline"}`} />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-        {activeId === LOCAL_CONNECTION_ID && quickPaths && (
-          <div className="fm-quick-section">
-            {[
-              { label: t("files.quick.home"), path: quickPaths.home, icon: <IconQuickHome /> },
-              { label: t("files.quick.desktop"), path: quickPaths.desktop, icon: <IconQuickDesktop /> },
-              { label: t("files.quick.documents"), path: quickPaths.documents, icon: <IconQuickDocuments /> },
-              { label: t("files.quick.downloads"), path: quickPaths.downloads, icon: <IconQuickDownloads /> },
-            ].map((item) => (
-              <div key={item.label} className="fm-quick-item" onClick={() => navigateTo(item.path)}>
-                {item.icon}
-                {item.label}
-              </div>
-            ))}
-          </div>
-        )}
-      </aside>
-
+    <>
+      <SidebarWorkspace
+        preset="server"
+        className="files-workspace"
+        sidebar={
+          <FilesSidebar
+            groupedConnections={groupedConnections}
+            activeId={activeId}
+            quickPaths={quickPaths}
+            onSelectConnection={(conn) => void selectConnection(conn)}
+            onConnContextMenu={handleConnContextMenu}
+            onAddConnection={openNewConnectionDialog}
+            onQuickNavigate={navigateTo}
+          />
+        }
+      >
       <div className="fm-main">
         <div className="fm-toolbar">
           <button
@@ -742,6 +693,7 @@ export function FilesPanel() {
           </div>
         )}
       </div>
+      </SidebarWorkspace>
 
       <FileConnectionDialog
         open={dialogOpen}
@@ -760,6 +712,6 @@ export function FilesPanel() {
           onClose={() => setCtxMenu(null)}
         />
       )}
-    </div>
+    </>
   );
 }

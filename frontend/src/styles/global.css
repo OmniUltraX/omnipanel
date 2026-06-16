@@ -1343,12 +1343,56 @@
     --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
 }
 
-/* 模块分段 Tab（原 topbar segment） */
+/* 模块顶级 Dock（ModuleSegmentDock）— 与终端 dock 共用 tab 栏 / windowControl 样式 */
+.module-root-dock.dockable-workspace,
 .module-segment-dock.dockable-workspace {
     flex: 1;
     min-height: 0;
     height: 100%;
     width: 100%;
+    background: var(--bg-deeper);
+}
+
+.module-root-dock--empty {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-deeper);
+}
+
+.module-root-dock.dock-window-control,
+.module-segment-dock.dock-window-control {
+    --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
+    --dv-tabs-and-actions-container-font-size: 14px;
+}
+
+.module-root-dock.dock-window-control .dockable-workspace__dockview,
+.module-root-dock.dock-window-control .dockable-workspace__dockview.dockview-theme-dark,
+.module-root-dock.dock-window-control .dockview-theme-dark,
+.module-segment-dock.dock-window-control .dockable-workspace__dockview,
+.module-segment-dock.dock-window-control .dockable-workspace__dockview.dockview-theme-dark,
+.module-segment-dock.dock-window-control .dockview-theme-dark {
+    --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
+}
+
+.module-root-dock.dock-window-control .dv-tabs-and-actions-container,
+.module-segment-dock.dock-window-control .dv-tabs-and-actions-container {
+    height: var(--shell-dv-tab-bar-h);
+    min-height: var(--shell-dv-tab-bar-h);
+    max-height: var(--shell-dv-tab-bar-h);
+}
+
+.module-root-dock .dv-content-container {
+    background: var(--bg-deeper);
+}
+
+.module-root-dock .dock-pane-surface {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .dockable-workspace__dockview {
@@ -1599,6 +1643,23 @@
     height: 100%;
     min-height: 0;
     width: 46px;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions--controls-only {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-end;
+    margin-left: 0;
+}
+
+.dockable-workspace.dock-window-control
+    .dv-right-actions-container:has(.dock-window-title-actions--controls-only) {
+    justify-content: flex-end;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions--controls-only .win-controls {
+    flex-shrink: 0;
+    margin-left: 0;
 }
 
 .dockable-workspace .dock-panel-add-btn,
@@ -1990,7 +2051,7 @@
     background: var(--bg);
 }
 
-/* 终端模块工作区（tab 样式继承 .dockable-workspace，此处仅覆盖布局/背景） */
+/* 终端模块工作区（兼容旧类名，样式已迁入 .module-root-dock） */
 .term-workspace-dock.dockable-workspace {
     flex: 1;
     min-height: 0;
@@ -1998,7 +2059,8 @@
     background: var(--bg-deeper);
 }
 
-.term-workspace-dock--empty {
+.term-workspace-dock--empty,
+.module-root-dock--empty {
     flex: 1;
     min-height: 0;
     height: 100%;
@@ -2007,11 +2069,13 @@
     background: var(--bg-deeper);
 }
 
-.term-workspace-dock .dv-content-container {
+.term-workspace-dock .dv-content-container,
+.module-root-dock .dv-content-container {
     background: var(--bg-deeper);
 }
 
-.term-workspace-dock .dock-pane-surface {
+.term-workspace-dock .dock-pane-surface,
+.module-root-dock .dock-pane-surface {
     height: 100%;
     min-height: 0;
     display: flex;
@@ -17953,19 +18017,20 @@
 }
 
 /* ─── File Manager ─────────────────────────────────────────────── */
-.fm-layout {
-    display: flex;
+.files-workspace.dock-workspace {
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    height: 100%;
 }
 
 .fm-sidebar {
-    width: 220px;
-    border-right: 1px solid var(--border);
+    width: 100%;
+    min-width: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    overflow: hidden;
     background: var(--bg-deeper);
 }
 
@@ -18145,6 +18210,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    height: 100%;
 }
 
 .fm-toolbar {

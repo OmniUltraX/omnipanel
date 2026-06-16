@@ -777,7 +777,6 @@ pub async fn docker_create_exec_session(
             DockerExecSessionEntry {
                 session,
                 connection_id: connection_id.clone(),
-                container_id: container_id.clone(),
             },
         );
 

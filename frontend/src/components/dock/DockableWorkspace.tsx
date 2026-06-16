@@ -26,6 +26,7 @@ import {
   collectPanelIds,
   normalizeDockLayout,
   isLayoutUsable,
+  describeDockLayout,
 } from "./dockViewLayout";
 import { DockErrorBoundary } from "./DockErrorBoundary";
 import {
@@ -41,12 +42,14 @@ import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
 import type { DockTabIconKind } from "./DockTabIcon";
-import { DockWindowTitleActions } from "./DockWindowTitleActions";
+import { DockWindowChromeActions, type DockWindowChromeMode } from "./DockWindowTitleActions";
+import { resolveDockWindowChromeLayout, resolveSegmentWindowChromeHosts } from "./dockWindowChromeLayout";
 import {
   syncGroupHeaderPosition,
   type DockHeaderPosition,
 } from "./dockHeaderPosition";
 import type { DockableTab } from "./dockableTab";
+import { logDockLayoutChange } from "./dockLayoutLog";
 
 export type { DockableTab } from "./dockableTab";
 
@@ -98,8 +101,13 @@ export interface DockableWorkspaceProps {
   tabStyle?: "default" | "topbar";
   /** 右侧「+」新建 tab / 菜单（与顶栏 TopbarTabs 行为一致） */
   addTabConfig?: DockAddTabConfig;
-  /** 布局变化时在首个 panel 所在 group 的 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
+  /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
+  /**
+   * segment：模块分段 Tab（ModuleSegmentDock），单 group tab 栏固定含 drag-spacer。
+   * default：按布局树解析顶部/右上角 group。
+   */
+  windowChromeVariant?: "default" | "segment";
 }
 
 interface PanelParams {
@@ -151,10 +159,12 @@ export function DockableWorkspace({
   tabStyle = "default",
   addTabConfig,
   windowControl = false,
+  windowChromeVariant = "default",
 }: DockableWorkspaceProps) {
-  const [windowControlsGroupId, setWindowControlsGroupId] = useState<string | null>(
-    null,
-  );
+  const [windowChromeHosts, setWindowChromeHosts] = useState<{
+    dragGroupId: string | null;
+    controlsGroupId: string | null;
+  }>({ dragGroupId: null, controlsGroupId: null });
   const apiRef = useRef<DockviewApi | null>(null);
   const viewIdRef = useRef<string | null>(null);
   const transferredOutRef = useRef(new Set<string>());
@@ -179,6 +189,8 @@ export function DockableWorkspace({
   createPanelRequestRef.current = createPanelRequest;
   const dockScopeRef = useRef(dockScope);
   dockScopeRef.current = dockScope;
+  const classNameRef = useRef(className);
+  classNameRef.current = className;
   const acceptExternalDropsRef = useRef(acceptExternalDrops);
   acceptExternalDropsRef.current = acceptExternalDrops;
   const canAcceptExternalDropRef = useRef(canAcceptExternalDrop);
@@ -197,21 +209,65 @@ export function DockableWorkspace({
   enableTabGroupsRef.current = enableTabGroups;
   const windowControlRef = useRef(windowControl);
   windowControlRef.current = windowControl;
-  const windowControlsGroupIdRef = useRef(windowControlsGroupId);
-  windowControlsGroupIdRef.current = windowControlsGroupId;
+  const windowChromeVariantRef = useRef(windowChromeVariant);
+  windowChromeVariantRef.current = windowChromeVariant;
 
-  const syncWindowControlsHost = useCallback((api: DockviewApi) => {
+  const windowChromeHostsRef = useRef(windowChromeHosts);
+  windowChromeHostsRef.current = windowChromeHosts;
+
+  const syncWindowChromeHost = useCallback((api: DockviewApi) => {
     if (!windowControlRef.current) {
-      setWindowControlsGroupId((prev) => (prev === null ? prev : null));
+      setWindowChromeHosts((prev) =>
+        prev.dragGroupId === null && prev.controlsGroupId === null
+          ? prev
+          : { dragGroupId: null, controlsGroupId: null },
+      );
       return;
     }
-    const firstPanel = api.panels[0];
-    const nextGroupId = firstPanel?.group?.id ?? null;
-    setWindowControlsGroupId((prev) => (prev === nextGroupId ? prev : nextGroupId));
+    const raw = api.toJSON();
+    const layout = normalizeDockLayout(raw) ?? raw;
+    let next: { dragGroupId: string | null; controlsGroupId: string | null };
+
+    if (windowChromeVariantRef.current === "segment") {
+      const groupIds =
+        api.groups.length > 0
+          ? api.groups.map((g) => g.id)
+          : (describeDockLayout(layout)?.groups.map((g) => g.id) ?? []);
+      next = resolveSegmentWindowChromeHosts(groupIds);
+    } else {
+      const chrome = resolveDockWindowChromeLayout(
+        layout,
+        defaultHeaderPositionRef.current,
+      );
+      next = {
+        dragGroupId: chrome?.dragGroupId ?? null,
+        controlsGroupId: chrome?.controlsGroupId ?? null,
+      };
+    }
+    setWindowChromeHosts((prev) =>
+      prev.dragGroupId === next.dragGroupId &&
+      prev.controlsGroupId === next.controlsGroupId
+        ? prev
+        : next,
+    );
   }, []);
 
-  const syncWindowControlsHostRef = useRef(syncWindowControlsHost);
-  syncWindowControlsHostRef.current = syncWindowControlsHost;
+  const syncWindowChromeHostRef = useRef(syncWindowChromeHost);
+  syncWindowChromeHostRef.current = syncWindowChromeHost;
+
+  const logLayoutRef = useRef(
+    (layout: SerializedDockview, source: "layout-change" | "initial-load" | "saved-layout") => {
+      logDockLayoutChange(
+        layout,
+        {
+          source,
+          dockScope: dockScopeRef.current,
+          className: classNameRef.current,
+        },
+        apiRef.current,
+      );
+    },
+  );
   const tabStyleRef = useRef(tabStyle);
   tabStyleRef.current = tabStyle;
   const addTabConfigRef = useRef(addTabConfig);
@@ -310,10 +366,23 @@ export function DockableWorkspace({
   const rightHeaderActions = useCallback(
     (props: IDockviewHeaderActionsProps) => {
       if (!windowControlRef.current) return null;
-      if (props.group.id !== windowControlsGroupIdRef.current) return null;
-      return <DockWindowTitleActions />;
+      const { dragGroupId, controlsGroupId } = windowChromeHostsRef.current;
+      const groupId = props.group.id;
+      const isDragHost = groupId === dragGroupId;
+      const isControlsHost = groupId === controlsGroupId;
+      if (!isDragHost && !isControlsHost) return null;
+
+      let mode: DockWindowChromeMode;
+      if (isControlsHost) {
+        // 右上角：移动 + 窗口控制
+        mode = "both";
+      } else {
+        // 占据顶部（非右上角）：仅移动
+        mode = "drag";
+      }
+      return <DockWindowChromeActions mode={mode} />;
     },
-    [windowControlsGroupId],
+    [windowChromeHosts],
   );
 
   // dockview DOM 顺序：tabs → leftActions → void → rightActions
@@ -448,7 +517,9 @@ export function DockableWorkspace({
         ensureExternalDropTarget(api);
       }
       bumpPanelContentRev(api);
-      syncWindowControlsHostRef.current(api);
+      syncWindowChromeHostRef.current(api);
+      const initialLayout = normalizeDockLayout(api.toJSON()) ?? api.toJSON();
+      logLayoutRef.current(initialLayout, "initial-load");
       return;
     }
     isSyncingRef.current = true;
@@ -489,7 +560,9 @@ export function DockableWorkspace({
       ensureExternalDropTarget(api);
     }
     bumpPanelContentRev(api);
-    syncWindowControlsHostRef.current(api);
+    syncWindowChromeHostRef.current(api);
+    const initialLayout = normalizeDockLayout(api.toJSON()) ?? api.toJSON();
+    logLayoutRef.current(initialLayout, "initial-load");
   }, [syncTabGroups, bumpPanelContentRev]);
 
   // 同步 tab 变更（添加/删除/重命名）
@@ -551,7 +624,7 @@ export function DockableWorkspace({
       syncTabGroups(api, false);
     } finally {
       isSyncingRef.current = false;
-      syncWindowControlsHostRef.current(api);
+      syncWindowChromeHostRef.current(api);
     }
   }, [tabs, syncTabGroups]);
 
@@ -603,6 +676,8 @@ export function DockableWorkspace({
         try {
           isSyncingRef.current = true;
           apiRef.current.fromJSON(normalized);
+          const loaded = normalizeDockLayout(apiRef.current.toJSON()) ?? apiRef.current.toJSON();
+          logLayoutRef.current(loaded, "saved-layout");
         } catch (err) {
           console.warn("[DockableWorkspace] fromJSON (savedLayout) failed, resetting", err);
           pendingSavedLayoutRef.current = null;
@@ -648,15 +723,16 @@ export function DockableWorkspace({
       disposablesRef.current = [];
 
       const layoutDisposable = api.onDidLayoutChange(() => {
-        syncWindowControlsHostRef.current(apiRef.current ?? api);
+        syncWindowChromeHostRef.current(apiRef.current ?? api);
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
         const raw = api.toJSON();
         const next = normalizeDockLayout(raw) ?? raw;
         lastWrittenLayoutRef.current = next;
+        logLayoutRef.current(next, "layout-change");
         onSavedLayoutChangeRef.current(next);
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
-        syncWindowControlsHostRef.current(apiRef.current ?? api);
+        syncWindowChromeHostRef.current(apiRef.current ?? api);
         if (isSyncingRef.current) return;
         if (transferredOutRef.current.delete(panel.id)) return;
         // 若该 panel 仍出现在外部 tabs 中 => 用户主动关闭
@@ -677,11 +753,11 @@ export function DockableWorkspace({
         });
       };
       const addDisposable = api.onDidAddPanel(() => {
-        syncWindowControlsHostRef.current(apiRef.current ?? api);
+        syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
       });
       const moveDisposable = api.onDidMovePanel(() => {
-        syncWindowControlsHostRef.current(apiRef.current ?? api);
+        syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
       });
 
@@ -761,7 +837,7 @@ export function DockableWorkspace({
       ];
 
       applyInitialLayout(api);
-      syncWindowControlsHostRef.current(api);
+      syncWindowChromeHostRef.current(api);
 
       // 同步当前 active tab
       if (activeTabId) {

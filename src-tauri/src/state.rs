@@ -38,7 +38,6 @@ use crate::output_buffer::{self, OutputBuffers};
 pub struct DockerExecSessionEntry {
     pub session: DockerExecSession,
     pub connection_id: String,
-    pub container_id: String,
 }
 
 pub struct AppState {

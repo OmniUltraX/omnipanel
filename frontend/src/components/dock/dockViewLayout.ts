@@ -476,3 +476,146 @@ export function diffRemovedPanelIds(
   const nextIds = collectPanelIds(next);
   return [...prevIds].filter((id) => !nextIds.has(id));
 }
+
+/** group 在窗口中的边缘接触关系 */
+export interface DockGroupRegion {
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+  left: boolean;
+}
+
+/** group（leaf）在分屏树中的摘要 */
+export interface DockGroupSnapshot {
+  id: string;
+  views: string[];
+  activeView?: string;
+  /** sash 相对尺寸 */
+  size?: number;
+  /** 从 grid 根到该 leaf 的路径，如 `branch[0] > branch[1] > leaf` */
+  path: string;
+  /** 是否接触窗口对应边缘（用于窗口拖拽区 / 控制按钮定位） */
+  region: DockGroupRegion;
+}
+
+/** 单个 panel 在布局中的位置摘要 */
+export interface DockPanelPlacement {
+  id: string;
+  groupId: string;
+  /** 在 group tab 栏中的顺序（0-based） */
+  tabIndex: number;
+  isActiveInGroup: boolean;
+  groupPath: string;
+  groupSize?: number;
+}
+
+/** 方案 A：`onSavedLayoutChange` 收到 layout 后，用此结构解析可读位置信息 */
+export interface DockLayoutSnapshot {
+  activeGroup: string | null;
+  orientation: string | null;
+  groups: DockGroupSnapshot[];
+  panels: DockPanelPlacement[];
+}
+
+function splitOrientationAtDepth(
+  rootOrientation: string,
+  depth: number,
+): "HORIZONTAL" | "VERTICAL" {
+  const root = rootOrientation === "VERTICAL" ? "VERTICAL" : "HORIZONTAL";
+  if (depth % 2 === 0) return root;
+  return root === "HORIZONTAL" ? "VERTICAL" : "HORIZONTAL";
+}
+
+function applySplitConstraint(
+  region: DockGroupRegion,
+  orientation: "HORIZONTAL" | "VERTICAL",
+  index: number,
+  siblingCount: number,
+): DockGroupRegion {
+  const next = { ...region };
+  if (orientation === "VERTICAL") {
+    if (index > 0) next.top = false;
+    if (index < siblingCount - 1) next.bottom = false;
+  } else {
+    if (index > 0) next.left = false;
+    if (index < siblingCount - 1) next.right = false;
+  }
+  return next;
+}
+
+function walkGridLeaves(
+  node: SerializedNode,
+  path: string,
+  groups: DockGroupSnapshot[],
+  rootOrientation: string,
+  depth: number,
+  region: DockGroupRegion,
+): void {
+  if (isLeaf(node)) {
+    const groupId = node.data.id ?? path;
+    groups.push({
+      id: groupId,
+      views: node.data.views ?? [],
+      activeView: node.data.activeView,
+      size: node.size,
+      path: path || "leaf",
+      region: { ...region },
+    });
+    return;
+  }
+  const orientation = splitOrientationAtDepth(rootOrientation, depth);
+  node.data.forEach((child, index) => {
+    const childPath = path ? `${path} > branch[${index}]` : `branch[${index}]`;
+    const childRegion = applySplitConstraint(
+      region,
+      orientation,
+      index,
+      node.data.length,
+    );
+    walkGridLeaves(child, childPath, groups, rootOrientation, depth + 1, childRegion);
+  });
+}
+
+/**
+ * 将 `SerializedDockview`（来自 `onSavedLayoutChange` / `api.toJSON()`）
+ * 解析为 panel 位置与 group 分屏摘要。
+ */
+export function describeDockLayout(
+  layout: SerializedDockview | null,
+): DockLayoutSnapshot | null {
+  if (!layout) return null;
+
+  const groups: DockGroupSnapshot[] = [];
+  const rootOrientation = layout.grid?.orientation ?? "HORIZONTAL";
+  const root = layout.grid?.root;
+  const fullRegion: DockGroupRegion = {
+    top: true,
+    right: true,
+    bottom: true,
+    left: true,
+  };
+  if (root) {
+    walkGridLeaves(fromGridNode(root), "", groups, rootOrientation, 0, fullRegion);
+  }
+
+  const panels: DockPanelPlacement[] = [];
+  for (const group of groups) {
+    group.views.forEach((panelId, tabIndex) => {
+      panels.push({
+        id: panelId,
+        groupId: group.id,
+        tabIndex,
+        isActiveInGroup: group.activeView === panelId,
+        groupPath: group.path,
+        groupSize: group.size,
+      });
+    });
+  }
+
+  return {
+    activeGroup: layout.activeGroup ?? null,
+    orientation: layout.grid?.orientation ?? null,
+    groups,
+    panels,
+  };
+}

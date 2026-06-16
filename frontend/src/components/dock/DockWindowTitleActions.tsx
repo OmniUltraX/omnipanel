@@ -2,8 +2,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { WinControls } from "../shell/WinControls";
 
-/** 嵌入 dockview 首个 panel 组 tab 栏右侧：拖拽空白条 + 窗口控制按钮 */
-export function DockWindowTitleActions() {
+export type DockWindowChromeMode = "drag" | "controls" | "both";
+
+export interface DockWindowChromeActionsProps {
+  mode: DockWindowChromeMode;
+}
+
+function DockWindowDragSpacer() {
   const spacerDragRef = useRef<{ startX: number; startY: number } | null>(null);
 
   const onSpacerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -30,7 +35,19 @@ export function DockWindowTitleActions() {
     };
   }, []);
 
+  return (
+    <div
+      className="dock-window-drag-spacer"
+      data-tauri-drag-region
+      onMouseDown={onSpacerMouseDown}
+    />
+  );
+}
+
+/** 嵌入 dockview tab 栏右侧：按布局挂载拖拽区与/或窗口控制按钮 */
+export function DockWindowChromeActions({ mode }: DockWindowChromeActionsProps) {
   const handleDoubleClick = async (event: React.MouseEvent) => {
+    if (mode === "controls") return;
     const target = event.target as HTMLElement;
     if (target.closest(".win-controls")) return;
     const win = getCurrentWindow();
@@ -41,18 +58,22 @@ export function DockWindowTitleActions() {
     }
   };
 
+  const showDrag = mode === "drag" || mode === "both";
+  const showControls = mode === "controls" || mode === "both";
+
   return (
     <div
-      className="dock-window-title-actions drag-ignore"
+      className={`dock-window-title-actions drag-ignore${showControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}`}
       data-tauri-drag-region="false"
       onDoubleClick={handleDoubleClick}
     >
-      <div
-        className="dock-window-drag-spacer"
-        data-tauri-drag-region
-        onMouseDown={onSpacerMouseDown}
-      />
-      <WinControls />
+      {showDrag ? <DockWindowDragSpacer /> : null}
+      {showControls ? <WinControls /> : null}
     </div>
   );
+}
+
+/** @deprecated 使用 DockWindowChromeActions */
+export function DockWindowTitleActions() {
+  return <DockWindowChromeActions mode="both" />;
 }
