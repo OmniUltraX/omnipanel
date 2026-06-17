@@ -467,6 +467,59 @@ export function normalizeDockLayout(
   return stripSideHeaderLayout(layout);
 }
 
+export interface DockLayoutTabMeta {
+  id: string;
+  label: string;
+  icon?: string;
+  tooltip?: string;
+  status?: string;
+}
+
+/** 将业务 tab 元数据写回布局 panels，避免 fromJSON 后标题退化为 panel id */
+export function enrichLayoutWithTabMeta(
+  layout: SerializedDockview,
+  tabs: DockLayoutTabMeta[],
+): SerializedDockview {
+  if (!layout.panels || tabs.length === 0) return layout;
+  const tabById = new Map(tabs.map((tab) => [tab.id, tab]));
+  const panels = { ...layout.panels };
+  let changed = false;
+
+  for (const [id, panel] of Object.entries(panels)) {
+    const tab = tabById.get(id);
+    if (!tab) continue;
+    const prevParams =
+      typeof panel.params === "object" && panel.params
+        ? (panel.params as Record<string, unknown>)
+        : {};
+    const nextParams = {
+      ...prevParams,
+      tabId: tab.id,
+      label: tab.label,
+      icon: tab.icon ?? prevParams.icon,
+      tooltip: tab.tooltip ?? tab.label,
+      status: tab.status ?? prevParams.status,
+    };
+    const prevLabel = typeof prevParams.label === "string" ? prevParams.label : undefined;
+    const needsUpdate =
+      panel.title !== tab.label ||
+      prevLabel !== tab.label ||
+      !prevLabel ||
+      prevLabel === tab.id ||
+      panel.title === tab.id;
+    if (needsUpdate) {
+      panels[id] = {
+        ...panel,
+        title: tab.label,
+        params: nextParams,
+      };
+      changed = true;
+    }
+  }
+
+  return changed ? { ...layout, panels } : layout;
+}
+
 /** 对比前后布局，找出被删除的 panel id */
 export function diffRemovedPanelIds(
   prev: SerializedDockview,

@@ -44,13 +44,10 @@ function StatusBarWorkspacePanelToggle() {
 }
 
 function StatusBarWorkspaceControls() {
-  const location = useLocation();
-  const showBottomWorkspaceToggle = location.pathname !== "/";
-
   return (
     <div className="statusbar-workspace-controls">
       <WorkspaceSwitcher variant="statusbar" placement="above" />
-      {showBottomWorkspaceToggle && <StatusBarWorkspacePanelToggle />}
+      <StatusBarWorkspacePanelToggle />
     </div>
   );
 }

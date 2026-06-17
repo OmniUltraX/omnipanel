@@ -401,6 +401,13 @@ export const enUS: TranslationDict = {
     newConnection: "New Connection",
     addHost: "Add Host",
   },
+    workspace: {
+      home: "Home",
+      copyTo: "Copy to Workspace",
+      moveTo: "Move to Workspace",
+      noOther: "No other workspaces",
+      addToCurrent: "Add to Current Workspace",
+    },
     detailPanel: {
       modeDrawer: "Switch to right drawer",
       modeFloating: "Switch to floating window",
@@ -437,6 +444,8 @@ export const enUS: TranslationDict = {
       mirroredDatabase: "Database panel moved to engineering workspace",
       mirroredUnknown: "External panel",
       mirroredMissing: "Source panel no longer exists",
+      payloadUnavailable: "This {module} panel must be opened in its source module first",
+      openSourceModule: "Open source module",
     },
     risk: {
       low: "Low risk",
@@ -882,6 +891,12 @@ export const enUS: TranslationDict = {
     blocked: "Pending",
     inputPlaceholder: "Ask OmniPanel or type a command... (Enter to send, Shift+Enter for newline)",
     send: "Send",
+  },
+  homeWorkspace: {
+    tabs: {
+      board: "Dashboard",
+      ai: "AI Assistant",
+    },
   },
   terminal: {
     localTab: "local",

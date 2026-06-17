@@ -28,6 +28,22 @@ export const DEFAULT_WORKSPACE: WorkspaceInfo = {
   description: "本地终端、远程主机、数据库、容器与协议调试的统一上下文",
 };
 
+/** 工作区切换事件（模块监听此事件来保存/恢复 tab 快照） */
+export interface WorkspaceSwitchEvent {
+  prevWorkspaceId: string;
+  nextWorkspaceId: string;
+}
+
+const WORKSPACE_SWITCH_EVENT = "omnipanel:workspace-switched";
+
+export function onWorkspaceSwitch(
+  handler: (e: WorkspaceSwitchEvent) => void,
+): () => void {
+  const listener = (e: Event) => handler((e as CustomEvent<WorkspaceSwitchEvent>).detail);
+  window.addEventListener(WORKSPACE_SWITCH_EVENT, listener);
+  return () => window.removeEventListener(WORKSPACE_SWITCH_EVENT, listener);
+}
+
 interface WorkspaceState {
   /** 当前激活工作区（保留以兼容旧调用方） */
   workspace: WorkspaceInfo;
@@ -123,17 +139,33 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           name: trimmed,
           description: description?.trim() ?? "",
         };
+        const prevId = get().workspace.id;
         set((state) => ({
           workspaces: [...state.workspaces, newWorkspace],
           workspace: newWorkspace,
         }));
+        // 触发切换事件，让各模块保存/恢复 tab
+        window.dispatchEvent(
+          new CustomEvent<WorkspaceSwitchEvent>(WORKSPACE_SWITCH_EVENT, {
+            detail: { prevWorkspaceId: prevId, nextWorkspaceId: newWorkspace.id },
+          }),
+        );
         return newWorkspace;
       },
 
       switchWorkspace: (id) => {
-        const target = get().workspaces.find((w) => w.id === id);
+        const state = get();
+        const target = state.workspaces.find((w) => w.id === id);
         if (!target) return false;
+        const prevId = state.workspace.id;
         set({ workspace: target });
+        if (prevId !== id) {
+          window.dispatchEvent(
+            new CustomEvent<WorkspaceSwitchEvent>(WORKSPACE_SWITCH_EVENT, {
+              detail: { prevWorkspaceId: prevId, nextWorkspaceId: id },
+            }),
+          );
+        }
         return true;
       },
 
@@ -147,10 +179,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           state.workspace.id === id
             ? nextWorkspaces[Math.min(index, nextWorkspaces.length - 1)]
             : state.workspace;
+        const prevId = state.workspace.id;
         set({
           workspaces: nextWorkspaces,
           workspace: nextWorkspace,
         });
+        // 如果当前工作区被删除，触发切换事件
+        if (prevId === id && prevId !== nextWorkspace.id) {
+          window.dispatchEvent(
+            new CustomEvent<WorkspaceSwitchEvent>(WORKSPACE_SWITCH_EVENT, {
+              detail: { prevWorkspaceId: prevId, nextWorkspaceId: nextWorkspace.id },
+            }),
+          );
+        }
+        // 同时清理该工作区的 tab 快照
         return true;
       },
     }),

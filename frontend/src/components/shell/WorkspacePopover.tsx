@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import { goWorkspaceHome } from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 
 interface WorkspacePopoverProps {
@@ -39,6 +40,8 @@ export function WorkspacePopover({
     (state) => state.removeWorkspaceData,
   );
   const requestExpand = useBottomPanelStore((state) => state.requestExpand);
+  const exitHomeToWorkspace = useBottomPanelStore((state) => state.exitHomeToWorkspace);
+  const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{
@@ -121,18 +124,33 @@ export function WorkspacePopover({
       setDraftError(t("shell.workspacePopover.nameDuplicate"));
       return;
     }
+    if (isHomeActive) {
+      exitHomeToWorkspace();
+    } else {
+      requestExpand();
+    }
     addWorkspace(trimmed);
-    requestExpand();
+    onClose();
+  }
+
+  function handleSelectHome() {
+    goWorkspaceHome();
     onClose();
   }
 
   function handleSelect(target: WorkspaceInfo) {
-    if (target.id === currentId) {
+    const sameWorkspace = target.id === currentId;
+    if (sameWorkspace && !isHomeActive) {
       requestExpand();
       onClose();
       return;
     }
-    switchWorkspace(target.id);
+    if (isHomeActive) {
+      exitHomeToWorkspace();
+    }
+    if (!sameWorkspace) {
+      switchWorkspace(target.id);
+    }
     requestExpand();
     onClose();
   }
@@ -169,8 +187,31 @@ export function WorkspacePopover({
       >
         <div className="workspace-popover-header">{t("shell.workspacePopover.title")}</div>
         <ul className="workspace-popover-list" role="listbox">
+          <li className="workspace-popover-row">
+            <button
+              type="button"
+              className={`workspace-popover-item workspace-popover-item--home${isHomeActive ? " workspace-popover-item--active" : ""}`}
+              onClick={handleSelectHome}
+            >
+              <span className="workspace-popover-item-name">{t("shell.workspace.home")}</span>
+              {isHomeActive && (
+                <svg
+                  className="workspace-popover-item-check"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  width="12"
+                  height="12"
+                  aria-hidden
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </button>
+          </li>
           {workspaces.map((ws) => {
-            const active = ws.id === currentId;
+            const active = ws.id === currentId && !isHomeActive;
             const deleteLabel = t("shell.workspacePopover.delete");
             return (
               <li key={ws.id} className="workspace-popover-row">

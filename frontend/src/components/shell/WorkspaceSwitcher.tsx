@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import { useI18n } from "../../i18n";
 import { WorkspacePopover } from "./WorkspacePopover";
 
 interface WorkspaceSwitcherProps {
@@ -11,21 +13,25 @@ interface WorkspaceSwitcherProps {
 }
 
 /**
- * 工程工作区切换器：当前工作区名称 + 下拉列表（切换 / 新建 / 删除）。
- * 用于首页 ModuleSegmentDock 前缀操作区与状态栏右侧。
+ * 工作区切换器：触发器显示当前上下文名称（首页 / 工程工作区名），下拉可切换。
  */
 export function WorkspaceSwitcher({
   placement = "below",
   variant = "dock",
   className,
 }: WorkspaceSwitcherProps) {
+  const { t } = useI18n();
   const workspace = useWorkspaceStore((state) => state.workspace);
+  const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const displayLabel = isHomeActive ? t("shell.workspace.home") : workspace.name;
 
   const rootClass = [
     "workspace-switcher",
     variant === "dock" ? "drag-ignore" : "",
+    isHomeActive ? "workspace-switcher--home" : "",
     className,
   ]
     .filter(Boolean)
@@ -49,14 +55,20 @@ export function WorkspaceSwitcher({
           onClick={() => setOpen((v) => !v)}
           aria-haspopup="dialog"
           aria-expanded={open}
-          title={workspace.name}
+          title={displayLabel}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M3 9h18" />
-            <path d="M9 4v5" />
+            {isHomeActive ? (
+              <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" />
+            ) : (
+              <>
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M3 9h18" />
+                <path d="M9 4v5" />
+              </>
+            )}
           </svg>
-          <span className="statusbar-button-label">{workspace.name}</span>
+          <span className="statusbar-button-label">{displayLabel}</span>
           <svg
             className="statusbar-button-chevron"
             viewBox="0 0 24 24"
@@ -84,7 +96,7 @@ export function WorkspaceSwitcher({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={workspace.name}
+        title={displayLabel}
       >
         <svg
           className="workspace-switcher-icon"
@@ -96,11 +108,17 @@ export function WorkspaceSwitcher({
           height="14"
           aria-hidden
         >
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="M3 9h18" />
-          <path d="M9 4v5" />
+          {isHomeActive ? (
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" />
+          ) : (
+            <>
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M3 9h18" />
+              <path d="M9 4v5" />
+            </>
+          )}
         </svg>
-        <span className="workspace-switcher-label">{workspace.name}</span>
+        <span className="workspace-switcher-label">{displayLabel}</span>
         <svg
           className="workspace-switcher-chevron"
           viewBox="0 0 24 24"

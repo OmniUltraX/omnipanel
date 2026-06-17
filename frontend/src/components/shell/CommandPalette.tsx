@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAiStore } from "../../stores/aiStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { openLocalTerminalSession } from "../../lib/terminalSession";
+import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 import {
   formatShortcut,
@@ -27,7 +27,7 @@ interface CommandItem {
 }
 
 const COMMAND_DEFS: CommandItem[] = [
-  { id: "workspace", labelKey: "shell.commandPalette.commands.workspace", shortcut: "⌘1", path: "/", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "workspace", labelKey: "shell.commandPalette.commands.workspace", shortcut: "⌘1", action: () => goWorkspaceHome(), categoryKey: "shell.commandPalette.categories.nav" },
   { id: "terminal", labelKey: "shell.commandPalette.commands.terminal", shortcut: "⌘2", path: "/terminal", categoryKey: "shell.commandPalette.categories.nav" },
   { id: "database", labelKey: "shell.commandPalette.commands.database", shortcut: "⌘3", path: "/database", categoryKey: "shell.commandPalette.categories.nav" },
   { id: "ssh", labelKey: "shell.commandPalette.commands.ssh", shortcut: "⌘4", path: "/ssh", categoryKey: "shell.commandPalette.categories.nav" },
@@ -56,7 +56,6 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
   const blockedCount = useActionStore((s) => s.actions.filter((a) => a.status === "blocked").length);
   const shortcutsOverrides = useShortcutsStore((s) => s.overrides);
   const aiShortcutLabel = useMemo(
@@ -134,8 +133,7 @@ export function CommandPalette() {
 
   const execute = (cmd: (typeof commands)[number]) => {
     if (cmd.path) {
-      setActivePath(cmd.path);
-      navigate(cmd.path);
+      navigateToFeature(cmd.path, navigate);
     }
     if (cmd.action) {
       cmd.action();

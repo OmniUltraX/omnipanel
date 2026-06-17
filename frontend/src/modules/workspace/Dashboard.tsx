@@ -9,7 +9,7 @@ import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 type DashboardTab = "home";
 const DASHBOARD_TABS: DashboardTab[] = ["home"];
 
-function DashboardHomeView() {
+export function DashboardHomeView() {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);

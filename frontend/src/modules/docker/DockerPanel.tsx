@@ -49,6 +49,8 @@ import {
   TagIcon,
   TrashIcon,
 } from "./icons";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { dockerTabToSnapshot, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
 import type {
   Connection,
   DockerContainerDetail,
@@ -1392,6 +1394,7 @@ function ContainerDrawerBody({
 }: ContainerDrawerBodyProps) {
   const [logsMounted, setLogsMounted] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
 
   const canShowTerminal = Boolean(
     !loading && detail?.summary.running && canExec && connectionId && containerId,
@@ -1449,6 +1452,23 @@ function ContainerDrawerBody({
         </button>
         {canExec && detail?.summary.running && (
           <button className={`subtab${drawerTab === "terminal" ? " active" : ""}`} onClick={() => onTabChange("terminal")}>终端</button>
+        )}
+        {(drawerTab === "logs" || drawerTab === "terminal") && connectionId && containerId && (
+          <button
+            className="subtab subtab--action"
+            title="添加到工作区"
+            onClick={() => {
+              const name = detail?.summary.name ?? containerId;
+              const snapshot = dockerTabToSnapshot(drawerTab, connectionId, containerId, name);
+              addSnapshotToWorkspace(currentWorkspaceId, snapshot);
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+          </button>
         )}
       </div>
 

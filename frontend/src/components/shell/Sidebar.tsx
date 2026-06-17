@@ -3,9 +3,10 @@ import { startTransition } from "react";
 import type { ReactNode } from "react";
 import { useAiStore } from "../../stores/aiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { AppLogo } from "../ui/AppLogo";
+import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
 
 const navPaths = [
   {
@@ -111,20 +112,22 @@ export function Sidebar() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
-  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
+  /** 全屏工作区（首页或工程工作区）时高亮左上角入口 */
+  const isWorkspaceHome = useBottomPanelStore(
+    (s) => s.isFullscreen || s.isHomeActive,
+  );
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const settingsOpen = useSettingsUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
 
   const isActive = (path: string) => {
-    if (path === "/") return location.pathname === "/";
+    if (isWorkspaceHome) return false;
     return location.pathname.startsWith(path);
   };
 
   const go = (path: string) => {
     startTransition(() => {
-      setActivePath(path);
-      navigate(path);
+      navigateToFeature(path, navigate);
     });
   };
 
@@ -144,9 +147,9 @@ export function Sidebar() {
     <aside className="sidebar">
       <button
         type="button"
-        className={`sidebar-logo${isActive("/") ? " active" : ""}`}
+        className={`sidebar-logo${isWorkspaceHome ? " active" : ""}`}
         title={t("shell.nav.workspace")}
-        onClick={() => go("/")}
+        onClick={() => goWorkspaceHome()}
       >
         <AppLogo size={36} className="sidebar-logo__img" />
       </button>

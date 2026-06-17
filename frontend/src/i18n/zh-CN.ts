@@ -397,6 +397,13 @@ export const zhCN = {
     newConnection: "新建连接",
     addHost: "添加主机",
   },
+    workspace: {
+      home: "首页",
+      copyTo: "复制到工作区",
+      moveTo: "移动到工作区",
+      noOther: "没有其他工作区",
+      addToCurrent: "添加到当前工作区",
+    },
     detailPanel: {
       modeDrawer: "切换为右侧抽屉",
       modeFloating: "切换为浮动窗口",
@@ -433,6 +440,8 @@ export const zhCN = {
       mirroredDatabase: "数据库面板已迁入工程工作区",
       mirroredUnknown: "外部面板",
       mirroredMissing: "源面板已不存在",
+      payloadUnavailable: "该 {module} 面板需先在对应模块中打开",
+      openSourceModule: "打开来源模块",
     },
     risk: {
       low: "低风险",
@@ -878,6 +887,12 @@ export const zhCN = {
     blocked: "待确认",
     inputPlaceholder: "向 OmniPanel 提问或输入命令… (Enter 发送, Shift+Enter 换行)",
     send: "发送",
+  },
+  homeWorkspace: {
+    tabs: {
+      board: "看板",
+      ai: "AI 助手",
+    },
   },
   terminal: {
     localTab: "local",

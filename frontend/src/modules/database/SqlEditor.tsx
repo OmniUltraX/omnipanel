@@ -332,7 +332,11 @@ export function SqlEditor({
   useEffect(() => {
     return () => {
       for (const d of disposables.current) {
-        d.dispose();
+        try {
+          d.dispose();
+        } catch {
+          // Monaco 共享实例下并发 dispose 可能抛出 Canceled，忽略即可
+        }
       }
       disposables.current = [];
     };

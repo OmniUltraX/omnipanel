@@ -84,6 +84,9 @@ import {
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
+import { useWorkspaceStore, onWorkspaceSwitch } from "../../stores/workspaceStore";
+import { dbTabToSnapshot, buildCopyToWorkspaceMenuItems, buildMoveToWorkspaceMenuItems, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
+import { useWorkspaceTabStore, type DbTabSnapshot } from "../../stores/workspaceTabStore";
 
 const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
 import {
@@ -371,9 +374,73 @@ export function DatabasePanel() {
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
-  const dockedDatabaseTabIds = useWorkspaceBottomDockStore(
-    (s) => s.dockedOriginByScope.database ?? EMPTY_DOCKED_DATABASE_TABS,
-  );
+  const referencedDatabaseTabIds = useWorkspaceBottomDockStore((s) => {
+    const ids = new Set<string>(s.dockedOriginByScope.database ?? []);
+    for (const tabs of Object.values(s.tabsByWorkspace)) {
+      for (const tab of tabs ?? []) {
+        if (tab.kind === "payload" && tab.payload?.module === "database") {
+          ids.add(tab.payload.id);
+        }
+      }
+    }
+    return ids.size > 0 ? [...ids] : EMPTY_DOCKED_DATABASE_TABS;
+  });
+  const allWorkspaces = useWorkspaceStore((s) => s.workspaces);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
+  const wsTabStore = useWorkspaceTabStore;
+
+  // Refs for workspace switch (access current state from event listener)
+  const workspaceTabsRef = useRef(workspaceTabs);
+  workspaceTabsRef.current = workspaceTabs;
+  const tabModesRef = useRef(tabModes);
+  tabModesRef.current = tabModes;
+
+  // 工作区切换时：保存当前数据库 tab 快照 → 恢复目标工作区的快照
+  useEffect(() => {
+    return onWorkspaceSwitch(({ prevWorkspaceId, nextWorkspaceId }) => {
+      const wsTabStoreState = wsTabStore.getState();
+
+      // 保存当前数据库 tabs 到旧工作区
+      const currentTabs = workspaceTabsRef.current;
+      const currentTabModes = tabModesRef.current;
+      const dbSnapshots = currentTabs.map((tab) => dbTabToSnapshot(tab, currentTabModes[tab.id]));
+      // 合并到已有快照（保留 terminal/docker 快照）
+      const existing = wsTabStoreState.getTabs(prevWorkspaceId).filter(
+        (s) => s.module !== "database",
+      );
+      wsTabStoreState.saveTabs(prevWorkspaceId, [...existing, ...dbSnapshots]);
+
+      // 恢复目标工作区的数据库 tabs
+      const targetDbSnapshots = wsTabStoreState.getTabs(nextWorkspaceId).filter(
+        (s): s is DbTabSnapshot => s.module === "database",
+      );
+      // 通过全局事件通知 DatabasePanel 恢复 tabs
+      window.dispatchEvent(
+        new CustomEvent("omnipanel:db-restore-tabs", {
+          detail: { snapshots: targetDbSnapshots },
+        }),
+      );
+    });
+  }, []);
+
+  // 监听数据库 tab 恢复事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { snapshots } = (e as CustomEvent<{ snapshots: DbTabSnapshot[] }>).detail;
+      // 目标工作区没有保存过数据库快照 → 保留当前 tab（新工作区继承）
+      if (!snapshots || snapshots.length === 0) return;
+      const restoredTabs: DbWorkspaceTab[] = snapshots.map((s) => s.tab);
+      const restoredTabModes: Record<string, "data" | "sql"> = {};
+      for (const s of snapshots) {
+        if (s.tabMode) restoredTabModes[s.id] = s.tabMode;
+      }
+      setWorkspaceTabs(restoredTabs);
+      setTabModes((prev) => ({ ...prev, ...restoredTabModes }));
+      setActiveWorkspaceTabId(restoredTabs[0]?.id ?? "");
+    };
+    window.addEventListener("omnipanel:db-restore-tabs", handler);
+    return () => window.removeEventListener("omnipanel:db-restore-tabs", handler);
+  }, []);
 
   const activeGroupNameFromStore = useMemo(
     () => getGroupName(activeGroupId),
@@ -1861,17 +1928,10 @@ export function DatabasePanel() {
   useLayoutEffect(() => {
     mirrorRevisionsRef.current = publishDbWorkspaceMirror(
       ctxValue,
-      dockedDatabaseTabIds,
+      referencedDatabaseTabIds,
       mirrorRevisionsRef.current,
     );
-    return () => {
-      mirrorRevisionsRef.current = publishDbWorkspaceMirror(
-        null,
-        [],
-        mirrorRevisionsRef.current,
-      );
-    };
-  }, [ctxValue, dockedDatabaseTabIds]);
+  }, [ctxValue, referencedDatabaseTabIds]);
 
   const dockTabs = useMemo(
     () =>
@@ -2026,19 +2086,61 @@ export function DatabasePanel() {
         )}
         </div>
       </SidebarWorkspace>
-      {ctxMenu && (
-        <ContextMenu
-          items={buildTabCloseMenuItems(
-            t,
-            workspaceTabs.length,
-            ctxMenu.index,
-            handleContextAction,
-            { showRename: true },
-          )}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-          onClose={() => setCtxMenu(null)}
-        />
-      )}
+      {ctxMenu && (() => {
+        const ctxTab = workspaceTabs.find((t) => t.id === ctxMenu.tabId);
+        const snapshot = ctxTab ? dbTabToSnapshot(ctxTab, tabModes[ctxTab.id]) : null;
+        const closeItems = buildTabCloseMenuItems(
+          t,
+          workspaceTabs.length,
+          ctxMenu.index,
+          handleContextAction,
+          { showRename: true },
+        );
+        const wsCopyItems = snapshot ? buildCopyToWorkspaceMenuItems({
+          workspaces: allWorkspaces,
+          currentWorkspaceId,
+          snapshot,
+          onCopyToCurrent: () => {
+            if (!ctxTab) return;
+            const newTab: DbWorkspaceTab = ctxTab.kind === "sql"
+              ? { id: makeSqlTabId(), kind: "sql", label: `${ctxTab.label} (副本)` }
+              : { id: makeDatabaseTabId(), kind: "database", label: `${ctxTab.label} (副本)`, connId: ctxTab.connId, dbName: ctxTab.dbName };
+            setWorkspaceTabs((prev) => [...prev, newTab]);
+            setActiveWorkspaceTabId(newTab.id);
+            addSnapshotToWorkspace(
+              currentWorkspaceId,
+              dbTabToSnapshot(newTab, tabModes[ctxTab.id]),
+            );
+          },
+        }) : [];
+        const wsMoveItems = snapshot ? buildMoveToWorkspaceMenuItems(t, {
+          workspaces: allWorkspaces,
+          currentWorkspaceId,
+          snapshot,
+          onMoveToOther: () => closeWorkspaceTab(ctxMenu.tabId),
+        }) : [];
+        const allItems = [
+          ...closeItems,
+          { id: "ws-sep-before", separator: true, label: "" },
+          {
+            id: "ws-copy",
+            label: t("shell.workspace.copyTo"),
+            children: wsCopyItems,
+          },
+          {
+            id: "ws-move",
+            label: t("shell.workspace.moveTo"),
+            children: wsMoveItems,
+          },
+        ];
+        return (
+          <ContextMenu
+            items={allItems}
+            position={{ x: ctxMenu.x, y: ctxMenu.y }}
+            onClose={() => setCtxMenu(null)}
+          />
+        );
+      })()}
       {tableCtxMenu && (
         <ContextMenu
           items={buildTableContextMenuItems()}

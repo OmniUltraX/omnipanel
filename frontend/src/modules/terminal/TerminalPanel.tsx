@@ -10,7 +10,7 @@ import {
   resolveResourceById,
   useSshHostResources,
 } from "../../stores/connectionStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, onWorkspaceSwitch } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { navigateToPath } from "../../lib/terminalSession";
@@ -18,6 +18,9 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { TerminalTabDockPane } from "./TerminalTabDockPane";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
+import { useWorkspaceTabStore, type TerminalTabSnapshot } from "../../stores/workspaceTabStore";
+import { terminalTabToSnapshot, buildCopyToWorkspaceMenuItems, buildMoveToWorkspaceMenuItems, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
+import { subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import { ModuleSegmentDock } from "../../components/dock";
 import {
   removeTabFromTerminalLayout,
@@ -68,6 +71,67 @@ export function TerminalPanel() {
   const selectResource = useWorkspaceStore((state) => state.selectResource);
 
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
+  const removeDockedOrigin = useWorkspaceBottomDockStore((s) => s.removeDockedOrigin);
+  const allWorkspaces = useWorkspaceStore((s) => s.workspaces);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
+  const wsTabStore = useWorkspaceTabStore;
+
+  useEffect(() => {
+    return subscribeDockviewTransfer((meta) => {
+      if (!meta.newPanelId.startsWith("terminal:")) return;
+      if (!meta.originScope.startsWith("workspace-bottom-")) return;
+      const prefix = `${meta.originScope}:`;
+      const originTerminalId = meta.originPanelId.startsWith(prefix)
+        ? meta.originPanelId.slice(prefix.length)
+        : meta.originPanelId;
+      removeDockedOrigin("terminal", originTerminalId);
+      setActiveTab(originTerminalId);
+    });
+  }, [removeDockedOrigin, setActiveTab]);
+
+  // 工作区切换时：保存当前终端 tab 快照 → 恢复目标工作区的快照
+  useEffect(() => {
+    return onWorkspaceSwitch(({ prevWorkspaceId, nextWorkspaceId }) => {
+      const store = useTerminalStore.getState();
+      const wsTabStoreState = wsTabStore.getState();
+
+      // 保存当前终端 tabs 到旧工作区
+      const snapshots = store.tabs.map(terminalTabToSnapshot);
+      wsTabStoreState.saveTabs(prevWorkspaceId, snapshots);
+
+      // 恢复目标工作区的终端 tabs
+      const targetSnapshots = wsTabStoreState.getTabs(nextWorkspaceId).filter(
+        (s): s is TerminalTabSnapshot => s.module === "terminal",
+      );
+      // 目标工作区没有保存过快照 → 保留当前 tab（新工作区继承）
+      if (targetSnapshots.length === 0) return;
+
+      // 有快照 → 清空当前 tabs 并恢复
+      for (const tab of [...store.tabs]) {
+        clearTerminalPaneSender(tab.id);
+        clearPaneBackendPending(tab.id);
+        disposeTabBackendSessions(tab.id);
+        store.removeTab(tab.id);
+      }
+      for (const snap of targetSnapshots) {
+        store.addTab({
+          id: snap.id,
+          title: snap.label,
+          session: {
+            type: snap.sessionType,
+            resourceId: snap.resourceId,
+            shellLabel: snap.shellLabel,
+            cwd: snap.cwd,
+            purpose: snap.purpose,
+            commandPack: [],
+          },
+        });
+      }
+      if (targetSnapshots.length > 0) {
+        store.setActiveTab(targetSnapshots[0].id);
+      }
+    });
+  }, []);
 
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -178,7 +242,7 @@ export function TerminalPanel() {
         return;
       }
       if (id === LOCAL_TERMINAL_RESOURCE_ID) {
-        const tabId = openOrFocusLocalTab(t("terminal.newSession.local"));
+        const tabId = addLocalTerminalTab(t("terminal.newSession.local"));
         selectResource(LOCAL_TERMINAL_RESOURCE_ID);
         setActiveTab(tabId);
         return;
@@ -191,7 +255,7 @@ export function TerminalPanel() {
       }
     },
     [
-      openOrFocusLocalTab,
+      addLocalTerminalTab,
       openOrFocusSshTab,
       selectResource,
       setActiveTab,
@@ -263,19 +327,12 @@ export function TerminalPanel() {
     ],
   );
 
-  if (visibleTabs.length === 0) {
-    return (
-      <div className="module-root-dock module-root-dock--empty">
-        <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
-      </div>
-    );
-  }
-
   return (
     <>
       <ModuleSegmentDock
         className="terminal-module-dock"
         dockScope="terminal"
+        acceptExternalDrops
         tabs={dockTabs}
         activeTabId={activeTabId ?? visibleTabs[0]?.id ?? ""}
         onActiveTabChange={setActiveTab}
@@ -290,18 +347,57 @@ export function TerminalPanel() {
           <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
         }
       />
-      {ctxMenu && (
-        <ContextMenu
-          items={buildTabCloseMenuItems(
-            t,
-            visibleTabs.length,
-            ctxMenu.index,
-            handleContextAction,
-          )}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-          onClose={() => setCtxMenu(null)}
-        />
-      )}
+      {ctxMenu && (() => {
+        const ctxTab = visibleTabs.find((tab) => tab.id === ctxMenu.tabId);
+        const snapshot = ctxTab ? terminalTabToSnapshot(ctxTab) : null;
+        const closeItems = buildTabCloseMenuItems(
+          t,
+          visibleTabs.length,
+          ctxMenu.index,
+          handleContextAction,
+        );
+        const wsCopyItems = snapshot ? buildCopyToWorkspaceMenuItems({
+          workspaces: allWorkspaces,
+          currentWorkspaceId,
+          snapshot,
+          onCopyToCurrent: () => {
+            if (!ctxTab) return;
+            const newId = addLocalTerminalTab(ctxTab.title);
+            const created = useTerminalStore.getState().tabs.find((tab) => tab.id === newId);
+            if (created) {
+              addSnapshotToWorkspace(currentWorkspaceId, terminalTabToSnapshot(created));
+            }
+            setActiveTab(newId);
+          },
+        }) : [];
+        const wsMoveItems = snapshot ? buildMoveToWorkspaceMenuItems(t, {
+          workspaces: allWorkspaces,
+          currentWorkspaceId,
+          snapshot,
+          onMoveToOther: () => handleCloseTab(ctxMenu.tabId),
+        }) : [];
+        const allItems = [
+          ...closeItems,
+          { id: "ws-sep-before", separator: true, label: "" },
+          {
+            id: "ws-copy",
+            label: t("shell.workspace.copyTo"),
+            children: wsCopyItems,
+          },
+          {
+            id: "ws-move",
+            label: t("shell.workspace.moveTo"),
+            children: wsMoveItems,
+          },
+        ];
+        return (
+          <ContextMenu
+            items={allItems}
+            position={{ x: ctxMenu.x, y: ctxMenu.y }}
+            onClose={() => setCtxMenu(null)}
+          />
+        );
+      })()}
     </>
   );
 }

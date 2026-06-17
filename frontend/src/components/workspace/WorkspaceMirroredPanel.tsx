@@ -1,6 +1,7 @@
 import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/DatabaseTabDockPane";
+import { DockerWorkspaceTabPane } from "../../modules/docker/DockerWorkspaceTabPane";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 
 interface WorkspaceMirroredPanelProps {
@@ -27,6 +28,13 @@ export function WorkspaceMirroredPanel({ tab, isActive }: WorkspaceMirroredPanel
     return (
       <DatabaseTabDockPane tabId={tab.originPanelId} isActive={isActive} />
     );
+  }
+
+  if (tab.originScope === "docker" && tab.originPanelId) {
+    const payload = tab.payload;
+    if (payload?.module === "docker") {
+      return <DockerWorkspaceTabPane snapshot={payload} isActive={isActive} />;
+    }
   }
 
   return (

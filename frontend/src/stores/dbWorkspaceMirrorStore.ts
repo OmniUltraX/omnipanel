@@ -90,11 +90,8 @@ export function publishDbWorkspaceMirror(
   mirrorContext = context;
 
   if (!context) {
-    tabSnapshots.clear();
-    for (const tabId of prevRevisions.keys()) {
-      bumpMirroredDbTabVersion(tabId);
-    }
-    return new Map();
+    // 不在卸载时清空：底部工作区 SQL/表 Tab 仍依赖最近一次镜像快照
+    return prevRevisions;
   }
 
   const nextRevisions = new Map<string, string>();

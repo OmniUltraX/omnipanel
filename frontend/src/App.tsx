@@ -21,9 +21,10 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
 import { QuickInputHost } from "./components/ui/QuickInputHost";
 import { Button } from "./components/ui/Button";
-import { SidebarBottom } from "./components/ui/SidebarBottom";
-import { WorkspaceBottomShell } from "./components/workspace/WorkspaceBottomShell";
+import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
+import { WorkspaceBottomHost } from "./components/workspace/WorkspaceBottomHost";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
+import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import { WindowResize } from "./components/shell/WindowResize";
 import { Dashboard } from "./modules/workspace/Dashboard";
 import { TerminalPanel } from "./modules/terminal/TerminalPanel";
@@ -42,6 +43,7 @@ import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
+import { navigateToFeature } from "./lib/workspaceNavigation";
 import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
 import { useTopbarStore } from "./stores/topbarStore";
 import { getResourceById } from "./lib/resourceRegistry";
@@ -174,13 +176,15 @@ function AppShell() {
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const isTerminal = location.pathname === "/terminal";
   const isDocker = location.pathname === "/docker";
-  const isDashboard = location.pathname === "/";
+  const isDatabase = location.pathname === "/database";
   const [otherRoutesMounted, setOtherRoutesMounted] = useState(!isTerminal);
   const [terminalMounted, setTerminalMounted] = useState(isTerminal);
   const [dockerMounted, setDockerMounted] = useState(isDocker);
+  const [databaseMounted, setDatabaseMounted] = useState(isDatabase);
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const setActivePath = useWorkspaceStore((state) => state.setActivePath);
+  const currentWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
   const workspaceActivePath = useWorkspaceStore((state) => state.activePath);
   const confirmAction = useActionStore((state) => state.confirmAction);
   const cancelAction = useActionStore((state) => state.cancelAction);
@@ -208,6 +212,28 @@ function AppShell() {
   }, [isDocker]);
 
   useEffect(() => {
+    if (isDatabase) {
+      setDatabaseMounted(true);
+    }
+  }, [isDatabase]);
+
+  // 工作区已有数据库 Tab 时预挂载，避免切到其他功能后底部 SQL 失效
+  useEffect(() => {
+    const { tabsByWorkspace } = useWorkspaceBottomDockStore.getState();
+    for (const tabs of Object.values(tabsByWorkspace)) {
+      for (const tab of tabs ?? []) {
+        if (
+          (tab.kind === "mirrored" && tab.originScope === "database") ||
+          (tab.kind === "payload" && tab.payload?.module === "database")
+        ) {
+          setDatabaseMounted(true);
+          return;
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     if (location.pathname !== "/settings") return;
     openSettings();
     const fallback =
@@ -221,10 +247,15 @@ function AppShell() {
     setActivePath(location.pathname);
   }, [location.pathname, setActivePath]);
 
+  // Home 已改为全屏工作区；遗留的 / 路由重定向到上次功能页
   useEffect(() => {
     if (location.pathname !== "/") return;
-    useBottomPanelStore.getState().requestCollapse();
-  }, [location.pathname]);
+    const fallback =
+      workspaceActivePath && workspaceActivePath !== "/"
+        ? workspaceActivePath
+        : "/terminal";
+    navigate(fallback, { replace: true });
+  }, [location.pathname, navigate, workspaceActivePath]);
 
   useEffect(() => {
     if (!TOPBAR_TAB_ROUTES.includes(location.pathname)) {
@@ -235,7 +266,7 @@ function AppShell() {
   useEffect(() => {
     const handler = (event: Event) => {
       const path = (event as CustomEvent<{ path: string }>).detail?.path;
-      if (path) navigate(path);
+      if (path) navigateToFeature(path, navigate);
     };
     window.addEventListener("omnipanel-navigate", handler);
     return () => window.removeEventListener("omnipanel-navigate", handler);
@@ -254,6 +285,9 @@ function AppShell() {
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
   const setAiDockWidth = useSettingsStore((s) => s.setAiDockWidth);
   const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
+  const isHomeActive = useBottomPanelStore((s) => s.isHomeActive);
+  const isBottomOpen = useBottomPanelStore((s) => s.isOpen);
+  const wsState = isBottomFullscreen ? "full" : isBottomOpen ? "half" : "off";
   const dockWidth =
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
@@ -310,14 +344,19 @@ function AppShell() {
         {dockerMounted && <DockerPanel />}
       </div>
       <div
-        className={`route-panel${!isTerminal && !isDocker ? " route-panel--active" : ""}`}
+        className={`route-panel${isDatabase ? " route-panel--active" : ""}`}
+      >
+        {databaseMounted && <DatabasePanel />}
+      </div>
+      <div
+        className={`route-panel${!isTerminal && !isDocker && !isDatabase ? " route-panel--active" : ""}`}
       >
         {otherRoutesMounted && (
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/terminal" element={null} />
             <Route path="/ssh" element={<SshPanel />} />
-            <Route path="/database" element={<DatabasePanel />} />
+            <Route path="/database" element={null} />
             <Route path="/docker" element={null} />
             <Route path="/server" element={<ServerPanel />} />
             <Route path="/protocol" element={<ProtocolPanel />} />
@@ -334,24 +373,15 @@ function AppShell() {
     <div className="app">
       <Sidebar />
       <div
-        className={`workspace${isBottomFullscreen ? " workspace--bottom-fullscreen" : ""}`}
+        className={`workspace workspace--${wsState}${isHomeActive ? " workspace--home-active" : ""}${isBottomFullscreen ? " workspace--bottom-fullscreen" : ""}`}
         style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
       >
         <Topbar title={title} hidden>
           <TopbarPageActions />
         </Topbar>
         <div className="workspace-body">
-          <div className="content-area">
-            {isDashboard ? (
-              <div className="content-bottom content-bottom--home">{routePanels}</div>
-            ) : (
-              <SidebarBottom
-                className="content-bottom"
-                sidebar={<WorkspaceBottomShell />}
-              >
-                {routePanels}
-              </SidebarBottom>
-            )}
+          <div className={`content-area ws-state-${wsState}`}>
+            <WorkspaceHost>{routePanels}</WorkspaceHost>
           </div>
           {dockOpen && (
             <div
@@ -361,11 +391,13 @@ function AppShell() {
           )}
           {aiDisplayMode === "dockview" ? <AiDockView /> : null}
         </div>
-        <div
-          id="workspace-bottom-fullscreen-root"
-          className="workspace-bottom-fullscreen-shell"
-          aria-hidden={!isBottomFullscreen}
-        />
+        {isBottomFullscreen ? (
+          <div className="workspace-bottom-fullscreen-shell">
+            <WorkspaceBottomHost
+              key={isHomeActive ? "home-workspace" : `engineering-workspace:${currentWorkspaceId}`}
+            />
+          </div>
+        ) : null}
         <StatusBar />
       </div>
       {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}

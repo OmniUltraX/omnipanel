@@ -25,6 +25,7 @@ import {
   mergePanelsIntoLayout,
   collectPanelIds,
   normalizeDockLayout,
+  enrichLayoutWithTabMeta,
   isLayoutUsable,
   describeDockLayout,
 } from "./dockViewLayout";
@@ -105,6 +106,8 @@ export interface DockableWorkspaceProps {
   preActions?: ReactNode;
   /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
+  /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
+  onPanelTransferredOut?: (panelId: string) => void;
   /**
    * segment：模块分段 Tab（ModuleSegmentDock），单 group tab 栏固定含 drag-spacer。
    * default：按布局树解析顶部/右上角 group。
@@ -162,6 +165,7 @@ export function DockableWorkspace({
   addTabConfig,
   preActions,
   windowControl = false,
+  onPanelTransferredOut,
   windowChromeVariant = "default",
 }: DockableWorkspaceProps) {
   const [windowChromeHosts, setWindowChromeHosts] = useState<{
@@ -202,6 +206,8 @@ export function DockableWorkspace({
   onExternalDropRef.current = onExternalDrop;
   const onTabContextMenuRef = useRef(onTabContextMenu);
   onTabContextMenuRef.current = onTabContextMenu;
+  const onPanelTransferredOutRef = useRef(onPanelTransferredOut);
+  onPanelTransferredOutRef.current = onPanelTransferredOut;
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const resolveTabGroupMetaRef = useRef(resolveTabGroupMeta);
@@ -516,7 +522,10 @@ export function DockableWorkspace({
     }
     // 兜底：mergePanelsIntoLayout 应已生成完整布局；若 dockview 仍缺 panel，则补齐
     const existing = new Set(api.panels.map((p) => p.id));
-    if (existing.size === tabsRef.current.length) {
+    const allTabsPresent =
+      tabsRef.current.length > 0 &&
+      tabsRef.current.every((tab) => existing.has(tab.id));
+    if (allTabsPresent && existing.size === tabsRef.current.length) {
       isSyncingRef.current = true;
       try {
         for (const tab of tabsRef.current) {
@@ -577,45 +586,12 @@ export function DockableWorkspace({
     syncWindowChromeHostRef.current(api);
     const initialLayout = normalizeDockLayout(api.toJSON()) ?? api.toJSON();
     logLayoutRef.current(initialLayout, "initial-load");
-  }, [syncTabGroups, bumpPanelContentRev]);
-
-  // 同步 tab 变更（添加/删除/重命名）
-  useEffect(() => {
-    const api = apiRef.current;
-    if (!api || !layoutLoadedRef.current) return;
-    if (tabs.length === 0) {
-      if (acceptExternalDropsRef.current) {
-        for (const panel of [...api.panels]) {
-          api.removePanel(panel);
-        }
-        ensureExternalDropTarget(api);
-      } else {
-        api.clear();
-      }
-      return;
-    }
-    isSyncingRef.current = true;
-    try {
-      // 移除不再存在的 panel
-      const desiredIds = new Set(tabs.map((t) => t.id));
-      const scopePrefix = dockScopeRef.current ? `${dockScopeRef.current}:` : null;
-      for (const panel of [...api.panels]) {
-        if (!desiredIds.has(panel.id)) {
-          // 跨实例拖入后 store 尚未追上 api 时，避免误删带 scope 前缀的镜像 panel
-          if (
-            acceptExternalDropsRef.current &&
-            scopePrefix &&
-            panel.id.startsWith(scopePrefix)
-          ) {
-            continue;
-          }
-          api.removePanel(panel);
-        }
-      }
-      // 新增 / 改名
-      const existing = new Set(api.panels.map((p) => p.id));
-      for (const tab of tabs) {
-        if (!existing.has(tab.id)) {
+    // 布局还原后仍可能缺 panel（持久化布局损坏等），按 tabs 再补一轮
+    if (tabsRef.current.length > 0) {
+      const existingAfterLoad = new Set(api.panels.map((p) => p.id));
+      for (const tab of tabsRef.current) {
+        if (existingAfterLoad.has(tab.id)) continue;
+        try {
           const firstPanel = api.panels[0];
           const options: Parameters<typeof api.addPanel>[0] = {
             id: tab.id,
@@ -631,16 +607,83 @@ export function DockableWorkspace({
             };
           }
           api.addPanel(options);
-        } else {
-          syncPanelTabParams(api, tab);
+          existingAfterLoad.add(tab.id);
+        } catch (err) {
+          console.warn("[DockableWorkspace] ensure panel after initial layout failed for", tab.id, err);
         }
       }
-      syncTabGroups(api, false);
-    } finally {
-      isSyncingRef.current = false;
-      syncWindowChromeHostRef.current(api);
+      syncTabGroups(api);
     }
-  }, [tabs, syncTabGroups]);
+  }, [syncTabGroups, bumpPanelContentRev]);
+
+  /** 将 tabs 元数据同步到 dockview api（布局被 clear 后亦需调用以恢复 panel） */
+  const syncTabsToApi = useCallback(
+    (api: DockviewApi) => {
+      const currentTabs = tabsRef.current;
+      if (currentTabs.length === 0) {
+        if (acceptExternalDropsRef.current) {
+          for (const panel of [...api.panels]) {
+            api.removePanel(panel);
+          }
+          ensureExternalDropTarget(api);
+        } else {
+          api.clear();
+        }
+        return;
+      }
+      isSyncingRef.current = true;
+      try {
+        const desiredIds = new Set(currentTabs.map((t) => t.id));
+        const scopePrefix = dockScopeRef.current ? `${dockScopeRef.current}:` : null;
+        for (const panel of [...api.panels]) {
+          if (!desiredIds.has(panel.id)) {
+            if (
+              acceptExternalDropsRef.current &&
+              scopePrefix &&
+              panel.id.startsWith(scopePrefix)
+            ) {
+              continue;
+            }
+            api.removePanel(panel);
+          }
+        }
+        const existing = new Set(api.panels.map((p) => p.id));
+        for (const tab of currentTabs) {
+          if (!existing.has(tab.id)) {
+            const firstPanel = api.panels[0];
+            const options: Parameters<typeof api.addPanel>[0] = {
+              id: tab.id,
+              component: COMPONENT_NAME,
+              params: tabParamsFromDockableTab(tab),
+              title: tab.label,
+              inactive: true,
+            };
+            if (firstPanel) {
+              options.position = {
+                referencePanel: firstPanel.id,
+                direction: "within",
+              };
+            }
+            api.addPanel(options);
+          } else {
+            syncPanelTabParams(api, tab);
+          }
+        }
+        syncTabGroups(api, false);
+      } finally {
+        isSyncingRef.current = false;
+        syncWindowChromeHostRef.current(api);
+      }
+    },
+    [syncTabGroups],
+  );
+
+  // 同步 tab 变更（添加/删除/重命名）
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    syncTabsToApi(api);
+  }, [tabs, syncTabsToApi]);
 
   // 同步 activeTabId
   useEffect(() => {
@@ -676,6 +719,7 @@ export function DockableWorkspace({
       return;
     }
 
+    let needsPanelResync = false;
     if (savedLayout) {
       const normalized = normalizeDockLayout(savedLayout) ?? savedLayout;
       if (!isLayoutUsable(normalized)) {
@@ -683,6 +727,7 @@ export function DockableWorkspace({
         onSavedLayoutChangeRef.current(null);
         try {
           apiRef.current.clear();
+          needsPanelResync = true;
         } catch {
           // 忽略
         }
@@ -690,6 +735,7 @@ export function DockableWorkspace({
         try {
           isSyncingRef.current = true;
           apiRef.current.fromJSON(normalized);
+          syncTabsToApi(apiRef.current);
           const loaded = normalizeDockLayout(apiRef.current.toJSON()) ?? apiRef.current.toJSON();
           logLayoutRef.current(loaded, "saved-layout");
         } catch (err) {
@@ -698,6 +744,7 @@ export function DockableWorkspace({
           onSavedLayoutChangeRef.current(null);
           try {
             apiRef.current.clear();
+            needsPanelResync = true;
           } catch {
             // 忽略
           }
@@ -712,6 +759,7 @@ export function DockableWorkspace({
       if (prevProp !== undefined && prevProp !== null) {
         try {
           apiRef.current.clear();
+          needsPanelResync = true;
         } catch {
           // 忽略
         }
@@ -721,8 +769,11 @@ export function DockableWorkspace({
     lastWrittenLayoutRef.current = savedLayout;
     if (apiRef.current) {
       syncTabGroups(apiRef.current);
+      if (needsPanelResync) {
+        syncTabsToApi(apiRef.current);
+      }
     }
-  }, [savedLayout, syncTabGroups]);
+  }, [savedLayout, syncTabGroups, syncTabsToApi]);
 
   const disposablesRef = useRef<Array<{ dispose: () => void }>>([]);
 
@@ -740,7 +791,8 @@ export function DockableWorkspace({
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
         const raw = api.toJSON();
-        const next = normalizeDockLayout(raw) ?? raw;
+        const normalized = normalizeDockLayout(raw) ?? raw;
+        const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
         lastWrittenLayoutRef.current = next;
         logLayoutRef.current(next, "layout-change");
         onSavedLayoutChangeRef.current(next);
@@ -783,6 +835,7 @@ export function DockableWorkspace({
           api,
           onPanelTransferredOut: (panelId) => {
             transferredOutRef.current.add(panelId);
+            onPanelTransferredOutRef.current?.(panelId);
           },
         });
       }

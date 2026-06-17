@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
-import { useWorkspaceStore } from "../stores/workspaceStore";
 import { getShortcutKeys, matchesShortcut } from "../stores/shortcutsStore";
 
 export function isBottomWorkspaceShortcut(e: KeyboardEvent): boolean {
@@ -11,7 +10,7 @@ export function isBottomWorkspaceShortcut(e: KeyboardEvent): boolean {
 /** 处理 Alt/Option+W，返回是否已消费该按键 */
 export function triggerBottomWorkspaceToggle(e: KeyboardEvent): boolean {
   if (!isBottomWorkspaceShortcut(e)) return false;
-  if (useWorkspaceStore.getState().activePath === "/") return false;
+  if (useBottomPanelStore.getState().isFullscreen) return false;
   e.preventDefault();
   e.stopPropagation();
   useBottomPanelStore.getState().toggleOpen();

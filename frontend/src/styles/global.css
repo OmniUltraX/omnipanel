@@ -312,6 +312,7 @@
 
 .workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell {
     display: flex;
+    flex-direction: column;
     position: fixed;
     left: var(--sidebar-w);
     right: 0;
@@ -363,12 +364,110 @@
 .workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell .workspace-bottom-shell {
     flex: 1;
     min-height: 0;
-    height: auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
-.workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell .workspace-bottom-titlebar {
-    flex-shrink: 0;
-    z-index: 2;
+.workspace--bottom-fullscreen .workspace-bottom-fullscreen-shell .workspace-bottom-host {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 工作区宿主：full / half / off 语义 */
+.workspace-host {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ws-state-off .workspace-host--off .dock-panel-bottom,
+.workspace-host--off:not(.workspace-host--half):not(.workspace-host--full) .dock-panel-bottom {
+    /* off 时由 SidebarBottom 折叠底栏 */
+}
+
+.ws-state-half .content-routes,
+.workspace-host--half .content-routes {
+    flex: 1;
+    min-height: 0;
+}
+
+.ws-state-full .content-routes {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.workspace-switcher--home .workspace-switcher-trigger {
+    color: var(--accent);
+}
+
+.workspace-switcher--home .workspace-switcher-label {
+    font-weight: 600;
+}
+
+.workspace-popover-item--home .workspace-popover-item-name {
+    font-weight: 600;
+}
+
+.workspace-payload-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 0;
+    padding: var(--sp-6);
+}
+
+.docker-workspace-tab-pane {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-deeper);
+}
+
+.docker-workspace-logs {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+/* 工作区内覆盖 Docker 抽屉固定高度（360px） */
+.docker-workspace-tab-pane .docker-exec-term,
+.workspace-panel-dock .docker-exec-term,
+.workspace-bottom-fullscreen-shell .docker-exec-term {
+    flex: 1;
+    min-height: 0;
+    height: 100% !important;
+    border-radius: 0;
+}
+
+.docker-workspace-tab-pane .docker-workspace-logs.log-viewer-panel,
+.docker-workspace-tab-pane .docker-drawer-logs.log-viewer-panel,
+.workspace-panel-dock .docker-workspace-logs.log-viewer-panel,
+.workspace-bottom-fullscreen-shell .docker-workspace-logs.log-viewer-panel {
+    flex: 1;
+    min-height: 0;
+    height: 100% !important;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+}
+
+.workspace-panel-dock .dock-pane-surface,
+.workspace-bottom-fullscreen-shell .dock-pane-surface {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .workspace-bottom-host {
@@ -398,12 +497,210 @@
     pointer-events: none;
 }
 
+.home-workspace-panel {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.home-workspace-panel .home-board-view,
+.home-workspace-panel .dashboard.dashboard-home {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+.home-workspace-ai-pane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.home-workspace-ai-pane .ai-chat-pane {
+    flex: 1;
+    min-height: 0;
+}
+
 .workspace-panel {
     flex: 1;
     min-height: 0;
     min-width: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace-panel-chrome {
+    flex-shrink: 0;
+}
+
+.workspace-panel-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace-panel-dock {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.workspace-panel-chrome .workspace-panel-fullscreen-btn {
+    position: static;
+    flex-shrink: 0;
+}
+
+.workspace-panel-frame {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace-panel-frame .workspace-panel-fullscreen-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 20;
+}
+
+.workspace-panel-frame .workspace-panel-dock {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.workspace-panel--empty {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-deeper);
+}
+
+.workspace-panel-empty-topbar {
+    height: var(--shell-dv-tab-bar-h);
+    min-height: var(--shell-dv-tab-bar-h);
+    max-height: var(--shell-dv-tab-bar-h);
+    display: flex;
+    align-items: stretch;
+    padding: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    -webkit-app-region: drag;
+}
+
+.workspace-panel-empty-topbar .workspace-switcher {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    flex-shrink: 0;
+    -webkit-app-region: no-drag;
+}
+
+.workspace-panel-empty-spacer {
+    flex: 1;
+    min-width: 0;
+}
+
+.workspace-panel-fullscreen-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--shell-dv-tab-bar-h);
+    height: var(--shell-dv-tab-bar-h);
+    min-width: var(--shell-dv-tab-bar-h);
+    border: none;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: color 0.12s, background-color 0.12s;
+}
+
+.workspace-panel-empty-topbar .workspace-panel-fullscreen-btn {
+    position: static;
+    flex-shrink: 0;
+}
+
+.workspace-panel-fullscreen-btn:hover {
+    color: var(--fg);
+    background: var(--surface-hover);
+}
+
+.workspace-panel-empty-topbar .workspace-switcher-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: 100%;
+    padding: 0 var(--sp-3);
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg-2);
+    font: inherit;
+    font-size: var(--dv-tabs-and-actions-container-font-size, 13px);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.12s, background-color 0.12s;
+}
+
+.workspace-panel-empty-topbar .workspace-switcher-trigger:hover,
+.workspace-panel-empty-topbar .workspace-switcher-trigger.is-open {
+    background: var(--surface-hover);
+    color: var(--fg);
+}
+
+.workspace-panel-empty-topbar .workspace-switcher-label {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.workspace-panel-empty-topbar .workspace-switcher-chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+
+.workspace-panel-empty-topbar .workspace-switcher-trigger.is-open .workspace-switcher-chevron {
+    transform: rotate(180deg);
+}
+
+.workspace-panel-empty-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace-panel-empty-body .dashboard-home {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
 }
 
 .workspace-panel__welcome {

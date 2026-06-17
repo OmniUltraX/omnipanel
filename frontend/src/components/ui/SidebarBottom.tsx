@@ -67,17 +67,29 @@ export function SidebarBottom({
   const setIsOpen = useBottomPanelStore((state) => state.setIsOpen);
 
   const syncOpenState = useCallback(() => {
+    if (useBottomPanelStore.getState().isFullscreen) {
+      return;
+    }
     const handle = bottomPanelRef.current;
     if (handle) {
       setIsOpen(!handle.isCollapsed());
     }
   }, [setIsOpen]);
 
-  // 挂载后让底栏默认收起：调用 collapse() 让 DOM 与 store 初始 isOpen=false 对齐，
-  // 然后 syncOpenState 把 isOpen 同步到实际 DOM 状态。
+  // 挂载时按记住的 embeddedMode（off/half）对齐底栏展开状态
   useLayoutEffect(() => {
     const handle = bottomPanelRef.current;
-    if (handle && !handle.isCollapsed()) {
+    if (!handle) return;
+    const { embeddedMode, isFullscreen } = useBottomPanelStore.getState();
+    if (isFullscreen) {
+      syncOpenState();
+      return;
+    }
+    if (embeddedMode === "half") {
+      if (handle.isCollapsed()) {
+        handle.expand();
+      }
+    } else if (!handle.isCollapsed()) {
       handle.collapse();
     }
     syncOpenState();
@@ -85,6 +97,10 @@ export function SidebarBottom({
 
   useEffect(() => {
     if (expandSignal === 0) return;
+    if (useBottomPanelStore.getState().isFullscreen) {
+      syncOpenState();
+      return;
+    }
     const handle = bottomPanelRef.current;
     if (handle?.isCollapsed()) {
       handle.expand();

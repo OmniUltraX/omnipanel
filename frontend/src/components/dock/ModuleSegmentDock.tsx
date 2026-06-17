@@ -41,6 +41,8 @@ export interface ModuleSegmentDockProps {
   ) => void;
   emptyContent?: ReactNode;
   dockScope?: string;
+  /** 是否接受其他 dockview 拖入的 panel */
+  acceptExternalDrops?: boolean;
   /** Tab 栏前缀区域（tabs 左侧，如首页工作区切换） */
   preActions?: ReactNode;
 }
@@ -66,6 +68,7 @@ export function ModuleSegmentDock({
   onTabContextMenu,
   emptyContent,
   dockScope,
+  acceptExternalDrops,
   preActions,
 }: ModuleSegmentDockProps) {
   const layoutRef = useRef(EMPTY_LAYOUT);
@@ -112,6 +115,7 @@ export function ModuleSegmentDock({
       onTabContextMenu={onTabContextMenu}
       emptyContent={emptyContent}
       preActions={preActions}
+      acceptExternalDrops={acceptExternalDrops}
     />
   );
 }
