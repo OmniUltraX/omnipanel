@@ -30,3 +30,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+
+frontend/tauri-signing.key
+frontend/tauri-signing.key.pub

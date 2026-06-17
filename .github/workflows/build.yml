@@ -82,12 +82,42 @@ jobs:
           console.log(`Synced app version to ${v}`);
           EOF
 
+      - name: Prepare Tauri signing key
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
+          KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RAW_KEY:-}" ]; then
+            echo "::error::GitHub Secret UPDATER_PRIVATE_KEY 未配置。"
+            echo "请执行: cd frontend && npm run tauri signer generate -w tauri-signing.key"
+            echo "将生成的 .key 文件**完整内容**（含 untrusted comment 行）粘贴到 Secret。"
+            exit 1
+          fi
+          KEY_FILE="${RUNNER_TEMP}/tauri-signing.key"
+          printf '%s\n' "$RAW_KEY" > "$KEY_FILE"
+          if ! grep -q 'untrusted comment:' "$KEY_FILE"; then
+            if printf '%s' "$RAW_KEY" | base64 -d > "$KEY_FILE" 2>/dev/null \
+              && grep -q 'untrusted comment:' "$KEY_FILE"; then
+              echo "UPDATER_PRIVATE_KEY 已从 base64 解码"
+            else
+              echo "::error::UPDATER_PRIVATE_KEY 格式无效（Missing comment in secret key）。"
+              echo "常见原因：只粘贴了密钥中间一行、粘贴了公钥、或换行丢失。"
+              echo "修复：将 .key 全文粘贴到 Secret，或执行 base64 -w0 tauri-signing.key 后存入 Secret。"
+              exit 1
+            fi
+          fi
+          chmod 600 "$KEY_FILE"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
+          if [ -n "${KEY_PASSWORD:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'OmniPanel v${{ steps.version.outputs.version }}'

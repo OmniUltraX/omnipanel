@@ -1,6 +1,10 @@
 use tauri::WebviewWindow;
 
 /// 打开 WebView DevTools（debug 构建或启用 `debug-inspector` feature 时可用）。
+#[cfg_attr(
+    not(any(debug_assertions, feature = "debug-inspector")),
+    allow(unused_variables)
+)]
 #[tauri::command]
 pub fn debug_open_devtools(window: WebviewWindow) -> Result<(), String> {
     #[cfg(any(debug_assertions, feature = "debug-inspector"))]
