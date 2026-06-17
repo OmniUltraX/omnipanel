@@ -393,7 +393,7 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
               >
                 {row.getVisibleCells().map((cell) => {
                   const colMeta = transposed ? undefined : columnMetaMap?.[cell.column.id];
-                  const canEdit = effectiveOnCellEdit && colMeta;
+                  const canEdit = effectiveOnCellEdit && colMeta && !colMeta.isPk;
                   const overrideValue = overrideForRow?.[cell.column.id];
                   const cellDirty = overrideValue !== undefined && rowDirty;
                   const rawValue = overrideValue !== undefined ? overrideValue : cell.getValue();

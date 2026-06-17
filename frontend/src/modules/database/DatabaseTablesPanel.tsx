@@ -106,6 +106,37 @@ export function DatabaseTablesPanel({
     [onSelectTable, selection.connId, selection.dbName, selection.connection],
   );
 
+  const handleCopyDdl = useCallback(async () => {
+    if (!ddl || ddlLoading || ddlError) {
+      return;
+    }
+
+    const clip = navigator.clipboard;
+    if (clip && typeof clip.writeText === "function") {
+      try {
+        await clip.writeText(ddl);
+        return;
+      } catch (err) {
+        console.error("[clipboard] writeText failed, falling back", err);
+      }
+    }
+
+    const ta = document.createElement("textarea");
+    ta.value = ddl;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } catch (err) {
+      console.error("[clipboard] execCommand failed", err);
+    }
+    document.body.removeChild(ta);
+  }, [ddl, ddlError, ddlLoading]);
+
+  const canCopyDdl = Boolean(ddl && !ddlLoading && !ddlError);
+
   return (
     <ScopedSearch
       className="db-tables-panel db-tables-panel--dock"
@@ -158,7 +189,19 @@ export function DatabaseTablesPanel({
             <>
               <div className="db-tables-panel-ddl-header">
                 <span className="db-tables-panel-ddl-title">{previewTableName}</span>
-                <span className="db-tables-panel-ddl-hint">{t("database.tablesPanel.openHint")}</span>
+                <button
+                  type="button"
+                  className="btn-icon db-tables-panel-ddl-copy"
+                  title={t("database.contextMenu.copyDdl")}
+                  aria-label={t("database.contextMenu.copyDdl")}
+                  disabled={!canCopyDdl}
+                  onClick={() => void handleCopyDdl()}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                    <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                    <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+                  </svg>
+                </button>
               </div>
               <div className="db-tables-panel-ddl-content">
                 {ddlLoading && (

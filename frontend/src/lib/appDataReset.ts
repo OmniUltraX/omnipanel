@@ -18,7 +18,6 @@ import {
   useSettingsStore,
 } from "../stores/settingsStore";
 import { useShortcutsStore } from "../stores/shortcutsStore";
-import { useTaskStore } from "../stores/taskStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useTerminalDockLayoutStore } from "../stores/terminalDockLayoutStore";
 import { useWorkflowStore } from "../stores/workflowStore";
@@ -70,7 +69,6 @@ export async function clearAppUserData(): Promise<void> {
       await commands.taskDelete(task.id);
     }
   }
-  useTaskStore.setState({ tasks: [], selectedTaskId: null, error: null });
 
   const workflowRes = await commands.workflowList();
   if (workflowRes.status === "ok") {

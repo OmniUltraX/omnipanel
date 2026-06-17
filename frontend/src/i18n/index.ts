@@ -68,7 +68,6 @@ export function getRouteTitle(path: string, locale?: Locale) {
     "/protocol": "routes.protocol",
     "/workflow": "routes.workflow",
     "/knowledge": "routes.knowledge",
-    "/tasks": "routes.tasks",
     "/files": "routes.files",
     "/settings": "routes.settings",
   };

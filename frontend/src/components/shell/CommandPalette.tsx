@@ -36,7 +36,6 @@ const COMMAND_DEFS: CommandItem[] = [
   { id: "protocol", labelKey: "shell.commandPalette.commands.protocol", path: "/protocol", categoryKey: "shell.commandPalette.categories.nav" },
   { id: "workflow", labelKey: "shell.commandPalette.commands.workflow", path: "/workflow", categoryKey: "shell.commandPalette.categories.nav" },
   { id: "knowledge", labelKey: "shell.commandPalette.commands.knowledge", path: "/knowledge", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "tasks", labelKey: "shell.commandPalette.commands.tasks", path: "/tasks", categoryKey: "shell.commandPalette.categories.nav" },
   { id: "settings", labelKey: "shell.commandPalette.commands.settings", shortcut: "⌘,", action: () => useSettingsUiStore.getState().openSettings(), categoryKey: "shell.commandPalette.categories.nav" },
   { id: "new-terminal", labelKey: "shell.commandPalette.commands.newTerminal", shortcut: "⌘T", action: () => openLocalTerminalSession(), categoryKey: "shell.commandPalette.categories.action" },
   {
@@ -46,7 +45,6 @@ const COMMAND_DEFS: CommandItem[] = [
     categoryKey: "shell.commandPalette.categories.action",
   },
   { id: "new-query", labelKey: "shell.commandPalette.commands.newQuery", categoryKey: "shell.commandPalette.categories.action" },
-  { id: "risk-check", labelKey: "shell.commandPalette.commands.riskCheck", path: "/tasks", categoryKey: "shell.commandPalette.categories.security" },
   { id: "open-ai", labelKey: "shell.commandPalette.commands.openAi", shortcut: "$mod+`", action: () => useAiStore.getState().openDrawer(), categoryKey: "shell.commandPalette.categories.ai" },
   { id: "new-ai-conv", labelKey: "shell.commandPalette.commands.newAiConv", action: () => { useAiStore.getState().createConversation(); useAiStore.getState().openDrawer(); }, categoryKey: "shell.commandPalette.categories.ai" },
 ];

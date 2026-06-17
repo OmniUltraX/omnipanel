@@ -572,8 +572,7 @@
 }
 
 .workspace-dashboard,
-.module-main,
-.tasks-content {
+.module-main {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -9537,12 +9536,14 @@
         white-space: nowrap;
     }
 
-    .db-tables-panel-ddl-hint {
+    .db-tables-panel-ddl-copy {
         margin-left: auto;
-        font-size: 10px;
-        color: var(--muted);
-        white-space: nowrap;
         flex-shrink: 0;
+    }
+
+    .db-tables-panel-ddl-copy:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
     }
 
     .db-tables-panel-ddl-content {
@@ -16836,50 +16837,6 @@
         font-size: 11px;
     }
 
-    /* ══════════════════════════════════════════════════════════════════════
-     Tasks (tasks.html)
-     ══════════════════════════════════════════════════════════════════════ */
-    .tasks-content {
-        flex: 1;
-        overflow-y: auto;
-        padding: var(--sp-4);
-    }
-
-    .task-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--r-md);
-        padding: var(--sp-4);
-        margin-bottom: var(--sp-3);
-    }
-
-    .task-header {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-3);
-        margin-bottom: var(--sp-3);
-    }
-
-    .task-header h3 {
-        font-size: 13px;
-        font-weight: 600;
-        flex: 1;
-    }
-
-    .task-progress {
-        height: 6px;
-        background: var(--bg-deeper);
-        border-radius: 3px;
-        overflow: hidden;
-        margin-bottom: var(--sp-2);
-    }
-
-    .task-progress-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width 0.3s ease;
-    }
-
     /* ─── DataLoading（全局数据加载进度） ─────────────────────────────── */
     .data-loading {
         display: flex;
@@ -16914,133 +16871,6 @@
         line-height: 1.4;
         max-width: 100%;
         word-break: break-word;
-    }
-
-    .task-meta {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-3);
-        font-size: 11px;
-        color: var(--meta);
-    }
-
-    .task-steps {
-        margin-top: var(--sp-3);
-        padding-top: var(--sp-3);
-        border-top: 1px solid var(--border-soft);
-    }
-
-    .task-step {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        padding: var(--sp-1) 0;
-        font-size: 11px;
-    }
-
-    .task-step .step-icon {
-        width: 16px;
-        height: 16px;
-        display: grid;
-        place-items: center;
-        flex-shrink: 0;
-    }
-
-    .task-step .step-icon svg {
-        width: 12px;
-        height: 12px;
-    }
-
-    .task-step .step-name {
-        flex: 1;
-    }
-
-    .task-step .step-status {
-        font-size: 10px;
-    }
-
-    .task-actions {
-        display: flex;
-        gap: var(--sp-1);
-        margin-top: var(--sp-3);
-    }
-
-    .draft-item {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--r-md);
-        padding: var(--sp-3) var(--sp-4);
-        margin-bottom: var(--sp-2);
-        display: flex;
-        align-items: center;
-        gap: var(--sp-3);
-    }
-
-    .draft-item .draft-icon {
-        width: 28px;
-        height: 28px;
-        display: grid;
-        place-items: center;
-        border-radius: var(--r-sm);
-        flex-shrink: 0;
-    }
-
-    .draft-item .draft-icon svg {
-        width: 14px;
-        height: 14px;
-    }
-
-    .draft-item .draft-body {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .draft-item .draft-title {
-        font-size: 12px;
-        font-weight: 500;
-    }
-
-    .draft-item .draft-desc {
-        font-size: 11px;
-        color: var(--muted);
-    }
-
-    .draft-item .draft-actions {
-        display: flex;
-        gap: var(--sp-1);
-    }
-
-    .task-tabs {
-        display: flex;
-        gap: 0;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: var(--sp-4);
-    }
-
-    .task-tab {
-        padding: var(--sp-2) var(--sp-4);
-        font-size: 12px;
-        color: var(--meta);
-        cursor: pointer;
-        border-bottom: 2px solid transparent;
-        transition: color 0.12s, border-color 0.12s;
-    }
-
-    .task-tab:hover {
-        color: var(--fg);
-    }
-
-    .task-tab.active {
-        color: var(--fg);
-        border-bottom-color: var(--accent);
-    }
-
-    .task-panel {
-        display: none;
-    }
-
-    .task-panel.active {
-        display: block;
     }
 
     /* ══════════════════════════════════════════════════════════════════════

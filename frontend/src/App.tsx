@@ -34,7 +34,6 @@ import { SshPanel } from "./modules/server/SshPanel";
 import { ProtocolPanel } from "./modules/protocol/ProtocolPanel";
 import { WorkflowPanel } from "./modules/workflow/WorkflowPanel";
 import { KnowledgePanel } from "./modules/knowledge/KnowledgePanel";
-import { TasksPanel } from "./modules/tasks/TasksPanel";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
@@ -87,18 +86,6 @@ function TopbarPageActions() {
           <path d="M12 5v14M5 12h14" />
         </svg>
         {t("ssh.connect")}
-      </Button>
-    );
-  }
-
-  if (path === "/tasks") {
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => useActionStore.getState().clearCompleted()}
-      >
-        {t("tasks.actions.clearCompleted")}
       </Button>
     );
   }
@@ -174,7 +161,6 @@ const TOPBAR_TAB_ROUTES = [
   "/docker",
   "/ssh",
   "/server",
-  "/tasks",
   "/protocol",
 ];
 
@@ -337,7 +323,6 @@ function AppShell() {
             <Route path="/protocol" element={<ProtocolPanel />} />
             <Route path="/workflow" element={<WorkflowPanel />} />
             <Route path="/knowledge" element={<KnowledgePanel />} />
-            <Route path="/tasks" element={<TasksPanel />} />
             <Route path="/files" element={<FilesPanel />} />
           </Routes>
         )}

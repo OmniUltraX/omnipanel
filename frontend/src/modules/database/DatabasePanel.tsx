@@ -40,6 +40,7 @@ import {
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
 import { toCsv } from "./csvExport";
+import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
@@ -567,7 +568,9 @@ export function DatabasePanel() {
       const connForSchema = { ...connection, database: meta.dbName };
       void introspectTable(connection, meta.dbName, meta.tableName)
         .then((schema) => {
-          setTableColumnMeta((prev) => ({ ...prev, [tabId]: schema.columns }));
+          if (connection.db_type !== "redis") {
+            setTableColumnMeta((prev) => ({ ...prev, [tabId]: schema.columns }));
+          }
         })
         .catch(() => {});
 
@@ -576,6 +579,12 @@ export function DatabasePanel() {
         previewTable(connForSchema, meta.tableName, meta.pageSize, meta.page * meta.pageSize),
       ])
         .then(([totalRows, data]) => {
+          if (connection.db_type === "redis") {
+            setTableColumnMeta((prev) => ({
+              ...prev,
+              [tabId]: buildRedisColumnMeta(data.columns),
+            }));
+          }
           setTablePreviews((prev) => ({
             ...prev,
             [tabId]: {
@@ -789,6 +798,12 @@ export function DatabasePanel() {
           ...prevMap,
           [tabId]: { ...(prevMap[tabId] ?? defaultState), loading: false, error: null, data, totalRows, page: 0, pageSize },
         }));
+        if (connection.db_type === "redis") {
+          setTableColumnMeta((prev) => ({
+            ...prev,
+            [tabId]: buildRedisColumnMeta(data.columns),
+          }));
+        }
       } catch (e) {
         setTablePreviews((prevMap) => ({
           ...prevMap,
@@ -914,22 +929,34 @@ export function DatabasePanel() {
       }
       const connForSchema = { ...connection, database: preview.dbName };
       const tableName = preview.tableName;
-      const pkNames = pkCols.map((c) => c.name);
-      const escape = (v: unknown): string => {
-        if (v === null || v === undefined) return "NULL";
-        if (typeof v === "number") return String(v);
-        return `'${String(v).replace(/'/g, "\\'")}'`;
-      };
+      const isRedis = connection.db_type === "redis";
       const sqls: string[] = [];
-      for (const [rowKey, changes] of Object.entries(dirty)) {
-        const setClause = Object.entries(changes)
-          .map(([col, val]) => `\`${col}\` = ${escape(val)}`)
-          .join(", ");
-        const pkValues = pkNames.map((n) => {
-          const v = readRowKeyValue(rowKey, n);
-          return v === "" ? `${n} IS NULL` : `${n} = ${escape(v)}`;
-        });
-        sqls.push(`UPDATE \`${tableName}\` SET ${setClause} WHERE ${pkValues.join(" AND ")} LIMIT 1`);
+
+      if (isRedis) {
+        for (const [rowKey, changes] of Object.entries(dirty)) {
+          sqls.push(...buildRedisUpdateCommands(tableName, rowKey, pkCols, changes));
+        }
+        if (sqls.length === 0) {
+          console.error("[db.commit] no redis commands generated");
+          return;
+        }
+      } else {
+        const pkNames = pkCols.map((c) => c.name);
+        const escape = (v: unknown): string => {
+          if (v === null || v === undefined) return "NULL";
+          if (typeof v === "number") return String(v);
+          return `'${String(v).replace(/'/g, "\\'")}'`;
+        };
+        for (const [rowKey, changes] of Object.entries(dirty)) {
+          const setClause = Object.entries(changes)
+            .map(([col, val]) => `\`${col}\` = ${escape(val)}`)
+            .join(", ");
+          const pkValues = pkNames.map((n) => {
+            const v = readRowKeyValue(rowKey, n);
+            return v === "" ? `${n} IS NULL` : `${n} = ${escape(v)}`;
+          });
+          sqls.push(`UPDATE \`${tableName}\` SET ${setClause} WHERE ${pkValues.join(" AND ")} LIMIT 1`);
+        }
       }
       setCommittingTabs((prev) => new Set(prev).add(tabId));
       try {
@@ -1500,12 +1527,13 @@ export function DatabasePanel() {
         selection.dbName,
         selection.tableName,
       );
-      // Fetch column metadata for cell editing
-      void introspectTable(selection.connection, selection.dbName, selection.tableName)
-        .then((schema) => {
-          setTableColumnMeta((prev) => ({ ...prev, [tabId]: schema.columns }));
-        })
-        .catch(() => {});
+      if (selection.connection.db_type !== "redis") {
+        void introspectTable(selection.connection, selection.dbName, selection.tableName)
+          .then((schema) => {
+            setTableColumnMeta((prev) => ({ ...prev, [tabId]: schema.columns }));
+          })
+          .catch(() => {});
+      }
     },
     [loadTablePreview, tablePreviews, workspaceTabs],
   );

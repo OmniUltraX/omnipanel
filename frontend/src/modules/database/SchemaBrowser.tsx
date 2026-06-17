@@ -10,6 +10,7 @@ import {
   listDatabases,
   listTables,
   isConnectionEnabled,
+  connectionHasTableSchemaChildren,
 } from "./api";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
@@ -661,6 +662,10 @@ export function SchemaBrowser({
 
   const ensureTableDetailsLoaded = useCallback(
     async (connId: string, dbName: string, tableName: string, config: DbConnectionConfig) => {
+      if (!connectionHasTableSchemaChildren(config)) {
+        return;
+      }
+
       const cacheKey = `${connId}:${dbName}:${tableName}`;
       const current = connectionsRef.current.find((item) => item.config.id === connId);
       const db = current?.databases?.find((item) => item.name === dbName);
@@ -860,12 +865,15 @@ export function SchemaBrowser({
 
     const tableParsed = parseTableNodeId(id);
     if (tableParsed) {
-      updateExpanded((prev) => {
-        const next = new Set(prev);
-        next.add(tableColumnsFolderId(id));
-        next.add(tableIndexesFolderId(id));
-        return next;
-      });
+      const conn = connectionsRef.current.find((item) => item.config.id === tableParsed.connId);
+      if (conn && connectionHasTableSchemaChildren(conn.config)) {
+        updateExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(tableColumnsFolderId(id));
+          next.add(tableIndexesFolderId(id));
+          return next;
+        });
+      }
     }
   };
 
@@ -1217,6 +1225,7 @@ export function SchemaBrowser({
                         pagedTables.visible.map((tbl) => {
                           const tableKey = makeTableNodeId(conn.config.id, db.name, tbl.name);
                           const tableExpanded = expandedNodeIds.has(tableKey);
+                          const showTableSchemaChildren = connectionHasTableSchemaChildren(conn.config);
                           const colsFolderId = tableColumnsFolderId(tableKey);
                           const idxFolderId = tableIndexesFolderId(tableKey);
                           const colsExpanded = expandedNodeIds.has(colsFolderId);
@@ -1250,7 +1259,7 @@ export function SchemaBrowser({
                                 onToggle={() => toggle(tableKey)}
                                 reorderScope={makeTableFilterKey(conn.config.id, db.name)}
                                 reorderName={tbl.name}
-                                hasChildren
+                                hasChildren={showTableSchemaChildren}
                                 active={activeTableKey === tableKey}
                                 onLabelClick={() =>
                                   onSelectTable?.({
@@ -1275,16 +1284,18 @@ export function SchemaBrowser({
                                     : undefined
                                 }
                                 meta={
-                                  tbl.loadingDetails
-                                    ? t("common.loading")
-                                    : tbl.detailsError
-                                      ? t("database.sidebar.detailsFailed")
-                                      : tbl.columns
-                                        ? `${columns.length} ${t("database.sidebar.fields")} · ${indexes.length} ${t("database.sidebar.indexes")}`
-                                        : undefined
+                                  !showTableSchemaChildren
+                                    ? undefined
+                                    : tbl.loadingDetails
+                                      ? t("common.loading")
+                                      : tbl.detailsError
+                                        ? t("database.sidebar.detailsFailed")
+                                        : tbl.columns
+                                          ? `${columns.length} ${t("database.sidebar.fields")} · ${indexes.length} ${t("database.sidebar.indexes")}`
+                                          : undefined
                                 }
                               />
-                              {tableExpanded && tbl.detailsError && (
+                              {showTableSchemaChildren && tableExpanded && tbl.detailsError && (
                                 <div
                                   style={{
                                     padding: "4px 56px",
@@ -1295,7 +1306,7 @@ export function SchemaBrowser({
                                   {tbl.detailsError}
                                 </div>
                               )}
-                              {tableExpanded && !tbl.loadingDetails && (
+                              {showTableSchemaChildren && tableExpanded && !tbl.loadingDetails && (
                                 <>
                                   <TreeNode
                                     item={colsFolderItem}

@@ -68,9 +68,9 @@ export function getSchemaTreeDragText(item: SchemaTreeItem): string {
   }
 }
 
-/** 分组、文件夹等容器节点不可拖动。 */
+/** 仅表级节点可拖动（插入 SQL / 树内排序）。 */
 export function isSchemaTreeItemDraggable(type: SchemaTreeItemType): boolean {
-  return type !== "group" && type !== "folder";
+  return type === "table";
 }
 
 /**

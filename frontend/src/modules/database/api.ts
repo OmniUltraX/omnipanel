@@ -93,6 +93,13 @@ export function isSupportedEngine(engine: ConnectionFormData["engine"]): boolean
   return engine === "mysql" || engine === "redis";
 }
 
+/** Redis 等 KV 引擎的「表」节点无字段/索引子树。 */
+export function connectionHasTableSchemaChildren(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return connection.db_type !== "redis";
+}
+
 export async function listConnections(): Promise<DbConnectionConfig[]> {
   return invoke<DbConnectionConfig[]>("db_list_connections");
 }

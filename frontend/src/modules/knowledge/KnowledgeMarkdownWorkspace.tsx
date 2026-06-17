@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
-import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
+import { Button } from "../../components/ui/Button";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { getEntryOrDraft, useKnowledgeStore } from "../../stores/knowledgeStore";
+import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";
 import { isKnowledgeFolder } from "./knowledgeTree";
 
 const AUTOSAVE_MS = 800;
@@ -18,8 +17,10 @@ export function KnowledgeMarkdownWorkspace() {
   const updateDraft = useKnowledgeStore((s) => s.updateDraft);
   const saveEntry = useKnowledgeStore((s) => s.saveEntry);
   const renameEntry = useKnowledgeStore((s) => s.renameEntry);
+  const createDocument = useKnowledgeStore((s) => s.createDocument);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleRef = useRef("");
 
   const entry = useMemo(
     () => getEntryOrDraft(entries, draftById, selectedEntryId),
@@ -29,6 +30,7 @@ export function KnowledgeMarkdownWorkspace() {
   const isFolder = entry ? isKnowledgeFolder(entry) : false;
   const title = entry?.title ?? "";
   const content = entry?.content ?? "";
+  titleRef.current = title;
 
   const scheduleSave = useCallback(
     (nextTitle: string, nextContent: string) => {
@@ -45,6 +47,15 @@ export function KnowledgeMarkdownWorkspace() {
     [entry, isFolder, saveEntry],
   );
 
+  const handleContentChange = useCallback(
+    (markdown: string) => {
+      if (!entry || isFolder) return;
+      updateDraft(entry.id, { title: titleRef.current, content: markdown });
+      scheduleSave(titleRef.current, markdown);
+    },
+    [entry, isFolder, scheduleSave, updateDraft],
+  );
+
   useEffect(
     () => () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -55,7 +66,19 @@ export function KnowledgeMarkdownWorkspace() {
   if (!entry) {
     return (
       <div className="knowledge-workspace knowledge-workspace--empty">
-        <ModuleEmptyState preset="document" title={t("knowledge.selectEntry")} />
+        <WorkspaceEmptyPage
+          prompt={t("knowledge.selectEntry")}
+          actions={
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={() => void createDocument()}
+            >
+              {t("knowledge.tree.newDocument")}
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -87,35 +110,20 @@ export function KnowledgeMarkdownWorkspace() {
           value={title}
           onChange={(e) => {
             const next = e.target.value;
+            titleRef.current = next;
             updateDraft(entry.id, { title: next, content });
             scheduleSave(next, content);
           }}
           aria-label={t("knowledge.title")}
         />
       </div>
-      <DockLayout direction="horizontal" className="knowledge-editor-split">
-        <DockPanel defaultSize="50%" minSize="25%" className="knowledge-editor-pane">
-          <textarea
-            className="knowledge-markdown-input"
-            value={content}
-            onChange={(e) => {
-              const next = e.target.value;
-              updateDraft(entry.id, { title, content: next });
-              scheduleSave(title, next);
-            }}
-            placeholder={t("knowledge.contentPlaceholder")}
-            spellCheck={false}
-          />
-        </DockPanel>
-        <DockHandle direction="horizontal" />
-        <DockPanel defaultSize="50%" minSize="25%" className="knowledge-preview-pane">
-          <div className="knowledge-markdown-preview knowledge-detail-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {content || t("knowledge.previewEmpty")}
-            </ReactMarkdown>
-          </div>
-        </DockPanel>
-      </DockLayout>
+      <KnowledgeCrepeEditor
+        key={entry.id}
+        entryId={entry.id}
+        defaultContent={content}
+        placeholder={t("knowledge.contentPlaceholder")}
+        onChange={handleContentChange}
+      />
     </div>
   );
 }
