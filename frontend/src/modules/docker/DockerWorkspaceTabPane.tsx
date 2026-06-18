@@ -4,6 +4,10 @@ import { useContainerLogStream } from "./useDockerWorkspace";
 import { LogViewer } from "../../components/ui/LogViewer";
 import { useI18n } from "../../i18n";
 import type { DockerTabSnapshot } from "../../stores/workspaceTabStore";
+import {
+  dockerPreviewKey,
+  setDockerLogPreview,
+} from "../../stores/workspacePreviewStore";
 
 interface DockerWorkspaceTabPaneProps {
   snapshot: DockerTabSnapshot;
@@ -32,6 +36,11 @@ function DockerLogsPane({
     () => lines.map((line) => line.message).join("\n"),
     [lines],
   );
+
+  useEffect(() => {
+    if (!logText) return;
+    setDockerLogPreview(dockerPreviewKey(connectionId, containerId), logText);
+  }, [connectionId, containerId, logText]);
 
   return (
     <LogViewer

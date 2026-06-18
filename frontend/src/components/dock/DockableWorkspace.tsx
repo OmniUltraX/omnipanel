@@ -69,6 +69,8 @@ export interface DockableWorkspaceProps {
   savedLayout: SerializedDockview | null;
   onSavedLayoutChange: (layout: SerializedDockview | null) => void;
   renderPanel: (tabId: string) => ReactNode;
+  /** 控制 panel 内容刷新；与 renderPanel 解耦，避免 callback 引用变化导致死循环 */
+  panelContentKey?: string;
   className?: string;
   emptyContent?: ReactNode;
   onTabContextMenu?: (
@@ -149,6 +151,7 @@ export function DockableWorkspace({
   savedLayout,
   onSavedLayoutChange,
   renderPanel,
+  panelContentKey = "default",
   className,
   emptyContent,
   onTabContextMenu,
@@ -185,6 +188,9 @@ export function DockableWorkspace({
   // 回调 ref —— 避免 children 重渲染
   const renderPanelRef = useRef(renderPanel);
   renderPanelRef.current = renderPanel;
+  const panelContentKeyRef = useRef(panelContentKey);
+  panelContentKeyRef.current = panelContentKey;
+  const lastBumpedPanelContentKeyRef = useRef<string | null>(null);
   const onCloseTabRef = useRef(onCloseTab);
   onCloseTabRef.current = onCloseTab;
   const onActiveTabChangeRef = useRef(onActiveTabChange);
@@ -299,6 +305,7 @@ export function DockableWorkspace({
           contentRev: (current.contentRev ?? 0) + 1,
         });
       }
+      lastBumpedPanelContentKeyRef.current = panelContentKeyRef.current;
     } finally {
       isSyncingRef.current = false;
     }
@@ -316,12 +323,14 @@ export function DockableWorkspace({
     [],
   );
 
-  // renderPanel 变更时 bump contentRev，否则 dockview 不会重绘 panel 内容
+  // panelContentKey 变更时 bump contentRev，通知 dockview 重绘 panel 内容
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || !layoutLoadedRef.current) return;
+    if (!api || !layoutLoadedRef.current || isSyncingRef.current) return;
+    if (lastBumpedPanelContentKeyRef.current === panelContentKey) return;
+    lastBumpedPanelContentKeyRef.current = panelContentKey;
     bumpPanelContentRev(api);
-  }, [renderPanel, bumpPanelContentRev]);
+  }, [panelContentKey, bumpPanelContentRev]);
 
   // 自定义 tab：元数据通过 panel params 同步，确保图标/标题更新能触发重渲染
   const defaultTabComponent = useCallback(
@@ -473,6 +482,16 @@ export function DockableWorkspace({
 
   // 加载初始布局（在 onReady 中执行）
   const applyInitialLayout = useCallback((api: DockviewApi) => {
+    if (tabsRef.current.length === 0 && acceptExternalDropsRef.current) {
+      for (const panel of [...api.panels]) {
+        api.removePanel(panel);
+      }
+      ensureExternalDropTarget(api);
+      layoutLoadedRef.current = true;
+      syncWindowChromeHostRef.current(api);
+      return;
+    }
+
     const pending = pendingSavedLayoutRef.current;
     const desired = mergePanelsIntoLayout(pending, tabsRef.current.map((t) => t.id), "");
     if (desired) {
@@ -840,8 +859,12 @@ export function DockableWorkspace({
           }),
           api.onWillDrop((event) => {
             if (!isExternalPanelDrop(event, api.id)) return;
-            // 根级 edge 落点：阻止 moveGroupOrPanel（跨实例会失败），改走 transfer
-            if (event.kind === "edge") {
+            const emptyDropTarget =
+              acceptExternalDropsRef.current &&
+              tabsRef.current.length === 0 &&
+              api.panels.length === 0;
+            // 根级 edge 落点，或空工作区内容区：阻止 moveGroupOrPanel，改走 transfer
+            if (event.kind === "edge" || emptyDropTarget) {
               event.preventDefault();
               handleExternalDrop(event);
             }

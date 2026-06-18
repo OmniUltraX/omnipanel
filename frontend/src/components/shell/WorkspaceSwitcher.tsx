@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import { isEmbeddedWorkspaceMode } from "../../lib/workspaceMode";
 import { useI18n } from "../../i18n";
 import { WorkspacePopover } from "./WorkspacePopover";
 
@@ -9,6 +10,10 @@ interface WorkspaceSwitcherProps {
   placement?: "above" | "below";
   /** dock：模块 Tab 栏；statusbar：状态栏右侧 */
   variant?: "dock" | "statusbar";
+  /** 半屏及以下为 false，隐藏首页入口 */
+  showHome?: boolean;
+  /** 任务栏紧凑模式 */
+  compact?: boolean;
   className?: string;
 }
 
@@ -18,19 +23,29 @@ interface WorkspaceSwitcherProps {
 export function WorkspaceSwitcher({
   placement = "below",
   variant = "dock",
+  showHome = true,
+  compact = false,
   className,
 }: WorkspaceSwitcherProps) {
   const { t } = useI18n();
   const workspace = useWorkspaceStore((state) => state.workspace);
   const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
+  const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const displayLabel = isHomeActive ? t("shell.workspace.home") : workspace.name;
 
+  /** 底部嵌入工作区（taskbar/缩略图/半屏）弹层向上展开，避免被屏幕底边裁切 */
+  const popoverPlacement =
+    isEmbeddedWorkspaceMode(workspaceMode) && workspaceMode !== "hidden"
+      ? "above"
+      : placement;
+
   const rootClass = [
     "workspace-switcher",
     variant === "dock" ? "drag-ignore" : "",
+    compact ? "workspace-switcher--compact" : "",
     isHomeActive ? "workspace-switcher--home" : "",
     className,
   ]
@@ -40,7 +55,8 @@ export function WorkspaceSwitcher({
   const popover = open ? (
     <WorkspacePopover
       anchorRef={buttonRef}
-      placement={placement}
+      placement={popoverPlacement}
+      showHome={showHome}
       onClose={() => setOpen(false)}
     />
   ) : null;

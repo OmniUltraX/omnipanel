@@ -219,7 +219,7 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
             tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
             layoutByWorkspace: {
               ...state.layoutByWorkspace,
-              [workspaceId]: nextLayout,
+              [workspaceId]: tabs.length === 0 ? null : nextLayout,
             },
             activeTabByWorkspace: {
               ...state.activeTabByWorkspace,

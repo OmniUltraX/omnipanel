@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import type { OnPanelResize, PanelImperativeHandle, PanelProps } from "react-resizable-panels";
+import { useCallback, type ReactNode } from "react";
+import type { PanelImperativeHandle, PanelProps } from "react-resizable-panels";
 import { DockLayout } from "./DockLayout";
 import { DockPanel } from "./DockPanel";
 import { DockHandle } from "./DockHandle";
@@ -39,8 +39,12 @@ interface DockWorkspaceProps {
   bottomMaxPx?: number;
   /** 外部用于命令式控制底部面板（如 expand / collapse）的 ref */
   bottomPanelRef?: React.Ref<PanelImperativeHandle | null>;
-  /** 底部面板尺寸变化回调（用于同步展开/收起状态） */
-  onBottomPanelResize?: OnPanelResize;
+  /** 底部面板实际像素高度变化 */
+  onBottomPanelHeightChange?: (heightPx: number) => void;
+  /** 开始拖拽底部分隔条（指针按下） */
+  onBottomResizeStart?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  /** 底部面板拖拽结束或布局稳定后触发 */
+  onBottomResizeEnd?: () => void;
   className?: string;
 }
 
@@ -58,12 +62,20 @@ export function DockWorkspace({
   rightMinPx,
   rightMaxPx,
   bottomSizePx = 220,
-  bottomMinPx = 160,
+  bottomMinPx = 0,
   bottomMaxPx = 420,
   bottomPanelRef,
-  onBottomPanelResize,
+  onBottomPanelHeightChange,
+  onBottomResizeStart,
+  onBottomResizeEnd,
   className,
 }: DockWorkspaceProps) {
+  const handleBottomHeight = useCallback(
+    (heightPx: number) => {
+      onBottomPanelHeightChange?.(heightPx);
+    },
+    [onBottomPanelHeightChange],
+  );
   const rail = RAIL_PRESETS[leftPreset];
   const leftDefault = leftSizePx ?? rail.defaultSize;
   const leftMin = leftMinPx ?? rail.minSize;
@@ -75,20 +87,22 @@ export function DockWorkspace({
   const rightMax = rightMaxPx ?? rightRail.maxSize;
 
   const mainContent = bottom ? (
-    <DockLayout direction="vertical">
+    <DockLayout direction="vertical" onLayoutChanged={onBottomResizeEnd}>
       <DockPanel>
         {main}
       </DockPanel>
-      <DockHandle direction="vertical" />
+      <DockHandle direction="vertical" onPointerDown={onBottomResizeStart} />
       <DockPanel
         defaultSize={bottomSizePx}
-        minSize={bottomMinPx}
+        minSize={`${bottomMinPx}px`}
         maxSize={bottomMaxPx}
         collapsible
         collapsedSize={0}
         panelRef={bottomPanelRef}
-        onResize={onBottomPanelResize}
-        className="dock-panel-bottom"
+        onResize={(panelSize) => {
+          handleBottomHeight(panelSize.inPixels);
+        }}
+        className="dock-panel-bottom dock-panel-bottom--workspace"
       >
         {bottom}
       </DockPanel>

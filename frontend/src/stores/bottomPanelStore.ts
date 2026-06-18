@@ -1,50 +1,72 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  defaultHeightForMode,
+  dragModeFromHeight,
+  isEmbeddedWorkspaceMode,
+  modeFromHeight,
+  normalizeWorkspaceHeight,
+  WS_HEIGHT_HIDDEN_MAX,
+  type EmbeddedWorkspaceMode,
+  type WorkspaceMode,
+} from "../lib/workspaceMode";
 
-/** 功能页内底部工作区的嵌入模式（全屏 Home 不修改此记忆） */
+/** @deprecated 兼容旧逻辑，映射到 hidden/half */
 export type WorkspaceEmbeddedMode = "off" | "half";
 
-/**
- * SidebarBottom 展开/收起信号存储。
- *
- * 跨组件（StatusBar / WorkspacePopover 等）控制底部工作区面板的统一入口。
- * `expandSignal` / `collapseSignal` 是单调递增计数器，SidebarBottom 订阅后
- * 调用面板 ref 的 expand() / collapse()。
- *
- * - **全屏（Home）**：`isFullscreen=true`，不占功能页布局
- * - **半屏（half）**：`embeddedMode=half`，功能页上方 + 底部工作区
- * - **关闭（off）**：`embeddedMode=off`，仅功能页；离开全屏时按此记忆恢复
- */
 interface BottomPanelState {
   expandSignal: number;
   collapseSignal: number;
-  /** 底部工作区面板是否展开（供状态栏按钮显示；由 SidebarBottom 同步） */
+  /** 当前工作区模式 */
+  workspaceMode: WorkspaceMode;
+  /** 底部嵌入区实际高度（px） */
+  workspaceHeightPx: number;
+  /** 离开全屏前记住的嵌入模式 */
+  lastNonFullscreenMode: EmbeddedWorkspaceMode;
+
+  /** 底部工作区是否展开（嵌入态且非 hidden） */
   isOpen: boolean;
-  /** 底部工程工作区是否全屏（高度铺满 workspace 主区域） */
+  /** 是否全屏（工程或首页） */
   isFullscreen: boolean;
-  /** 是否处于首页特殊工作区（独立于可自定义 Tab 的工程工作区） */
+  /** 是否首页全屏 */
   isHomeActive: boolean;
-  /** 功能页内记住的嵌入模式；全屏 Home 不覆盖 */
+  /** @deprecated 使用 lastNonFullscreenMode */
   embeddedMode: WorkspaceEmbeddedMode;
+
   requestExpand: () => void;
   requestCollapse: () => void;
   setIsOpen: (open: boolean) => void;
+  setWorkspaceHeight: (
+    heightPx: number,
+    options?: { fromUserDrag?: boolean; commit?: boolean },
+  ) => void;
   enterFullscreen: () => void;
-  /** 进入 Home 全屏工作区（别名） */
   enterHomeWorkspace: () => void;
-  /** 进入当前工程工作区全屏（不是首页） */
   enterWorkspaceFullscreen: () => void;
   exitFullscreen: () => void;
   leaveFullscreenForFeature: () => void;
-  /** 离开 Home 全屏并恢复嵌入模式（别名） */
   leaveHomeToFeature: () => void;
-  /** 离开首页并进入工程工作区全屏（从下拉切换工作区时） */
   exitHomeToWorkspace: () => void;
   applyEmbeddedMode: () => void;
   toggleFullscreen: () => void;
-  /** 功能页内切换 off/half（别名） */
   toggleEmbeddedWorkspace: () => void;
   toggleOpen: () => void;
+  /** 全屏顶栏向下拖拽退出全屏 */
+  leaveFullscreenByDrag: (heightPx: number) => void;
+  /** 半屏及以下右上角：先进工程全屏；工程全屏再进首页 */
+  handleWorkspaceChromeIcon: () => void;
+}
+
+function syncDerivedFlags(mode: WorkspaceMode): Pick<
+  BottomPanelState,
+  "isOpen" | "isFullscreen" | "isHomeActive" | "embeddedMode"
+> {
+  const isFullscreen = mode === "fullscreen" || mode === "home";
+  const isHomeActive = mode === "home";
+  const isOpen = isEmbeddedWorkspaceMode(mode) && mode !== "hidden";
+  const embeddedMode: WorkspaceEmbeddedMode =
+    mode === "half" || mode === "thumbnail" || mode === "taskbar" ? "half" : "off";
+  return { isOpen, isFullscreen, isHomeActive, embeddedMode };
 }
 
 export const useBottomPanelStore = create<BottomPanelState>()(
@@ -52,72 +74,119 @@ export const useBottomPanelStore = create<BottomPanelState>()(
     (set, get) => ({
       expandSignal: 0,
       collapseSignal: 0,
+      workspaceMode: "hidden",
+      workspaceHeightPx: 0,
+      lastNonFullscreenMode: "half",
       isOpen: false,
       isFullscreen: false,
       isHomeActive: false,
       embeddedMode: "off",
 
-      requestExpand: () =>
+      requestExpand: () => {
+        const { lastNonFullscreenMode } = get();
+        const mode: EmbeddedWorkspaceMode =
+          lastNonFullscreenMode === "taskbar" ||
+          lastNonFullscreenMode === "thumbnail"
+            ? lastNonFullscreenMode
+            : "half";
+        const height = defaultHeightForMode(mode);
         set((state) => ({
           expandSignal: state.expandSignal + 1,
-          isOpen: true,
-          isHomeActive: false,
-          embeddedMode: "half",
-        })),
-
-      requestCollapse: () =>
-        set((state) => ({
-          collapseSignal: state.collapseSignal + 1,
-          isOpen: false,
-          isFullscreen: false,
-          isHomeActive: false,
-          embeddedMode: "off",
-        })),
-
-      setIsOpen: (isOpen) =>
-        set({
-          isOpen,
-          isHomeActive: false,
-          embeddedMode: isOpen ? "half" : "off",
-        }),
-
-      enterFullscreen: () =>
-        set((state) => ({
-          isFullscreen: true,
-          isHomeActive: true,
-          isOpen: true,
-          expandSignal: state.expandSignal + 1,
-        })),
-
-      enterHomeWorkspace: () => {
-        get().enterFullscreen();
+          workspaceMode: mode,
+          workspaceHeightPx: height,
+          lastNonFullscreenMode: mode,
+          ...syncDerivedFlags(mode),
+        }));
       },
 
-      enterWorkspaceFullscreen: () =>
+      requestCollapse: () => {
+        const { workspaceMode, lastNonFullscreenMode } = get();
+        const remembered =
+          isEmbeddedWorkspaceMode(workspaceMode) && workspaceMode !== "hidden"
+            ? workspaceMode
+            : lastNonFullscreenMode;
         set((state) => ({
-          isHomeActive: false,
-          isFullscreen: true,
-          isOpen: true,
+          collapseSignal: state.collapseSignal + 1,
+          workspaceMode: "hidden",
+          workspaceHeightPx: 0,
+          lastNonFullscreenMode: remembered,
+          ...syncDerivedFlags("hidden"),
+        }));
+      },
+
+      setIsOpen: (isOpen) => {
+        if (isOpen) {
+          get().requestExpand();
+        } else {
+          get().requestCollapse();
+        }
+      },
+
+      setWorkspaceHeight: (heightPx, options) => {
+        const { workspaceMode } = get();
+        if (workspaceMode === "fullscreen" || workspaceMode === "home") return;
+
+        const currentEmbedded = isEmbeddedWorkspaceMode(workspaceMode)
+          ? workspaceMode
+          : undefined;
+
+        // 拖拽进行中：只切换渲染形态，不动高度/记忆值，让面板跟手不回弹。
+        if (options?.commit === false) {
+          const liveMode = dragModeFromHeight(heightPx, currentEmbedded);
+          if (liveMode === workspaceMode) return;
+          set({ workspaceMode: liveMode, ...syncDerivedFlags(liveMode) });
+          return;
+        }
+
+        // 松手提交：吸附到规范高度并记忆。
+        const nextMode = dragModeFromHeight(heightPx, currentEmbedded);
+        const normalized = normalizeWorkspaceHeight(heightPx, nextMode);
+        const patch: Partial<BottomPanelState> = {
+          workspaceHeightPx: normalized,
+          workspaceMode: nextMode,
+          ...syncDerivedFlags(nextMode),
+        };
+        if (nextMode !== "hidden") {
+          patch.lastNonFullscreenMode = nextMode;
+        }
+        set(patch);
+      },
+
+      enterFullscreen: () => {
+        get().enterHomeWorkspace();
+      },
+
+      enterHomeWorkspace: () => {
+        set((state) => ({
+          workspaceMode: "home",
           expandSignal: state.expandSignal + 1,
-        })),
+          ...syncDerivedFlags("home"),
+        }));
+      },
+
+      enterWorkspaceFullscreen: () => {
+        set((state) => ({
+          workspaceMode: "fullscreen",
+          expandSignal: state.expandSignal + 1,
+          ...syncDerivedFlags("fullscreen"),
+        }));
+      },
 
       exitHomeToWorkspace: () => {
         get().enterWorkspaceFullscreen();
       },
 
       applyEmbeddedMode: () => {
-        const { embeddedMode } = get();
-        if (embeddedMode === "half") {
-          set((state) => ({
-            expandSignal: state.expandSignal + 1,
-            isOpen: true,
-          }));
-        } else {
-          set((state) => ({
-            collapseSignal: state.collapseSignal + 1,
-            isOpen: false,
-          }));
-        }
+        const { lastNonFullscreenMode } = get();
+        const mode: EmbeddedWorkspaceMode =
+          lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode;
+        const height = defaultHeightForMode(mode);
+        set((state) => ({
+          expandSignal: state.expandSignal + 1,
+          workspaceMode: mode,
+          workspaceHeightPx: height,
+          ...syncDerivedFlags(mode),
+        }));
       },
 
       exitFullscreen: () => {
@@ -126,7 +195,8 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       },
 
       leaveFullscreenForFeature: () => {
-        if (!get().isFullscreen && !get().isHomeActive) return;
+        const { workspaceMode } = get();
+        if (workspaceMode !== "fullscreen" && workspaceMode !== "home") return;
         set({ isFullscreen: false, isHomeActive: false });
         get().applyEmbeddedMode();
       },
@@ -135,9 +205,38 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         get().leaveFullscreenForFeature();
       },
 
+      leaveFullscreenByDrag: (heightPx) => {
+        const { lastNonFullscreenMode } = get();
+        const currentEmbedded =
+          lastNonFullscreenMode !== "hidden" ? lastNonFullscreenMode : undefined;
+        const nextMode = modeFromHeight(heightPx, currentEmbedded);
+        const normalized = normalizeWorkspaceHeight(heightPx, nextMode);
+        set({
+          workspaceMode: nextMode,
+          workspaceHeightPx: normalized,
+          lastNonFullscreenMode: nextMode === "hidden" ? get().lastNonFullscreenMode : nextMode,
+          ...syncDerivedFlags(nextMode),
+        });
+        if (nextMode !== "hidden") {
+          set((state) => ({ expandSignal: state.expandSignal + 1 }));
+        } else {
+          set((state) => ({ collapseSignal: state.collapseSignal + 1 }));
+        }
+      },
+
+      handleWorkspaceChromeIcon: () => {
+        const { workspaceMode } = get();
+        if (workspaceMode === "fullscreen") {
+          get().enterHomeWorkspace();
+          return;
+        }
+        if (workspaceMode === "home") return;
+        get().enterWorkspaceFullscreen();
+      },
+
       toggleFullscreen: () => {
-        const { isFullscreen, isHomeActive } = get();
-        if (isFullscreen || isHomeActive) {
+        const { workspaceMode } = get();
+        if (workspaceMode === "fullscreen" || workspaceMode === "home") {
           get().exitFullscreen();
         } else {
           get().enterHomeWorkspace();
@@ -145,32 +244,91 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       },
 
       toggleEmbeddedWorkspace: () => {
-        const { isOpen } = get();
-        if (isOpen) {
-          get().requestCollapse();
-        } else {
+        const { workspaceMode } = get();
+        if (workspaceMode === "hidden") {
           get().requestExpand();
+        } else if (isEmbeddedWorkspaceMode(workspaceMode)) {
+          get().requestCollapse();
         }
       },
 
       toggleOpen: () => {
-        const { isOpen, isFullscreen, isHomeActive } = get();
-        if (isFullscreen || isHomeActive) {
+        const { workspaceMode } = get();
+        if (workspaceMode === "fullscreen" || workspaceMode === "home") {
           get().exitFullscreen();
           return;
         }
-        if (isOpen) {
-          get().requestCollapse();
+        if (workspaceMode === "hidden") {
+          const height = defaultHeightForMode("half");
+          set((state) => ({
+            expandSignal: state.expandSignal + 1,
+            workspaceMode: "half",
+            workspaceHeightPx: height,
+            lastNonFullscreenMode: "half",
+            ...syncDerivedFlags("half"),
+          }));
         } else {
-          get().requestExpand();
+          get().requestCollapse();
         }
       },
     }),
     {
       name: "omnipanel-bottom-panel",
+      version: 2,
       partialize: (state) => ({
+        lastNonFullscreenMode: state.lastNonFullscreenMode,
+        workspaceHeightPx: state.workspaceHeightPx,
         embeddedMode: state.embeddedMode,
       }),
+      migrate: (persisted, version) => {
+        const p = persisted as Record<string, unknown> | undefined;
+        if (!p || version >= 2) return persisted as unknown as BottomPanelState;
+        const legacyEmbedded = p.embeddedMode === "half" ? "half" : "off";
+        const lastNonFullscreenMode: EmbeddedWorkspaceMode = "half";
+        const workspaceHeightPx =
+          typeof p.workspaceHeightPx === "number"
+            ? p.workspaceHeightPx
+            : defaultHeightForMode("half");
+        const workspaceMode: WorkspaceMode =
+          legacyEmbedded === "half" ? "half" : "hidden";
+        return {
+          ...p,
+          lastNonFullscreenMode,
+          workspaceHeightPx: legacyEmbedded === "half" ? workspaceHeightPx : 0,
+          workspaceMode,
+          embeddedMode: legacyEmbedded,
+        } as BottomPanelState;
+      },
+      merge: (persisted, current) => {
+        const p = persisted as Partial<BottomPanelState> | undefined;
+        if (!p) return current;
+        const merged = { ...current, ...p };
+        if (p.embeddedMode === "half") {
+          const mode: EmbeddedWorkspaceMode =
+            p.lastNonFullscreenMode && p.lastNonFullscreenMode !== "hidden"
+              ? p.lastNonFullscreenMode
+              : "half";
+          merged.workspaceMode = mode;
+          const rawHeight =
+            typeof p.workspaceHeightPx === "number" && p.workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
+              ? p.workspaceHeightPx
+              : defaultHeightForMode(mode);
+          merged.workspaceHeightPx = normalizeWorkspaceHeight(rawHeight, mode);
+          Object.assign(merged, syncDerivedFlags(mode));
+        } else {
+          merged.workspaceMode = "hidden";
+          merged.workspaceHeightPx = 0;
+          Object.assign(merged, syncDerivedFlags("hidden"));
+        }
+        return merged;
+      },
     },
   ),
 );
+
+/** 当前嵌入态（非全屏时） */
+export function useEmbeddedWorkspaceMode(): EmbeddedWorkspaceMode {
+  const mode = useBottomPanelStore((s) => s.workspaceMode);
+  if (isEmbeddedWorkspaceMode(mode)) return mode;
+  return "hidden";
+}

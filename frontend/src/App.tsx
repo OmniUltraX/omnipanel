@@ -24,6 +24,7 @@ import { Button } from "./components/ui/Button";
 import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
 import { WorkspaceBottomHost } from "./components/workspace/WorkspaceBottomHost";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
+import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import { WindowResize } from "./components/shell/WindowResize";
 import { Dashboard } from "./modules/workspace/Dashboard";
@@ -284,10 +285,16 @@ function AppShell() {
 
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
   const setAiDockWidth = useSettingsStore((s) => s.setAiDockWidth);
-  const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
+  const workspaceMode = useBottomPanelStore((s) => s.workspaceMode);
   const isHomeActive = useBottomPanelStore((s) => s.isHomeActive);
-  const isBottomOpen = useBottomPanelStore((s) => s.isOpen);
-  const wsState = isBottomFullscreen ? "full" : isBottomOpen ? "half" : "off";
+  const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
+  const wsState = workspaceShellState(workspaceMode);
+  const embeddedModeClass =
+    workspaceMode !== "fullscreen" &&
+    workspaceMode !== "home" &&
+    workspaceMode !== "hidden"
+      ? ` workspace--mode-${workspaceMode}`
+      : "";
   const dockWidth =
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
@@ -373,7 +380,7 @@ function AppShell() {
     <div className="app">
       <Sidebar />
       <div
-        className={`workspace workspace--${wsState}${isHomeActive ? " workspace--home-active" : ""}${isBottomFullscreen ? " workspace--bottom-fullscreen" : ""}`}
+        className={`workspace workspace--${wsState}${isHomeActive ? " workspace--home-active" : ""}${isBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
         style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
       >
         <Topbar title={title} hidden>

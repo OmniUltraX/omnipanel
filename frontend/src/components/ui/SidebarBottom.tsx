@@ -6,107 +6,152 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { OnPanelResize, PanelImperativeHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace } from "../dock";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import {
+  defaultHeightForMode,
+  isEmbeddedWorkspaceMode,
+  modeFromHeight,
+  normalizeWorkspaceHeight,
+  WS_HEIGHT_HIDDEN_MAX,
+} from "../../lib/workspaceMode";
 
-/** 底部工作区可拖拽的最大高度占窗口高度比例 */
-const BOTTOM_PANEL_MAX_HEIGHT_RATIO = 0.6;
+/** 程序化 resize 后短暂忽略面板回传，避免 snap 与拖拽打架 */
+const SNAP_IGNORE_MS = 120;
 
-function useBottomPanelMaxHeightPx(): number {
-  const [maxPx, setMaxPx] = useState(() =>
-    Math.floor(window.innerHeight * BOTTOM_PANEL_MAX_HEIGHT_RATIO),
-  );
+/** 底部工作区可拖拽的最大高度占窗口高度比例，超过全屏阈值后会切到工程全屏 */
+const BOTTOM_PANEL_MAX_HEIGHT_RATIO = 0.95;
+const WORKSPACE_FULLSCREEN_THRESHOLD_RATIO = 0.6;
+
+function useBottomPanelDragMetrics(): { maxPx: number; fullscreenThresholdPx: number } {
+  const [metrics, setMetrics] = useState(() => ({
+    maxPx: Math.floor(window.innerHeight * BOTTOM_PANEL_MAX_HEIGHT_RATIO),
+    fullscreenThresholdPx: Math.floor(window.innerHeight * WORKSPACE_FULLSCREEN_THRESHOLD_RATIO),
+  }));
 
   useEffect(() => {
     const update = () => {
-      setMaxPx(Math.floor(window.innerHeight * BOTTOM_PANEL_MAX_HEIGHT_RATIO));
+      setMetrics({
+        maxPx: Math.floor(window.innerHeight * BOTTOM_PANEL_MAX_HEIGHT_RATIO),
+        fullscreenThresholdPx: Math.floor(window.innerHeight * WORKSPACE_FULLSCREEN_THRESHOLD_RATIO),
+      });
     };
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  return maxPx;
+  return metrics;
 }
 
 export interface SidebarBottomProps {
-  /** 主内容区 */
   children: ReactNode;
-  /** 底部侧栏（可拖拽调整高度，拖至最矮可折叠隐藏） */
   sidebar: ReactNode;
-  /** 覆盖底部侧栏默认高度（px） */
   sidebarSizePx?: number;
-  /** 底部侧栏最小高度（px） */
   sidebarMinPx?: number;
-  /** 底部侧栏最大高度（px） */
   sidebarMaxPx?: number;
   className?: string;
 }
 
 /**
  * 底部可调整/可折叠边栏布局。
- * 与 SidebarWorkspace / SidebarSecondary 风格一致，侧栏位于底部，从下方向上扩展。
- * 拖拽顶部 dock-handle 可改变侧栏高度，拖至最矮可折叠隐藏。
- *
- * 订阅 `useBottomPanelStore` 的 expandSignal：触发后调用底部面板 ref 的
- * `expand()`，使被折叠的底栏自动展开。
+ * 展开/折叠由 store 信号驱动；拖拽高度写入 store 以切换 taskbar/thumbnail/half。
  */
 export function SidebarBottom({
   children,
   sidebar,
-  sidebarSizePx = 220,
-  sidebarMinPx = 160,
+  sidebarMinPx = 21,
   sidebarMaxPx: sidebarMaxPxProp,
   className,
 }: SidebarBottomProps) {
-  const computedMaxPx = useBottomPanelMaxHeightPx();
+  const { maxPx: computedMaxPx, fullscreenThresholdPx } = useBottomPanelDragMetrics();
   const sidebarMaxPx = sidebarMaxPxProp ?? computedMaxPx;
   const bottomPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const isSnappingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const cleanupDragListenersRef = useRef<(() => void) | null>(null);
+  const ignoreResizeUntilRef = useRef(0);
   const expandSignal = useBottomPanelStore((state) => state.expandSignal);
   const collapseSignal = useBottomPanelStore((state) => state.collapseSignal);
-  const setIsOpen = useBottomPanelStore((state) => state.setIsOpen);
+  const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
+  const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
+  const workspaceHeightPx = useBottomPanelStore((state) => state.workspaceHeightPx);
+  const lastNonFullscreenMode = useBottomPanelStore(
+    (state) => state.lastNonFullscreenMode,
+  );
+  const setWorkspaceHeight = useBottomPanelStore((state) => state.setWorkspaceHeight);
+
+  const targetBottomPx =
+    workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
+      ? workspaceHeightPx
+      : defaultHeightForMode(
+          lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode,
+        );
 
   const syncOpenState = useCallback(() => {
-    if (useBottomPanelStore.getState().isFullscreen) {
-      return;
-    }
-    const handle = bottomPanelRef.current;
-    if (handle) {
-      setIsOpen(!handle.isCollapsed());
-    }
-  }, [setIsOpen]);
-
-  // 挂载时按记住的 embeddedMode（off/half）对齐底栏展开状态
-  useLayoutEffect(() => {
+    if (useBottomPanelStore.getState().isFullscreen) return;
     const handle = bottomPanelRef.current;
     if (!handle) return;
-    const { embeddedMode, isFullscreen } = useBottomPanelStore.getState();
-    if (isFullscreen) {
-      syncOpenState();
-      return;
-    }
-    if (embeddedMode === "half") {
-      if (handle.isCollapsed()) {
-        handle.expand();
-      }
+    const { workspaceMode: mode } = useBottomPanelStore.getState();
+    const shouldExpand =
+      mode === "half" || mode === "taskbar" || mode === "thumbnail";
+    if (shouldExpand) {
+      if (handle.isCollapsed()) handle.expand();
     } else if (!handle.isCollapsed()) {
       handle.collapse();
     }
+  }, []);
+
+  const snapPanelHeight = useCallback((heightPx: number) => {
+    const handle = bottomPanelRef.current;
+    if (!handle || useBottomPanelStore.getState().isFullscreen) return;
+    isSnappingRef.current = true;
+    ignoreResizeUntilRef.current = performance.now() + SNAP_IGNORE_MS;
+    requestAnimationFrame(() => {
+      handle.resize(`${heightPx}px`);
+      requestAnimationFrame(() => {
+        isSnappingRef.current = false;
+      });
+    });
+  }, []);
+
+  const applyTargetHeight = useCallback(() => {
+    const handle = bottomPanelRef.current;
+    if (!handle || useBottomPanelStore.getState().isFullscreen) return;
+    const state = useBottomPanelStore.getState();
+    if (
+      state.workspaceMode !== "half" &&
+      state.workspaceMode !== "taskbar" &&
+      state.workspaceMode !== "thumbnail"
+    ) {
+      return;
+    }
+    const raw =
+      state.workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
+        ? state.workspaceHeightPx
+        : defaultHeightForMode(
+            state.lastNonFullscreenMode === "hidden"
+              ? "half"
+              : state.lastNonFullscreenMode,
+          );
+    const mode = modeFromHeight(
+      raw,
+      isEmbeddedWorkspaceMode(state.workspaceMode) ? state.workspaceMode : undefined,
+    );
+    const target = normalizeWorkspaceHeight(raw, mode);
+    snapPanelHeight(target);
+    setWorkspaceHeight(target, { fromUserDrag: false });
+  }, [setWorkspaceHeight, snapPanelHeight]);
+
+  useLayoutEffect(() => {
     syncOpenState();
-  }, [syncOpenState]);
+  }, [workspaceMode, isFullscreen, syncOpenState]);
 
   useEffect(() => {
     if (expandSignal === 0) return;
-    if (useBottomPanelStore.getState().isFullscreen) {
-      syncOpenState();
-      return;
-    }
-    const handle = bottomPanelRef.current;
-    if (handle?.isCollapsed()) {
-      handle.expand();
-    }
     syncOpenState();
-  }, [expandSignal, syncOpenState]);
+    applyTargetHeight();
+  }, [expandSignal, syncOpenState, applyTargetHeight]);
 
   useEffect(() => {
     if (collapseSignal === 0) return;
@@ -114,22 +159,107 @@ export function SidebarBottom({
     if (handle && !handle.isCollapsed()) {
       handle.collapse();
     }
-    syncOpenState();
-  }, [collapseSignal, syncOpenState]);
+  }, [collapseSignal]);
 
-  const handleBottomPanelResize = useCallback(() => {
-    syncOpenState();
-  }, [syncOpenState]) as OnPanelResize;
+  const cleanupDragListeners = useCallback(() => {
+    cleanupDragListenersRef.current?.();
+    cleanupDragListenersRef.current = null;
+  }, []);
+
+  const enterFullscreenFromDrag = useCallback(
+    (heightPx: number) => {
+      const store = useBottomPanelStore.getState();
+      if (store.isFullscreen) return;
+      cleanupDragListeners();
+      isDraggingRef.current = false;
+      setWorkspaceHeight(
+        Math.max(defaultHeightForMode("half"), Math.min(heightPx, fullscreenThresholdPx - 1)),
+        { fromUserDrag: true, commit: true },
+      );
+      store.enterWorkspaceFullscreen();
+    },
+    [cleanupDragListeners, fullscreenThresholdPx, setWorkspaceHeight],
+  );
+
+  // 松手提交：按真实像素吸附到规范高度，或在过低时折叠。
+  const handleResizeEnd = useCallback(() => {
+    const handle = bottomPanelRef.current;
+    const store = useBottomPanelStore.getState();
+    if (!handle || store.isFullscreen || !isDraggingRef.current) return;
+    cleanupDragListeners();
+    isDraggingRef.current = false;
+
+    const px = handle.getSize().inPixels;
+    if (px >= fullscreenThresholdPx) {
+      enterFullscreenFromDrag(px);
+      return;
+    }
+    if (px <= WS_HEIGHT_HIDDEN_MAX) {
+      store.requestCollapse();
+      return;
+    }
+    setWorkspaceHeight(px, { fromUserDrag: true, commit: true });
+    const target = useBottomPanelStore.getState().workspaceHeightPx;
+    if (Math.abs(px - target) > 1) {
+      snapPanelHeight(target);
+    }
+  }, [
+    cleanupDragListeners,
+    enterFullscreenFromDrag,
+    fullscreenThresholdPx,
+    setWorkspaceHeight,
+    snapPanelHeight,
+  ]);
+
+  // 指针按下分隔条即进入拖拽态；全局 pointerup 结束并提交，保证拖拽全程跟手。
+  const handleResizeStart = useCallback(() => {
+    if (useBottomPanelStore.getState().isFullscreen) return;
+    if (isDraggingRef.current) return;
+    isDraggingRef.current = true;
+    const finish = () => {
+      handleResizeEnd();
+    };
+    cleanupDragListenersRef.current = () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("blur", finish);
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    window.addEventListener("blur", finish);
+  }, [handleResizeEnd]);
+
+  const handleBottomHeightChange = useCallback(
+    (heightPx: number) => {
+      if (useBottomPanelStore.getState().isFullscreen) return;
+      // 程序化吸附与窗口尺寸变化不参与模式判定，避免回弹/抖动。
+      if (isSnappingRef.current || performance.now() < ignoreResizeUntilRef.current) {
+        return;
+      }
+      if (!isDraggingRef.current) return;
+
+      if (heightPx >= fullscreenThresholdPx) {
+        enterFullscreenFromDrag(heightPx);
+        return;
+      }
+
+      // 拖拽中只切换渲染形态，不吸附面板高度，全程跟手丝滑。
+      setWorkspaceHeight(heightPx, { commit: false });
+    },
+    [enterFullscreenFromDrag, fullscreenThresholdPx, setWorkspaceHeight],
+  );
 
   return (
     <DockWorkspace
       main={children}
       bottom={sidebar}
-      bottomSizePx={sidebarSizePx}
+      bottomSizePx={targetBottomPx}
       bottomMinPx={sidebarMinPx}
       bottomMaxPx={sidebarMaxPx}
       bottomPanelRef={bottomPanelRef}
-      onBottomPanelResize={handleBottomPanelResize}
+      onBottomPanelHeightChange={handleBottomHeightChange}
+      onBottomResizeStart={handleResizeStart}
+      onBottomResizeEnd={handleResizeEnd}
       className={className}
     />
   );

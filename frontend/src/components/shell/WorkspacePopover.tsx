@@ -17,6 +17,8 @@ interface WorkspacePopoverProps {
   onClose: () => void;
   /** above：锚点上方（状态栏）；below：锚点下方（模块 Tab 栏） */
   placement?: "above" | "below";
+  /** 半屏及以下隐藏首页入口 */
+  showHome?: boolean;
 }
 
 function isPopoverNode(target: EventTarget | null): boolean {
@@ -29,6 +31,7 @@ export function WorkspacePopover({
   anchorRef,
   onClose,
   placement = "above",
+  showHome = true,
 }: WorkspacePopoverProps) {
   const { t } = useI18n();
   const workspaces = useWorkspaceStore((state) => state.workspaces);
@@ -66,12 +69,21 @@ export function WorkspacePopover({
     const el = panelRef.current;
     if (!anchor || !el) return;
     const anchorRect = anchor.getBoundingClientRect();
-    const { width } = el.getBoundingClientRect();
+    const { width, height } = el.getBoundingClientRect();
     const gap = 8;
     const margin = 8;
     const desiredLeft = anchorRect.right - width;
     const left = Math.max(margin, Math.min(desiredLeft, window.innerWidth - width - margin));
-    if (placement === "below") {
+    const popoverHeight = height > 0 ? height : 280;
+    const spaceBelow = window.innerHeight - anchorRect.bottom - gap;
+    const spaceAbove = anchorRect.top - gap;
+    let openBelow = placement === "below";
+    if (openBelow && spaceBelow < popoverHeight && spaceAbove >= spaceBelow) {
+      openBelow = false;
+    } else if (!openBelow && spaceAbove < popoverHeight && spaceBelow > spaceAbove) {
+      openBelow = true;
+    }
+    if (openBelow) {
       setCoords({ left, top: anchorRect.bottom + gap });
     } else {
       setCoords({ left, bottom: window.innerHeight - anchorRect.top + gap });
@@ -187,29 +199,31 @@ export function WorkspacePopover({
       >
         <div className="workspace-popover-header">{t("shell.workspacePopover.title")}</div>
         <ul className="workspace-popover-list" role="listbox">
-          <li className="workspace-popover-row">
-            <button
-              type="button"
-              className={`workspace-popover-item workspace-popover-item--home${isHomeActive ? " workspace-popover-item--active" : ""}`}
-              onClick={handleSelectHome}
-            >
-              <span className="workspace-popover-item-name">{t("shell.workspace.home")}</span>
-              {isHomeActive && (
-                <svg
-                  className="workspace-popover-item-check"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  width="12"
-                  height="12"
-                  aria-hidden
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          </li>
+          {showHome ? (
+            <li className="workspace-popover-row">
+              <button
+                type="button"
+                className={`workspace-popover-item workspace-popover-item--home${isHomeActive ? " workspace-popover-item--active" : ""}`}
+                onClick={handleSelectHome}
+              >
+                <span className="workspace-popover-item-name">{t("shell.workspace.home")}</span>
+                {isHomeActive && (
+                  <svg
+                    className="workspace-popover-item-check"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    width="12"
+                    height="12"
+                    aria-hidden
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
+            </li>
+          ) : null}
           {workspaces.map((ws) => {
             const active = ws.id === currentId && !isHomeActive;
             const deleteLabel = t("shell.workspacePopover.delete");

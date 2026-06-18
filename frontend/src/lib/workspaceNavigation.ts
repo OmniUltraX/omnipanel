@@ -7,7 +7,7 @@ export function goWorkspaceHome(): void {
   useBottomPanelStore.getState().enterHomeWorkspace();
 }
 
-/** 从全屏工作区离开并恢复上次记住的 off/half 嵌入状态 */
+/** 从全屏工作区离开并恢复上次记住的非全屏嵌入形态 */
 export function leaveWorkspaceHomeForFeature(): void {
   useBottomPanelStore.getState().leaveHomeToFeature();
 }

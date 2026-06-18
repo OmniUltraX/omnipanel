@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -383,17 +384,20 @@ export function DatabasePanel() {
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
   const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
-  const referencedDatabaseTabIds = useWorkspaceBottomDockStore((s) => {
-    const ids = new Set<string>(s.dockedOriginByScope.database ?? []);
-    for (const tabs of Object.values(s.tabsByWorkspace)) {
-      for (const tab of tabs ?? []) {
-        if (tab.kind === "payload" && tab.payload?.module === "database") {
-          ids.add(tab.payload.id);
+  const referencedDatabaseTabIds = useWorkspaceBottomDockStore(
+    useShallow((s) => {
+      const ids = new Set<string>(s.dockedOriginByScope.database ?? []);
+      for (const tabs of Object.values(s.tabsByWorkspace)) {
+        for (const tab of tabs ?? []) {
+          if (tab.kind === "payload" && tab.payload?.module === "database") {
+            ids.add(tab.payload.id);
+          }
         }
       }
-    }
-    return ids.size > 0 ? [...ids] : EMPTY_DOCKED_DATABASE_TABS;
-  });
+      if (ids.size === 0) return EMPTY_DOCKED_DATABASE_TABS;
+      return [...ids].sort();
+    }),
+  );
   const allWorkspaces = useWorkspaceStore((s) => s.workspaces);
   const currentWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
   const wsTabStore = useWorkspaceTabStore;

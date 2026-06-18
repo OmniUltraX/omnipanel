@@ -5,7 +5,7 @@ import { subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import { HomeBoardView } from "../../modules/workspace/HomeBoardView";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
-import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
 import {
   resolveWorkspaceActiveTabId,
   resolveWorkspaceDockPanelType,
@@ -17,6 +17,9 @@ import { isLayoutUsable, collectPanelIds } from "../dock/dockViewLayout";
 import { getDbWorkspaceMirrorContext } from "../../stores/dbWorkspaceMirrorStore";
 import { WorkspaceMirroredPanel } from "./WorkspaceMirroredPanel";
 import { WorkspacePayloadPanel } from "./WorkspacePayloadPanel";
+import { WorkspaceThumbnailStrip } from "./WorkspaceThumbnailStrip";
+import { WorkspaceTaskbarStrip } from "./WorkspaceTaskbarStrip";
+import { WorkspaceFullscreenDragHandle } from "./WorkspaceFullscreenDragHandle";
 
 interface WorkspacePanelProps {
   workspace: WorkspaceInfo;
@@ -33,8 +36,11 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   const { t } = useI18n();
   const workspaceId = workspace.id;
   const dockScope = workspaceDockScope(workspaceId);
-  const isEngineeringFullscreen = useBottomPanelStore(
-    (state) => state.isFullscreen && !state.isHomeActive,
+  const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
+  const isEngineeringFullscreen = workspaceMode === "fullscreen";
+  const embeddedMode = useEmbeddedWorkspaceMode();
+  const handleWorkspaceChromeIcon = useBottomPanelStore(
+    (state) => state.handleWorkspaceChromeIcon,
   );
   const enterWorkspaceFullscreen = useBottomPanelStore(
     (state) => state.enterWorkspaceFullscreen,
@@ -127,6 +133,11 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     [tabs, activeTabId],
   );
 
+  const panelContentKey = useMemo(
+    () => `${activeTabId}|${tabs.map((tab) => tab.id).join(",")}`,
+    [activeTabId, tabs],
+  );
+
   const handleCloseTab = useCallback(
     (tabId: string) => {
       removeTab(workspaceId, workspace, tabId);
@@ -160,9 +171,8 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   );
 
   const enterFullscreenFromChrome = useCallback(() => {
-    if (isEngineeringFullscreen) return;
-    enterWorkspaceFullscreen();
-  }, [enterWorkspaceFullscreen, isEngineeringFullscreen]);
+    handleWorkspaceChromeIcon();
+  }, [handleWorkspaceChromeIcon]);
 
   const handleTopbarDoubleClick = useCallback(
     (event: React.MouseEvent) => {
@@ -184,63 +194,124 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     [enterWorkspaceFullscreen, isEngineeringFullscreen],
   );
 
+  const showHomeInSwitcher = embeddedMode === "half";
+
   const preActions = useMemo(
-    () => <WorkspaceSwitcher placement="below" />,
-    [],
+    () => <WorkspaceSwitcher placement="below" showHome={showHomeInSwitcher} />,
+    [showHomeInSwitcher],
   );
 
-  const fullscreenButton = !isEngineeringFullscreen ? (
+  const fullscreenButton = (
     <button
       type="button"
       className="workspace-panel-fullscreen-btn drag-ignore"
-      title={t("shell.workspacePanel.fullscreen")}
-      aria-label={t("shell.workspacePanel.fullscreen")}
+      title={
+        isEngineeringFullscreen
+          ? t("shell.workspace.home")
+          : t("shell.workspacePanel.fullscreen")
+      }
+      aria-label={
+        isEngineeringFullscreen
+          ? t("shell.workspace.home")
+          : t("shell.workspacePanel.fullscreen")
+      }
       onClick={enterFullscreenFromChrome}
     >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        width="14"
-        height="14"
-        aria-hidden
-      >
-        <path d="M8 3H5a2 2 0 00-2 2v3" />
-        <path d="M16 3h3a2 2 0 012 2v3" />
-        <path d="M8 21H5a2 2 0 01-2-2v-3" />
-        <path d="M16 21h3a2 2 0 002-2v-3" />
-      </svg>
+      {isEngineeringFullscreen ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+          <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+          <path d="M8 3H5a2 2 0 00-2 2v3" />
+          <path d="M16 3h3a2 2 0 012 2v3" />
+          <path d="M8 21H5a2 2 0 01-2-2v-3" />
+          <path d="M16 21h3a2 2 0 002-2v-3" />
+        </svg>
+      )}
     </button>
-  ) : null;
+  );
+
+  if (embeddedMode === "thumbnail") {
+    return (
+      <div className="workspace-panel-frame workspace-panel--thumbnail">
+        <WorkspaceThumbnailStrip
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelectTab={handleActiveTabChange}
+        />
+      </div>
+    );
+  }
+
+  if (embeddedMode === "taskbar") {
+    return (
+      <div className="workspace-panel-frame workspace-panel--taskbar">
+        <div className="workspace-taskbar-bar">
+          <WorkspaceTaskbarStrip
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelectTab={handleActiveTabChange}
+          />
+          {fullscreenButton}
+        </div>
+      </div>
+    );
+  }
+
+  const frameClassName = [
+    "workspace-panel-frame",
+    isEngineeringFullscreen ? "workspace-panel-frame--engineering-full" : "",
+    tabs.length === 0 ? "workspace-panel--empty" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const dockClassName = "workspace-panel workspace-panel-dock";
 
   if (tabs.length === 0) {
     return (
       <div
-        className="workspace-panel workspace-panel--empty"
+        className={frameClassName}
         onDoubleClickCapture={handleTopbarDoubleClick}
       >
-        <div className="workspace-panel-empty-topbar">
-          <WorkspaceSwitcher placement="below" />
-          <div className="workspace-panel-empty-spacer" />
-          {fullscreenButton}
-        </div>
-        <div className="workspace-panel-empty-body">
-          <HomeBoardView />
-        </div>
+        {isEngineeringFullscreen ? <WorkspaceFullscreenDragHandle /> : null}
+        {fullscreenButton}
+        <DockableWorkspace
+          key={`${workspaceId}:empty`}
+          className={dockClassName}
+          dockScope={dockScope}
+          acceptExternalDrops
+          tabs={[]}
+          activeTabId=""
+          onActiveTabChange={handleActiveTabChange}
+          onCloseTab={handleCloseTab}
+          onPanelTransferredOut={handlePanelTransferredOut}
+          savedLayout={null}
+          onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
+          renderPanel={renderPanel}
+          panelContentKey={panelContentKey}
+          tabStyle="topbar"
+          preActions={preActions}
+          windowControl={isEngineeringFullscreen}
+          windowChromeVariant="segment"
+          enableTabGroups={false}
+          emptyContent={<HomeBoardView />}
+        />
       </div>
     );
   }
 
   return (
     <div
-      className="workspace-panel-frame"
+      className={frameClassName}
       onDoubleClickCapture={handleTopbarDoubleClick}
     >
+      {isEngineeringFullscreen ? <WorkspaceFullscreenDragHandle /> : null}
       {fullscreenButton}
       <DockableWorkspace
         key={dockRemountKey}
-        className="workspace-panel workspace-panel-dock"
+        className={dockClassName}
         dockScope={dockScope}
         acceptExternalDrops
         tabs={dockTabs}
@@ -251,6 +322,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
         savedLayout={effectiveSavedLayout}
         onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
         renderPanel={renderPanel}
+        panelContentKey={panelContentKey}
         tabStyle="topbar"
         preActions={preActions}
         windowControl={isEngineeringFullscreen}
