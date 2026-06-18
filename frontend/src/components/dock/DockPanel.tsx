@@ -9,6 +9,7 @@ interface DockPanelProps {
   collapsible?: boolean;
   collapsedSize?: PanelProps["collapsedSize"];
   onResize?: PanelProps["onResize"];
+  groupResizeBehavior?: PanelProps["groupResizeBehavior"];
   panelRef?: React.Ref<PanelImperativeHandle | null>;
   className?: string;
 }
@@ -21,6 +22,7 @@ export function DockPanel({
   collapsible,
   collapsedSize,
   onResize,
+  groupResizeBehavior,
   panelRef,
   className,
 }: DockPanelProps) {
@@ -33,6 +35,7 @@ export function DockPanel({
       collapsible={collapsible}
       collapsedSize={collapsedSize}
       onResize={onResize}
+      groupResizeBehavior={groupResizeBehavior}
       className={`dock-panel${className ? ` ${className}` : ""}`}
     >
       {children}

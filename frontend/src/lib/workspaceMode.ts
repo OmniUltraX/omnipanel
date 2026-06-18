@@ -25,6 +25,17 @@ export const WS_DEFAULT_HEIGHT: Record<EmbeddedWorkspaceMode, number> = {
   half: 320,
 };
 
+/** 半屏默认占视口高度比例（全屏拖出、状态栏展开等） */
+export const WS_HALF_HEIGHT_RATIO = 0.5;
+
+/** 当前视口下半屏目标高度（px） */
+export function halfHeightPx(viewportHeight = window.innerHeight): number {
+  return Math.max(
+    WS_HEIGHT_THUMBNAIL_MAX + 1,
+    Math.floor(viewportHeight * WS_HALF_HEIGHT_RATIO),
+  );
+}
+
 export function isEmbeddedWorkspaceMode(
   mode: WorkspaceMode,
 ): mode is EmbeddedWorkspaceMode {
@@ -97,6 +108,7 @@ export function normalizeWorkspaceHeight(
 }
 
 export function defaultHeightForMode(mode: EmbeddedWorkspaceMode): number {
+  if (mode === "half") return halfHeightPx();
   return WS_DEFAULT_HEIGHT[mode];
 }
 

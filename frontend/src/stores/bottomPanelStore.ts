@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import {
   defaultHeightForMode,
   dragModeFromHeight,
+  halfHeightPx,
   isEmbeddedWorkspaceMode,
   resolveEmbeddedHeight,
   WS_HEIGHT_HIDDEN_MAX,
@@ -204,7 +205,7 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       },
 
       leaveFullscreenByDrag: () => {
-        const halfHeight = defaultHeightForMode("half");
+        const halfHeight = halfHeightPx();
         set({
           workspaceMode: "half",
           workspaceHeightPx: halfHeight,

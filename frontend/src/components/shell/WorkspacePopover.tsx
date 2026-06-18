@@ -43,6 +43,9 @@ export function WorkspacePopover({
     (state) => state.removeWorkspaceData,
   );
   const requestExpand = useBottomPanelStore((state) => state.requestExpand);
+  const enterWorkspaceFullscreen = useBottomPanelStore(
+    (state) => state.enterWorkspaceFullscreen,
+  );
   const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -139,6 +142,9 @@ export function WorkspacePopover({
       requestExpand();
     }
     addWorkspace(trimmed);
+    if (useBottomPanelStore.getState().isHomeActive) {
+      enterWorkspaceFullscreen();
+    }
     onClose();
   }
 
@@ -149,7 +155,17 @@ export function WorkspacePopover({
 
   function handleSelect(target: WorkspaceInfo) {
     const sameWorkspace = target.id === currentId;
-    const { workspaceMode } = useBottomPanelStore.getState();
+    const { workspaceMode, isHomeActive: homeActive } = useBottomPanelStore.getState();
+
+    // 首页全屏下选择工程工作区：保持全屏，切换到对应工程工作区
+    if (homeActive) {
+      if (!sameWorkspace) {
+        switchWorkspace(target.id);
+      }
+      enterWorkspaceFullscreen();
+      onClose();
+      return;
+    }
 
     if (sameWorkspace) {
       if (workspaceMode === "hidden") {

@@ -41,8 +41,8 @@ interface DockWorkspaceProps {
   bottomPanelRef?: React.Ref<PanelImperativeHandle | null>;
   /** 底部面板实际像素高度变化 */
   onBottomPanelHeightChange?: (heightPx: number) => void;
-  /** 开始拖拽底部分隔条（指针按下） */
-  onBottomResizeStart?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  /** 底部面板拖拽中（指针移动） */
+  onBottomLayoutChange?: () => void;
   /** 底部面板拖拽结束或布局稳定后触发 */
   onBottomResizeEnd?: () => void;
   className?: string;
@@ -66,7 +66,7 @@ export function DockWorkspace({
   bottomMaxPx = 420,
   bottomPanelRef,
   onBottomPanelHeightChange,
-  onBottomResizeStart,
+  onBottomLayoutChange,
   onBottomResizeEnd,
   className,
 }: DockWorkspaceProps) {
@@ -87,17 +87,22 @@ export function DockWorkspace({
   const rightMax = rightMaxPx ?? rightRail.maxSize;
 
   const mainContent = bottom ? (
-    <DockLayout direction="vertical" onLayoutChanged={onBottomResizeEnd}>
+    <DockLayout
+      direction="vertical"
+      onLayoutChange={onBottomLayoutChange}
+      onLayoutChanged={onBottomResizeEnd}
+    >
       <DockPanel>
         {main}
       </DockPanel>
-      <DockHandle direction="vertical" onPointerDown={onBottomResizeStart} />
+      <DockHandle direction="vertical" />
       <DockPanel
         defaultSize={bottomSizePx}
         minSize={`${bottomMinPx}px`}
         maxSize={bottomMaxPx}
         collapsible
         collapsedSize={0}
+        groupResizeBehavior="preserve-pixel-size"
         panelRef={bottomPanelRef}
         onResize={(panelSize) => {
           handleBottomHeight(panelSize.inPixels);

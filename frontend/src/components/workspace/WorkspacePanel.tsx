@@ -195,8 +195,8 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   );
 
   const preActions = useMemo(
-    () => <WorkspaceSwitcher placement="below" showHome={false} />,
-    [],
+    () => <WorkspaceSwitcher placement="below" showHome={isEngineeringFullscreen} />,
+    [isEngineeringFullscreen],
   );
 
   const fullscreenButton = (

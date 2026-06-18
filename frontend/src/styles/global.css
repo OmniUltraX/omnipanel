@@ -513,6 +513,59 @@
     height: 100%;
 }
 
+.home-board-view.dashboard {
+    overflow: hidden;
+}
+
+.home-board-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.home-board-qa-end {
+    margin-left: auto;
+}
+
+.home-board-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+
+.home-board-task-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.home-board-alert-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+}
+
+.home-board-resource-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+}
+
+.home-board-view .ws-card,
+.home-board-view .qc-btn,
+.home-board-view .docker-mini-item,
+.home-board-view .conn-item {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+}
+
+.home-board-view .ws-card .btn {
+    pointer-events: none;
+}
+
 .home-workspace-ai-pane {
     flex: 1;
     min-height: 0;
