@@ -50,7 +50,6 @@ import {
   type DockHeaderPosition,
 } from "./dockHeaderPosition";
 import type { DockableTab } from "./dockableTab";
-import { logDockLayoutChange } from "./dockLayoutLog";
 
 export type { DockableTab } from "./dockableTab";
 
@@ -202,8 +201,6 @@ export function DockableWorkspace({
   createPanelRequestRef.current = createPanelRequest;
   const dockScopeRef = useRef(dockScope);
   dockScopeRef.current = dockScope;
-  const classNameRef = useRef(className);
-  classNameRef.current = className;
   const acceptExternalDropsRef = useRef(acceptExternalDrops);
   acceptExternalDropsRef.current = acceptExternalDrops;
   const canAcceptExternalDropRef = useRef(canAcceptExternalDrop);
@@ -270,19 +267,6 @@ export function DockableWorkspace({
   const syncWindowChromeHostRef = useRef(syncWindowChromeHost);
   syncWindowChromeHostRef.current = syncWindowChromeHost;
 
-  const logLayoutRef = useRef(
-    (layout: SerializedDockview, source: "layout-change" | "initial-load" | "saved-layout") => {
-      logDockLayoutChange(
-        layout,
-        {
-          source,
-          dockScope: dockScopeRef.current,
-          className: classNameRef.current,
-        },
-        apiRef.current,
-      );
-    },
-  );
   const tabStyleRef = useRef(tabStyle);
   tabStyleRef.current = tabStyle;
   const addTabConfigRef = useRef(addTabConfig);
@@ -294,6 +278,7 @@ export function DockableWorkspace({
     if (manageLock) isSyncingRef.current = true;
     try {
       if (enableTabGroupsRef.current) {
+        
         syncTabGroupsByPanelType(
           api,
           tabsRef.current,
@@ -560,8 +545,6 @@ export function DockableWorkspace({
       }
       bumpPanelContentRev(api);
       syncWindowChromeHostRef.current(api);
-      const initialLayout = normalizeDockLayout(api.toJSON()) ?? api.toJSON();
-      logLayoutRef.current(initialLayout, "initial-load");
       return;
     }
     isSyncingRef.current = true;
@@ -603,8 +586,6 @@ export function DockableWorkspace({
     }
     bumpPanelContentRev(api);
     syncWindowChromeHostRef.current(api);
-    const initialLayout = normalizeDockLayout(api.toJSON()) ?? api.toJSON();
-    logLayoutRef.current(initialLayout, "initial-load");
     // 布局还原后仍可能缺 panel（持久化布局损坏等），按 tabs 再补一轮
     if (tabsRef.current.length > 0) {
       const existingAfterLoad = new Set(api.panels.map((p) => p.id));
@@ -755,8 +736,6 @@ export function DockableWorkspace({
           isSyncingRef.current = true;
           apiRef.current.fromJSON(normalized);
           syncTabsToApi(apiRef.current);
-          const loaded = normalizeDockLayout(apiRef.current.toJSON()) ?? apiRef.current.toJSON();
-          logLayoutRef.current(loaded, "saved-layout");
         } catch (err) {
           console.warn("[DockableWorkspace] fromJSON (savedLayout) failed, resetting", err);
           pendingSavedLayoutRef.current = null;
@@ -813,7 +792,6 @@ export function DockableWorkspace({
         const normalized = normalizeDockLayout(raw) ?? raw;
         const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
         lastWrittenLayoutRef.current = next;
-        logLayoutRef.current(next, "layout-change");
         onSavedLayoutChangeRef.current(next);
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {

@@ -70,3 +70,13 @@ russh-sftp = "2"
 # - "http"：远程 Engine API（TCP/HTTP，不含 TLS），用于后续 RemoteEngine 来源。
 bollard = { version = "0.21", default-features = false, features = ["pipe", "http", "ssl"] }
 futures = "0.3"
+
+[profile.dev]
+# 本 crate 仍保持最快编译
+opt-level = 0
+debug = 1                    # 比默认 debug=2 少生成调试信息
+incremental = true
+
+# 依赖 crate 略优化：编译稍慢，但链接和整体 dev 体验往往更快
+[profile.dev.package."*"]
+opt-level = 1

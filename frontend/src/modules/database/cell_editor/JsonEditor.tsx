@@ -3,13 +3,16 @@ import { useRef, useEffect } from "react";
 interface JsonEditorProps {
   value: string;
   onChange: (value: string) => void;
+  autoFocus?: boolean;
 }
 
-export function JsonEditor({ value, onChange }: JsonEditorProps) {
+export function JsonEditor({ value, onChange, autoFocus = true }: JsonEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    ref.current?.focus();
-  }, []);
+    if (autoFocus) {
+      ref.current?.focus();
+    }
+  }, [autoFocus]);
   return (
     <textarea
       ref={ref}

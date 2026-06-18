@@ -4,6 +4,8 @@ export type SqlWorkspaceTab = {
   id: string;
   kind: "sql";
   label: string;
+  /** 侧栏 SQL 文件树中的文件 id，用于持久化连接/库绑定。 */
+  sqlFileId?: string;
 };
 
 export type DatabaseListWorkspaceTab = {
@@ -48,6 +50,14 @@ export function makeDatabaseTabKey(connId: string, dbName: string): string {
 /** 表 Tab 唯一键：连接 + 库 + 表名 */
 export function makeTableTabKey(connId: string, dbName: string, tableName: string): string {
   return `tbl:${connId}:${dbName}:${tableName}`;
+}
+
+/** 查找已打开指定 SQL 文件的工作区 Tab */
+export function findTabIdForSqlFile(
+  tabs: DbWorkspaceTab[],
+  fileId: string,
+): string | undefined {
+  return tabs.find((tab) => tab.kind === "sql" && tab.sqlFileId === fileId)?.id;
 }
 
 /** 查找已打开指定数据库的列表 Tab */

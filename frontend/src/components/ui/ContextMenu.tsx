@@ -192,16 +192,12 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
-    setReady(false);
-  }, [position.x, position.y, items]);
-
-  useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
     setCoords(clampMenuPosition(position, { width, height }));
     setReady(true);
-  }, [position, items]);
+  }, [position.x, position.y, items]);
 
   useEffect(() => {
     const handler = (e: MouseEvent | KeyboardEvent) => {

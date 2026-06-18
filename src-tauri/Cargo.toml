@@ -5,7 +5,7 @@ edition.workspace = true
 
 [lib]
 name = "omnipanel_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+crate-type = ["lib"]
 
 [features]
 default = []

@@ -101,6 +101,13 @@ export function connectionHasTableSchemaChildren(
   return connection.db_type !== "redis";
 }
 
+/** 可在 SQL 编辑器中执行查询的连接（排除 Redis 等 KV 引擎）。 */
+export function isSqlCapableConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return connection.db_type !== "redis";
+}
+
 export async function listConnections(): Promise<DbConnectionConfig[]> {
   return invoke<DbConnectionConfig[]>("db_list_connections");
 }
@@ -174,6 +181,16 @@ export interface DbIndexMeta {
   unique: boolean;
 }
 
+export interface DbRoutineMeta {
+  name: string;
+  routineType: string;
+}
+
+export interface DbUserMeta {
+  name: string;
+  host?: string | null;
+}
+
 export interface DbTableSchema {
   name: string;
   columns: DbColumnMeta[];
@@ -184,6 +201,14 @@ export interface DbTableSchema {
 export interface DbIntrospectResult {
   database: string;
   tables: DbTableSchema[];
+  views?: DbTableSchema[];
+  routines?: DbRoutineMeta[];
+}
+
+export async function listConnectionUsers(
+  connection: DbConnectionConfig,
+): Promise<DbUserMeta[]> {
+  return invoke<DbUserMeta[]>("db_list_connection_users", { connection });
 }
 
 export async function introspectSchema(

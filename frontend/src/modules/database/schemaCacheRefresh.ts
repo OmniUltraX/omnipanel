@@ -2,6 +2,7 @@ import {
   type DbConnectionConfig,
   introspectSchema,
   isConnectionEnabled,
+  listConnectionUsers,
   listConnections,
   listDatabases,
 } from "./api";
@@ -24,13 +25,25 @@ export async function fetchConnectionSchemaCache(
     for (const dbName of dbNames) {
       try {
         const result = await introspectSchema(connection, dbName);
-        databases.push({ name: dbName, tables: result.tables });
+        databases.push({
+          name: dbName,
+          tables: result.tables,
+          views: result.views ?? [],
+          routines: result.routines ?? [],
+        });
       } catch (err) {
-        databases.push({ name: dbName, tables: [], loadError: String(err) });
+        databases.push({ name: dbName, tables: [], views: [], routines: [], loadError: String(err) });
       }
     }
 
-    return { databases, refreshedAt };
+    let users: Awaited<ReturnType<typeof listConnectionUsers>> = [];
+    try {
+      users = await listConnectionUsers(connection);
+    } catch {
+      users = [];
+    }
+
+    return { databases, users, refreshedAt };
   } catch (err) {
     return { databases: [], refreshedAt, error: String(err) };
   }

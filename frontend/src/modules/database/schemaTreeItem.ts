@@ -6,6 +6,9 @@ export type SchemaTreeItemType =
   | "connection"
   | "database"
   | "table"
+  | "view"
+  | "routine"
+  | "user"
   | "folder"
   | "column"
   | "index";
@@ -54,6 +57,11 @@ export function getSchemaTreeDragText(item: SchemaTreeItem): string {
         return `${quoteIdent(item.dbName)}.${quoteIdent(item.tableName)}`;
       }
       return item.tableName ? quoteIdent(item.tableName) : item.label;
+    case "view":
+      if (item.dbName && item.tableName) {
+        return `${quoteIdent(item.dbName)}.${quoteIdent(item.tableName)}`;
+      }
+      return item.tableName ? quoteIdent(item.tableName) : item.label;
     case "column":
       if (item.tableName && item.columnName) {
         return `${quoteIdent(item.tableName)}.${quoteIdent(item.columnName)}`;
@@ -70,7 +78,7 @@ export function getSchemaTreeDragText(item: SchemaTreeItem): string {
 
 /** 仅表级节点可拖动（插入 SQL / 树内排序）。 */
 export function isSchemaTreeItemDraggable(type: SchemaTreeItemType): boolean {
-  return type === "table";
+  return type === "table" || type === "view";
 }
 
 /**

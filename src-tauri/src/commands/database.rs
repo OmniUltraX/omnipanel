@@ -157,6 +157,174 @@ fn apply_table_comments(tables: &mut [DbTableSchema], comments: HashMap<String, 
     }
 }
 
+fn split_schemas_by_type(
+    schemas: Vec<DbTableSchema>,
+    type_map: &HashMap<String, String>,
+) -> (Vec<DbTableSchema>, Vec<DbTableSchema>) {
+    let mut tables = Vec::new();
+    let mut views = Vec::new();
+    for schema in schemas {
+        match type_map.get(&schema.name).map(String::as_str) {
+            Some("VIEW") => views.push(schema),
+            Some("BASE TABLE") | Some("TABLE") => tables.push(schema),
+            _ => tables.push(schema),
+        }
+    }
+    (tables, views)
+}
+
+async fn mysql_fetch_object_types(
+    pool: &MySqlPool,
+    db_name: &str,
+) -> Result<HashMap<String, String>, String> {
+    let rows = sqlx::query(
+        "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?",
+    )
+    .bind(db_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (mysql_row_string(&row, 0), mysql_row_string(&row, 1)))
+        .collect())
+}
+
+async fn mysql_fetch_routines(
+    pool: &MySqlPool,
+    db_name: &str,
+) -> Result<Vec<DbRoutineMeta>, String> {
+    let mut routines = Vec::new();
+    let routine_rows = sqlx::query(
+        "SELECT ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES \
+         WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_NAME, ROUTINE_TYPE",
+    )
+    .bind(db_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+
+    for row in routine_rows {
+        routines.push(DbRoutineMeta {
+            name: mysql_row_string(&row, 0),
+            routine_type: mysql_row_string(&row, 1).to_ascii_lowercase(),
+        });
+    }
+
+    let trigger_rows = sqlx::query(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS \
+         WHERE TRIGGER_SCHEMA = ? ORDER BY TRIGGER_NAME",
+    )
+    .bind(db_name)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Query failed: {e}"))?;
+
+    for row in trigger_rows {
+        routines.push(DbRoutineMeta {
+            name: mysql_row_string(&row, 0),
+            routine_type: "trigger".to_string(),
+        });
+    }
+
+    Ok(routines)
+}
+
+async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
+    let pool = mysql_pool(connection).await?;
+    let rows = sqlx::query("SELECT User, Host FROM mysql.user ORDER BY User, Host")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("Query failed: {e}"))?;
+    pool.close().await;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| DbUserMeta {
+            name: mysql_row_string(&row, 0),
+            host: Some(mysql_row_string(&row, 1)),
+        })
+        .collect())
+}
+
+async fn pg_fetch_object_types(pool: &PgPool, schema: &str) -> Result<HashMap<String, String>, String> {
+    let rows = sqlx::query(
+        "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = $1",
+    )
+    .bind(schema)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG table types query failed: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get::<String, _>(0).unwrap_or_default(),
+                row.try_get::<String, _>(1).unwrap_or_default(),
+            )
+        })
+        .collect())
+}
+
+async fn pg_fetch_routines(pool: &PgPool, schema: &str) -> Result<Vec<DbRoutineMeta>, String> {
+    let mut routines = Vec::new();
+    let routine_rows = sqlx::query(
+        "SELECT routine_name, routine_type FROM information_schema.routines \
+         WHERE routine_schema = $1 ORDER BY routine_name, routine_type",
+    )
+    .bind(schema)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG routines query failed: {e}"))?;
+
+    for row in routine_rows {
+        routines.push(DbRoutineMeta {
+            name: row.try_get(0).unwrap_or_default(),
+            routine_type: row
+                .try_get::<String, _>(1)
+                .unwrap_or_default()
+                .to_ascii_lowercase(),
+        });
+    }
+
+    let trigger_rows = sqlx::query(
+        "SELECT trigger_name FROM information_schema.triggers \
+         WHERE trigger_schema = $1 ORDER BY trigger_name",
+    )
+    .bind(schema)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG triggers query failed: {e}"))?;
+
+    for row in trigger_rows {
+        routines.push(DbRoutineMeta {
+            name: row.try_get(0).unwrap_or_default(),
+            routine_type: "trigger".to_string(),
+        });
+    }
+
+    Ok(routines)
+}
+
+async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
+    let pool = pg_pool(connection).await?;
+    let rows = sqlx::query("SELECT usename FROM pg_catalog.pg_user ORDER BY usename")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PG users query failed: {e}"))?;
+    pool.close().await;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| DbUserMeta {
+            name: row.try_get(0).unwrap_or_default(),
+            host: None,
+        })
+        .collect())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TableInfo {
     pub name: String,
@@ -183,6 +351,21 @@ pub struct DbIndexMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbRoutineMeta {
+    pub name: String,
+    pub routine_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbUserMeta {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DbTableSchema {
     pub name: String,
     pub columns: Vec<DbColumnMeta>,
@@ -193,9 +376,14 @@ pub struct DbTableSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct DbIntrospectResult {
     pub database: String,
     pub tables: Vec<DbTableSchema>,
+    #[serde(default)]
+    pub views: Vec<DbTableSchema>,
+    #[serde(default)]
+    pub routines: Vec<DbRoutineMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -494,8 +682,22 @@ pub async fn db_introspect_schema(
                         comment: None,
                     })
                     .collect(),
+                views: Vec::new(),
+                routines: Vec::new(),
             })
         }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_list_connection_users(
+    connection: DbConnectionConfig,
+) -> Result<Vec<DbUserMeta>, String> {
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => mysql_list_users(&connection).await,
+        "postgresql" | "postgres" => pg_list_users(&connection).await,
+        _ => Ok(Vec::new()),
     }
 }
 
@@ -737,9 +939,11 @@ async fn introspect_mysql_schema(
     .map_err(|e| format!("Query failed: {e}"))?;
 
     let comments = mysql_fetch_table_comments(&pool, db_name).await?;
+    let type_map = mysql_fetch_object_types(&pool, db_name).await?;
+    let routines = mysql_fetch_routines(&pool, db_name).await?;
     pool.close().await;
 
-    let mut tables: Vec<DbTableSchema> = Vec::new();
+    let mut all_objects: Vec<DbTableSchema> = Vec::new();
     for row in &col_rows {
         let table_name = mysql_row_string(row, 0);
         let column_name = mysql_row_string(row, 1);
@@ -748,7 +952,7 @@ async fn introspect_mysql_schema(
         let is_pk = column_key == "PRI";
         let is_fk = column_key == "MUL";
 
-        if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
+        if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             table.columns.push(DbColumnMeta {
                 name: column_name,
                 column_type: data_type,
@@ -756,7 +960,7 @@ async fn introspect_mysql_schema(
                 is_fk,
             });
         } else {
-            tables.push(DbTableSchema {
+            all_objects.push(DbTableSchema {
                 name: table_name,
                 columns: vec![DbColumnMeta {
                     name: column_name,
@@ -770,12 +974,15 @@ async fn introspect_mysql_schema(
         }
     }
 
-    apply_mysql_index_rows(&mut tables, idx_rows);
-    apply_table_comments(&mut tables, comments);
+    apply_mysql_index_rows(&mut all_objects, idx_rows);
+    apply_table_comments(&mut all_objects, comments);
+    let (tables, views) = split_schemas_by_type(all_objects, &type_map);
 
     Ok(DbIntrospectResult {
         database: db_name.to_string(),
         tables,
+        views,
+        routines,
     })
 }
 
@@ -1032,16 +1239,18 @@ async fn introspect_pg_schema(
     .map_err(|e| format!("PG indexes query failed: {e}"))?;
 
     let comments = pg_fetch_table_comments(&pool, "public").await?;
+    let type_map = pg_fetch_object_types(&pool, "public").await?;
+    let routines = pg_fetch_routines(&pool, "public").await?;
     pool.close().await;
 
-    let mut tables: Vec<DbTableSchema> = Vec::new();
+    let mut all_objects: Vec<DbTableSchema> = Vec::new();
     for row in &col_rows {
         let table_name: String = row.try_get(0).unwrap_or_default();
         let column_name: String = row.try_get(1).unwrap_or_default();
         let data_type: String = row.try_get(2).unwrap_or_default();
         let is_pk: bool = row.try_get(3).unwrap_or(false);
 
-        if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
+        if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             table.columns.push(DbColumnMeta {
                 name: column_name,
                 column_type: data_type,
@@ -1049,7 +1258,7 @@ async fn introspect_pg_schema(
                 is_fk: false,
             });
         } else {
-            tables.push(DbTableSchema {
+            all_objects.push(DbTableSchema {
                 name: table_name,
                 columns: vec![DbColumnMeta {
                     name: column_name,
@@ -1069,7 +1278,7 @@ async fn introspect_pg_schema(
         let column_name: String = row.try_get(2).unwrap_or_default();
         let is_unique: bool = row.try_get(3).unwrap_or(false);
 
-        if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
+        if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             if let Some(index) = table.indexes.iter_mut().find(|i| i.name == index_name) {
                 index.columns.push(column_name);
             } else {
@@ -1082,11 +1291,14 @@ async fn introspect_pg_schema(
         }
     }
 
-    apply_table_comments(&mut tables, comments);
+    apply_table_comments(&mut all_objects, comments);
+    let (tables, views) = split_schemas_by_type(all_objects, &type_map);
 
     Ok(DbIntrospectResult {
         database: db_name.to_string(),
         tables,
+        views,
+        routines,
     })
 }
 
@@ -1190,6 +1402,28 @@ fn introspect_sqlite_schema_inner(
             .map_err(|e| format!("SQLite collect failed: {e}"))?
     };
 
+    let view_names: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")
+            .map_err(|e| format!("SQLite prepare failed: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| format!("SQLite query failed: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("SQLite collect failed: {e}"))?
+    };
+
+    let trigger_names: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
+            .map_err(|e| format!("SQLite prepare failed: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| format!("SQLite query failed: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("SQLite collect failed: {e}"))?
+    };
+
     let mut tables: Vec<DbTableSchema> = Vec::new();
     for tname in &table_names {
         let columns = sqlite_pragma_columns(&conn, tname)?;
@@ -1202,9 +1436,30 @@ fn introspect_sqlite_schema_inner(
         });
     }
 
+    let mut views: Vec<DbTableSchema> = Vec::new();
+    for vname in &view_names {
+        let columns = sqlite_pragma_columns(&conn, vname).unwrap_or_default();
+        views.push(DbTableSchema {
+            name: vname.clone(),
+            columns,
+            indexes: Vec::new(),
+            comment: None,
+        });
+    }
+
+    let routines: Vec<DbRoutineMeta> = trigger_names
+        .into_iter()
+        .map(|name| DbRoutineMeta {
+            name,
+            routine_type: "trigger".to_string(),
+        })
+        .collect();
+
     Ok(DbIntrospectResult {
         database: path.to_string(),
         tables,
+        views,
+        routines,
     })
 }
 

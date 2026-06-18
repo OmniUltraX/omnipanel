@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
+import { textSearchMatches } from "../../lib/textSearchMatch";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { fetchTableDdl } from "./api";
@@ -19,6 +20,65 @@ import { getCachedTableCommentMap, getCachedTableNames } from "./schemaCacheMerg
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
   onSelectTable: (selection: SchemaTableSelection) => void;
+}
+
+type TablesPanelViewMode = "tree" | "list";
+
+const VIEW_MODE_STORAGE_KEY = "database-tables-panel-view";
+
+function readStoredViewMode(): TablesPanelViewMode {
+  try {
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (stored === "tree" || stored === "list") {
+      return stored;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return "tree";
+}
+
+function TableNameRow({
+  tableName,
+  depth,
+  selected,
+  onPreviewTable,
+  onOpenTable,
+  tableComments,
+}: {
+  tableName: string;
+  depth: number;
+  selected: boolean;
+  onPreviewTable: (tableName: string) => void;
+  onOpenTable: (tableName: string) => void;
+  tableComments: ReadonlyMap<string, string>;
+}) {
+  const comment = tableComments.get(tableName);
+  return (
+    <button
+      type="button"
+      className={`db-tables-panel-item db-tables-panel-tree-table${selected ? " is-selected" : ""}`}
+      style={{ paddingLeft: depth * 16 + 8 }}
+      onClick={() => onPreviewTable(tableName)}
+      onDoubleClick={() => onOpenTable(tableName)}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v18" />
+      </svg>
+      <span
+        className="db-tables-panel-item-name"
+        title={comment ? `${tableName} — ${comment}` : tableName}
+      >
+        {tableName}
+        {comment ? (
+          <span className="db-tables-panel-item-comment" title={comment}>
+            {comment}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
 }
 
 function TableNameTreeBranch({
@@ -78,31 +138,15 @@ function TableNameTreeBranch({
   }
 
   const selected = previewTableName === node.tableName;
-  const comment = tableComments.get(node.tableName);
   return (
-    <button
-      type="button"
-      className={`db-tables-panel-item db-tables-panel-tree-table${selected ? " is-selected" : ""}`}
-      style={{ paddingLeft: depth * 16 + 8 }}
-      onClick={() => onPreviewTable(node.tableName)}
-      onDoubleClick={() => onOpenTable(node.tableName)}
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M3 9h18M3 15h18M9 3v18" />
-      </svg>
-      <span
-        className="db-tables-panel-item-name"
-        title={comment ? `${node.tableName} — ${comment}` : node.tableName}
-      >
-        {node.tableName}
-        {comment ? (
-          <span className="db-tables-panel-item-comment" title={comment}>
-            {comment}
-          </span>
-        ) : null}
-      </span>
-    </button>
+    <TableNameRow
+      tableName={node.tableName}
+      depth={depth}
+      selected={selected}
+      onPreviewTable={onPreviewTable}
+      onOpenTable={onOpenTable}
+      tableComments={tableComments}
+    />
   );
 }
 
@@ -115,6 +159,7 @@ export function DatabaseTablesPanel({
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<TablesPanelViewMode>(readStoredViewMode);
   const [previewTableName, setPreviewTableName] = useState<string | null>(null);
   const [ddl, setDdl] = useState("");
   const [ddlLoading, setDdlLoading] = useState(false);
@@ -126,6 +171,14 @@ export function DatabaseTablesPanel({
       void hydrateSchemaCache();
     }
   }, [cacheHydrated, hydrateSchemaCache]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, [viewMode]);
 
   useEffect(() => {
     setSearch("");
@@ -150,12 +203,26 @@ export function DatabaseTablesPanel({
     return filterTableNameTree(tree, search, tableComments);
   }, [search, tables, tableComments]);
 
+  const filteredTables = useMemo(() => {
+    const q = search.trim();
+    if (!q) {
+      return tables;
+    }
+    return tables.filter((tableName) => {
+      const comment = tableComments.get(tableName);
+      return (
+        textSearchMatches(q, tableName) ||
+        (comment !== undefined && textSearchMatches(q, comment))
+      );
+    });
+  }, [search, tables, tableComments]);
+
   useEffect(() => {
-    if (!search.trim()) {
+    if (!search.trim() || viewMode !== "tree") {
       return;
     }
     setExpandedFolders(new Set(collectTableTreeFolderKeys(filteredTree)));
-  }, [search, filteredTree]);
+  }, [search, filteredTree, viewMode]);
 
   useEffect(() => {
     if (!previewTableName) {
@@ -262,12 +329,6 @@ export function DatabaseTablesPanel({
       onChange={setSearch}
       placeholder={t("database.tablesPanel.search")}
     >
-      <div className="db-tables-panel-meta">
-        {!cacheReady
-          ? t("database.tablesPanel.cacheEmpty")
-          : t("database.tablesPanel.count", { count: tableCount })}
-      </div>
-
       <div className="db-tables-panel-body">
         <DockLayout direction="horizontal" className="db-tables-panel-split">
           <DockPanel defaultSize="40%" minSize="20%" maxSize="75%" className="db-tables-panel-list-pane">
@@ -279,6 +340,7 @@ export function DatabaseTablesPanel({
                 <div className="db-tables-panel-empty">{t("database.sidebar.noTables")}</div>
               )}
               {cacheReady &&
+                viewMode === "tree" &&
                 filteredTree.map((node) => (
                   <TableNameTreeBranch
                     key={node.key}
@@ -287,6 +349,19 @@ export function DatabaseTablesPanel({
                     expandedFolders={expandedFolders}
                     onToggleFolder={toggleFolder}
                     previewTableName={previewTableName}
+                    onPreviewTable={handlePreviewTable}
+                    onOpenTable={handleOpenTable}
+                    tableComments={tableComments}
+                  />
+                ))}
+              {cacheReady &&
+                viewMode === "list" &&
+                filteredTables.map((tableName) => (
+                  <TableNameRow
+                    key={tableName}
+                    tableName={tableName}
+                    depth={0}
+                    selected={previewTableName === tableName}
                     onPreviewTable={handlePreviewTable}
                     onOpenTable={handleOpenTable}
                     tableComments={tableComments}
@@ -335,6 +410,38 @@ export function DatabaseTablesPanel({
             </div>
           </DockPanel>
         </DockLayout>
+      </div>
+
+      <div className="db-tables-panel-meta">
+        <div className="db-tables-panel-view-toggle" role="group" aria-label={t("database.tablesPanel.viewMode")}>
+          <button
+            type="button"
+            className={`db-tables-panel-view-btn${viewMode === "tree" ? " is-active" : ""}`}
+            title={t("database.tablesPanel.viewTree")}
+            aria-pressed={viewMode === "tree"}
+            onClick={() => setViewMode("tree")}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+              <path d="M2 3h12M2 8h8M2 13h10" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={`db-tables-panel-view-btn${viewMode === "list" ? " is-active" : ""}`}
+            title={t("database.tablesPanel.viewList")}
+            aria-pressed={viewMode === "list"}
+            onClick={() => setViewMode("list")}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+              <path d="M2 4h12M2 8h12M2 12h12" />
+            </svg>
+          </button>
+        </div>
+        <span className="db-tables-panel-meta-text">
+          {!cacheReady
+            ? t("database.tablesPanel.cacheEmpty")
+            : t("database.tablesPanel.count", { count: tableCount })}
+        </span>
       </div>
     </ScopedSearch>
   );

@@ -26,6 +26,7 @@ export const commands = {
 	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
 	dbCreateDatabase: (args: CreateDatabaseArgs) => typedError<string, string>(__TAURI_INVOKE("db_create_database", { args })),
 	dbIntrospectSchema: (connection: DbConnectionConfig, schema: string | null) => typedError<DbIntrospectResult_Serialize, string>(__TAURI_INVOKE("db_introspect_schema", { connection, schema })),
+	dbListConnectionUsers: (connection: DbConnectionConfig) => typedError<DbUserMeta_Serialize[], string>(__TAURI_INVOKE("db_list_connection_users", { connection })),
 	dbIntrospectTable: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<DbTableSchema_Serialize, string>(__TAURI_INVOKE("db_introspect_table", { connection, schema, table })),
 	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
 	dbTableDdl: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<string, string>(__TAURI_INVOKE("db_table_ddl", { connection, schema, table })),
@@ -527,11 +528,20 @@ export type DbIntrospectResult = DbIntrospectResult_Serialize | DbIntrospectResu
 export type DbIntrospectResult_Deserialize = {
 	database: string,
 	tables: DbTableSchema_Deserialize[],
+	views?: DbTableSchema_Deserialize[],
+	routines?: DbRoutineMeta[],
 };
 
 export type DbIntrospectResult_Serialize = {
 	database: string,
 	tables: DbTableSchema_Serialize[],
+	views: DbTableSchema_Serialize[],
+	routines: DbRoutineMeta[],
+};
+
+export type DbRoutineMeta = {
+	name: string,
+	routineType: string,
 };
 
 export type DbTableSchema = DbTableSchema_Serialize | DbTableSchema_Deserialize;
@@ -548,6 +558,18 @@ export type DbTableSchema_Serialize = {
 	columns: DbColumnMeta[],
 	indexes: DbIndexMeta[],
 	comment?: string | null,
+};
+
+export type DbUserMeta = DbUserMeta_Serialize | DbUserMeta_Deserialize;
+
+export type DbUserMeta_Deserialize = {
+	name: string,
+	host?: string | null,
+};
+
+export type DbUserMeta_Serialize = {
+	name: string,
+	host?: string | null,
 };
 
 export type DiskStats = {
@@ -1347,12 +1369,14 @@ export type SchemaCacheConnection = SchemaCacheConnection_Serialize | SchemaCach
 
 export type SchemaCacheConnection_Deserialize = {
 	databases?: SchemaCacheDatabase_Deserialize[],
+	users?: SchemaCacheUser_Deserialize[],
 	refreshedAt?: number | null,
 	error?: string | null,
 };
 
 export type SchemaCacheConnection_Serialize = {
 	databases: SchemaCacheDatabase_Serialize[],
+	users: SchemaCacheUser_Serialize[],
 	refreshedAt?: number | null,
 	error?: string | null,
 };
@@ -1362,12 +1386,16 @@ export type SchemaCacheDatabase = SchemaCacheDatabase_Serialize | SchemaCacheDat
 export type SchemaCacheDatabase_Deserialize = {
 	name: string,
 	tables?: SchemaCacheTable_Deserialize[],
+	views?: SchemaCacheTable_Deserialize[],
+	routines?: SchemaCacheRoutine[],
 	loadError?: string | null,
 };
 
 export type SchemaCacheDatabase_Serialize = {
 	name: string,
 	tables: SchemaCacheTable_Serialize[],
+	views: SchemaCacheTable_Serialize[],
+	routines: SchemaCacheRoutine[],
 	loadError?: string | null,
 };
 
@@ -1375,6 +1403,11 @@ export type SchemaCacheIndex = {
 	name: string,
 	columns: string[],
 	unique: boolean,
+};
+
+export type SchemaCacheRoutine = {
+	name: string,
+	routineType: string,
 };
 
 /**  全部连接的 Schema 缓存快照。 */
@@ -1404,6 +1437,18 @@ export type SchemaCacheTable_Serialize = {
 	columns: SchemaCacheColumn[],
 	indexes: SchemaCacheIndex[],
 	comment?: string | null,
+};
+
+export type SchemaCacheUser = SchemaCacheUser_Serialize | SchemaCacheUser_Deserialize;
+
+export type SchemaCacheUser_Deserialize = {
+	name: string,
+	host?: string | null,
+};
+
+export type SchemaCacheUser_Serialize = {
+	name: string,
+	host?: string | null,
 };
 
 /**  单个连接或库下的过滤项（与前端 `SchemaFilterState` 对应，可见项为列表）。 */

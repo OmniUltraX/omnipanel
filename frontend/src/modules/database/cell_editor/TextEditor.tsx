@@ -3,13 +3,16 @@ import { useRef, useEffect } from "react";
 interface TextEditorProps {
   value: string;
   onChange: (value: string) => void;
+  autoFocus?: boolean;
 }
 
-export function TextEditor({ value, onChange }: TextEditorProps) {
+export function TextEditor({ value, onChange, autoFocus = true }: TextEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    ref.current?.focus();
-  }, []);
+    if (autoFocus) {
+      ref.current?.focus();
+    }
+  }, [autoFocus]);
   return (
     <textarea
       ref={ref}

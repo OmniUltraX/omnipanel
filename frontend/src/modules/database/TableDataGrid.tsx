@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo, type MutableRefObject } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -8,8 +8,10 @@ import {
 } from "@tanstack/react-table";
 
 import { Button } from "../../components/ui/Button";
+import { ContextMenu } from "../../components/ui/ContextMenu";
 import { useI18n } from "../../i18n";
 import { type DbColumnMeta } from "./api";
+import { PENDING_INSERT_ROW_KEY } from "./dbWorkspaceState";
 
 export type TableDataGridProps = {
   columns: string[];
@@ -21,6 +23,7 @@ export type TableDataGridProps = {
   onPageChange: (page: number) => void;
   columnMeta?: DbColumnMeta[];
   onCellEdit?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
+  onRowEdit?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   /** 已修改的行 key 集合（来自父组件脏数据状态），用于高亮 */
   dirtyRowKeys?: Set<string>;
   /** 单元覆盖：行 key -> 列名 -> 覆盖值；优先于 rows 展示 */
@@ -34,6 +37,16 @@ function buildRowKey(row: Record<string, unknown>, pkCols: { name: string }[]): 
   return pkCols
     .map((pk) => `${pk.name}=${row[pk.name] == null ? "" : String(row[pk.name])}`)
     .join("&");
+}
+
+function resolveRowKey(
+  row: Record<string, unknown>,
+  pkCols: { name: string }[],
+): string {
+  const pendingKey = row[PENDING_INSERT_ROW_KEY];
+  if (typeof pendingKey === "string") return pendingKey;
+  if (pkCols.length === 0) return "";
+  return buildRowKey(row, pkCols);
 }
 
 const MIN_ROW_HEIGHT = 28;
@@ -130,22 +143,87 @@ function transposeDirtyState(
   return { dirtyRowKeys: transposedDirty, cellOverrides: transposedOverrides };
 }
 
-export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, dirtyRowKeys, cellOverrides, enableTranspose = false }: TableDataGridProps) {
+type CellMenuState = {
+  x: number;
+  y: number;
+  rowIndex: number;
+  column: string;
+  row: Record<string, unknown>;
+};
+
+function applyColumnWidthDom(wrap: HTMLElement, columnId: string, width: number) {
+  const px = `${width}px`;
+  wrap.querySelectorAll<HTMLElement>(`[data-col-id="${CSS.escape(columnId)}"]`).forEach((el) => {
+    el.style.width = px;
+  });
+}
+
+function TableCellContextMenu({
+  menuOpenRef,
+  onRowEdit,
+}: {
+  menuOpenRef: MutableRefObject<(state: CellMenuState) => void>;
+  onRowEdit: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
+}) {
+  const { t } = useI18n();
+  const [menu, setMenu] = useState<CellMenuState | null>(null);
+
+  useEffect(() => {
+    menuOpenRef.current = setMenu;
+    return () => {
+      menuOpenRef.current = () => {};
+    };
+  }, [menuOpenRef]);
+
+  const handleEditRow = useCallback(() => {
+    if (!menu) return;
+    onRowEdit({
+      rowIndex: menu.rowIndex,
+      column: menu.column,
+      row: menu.row,
+    });
+    setMenu(null);
+  }, [menu, onRowEdit]);
+
+  const items = useMemo(
+    () => [
+      {
+        id: "edit-row",
+        label: t("database.rowEditor.contextMenu"),
+        onClick: handleEditRow,
+      },
+    ],
+    [t, handleEditRow],
+  );
+
+  if (!menu) return null;
+
+  return (
+    <ContextMenu
+      position={{ x: menu.x, y: menu.y }}
+      onClose={() => setMenu(null)}
+      items={items}
+    />
+  );
+}
+
+export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, dirtyRowKeys, cellOverrides, enableTranspose = false }: TableDataGridProps) {
   const { t } = useI18n();
   const [transposed, setTransposed] = useState(false);
+  const cellMenuOpenRef = useRef<(state: CellMenuState) => void>(() => {});
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
-  const [resizingRow, setResizingRow] = useState<number | null>(null);
-  const [resizeHintRow, setResizeHintRow] = useState<number | null>(null);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
-  const dragRef = useRef<{
-    rowIndex: number;
-    startY: number;
-    startHeight: number;
-  } | null>(null);
   const colResizeRef = useRef<{
     columnId: string;
     startX: number;
     startWidth: number;
+    lastWidth: number;
+  } | null>(null);
+  const dragRef = useRef<{
+    rowIndex: number;
+    startY: number;
+    startHeight: number;
+    lastHeight: number;
   } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef({ left: 0, top: 0 });
@@ -175,10 +253,12 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
 
   useEffect(() => {
     setRowHeights({});
-    setResizingRow(null);
-    setResizeHintRow(null);
     dragRef.current = null;
+    colResizeRef.current = null;
+    wrapRef.current?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
   }, [columns, transposed]);
+
+  const pkCols = useMemo(() => (columnMeta ?? []).filter((c) => c.isPk), [columnMeta]);
 
   const transposedData = useMemo(() => {
     if (!transposed) return null;
@@ -236,62 +316,88 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
     columns: columnDefs,
     state: { columnSizing },
     onColumnSizingChange: setColumnSizing,
-    columnResizeMode: "onChange",
+    columnResizeMode: "onEnd",
     enableColumnResizing: true,
     getCoreRowModel: getCoreRowModel(),
   });
 
   const beginRowResize = useCallback(
     (rowIndex: number, clientY: number) => {
+      const wrap = wrapRef.current;
       const measured =
         rowHeights[rowIndex] ??
-        document
-          .querySelector<HTMLTableRowElement>(
-            `tr[data-row-index="${rowIndex}"]`,
-          )
+        wrap
+          ?.querySelector<HTMLTableRowElement>(`tr[data-row-index="${rowIndex}"]`)
           ?.getBoundingClientRect().height ??
         DEFAULT_ROW_HEIGHT;
       dragRef.current = {
         rowIndex,
         startY: clientY,
         startHeight: measured,
+        lastHeight: measured,
       };
-      setResizingRow(rowIndex);
+      wrap?.classList.add("db-data-table-wrap--resizing");
+      wrap
+        ?.querySelector(`tr[data-row-index="${rowIndex}"]`)
+        ?.classList.add("db-data-table-row--resizing");
     },
     [rowHeights],
   );
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+
       const drag = dragRef.current;
       if (drag) {
         const next = Math.max(
           MIN_ROW_HEIGHT,
           drag.startHeight + (event.clientY - drag.startY),
         );
-        setRowHeights((prev) => {
-          if (prev[drag.rowIndex] === next) {
-            return prev;
-          }
-          return { ...prev, [drag.rowIndex]: next };
-        });
+        if (next === drag.lastHeight) return;
+        drag.lastHeight = next;
+        const row = wrap.querySelector<HTMLElement>(`tr[data-row-index="${drag.rowIndex}"]`);
+        if (row) {
+          row.style.height = `${next}px`;
+          row.classList.add("db-data-table-row--custom-h");
+        }
         return;
       }
+
       const col = colResizeRef.current;
       if (col) {
         const diff = event.clientX - col.startX;
         const newWidth = Math.max(COLUMN_MIN_WIDTH, col.startWidth + diff);
-        setColumnSizing((prev) => {
-          if (prev[col.columnId] === newWidth) return prev;
-          return { ...prev, [col.columnId]: newWidth };
-        });
+        if (newWidth === col.lastWidth) return;
+        col.lastWidth = newWidth;
+        applyColumnWidthDom(wrap, col.columnId, newWidth);
       }
     };
 
     const endResize = () => {
+      const wrap = wrapRef.current;
+      const drag = dragRef.current;
+      if (drag && wrap) {
+        setRowHeights((prev) => {
+          if (prev[drag.rowIndex] === drag.lastHeight) return prev;
+          return { ...prev, [drag.rowIndex]: drag.lastHeight };
+        });
+        wrap.querySelector(`tr[data-row-index="${drag.rowIndex}"]`)?.classList.remove("db-data-table-row--resizing");
+      }
+
+      const col = colResizeRef.current;
+      if (col) {
+        setColumnSizing((prev) => {
+          if (prev[col.columnId] === col.lastWidth) return prev;
+          return { ...prev, [col.columnId]: col.lastWidth };
+        });
+        wrap?.querySelector(`th[data-col-id="${CSS.escape(col.columnId)}"]`)?.classList.remove("db-data-table-th-resizing");
+      }
+
       dragRef.current = null;
       colResizeRef.current = null;
-      setResizingRow(null);
+      wrap?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
     };
 
     window.addEventListener("mousemove", onMouseMove);
@@ -314,7 +420,7 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
     <>
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${transposed ? " db-data-table-wrap--transposed" : ""}${resizingRow !== null ? " db-data-table-wrap--resizing" : ""}${table.getState().columnSizingInfo?.isResizingColumn ? " db-data-table-wrap--col-resizing" : ""}`}
+      className={`db-data-table-wrap${transposed ? " db-data-table-wrap--transposed" : ""}`}
     >
       <table className="db-data-table">
         <thead>
@@ -324,6 +430,7 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
                 return (
                 <th
                   key={header.id}
+                  data-col-id={header.column.id}
                   style={{ width: header.getSize() }}
                   className={table.getState().columnSizingInfo?.isResizingColumn === header.column.id ? "db-data-table-th-resizing" : ""}
                 >
@@ -336,11 +443,17 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        const startWidth = header.getSize();
                         colResizeRef.current = {
                           columnId: header.column.id,
                           startX: e.clientX,
-                          startWidth: header.getSize(),
+                          startWidth,
+                          lastWidth: startWidth,
                         };
+                        wrapRef.current?.classList.add("db-data-table-wrap--col-resizing");
+                        wrapRef.current
+                          ?.querySelector(`th[data-col-id="${CSS.escape(header.column.id)}"]`)
+                          ?.classList.add("db-data-table-th-resizing");
                       }}
                       onDoubleClick={() => header.column.resetSize()}
                       title="Drag to resize"
@@ -356,12 +469,9 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
           {table.getRowModel().rows.map((row) => {
             const rowHeight = rowHeights[row.index];
             const isCustomHeight = rowHeight !== undefined;
-            const pkCols = (columnMeta ?? []).filter((c) => c.isPk);
             const rowKey = transposed
               ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
-              : pkCols.length > 0
-                ? buildRowKey(row.original, pkCols)
-                : "";
+              : resolveRowKey(row.original, pkCols);
             const rowDirty = rowKey ? (displayDirtyRowKeys?.has(rowKey) ?? false) : false;
             const overrideForRow = rowKey ? displayCellOverrides?.[rowKey] : undefined;
 
@@ -369,7 +479,7 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
               <tr
                 key={row.id}
                 data-row-index={row.index}
-                className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${resizingRow === row.index ? " db-data-table-row--resizing" : ""}${resizeHintRow === row.index ? " db-data-table-row--resize-hint" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
+                className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
                 style={isCustomHeight ? { height: rowHeight } : undefined}
                 onMouseDown={(event) => {
                   if (!isNearRowBottom(event.currentTarget, event.clientY)) {
@@ -377,18 +487,6 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
                   }
                   event.preventDefault();
                   beginRowResize(row.index, event.clientY);
-                }}
-                onMouseMove={(event) => {
-                  if (resizingRow !== null) {
-                    return;
-                  }
-                  const nearBottom = isNearRowBottom(event.currentTarget, event.clientY);
-                  event.currentTarget.style.cursor = nearBottom ? "row-resize" : "";
-                  setResizeHintRow(nearBottom ? row.index : null);
-                }}
-                onMouseLeave={(event) => {
-                  event.currentTarget.style.cursor = "";
-                  setResizeHintRow((prev) => (prev === row.index ? null : prev));
                 }}
               >
                 {row.getVisibleCells().map((cell) => {
@@ -401,8 +499,24 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
                   return (
                     <td
                       key={cell.id}
+                      data-col-id={cell.column.id}
                       className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${transposed && cell.column.id === TRANSPOSE_FIELD_COL ? " db-data-table-cell--field" : ""}`}
                       onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
+                      onContextMenu={
+                        onRowEdit && !transposed
+                          ? (event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              cellMenuOpenRef.current({
+                                x: event.clientX,
+                                y: event.clientY,
+                                rowIndex: cell.row.index,
+                                column: cell.column.id,
+                                row: cell.row.original,
+                              });
+                            }
+                          : undefined
+                      }
                       title={cellTitle}
                     >
                       {overrideValue !== undefined
@@ -422,6 +536,9 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
         </tbody>
       </table>
     </div>
+    {onRowEdit && (
+      <TableCellContextMenu menuOpenRef={cellMenuOpenRef} onRowEdit={onRowEdit} />
+    )}
     <div className="db-pagination">
       <div className="db-pagination-info">
         {enableTranspose && (
@@ -510,4 +627,4 @@ export function TableDataGrid({ columns, rows, totalRows, page, pageSize, loadin
     </div>
     </>
   );
-}
+});

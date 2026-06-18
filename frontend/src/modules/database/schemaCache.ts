@@ -1,13 +1,16 @@
-import type { DbTableSchema } from "./api";
+import type { DbTableSchema, DbRoutineMeta, DbUserMeta } from "./api";
 
 export interface SchemaCacheDatabaseEntry {
   name: string;
   tables: DbTableSchema[];
+  views?: DbTableSchema[];
+  routines?: DbRoutineMeta[];
   loadError?: string;
 }
 
 export interface SchemaCacheConnectionEntry {
   databases: SchemaCacheDatabaseEntry[];
+  users?: DbUserMeta[];
   refreshedAt?: number;
   error?: string;
 }

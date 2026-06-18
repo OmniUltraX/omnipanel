@@ -49,6 +49,13 @@ export interface DbWorkspaceContextValue {
     tabId: string,
     cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },
   ) => void;
+  handleRowEdit: (
+    tabId: string,
+    cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },
+  ) => void;
+  handleRowNew: (tabId: string) => void;
+  /** 按 id 查找连接（不受当前分组过滤影响） */
+  resolveConnection: (connId: string) => DbConnectionConfig | null;
   selectTable: (selection: SchemaTableSelection) => void;
   activeTableKey: string | null;
 
@@ -63,18 +70,20 @@ export interface DbWorkspaceContextValue {
   commitTabDirty: (tabId: string) => Promise<void>;
   openExportMenu: (x: number, y: number, tabId: string) => void;
 
-  // 连接 / 数据库 / schema
-  activeConn: DbConnectionConfig | null;
+  // 连接 / 数据库 / schema（按 Tab 独立，不与 Schema 侧栏联动）
+  /** 全部可用 SQL 连接（不受侧栏分组过滤） */
+  sqlConnections: DbConnectionConfig[];
   groupConnections: DbConnectionConfig[];
   databasesByConnId: Record<string, string[]>;
-  databasesForActiveConn: string[];
   schemaByKey: Record<string, DatabaseSchema>;
   schemaLoadingKey: string | null;
-  setActiveConnId: (id: string | null) => void;
-  sqlCompletionSchemas: DatabaseSchema[];
+  resolveSqlTabConnection: (tabId: string) => DbConnectionConfig | null;
+  getSqlTabDatabases: (tabId: string) => string[];
+  getSqlCompletionSchemas: (tabId: string) => DatabaseSchema[];
+  connectionForSqlTab: (tabId: string) => DbConnectionConfig | null;
+  setSqlTabConnection: (tabId: string, connId: string | null) => void;
 
   // 工具
-  connectionForSql: DbConnectionConfig | null;
   rowsToRecord: (cols: string[], rows: unknown[][]) => Record<string, unknown>[];
   tabModeToEditorOpenMode: (mode: "data" | "sql") => SqlEditorOpenMode;
 }

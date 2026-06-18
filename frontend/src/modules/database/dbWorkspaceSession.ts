@@ -2,6 +2,7 @@ import type { SqlTabState, TablePreviewState } from "./dbWorkspaceState";
 import type { DbWorkspaceTab } from "./workspaceTabs";
 
 export interface DbSqlTabStateSnapshot {
+  connId?: string;
   sql: string;
   database: string;
   cursorOffset: number;
@@ -76,6 +77,7 @@ export function buildWorkspaceSessionSnapshot(params: {
       continue;
     }
     sqlTabStates[tabId] = {
+      connId: state.connId,
       sql: state.sql,
       database: state.database,
       cursorOffset: state.cursorOffset,

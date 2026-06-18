@@ -9,7 +9,8 @@
     "lint": "node -e \"console.log('lint disabled')\"",
     "preview": "vite preview",
     "test": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "validate-signing": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/validate-signing-key.ps1"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.4.0",

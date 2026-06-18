@@ -6,9 +6,11 @@ import { emptySchemaCacheSnapshot } from "../modules/database/schemaCache";
 interface DbSchemaCacheState {
   snapshot: SchemaCacheSnapshot;
   hydrated: boolean;
+  refreshingConnectionIds: Record<string, true>;
   hydrate: () => Promise<void>;
   replaceSnapshot: (snapshot: SchemaCacheSnapshot) => Promise<void>;
   patchConnection: (connId: string, entry: SchemaCacheSnapshot["connections"][string]) => Promise<void>;
+  setConnectionRefreshing: (connId: string, refreshing: boolean) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -26,6 +28,7 @@ function schedulePersist(snapshot: SchemaCacheSnapshot) {
 export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
   snapshot: emptySchemaCacheSnapshot(),
   hydrated: false,
+  refreshingConnectionIds: {},
 
   hydrate: async () => {
     if (get().hydrated) {
@@ -53,5 +56,17 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
     };
     set({ snapshot: next, hydrated: true });
     schedulePersist(next);
+  },
+
+  setConnectionRefreshing: (connId, refreshing) => {
+    set((state) => {
+      const next = { ...state.refreshingConnectionIds };
+      if (refreshing) {
+        next[connId] = true;
+      } else {
+        delete next[connId];
+      }
+      return { refreshingConnectionIds: next };
+    });
   },
 }));

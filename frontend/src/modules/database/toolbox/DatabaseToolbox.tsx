@@ -105,12 +105,27 @@ export function DatabaseToolbox({
     const defaultConn = pickDefaultConnId(initialSourceConnectionId);
     setSourceConnId(defaultConn);
     setTargetConnId(defaultConn);
-    if (initialSourceDatabase.trim()) {
-      const db = initialSourceDatabase.trim();
+  }, [initialSourceConnectionId, pickDefaultConnId, connections]);
+
+  useEffect(() => {
+    const db = initialSourceDatabase.trim();
+    if (!db || sourceDbs.length === 0) {
+      return;
+    }
+    if (sourceDbs.includes(db)) {
       setSourceDb(db);
+    }
+  }, [initialSourceDatabase, sourceDbs]);
+
+  useEffect(() => {
+    const db = initialSourceDatabase.trim();
+    if (!db || targetDbs.length === 0) {
+      return;
+    }
+    if (targetDbs.includes(db)) {
       setTargetDb(db);
     }
-  }, [initialSourceConnectionId, initialSourceDatabase, pickDefaultConnId, connections]);
+  }, [initialSourceDatabase, targetDbs]);
 
   const loadDatabases = useCallback(
     async (connId: string, side: "source" | "target") => {
@@ -157,14 +172,15 @@ export function DatabaseToolbox({
 
   const loadTargetTableNames = useCallback(async () => {
     const conn = connections.find((c) => c.id === targetConnId);
-    if (!conn || !targetDb.trim()) {
+    const db = targetDb.trim();
+    if (!conn || !db || !targetDbs.includes(db)) {
       setTargetTableNames(new Set());
       return;
     }
     setTargetTablesLoading(true);
     try {
-      const scoped = connectionWithDatabase(conn, targetDb);
-      const names = await listTables(scoped, targetDb);
+      const scoped = connectionWithDatabase(conn, db);
+      const names = await listTables(scoped, db);
       setTargetTableNames(new Set(names));
     } catch (e) {
       setTargetTableNames(new Set());
@@ -172,7 +188,7 @@ export function DatabaseToolbox({
     } finally {
       setTargetTablesLoading(false);
     }
-  }, [connections, targetConnId, targetDb]);
+  }, [connections, targetConnId, targetDb, targetDbs]);
 
   useEffect(() => {
     void loadTargetTableNames();

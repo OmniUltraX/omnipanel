@@ -41,10 +41,29 @@ pub struct SchemaCacheTable {
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SchemaCacheRoutine {
+    pub name: String,
+    pub routine_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaCacheUser {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct SchemaCacheDatabase {
     pub name: String,
     #[serde(default)]
     pub tables: Vec<SchemaCacheTable>,
+    #[serde(default)]
+    pub views: Vec<SchemaCacheTable>,
+    #[serde(default)]
+    pub routines: Vec<SchemaCacheRoutine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
 }
@@ -54,6 +73,8 @@ pub struct SchemaCacheDatabase {
 pub struct SchemaCacheConnection {
     #[serde(default)]
     pub databases: Vec<SchemaCacheDatabase>,
+    #[serde(default)]
+    pub users: Vec<SchemaCacheUser>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(type = Option<f64>)]
     pub refreshed_at: Option<i64>,

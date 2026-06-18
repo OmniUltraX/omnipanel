@@ -1,5 +1,6 @@
 import type { DbWorkspaceContextValue } from "../contexts/DbWorkspaceContext";
 import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
+import { resolveSqlTabConnectionId } from "../modules/database/dbWorkspaceState";
 
 export interface MirroredDbTabSnapshot {
   ctx: DbWorkspaceContextValue;
@@ -53,6 +54,7 @@ function buildMirroredTabRevision(ctx: DbWorkspaceContextValue, tabId: string): 
 
   const tabStateForMirror = tabState
     ? {
+        connId: tabState.connId,
         sql: tabState.sql,
         database: tabState.database,
         running: tabState.running,
@@ -61,6 +63,11 @@ function buildMirroredTabRevision(ctx: DbWorkspaceContextValue, tabId: string): 
         result: tabState.result,
       }
     : null;
+
+  const tabConnId = tabState
+    ? resolveSqlTabConnectionId(tabId, ctx.sqlTabStates, ctx.tablePreviews)
+    : "";
+  const tabDatabases = tabConnId ? (ctx.databasesByConnId[tabConnId] ?? []) : [];
 
   return JSON.stringify({
     tab,
@@ -71,10 +78,10 @@ function buildMirroredTabRevision(ctx: DbWorkspaceContextValue, tabId: string): 
     dirty: ctx.tabDirtyRows[tabId],
     committing: ctx.committingTabs.has(tabId),
     activeTableKey: ctx.activeTableKey,
-    activeConnId: ctx.activeConn?.id ?? null,
-    databasesForActiveConn: ctx.databasesForActiveConn,
+    tabConnId,
+    tabDatabaseCount: tabDatabases.length,
     schemaLoadingKey: ctx.schemaLoadingKey,
-    sqlCompletionCount: ctx.sqlCompletionSchemas.length,
+    sqlCompletionCount: ctx.getSqlCompletionSchemas(tabId).length,
   });
 }
 

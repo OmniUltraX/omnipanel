@@ -3,15 +3,20 @@ import { useRef, useEffect } from "react";
 interface DateTimeEditorProps {
   value: string;
   onChange: (value: string) => void;
+  autoFocus?: boolean;
 }
 
 /**
  * Datetime / timestamp editor using native <input type="datetime-local">.
  * Value format: YYYY-MM-DDTHH:MM (browser native format).
  */
-export function DateTimeEditor({ value, onChange }: DateTimeEditorProps) {
+export function DateTimeEditor({ value, onChange, autoFocus = true }: DateTimeEditorProps) {
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    if (autoFocus) {
+      ref.current?.focus();
+    }
+  }, [autoFocus]);
   return (
     <input
       ref={ref}

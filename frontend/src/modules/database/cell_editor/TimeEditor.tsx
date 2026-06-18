@@ -3,15 +3,20 @@ import { useRef, useEffect } from "react";
 interface TimeEditorProps {
   value: string;
   onChange: (value: string) => void;
+  autoFocus?: boolean;
 }
 
 /**
  * Time-only editor using native <input type="time">.
  * Value format: HH:MM (24-hour).
  */
-export function TimeEditor({ value, onChange }: TimeEditorProps) {
+export function TimeEditor({ value, onChange, autoFocus = true }: TimeEditorProps) {
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    if (autoFocus) {
+      ref.current?.focus();
+    }
+  }, [autoFocus]);
   return (
     <input
       ref={ref}
