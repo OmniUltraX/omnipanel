@@ -12,6 +12,7 @@ import { formatShortcut, useShortcutsStore } from "../../stores/shortcutsStore";
 import { KnowledgeReferences } from "./KnowledgeReferences";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { useAiChat } from "./useAiChat";
+import { AiMcpConnections } from "./AiMcpConnections";
 import { AiModelSelect } from "./AiModelSelect";
 import { AiReasoningEffortSelect } from "./AiReasoningEffortSelect";
 
@@ -329,9 +330,12 @@ export function AiDrawer() {
       widthRatio={0.82}
       heightRatio={0.85}
       headerExtra={
-        <div className="ai-subwindow-model">
-          <span className="ai-subwindow-model-label">{t("ai.modelSelect.label")}</span>
-          <AiModelSelect disabled={isGenerating} className="ai-subwindow-model-select" />
+        <div className="ai-subwindow-header-extra">
+          <AiMcpConnections />
+          <div className="ai-subwindow-model">
+            <span className="ai-subwindow-model-label">{t("ai.modelSelect.label")}</span>
+            <AiModelSelect disabled={isGenerating} className="ai-subwindow-model-select" />
+          </div>
         </div>
       }
     >

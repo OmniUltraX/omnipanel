@@ -416,6 +416,13 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
+	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
+	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
+	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
+	mcpSetServiceEnabled: (id: string, enabled: boolean) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_set_service_enabled", { id, enabled })),
+	mcpSetServiceRunning: (id: string, running: boolean) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_set_service_running", { id, running })),
+	mcpListServiceTools: (id: string) => typedError<McpToolInfo[], string>(__TAURI_INVOKE("mcp_list_service_tools", { id })),
+	mcpCallTool: (serviceId: string, toolName: string, toolArguments: string) => typedError<McpToolCallResult, string>(__TAURI_INVOKE("mcp_call_tool", { serviceId, toolName, arguments: toolArguments })),
 };
 
 /* Types */
@@ -1241,6 +1248,50 @@ export type KnowledgeTodoList = {
 	updatedAt?: number | null,
 };
 
+export type McpEnvEntry = {
+	key: string,
+	value: string,
+};
+
+export type McpServiceRuntimeStatus = "running" | "stopped" | "starting" | "error";
+
+export type McpServiceView = {
+	id: string,
+	name: string,
+	enabled: boolean,
+	builtin: boolean,
+	transport: McpTransport,
+	createdAt: number | null,
+	status: McpServiceRuntimeStatus,
+	endpoint?: string | null,
+	errorMessage?: string | null,
+};
+
+export type McpSseTransport = {
+	url: string,
+};
+
+export type McpStdioTransport = {
+	command: string,
+	args?: string[],
+	env?: { [key in string]: string },
+	cwd?: string | null,
+};
+
+export type McpToolCallResult = {
+	content: string,
+	isError: boolean,
+};
+
+export type McpToolInfo = {
+	name: string,
+	description?: string | null,
+};
+
+export type McpTransport = { kind: "stdio"; config: McpStdioTransport } | { kind: "sse"; config: McpSseTransport };
+
+export type McpTransportKind = "stdio" | "sse";
+
 export type MemoryStats = {
 	total: number | null,
 	used: number | null,
@@ -1713,6 +1764,18 @@ export type UpdateInfo = {
 	version: string,
 	body: string,
 	current_version: string,
+};
+
+export type UpsertMcpServiceInput = {
+	id: string | null,
+	name: string,
+	enabled: boolean,
+	transportKind: McpTransportKind,
+	command: string | null,
+	args?: string[],
+	env?: McpEnvEntry[],
+	cwd: string | null,
+	url: string | null,
 };
 
 export type Workflow = {

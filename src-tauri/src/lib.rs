@@ -231,6 +231,14 @@ fn export_ipc_bindings() {
         // AI 模型持久化
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
+        // MCP 服务管理
+        commands::mcp::mcp_list_services,
+        commands::mcp::mcp_upsert_service,
+        commands::mcp::mcp_delete_service,
+        commands::mcp::mcp_set_service_enabled,
+        commands::mcp::mcp_set_service_running,
+        commands::mcp::mcp_list_service_tools,
+        commands::mcp::mcp_call_tool,
         
     ]);
 
@@ -294,7 +302,16 @@ pub fn run() {
                 root = %omnipanel_store::omnipd_root().expect("omnipd root").display(),
                 "应用数据目录已就绪"
             );
-            let app_state = AppState::new(app.handle().clone(), storage, db_connections);
+
+            let mcp_manager = tauri::async_runtime::block_on(commands::mcp::init_mcp_manager())
+                .expect("启动 MCP 管理器失败");
+
+            let app_state = AppState::new(
+                app.handle().clone(),
+                storage,
+                db_connections,
+                mcp_manager,
+            );
             let pool_storage = app_state.storage.clone();
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();
@@ -591,6 +608,14 @@ pub fn run() {
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
+            // MCP 服务管理
+            commands::mcp::mcp_list_services,
+            commands::mcp::mcp_upsert_service,
+            commands::mcp::mcp_delete_service,
+            commands::mcp::mcp_set_service_enabled,
+            commands::mcp::mcp_set_service_running,
+            commands::mcp::mcp_list_service_tools,
+        commands::mcp::mcp_call_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

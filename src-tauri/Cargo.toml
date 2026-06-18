@@ -30,6 +30,7 @@ omnipanel-exec = { path = "../crates/omnipanel-exec" }
 omnipanel-ssh = { path = "../crates/omnipanel-ssh" }
 omnipanel-db = { path = "../crates/omnipanel-db" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
+omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

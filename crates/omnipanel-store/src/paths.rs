@@ -17,6 +17,7 @@ pub mod modules {
     pub const TERMINAL: &str = "terminal";
     #[allow(dead_code)]
     pub const DOCKER: &str = "docker";
+    pub const MCP: &str = "mcp";
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -71,6 +72,11 @@ pub fn database_schema_tree_expanded_path() -> OmniResult<PathBuf> {
 /// Schema 树节点缓存：`~/.omnipd/database/schema-cache.json`。
 pub fn database_schema_cache_path() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::DATABASE)?.join("schema-cache.json"))
+}
+
+/// MCP 服务配置：`~/.omnipd/mcp/services.json`。
+pub fn mcp_services_path() -> OmniResult<PathBuf> {
+    Ok(module_dir(modules::MCP)?.join("services.json"))
 }
 
 fn map_io(err: std::io::Error) -> OmniError {

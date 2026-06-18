@@ -1,11 +1,14 @@
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
 
 import type { ReasoningEffortLevel } from "../../../stores/aiStore";
+import type { AgentMcpToolsBundle } from "./mcpTools";
+import { loadAgentMcpTools } from "./mcpTools";
 import type { OmniModelConfig } from "./createOmniAgent";
-import { getOmniChatModel, OMNI_SYSTEM_PROMPT } from "./createOmniAgent";
+import { getOmniAgent } from "./createOmniAgent";
 
 export interface StreamChatOptions {
   reasoningEffort?: ReasoningEffortLevel;
+  mcpBundle?: AgentMcpToolsBundle;
 }
 
 export interface ChatHistoryMessage {
@@ -22,6 +25,7 @@ export interface AgentStreamCallbacks {
     status: "completed" | "failed";
     result?: string;
   }) => void;
+  onMcpConnections?: (connections: AgentMcpToolsBundle["connections"]) => void;
   onError: (message: string) => void;
   onDone: () => void;
 }
@@ -32,41 +36,17 @@ function toLangChainMessages(messages: ChatHistoryMessage[]) {
     .map((m) => (m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)));
 }
 
-function extractReasoningDelta(chunk: unknown): string {
-  if (!chunk || typeof chunk !== "object") return "";
-  const kwargs = (chunk as { additional_kwargs?: Record<string, unknown> }).additional_kwargs;
-  const reasoning = kwargs?.reasoning_content;
-  return typeof reasoning === "string" ? reasoning : "";
-}
-
-function extractTextDelta(chunk: unknown): string {
-  if (!chunk || typeof chunk !== "object") return "";
-  const content = (chunk as { content?: unknown }).content;
-  return typeof content === "string" ? content : "";
-}
-
-function buildStreamCallOptions(
-  modelConfig: OmniModelConfig,
-  signal: AbortSignal | undefined,
-  streamOptions?: StreamChatOptions,
-) {
-  const callOptions: Record<string, unknown> = { signal };
-  const effort = streamOptions?.reasoningEffort;
-  if (!effort || effort === "default") return callOptions;
-
-  if (modelConfig.apiStandard === "openai") {
-    // o 系列走 reasoningEffort；DeepSeek 等 OpenAI 兼容端点走 modelKwargs
-    callOptions.reasoningEffort = effort;
-    callOptions.modelKwargs = { reasoning_effort: effort };
+function formatToolOutput(output: unknown): string {
+  if (typeof output === "string") return output;
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
   }
-
-  return callOptions;
 }
 
 /**
- * LangChain 流式对话。
- * 直连 ChatModel.stream()，从 chunk.additional_kwargs.reasoning_content 提取思考内容
- *（OpenAI 兼容推理模型如 DeepSeek 的 delta.reasoning_content）。
+ * LangChain 智能体流式对话（ReAct + MCP 工具）。
  */
 export async function streamAgentChat(
   modelConfig: OmniModelConfig,
@@ -77,23 +57,64 @@ export async function streamAgentChat(
   streamOptions?: StreamChatOptions,
 ): Promise<void> {
   try {
-    const model = await getOmniChatModel(modelConfig);
-    const messages = [new SystemMessage(OMNI_SYSTEM_PROMPT), ...toLangChainMessages(history)];
-    const stream = await model.stream(
-      messages,
-      buildStreamCallOptions(modelConfig, signal, streamOptions),
+    const bundle = streamOptions?.mcpBundle ?? (await loadAgentMcpTools());
+    callbacks.onMcpConnections?.(bundle.connections);
+
+    const agent = await getOmniAgent(modelConfig, bundle.tools, bundle.cacheKey);
+    const run = await agent.streamEvents(
+      { messages: toLangChainMessages(history) },
+      { version: "v3", signal, recursionLimit: 25 },
     );
 
-    for await (const chunk of stream) {
-      if (signal?.aborted) break;
+    const consumeMessages = async () => {
+      for await (const msg of run.messages) {
+        if (signal?.aborted) break;
 
-      const text = extractTextDelta(chunk);
-      if (text) callbacks.onTextDelta(text);
+        if ("text" in msg && msg.text) {
+          for await (const token of msg.text) {
+            if (signal?.aborted) break;
+            if (token) callbacks.onTextDelta(token);
+          }
+        }
 
-      const reasoning = extractReasoningDelta(chunk);
-      if (reasoning) callbacks.onReasoningDelta?.(reasoning);
-    }
+        if ("reasoning" in msg && msg.reasoning) {
+          for await (const token of msg.reasoning) {
+            if (signal?.aborted) break;
+            if (token) callbacks.onReasoningDelta?.(token);
+          }
+        }
+      }
+    };
 
+    const consumeToolCalls = async () => {
+      for await (const call of run.toolCalls) {
+        if (signal?.aborted) break;
+
+        const callId = `tool_${call.name}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        callbacks.onToolCall?.({
+          id: callId,
+          name: call.name,
+          arguments: JSON.stringify(call.input ?? {}),
+        });
+
+        try {
+          const output = await call.output;
+          callbacks.onToolCallUpdate?.({
+            id: callId,
+            status: "completed",
+            result: formatToolOutput(output),
+          });
+        } catch (err) {
+          callbacks.onToolCallUpdate?.({
+            id: callId,
+            status: "failed",
+            result: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    };
+
+    await Promise.all([consumeMessages(), consumeToolCalls(), run.output]);
     callbacks.onDone();
   } catch (err) {
     if (signal?.aborted) {

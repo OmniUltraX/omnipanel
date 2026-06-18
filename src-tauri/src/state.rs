@@ -33,6 +33,7 @@ use crate::background::SshPool;
 use crate::commands::ssh::SshTunnelInfo;
 use crate::log_store::LogStore;
 use crate::output_buffer::{self, OutputBuffers};
+use omnipanel_mcp::SharedMcpManager;
 
 /// Docker 容器交互终端会话条目（含归属，便于切换/重进时回收旧 PTY）。
 pub struct DockerExecSessionEntry {
@@ -84,6 +85,8 @@ pub struct AppState {
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
     /// 网络代理配置（由前端通用设置同步而来）。
     pub proxy_config: Arc<Mutex<ProxyConfig>>,
+    /// MCP 服务管理器（内置 OmniMCP + 用户自定义服务）。
+    pub mcp_manager: SharedMcpManager,
 }
 
 impl AppState {
@@ -91,6 +94,7 @@ impl AppState {
         app_handle: AppHandle,
         storage: Storage,
         db_connections: DatabaseConnectionStore,
+        mcp_manager: SharedMcpManager,
     ) -> Self {
         let log_store = LogStore::new(500);
         let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
@@ -130,6 +134,7 @@ impl AppState {
             running_tasks: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
+            mcp_manager,
         }
     }
 }

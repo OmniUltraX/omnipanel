@@ -28,6 +28,7 @@ export function useAiChat() {
   const draftPrompt = useAiStore((s) => s.draftPrompt);
   const clearDraftPrompt = useAiStore((s) => s.clearDraftPrompt);
   const setCurrentModelSelectionId = useAiStore((s) => s.setCurrentModelSelectionId);
+  const setConnectedMcpServices = useAiStore((s) => s.setConnectedMcpServices);
   const reasoningEffort = useAiStore((s) => s.reasoningEffort);
 
   const providers = useAiModelsStore((s) => s.providers);
@@ -126,6 +127,10 @@ export function useAiChat() {
 
     try {
       const { streamAgentChat } = await import("./langchain/streamAgentChat");
+      const { loadAgentMcpTools } = await import("./langchain/mcpTools");
+      const mcpBundle = await loadAgentMcpTools();
+      setConnectedMcpServices(mcpBundle.connections);
+
       await streamAgentChat(
         modelConfig,
         priorMessages,
@@ -133,6 +138,7 @@ export function useAiChat() {
         {
           onTextDelta: (text) => appendStreamContent(convId, assistantMsgId, text),
           onReasoningDelta: (text) => appendStreamReasoning(convId, assistantMsgId, text),
+          onMcpConnections: (connections) => setConnectedMcpServices(connections),
           onToolCall: ({ id, name, arguments: args }) => {
             const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
             const msg = conv?.messages.find((m) => m.id === assistantMsgId);
@@ -166,7 +172,7 @@ export function useAiChat() {
           },
         },
         abortRef.current.signal,
-        { reasoningEffort },
+        { reasoningEffort, mcpBundle },
       );
     } catch (err) {
       appendStreamContent(
@@ -192,6 +198,7 @@ export function useAiChat() {
     providers,
     resolveSelectionId,
     reasoningEffort,
+    setConnectedMcpServices,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

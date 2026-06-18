@@ -1,0 +1,24 @@
+[package]
+name = "omnipanel-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
+specta.workspace = true
+rmcp = { version = "1.7.0", features = [
+    "server",
+    "client",
+    "macros",
+    "schemars",
+    "transport-streamable-http-server",
+    "transport-streamable-http-client-reqwest",
+    "transport-child-process",
+] }
+axum = "0.8"

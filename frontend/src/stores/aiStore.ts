@@ -11,6 +11,13 @@ export interface ToolCallState {
   status: "pending" | "running" | "completed" | "failed";
 }
 
+export interface AgentMcpConnection {
+  serviceId: string;
+  serviceName: string;
+  builtin: boolean;
+  toolCount: number;
+}
+
 export interface AiMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -50,6 +57,8 @@ interface AiStore {
   draftPrompt: string;
   /** 推理程度，default 表示不传给 API */
   reasoningEffort: ReasoningEffortLevel;
+  /** 当前智能体已连接的 MCP 服务（打开助手或发送消息时刷新） */
+  connectedMcpServices: AgentMcpConnection[];
 
   toggleDrawer: () => void;
   openDrawer: () => void;
@@ -85,6 +94,7 @@ interface AiStore {
   addContext: (conversationId: string, chip: { type: string; label: string }) => void;
   removeContext: (conversationId: string, type: string) => void;
   setReasoningEffort: (level: ReasoningEffortLevel) => void;
+  setConnectedMcpServices: (connections: AgentMcpConnection[]) => void;
 }
 
 let idCounter = 0;
@@ -104,6 +114,7 @@ export const useAiStore = create<AiStore>()(
       isGenerating: false,
       draftPrompt: "",
       reasoningEffort: "medium",
+      connectedMcpServices: [],
 
       toggleDrawer: () =>
         set((state) => ({ drawerOpen: !state.drawerOpen })),
@@ -275,6 +286,8 @@ export const useAiStore = create<AiStore>()(
         })),
 
       setReasoningEffort: (level) => set({ reasoningEffort: level }),
+
+      setConnectedMcpServices: (connections) => set({ connectedMcpServices: connections }),
     }),
     {
       name: "omnipanel-ai-store",
