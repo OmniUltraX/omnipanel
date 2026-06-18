@@ -108,10 +108,10 @@ pub async fn mcp_call_tool(
     state: State<'_, AppState>,
     service_id: String,
     tool_name: String,
-    arguments: String,
+    tool_arguments: String,
 ) -> Result<omnipanel_mcp::McpToolCallResult, String> {
     let parsed: serde_json::Value =
-        serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Object(Default::default()));
+        serde_json::from_str(&tool_arguments).unwrap_or(serde_json::Value::Object(Default::default()));
     let manager = state.mcp_manager.lock().await;
     manager
         .call_service_tool(&service_id, &tool_name, parsed)

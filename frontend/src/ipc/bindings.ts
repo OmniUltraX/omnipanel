@@ -422,7 +422,7 @@ export const commands = {
 	mcpSetServiceEnabled: (id: string, enabled: boolean) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_set_service_enabled", { id, enabled })),
 	mcpSetServiceRunning: (id: string, running: boolean) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_set_service_running", { id, running })),
 	mcpListServiceTools: (id: string) => typedError<McpToolInfo[], string>(__TAURI_INVOKE("mcp_list_service_tools", { id })),
-	mcpCallTool: (serviceId: string, toolName: string, toolArguments: string) => typedError<McpToolCallResult, string>(__TAURI_INVOKE("mcp_call_tool", { serviceId, toolName, arguments: toolArguments })),
+	mcpCallTool: (serviceId: string, toolName: string, toolArguments: string) => typedError<McpToolCallResult, string>(__TAURI_INVOKE("mcp_call_tool", { serviceId, toolName, toolArguments })),
 };
 
 /* Types */
