@@ -12,7 +12,7 @@ import { DatabaseSchemaSidebar } from "./DatabaseSchemaSidebar";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
-import { FormDialog } from "../../components/ui/FormDialog";
+import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
@@ -25,7 +25,7 @@ import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
-import { useDbSqlFileStore } from "../../stores/dbSqlFileStore";
+import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
@@ -248,10 +248,11 @@ function CreateDatabaseDialog({
         onClick: () => void handleSubmit(),
       }}
     >
-      <div className="form-field">
-        <label className="form-label" htmlFor="create-db-name">
-          {t("database.createDatabase.nameLabel")}
-        </label>
+      <FormField
+        label={t("database.createDatabase.nameLabel")}
+        htmlFor="create-db-name"
+        description={t("database.createDatabase.nameDescription")}
+      >
         <input
           id="create-db-name"
           className="input"
@@ -271,11 +272,12 @@ function CreateDatabaseDialog({
           }}
           style={{ width: "100%" }}
         />
-      </div>
-      <div className="form-field">
-        <label className="form-label" htmlFor="create-db-charset">
-          {t("database.createDatabase.charsetLabel")}
-        </label>
+      </FormField>
+      <FormField
+        label={t("database.createDatabase.charsetLabel")}
+        htmlFor="create-db-charset"
+        description={t("database.createDatabase.charsetDescription")}
+      >
         <Select
           value={charset}
           onChange={setCharset}
@@ -283,7 +285,7 @@ function CreateDatabaseDialog({
           size="sm"
           disabled={busy}
         />
-      </div>
+      </FormField>
       {preset && (
         <div
           style={{
@@ -584,9 +586,13 @@ export function DatabasePanel() {
           continue;
         }
         const snap = session.sqlTabStates[tab.id];
-        restoredSql[tab.id] = snap
+        const base = snap
           ? restoreSqlTabStateFromSnapshot(snap)
           : createDefaultSqlTabState();
+        restoredSql[tab.id] =
+          tab.sqlFileId != null
+            ? resolveSqlTabStateFromFile(tab.sqlFileId, base)
+            : base;
       }
       setSqlTabStates(restoredSql);
 
@@ -1394,7 +1400,7 @@ export function DatabasePanel() {
 
         for (const [column, value] of Object.entries(changes)) {
           const meta = colMeta.find((c) => c.name === column);
-          if (!meta || meta.isPk) continue;
+          if (!meta) continue;
           const originalValue = row[column];
           if (isSameCellValue(originalValue, value)) {
             delete rowDirty[column];

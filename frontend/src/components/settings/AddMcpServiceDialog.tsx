@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { FormDialog } from "../ui/FormDialog";
+import { FormDialog, FormField } from "../ui/FormDialog";
 import { useI18n } from "../../i18n";
 import type { McpServiceView, UpsertMcpServiceInput } from "../../stores/mcpServicesStore";
 import type { McpTransportKind } from "../../ipc/bindings";
@@ -180,8 +180,7 @@ export function AddMcpServiceDialog({
         disabled: submitting,
       }}
     >
-      <div className="form-field">
-        <label htmlFor="add-mcp-name">{t("settings.mcpServices.fields.name")}</label>
+      <FormField label={t("settings.mcpServices.fields.name")} htmlFor="add-mcp-name">
         <input
           id="add-mcp-name"
           className="input"
@@ -190,10 +189,9 @@ export function AddMcpServiceDialog({
           onChange={(e) => updateField("name", e.target.value)}
           placeholder={t("settings.mcpServices.fields.namePlaceholder")}
         />
-      </div>
+      </FormField>
 
-      <div className="form-field">
-        <label>{t("settings.mcpServices.fields.transport")}</label>
+      <FormField label={t("settings.mcpServices.fields.transport")}>
         <div className="form-radio-group">
           <label className="form-radio-option">
             <input
@@ -214,12 +212,11 @@ export function AddMcpServiceDialog({
             <span>{t("settings.mcpServices.fields.transportSse")}</span>
           </label>
         </div>
-      </div>
+      </FormField>
 
       {form.transportKind === "stdio" ? (
         <>
-          <div className="form-field">
-            <label htmlFor="add-mcp-command">{t("settings.mcpServices.fields.command")}</label>
+          <FormField label={t("settings.mcpServices.fields.command")} htmlFor="add-mcp-command">
             <div style={{ display: "flex", gap: "var(--sp-2)" }}>
               <input
                 id="add-mcp-command"
@@ -238,10 +235,13 @@ export function AddMcpServiceDialog({
                 {t("settings.mcpServices.browse")}
               </button>
             </div>
-          </div>
+          </FormField>
 
-          <div className="form-field">
-            <label htmlFor="add-mcp-args">{t("settings.mcpServices.fields.args")}</label>
+          <FormField
+            label={t("settings.mcpServices.fields.args")}
+            htmlFor="add-mcp-args"
+            description={t("settings.mcpServices.fields.argsHint")}
+          >
             <textarea
               id="add-mcp-args"
               className="input"
@@ -251,11 +251,9 @@ export function AddMcpServiceDialog({
               placeholder={t("settings.mcpServices.fields.argsPlaceholder")}
               style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
             />
-            <div className="form-field-hint">{t("settings.mcpServices.fields.argsHint")}</div>
-          </div>
+          </FormField>
 
-          <div className="form-field">
-            <label htmlFor="add-mcp-cwd">{t("settings.mcpServices.fields.cwd")}</label>
+          <FormField label={t("settings.mcpServices.fields.cwd")} htmlFor="add-mcp-cwd">
             <input
               id="add-mcp-cwd"
               className="input"
@@ -264,11 +262,14 @@ export function AddMcpServiceDialog({
               placeholder={t("settings.mcpServices.fields.cwdPlaceholder")}
               style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
             />
-          </div>
+          </FormField>
         </>
       ) : (
-        <div className="form-field">
-          <label htmlFor="add-mcp-url">{t("settings.mcpServices.fields.url")}</label>
+        <FormField
+          label={t("settings.mcpServices.fields.url")}
+          htmlFor="add-mcp-url"
+          description={t("settings.mcpServices.fields.urlHint")}
+        >
           <input
             id="add-mcp-url"
             className="input"
@@ -277,11 +278,10 @@ export function AddMcpServiceDialog({
             placeholder={t("settings.mcpServices.fields.urlPlaceholder")}
             style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
           />
-          <div className="form-field-hint">{t("settings.mcpServices.fields.urlHint")}</div>
-        </div>
+        </FormField>
       )}
 
-      <div className="form-field">
+      <FormField label={t("settings.mcpServices.fields.enabled")}>
         <label
           className="form-radio-option"
           style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", cursor: "pointer" }}
@@ -293,7 +293,7 @@ export function AddMcpServiceDialog({
           />
           <span>{t("settings.mcpServices.fields.enabled")}</span>
         </label>
-      </div>
+      </FormField>
 
       {error && <div className="form-error">{error}</div>}
     </FormDialog>

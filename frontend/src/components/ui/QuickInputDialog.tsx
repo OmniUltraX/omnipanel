@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
-import { FormDialog } from "./FormDialog";
+import { FormDialog, FormField } from "./FormDialog";
 
 export interface QuickInputDialogProps {
   open: boolean;
   title: string;
   subtitle?: string;
   placeholder?: string;
+  /** 字段标签；与 description 同时提供时显示 FormField */
+  fieldLabel?: string;
+  /** 字段说明，显示在 label 旁问号提示中 */
+  description?: string;
   defaultValue?: string;
   onCancel: () => void;
   onConfirm: (value: string) => void;
@@ -18,6 +22,8 @@ export function QuickInputDialog({
   title,
   subtitle,
   placeholder,
+  fieldLabel,
+  description,
   defaultValue = "",
   onCancel,
   onConfirm,
@@ -57,27 +63,53 @@ export function QuickInputDialog({
       onCancel={onCancel}
       primaryAction={{ label: t("common.confirm"), onClick: submit }}
     >
-      <input
-        className="input"
-        autoFocus
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setError(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            onCancel();
-          }
-        }}
-        style={{ width: "100%" }}
-      />
+      {fieldLabel || description ? (
+        <FormField label={fieldLabel ?? ""} description={description}>
+          <input
+            className="input"
+            autoFocus
+            placeholder={placeholder}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onCancel();
+              }
+            }}
+            style={{ width: "100%" }}
+          />
+        </FormField>
+      ) : (
+        <input
+          className="input"
+          autoFocus
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          style={{ width: "100%" }}
+        />
+      )}
       {error && (
         <div style={{ fontSize: "12px", color: "var(--color-danger, #ff3b30)" }}>{error}</div>
       )}

@@ -109,7 +109,7 @@ function MessageBubble({ msg, isLast }: { msg: AiMessage; isLast?: boolean }) {
         {isActiveStream && <span className="ai-msg-avatar-ring" aria-hidden />}
       </div>
 
-      <div className="ai-msg-body">
+      <div className="ai-msg-body" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
         <div
           className={`ai-msg-bubble${isUser ? " ai-msg-bubble--user" : " ai-msg-bubble--assistant"}${isActiveStream ? " ai-msg-bubble--live" : ""}`}
         >

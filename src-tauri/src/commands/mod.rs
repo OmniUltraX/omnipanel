@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod mcp;
 pub mod ai_models;
+pub mod db_sql_files;
 pub mod connection;
 pub mod database;
 pub mod debug;

@@ -72,8 +72,18 @@ export function buildWorkspaceSessionSnapshot(params: {
 
   const sqlTabStates: Record<string, DbSqlTabStateSnapshot> = {};
   for (const tabId of tabIds) {
+    const tab = params.tabs.find((item) => item.id === tabId);
     const state = params.sqlTabStates[tabId];
     if (!state) {
+      continue;
+    }
+    if (tab?.kind === "sql" && tab.sqlFileId) {
+      sqlTabStates[tabId] = {
+        cursorOffset: state.cursorOffset,
+        sql: "",
+        database: "",
+        connId: state.connId,
+      };
       continue;
     }
     sqlTabStates[tabId] = {

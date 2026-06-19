@@ -3574,6 +3574,7 @@ dependencies = [
  "rumqttc",
  "rusqlite",
  "rust-s3",
+ "rustls 0.23.40",
  "serde",
  "serde_json",
  "serialport",

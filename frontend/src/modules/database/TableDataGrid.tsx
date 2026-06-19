@@ -503,7 +503,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               >
                 {row.getVisibleCells().map((cell) => {
                   const colMeta = transposed ? undefined : columnMetaMap?.[cell.column.id];
-                  const canEdit = effectiveOnCellEdit && colMeta && !colMeta.isPk;
+                  const canEdit = effectiveOnCellEdit && colMeta;
                   const overrideValue = overrideForRow?.[cell.column.id];
                   const cellDirty = overrideValue !== undefined && rowDirty;
                   const rawValue = overrideValue !== undefined ? overrideValue : cell.getValue();

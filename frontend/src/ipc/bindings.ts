@@ -416,6 +416,8 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
+	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
+	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -549,6 +551,22 @@ export type DbIntrospectResult_Serialize = {
 export type DbRoutineMeta = {
 	name: string,
 	routineType: string,
+};
+
+export type DbSqlFileNode = {
+	id: string,
+	type: string,
+	name: string,
+	parentId: string | null,
+	sql?: string | null,
+	connId?: string | null,
+	database?: string | null,
+	updatedAt: number | null,
+};
+
+export type DbSqlFilesFile = {
+	version?: number,
+	nodes?: DbSqlFileNode[],
 };
 
 export type DbTableSchema = DbTableSchema_Serialize | DbTableSchema_Deserialize;

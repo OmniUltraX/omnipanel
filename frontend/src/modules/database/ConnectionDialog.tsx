@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
-import { FormDialog } from "../../components/ui/FormDialog";
+import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
@@ -182,8 +182,7 @@ export function ConnectionDialog({
         onClick: () => void handleSave(),
       }}
     >
-          <div className="form-field">
-            <label className="form-label">{t("database.dialog.engine")}</label>
+          <FormField label={t("database.dialog.engine")} description={t("database.dialog.engineDescription")}>
             <div className="engine-grid">
               {(Object.keys(ENGINE_DEFAULTS) as DbEngine[]).map((engine) => {
                 const iconUrl = getEngineIcon(engine, resolvedTheme);
@@ -210,21 +209,28 @@ export function ConnectionDialog({
                 );
               })}
             </div>
-          </div>
+          </FormField>
 
-          <div className="form-field">
-            <label className="form-label">{t("database.dialog.name")}</label>
+          <FormField
+            label={t("database.dialog.name")}
+            htmlFor="db-conn-name"
+            description={t("database.dialog.nameDescription")}
+          >
             <input
+              id="db-conn-name"
               className="input"
               placeholder={t("database.dialog.namePlaceholder")}
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
               style={{ width: "100%" }}
             />
-          </div>
+          </FormField>
 
-          <div className="form-field">
-            <label className="form-label">{t("database.dialog.group")}</label>
+          <FormField
+            label={t("database.dialog.group")}
+            htmlFor="db-conn-group"
+            description={t("database.dialog.groupDescription")}
+          >
             <Select
               className="input"
               value={form.group}
@@ -233,43 +239,61 @@ export function ConnectionDialog({
               searchable={false}
               options={groups.map((group) => ({ value: group.name, label: group.name }))}
             />
-          </div>
+          </FormField>
 
           {!isFileBased && (
             <div className="form-row">
-              <div className="form-field" style={{ flex: 2 }}>
-                <label className="form-label">{t("database.dialog.host")}</label>
-                <input
-                  className="input"
-                  placeholder="localhost"
-                  value={form.host}
-                  onChange={(e) => update("host", e.target.value)}
-                  style={{ width: "100%" }}
-                />
+              <div style={{ flex: 2 }}>
+                <FormField
+                  label={t("database.dialog.host")}
+                  htmlFor="db-conn-host"
+                  description={t("database.dialog.hostDescription")}
+                >
+                  <input
+                    id="db-conn-host"
+                    className="input"
+                    placeholder="localhost"
+                    value={form.host}
+                    onChange={(e) => update("host", e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
               </div>
-              <div className="form-field" style={{ flex: 1 }}>
-                <label className="form-label">{t("database.dialog.port")}</label>
-                <input
-                  className="input"
-                  placeholder={ENGINE_DEFAULTS[form.engine].port}
-                  value={form.port}
-                  onChange={(e) => update("port", e.target.value)}
-                  style={{ width: "100%" }}
-                />
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label={t("database.dialog.port")}
+                  htmlFor="db-conn-port"
+                  description={t("database.dialog.portDescription")}
+                >
+                  <input
+                    id="db-conn-port"
+                    className="input"
+                    placeholder={ENGINE_DEFAULTS[form.engine].port}
+                    value={form.port}
+                    onChange={(e) => update("port", e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
               </div>
             </div>
           )}
 
-          <div className="form-field">
-            <label className="form-label">
-              {t("database.dialog.database")}
-              {!isFileBased && form.engine !== "redis" && (
-                <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.6 }}>
-                  ({t("database.dialog.optional")})
-                </span>
-              )}
-            </label>
+          <FormField
+            label={
+              <>
+                {t("database.dialog.database")}
+                {!isFileBased && form.engine !== "redis" && (
+                  <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.6 }}>
+                    ({t("database.dialog.optional")})
+                  </span>
+                )}
+              </>
+            }
+            htmlFor="db-conn-database"
+            description={t("database.dialog.databaseDescription")}
+          >
             <input
+              id="db-conn-database"
               className="input"
               placeholder={
                 isFileBased
@@ -282,36 +306,51 @@ export function ConnectionDialog({
               onChange={(e) => update("database", e.target.value)}
               style={{ width: "100%" }}
             />
-          </div>
+          </FormField>
 
           {!isFileBased && (
             <div className="form-row">
-              <div className="form-field" style={{ flex: 1 }}>
-                <label className="form-label">{t("database.dialog.username")}</label>
-                <input
-                  className="input"
-                  placeholder={form.engine === "redis" ? "default" : "postgres"}
-                  value={form.username}
-                  onChange={(e) => update("username", e.target.value)}
-                  style={{ width: "100%" }}
-                />
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label={t("database.dialog.username")}
+                  htmlFor="db-conn-username"
+                  description={t("database.dialog.usernameDescription")}
+                >
+                  <input
+                    id="db-conn-username"
+                    className="input"
+                    placeholder={form.engine === "redis" ? "default" : "postgres"}
+                    value={form.username}
+                    onChange={(e) => update("username", e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
               </div>
-              <div className="form-field" style={{ flex: 1 }}>
-                <label className="form-label">{t("database.dialog.password")}</label>
-                <input
-                  className="input"
-                  type="password"
-                  placeholder="••••••"
-                  value={form.password}
-                  onChange={(e) => update("password", e.target.value)}
-                  style={{ width: "100%" }}
-                />
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label={t("database.dialog.password")}
+                  htmlFor="db-conn-password"
+                  description={t("database.dialog.passwordDescription")}
+                >
+                  <input
+                    id="db-conn-password"
+                    className="input"
+                    type="password"
+                    placeholder="••••••"
+                    value={form.password}
+                    onChange={(e) => update("password", e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                </FormField>
               </div>
             </div>
           )}
 
           {!isFileBased && form.engine !== "redis" && (
-            <div className="form-field">
+            <FormField
+              label={t("database.dialog.ssl")}
+              description={t("database.dialog.sslDescription")}
+            >
               <label className="form-check">
                 <input
                   type="checkbox"
@@ -320,7 +359,7 @@ export function ConnectionDialog({
                 />
                 <span>{t("database.dialog.ssl")}</span>
               </label>
-            </div>
+            </FormField>
           )}
 
     </FormDialog>

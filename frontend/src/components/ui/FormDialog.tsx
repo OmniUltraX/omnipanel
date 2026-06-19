@@ -5,6 +5,8 @@ import { FormDialogClipboardBar } from "./FormDialogClipboardBar";
 import { useI18n } from "../../i18n";
 import type { ClipboardSnapshot } from "../../lib/readLatestClipboard";
 
+export { FormField, type FormFieldProps } from "./FormField";
+
 const CLOSE_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden>
     <path d="M18 6L6 18M6 6l12 12" />

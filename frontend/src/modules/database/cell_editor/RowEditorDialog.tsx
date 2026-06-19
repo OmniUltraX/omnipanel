@@ -28,7 +28,7 @@ export interface RowEditorDialogProps {
   overrides?: Record<string, unknown>;
   /** 打开时聚焦并滚动到该列字段 */
   focusColumn?: string;
-  /** insert：新建行，主键可编辑；edit：编辑已有行 */
+  /** insert：新建行；edit：编辑已有行（含主键） */
   mode?: "edit" | "insert";
   onSave: (changes: Record<string, unknown>) => void;
   onCancel: () => void;
@@ -178,7 +178,6 @@ export function RowEditorDialog({
   const handleSave = useCallback(() => {
     const changes: Record<string, unknown> = {};
     for (const col of columnMeta) {
-      if (mode === "edit" && col.isPk) continue;
       const kind = detectCellEditorKind(col.type);
       const parsed = parseCellValue(kind, editTexts[col.name] ?? "");
       changes[col.name] = parsed;
@@ -207,7 +206,7 @@ export function RowEditorDialog({
               column={col}
               value={editTexts[col.name] ?? ""}
               onChange={(value) => updateField(col.name, value)}
-              readOnly={mode === "edit" && col.isPk}
+              readOnly={false}
               autoFocus={Boolean(focusColumn && col.name === focusColumn)}
             />
           ))

@@ -9,6 +9,17 @@ mod state;
 use state::AppState;
 use tauri::Manager;
 
+/// reqwest 0.13（rmcp、tauri-plugin-updater 等）使用 rustls-no-provider，
+/// 必须在首次构建 TLS Client 前安装 crypto provider。沿用 ring 后端，避免 Windows 上 aws-lc-rs 依赖 NASM。
+fn ensure_rustls_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_some() {
+        return;
+    }
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("install rustls ring crypto provider");
+}
+
 /// 仅在 debug 构建时，用 tauri-specta 导出前端 IPC 类型与 typed client。
 /// 运行期命令注册仍走 `tauri::generate_handler!`，specta 不接管路由，零运行时风险。
 #[cfg(debug_assertions)]
@@ -231,6 +242,8 @@ fn export_ipc_bindings() {
         // AI 模型持久化
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
+        commands::db_sql_files::db_sql_files_load,
+        commands::db_sql_files::db_sql_files_save,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -272,6 +285,7 @@ fn try_migrate_legacy_storage(target: &std::path::Path, app: &tauri::App) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    ensure_rustls_crypto_provider();
     tracing_subscriber::fmt::init();
 
     #[cfg(debug_assertions)]
@@ -608,6 +622,8 @@ pub fn run() {
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
+            commands::db_sql_files::db_sql_files_load,
+            commands::db_sql_files::db_sql_files_save,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

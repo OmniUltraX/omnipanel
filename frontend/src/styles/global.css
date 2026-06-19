@@ -34,6 +34,13 @@
     user-select: none;
 }
 
+/* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
+.ai-message-list .ai-msg-body,
+.ai-message-list .ai-msg-body * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
 /* ─── Workspace Framework ─────────────────────────────────────────── */
 .env-badge {
     display: inline-flex;
@@ -11954,6 +11961,83 @@
         color: var(--meta);
         text-transform: uppercase;
         letter-spacing: 0.05em;
+    }
+
+    .form-label-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 100%;
+    }
+
+    .form-label-row .form-label {
+        margin: 0;
+    }
+
+    .form-label-help {
+        position: relative;
+        display: inline-flex;
+        flex-shrink: 0;
+    }
+
+    .form-label-help__trigger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        color: var(--meta);
+        cursor: help;
+        outline: none;
+    }
+
+    .form-label-help__trigger:hover,
+    .form-label-help__trigger:focus-visible {
+        color: var(--accent);
+        background: color-mix(in oklch, var(--accent) 12%, transparent);
+    }
+
+    .form-label-help__tooltip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        z-index: 20;
+        min-width: 160px;
+        max-width: 280px;
+        padding: 6px 8px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--fg-2);
+        font-size: 11px;
+        font-weight: 400;
+        line-height: 1.45;
+        text-transform: none;
+        letter-spacing: normal;
+        white-space: normal;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
+    }
+
+    .form-label-help__tooltip::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 5px solid transparent;
+        border-top-color: var(--border);
+    }
+
+    .form-label-help:hover .form-label-help__tooltip,
+    .form-label-help:focus-within .form-label-help__tooltip {
+        opacity: 1;
+        visibility: visible;
     }
 
     .form-input {
