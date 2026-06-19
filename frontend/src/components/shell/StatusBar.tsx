@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { useBottomPanelStore } from "../../stores/bottomPanelStore";
+import { useWorkspacePreviewCollapseStore } from "../../stores/workspacePreviewCollapseStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
 import { workspaceResources, getResourceById, type EnvironmentTag } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
@@ -10,30 +10,26 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 function StatusBarWorkspacePanelToggle() {
   const { t } = useI18n();
-  const isOpen = useBottomPanelStore((state) => state.isOpen);
-  const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
-  const toggleOpen = useBottomPanelStore((state) => state.toggleOpen);
+  const isOpen = useWorkspacePreviewCollapseStore((state) => state.isOpen);
+  const toggle = useWorkspacePreviewCollapseStore((state) => state.toggle);
 
-  const panelVisible = isOpen || isFullscreen;
-  const toggleLabel = panelVisible
-    ? isFullscreen
-      ? t("shell.workspacePanel.exitFullscreen")
-      : t("shell.statusbar.collapseWorkspace")
+  const toggleLabel = isOpen
+    ? t("shell.statusbar.collapseWorkspace")
     : t("shell.statusbar.expandWorkspace");
 
   return (
     <button
       type="button"
-      className={`statusbar-item statusbar-button statusbar-workspace-toggle${panelVisible ? " statusbar-workspace-toggle--open" : ""}`}
-      onClick={() => toggleOpen()}
+      className={`statusbar-item statusbar-button statusbar-workspace-toggle${isOpen ? " statusbar-workspace-toggle--open" : ""}`}
+      onClick={() => toggle()}
       title={toggleLabel}
       aria-label={toggleLabel}
-      aria-pressed={panelVisible}
+      aria-pressed={isOpen}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
         <rect x="3" y="4" width="18" height="16" rx="1.5" />
         <path d="M3 15h18" />
-        {panelVisible ? (
+        {isOpen ? (
           <polyline points="8 18 12 14 16 18" />
         ) : (
           <polyline points="8 11 12 7 16 11" />

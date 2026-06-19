@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import { SidebarBottom } from "../ui/SidebarBottom";
+import { WorkspacePreview } from "../ui/WorkspacePreview";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { workspaceShellState } from "../../lib/workspaceMode";
-import { WorkspaceBottomShell } from "./WorkspaceBottomShell";
 
 interface WorkspaceHostProps {
   children: ReactNode;
@@ -17,11 +16,10 @@ export function WorkspaceHost({ children }: WorkspaceHostProps) {
   const wsState = workspaceShellState(workspaceMode);
 
   return (
-    <SidebarBottom
+    <WorkspacePreview
       className={`content-bottom workspace-host workspace-host--${wsState}${isHomeActive ? " workspace-host--home" : ""}${workspaceMode !== "fullscreen" && workspaceMode !== "home" && workspaceMode !== "hidden" ? ` workspace-host--${workspaceMode}` : ""}`}
-      sidebar={<WorkspaceBottomShell />}
     >
       {children}
-    </SidebarBottom>
+    </WorkspacePreview>
   );
 }
