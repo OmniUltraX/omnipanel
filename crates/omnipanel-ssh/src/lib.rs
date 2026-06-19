@@ -226,7 +226,7 @@ impl StreamChunk {
 pub struct SshStreamHandle {
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
-    /// 流式 exec 持有 channel 期间占用 exec 槽位，任务结束才释放。
+    /// 流式 exec 持有 channel 期间占用槽位，任务结束才释放。
     _exec_permit: OwnedSemaphorePermit,
 }
 
@@ -266,10 +266,8 @@ pub struct SshPtySession {
     tx: mpsc::UnboundedSender<PtyMsg>,
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
-    /// PTY 长连接占用 exec 槽位直至 close。
+    /// PTY 长连接占用槽位直至 close。
     _exec_permit: OwnedSemaphorePermit,
-    /// 同一会话只允许一个 PTY exec，防止快速重进时堆叠 channel。
-    _pty_permit: OwnedSemaphorePermit,
 }
 
 impl SshPtySession {
@@ -451,18 +449,13 @@ enum ShellMsg {
     Resize(u16, u16),
 }
 
-/// 单条 SSH 连接上允许同时打开的 exec/SFTP channel 上限（OpenSSH MaxSessions 默认 10）。
-const EXEC_CHANNEL_LIMIT: usize = 6;
-
 /// 一个已建立的 SSH 会话：持有 client handle（用于 SFTP）与 shell 输入通道。
 /// 当 `shell_tx` 为 None 时仅支持 `exec_command` / SFTP 操作（连接池模式）。
 pub struct SshSession {
     session: client::Handle<Client>,
     shell_tx: Option<mpsc::UnboundedSender<ShellMsg>>,
-    /// 限制同连接上并发 exec/SFTP channel，避免「打开 SSH exec 通道失败」。
+    /// 串行化同连接上的 exec/SFTP channel（russh Handle 不支持并发 `channel_open_session`）。
     exec_gate: Arc<Semaphore>,
-    /// 交互式 PTY exec 串行化（docker exec -it 等），避免同连接上堆叠多个 PTY channel。
-    pty_gate: Arc<Semaphore>,
 }
 
 impl SshSession {
@@ -563,8 +556,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: Some(shell_tx),
-            exec_gate: Arc::new(Semaphore::new(EXEC_CHANNEL_LIMIT)),
-            pty_gate: Arc::new(Semaphore::new(1)),
+            exec_gate: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -608,8 +600,7 @@ impl SshSession {
         Ok(Self {
             session,
             shell_tx: None,
-            exec_gate: Arc::new(Semaphore::new(EXEC_CHANNEL_LIMIT)),
-            pty_gate: Arc::new(Semaphore::new(1)),
+            exec_gate: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -736,19 +727,6 @@ impl SshSession {
         rows: u16,
         tx: mpsc::UnboundedSender<StreamChunk>,
     ) -> OmniResult<SshPtySession> {
-        let pty_permit = tokio::time::timeout(
-            Duration::from_secs(15),
-            self.pty_gate.clone().acquire_owned(),
-        )
-        .await
-        .map_err(|_| {
-            OmniError::new(
-                ErrorCode::Ssh,
-                "等待 PTY 资源超时，请关闭其他容器终端后重试",
-            )
-        })?
-        .map_err(|_| OmniError::new(ErrorCode::Ssh, "PTY 会话资源不可用"))?;
-
         let exec_permit = tokio::time::timeout(
             Duration::from_secs(15),
             self.exec_gate.clone().acquire_owned(),
@@ -791,7 +769,6 @@ impl SshSession {
             stop,
             _task: Some(task),
             _exec_permit: exec_permit,
-            _pty_permit: pty_permit,
         })
     }
 
@@ -818,7 +795,7 @@ impl SshSession {
             .await;
     }
 
-    async fn open_sftp(&self) -> OmniResult<SftpSession> {
+    async fn open_sftp_inner(&self) -> OmniResult<SftpSession> {
         let channel = self.session.channel_open_session().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "打开 SFTP 通道失败").with_cause(e.to_string())
         })?;
@@ -832,7 +809,13 @@ impl SshSession {
 
     /// 列出远端目录。
     pub async fn sftp_list(&self, path: &str) -> OmniResult<Vec<SftpEntry>> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         let dir = sftp.read_dir(path).await.map_err(|e| {
             let err_str = e.to_string();
             let msg =
@@ -857,7 +840,13 @@ impl SshSession {
 
     /// 下载远端文件内容。
     pub async fn sftp_download(&self, path: &str) -> OmniResult<Vec<u8>> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         sftp.read(path)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string()))
@@ -865,21 +854,39 @@ impl SshSession {
 
     /// 上传内容到远端文件（覆盖）。
     pub async fn sftp_upload(&self, path: &str, data: &[u8]) -> OmniResult<()> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         sftp.write(path, data)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string()))
     }
 
     pub async fn sftp_mkdir(&self, path: &str) -> OmniResult<()> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         sftp.create_dir(path)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "创建目录失败").with_cause(e.to_string()))
     }
 
     pub async fn sftp_remove(&self, path: &str) -> OmniResult<()> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         sftp.remove_file(path)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "删除失败").with_cause(e.to_string()))
@@ -887,7 +894,13 @@ impl SshSession {
 
     /// 重命名远程文件/目录。
     pub async fn sftp_rename(&self, old_path: &str, new_path: &str) -> OmniResult<()> {
-        let sftp = self.open_sftp().await?;
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
         sftp.rename(old_path, new_path)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "重命名失败").with_cause(e.to_string()))

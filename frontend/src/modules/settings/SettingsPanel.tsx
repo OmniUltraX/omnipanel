@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { detectMonospaceFonts } from "../../lib/systemFonts";
 import { appConfirm } from "../../lib/appConfirm";
@@ -31,8 +31,10 @@ import {
 } from "../../stores/settingsStore";
 import {
   SHORTCUT_DEFS,
+  SHORTCUT_CATEGORY_ORDER,
   useShortcutsStore,
   getShortcutKeys,
+  type ShortcutCategory,
 } from "../../stores/shortcutsStore";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
@@ -246,6 +248,29 @@ function KeybindingsSection() {
   const overrides = useShortcutsStore((s) => s.overrides);
   const resetAll = useShortcutsStore((s) => s.resetAll);
   const hasOverrides = Object.keys(overrides).length > 0;
+  const [expandedCategories, setExpandedCategories] = useState<Set<ShortcutCategory>>(
+    () => new Set(SHORTCUT_CATEGORY_ORDER),
+  );
+
+  const defsByCategory = useMemo(() => {
+    const map = new Map<ShortcutCategory, typeof SHORTCUT_DEFS>();
+    for (const cat of SHORTCUT_CATEGORY_ORDER) {
+      map.set(cat, []);
+    }
+    for (const def of SHORTCUT_DEFS) {
+      map.get(def.category)?.push(def);
+    }
+    return map;
+  }, []);
+
+  const toggleCategory = (category: ShortcutCategory) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
   return (
     <div className="settings-panel active">
@@ -266,26 +291,54 @@ function KeybindingsSection() {
           )}
         </div>
 
-        {SHORTCUT_DEFS.map((def) => {
-          const current = getShortcutKeys(def.id);
-          const label = t(def.labelKey);
-          const isCustomized = def.id in overrides;
-          return (
-            <div key={def.id} className="setting-row">
-              <div className="setting-label">
-                <h4>
-                  {label}
-                  {isCustomized && <span className="keybind-modified-dot" aria-hidden />}
-                </h4>
+        <div className="keybindings-categories">
+          {SHORTCUT_CATEGORY_ORDER.map((category) => {
+            const defs = defsByCategory.get(category) ?? [];
+            if (defs.length === 0) return null;
+            const isExpanded = expandedCategories.has(category);
+            return (
+              <div key={category} className="keybindings-category">
+                <button
+                  type="button"
+                  className="keybindings-category__header"
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleCategory(category)}
+                >
+                  <span className="keybindings-category__chevron" aria-hidden>
+                    {isExpanded ? "▾" : "▸"}
+                  </span>
+                  <h3 className="keybindings-category__title">
+                    {t(`settings.keybindings.categories.${category}`)}
+                  </h3>
+                </button>
+                {isExpanded && (
+                  <div className="keybindings-category__body">
+                    {defs.map((def) => {
+                      const current = getShortcutKeys(def.id);
+                      const label = t(def.labelKey);
+                      const isCustomized = def.id in overrides;
+                      return (
+                        <div key={def.id} className="setting-row">
+                          <div className="setting-label">
+                            <h4>
+                              {label}
+                              {isCustomized && <span className="keybind-modified-dot" aria-hidden />}
+                            </h4>
+                          </div>
+                          <ShortcutRecorder
+                            id={def.id}
+                            value={current}
+                            disabled={def.nonRecordable}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <ShortcutRecorder
-                id={def.id}
-                value={current}
-                disabled={def.nonRecordable}
-              />
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

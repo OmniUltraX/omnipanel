@@ -5,6 +5,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDockerTopbarStore } from "../../stores/dockerTopbarStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
+import { usePoolConnectionRegistration } from "../../stores/connectionPoolStore";
 import { ModuleSegmentDock } from "../../components/dock";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
@@ -149,6 +150,8 @@ export function DockerPanel() {
     scanning,
     scanSshDockerHosts,
   } = docker;
+
+  usePoolConnectionRegistration("docker", isActiveRoute ? selectedConnectionId : null);
 
   const isOffline = probe?.status === "offline";
   const partialLoadFailure =
@@ -471,6 +474,59 @@ export function DockerPanel() {
     () => workspaceTopbarTabs.map(({ id, label }) => ({ id, label })),
     [workspaceTopbarTabs],
   );
+
+  /** dockview 面板内容不随父级 state 自动重绘；数据/筛选/选中变化时 bump */
+  const dockerPanelContentKey = useMemo(
+    () =>
+      [
+        selectedConnectionId ?? "",
+        tab,
+        connectionsLoading ? 1 : 0,
+        dataLoading ? 1 : 0,
+        dataRefreshing ? 1 : 0,
+        connections.length,
+        containers.length,
+        images.length,
+        networks.length,
+        volumes.length,
+        composeProjects.length,
+        overview?.summary.containersTotal ?? -1,
+        probe?.status ?? "",
+        error ?? "",
+        filter,
+        query,
+        selectedContainers.size,
+        selectedImages.size,
+        errorDismissed ? 1 : 0,
+        partialLoadDismissed ? 1 : 0,
+        showLocalEngineWelcome ? 1 : 0,
+        startingLocalEngine ? 1 : 0,
+      ].join("|"),
+    [
+      selectedConnectionId,
+      tab,
+      connectionsLoading,
+      dataLoading,
+      dataRefreshing,
+      connections.length,
+      containers.length,
+      images.length,
+      networks.length,
+      volumes.length,
+      composeProjects.length,
+      overview?.summary.containersTotal,
+      probe?.status,
+      error,
+      filter,
+      query,
+      selectedContainers.size,
+      selectedImages.size,
+      errorDismissed,
+      partialLoadDismissed,
+      showLocalEngineWelcome,
+      startingLocalEngine,
+    ],
+  );
   
   useEffect(() => {
     const setRefresh = useDockerTopbarStore.getState().setRefresh;
@@ -618,6 +674,7 @@ export function DockerPanel() {
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
         enabled={isActiveRoute}
+        panelContentKey={dockerPanelContentKey}
         renderPanel={(tabId) => (
         <SidebarWorkspace
           preset="server"

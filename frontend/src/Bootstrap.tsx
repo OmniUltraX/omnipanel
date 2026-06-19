@@ -6,6 +6,7 @@ import { initAiModelsStore } from "./stores/aiModelsStore";
 import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
 import { initAcpServicesStore } from "./stores/acpServicesStore";
 import { initConnections } from "./stores/connectionStore";
+import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initActionListener } from "./stores/actionStore";
 
 const MIN_SPLASH_MS = 1400;
@@ -54,6 +55,7 @@ export function Bootstrap() {
 
         advance(2);
         initConnections();
+        initConnectionPool();
         initActionListener();
         await initAiModelsStore();
         await initDbSqlFilesStore();

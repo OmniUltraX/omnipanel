@@ -11,7 +11,7 @@ type PoolSessionState = {
   refs: Record<string, number>;
 };
 
-const useSshPoolSessionStore = create<PoolSessionState>(() => ({
+export const useSshPoolSessionStore = create<PoolSessionState>(() => ({
   refs: {},
 }));
 

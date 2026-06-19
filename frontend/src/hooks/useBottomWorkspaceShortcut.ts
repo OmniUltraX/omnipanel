@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useBottomPanelStore } from "../stores/bottomPanelStore";
+import { useWorkspacePreviewCollapseStore } from "../stores/workspacePreviewCollapseStore";
 import { getShortcutKeys, matchesShortcut } from "../stores/shortcutsStore";
 
 export function isBottomWorkspaceShortcut(e: KeyboardEvent): boolean {
@@ -10,14 +10,13 @@ export function isBottomWorkspaceShortcut(e: KeyboardEvent): boolean {
 /** 处理 Alt/Option+W，返回是否已消费该按键 */
 export function triggerBottomWorkspaceToggle(e: KeyboardEvent): boolean {
   if (!isBottomWorkspaceShortcut(e)) return false;
-  if (useBottomPanelStore.getState().isFullscreen) return false;
   e.preventDefault();
   e.stopPropagation();
-  useBottomPanelStore.getState().toggleOpen();
+  useWorkspacePreviewCollapseStore.getState().toggle();
   return true;
 }
 
-/** 全局 Alt/Option+W 展开/隐藏底部工程工作区（捕获阶段） */
+/** 全局 Alt/Option+W 展开/隐藏 WorkspacePreview 预览栏（捕获阶段） */
 export function useBottomWorkspaceShortcut() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

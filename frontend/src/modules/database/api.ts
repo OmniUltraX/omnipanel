@@ -108,6 +108,20 @@ export function isSqlCapableConnection(
   return connection.db_type !== "redis";
 }
 
+/** 数据传输工具箱支持的连接（关系型库；排除 Redis / MongoDB 等）。 */
+export function isToolboxCapableConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = connection.db_type.toLowerCase();
+  return (
+    engine === "mysql" ||
+    engine === "mariadb" ||
+    engine === "postgresql" ||
+    engine === "postgres" ||
+    engine === "sqlite"
+  );
+}
+
 export async function listConnections(): Promise<DbConnectionConfig[]> {
   return invoke<DbConnectionConfig[]>("db_list_connections");
 }

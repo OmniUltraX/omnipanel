@@ -12,6 +12,7 @@ import {
   type DbConnectionConfig,
 } from "../api";
 import { SyncSidePanel } from "./SyncSidePanel";
+import { ModuleEmptyState } from "../../../components/ui/ModuleEmptyState";
 import {
   buildNewTableDiff,
   compareTableColumns,
@@ -39,12 +40,15 @@ interface DatabaseToolboxProps {
   /** 打开工具箱时默认元库连接 */
   initialSourceConnectionId?: string | null;
   initialSourceDatabase?: string;
+  /** 为 false 时不发起任何库连接请求（分段 Tab 未激活时由父级传入） */
+  active?: boolean;
 }
 
 export function DatabaseToolbox({
   connections,
   initialSourceConnectionId,
   initialSourceDatabase = "",
+  active = true,
 }: DatabaseToolboxProps) {
   const { t } = useI18n();
   const {
@@ -102,12 +106,18 @@ export function DatabaseToolbox({
   );
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     const defaultConn = pickDefaultConnId(initialSourceConnectionId);
     setSourceConnId(defaultConn);
     setTargetConnId(defaultConn);
-  }, [initialSourceConnectionId, pickDefaultConnId, connections]);
+  }, [active, initialSourceConnectionId, pickDefaultConnId, connections]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     const db = initialSourceDatabase.trim();
     if (!db || sourceDbs.length === 0) {
       return;
@@ -115,9 +125,12 @@ export function DatabaseToolbox({
     if (sourceDbs.includes(db)) {
       setSourceDb(db);
     }
-  }, [initialSourceDatabase, sourceDbs]);
+  }, [active, initialSourceDatabase, sourceDbs]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     const db = initialSourceDatabase.trim();
     if (!db || targetDbs.length === 0) {
       return;
@@ -125,7 +138,7 @@ export function DatabaseToolbox({
     if (targetDbs.includes(db)) {
       setTargetDb(db);
     }
-  }, [initialSourceDatabase, targetDbs]);
+  }, [active, initialSourceDatabase, targetDbs]);
 
   const loadDatabases = useCallback(
     async (connId: string, side: "source" | "target") => {
@@ -155,20 +168,32 @@ export function DatabaseToolbox({
   );
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     if (!sourceConnId) {
       setSourceDbs([]);
+      setSourceDb("");
       return;
     }
+    setSourceDbs([]);
+    setSourceDb("");
     void loadDatabases(sourceConnId, "source");
-  }, [sourceConnId, loadDatabases]);
+  }, [active, sourceConnId, loadDatabases]);
 
   useEffect(() => {
-    if (!targetConnId) {
-      setTargetDbs([]);
+    if (!active) {
       return;
     }
+    if (!targetConnId) {
+      setTargetDbs([]);
+      setTargetDb("");
+      return;
+    }
+    setTargetDbs([]);
+    setTargetDb("");
     void loadDatabases(targetConnId, "target");
-  }, [targetConnId, loadDatabases]);
+  }, [active, targetConnId, loadDatabases]);
 
   const loadTargetTableNames = useCallback(async () => {
     const conn = connections.find((c) => c.id === targetConnId);
@@ -191,13 +216,19 @@ export function DatabaseToolbox({
   }, [connections, targetConnId, targetDb, targetDbs]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     void loadTargetTableNames();
-  }, [loadTargetTableNames]);
+  }, [active, loadTargetTableNames]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     targetCountingRef.current.clear();
     setTargetRowCounts({});
-  }, [targetConnId, targetDb]);
+  }, [active, targetConnId, targetDb]);
 
   const loadSideSnapshot = useCallback(
     async (connId: string, database: string, mode: ToolboxTabId) => {
@@ -244,11 +275,11 @@ export function DatabaseToolbox({
     setTargetRowCounts({});
     targetCountingRef.current.clear();
     void loadSideSnapshot(sourceConnId, sourceDb, tab);
-  }, [sourceConnId, sourceDb, tab, loadSideSnapshot]);
+  }, [active, sourceConnId, sourceDb, tab, loadSideSnapshot]);
 
   /** 数据同步：勾选源表后统计行数 */
   useEffect(() => {
-    if (tab !== "dataSync" || sourceSnapshot.loading) return;
+    if (!active || tab !== "dataSync" || sourceSnapshot.loading) return;
 
     const conn = connections.find((c) => c.id === sourceConnId);
     if (!conn || !sourceDb.trim()) return;
@@ -313,11 +344,11 @@ export function DatabaseToolbox({
         return next;
       });
     };
-  }, [tab, sourceSnapshot.loading, sourceSnapshot.tables, sourceSelected, sourceConnId, sourceDb, connections]);
+  }, [active, tab, sourceSnapshot.loading, sourceSnapshot.tables, sourceSelected, sourceConnId, sourceDb, connections]);
 
   /** 数据同步：已勾选且目标存在的表，统计目标侧行数 */
   useEffect(() => {
-    if (tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
+    if (!active || tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
 
     const conn = connections.find((c) => c.id === targetConnId);
     if (!conn || !targetDb.trim()) return;
@@ -377,6 +408,7 @@ export function DatabaseToolbox({
       }
     };
   }, [
+    active,
     tab,
     targetConfigured,
     targetTablesLoading,
@@ -389,7 +421,7 @@ export function DatabaseToolbox({
 
   /** 已勾选源表：按源/目标行数判定冲突或新增 */
   useEffect(() => {
-    if (!targetConfigured || tab !== "dataSync") {
+    if (!active || !targetConfigured || tab !== "dataSync") {
       setTableTargetStatus({});
       setTableSyncStrategies({});
       return;
@@ -442,6 +474,7 @@ export function DatabaseToolbox({
       return next;
     });
   }, [
+    active,
     sourceSelected,
     sourceSnapshot.tables,
     targetTableNames,
@@ -453,7 +486,7 @@ export function DatabaseToolbox({
 
   /** 结构同步：勾选源表后对比目标表字段差异 */
   useEffect(() => {
-    if (!targetConfigured || tab !== "schemaSync") {
+    if (!active || !targetConfigured || tab !== "schemaSync") {
       setSchemaTableDiffs({});
       return;
     }
@@ -574,6 +607,7 @@ export function DatabaseToolbox({
       }
     };
   }, [
+    active,
     tab,
     sourceSelected,
     sourceSnapshot.tables,
@@ -663,7 +697,7 @@ export function DatabaseToolbox({
   // 勾选即触发逐条比对：仅在 dataSync tab 下，对源侧新勾选且目标库中存在的表做处理。
   const lastAnalyzedSelectionRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
+    if (!active || tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
     const eligible = new Set(
       sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
     );
@@ -691,6 +725,7 @@ export function DatabaseToolbox({
     }
     void runRowByRowAnalysis(newlySelected);
   }, [
+    active,
     tab,
     targetConfigured,
     targetTablesLoading,
@@ -715,6 +750,18 @@ export function DatabaseToolbox({
       ] satisfies { id: ToolboxTabId; label: string }[],
     [t],
   );
+
+  if (connections.length === 0) {
+    return (
+      <div className="db-toolbox">
+        <ModuleEmptyState
+          preset="inbox"
+          title={t("database.toolbox.empty.noCapableConnection.title")}
+          desc={t("database.toolbox.empty.noCapableConnection.desc")}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="db-toolbox">

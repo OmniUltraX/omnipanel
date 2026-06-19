@@ -9,9 +9,24 @@ import { isMacOS, modKeyLabel } from "../lib/platform";
  */
 export type KeyToken = "Mod" | "Shift" | "Alt" | string;
 
+/** 快捷键在设置页中的模块分类 */
+export type ShortcutCategory = "general" | "tabs" | "terminal" | "ssh" | "ai" | "workspace";
+
+/** 设置页快捷键折叠面板的显示顺序 */
+export const SHORTCUT_CATEGORY_ORDER: ShortcutCategory[] = [
+  "general",
+  "tabs",
+  "terminal",
+  "ssh",
+  "ai",
+  "workspace",
+];
+
 /** 单个可配置的快捷键定义 */
 export interface ShortcutDef {
   id: string;
+  /** 设置页模块分类 */
+  category: ShortcutCategory;
   /** i18n 标签 key */
   labelKey: string;
   /** i18n 描述 key（可选） */
@@ -26,18 +41,18 @@ export interface ShortcutDef {
 
 /** 内置的快捷键定义。新增条目时同步加进两端 i18n。 */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
-  { id: "new-terminal", labelKey: "settings.keybindings.items.newTerminal", defaultKeys: ["Mod", "T"] },
-  { id: "close-tab", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "W"] },
-  { id: "switch-tab", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"] },
-  { id: "command-palette", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
-  { id: "toggle-ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Mod", "`"] },
-  { id: "toggle-bottom-workspace", labelKey: "settings.keybindings.items.toggleBottomWorkspace", defaultKeys: ["Alt", "KeyW"] },
-  { id: "split-vertical", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "\\"] },
-  { id: "split-horizontal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "\\"] },
-  { id: "search-terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "F"] },
-  { id: "new-ssh", labelKey: "settings.keybindings.items.newSsh", defaultKeys: ["Mod", "N"] },
-  { id: "open-settings", labelKey: "settings.keybindings.items.openSettings", defaultKeys: ["Mod", ","] },
-  { id: "switch-nth-tab", labelKey: "settings.keybindings.items.switchNthTab", defaultKeys: ["Mod", "1-9"], nonRecordable: true },
+  { id: "command-palette", category: "general", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
+  { id: "open-settings", category: "general", labelKey: "settings.keybindings.items.openSettings", defaultKeys: ["Mod", ","] },
+  { id: "close-tab", category: "tabs", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "W"] },
+  { id: "switch-tab", category: "tabs", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"] },
+  { id: "switch-nth-tab", category: "tabs", labelKey: "settings.keybindings.items.switchNthTab", defaultKeys: ["Mod", "1-9"], nonRecordable: true },
+  { id: "new-terminal", category: "terminal", labelKey: "settings.keybindings.items.newTerminal", defaultKeys: ["Mod", "T"] },
+  { id: "split-vertical", category: "terminal", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "\\"] },
+  { id: "split-horizontal", category: "terminal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "\\"] },
+  { id: "search-terminal", category: "terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "F"] },
+  { id: "new-ssh", category: "ssh", labelKey: "settings.keybindings.items.newSsh", defaultKeys: ["Mod", "N"] },
+  { id: "toggle-ai", category: "ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Alt", "`"] },
+  { id: "toggle-bottom-workspace", category: "workspace", labelKey: "settings.keybindings.items.toggleBottomWorkspace", defaultKeys: ["Alt", "KeyW"] },
 ];
 
 const SHORTCUT_DEFS_BY_ID: Record<string, ShortcutDef> = Object.fromEntries(

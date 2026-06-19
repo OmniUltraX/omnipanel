@@ -42,7 +42,9 @@ import { TopbarTabAddButton } from "../ui/TopbarTabAddButton";
 import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
+import { publishDockTabMeta } from "./dockTabLiveMeta";
 import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockTabPageType } from "./dockableTab";
 import { DockWindowChromeActions, type DockWindowChromeMode } from "./DockWindowTitleActions";
 import { resolveDockWindowChromeLayout, resolveSegmentWindowChromeHosts } from "./dockWindowChromeLayout";
 import {
@@ -124,6 +126,9 @@ interface PanelParams {
   status?: TopbarTabDef["status"];
   /** 递增以触发 panel 内容重渲染（renderPanel 通过 ref 注入，需靠 params 变更通知 dockview） */
   contentRev?: number;
+  type?: DockTabPageType;
+  dirty?: boolean;
+  saved?: boolean;
 }
 
 const COMPONENT_NAME = "dockable-content";
@@ -338,6 +343,26 @@ export function DockableWorkspace({
       const tabId = props.params?.tabId ?? props.api.id;
       const tabsList = tabsRef.current;
       const tab = tabsList.find((t) => t.id === tabId);
+      const mergedParams: PanelParams = {
+        tabId,
+        label: tab?.label ?? props.params?.label,
+        icon: tab?.icon ?? props.params?.icon,
+        tooltip: tab?.tooltip ?? props.params?.tooltip ?? tab?.label,
+        status: tab?.status ?? props.params?.status,
+        type: tab?.type ?? props.params?.type,
+        dirty:
+          tab?.type === "file"
+            ? tab.dirty
+            : props.params?.type === "file"
+              ? props.params?.dirty
+              : undefined,
+        saved:
+          tab?.type === "file"
+            ? tab.saved
+            : props.params?.type === "file"
+              ? props.params?.saved
+              : undefined,
+      };
       const closable = tab?.closable !== false;
       const onCtx = onTabContextMenuRef.current;
       const handleContextMenu = onCtx
@@ -348,10 +373,11 @@ export function DockableWorkspace({
             onCtx(e, tabId, index >= 0 ? index : 0);
           }
         : undefined;
+      const headerProps = { ...props, params: mergedParams };
       if (tabStyleRef.current === "topbar") {
         return (
           <TopbarStyleDockTabHeader
-            {...props}
+            {...headerProps}
             closable={closable}
             onContextMenu={handleContextMenu}
           />
@@ -359,7 +385,7 @@ export function DockableWorkspace({
       }
       return (
         <DockTabHeader
-          {...props}
+          {...headerProps}
           closable={closable}
           onContextMenu={handleContextMenu}
         />
@@ -679,6 +705,10 @@ export function DockableWorkspace({
   );
 
   // 同步 tab 变更（添加/删除/重命名）
+  useEffect(() => {
+    publishDockTabMeta(tabs);
+  }, [tabs]);
+
   useEffect(() => {
     const api = apiRef.current;
     if (!api || !layoutLoadedRef.current) return;

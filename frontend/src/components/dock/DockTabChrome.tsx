@@ -1,0 +1,95 @@
+import { useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import type { IDockviewPanelHeaderProps } from "dockview-react";
+
+interface DockTabChromeProps extends IDockviewPanelHeaderProps {
+  closable?: boolean;
+  tooltip?: string;
+  onContextMenu?: (event: ReactMouseEvent) => void;
+  onPointerDown?: (event: React.PointerEvent) => void;
+  onPointerUp?: (event: React.PointerEvent) => void;
+  onPointerLeave?: (event: React.PointerEvent) => void;
+  children: React.ReactNode;
+}
+
+/**
+ * dockview v6 的 DockviewDefaultTab 只渲染 api.title，不渲染 children。
+ * 本组件复刻其拖拽/关闭交互，内容由 children 完全自定义（图标、标题、状态点等）。
+ */
+export function DockTabChrome({
+  api,
+  containerApi: _containerApi,
+  params: _params,
+  closable = true,
+  tooltip,
+  onContextMenu,
+  onPointerDown,
+  onPointerUp,
+  onPointerLeave,
+  tabLocation: _tabLocation,
+  children,
+}: DockTabChromeProps) {
+  const isMiddleMouseButton = useRef(false);
+
+  const onClose = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      api.close();
+    },
+    [api],
+  );
+
+  const onBtnPointerDown = useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      isMiddleMouseButton.current = event.button === 1;
+      onPointerDown?.(event);
+    },
+    [onPointerDown],
+  );
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      if (isMiddleMouseButton.current && event.button === 1 && closable) {
+        isMiddleMouseButton.current = false;
+        onClose(event);
+      }
+      onPointerUp?.(event);
+    },
+    [onPointerUp, onClose, closable],
+  );
+
+  const handlePointerLeave = useCallback(
+    (event: React.PointerEvent) => {
+      isMiddleMouseButton.current = false;
+      onPointerLeave?.(event);
+    },
+    [onPointerLeave],
+  );
+
+  return (
+    <div
+      className="dv-default-tab"
+      title={tooltip}
+      onContextMenu={onContextMenu}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
+    >
+      <span className="dv-default-tab-content dock-tab-header-inner">{children}</span>
+      {closable ? (
+        <div
+          className="dv-default-tab-action drag-ignore"
+          onPointerDown={onBtnPointerDown}
+          onClick={onClose}
+        >
+          <svg width="16" height="16" viewBox="0 0 28 28" fill="none" aria-hidden>
+            <path stroke="currentColor" strokeWidth="2" d="M8 8l12 12M20 8L8 20" />
+          </svg>
+        </div>
+      ) : null}
+    </div>
+  );
+}

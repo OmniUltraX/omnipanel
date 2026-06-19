@@ -13,6 +13,7 @@ pub mod grpc;
 pub mod knowledge;
 pub mod log;
 pub mod panel;
+pub mod pool;
 pub mod protocol;
 pub mod proxy;
 pub mod ssh;

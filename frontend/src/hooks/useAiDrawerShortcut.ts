@@ -7,7 +7,7 @@ export function isAiDrawerShortcut(e: KeyboardEvent): boolean {
   return matchesShortcut(e, getShortcutKeys("toggle-ai"));
 }
 
-/** 处理 Cmd/Ctrl+L，返回是否已消费该按键 */
+/** 处理 Alt/Option+`，返回是否已消费该按键 */
 export function triggerAiDrawerToggle(e: KeyboardEvent): boolean {
   if (!isAiDrawerShortcut(e)) return false;
   e.preventDefault();
@@ -16,7 +16,7 @@ export function triggerAiDrawerToggle(e: KeyboardEvent): boolean {
   return true;
 }
 
-/** 全局 Cmd/Ctrl+L 切换 AI 子窗口（捕获阶段，优先于 xterm 等） */
+/** 全局 Alt/Option+` 切换 AI 子窗口（捕获阶段，优先于 xterm 等） */
 export function useAiDrawerShortcut() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -365,6 +365,12 @@ impl SshPool {
         pool.keys().cloned().collect()
     }
 
+    /// 当前订阅持续监控的主机数量（连接池活跃占用）。
+    pub async fn monitoring_host_count(&self) -> usize {
+        let subs = self.monitoring_subs.lock().await;
+        subs.values().filter(|count| **count > 0).count()
+    }
+
     /// 订阅持续监控采集（引用计数）。
     pub async fn subscribe_monitoring(&self, resource_id: &str) {
         let mut subs = self.monitoring_subs.lock().await;

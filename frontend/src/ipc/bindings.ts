@@ -38,6 +38,8 @@ export const commands = {
 	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
 	/**  测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。 */
 	connTest: (connection: Connection) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection })),
+	/**  汇总各模块在后端持有的会话与可复用连接，供状态栏连接池指示器展示。 */
+	poolGetSummary: () => typedError<PoolSummary, OmniError_Serialize>(__TAURI_INVOKE("pool_get_summary")),
 	/**
 	 *  通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。
 	 *  `body` 为 JSON 字符串；返回 JSON 字符串。
@@ -1359,11 +1361,25 @@ export type OmniError_Serialize = {
 	cause?: string | null,
 };
 
+/**  单类连接的活跃 / 空闲统计。 */
+export type PoolCategorySummary = {
+	kind: string,
+	active: number,
+	idle: number,
+};
+
 /**  发射到前端的单个主机连接状态 */
 export type PoolStatusEvent = {
 	resourceId: string,
 	status: string,
 	error: string | null,
+};
+
+/**  全局连接池汇总。 */
+export type PoolSummary = {
+	active: number,
+	idle: number,
+	categories: PoolCategorySummary[],
 };
 
 /**  Proxy 配置，从前端设置同步到后端。 */

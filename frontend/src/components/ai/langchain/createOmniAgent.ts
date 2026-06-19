@@ -19,7 +19,7 @@ export const OMNI_SYSTEM_PROMPT = `
 `;
 
 const MCP_SYSTEM_SUFFIX =
-  "\n\n当前已接入 MCP（Model Context Protocol）工具，工具名以 mcp_ 开头。请在需要时主动调用。";
+  "\n\n当前已接入 MCP（Model Context Protocol）工具，请在需要时主动调用。";
 
 export type OmniAgent = ReturnType<typeof createAgent>;
 export type OmniChatModel = Awaited<ReturnType<typeof createChatModel>>;

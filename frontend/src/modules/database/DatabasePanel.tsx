@@ -20,6 +20,7 @@ import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
+import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
@@ -40,6 +41,7 @@ import {
   saveConnection,
   isConnectionEnabled,
   isSqlCapableConnection,
+  isToolboxCapableConnection,
   type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
@@ -51,7 +53,6 @@ import { refreshConnectionSchemaCache } from "./schemaCacheRefresh";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
-  makeSqlTabLabel,
   makeDatabaseTabId,
   makeDatabaseTabKey,
   findTabIdForDatabase,
@@ -59,7 +60,6 @@ import {
   makeTableTabLabel,
   makeTableTabKey,
   findTabIdForTable,
-  isSqlWorkspaceTab,
   type DatabaseListWorkspaceTab,
   type DbWorkspaceTab,
   type SqlWorkspaceTab,
@@ -80,6 +80,7 @@ import {
 } from "./dbWorkspaceState";
 import { DbPanelSurface } from "./DbPanelSurface";
 import { DockableWorkspace, ModuleSegmentDock } from "../../components/dock";
+import { logDockTabFile, summarizeFileDockTabs } from "../../components/dock/dockTabFileDebug";
 import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
 import {
@@ -87,8 +88,10 @@ import {
   useDbWorkspaceSessionStore,
 } from "../../stores/dbWorkspaceSessionStore";
 import {
+  buildClosedPanelEntry,
   buildWorkspaceSessionSnapshot,
   sanitizeWorkspaceSession,
+  type DbClosedPanelEntry,
   type DbSqlTabStateSnapshot,
 } from "./dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
@@ -97,8 +100,6 @@ import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useWorkspaceStore, onWorkspaceSwitch } from "../../stores/workspaceStore";
 import { dbTabToSnapshot, buildCopyToWorkspaceMenuItems, buildMoveToWorkspaceMenuItems, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
 import { useWorkspaceTabStore, type DbTabSnapshot } from "../../stores/workspaceTabStore";
-
-const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
 import {
   canAcceptSchemaTreeDrop,
   parseSchemaTreeItemFromDrop,
@@ -114,6 +115,7 @@ import type { SchemaTreeItem } from "./schemaTreeItem";
 
 type DbModuleTab = "query" | "transfer";
 const DB_MODULE_TABS: DbModuleTab[] = ["query", "transfer"];
+const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
 
 function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabState {
   return {
@@ -327,6 +329,13 @@ export function DatabasePanel() {
   const [workspaceTabs, setWorkspaceTabs] = useState<DbWorkspaceTab[]>([]);
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState("");
   const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
+  const dirtySqlFileIds = useDbSqlFileStore((s) => s.dirtyFileIds);
+  const recentClosedPanels = useDbWorkspaceSessionStore((s) => s.recentClosedPanels);
+  const pushRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.pushRecentClosedPanel);
+  const removeRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.removeRecentClosedPanel);
+  const [dirtyEphemeralTabIds, setDirtyEphemeralTabIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const tablePreviewRestoreDoneRef = useRef(false);
   const [tablePreviews, setTablePreviews] = useState<Record<string, TablePreviewState>>({});
   const [activeTableKey, setActiveTableKey] = useState<string | null>(null);
@@ -409,6 +418,8 @@ export function DatabasePanel() {
   workspaceTabsRef.current = workspaceTabs;
   const sqlTabStatesRef = useRef(sqlTabStates);
   sqlTabStatesRef.current = sqlTabStates;
+  const tablePreviewsRef = useRef(tablePreviews);
+  tablePreviewsRef.current = tablePreviews;
   const tabModesRef = useRef(tabModes);
   tabModesRef.current = tabModes;
 
@@ -477,10 +488,22 @@ export function DatabasePanel() {
     [connections],
   );
 
+  const toolboxConnections = useMemo(
+    () =>
+      connections.filter(
+        (conn) => isToolboxCapableConnection(conn) && isConnectionEnabled(conn),
+      ),
+    [connections],
+  );
+
   const activeConn = useMemo(
     () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
     [groupConnections, activeConnId],
   );
+
+  const dbPoolKind: PoolKind =
+    activeConn?.db_type?.toLowerCase() === "redis" ? "redis" : "database";
+  usePoolConnectionRegistration(dbPoolKind, isActiveRoute ? activeConn?.id ?? null : null);
 
   const moduleSegmentTabs = useMemo(
     () => [
@@ -531,6 +554,26 @@ export function DatabasePanel() {
     if (nextStateForPersist) {
       const state = nextStateForPersist;
       queueMicrotask(() => persistSqlFileState(tabId, state));
+    }
+
+    if (patch.sql !== undefined || patch.connId !== undefined || patch.database !== undefined) {
+      const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
+      if (tab?.kind === "sql") {
+        logDockTabFile("database:edit", {
+          tabId,
+          sqlFileId: tab.sqlFileId ?? null,
+          ephemeral: !tab.sqlFileId,
+          dirtyFileIds: useDbSqlFileStore.getState().dirtyFileIds,
+        });
+      }
+      if (tab?.kind === "sql" && !tab.sqlFileId) {
+        setDirtyEphemeralTabIds((prev) => {
+          if (prev.has(tabId)) return prev;
+          const next = new Set(prev);
+          next.add(tabId);
+          return next;
+        });
+      }
     }
   }, [persistSqlFileState]);
 
@@ -1212,6 +1255,23 @@ export function DatabasePanel() {
   );
 
   const closeWorkspaceTab = useCallback((tabId: string) => {
+    const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
+    if (tab) {
+      pushRecentClosedPanel(
+        buildClosedPanelEntry({
+          tab,
+          sqlTabStates: sqlTabStatesRef.current,
+          tablePreviews: tablePreviewsRef.current,
+          tabModes: tabModesRef.current,
+        }),
+      );
+    }
+    setDirtyEphemeralTabIds((prev) => {
+      if (!prev.has(tabId)) return prev;
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
     setWorkspaceTabs((prev) => {
       const idx = prev.findIndex((tab) => tab.id === tabId);
       const next = prev.filter((tab) => tab.id !== tabId);
@@ -1259,7 +1319,118 @@ export function DatabasePanel() {
       next.delete(tabId);
       return next;
     });
-  }, []);
+  }, [pushRecentClosedPanel]);
+
+  const reopenRecentClosedPanel = useCallback(
+    (entry: DbClosedPanelEntry) => {
+      const { tab } = entry;
+
+      if (tab.kind === "sql" && tab.sqlFileId) {
+        const existing = findTabIdForSqlFile(workspaceTabsRef.current, tab.sqlFileId);
+        if (existing) {
+          setActiveWorkspaceTabId(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+        const file = useDbSqlFileStore.getState().getNode(tab.sqlFileId);
+        if (!file || file.type !== "file") {
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
+      if (tab.kind === "database") {
+        const existing = findTabIdForDatabase(
+          workspaceTabsRef.current,
+          tab.connId,
+          tab.dbName,
+        );
+        if (existing) {
+          setActiveWorkspaceTabId(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
+      if (entry.tablePreviewMeta) {
+        const meta = entry.tablePreviewMeta;
+        const existing = findTabIdForTable(
+          tablePreviewsRef.current,
+          workspaceTabsRef.current.map((item) => item.id),
+          meta.connId,
+          meta.dbName,
+          meta.tableName,
+        );
+        if (existing) {
+          setActiveWorkspaceTabId(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
+      if (workspaceTabsRef.current.some((item) => item.id === tab.id)) {
+        setActiveWorkspaceTabId(tab.id);
+        removeRecentClosedPanel(entry.closedAt);
+        return;
+      }
+
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      setActiveWorkspaceTabId(tab.id);
+
+      if (tab.kind === "sql" && entry.sqlTabState) {
+        const snap = entry.sqlTabState;
+        const base = snap
+          ? restoreSqlTabStateFromSnapshot(snap)
+          : createDefaultSqlTabState();
+        setSqlTabStates((prev) => ({
+          ...prev,
+          [tab.id]:
+            tab.sqlFileId != null
+              ? resolveSqlTabStateFromFile(tab.sqlFileId, base)
+              : base,
+        }));
+      }
+
+      if (entry.tabMode) {
+        setTabModes((prev) => ({ ...prev, [tab.id]: entry.tabMode! }));
+      }
+
+      if (entry.tablePreviewMeta) {
+        const meta = entry.tablePreviewMeta;
+        setTablePreviews((prev) => ({
+          ...prev,
+          [tab.id]: {
+            ...createDefaultTablePreviewState(),
+            loading: true,
+            connId: meta.connId,
+            dbName: meta.dbName,
+            tableName: meta.tableName,
+            page: meta.page,
+            pageSize: meta.pageSize,
+          },
+        }));
+        const connection = connections.find((item) => item.id === meta.connId);
+        if (connection) {
+          queueMicrotask(() => {
+            void loadTablePreview(tab.id, connection, meta.dbName, meta.tableName);
+            if (connection.db_type !== "redis") {
+              void introspectTable(connection, meta.dbName, meta.tableName)
+                .then((schema) => {
+                  setTableColumnMeta((prev) => ({
+                    ...prev,
+                    [tab.id]: schema.columns,
+                  }));
+                })
+                .catch(() => {});
+            }
+          });
+        }
+      }
+
+      removeRecentClosedPanel(entry.closedAt);
+    },
+    [connections, loadTablePreview, removeRecentClosedPanel],
+  );
 
   const hasDirty = useCallback(
     (tabId: string) => Object.keys(tabDirtyRows[tabId] ?? {}).length > 0,
@@ -1964,24 +2135,6 @@ export function DatabasePanel() {
       applySchemaTableDrop(item);
     });
   }, [applySchemaTableDrop]);
-
-  const openNewSqlTab = useCallback(() => {
-    const tabId = makeSqlTabId();
-    const sqlTabCount = workspaceTabs.filter(isSqlWorkspaceTab).length + 1;
-    const tab: SqlWorkspaceTab = {
-      id: tabId,
-      kind: "sql",
-      label: makeSqlTabLabel(sqlTabCount),
-    };
-    setSqlTabStates((prev) => ({
-      ...prev,
-      [tabId]: createDefaultSqlTabState(),
-    }));
-    setWorkspaceTabs((prev) => [...prev, tab]);
-    setActiveWorkspaceTabId(tabId);
-    setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
-  }, [workspaceTabs]);
-
   const openSqlFile = useCallback(
     (file: DbSqlFileNode) => {
       const existingTabId = findTabIdForSqlFile(workspaceTabs, file.id);
@@ -2201,6 +2354,92 @@ export function DatabasePanel() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [activeWorkspaceTabId, sqlTabStates, runQuery]);
 
+  const isSqlTabDirty = useCallback(
+    (tabId: string) => {
+      const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
+      if (!tab || tab.kind !== "sql") {
+        return false;
+      }
+      if (tab.sqlFileId) {
+        return dirtySqlFileIds.includes(tab.sqlFileId);
+      }
+      return dirtyEphemeralTabIds.has(tabId);
+    },
+    [dirtySqlFileIds, dirtyEphemeralTabIds],
+  );
+
+  const saveSqlTab = useCallback(
+    async (tabIdOverride?: string) => {
+      const tabId = tabIdOverride ?? activeWorkspaceTabId;
+      if (!tabId) return;
+
+      const tab = workspaceTabsRef.current.find(
+        (item): item is SqlWorkspaceTab => item.id === tabId && item.kind === "sql",
+      );
+      if (!tab) return;
+
+      const state = sqlTabStates[tabId] ?? createDefaultSqlTabState();
+      const store = useDbSqlFileStore.getState();
+
+      if (tab.sqlFileId) {
+        store.updateFileSql(tab.sqlFileId, state.sql);
+        store.updateFileBinding(tab.sqlFileId, state.connId, state.database);
+        await store.flushToDisk();
+        return;
+      }
+
+      const name = await quickInput({
+        title: t("database.queryFiles.saveAsTitle"),
+        placeholder: t("database.queryFiles.fileNamePlaceholder"),
+        defaultValue: t("database.queryFiles.defaultFileName"),
+        validate: (value) =>
+          value.trim() ? null : t("database.queryFiles.nameRequired"),
+      });
+      if (!name) return;
+
+      const file = store.addFile(null, name.trim(), state.sql);
+      store.updateFileBinding(file.id, state.connId, state.database);
+      setWorkspaceTabs((prev) =>
+        prev.map((item) =>
+          item.id === tabId
+            ? {
+                ...item,
+                label: file.name.replace(/\.sql$/i, ""),
+                sqlFileId: file.id,
+              }
+            : item,
+        ),
+      );
+      setDirtyEphemeralTabIds((prev) => {
+        if (!prev.has(tabId)) return prev;
+        const next = new Set(prev);
+        next.delete(tabId);
+        return next;
+      });
+      await store.flushToDisk();
+    },
+    [activeWorkspaceTabId, sqlTabStates, t],
+  );
+
+  useEffect(() => {
+    if (!isActiveRoute) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) {
+        return;
+      }
+      if (isSqlMonacoEditorFocused()) return;
+      if (!activeWorkspaceTabId) return;
+      const tab = workspaceTabsRef.current.find((item) => item.id === activeWorkspaceTabId);
+      if (!tab || tab.kind !== "sql") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void saveSqlTab(activeWorkspaceTabId);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isActiveRoute, activeWorkspaceTabId, saveSqlTab]);
+
   const ctxValue = useMemo<DbWorkspaceContextValue>(() => ({
     tabs: workspaceTabs,
     activeTabId: activeWorkspaceTabId,
@@ -2238,6 +2477,8 @@ export function DatabasePanel() {
     setSqlTabConnection,
     rowsToRecord,
     tabModeToEditorOpenMode,
+    saveSqlTab,
+    isSqlTabDirty,
   }), [
     workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, requestTabAction,
     runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit, handleRowEdit, handleRowNew, resolveConnection, handleSelectTable,
@@ -2246,6 +2487,7 @@ export function DatabasePanel() {
     commitTabDirty, sqlConnections, groupConnections, databasesByConnId,
     schemaByKey, schemaLoadingKey, resolveSqlTabConnection, getSqlTabDatabases,
     getSqlCompletionSchemas, connectionForSqlTab, setSqlTabConnection,
+    saveSqlTab, isSqlTabDirty,
   ]);
 
   const mirrorRevisionsRef = useRef(new Map<string, string>());
@@ -2270,20 +2512,56 @@ export function DatabasePanel() {
               panelType: "database",
               icon: "database" as const,
               tooltip: tab.label,
+              closable: true,
             };
           }
           const isTableTab =
             tabModes[tab.id] === "data" ||
             Boolean(tablePreviews[tab.id]?.tableName);
+          const dirty = isTableTab
+            ? false
+            : tab.sqlFileId
+              ? dirtySqlFileIds.includes(tab.sqlFileId)
+              : dirtyEphemeralTabIds.has(tab.id);
+          const saved = !isTableTab && Boolean(tab.sqlFileId) && !dirty;
           return {
             id: tab.id,
             label: tab.label,
             panelType: "database",
+            ...(!isTableTab
+              ? { type: "file" as const, dirty, saved }
+              : {}),
             icon: isTableTab ? ("table" as const) : ("sql" as const),
             tooltip: tab.label,
+            closable: true,
           };
         }),
-    [workspaceTabs, isOriginDocked, tablePreviews, tabModes],
+    [workspaceTabs, isOriginDocked, tablePreviews, tabModes, dirtySqlFileIds, dirtyEphemeralTabIds],
+  );
+
+  useEffect(() => {
+    const fileTabs = summarizeFileDockTabs(dockTabs);
+    if (fileTabs.length === 0) return;
+    logDockTabFile("database:dockTabs", {
+      fileTabs,
+      dirtySqlFileIds,
+      dirtyEphemeralTabIds: [...dirtyEphemeralTabIds],
+      activeWorkspaceTabId,
+    });
+  }, [dockTabs, dirtySqlFileIds, dirtyEphemeralTabIds, activeWorkspaceTabId]);
+
+  const recentClosedActionItems = useMemo(
+    () =>
+      [...recentClosedPanels]
+        .sort((a, b) => b.closedAt - a.closedAt)
+        .slice(0, 5)
+        .map((entry) => ({
+          id: String(entry.closedAt),
+          label: entry.tab.label,
+          meta: new Date(entry.closedAt).toLocaleString(),
+          onClick: () => reopenRecentClosedPanel(entry),
+        })),
+    [recentClosedPanels, reopenRecentClosedPanel],
   );
 
   const renderDockPanel = useCallback(
@@ -2339,6 +2617,7 @@ export function DatabasePanel() {
     () =>
       [
         workspaceInitialized ? "1" : "0",
+        moduleTab,
         workspaceTabs.map((tab) => `${tab.id}:${tab.kind}`).join("|"),
         activeWorkspaceTabId,
         activeTableKey ?? "",
@@ -2354,6 +2633,7 @@ export function DatabasePanel() {
       ].join(";"),
     [
       workspaceInitialized,
+      moduleTab,
       workspaceTabs,
       activeWorkspaceTabId,
       activeTableKey,
@@ -2381,13 +2661,19 @@ export function DatabasePanel() {
       onActiveTabChange={(id) => setModuleTab(id as DbModuleTab)}
       renderPanel={(panelId) =>
         panelId === "transfer" ? (
+    moduleTab === "transfer" ? (
     <div className="db-module-transfer">
       <DatabaseToolbox
-        connections={connections.filter((conn) => isConnectionEnabled(conn))}
-        initialSourceConnectionId={toolboxSeed.connId ?? activeConn?.id}
+        active
+        connections={toolboxConnections}
+        initialSourceConnectionId={
+          toolboxSeed.connId ??
+          (activeConn && isToolboxCapableConnection(activeConn) ? activeConn.id : null)
+        }
         initialSourceDatabase={toolboxSeed.database}
       />
     </div>
+    ) : null
   ) : (
     <>
       <SidebarWorkspace
@@ -2424,15 +2710,13 @@ export function DatabasePanel() {
         {!workspaceInitialized ? null : dockTabs.length === 0 ? (
           <WorkspaceEmptyPage
             prompt={t("database.workspace.emptyTabs")}
-            actions={
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={openNewSqlTab}
-              >
-                {t("database.workspace.newQuery")}
-              </Button>
+            actionList={
+              recentClosedActionItems.length > 0
+                ? {
+                    title: t("database.workspace.recentClosed"),
+                    items: recentClosedActionItems,
+                  }
+                : undefined
             }
           />
         ) : (

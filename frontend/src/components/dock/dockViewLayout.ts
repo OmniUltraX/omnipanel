@@ -473,6 +473,9 @@ export interface DockLayoutTabMeta {
   icon?: string;
   tooltip?: string;
   status?: string;
+  type?: string;
+  dirty?: boolean;
+  saved?: boolean;
 }
 
 /** 将业务 tab 元数据写回布局 panels，避免 fromJSON 后标题退化为 panel id */
@@ -499,14 +502,25 @@ export function enrichLayoutWithTabMeta(
       icon: tab.icon ?? prevParams.icon,
       tooltip: tab.tooltip ?? tab.label,
       status: tab.status ?? prevParams.status,
+      type: tab.type !== undefined ? tab.type : prevParams.type,
+      dirty: tab.dirty !== undefined ? tab.dirty : prevParams.dirty,
+      saved: tab.saved !== undefined ? tab.saved : prevParams.saved,
     };
     const prevLabel = typeof prevParams.label === "string" ? prevParams.label : undefined;
+    const metaChanged =
+      prevParams.icon !== nextParams.icon ||
+      prevParams.status !== nextParams.status ||
+      prevParams.type !== nextParams.type ||
+      prevParams.dirty !== nextParams.dirty ||
+      prevParams.saved !== nextParams.saved ||
+      prevParams.tooltip !== nextParams.tooltip;
     const needsUpdate =
       panel.title !== tab.label ||
       prevLabel !== tab.label ||
       !prevLabel ||
       prevLabel === tab.id ||
-      panel.title === tab.id;
+      panel.title === tab.id ||
+      metaChanged;
     if (needsUpdate) {
       panels[id] = {
         ...panel,

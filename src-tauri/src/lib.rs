@@ -53,6 +53,7 @@ fn export_ipc_bindings() {
         commands::connection::conn_save,
         commands::connection::conn_delete,
         commands::connection::conn_test,
+        commands::pool::pool_get_summary,
         commands::panel::panel_1panel_request,
         commands::panel::panel_1panel_test_connection,
         commands::panel::panel_1panel_app_icon,
@@ -447,6 +448,7 @@ pub fn run() {
             commands::connection::conn_save,
             commands::connection::conn_delete,
             commands::connection::conn_test,
+            commands::pool::pool_get_summary,
             // 面板 API
             commands::panel::panel_1panel_request,
             commands::panel::panel_1panel_test_connection,

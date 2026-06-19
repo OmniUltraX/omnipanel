@@ -25,6 +25,17 @@ export interface DbWorkspaceSessionSnapshot {
   tabModes: Record<string, "data" | "sql">;
 }
 
+/** 最近关闭的工作区面板（欢迎页可重新打开）。 */
+export interface DbClosedPanelEntry {
+  closedAt: number;
+  tab: DbWorkspaceTab;
+  sqlTabState?: DbSqlTabStateSnapshot;
+  tablePreviewMeta?: DbTablePreviewMetaSnapshot;
+  tabMode?: "data" | "sql";
+}
+
+export const DB_RECENT_CLOSED_PANEL_LIMIT = 5;
+
 export function sanitizeWorkspaceSession(
   session: DbWorkspaceSessionSnapshot | null | undefined,
 ): DbWorkspaceSessionSnapshot | null {
@@ -123,5 +134,55 @@ export function buildWorkspaceSessionSnapshot(params: {
     sqlTabStates,
     tablePreviewMeta,
     tabModes,
+  };
+}
+
+export function buildClosedPanelEntry(params: {
+  tab: DbWorkspaceTab;
+  sqlTabStates: Record<string, SqlTabState>;
+  tablePreviews: Record<string, TablePreviewState>;
+  tabModes: Record<string, "data" | "sql">;
+}): DbClosedPanelEntry {
+  const { tab } = params;
+  const sqlState = params.sqlTabStates[tab.id];
+  const preview = params.tablePreviews[tab.id];
+  const mode = params.tabModes[tab.id];
+
+  let sqlTabState: DbSqlTabStateSnapshot | undefined;
+  if (tab.kind === "sql" && sqlState) {
+    if (tab.sqlFileId) {
+      sqlTabState = {
+        cursorOffset: sqlState.cursorOffset,
+        sql: "",
+        database: "",
+        connId: sqlState.connId,
+      };
+    } else {
+      sqlTabState = {
+        connId: sqlState.connId,
+        sql: sqlState.sql,
+        database: sqlState.database,
+        cursorOffset: sqlState.cursorOffset,
+      };
+    }
+  }
+
+  let tablePreviewMeta: DbTablePreviewMetaSnapshot | undefined;
+  if (preview?.connId && preview.dbName && preview.tableName) {
+    tablePreviewMeta = {
+      connId: preview.connId,
+      dbName: preview.dbName,
+      tableName: preview.tableName,
+      page: preview.page,
+      pageSize: preview.pageSize,
+    };
+  }
+
+  return {
+    closedAt: Date.now(),
+    tab: { ...tab },
+    sqlTabState,
+    tablePreviewMeta,
+    tabMode: mode,
   };
 }

@@ -425,6 +425,20 @@ export const enUS: TranslationDict = {
       expandWorkspace: "Expand workspace",
       collapseWorkspace: "Collapse workspace",
     },
+    connectionPool: {
+      summary: "Connections {active} / {idle}",
+      detailTitle: "Connection pool",
+      empty: "No connections",
+      categoryCounts: "Active {active} / Idle {idle}",
+      kind: {
+        ssh: "SSH",
+        docker: "Docker",
+        database: "MySQL / PostgreSQL",
+        redis: "Redis",
+        protocol: "Protocol",
+        terminal: "Local terminal",
+      },
+    },
     workspacePopover: {
       title: "Workspaces",
       newWorkspace: "New workspace",
@@ -683,6 +697,7 @@ export const enUS: TranslationDict = {
       nameRequired: "Name is required",
       rename: "Rename",
       renameTitle: "Rename",
+      saveAsTitle: "Save SQL File",
       delete: "Delete",
     },
     tablesPanel: {
@@ -805,6 +820,12 @@ export const enUS: TranslationDict = {
         schemaDone: "Loaded {count} tables",
         countingTable: "Counting rows in {table}…",
       },
+      empty: {
+        noCapableConnection: {
+          title: "No compatible connections",
+          desc: "Data transfer supports relational databases (MySQL, PostgreSQL, SQLite). Redis and other KV engines are not available here.",
+        },
+      },
       side: {
         source: "Source database",
         target: "Target database",
@@ -854,6 +875,8 @@ export const enUS: TranslationDict = {
       sqlTab: "SQL",
       emptyTabs: "No open tabs here. Open a table from the Schema sidebar, or start a new query.",
       newQuery: "New Query",
+      recentClosed: "Recently Closed",
+      recentClosedEmpty: "No recently closed panels",
       connection: "Connection",
       database: "Database",
       noDatabase: "No database available",
@@ -1694,13 +1717,21 @@ export const enUS: TranslationDict = {
         replace: "Replace",
         resetOne: "Reset",
       },
+      categories: {
+        general: "General",
+        tabs: "Tabs",
+        terminal: "Terminal",
+        ssh: "SSH",
+        ai: "AI Assistant",
+        workspace: "Workspace",
+      },
       items: {
         newTerminal: "New Terminal Tab",
         closeTab: "Close Tab",
         switchTab: "Switch Tab",
         commandPalette: "Command Palette",
         toggleAi: "Toggle AI Panel",
-        toggleBottomWorkspace: "Toggle Bottom Workspace",
+        toggleBottomWorkspace: "Toggle Workspace Preview",
         splitVertical: "Split Vertically",
         splitHorizontal: "Split Horizontally",
         searchTerminal: "Search Terminal",

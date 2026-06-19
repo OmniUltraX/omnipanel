@@ -1,9 +1,13 @@
-import { DETAIL_TABS } from "../constants";
+import { useMemo } from "react";
+import { DETAIL_TABS, SSH_PATH } from "../constants";
 import type { SshManagerContext } from "../hooks/useSshManager";
+import { getProfile } from "../data/hostProfiles";
 import { normalizeSshGroup, sshGroupLabel } from "../../../../lib/sshGroups";
 import { useI18n } from "../../../../i18n";
 import { ResourceTags } from "../../../../components/ui/ResourceTags";
-import { useConnectionStore } from "../../../../stores/connectionStore";
+import { useConnectionStore, useSshHostResources } from "../../../../stores/connectionStore";
+import { useWorkspaceStore } from "../../../../stores/workspaceStore";
+import { usePersistedModuleTab } from "../../../../hooks/usePersistedModuleTab";
 import { parseSshConfig } from "../../panel/serverConnection";
 import { HostStatusIndicator } from "./HostStatusIndicator";
 import { useSshMonitoring } from "../hooks/useSshMonitoring";
@@ -47,15 +51,18 @@ function MonitoringTabSwitch({ resourceId }: { resourceId: string | null }) {
 }
 
 export function HostDetailPanel(ctx: Props) {
-  const {
-    t,
-    detailTab,
-    setDetailTab,
-    activeResource,
-    profile,
-    hostAddress,
-    hostName,
-  } = ctx;
+  const { t } = ctx;
+  /** dockview 面板内容不随父级重绘；Tab / 选中主机须在组件内订阅 store */
+  const [detailTab, setDetailTab] = usePersistedModuleTab("ssh-detail", "overview", DETAIL_TABS);
+  const selectedSshId = useWorkspaceStore((s) => s.selectedResourceByPath[SSH_PATH]);
+  const sshResources = useSshHostResources();
+  const activeResource = useMemo(() => {
+    if (!selectedSshId) return null;
+    return sshResources.find((resource) => resource.id === selectedSshId) ?? null;
+  }, [selectedSshId, sshResources]);
+  const profile = getProfile(activeResource);
+  const hostAddress = activeResource?.subtitle?.split("@").at(-1) ?? "10.0.1.10:22";
+  const hostName = activeResource?.name ?? "prod-web-01";
 
   const connections = useConnectionStore((s) => s.connections);
   const connection = activeResource
@@ -110,7 +117,13 @@ export function HostDetailPanel(ctx: Props) {
               : ""
         }`}
       >
-        {detailTab === "overview" && <OverviewDetailTab {...ctx} />}
+        {detailTab === "overview" && (
+          <OverviewDetailTab
+            profile={profile}
+            activeResource={activeResource}
+            setDetailTab={setDetailTab}
+          />
+        )}
         <div
           className="ssh-terminal-tab-slot"
           hidden={detailTab !== "terminal"}

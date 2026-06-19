@@ -211,7 +211,7 @@ export function AiPanelBody() {
   } = useAiChat();
   const aiKeysOverride = useShortcutsStore((s) => s.overrides["toggle-ai"]);
   const aiShortcutLabel = useMemo(
-    () => formatShortcut(aiKeysOverride ?? ["Mod", "`"]),
+    () => formatShortcut(aiKeysOverride ?? ["Alt", "`"]),
     [aiKeysOverride]
   );
 

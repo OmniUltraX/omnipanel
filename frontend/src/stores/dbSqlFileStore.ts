@@ -18,8 +18,16 @@ export interface DbSqlFileNode {
   updatedAt: number;
 }
 
+/** 树结构变更（新建/重命名/删除文件夹等）的落盘脏标记 */
+export const SQL_FILE_TREE_DIRTY = "__tree__";
+
 interface DbSqlFileState {
   nodes: DbSqlFileNode[];
+  /** 尚未写入磁盘（需 Ctrl+S 或显式 flush）的文件 id；含 {@link SQL_FILE_TREE_DIRTY} 表示树结构有变 */
+  dirtyFileIds: string[];
+  isFileDirty: (id: string) => boolean;
+  /** 将内存中的节点与缓存写入磁盘，并清除脏标记 */
+  flushToDisk: () => Promise<void>;
   addFolder: (parentId: string | null, name: string) => DbSqlFileNode;
   addFile: (parentId: string | null, name: string, sql?: string) => DbSqlFileNode;
   updateFileSql: (id: string, sql: string) => void;
@@ -33,7 +41,6 @@ interface DbSqlFileState {
 const CACHE_KEY = "omnipanel-db-sql-files";
 const LEGACY_PERSIST_KEY = "omnipanel-db-sql-files";
 
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let initPromise: Promise<void> | null = null;
 
 function makeId(prefix: string): string {
@@ -187,19 +194,28 @@ async function persistNodes(nodes: DbSqlFileNode[]): Promise<void> {
   }
 }
 
-function schedulePersist(nodes: DbSqlFileNode[]) {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
+function markDirtyIds(
+  prev: string[],
+  ids: string[],
+): string[] {
+  const next = new Set(prev);
+  for (const id of ids) {
+    next.add(id);
   }
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    void persistNodes(nodes);
-  }, 400);
+  return [...next];
 }
 
-function commitNodes(set: (fn: (state: DbSqlFileState) => Partial<DbSqlFileState>) => void, nodes: DbSqlFileNode[]) {
-  set(() => ({ nodes }));
-  schedulePersist(nodes);
+function commitNodesInMemory(
+  set: (fn: (state: DbSqlFileState) => Partial<DbSqlFileState>) => void,
+  get: () => DbSqlFileState,
+  nodes: DbSqlFileNode[],
+  dirtyIds: string[] = [],
+) {
+  writeNodesCache(nodes);
+  set((state) => ({
+    nodes,
+    dirtyFileIds: markDirtyIds(state.dirtyFileIds, dirtyIds),
+  }));
 }
 
 export function getSqlFileChildren(
@@ -218,9 +234,20 @@ export function getSqlFileChildren(
 
 export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
   nodes: [],
+  dirtyFileIds: [],
+
+  isFileDirty: (id) => get().dirtyFileIds.includes(id),
+
+  flushToDisk: async () => {
+    if (get().dirtyFileIds.length === 0) {
+      return;
+    }
+    await persistNodes(get().nodes);
+    set({ dirtyFileIds: [] });
+  },
 
   replaceNodes: (nodes) => {
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [SQL_FILE_TREE_DIRTY]);
   },
 
   addFolder: (parentId, name) => {
@@ -232,7 +259,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
       updatedAt: Date.now(),
     };
     const nodes = [...get().nodes, node];
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [SQL_FILE_TREE_DIRTY]);
     return node;
   },
 
@@ -247,7 +274,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
       updatedAt: Date.now(),
     };
     const nodes = [...get().nodes, node];
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [node.id, SQL_FILE_TREE_DIRTY]);
     return node;
   },
 
@@ -255,7 +282,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
     const nodes = get().nodes.map((node) =>
       node.id === id && node.type === "file" ? { ...node, sql, updatedAt: Date.now() } : node,
     );
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [id]);
   },
 
   updateFileBinding: (id, connId, database) => {
@@ -269,7 +296,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
           }
         : node,
     );
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [id]);
   },
 
   renameNode: (id, name) => {
@@ -292,14 +319,15 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
           }
         : entry,
     );
-    commitNodes(set, nodes);
+    const dirtyIds = node.type === "file" ? [id, SQL_FILE_TREE_DIRTY] : [SQL_FILE_TREE_DIRTY];
+    commitNodesInMemory(set, get, nodes, dirtyIds);
     return true;
   },
 
   deleteNode: (id) => {
     const removeIds = collectDescendantIds(get().nodes, id);
     const nodes = get().nodes.filter((node) => !removeIds.has(node.id));
-    commitNodes(set, nodes);
+    commitNodesInMemory(set, get, nodes, [SQL_FILE_TREE_DIRTY, ...removeIds]);
   },
 
   getNode: (id) => get().nodes.find((node) => node.id === id),
@@ -317,7 +345,7 @@ export async function initDbSqlFilesStore(force = false): Promise<void> {
     if (!isTauriRuntime()) {
       const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
-        useDbSqlFileStore.setState({ nodes: cached });
+        useDbSqlFileStore.setState({ nodes: cached, dirtyFileIds: [] });
       }
       return;
     }
@@ -337,20 +365,20 @@ export async function initDbSqlFilesStore(force = false): Promise<void> {
       if (diskNodes.length === 0) {
         const legacy = readLegacyPersistedNodes() ?? readNodesCache();
         if (legacy?.length) {
-          useDbSqlFileStore.setState({ nodes: legacy });
+          useDbSqlFileStore.setState({ nodes: legacy, dirtyFileIds: [] });
           await persistNodes(legacy);
           console.info(`[dbSqlFileStore] 已从 localStorage 迁移 ${legacy.length} 个 SQL 文件节点到磁盘`);
         }
         return;
       }
 
-      useDbSqlFileStore.setState({ nodes: diskNodes });
+      useDbSqlFileStore.setState({ nodes: diskNodes, dirtyFileIds: [] });
       writeNodesCache(diskNodes);
     } catch (e) {
       console.warn("[dbSqlFileStore] 初始化加载失败:", e);
       const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
-        useDbSqlFileStore.setState({ nodes: cached });
+        useDbSqlFileStore.setState({ nodes: cached, dirtyFileIds: [] });
       }
     }
   })();
@@ -359,7 +387,7 @@ export async function initDbSqlFilesStore(force = false): Promise<void> {
 }
 
 export async function persistDbSqlFilesStore(): Promise<void> {
-  await persistNodes(useDbSqlFileStore.getState().nodes);
+  await useDbSqlFileStore.getState().flushToDisk();
 }
 
 /** 从侧栏 SQL 文件恢复 Tab 编辑器状态（文件内容为权威来源）。 */

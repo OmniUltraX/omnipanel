@@ -11,13 +11,8 @@ import { LocalFilePanel } from "@/components/files";
 import { SftpPanel } from "@/components/sftp";
 import { TunnelPanel } from "@/components/tunnel";
 import { useI18n } from "@/i18n";
-import { OverviewStatsCards } from "@/modules/server/ssh/components/detail/OverviewStatsCards";
-import { ProcessListPanel } from "@/modules/server/ssh/components/detail/ProcessListPanel";
-import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
-import type { DetailTab } from "@/modules/server/ssh/types";
-import { LOCAL_TERMINAL_RESOURCE_ID } from "@/modules/terminal/paneResource";
 import { TerminalTabPaneView } from "./TerminalPaneView";
-import { useLocalOverview } from "./useLocalOverview";
+import { AdvanceTerminalMonitorStack } from "./AdvanceTerminalMonitorStack";
 import { useTerminalTabDockPane } from "./useTerminalTabDockPane";
 
 type LocalSidePanelId = "files" | "monitor";
@@ -39,21 +34,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     [tab?.session.type, resource?.type],
   );
   const isLocal = tab?.session.type === "local";
-
-  const resourceId = isRemoteSsh && resource ? resource.id : null;
-  const sshOverview = useSshOverview(resourceId);
-  const localOverview = useLocalOverview(isLocal && isActive);
-
-  const {
-    phase,
-    stats,
-    processes,
-    error,
-    updatedAt,
-    refreshing,
-    refreshProcesses,
-    refresh,
-  } = isLocal ? localOverview : sshOverview;
 
   const sideTabs = useMemo((): DockableTab[] => {
     if (isLocal) {
@@ -108,56 +88,16 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     }
   }, [activeSideTab, defaultSideTab, sideTabs]);
 
-  const handleDetailTab = useCallback((detailTab: DetailTab) => {
-    if (detailTab === "sftp") setActiveSideTab("sftp");
-    if (detailTab === "tunnels") setActiveSideTab("tunnel");
+  const openTunnelTab = useCallback(() => {
+    setActiveSideTab("tunnel");
   }, []);
-
-  const renderMonitorStack = useCallback(
-    (processResourceId: string, enableTunnels: boolean, localMonitor = false) => (
-      <div className="advance-terminal-monitor-stack">
-        <OverviewStatsCards
-          embedded
-          phase={phase}
-          stats={stats}
-          error={error}
-          loadingMessage={
-            localMonitor ? t("terminal.monitor.loading") : undefined
-          }
-          onRetry={() => refresh()}
-        />
-        <ProcessListPanel
-          resourceId={processResourceId}
-          processes={processes}
-          loading={refreshing}
-          refreshing={refreshing}
-          updatedAt={updatedAt}
-          setDetailTab={handleDetailTab}
-          onRefresh={refreshProcesses}
-          enableTunnels={enableTunnels}
-        />
-      </div>
-    ),
-    [
-      phase,
-      stats,
-      error,
-      processes,
-      refreshing,
-      updatedAt,
-      handleDetailTab,
-      refresh,
-      refreshProcesses,
-      t,
-    ],
-  );
 
   const renderSidePanel = useCallback(
     (panelId: string) => {
       if (isLocal) {
         if (panelId === "files") return <LocalFilePanel />;
         if (panelId === "monitor") {
-          return renderMonitorStack(LOCAL_TERMINAL_RESOURCE_ID, false, true);
+          return <AdvanceTerminalMonitorStack mode="local" />;
         }
         return null;
       }
@@ -165,11 +105,18 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       if (panelId === "sftp") return <SftpPanel resourceId={resource.id} />;
       if (panelId === "tunnel") return <TunnelPanel activeResource={resource} />;
       if (panelId === "processes") {
-        return renderMonitorStack(resource.id, true);
+        return (
+          <AdvanceTerminalMonitorStack
+            mode="remote"
+            resourceId={resource.id}
+            enableTunnels
+            onOpenTunnelTab={openTunnelTab}
+          />
+        );
       }
       return null;
     },
-    [isLocal, resource, renderMonitorStack],
+    [isLocal, resource, openTunnelTab],
   );
 
   if (!paneProps) return null;

@@ -269,6 +269,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           ws.updateSqlTabState(tab.id, { cursorOffset })
         }
         onRun={(sql) => void ws.runQuery(sql, tab.id)}
+        onSave={() => void ws.saveSqlTab(tab.id)}
         schemas={completionSchemas}
       />
     </div>

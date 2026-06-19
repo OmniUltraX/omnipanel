@@ -19,6 +19,8 @@ interface SqlEditorProps {
   openMode?: SqlEditorOpenMode;
   /** Cmd/Ctrl+Enter：执行光标所在的一条 SQL（由调用方传入已提取的语句）。 */
   onRun?: (sqlAtCursor: string) => void;
+  /** Cmd/Ctrl+S：保存查询文件（阻止浏览器默认保存页行为）。 */
+  onSave?: () => void;
   /** 光标 offset 变化（供无焦点时 ⌘+Enter 使用）。 */
   onCursorOffsetChange?: (offset: number) => void;
   /** 当前上下文中的库表结构（通常仅含当前选中的数据库）。 */
@@ -152,6 +154,7 @@ export function SqlEditor({
   onChange,
   openMode = "query",
   onRun,
+  onSave,
   onCursorOffsetChange,
   schemas = [],
   readOnly = false,
@@ -161,10 +164,12 @@ export function SqlEditor({
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const highlightDecorationsRef = useRef<string[]>([]);
   const onRunRef = useRef(onRun);
+  const onSaveRef = useRef(onSave);
   const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
   const readOnlyRef = useRef(readOnly);
   const schemasRef = useRef(schemas);
   onRunRef.current = onRun;
+  onSaveRef.current = onSave;
   onCursorOffsetChangeRef.current = onCursorOffsetChange;
   readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
@@ -309,6 +314,25 @@ export function SqlEditor({
       e.preventDefault();
       e.stopPropagation();
       runStatementAtCursor(editor, run);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) {
+        return;
+      }
+      if (!isSqlMonacoEditorFocused()) return;
+      const editor = editorRef.current;
+      if (!editor?.hasTextFocus() || readOnlyRef.current) return;
+      const save = onSaveRef.current;
+      if (!save) return;
+      e.preventDefault();
+      e.stopPropagation();
+      save();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);

@@ -15,7 +15,7 @@ import {
 } from "../../stores/shortcutsStore";
 
 /** 默认组合的稳定引用，避免在 selector 中返回新数组导致无限渲染 */
-const DEFAULT_AI_KEYS: KeyToken[] = ["Mod", "`"];
+const DEFAULT_AI_KEYS: KeyToken[] = ["Alt", "`"];
 const DEFAULT_COMMAND_PALETTE_KEYS: KeyToken[] = ["Mod", "K"];
 
 interface CommandItem {

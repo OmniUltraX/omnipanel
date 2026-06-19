@@ -1,9 +1,7 @@
-import {
-  DockviewDefaultTab,
-  type IDockviewPanelHeaderProps,
-} from "dockview-react";
+import type { IDockviewPanelHeaderProps } from "dockview-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { TopbarTabDef } from "../../stores/topbarStore";
+import { DockTabChrome } from "./DockTabChrome";
 
 interface PanelParams {
   tabId: string;
@@ -35,18 +33,16 @@ export function TopbarStyleDockTabHeader({
   const tooltip = props.params?.tooltip ?? label;
 
   return (
-    <DockviewDefaultTab
+    <DockTabChrome
       {...props}
-      hideClose={!closable}
+      closable={closable}
+      tooltip={tooltip}
       onContextMenu={onContextMenu}
-      title={tooltip}
     >
-      <span className="dock-tab-header-inner">
-        {status ? (
-          <span className={`topbar-tab-dot ${tabStatusClass(status)}`} />
-        ) : null}
-        <span className="dock-tab-label">{label}</span>
-      </span>
-    </DockviewDefaultTab>
+      {status ? (
+        <span className={`topbar-tab-dot ${tabStatusClass(status)}`} />
+      ) : null}
+      <span className="dock-tab-label">{label}</span>
+    </DockTabChrome>
   );
 }

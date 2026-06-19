@@ -86,6 +86,10 @@ export interface DbWorkspaceContextValue {
   // 工具
   rowsToRecord: (cols: string[], rows: unknown[][]) => Record<string, unknown>[];
   tabModeToEditorOpenMode: (mode: "data" | "sql") => SqlEditorOpenMode;
+  /** 保存当前或指定 SQL Tab 的查询文件（Ctrl+S） */
+  saveSqlTab: (tabId?: string) => Promise<void>;
+  /** Tab 是否显示未落盘标记 */
+  isSqlTabDirty: (tabId: string) => boolean;
 }
 
 const Ctx = createContext<DbWorkspaceContextValue | null>(null);

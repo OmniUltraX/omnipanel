@@ -1921,6 +1921,74 @@ body.is-workspace-preview-resizing {
     margin-top: var(--sp-1);
 }
 
+.workspace-empty-page__action-list {
+    margin-top: var(--sp-4);
+    width: min(100%, 24rem);
+}
+
+.workspace-empty-page__action-list-title {
+    margin: 0 0 var(--sp-2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--meta);
+    text-align: left;
+}
+
+.workspace-empty-page__action-list-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.workspace-empty-page__action-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    width: 100%;
+    padding: var(--sp-1) 0;
+    border: none;
+    border-bottom: 1px dashed var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--meta);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.12s;
+}
+
+.workspace-empty-page__action-list-items > li:last-child .workspace-empty-page__action-item {
+    border-bottom: none;
+}
+
+.workspace-empty-page__action-item:hover {
+    color: var(--fg-2);
+    background: transparent;
+}
+
+.workspace-empty-page__action-item-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.workspace-empty-page__action-item-meta {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--meta);
+    white-space: nowrap;
+}
+
 .empty-state.compact {
     flex: 1;
     align-self: stretch;
@@ -2612,10 +2680,10 @@ body.is-workspace-preview-resizing {
 }
 
 .dockable-workspace .dv-default-tab .dv-default-tab-action {
-    width: 20px;
-    height: 20px;
-    min-width: 20px;
-    min-height: 20px;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
     padding: 0;
     display: grid;
     place-items: center;
@@ -2625,8 +2693,8 @@ body.is-workspace-preview-resizing {
 }
 
 .dockable-workspace .dv-default-tab .dv-default-tab-action svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
 }
 
 .dockable-workspace .dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action {
@@ -2667,10 +2735,59 @@ body.is-workspace-preview-resizing {
     min-width: 0;
 }
 
+.dv-default-tab-content.dock-tab-header-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+    overflow: hidden;
+}
+
 .dock-tab-label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.dock-tab-header-inner svg {
+    flex-shrink: 0;
+}
+
+.dock-tab-dirty {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--warn);
+    margin-left: 2px;
+}
+
+.dock-tab-saved {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    border: 1.5px solid var(--meta);
+    background: transparent;
+    margin-left: 2px;
+}
+
+.dock-tab-dirty--side {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    margin-left: 0;
+}
+
+.dock-tab-saved.dock-tab-dirty--side {
+    background: transparent;
+    border: 1.5px solid var(--meta);
+}
+
+.dockable-workspace.dock-header-left .dv-default-tab,
+.dockable-workspace.dock-header-right .dv-default-tab {
+    position: relative;
 }
 
 /* 会话状态点（topbar 风格 tab） */
@@ -2731,15 +2848,15 @@ body.is-workspace-preview-resizing {
 }
 
 .dockable-workspace.dock-window-control .dv-default-tab .dv-default-tab-action {
-    width: 16px;
-    height: 16px;
-    min-width: 16px;
-    min-height: 16px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
 }
 
 .dockable-workspace.dock-window-control .dv-default-tab .dv-default-tab-action svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
 }
 
 .dockable-workspace.dock-window-control .dv-right-actions-container {
@@ -5280,6 +5397,61 @@ body.is-workspace-preview-resizing {
 
     .statusbar-spacer {
         flex: 1;
+    }
+
+    .connection-pool-indicator {
+        cursor: default;
+        user-select: none;
+    }
+
+    .connection-pool-popover {
+        position: fixed;
+        z-index: 10050;
+        min-width: 200px;
+        max-width: 280px;
+        padding: var(--sp-2) var(--sp-3);
+        background: var(--bg-elevated, var(--bg-deeper));
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 6px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        font-size: 11px;
+        color: var(--text);
+    }
+
+    .connection-pool-popover-title {
+        font-weight: 600;
+        margin-bottom: var(--sp-2);
+        color: var(--text);
+    }
+
+    .connection-pool-popover-empty {
+        color: var(--meta);
+    }
+
+    .connection-pool-popover-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .connection-pool-popover-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+    }
+
+    .connection-pool-popover-kind {
+        color: var(--text);
+    }
+
+    .connection-pool-popover-counts {
+        color: var(--meta);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
     }
 
     /* ─── Statusbar 工作区按钮 ───────────────────────────────────────── */
@@ -12419,18 +12591,6 @@ body.is-workspace-preview-resizing {
         overflow: hidden;
     }
 
-    .db-workspace-tabs {
-        display: flex;
-        align-items: center;
-        gap: 0;
-        border-bottom: 1px solid var(--border);
-        padding: 0 var(--sp-2);
-        flex-shrink: 0;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-gutter: stable;
-    }
-
 /* 数据库模块 — 数据传输页 */
     .db-module-transfer {
         flex: 1;
@@ -12957,61 +13117,6 @@ body.is-workspace-preview-resizing {
         font-size: 10px;
         color: var(--accent);
         font-weight: 600;
-    }
-
-    .db-workspace-tab {
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        flex-shrink: 0;
-    }
-
-    .db-workspace-tab.active {
-        border-bottom-color: var(--accent);
-    }
-
-    .db-workspace-tab-label {
-        border: none;
-        background: transparent;
-        font: inherit;
-        font-size: 12px;
-        color: var(--muted);
-        padding: var(--sp-2) var(--sp-3);
-        cursor: pointer;
-    }
-
-    .db-workspace-tab.active .db-workspace-tab-label {
-        color: var(--fg);
-    }
-
-    .db-workspace-tab-label:hover {
-        color: var(--fg);
-    }
-
-    .db-workspace-tab-close {
-        border: none;
-        background: transparent;
-        color: var(--meta);
-        padding: var(--sp-1);
-        border-radius: var(--r-sm);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-    }
-
-    .db-workspace-tab-close:hover {
-        color: var(--fg);
-        background: var(--surface);
-    }
-
-    .db-workspace-body {
-        flex: 1;
-        min-height: 0;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
     }
 
     .db-workspace-pane {
@@ -18807,6 +18912,60 @@ body.is-workspace-preview-resizing {
 
     .keybind-readonly {
         opacity: 0.85;
+    }
+
+    .keybindings-categories {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .keybindings-category {
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--surface);
+        overflow: hidden;
+    }
+
+    .keybindings-category__header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        width: 100%;
+        padding: var(--sp-3) var(--sp-4);
+        border: none;
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .keybindings-category__header:hover {
+        background: var(--bg-deeper);
+    }
+
+    .keybindings-category__chevron {
+        width: 12px;
+        flex-shrink: 0;
+        color: var(--meta);
+        font-size: 12px;
+        line-height: 1;
+    }
+
+    .keybindings-category__title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .keybindings-category__body {
+        border-top: 1px solid var(--border);
+        padding: 0 var(--sp-4) var(--sp-2);
+    }
+
+    .keybindings-category__body .setting-row:last-child {
+        border-bottom: none;
     }
 
     .settings-section-header {

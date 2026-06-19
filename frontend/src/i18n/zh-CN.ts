@@ -421,6 +421,20 @@ export const zhCN = {
       expandWorkspace: "展开工作区",
       collapseWorkspace: "收起工作区",
     },
+    connectionPool: {
+      summary: "连接 {active} / {idle}",
+      detailTitle: "连接池",
+      empty: "暂无连接",
+      categoryCounts: "活跃 {active} / 空闲 {idle}",
+      kind: {
+        ssh: "SSH",
+        docker: "Docker",
+        database: "MySQL / PostgreSQL",
+        redis: "Redis",
+        protocol: "协议调试",
+        terminal: "本地终端",
+      },
+    },
     workspacePopover: {
       title: "工作区",
       newWorkspace: "新建工作区",
@@ -679,6 +693,7 @@ export const zhCN = {
       nameRequired: "请输入名称",
       rename: "重命名",
       renameTitle: "重命名",
+      saveAsTitle: "保存 SQL 文件",
       delete: "删除",
     },
     tablesPanel: {
@@ -801,6 +816,12 @@ export const zhCN = {
         schemaDone: "已加载 {count} 张表",
         countingTable: "正在统计 {table} 行数…",
       },
+      empty: {
+        noCapableConnection: {
+          title: "暂无可用连接",
+          desc: "数据传输仅支持 MySQL、PostgreSQL、SQLite 等关系型数据库，Redis 等 KV 引擎不在此工具箱中使用。",
+        },
+      },
       side: {
         source: "源数据库",
         target: "目标数据库",
@@ -850,6 +871,8 @@ export const zhCN = {
       sqlTab: "SQL",
       emptyTabs: "当前没有打开的标签。在 Schema 栏中选择表，或新建一个查询。",
       newQuery: "新建查询",
+      recentClosed: "最近关闭",
+      recentClosedEmpty: "暂无最近关闭的面板",
       connection: "连接",
       database: "数据库",
       noDatabase: "无可用数据库",
@@ -1653,13 +1676,21 @@ export const zhCN = {
         replace: "替换",
         resetOne: "重置",
       },
+      categories: {
+        general: "通用",
+        tabs: "标签页",
+        terminal: "终端",
+        ssh: "SSH",
+        ai: "AI 助手",
+        workspace: "工作区",
+      },
       items: {
         newTerminal: "新建终端标签",
         closeTab: "关闭标签",
         switchTab: "切换标签",
         commandPalette: "命令面板",
         toggleAi: "切换 AI 面板",
-        toggleBottomWorkspace: "展开/隐藏底部工作区",
+        toggleBottomWorkspace: "展开/隐藏工作区预览",
         splitVertical: "垂直分屏",
         splitHorizontal: "水平分屏",
         searchTerminal: "搜索终端",
