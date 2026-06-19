@@ -28,7 +28,7 @@ import type { Connection } from "../../ipc/bindings";
 export function ServerPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/server";
+  const isActiveRoute = location.pathname === "/module/server";
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const groups = useServerGroupStore((s) => s.groups);

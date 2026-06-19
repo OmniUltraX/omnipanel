@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useWorkspacePreviewCollapseStore } from "../../stores/workspacePreviewCollapseStore";
 import { useStatusBarStore } from "../../stores/statusBarStore";
 import { workspaceResources, getResourceById, type EnvironmentTag } from "../../lib/resourceRegistry";
@@ -40,9 +40,24 @@ function StatusBarWorkspacePanelToggle() {
 }
 
 function StatusBarWorkspaceControls() {
+  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
+  const expandPreview = useWorkspacePreviewCollapseStore((state) => state.expand);
+
+  const handleSelectWorkspace = useCallback(
+    (ws: WorkspaceInfo) => {
+      switchWorkspace(ws.id);
+      expandPreview();
+    },
+    [switchWorkspace, expandPreview],
+  );
+
   return (
     <div className="statusbar-workspace-controls">
-      <WorkspaceSwitcher variant="statusbar" placement="above" />
+      <WorkspaceSwitcher
+        variant="statusbar"
+        placement="above"
+        onSelectWorkspace={handleSelectWorkspace}
+      />
       <StatusBarWorkspacePanelToggle />
     </div>
   );
@@ -63,14 +78,14 @@ export function StatusBar() {
   const environment = activeResource?.environment ?? "unknown";
 
   useEffect(() => {
-    if (location.pathname !== "/terminal") return;
+    if (location.pathname !== "/module/terminal") return;
     const timer = window.setInterval(() => {
       setTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [location.pathname]);
 
-  if (location.pathname === "/terminal") {
+  if (location.pathname === "/module/terminal") {
     const terminalState = activeResource?.environment === "local" ? "Local PTY Ready" : "SSH Connected";
 
     return (

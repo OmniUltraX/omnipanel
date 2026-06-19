@@ -5,6 +5,7 @@ import { useActionStore } from "../../stores/actionStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { openLocalTerminalSession } from "../../lib/terminalSession";
 import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
+import { MODULE_PATHS } from "../../lib/paths";
 import { useI18n } from "../../i18n";
 import {
   formatShortcut,
@@ -28,20 +29,20 @@ interface CommandItem {
 
 const COMMAND_DEFS: CommandItem[] = [
   { id: "workspace", labelKey: "shell.commandPalette.commands.workspace", shortcut: "⌘1", action: () => goWorkspaceHome(), categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "terminal", labelKey: "shell.commandPalette.commands.terminal", shortcut: "⌘2", path: "/terminal", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "database", labelKey: "shell.commandPalette.commands.database", shortcut: "⌘3", path: "/database", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "ssh", labelKey: "shell.commandPalette.commands.ssh", shortcut: "⌘4", path: "/ssh", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "docker", labelKey: "shell.commandPalette.commands.docker", shortcut: "⌘5", path: "/docker", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "server", labelKey: "shell.commandPalette.commands.server", path: "/server", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "protocol", labelKey: "shell.commandPalette.commands.protocol", path: "/protocol", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "workflow", labelKey: "shell.commandPalette.commands.workflow", path: "/workflow", categoryKey: "shell.commandPalette.categories.nav" },
-  { id: "knowledge", labelKey: "shell.commandPalette.commands.knowledge", path: "/knowledge", categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "terminal", labelKey: "shell.commandPalette.commands.terminal", shortcut: "⌘2", path: MODULE_PATHS.terminal, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "database", labelKey: "shell.commandPalette.commands.database", shortcut: "⌘3", path: MODULE_PATHS.database, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "ssh", labelKey: "shell.commandPalette.commands.ssh", shortcut: "⌘4", path: MODULE_PATHS.ssh, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "docker", labelKey: "shell.commandPalette.commands.docker", shortcut: "⌘5", path: MODULE_PATHS.docker, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "server", labelKey: "shell.commandPalette.commands.server", path: MODULE_PATHS.server, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "protocol", labelKey: "shell.commandPalette.commands.protocol", path: MODULE_PATHS.protocol, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "workflow", labelKey: "shell.commandPalette.commands.workflow", path: MODULE_PATHS.workflow, categoryKey: "shell.commandPalette.categories.nav" },
+  { id: "knowledge", labelKey: "shell.commandPalette.commands.knowledge", path: MODULE_PATHS.knowledge, categoryKey: "shell.commandPalette.categories.nav" },
   { id: "settings", labelKey: "shell.commandPalette.commands.settings", shortcut: "⌘,", action: () => useSettingsUiStore.getState().openSettings(), categoryKey: "shell.commandPalette.categories.nav" },
   { id: "new-terminal", labelKey: "shell.commandPalette.commands.newTerminal", shortcut: "⌘T", action: () => openLocalTerminalSession(), categoryKey: "shell.commandPalette.categories.action" },
   {
     id: "new-ssh",
     labelKey: "shell.commandPalette.commands.newSsh",
-    path: "/ssh",
+    path: MODULE_PATHS.ssh,
     categoryKey: "shell.commandPalette.categories.action",
   },
   { id: "new-query", labelKey: "shell.commandPalette.commands.newQuery", categoryKey: "shell.commandPalette.categories.action" },

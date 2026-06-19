@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo } from "react";
 import { DockableWorkspace } from "../dock";
 import { WorkspaceSwitcher } from "../shell/WorkspaceSwitcher";
 import { subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
-import { HomeBoardView } from "../../modules/workspace/HomeBoardView";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
@@ -294,7 +293,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
           windowControl={isEngineeringFullscreen}
           windowChromeVariant="segment"
           enableTabGroups={false}
-          emptyContent={<HomeBoardView />}
+          emptyContent={<div className="dashboard dashboard-home" />}
         />
       </div>
     );
@@ -326,7 +325,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
         windowControl={isEngineeringFullscreen}
         windowChromeVariant="segment"
         enableTabGroups={false}
-        emptyContent={<HomeBoardView />}
+        emptyContent={<div className="dashboard dashboard-home" />}
       />
     </div>
   );

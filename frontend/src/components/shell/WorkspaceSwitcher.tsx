@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { isEmbeddedWorkspaceMode } from "../../lib/workspaceMode";
-import { goWorkspaceHome } from "../../lib/workspaceNavigation";
+import { goWorkspaceHome, navigateToWorkspace } from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 import { WorkspacePopover } from "./WorkspacePopover";
 
@@ -18,6 +18,8 @@ interface WorkspaceSwitcherProps {
   /** 任务栏紧凑模式 */
   compact?: boolean;
   className?: string;
+  /** 自定义选择工作区行为；未提供时默认导航到 /workspace/:id */
+  onSelectWorkspace?: (ws: WorkspaceInfo) => void;
 }
 
 function WorkspaceSwitcherIcon({ isHomeActive }: { isHomeActive: boolean }) {
@@ -55,14 +57,12 @@ export function WorkspaceSwitcher({
   showHome = true,
   compact = false,
   className,
+  onSelectWorkspace,
 }: WorkspaceSwitcherProps) {
   const { t } = useI18n();
   const workspace = useWorkspaceStore((state) => state.workspace);
   const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
-  const enterWorkspaceFullscreen = useBottomPanelStore(
-    (state) => state.enterWorkspaceFullscreen,
-  );
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const halfIconClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,10 +96,10 @@ export function WorkspaceSwitcher({
       clearHalfIconClickTimer();
       halfIconClickTimerRef.current = setTimeout(() => {
         halfIconClickTimerRef.current = null;
-        enterWorkspaceFullscreen();
+        navigateToWorkspace(workspace.id);
       }, HALF_ICON_CLICK_DELAY_MS);
     },
-    [clearHalfIconClickTimer, enterWorkspaceFullscreen],
+    [clearHalfIconClickTimer, workspace.id],
   );
 
   const handleHalfIconDoubleClick = useCallback(
@@ -129,6 +129,7 @@ export function WorkspaceSwitcher({
       placement={popoverPlacement}
       showHome={showHome}
       onClose={() => setOpen(false)}
+      onSelectWorkspace={onSelectWorkspace}
     />
   ) : null;
 

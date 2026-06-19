@@ -44,7 +44,7 @@ function KnowledgeLibraryView() {
 export function KnowledgePanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/knowledge";
+  const isActiveRoute = location.pathname === "/module/knowledge";
   const [tab, setTab] = usePersistedModuleTab("knowledge", "library", KNOWLEDGE_TABS);
 
   const segmentTabs = useMemo(

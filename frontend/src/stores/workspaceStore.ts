@@ -6,6 +6,7 @@ import {
   type WorkspaceResource,
 } from "../lib/resourceRegistry";
 import { resolveResourceById } from "./connectionStore";
+import { WORKSPACE_PATHS } from "../lib/paths";
 
 export interface WorkspaceInfo {
   id: string;
@@ -67,6 +68,8 @@ interface WorkspaceState {
   switchWorkspace: (id: string) => boolean;
   /** 删除工作区；至少保留一个时返回 false。 */
   removeWorkspace: (id: string) => boolean;
+  /** 重命名工作区；名称为空或重复时返回 false。 */
+  renameWorkspace: (id: string, name: string) => boolean;
 }
 
 function environmentToRisk(environment: EnvironmentTag): WorkspaceContextSnapshot["riskLevel"] {
@@ -80,7 +83,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     (set, get) => ({
       workspace: DEFAULT_WORKSPACE,
       workspaces: [DEFAULT_WORKSPACE],
-      activePath: "/",
+      activePath: WORKSPACE_PATHS.default,
       activeResourceId: "local-terminal",
       selectedResourceByPath: {},
 
@@ -193,6 +196,22 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           );
         }
         // 同时清理该工作区的 tab 快照
+        return true;
+      },
+
+      renameWorkspace: (id, name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return false;
+        const state = get();
+        const target = state.workspaces.find((w) => w.id === id);
+        if (!target) return false;
+        if (state.workspaces.some((w) => w.id !== id && w.name === trimmed)) return false;
+        const nextWorkspaces = state.workspaces.map((w) =>
+          w.id === id ? { ...w, name: trimmed } : w,
+        );
+        const nextWorkspace =
+          state.workspace.id === id ? { ...state.workspace, name: trimmed } : state.workspace;
+        set({ workspaces: nextWorkspaces, workspace: nextWorkspace });
         return true;
       },
     }),

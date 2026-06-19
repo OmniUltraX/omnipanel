@@ -304,7 +304,7 @@ function CreateDatabaseDialog({
 export function DatabasePanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/database";
+  const isActiveRoute = location.pathname === "/module/database";
   const [moduleTab, setModuleTab] = usePersistedModuleTab(
     "database-workspace",
     "query",

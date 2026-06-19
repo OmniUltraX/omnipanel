@@ -14,6 +14,7 @@ import {
 } from "../lib/resourceRegistry";
 import { getOpenSshHostResource } from "../lib/sshConfigHosts";
 import { normalizeSshGroup, sanitizeSshGroupInput } from "../lib/sshGroups";
+import { modulePathForType } from "../lib/paths";
 import {
   getResourceTagValue,
   upsertResourceTag,
@@ -85,7 +86,7 @@ export function resolveResourceById(id: string | null | undefined): WorkspaceRes
 /** 将后端 Connection 映射为前端展示用的 WorkspaceResource。 */
 export function connectionToResource(connection: Connection): WorkspaceResource {
   const type = KIND_TO_TYPE[connection.kind] ?? "server";
-  const modulePath = type === "file" ? "/files" : `/${type}`;
+  const modulePath = modulePathForType(type);
   return {
     id: connection.id,
     type,

@@ -1,6 +1,7 @@
 import { useTerminalStore } from "../stores/terminalStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { resolveResourceById } from "../stores/connectionStore";
+import { MODULE_PATHS } from "./paths";
 
 export { createTerminalTabId } from "../stores/terminalStore";
 
@@ -15,14 +16,14 @@ export function openSshTerminalSession(hostId: string): string | null {
 
   const tabId = useTerminalStore.getState().openOrFocusSshTab(hostId, host.name);
   useWorkspaceStore.getState().selectResource(hostId);
-  navigateToPath("/terminal");
+  navigateToPath(MODULE_PATHS.terminal);
   return tabId;
 }
 
 export function openLocalTerminalSession(): string {
   const tabId = useTerminalStore.getState().openOrFocusLocalTab();
   useWorkspaceStore.getState().selectResource("local-terminal");
-  navigateToPath("/terminal");
+  navigateToPath(MODULE_PATHS.terminal);
   return tabId;
 }
 

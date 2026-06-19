@@ -99,7 +99,7 @@ function emptyStep(order: number): SaveStepRequest {
 export function WorkflowPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/workflow";
+  const isActiveRoute = location.pathname === "/module/workflow";
   const [tab, setTab] = usePersistedModuleTab("workflow", "workflows", WF_TABS);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
 

@@ -90,7 +90,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export function DockerPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/docker";
+  const isActiveRoute = location.pathname === "/module/docker";
   const navigate = useNavigate();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const setAiDraft = useAiStore((s) => s.setDraftPrompt);
@@ -275,9 +275,9 @@ export function DockerPanel() {
   }, [selectedConnectionId]);
 
   // 从其他模块切回 Docker 时静默刷新，保留当前 UI 状态。
-  const onDockerRouteRef = useRef(location.pathname === "/docker");
+  const onDockerRouteRef = useRef(location.pathname === "/module/docker");
   useEffect(() => {
-    const onDocker = location.pathname === "/docker";
+    const onDocker = location.pathname === "/module/docker";
     if (onDocker && !onDockerRouteRef.current) {
       refresh();
     }
@@ -1561,10 +1561,10 @@ function ContainerDrawerBody({
                 <span className="v">{hostLabel ?? "—"}</span>
               </div>
               <div className="flex gap-2" style={{ flexWrap: "wrap", marginTop: "var(--sp-2)" }}>
-                <Button variant="secondary" size="sm" onClick={() => onNavigate("/ssh")}>
+                <Button variant="secondary" size="sm" onClick={() => onNavigate("/module/ssh")}>
                   打开 SSH
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => onNavigate("/server")}>查看服务器</Button>
+                <Button variant="secondary" size="sm" onClick={() => onNavigate("/module/server")}>查看服务器</Button>
                 <Button variant="secondary" size="sm" onClick={() => onSendToAi(detail)}>发送给 AI 分析</Button>
               </div>
             </div>

@@ -17,7 +17,7 @@ const PROTOCOLS: ProtocolKind[] = ["http", "ws", "mqtt", "serial", "grpc", "snif
 export function ProtocolPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/protocol";
+  const isActiveRoute = location.pathname === "/module/protocol";
   const [active, setActive] = useState<ProtocolKind>("http");
 
   const segmentTabs = useMemo(

@@ -49,7 +49,7 @@ function topbarTabStatus(
 export function TerminalPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/terminal";
+  const isActiveRoute = location.pathname === "/module/terminal";
   const tabs = useTerminalStore((state) => state.tabs);
   const activeTabId = useTerminalStore((state) => state.activeTabId);
   const removeTab = useTerminalStore((state) => state.removeTab);
@@ -238,7 +238,7 @@ export function TerminalPanel() {
   const handleTopbarAddMenuSelect = useCallback(
     (id: string) => {
       if (id === "manage-hosts") {
-        navigateToPath("/ssh");
+        navigateToPath("/module/ssh");
         return;
       }
       if (id === LOCAL_TERMINAL_RESOURCE_ID) {

@@ -172,8 +172,8 @@ export function useSshManager() {
         setTerminalTab(tabId);
       }
 
-      setActivePath("/terminal");
-      navigate("/terminal");
+      setActivePath("/module/terminal");
+      navigate("/module/terminal");
     },
     [
       activeResource,

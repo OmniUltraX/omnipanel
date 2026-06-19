@@ -500,6 +500,13 @@ export const enUS: TranslationDict = {
     settings: "Settings",
     default: "OmniPanel",
   },
+  workspace: {
+    detail: {
+      tabs: {
+        overview: "Overview",
+      },
+    },
+  },
   env: {
     prod: "Production",
     staging: "Staging",

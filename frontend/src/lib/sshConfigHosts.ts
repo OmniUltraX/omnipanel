@@ -4,6 +4,7 @@ import {
   type EnvironmentTag,
   type WorkspaceResource,
 } from "./resourceRegistry";
+import { MODULE_PATHS } from "./paths";
 
 export const OPENSSH_HOST_ID_PREFIX = "openssh:";
 
@@ -38,7 +39,7 @@ export function sshConfigEntryToResource(entry: SshConfigEntry): WorkspaceResour
     type: "ssh",
     name: entry.alias,
     subtitle: entryToSubtitle(entry),
-    modulePath: "/ssh",
+    modulePath: MODULE_PATHS.ssh,
     environment: inferEnvironment(entry.alias, entry.hostName),
     status: "idle",
     group: OPENSSH_CONFIG_GROUP,

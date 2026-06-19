@@ -71,5 +71,12 @@ export function getRouteTitle(path: string, locale?: Locale) {
     "/files": "routes.files",
     "/settings": "routes.settings",
   };
-  return t(map[path] ?? "routes.default", undefined, locale);
+  if (map[path]) return t(map[path], undefined, locale);
+  if (path.startsWith("/module/")) {
+    const key = path.slice("/module/".length);
+    const routeKey = map[`/${key}`];
+    if (routeKey) return t(routeKey, undefined, locale);
+  }
+  if (path.startsWith("/workspace/")) return t("routes.workspace", undefined, locale);
+  return t("routes.default", undefined, locale);
 }

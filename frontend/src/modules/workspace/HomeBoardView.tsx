@@ -5,7 +5,7 @@ import { useI18n } from "../../i18n";
 
 const RECENT_WORKSPACES = [
   {
-    path: "/terminal",
+    path: "/module/terminal",
     name: "prod-web-01 Terminal",
     meta: ["2 tabs, 1 split", "10 min ago"],
     iconBg: "color-mix(in oklch, var(--success) 15%, transparent)",
@@ -18,7 +18,7 @@ const RECENT_WORKSPACES = [
     ),
   },
   {
-    path: "/database",
+    path: "/module/database",
     name: "prod-db-master Query",
     meta: ["3 queries saved", "1h ago"],
     iconBg: "color-mix(in oklch, var(--warn) 15%, transparent)",
@@ -32,7 +32,7 @@ const RECENT_WORKSPACES = [
     ),
   },
   {
-    path: "/ssh",
+    path: "/module/ssh",
     name: "staging-api SSH",
     meta: ["SFTP active", "3h ago"],
     iconBg: "color-mix(in oklch, var(--accent) 15%, transparent)",
@@ -48,7 +48,7 @@ const RECENT_WORKSPACES = [
 
 const QUICK_CONNECT = [
   {
-    path: "/terminal",
+    path: "/module/terminal",
     label: "Terminal",
     hint: "Local",
     icon: (
@@ -59,7 +59,7 @@ const QUICK_CONNECT = [
     ),
   },
   {
-    path: "/ssh",
+    path: "/module/ssh",
     label: "prod-web-01",
     hint: "SSH",
     icon: (
@@ -70,7 +70,7 @@ const QUICK_CONNECT = [
     ),
   },
   {
-    path: "/database",
+    path: "/module/database",
     label: "prod-db",
     hint: "PostgreSQL",
     icon: (
@@ -82,7 +82,7 @@ const QUICK_CONNECT = [
     ),
   },
   {
-    path: "/docker",
+    path: "/module/docker",
     label: "Containers",
     hint: "Docker",
     icon: (
@@ -93,7 +93,7 @@ const QUICK_CONNECT = [
     ),
   },
   {
-    path: "/files",
+    path: "/module/files",
     label: "文件管理",
     hint: "FTP / S3",
     icon: <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />,
@@ -219,7 +219,7 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/terminal")}
+                  onClick={() => go("/module/terminal")}
                 >
                   <SectionPlus />
                   {t("dashboard.new")}
@@ -290,7 +290,7 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/workflow")}
+                  onClick={() => go("/module/workflow")}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
@@ -370,7 +370,7 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/docker")}
+                  onClick={() => go("/module/docker")}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
@@ -382,7 +382,7 @@ export function HomeBoardView() {
                     key={item.name}
                     type="button"
                     className="docker-mini-item"
-                    onClick={() => go("/docker")}
+                    onClick={() => go("/module/docker")}
                   >
                     <span className="dm-dot" style={{ background: item.dot }} />
                     <span className="dm-name">{item.name}</span>
@@ -404,7 +404,7 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/server")}
+                  onClick={() => go("/module/server")}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
@@ -416,7 +416,7 @@ export function HomeBoardView() {
                     key={item.name}
                     type="button"
                     className="conn-item"
-                    onClick={() => go("/server")}
+                    onClick={() => go("/module/server")}
                   >
                     <span className="conn-dot" style={{ background: item.dot }} />
                     <span className="conn-name">{item.name}</span>

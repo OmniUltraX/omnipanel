@@ -492,6 +492,21 @@
     overflow: hidden;
     min-width: 0;
     min-height: 0;
+    cursor: pointer;
+    transition: border-color 0.12s;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    padding: 0;
+}
+
+.workspace-preview__card:hover {
+    border-color: var(--accent);
+}
+
+.workspace-preview__card--active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
 }
 
 .workspace-preview__card-thumb {

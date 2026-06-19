@@ -7,10 +7,11 @@ import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { AppLogo } from "../ui/AppLogo";
 import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
+import { MODULE_PATHS } from "../../lib/paths";
 
 const navPaths = [
   {
-    path: "/terminal",
+    path: MODULE_PATHS.terminal,
     key: "shell.nav.terminal",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -20,7 +21,7 @@ const navPaths = [
     ),
   },
   {
-    path: "/database",
+    path: MODULE_PATHS.database,
     key: "shell.nav.database",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -31,7 +32,7 @@ const navPaths = [
     ),
   },
   {
-    path: "/ssh",
+    path: MODULE_PATHS.ssh,
     key: "shell.nav.ssh",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -41,7 +42,7 @@ const navPaths = [
     ),
   },
   {
-    path: "/docker",
+    path: MODULE_PATHS.docker,
     key: "shell.nav.docker",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -54,7 +55,7 @@ const navPaths = [
     ),
   },
   {
-    path: "/server",
+    path: MODULE_PATHS.server,
     key: "shell.nav.server",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -66,7 +67,7 @@ const navPaths = [
     ),
   },
   {
-    path: "/files",
+    path: MODULE_PATHS.files,
     key: "shell.nav.files",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -78,7 +79,7 @@ const navPaths = [
 
 const utilPaths = [
   {
-    path: "/protocol",
+    path: MODULE_PATHS.protocol,
     key: "shell.nav.protocol",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -87,7 +88,7 @@ const utilPaths = [
     ),
   },
   {
-    path: "/workflow",
+    path: MODULE_PATHS.workflow,
     key: "shell.nav.workflow",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -97,7 +98,7 @@ const utilPaths = [
     ),
   },
   {
-    path: "/knowledge",
+    path: MODULE_PATHS.knowledge,
     key: "shell.nav.knowledge",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

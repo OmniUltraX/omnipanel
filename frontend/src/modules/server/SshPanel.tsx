@@ -18,7 +18,7 @@ const SSH_WORKSPACE_TABS: SshWorkspaceTab[] = ["hosts", "tunnels", "keys"];
 export function SshPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/ssh";
+  const isActiveRoute = location.pathname === "/module/ssh";
   const [workspaceTab, setWorkspaceTab] = usePersistedModuleTab("ssh-workspace", "hosts", SSH_WORKSPACE_TABS);
   const sshResources = useSshHostResources();
   const ctx = useSshManager();

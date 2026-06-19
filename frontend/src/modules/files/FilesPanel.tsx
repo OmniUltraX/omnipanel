@@ -726,7 +726,7 @@ function FilesBrowserView() {
 export function FilesPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/files";
+  const isActiveRoute = location.pathname === "/module/files";
   const [tab, setTab] = usePersistedModuleTab("files", "browser", FILES_TABS);
 
   const segmentTabs = useMemo(

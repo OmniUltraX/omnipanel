@@ -1,10 +1,27 @@
 import type { NavigateFunction } from "react-router-dom";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { WORKSPACE_PATHS } from "./paths";
 
-/** 进入全屏工作区（Home） */
+/** 进入首页工作区（home 模式 + URL 同步到默认工作区） */
 export function goWorkspaceHome(): void {
   useBottomPanelStore.getState().enterHomeWorkspace();
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-navigate", {
+      detail: { path: WORKSPACE_PATHS.default },
+    }),
+  );
+}
+
+/** 切换到指定工程工作区（URL 驱动，退出首页全屏但不进入工程全屏） */
+export function navigateToWorkspace(id: string): void {
+  useWorkspaceStore.getState().switchWorkspace(id);
+  useBottomPanelStore.getState().leaveHomeToFeature();
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-navigate", {
+      detail: { path: WORKSPACE_PATHS.dashboard(id) },
+    }),
+  );
 }
 
 /** 从全屏工作区离开并恢复上次记住的非全屏嵌入形态 */

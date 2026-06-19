@@ -2,6 +2,7 @@ import {
   BrowserRouter,
   Routes,
   Route,
+  Navigate,
   useLocation,
   useNavigate,
 } from "react-router-dom";
@@ -27,7 +28,7 @@ import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import { WindowResize } from "./components/shell/WindowResize";
-import { Dashboard } from "./modules/workspace/Dashboard";
+import { UserWorkspace } from "./modules/workspace/UserWorkspace";
 import { TerminalPanel } from "./modules/terminal/TerminalPanel";
 import { DatabasePanel } from "./modules/database/DatabasePanel";
 import { DockerPanel } from "./modules/docker/DockerPanel";
@@ -53,6 +54,7 @@ import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
+import { MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./lib/paths";
 
 function TopbarPageActions() {
   const { t } = useI18n();
@@ -63,11 +65,11 @@ function TopbarPageActions() {
   const dockerRefresh = useDockerTopbarStore((s) => s.refresh);
   const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
 
-  if (path === "/terminal") {
+  if (path === MODULE_PATHS.terminal) {
     return null;
   }
 
-  if (path === "/ssh") {
+  if (path === MODULE_PATHS.ssh) {
     return (
       <Button
         variant="primary"
@@ -93,7 +95,7 @@ function TopbarPageActions() {
     );
   }
 
-  if (path === "/protocol") {
+  if (path === MODULE_PATHS.protocol) {
     return (
       <>
         <Button variant="icon" title={t("protocol.actions.newRequest")}>
@@ -125,7 +127,7 @@ function TopbarPageActions() {
     );
   }
 
-  if (path === "/docker" && dockerRefresh) {
+  if (path === MODULE_PATHS.docker && dockerRefresh) {
     return (
       <Button
         variant="icon"
@@ -150,7 +152,7 @@ function TopbarPageActions() {
     );
   }
 
-  if (path === "/" || path === "/workflow") {
+  if (isWorkspacePath(path) || path === MODULE_PATHS.workflow) {
     return null;
   }
 
@@ -158,13 +160,13 @@ function TopbarPageActions() {
 }
 
 /** 原在顶栏注册 Tab 的路由（Tab 已迁入各模块 DockableWorkspace） */
-const TOPBAR_TAB_ROUTES = [
-  "/terminal",
-  "/database",
-  "/docker",
-  "/ssh",
-  "/server",
-  "/protocol",
+const TOPBAR_TAB_ROUTES: string[] = [
+  MODULE_PATHS.terminal,
+  MODULE_PATHS.database,
+  MODULE_PATHS.docker,
+  MODULE_PATHS.ssh,
+  MODULE_PATHS.server,
+  MODULE_PATHS.protocol,
 ];
 
 function AppShell() {
@@ -175,9 +177,9 @@ function AppShell() {
   const navigate = useNavigate();
   const title = getRouteTitle(location.pathname);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
-  const isTerminal = location.pathname === "/terminal";
-  const isDocker = location.pathname === "/docker";
-  const isDatabase = location.pathname === "/database";
+  const isTerminal = location.pathname === MODULE_PATHS.terminal;
+  const isDocker = location.pathname === MODULE_PATHS.docker;
+  const isDatabase = location.pathname === MODULE_PATHS.database;
   const [otherRoutesMounted, setOtherRoutesMounted] = useState(!isTerminal);
   const [terminalMounted, setTerminalMounted] = useState(isTerminal);
   const [dockerMounted, setDockerMounted] = useState(isDocker);
@@ -240,23 +242,25 @@ function AppShell() {
     const fallback =
       workspaceActivePath && workspaceActivePath !== "/settings"
         ? workspaceActivePath
-        : "/terminal";
+        : MODULE_PATHS.terminal;
     navigate(fallback, { replace: true });
   }, [location.pathname, navigate, openSettings, workspaceActivePath]);
 
   useEffect(() => {
-    setActivePath(location.pathname);
+    if (!isWorkspacePath(location.pathname)) {
+      setActivePath(location.pathname);
+    }
   }, [location.pathname, setActivePath]);
 
-  // Home 已改为全屏工作区；遗留的 / 路由重定向到上次功能页
+  useEffect(() => {
+    console.log("[route]", location.pathname);
+  }, [location.pathname]);
+
+  // 根路径重定向到默认工作区
   useEffect(() => {
     if (location.pathname !== "/") return;
-    const fallback =
-      workspaceActivePath && workspaceActivePath !== "/"
-        ? workspaceActivePath
-        : "/terminal";
-    navigate(fallback, { replace: true });
-  }, [location.pathname, navigate, workspaceActivePath]);
+    navigate(WORKSPACE_PATHS.default, { replace: true });
+  }, [location.pathname, navigate]);
 
   useEffect(() => {
     if (!TOPBAR_TAB_ROUTES.includes(location.pathname)) {
@@ -267,7 +271,13 @@ function AppShell() {
   useEffect(() => {
     const handler = (event: Event) => {
       const path = (event as CustomEvent<{ path: string }>).detail?.path;
-      if (path) navigateToFeature(path, navigate);
+      if (!path) return;
+      if (isWorkspacePath(path)) {
+        useWorkspaceStore.getState().setActivePath(path);
+        navigate(path);
+      } else {
+        navigateToFeature(path, navigate);
+      }
     };
     window.addEventListener("omnipanel-navigate", handler);
     return () => window.removeEventListener("omnipanel-navigate", handler);
@@ -299,6 +309,20 @@ function AppShell() {
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
   const dragging = useRef(false);
+
+  // 工作区模式 → URL 同步：内部模式切换（任务栏/缩略图/chrome 图标）时保持 URL 一致
+  useEffect(() => {
+    if (workspaceMode === "home") {
+      if (location.pathname !== WORKSPACE_PATHS.default) {
+        navigate(WORKSPACE_PATHS.default, { replace: true });
+      }
+    } else if (workspaceMode === "fullscreen") {
+      if (!isWorkspacePath(location.pathname)) {
+        const id = useWorkspaceStore.getState().workspace.id;
+        navigate(WORKSPACE_PATHS.dashboard(id), { replace: true });
+      }
+    }
+  }, [workspaceMode, location.pathname, navigate]);
 
   const handleResizeMouseDown = useCallback(() => {
     dragging.current = true;
@@ -360,16 +384,18 @@ function AppShell() {
       >
         {otherRoutesMounted && (
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/terminal" element={null} />
-            <Route path="/ssh" element={<SshPanel />} />
-            <Route path="/database" element={null} />
-            <Route path="/docker" element={null} />
-            <Route path="/server" element={<ServerPanel />} />
-            <Route path="/protocol" element={<ProtocolPanel />} />
-            <Route path="/workflow" element={<WorkflowPanel />} />
-            <Route path="/knowledge" element={<KnowledgePanel />} />
-            <Route path="/files" element={<FilesPanel />} />
+            <Route path="/" element={<Navigate to={WORKSPACE_PATHS.default} replace />} />
+            <Route path={`${WORKSPACE_PATHS.list}/:workspaceId`} element={<UserWorkspace />} />
+            <Route path={MODULE_PATHS.terminal} element={null} />
+            <Route path={MODULE_PATHS.ssh} element={<SshPanel />} />
+            <Route path={MODULE_PATHS.database} element={null} />
+            <Route path={MODULE_PATHS.docker} element={null} />
+            <Route path={MODULE_PATHS.server} element={<ServerPanel />} />
+            <Route path={MODULE_PATHS.protocol} element={<ProtocolPanel />} />
+            <Route path={MODULE_PATHS.workflow} element={<WorkflowPanel />} />
+            <Route path={MODULE_PATHS.knowledge} element={<KnowledgePanel />} />
+            <Route path={MODULE_PATHS.files} element={<FilesPanel />} />
+            <Route path="*" element={<Navigate to={WORKSPACE_PATHS.default} replace />} />
           </Routes>
         )}
       </div>

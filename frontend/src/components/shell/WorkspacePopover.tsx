@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
-import { goWorkspaceHome } from "../../lib/workspaceNavigation";
+import { goWorkspaceHome, navigateToWorkspace } from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 
 interface WorkspacePopoverProps {
@@ -19,6 +19,8 @@ interface WorkspacePopoverProps {
   placement?: "above" | "below";
   /** 半屏及以下隐藏首页入口 */
   showHome?: boolean;
+  /** 自定义选择工作区行为；未提供时默认导航到 /workspace/:id */
+  onSelectWorkspace?: (ws: WorkspaceInfo) => void;
 }
 
 function isPopoverNode(target: EventTarget | null): boolean {
@@ -32,20 +34,17 @@ export function WorkspacePopover({
   onClose,
   placement = "above",
   showHome = true,
+  onSelectWorkspace,
 }: WorkspacePopoverProps) {
   const { t } = useI18n();
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const currentId = useWorkspaceStore((state) => state.workspace.id);
-  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace);
   const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
   const removeWorkspaceData = useWorkspaceBottomDockStore(
     (state) => state.removeWorkspaceData,
   );
   const requestExpand = useBottomPanelStore((state) => state.requestExpand);
-  const enterWorkspaceFullscreen = useBottomPanelStore(
-    (state) => state.enterWorkspaceFullscreen,
-  );
   const isHomeActive = useBottomPanelStore((state) => state.isHomeActive);
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -141,15 +140,21 @@ export function WorkspacePopover({
     if (useBottomPanelStore.getState().workspaceMode === "hidden") {
       requestExpand();
     }
-    addWorkspace(trimmed);
-    if (useBottomPanelStore.getState().isHomeActive) {
-      enterWorkspaceFullscreen();
+    const ws = addWorkspace(trimmed);
+    if (onSelectWorkspace) {
+      onSelectWorkspace(ws);
+    } else {
+      navigateToWorkspace(ws.id);
     }
     onClose();
   }
 
   function handleSelectHome() {
-    goWorkspaceHome();
+    if (onSelectWorkspace) {
+      useWorkspaceStore.getState().switchWorkspace("default");
+    } else {
+      goWorkspaceHome();
+    }
     onClose();
   }
 
@@ -157,12 +162,15 @@ export function WorkspacePopover({
     const sameWorkspace = target.id === currentId;
     const { workspaceMode, isHomeActive: homeActive } = useBottomPanelStore.getState();
 
+    if (onSelectWorkspace) {
+      onSelectWorkspace(target);
+      onClose();
+      return;
+    }
+
     // 首页全屏下选择工程工作区：保持全屏，切换到对应工程工作区
     if (homeActive) {
-      if (!sameWorkspace) {
-        switchWorkspace(target.id);
-      }
-      enterWorkspaceFullscreen();
+      navigateToWorkspace(target.id);
       onClose();
       return;
     }
@@ -171,11 +179,12 @@ export function WorkspacePopover({
       if (workspaceMode === "hidden") {
         requestExpand();
       }
+      navigateToWorkspace(target.id);
       onClose();
       return;
     }
 
-    switchWorkspace(target.id);
+    navigateToWorkspace(target.id);
     onClose();
   }
 

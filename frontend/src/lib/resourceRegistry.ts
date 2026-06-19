@@ -3,6 +3,7 @@
 // 各功能面板将在对应里程碑（SSH/数据库等）逐步改用 connectionStore 的真实数据。
 
 import { getCachedOpenSshHosts, getOpenSshHostResource } from "./sshConfigHosts";
+import { MODULE_PATHS, isWorkspacePath } from "./paths";
 
 export type ResourceType =
   | "workspace"
@@ -58,7 +59,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "terminal",
     name: "本地终端",
     subtitle: "PowerShell · c:\\Users\\chaoj\\dev\\omnipanel",
-    modulePath: "/terminal",
+    modulePath: MODULE_PATHS.terminal,
     environment: "local",
     status: "running",
     tags: ["PTY", "Blocks"],
@@ -68,7 +69,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "ssh",
     name: "prod-web-01",
     subtitle: "deploy@192.168.1.100:22",
-    modulePath: "/ssh",
+    modulePath: MODULE_PATHS.ssh,
     environment: "prod",
     status: "online",
     group: "生产",
@@ -80,7 +81,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "ssh",
     name: "prod-web-02",
     subtitle: "deploy@192.168.1.101:22",
-    modulePath: "/ssh",
+    modulePath: MODULE_PATHS.ssh,
     environment: "prod",
     status: "online",
     group: "生产",
@@ -92,7 +93,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "ssh",
     name: "staging-bastion",
     subtitle: "ops@10.0.8.12:22",
-    modulePath: "/ssh",
+    modulePath: MODULE_PATHS.ssh,
     environment: "staging",
     status: "warning",
     group: "预发",
@@ -104,7 +105,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "database",
     name: "postgres-main",
     subtitle: "PostgreSQL 16 · orders / users / billing",
-    modulePath: "/database",
+    modulePath: MODULE_PATHS.database,
     environment: "prod",
     status: "warning",
     tags: ["SQL", "只读建议"],
@@ -115,7 +116,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "database",
     name: "redis-cache",
     subtitle: "Redis 7 · cache layer",
-    modulePath: "/database",
+    modulePath: MODULE_PATHS.database,
     environment: "prod",
     status: "online",
     tags: ["Cache", "KV"],
@@ -125,7 +126,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "docker",
     name: "prod-web-01",
     subtitle: "远程 Docker · 6 容器",
-    modulePath: "/docker",
+    modulePath: MODULE_PATHS.docker,
     environment: "prod",
     status: "online",
     tags: ["Remote", "Compose"],
@@ -135,7 +136,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "docker",
     name: "staging-api",
     subtitle: "远程 Docker · 4 容器",
-    modulePath: "/docker",
+    modulePath: MODULE_PATHS.docker,
     environment: "staging",
     status: "online",
     tags: ["Remote", "Logs"],
@@ -145,7 +146,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "docker",
     name: "dev-local",
     subtitle: "4 个运行容器 · 2 个停止容器",
-    modulePath: "/docker",
+    modulePath: MODULE_PATHS.docker,
     environment: "dev",
     status: "online",
     tags: ["Compose", "Logs"],
@@ -156,7 +157,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "ssh",
     name: "staging-api",
     subtitle: "ubuntu@10.0.2.15:22",
-    modulePath: "/ssh",
+    modulePath: MODULE_PATHS.ssh,
     environment: "staging",
     status: "online",
     tags: ["SSH", "SFTP"],
@@ -167,7 +168,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "server",
     name: "staging-api",
     subtitle: "Ubuntu 22.04 · API 与 worker",
-    modulePath: "/server",
+    modulePath: MODULE_PATHS.server,
     environment: "staging",
     status: "warning",
     tags: ["监控", "日志"],
@@ -178,7 +179,7 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
     type: "protocol",
     name: "MQTT 调试会话",
     subtitle: "broker.local:1883 · topic /devices/#",
-    modulePath: "/protocol",
+    modulePath: MODULE_PATHS.protocol,
     environment: "dev",
     status: "idle",
     tags: ["MQTT", "WebSocket"],
@@ -216,11 +217,11 @@ export function getServerMonitorResources(resources: WorkspaceResource[] = SEED_
 }
 
 export function getResourcesByPath(pathname: string) {
-  if (pathname === "/") return SEED_RESOURCES;
-  if (pathname === "/ssh") {
+  if (isWorkspacePath(pathname) || pathname === "/") return SEED_RESOURCES;
+  if (pathname === MODULE_PATHS.ssh) {
     return [];
   }
-  if (pathname === "/server") {
+  if (pathname === MODULE_PATHS.server) {
     return [];
   }
   return SEED_RESOURCES.filter((resource) => resource.modulePath === pathname);

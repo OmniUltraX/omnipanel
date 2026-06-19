@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useWorkspacePreviewCollapseStore } from "../../stores/workspacePreviewCollapseStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export interface WorkspacePreviewProps {
   children: ReactNode;
@@ -17,26 +18,21 @@ export interface WorkspacePreviewProps {
 const MAX_HEIGHT_RATIO = 0.3;
 /** 拖拽分隔条的固定高度（px） */
 const HANDLE_HEIGHT_PX = 5;
-/** 测试用卡片数量 */
-const TEST_CARD_COUNT = 6;
 
 function computeMaxPx(): number {
   return Math.floor(window.innerHeight * MAX_HEIGHT_RATIO);
 }
 
-const TEST_CARDS = Array.from({ length: TEST_CARD_COUNT }, (_, i) => ({
-  id: i + 1,
-  title: `工作区 ${i + 1}`,
-  subtitle: `dev / project-${i + 1}`,
-}));
-
 /**
  * 工作区预览布局骨架（CSS Grid）。
  * 上方主内容区 + 拖拽分隔条 + 下方预览卡片区。
- * 底部预览栏高度可在 0 ~ 30% 窗口高度之间拖拽调整；收起/展开由 store 驱动。
+ * 底部预览栏显示真实工作区卡片，高亮当前工作区，点击可切换。
  */
 export function WorkspacePreview({ children, className }: WorkspacePreviewProps) {
   const isOpen = useWorkspacePreviewCollapseStore((state) => state.isOpen);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const currentId = useWorkspaceStore((state) => state.workspace.id);
+  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
   const [maxPx, setMaxPx] = useState(computeMaxPx);
   const [heightPx, setHeightPx] = useState(computeMaxPx);
   const [isDragging, setIsDragging] = useState(false);
@@ -111,14 +107,21 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
       />
       <div className="workspace-preview__sidebar" hidden={!isOpen}>
         <div className="workspace-preview__cards">
-          {TEST_CARDS.map((card) => (
-            <div key={card.id} className="workspace-preview__card">
+          {workspaces.map((ws) => (
+            <button
+              key={ws.id}
+              type="button"
+              className={`workspace-preview__card${ws.id === currentId ? " workspace-preview__card--active" : ""}`}
+              onClick={() => switchWorkspace(ws.id)}
+            >
               <div className="workspace-preview__card-thumb" />
               <div className="workspace-preview__card-meta">
-                <div className="workspace-preview__card-title">{card.title}</div>
-                <div className="workspace-preview__card-subtitle">{card.subtitle}</div>
+                <div className="workspace-preview__card-title">{ws.name}</div>
+                <div className="workspace-preview__card-subtitle">
+                  {ws.description || ws.id}
+                </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>

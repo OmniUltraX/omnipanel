@@ -496,6 +496,13 @@ export const zhCN = {
     settings: "设置",
     default: "OmniPanel",
   },
+  workspace: {
+    detail: {
+      tabs: {
+        overview: "概览",
+      },
+    },
+  },
   env: {
     prod: "生产",
     staging: "预发",
