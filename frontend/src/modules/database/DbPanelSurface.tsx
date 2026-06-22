@@ -1,4 +1,5 @@
 import { useMemo, memo, useCallback } from "react";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useDbWorkspace } from "../../contexts/DbWorkspaceContext";
 import type { SqlWorkspaceTab } from "./workspaceTabs";
 import { DockLayout, DockHandle, DockPanel } from "../../components/dock";
@@ -18,6 +19,8 @@ interface DbPanelSurfaceProps {
 export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
+  const moduleSuspended = useModuleSuspended();
+  const editorActive = ws.activeTabId === tab.id && !moduleSuspended;
 
   const tabState = ws.sqlTabStates[tab.id] ?? createDefaultSqlTabState();
   const preview = ws.tablePreviews[tab.id];
@@ -268,6 +271,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
       </div>
       <SqlEditor
         key={tab.id}
+        editorActive={editorActive}
         openMode={ws.tabModeToEditorOpenMode(mode)}
         value={tabState.sql}
         onChange={(value) => ws.updateSqlTabState(tab.id, { sql: value })}

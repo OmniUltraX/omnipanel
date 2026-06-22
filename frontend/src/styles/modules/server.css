@@ -1,0 +1,1537 @@
+@layer components {
+
+    .ssh-layout {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        flex-direction: column;
+    }
+
+    .ssh-layout--embedded {
+        height: 100%;
+    }
+
+    .host-list-panel {
+        width: 100%;
+        min-width: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        background: var(--bg-deeper);
+        overflow: hidden;
+    }
+
+    .host-list-header {
+        padding: var(--sp-3) var(--sp-4);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .host-list-header h3 {
+        font-size: 13px;
+        font-weight: 600;
+        flex: 1;
+    }
+
+    .host-list-search {
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .host-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--sp-2);
+    }
+
+    .host-item-row {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        width: 100%;
+        border-radius: var(--r-sm);
+        transition: background 0.12s;
+    }
+
+    .host-item-row:hover:not(.active) {
+        background: var(--surface);
+    }
+
+    .host-item-row.active {
+        background: var(--accent-soft);
+    }
+
+    .host-item-row .host-item {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .host-item-row.active .host-icon {
+        background: var(--accent);
+        color: #fff;
+    }
+
+    .host-connect-btn {
+        flex-shrink: 0;
+        align-self: center;
+        margin-right: var(--sp-2);
+        padding: 2px 8px;
+        font-size: 11px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--fg-2);
+        cursor: pointer;
+    }
+
+    .host-connect-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
+    .host-group {
+        margin-bottom: var(--sp-1);
+    }
+
+    .host-group-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        width: 100%;
+        padding: var(--sp-2) var(--sp-2);
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-2);
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .host-group-header:hover {
+        background: var(--surface);
+        color: var(--fg);
+    }
+
+    .host-group-chevron {
+        width: 16px;
+        height: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: var(--meta);
+        transition: transform 0.15s;
+    }
+
+    .host-group-chevron--open {
+        transform: rotate(90deg);
+    }
+
+    .host-group-title {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .host-group-count {
+        flex-shrink: 0;
+        font-size: 10px;
+    }
+
+    .host-group-body {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding-left: var(--sp-1);
+    }
+
+    .host-item {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        width: 100%;
+        min-width: 0;
+        text-align: left;
+        border: none;
+        background: transparent;
+        font: inherit;
+        color: inherit;
+    }
+
+    .host-item .host-icon {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        background: var(--surface);
+        border-radius: var(--r-sm);
+        color: var(--muted);
+        flex-shrink: 0;
+    }
+
+    .host-item .host-icon svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .host-item .host-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .host-item .host-row-1 {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .host-item .host-name {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .host-item .host-row-2 {
+        font-size: 11px;
+        color: var(--meta);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .host-panel-badge {
+        flex-shrink: 0;
+        padding: 2px 8px;
+        border-radius: var(--r-sm);
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+        line-height: 1.4;
+        align-self: center;
+        margin-right: var(--sp-2);
+    }
+
+    .host-status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .host-status--online {
+        background: var(--success);
+        box-shadow: 0 0 0 2px var(--success-soft);
+    }
+
+    .host-status--offline {
+        background: var(--muted);
+    }
+
+    .host-status--connecting {
+        background: var(--success);
+        box-shadow: 0 0 0 2px var(--success-soft);
+    }
+
+    .host-status--pulse {
+        animation: pulse-dot 1.2s ease-in-out infinite;
+    }
+
+    .host-status--error {
+        background: var(--muted);
+    }
+
+    .host-status--unknown {
+        background: var(--border);
+    }
+
+    .host-monitoring-badge {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .host-monitoring-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--warn);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 30%, transparent);
+        animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.45;
+        }
+    }
+
+    .ssh-detail-status {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        font-size: 11px;
+        color: var(--meta);
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .ssh-detail-status .host-status {
+        width: 7px;
+        height: 7px;
+    }
+
+    .ssh-detail {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+    }
+
+    .ssh-detail-header {
+        padding: var(--sp-4) var(--sp-6);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: var(--sp-4);
+    }
+
+    .ssh-detail-header .host-title {
+        font-size: 18px;
+        font-weight: 700;
+    }
+
+    .ssh-detail-header .host-addr-detail {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .ssh-detail-tabs {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-4);
+        border-bottom: 1px solid var(--border);
+        padding: 0 var(--sp-6);
+    }
+
+    .ssh-detail-tabs-list {
+        display: flex;
+        gap: 0;
+        min-width: 0;
+        overflow-x: auto;
+    }
+
+    .ssh-monitor-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-left: auto;
+        flex-shrink: 0;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .ssh-monitor-switch-label {
+        font-size: 11px;
+        color: var(--meta);
+        white-space: nowrap;
+    }
+
+    .ssh-monitor-switch-btn {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--bg-deeper);
+        padding: 0;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+
+    .ssh-monitor-switch-btn.active {
+        background: color-mix(in srgb, var(--success) 35%, var(--bg-deeper));
+        border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+    }
+
+    .ssh-monitor-switch-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .ssh-monitor-switch-thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--muted);
+        transition: transform 0.15s, background 0.15s;
+    }
+
+    .ssh-monitor-switch-btn.active .ssh-monitor-switch-thumb {
+        transform: translateX(16px);
+        background: var(--success);
+    }
+
+    .ssh-detail-tab {
+        padding: var(--sp-3) var(--sp-4);
+        font-size: 12px;
+        color: var(--muted);
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: color 0.12s, border-color 0.12s;
+    }
+
+    .ssh-detail-tab:hover {
+        color: var(--fg);
+    }
+
+    .ssh-detail-tab.active {
+        color: var(--fg);
+        border-bottom-color: var(--accent);
+    }
+
+    .ssh-detail-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--sp-6);
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .ssh-detail-body--terminal {
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .ssh-detail-body--overview {
+        overflow: hidden;
+    }
+
+    .ssh-terminal-tab-slot {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .ssh-terminal-tab-slot[hidden] {
+        display: none !important;
+    }
+
+    .ssh-detail-body>.ssh-terminal-panel,
+    .ssh-terminal-tab-slot>.ssh-terminal-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+        border: none;
+        border-radius: 0;
+        overflow: hidden;
+        background: var(--bg-deeper);
+    }
+
+    .ssh-terminal-workspace .term-panes {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .ssh-terminal-panel {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
+        background: var(--bg-deeper);
+    }
+
+    .ssh-terminal-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-deeper);
+        flex-shrink: 0;
+        font-size: 11px;
+    }
+
+    .ssh-terminal-host {
+        font-weight: 600;
+        color: var(--fg-2);
+    }
+
+    .ssh-terminal-status {
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    .ssh-terminal-status--connecting {
+        background: var(--warn-soft);
+        color: var(--warn);
+    }
+
+    .ssh-terminal-status--connected {
+        background: var(--success-soft);
+        color: var(--success);
+    }
+
+    .ssh-terminal-status--disconnected {
+        background: color-mix(in oklch, var(--surface) 82%, transparent);
+        color: var(--meta);
+    }
+
+    .ssh-terminal-viewport {
+        flex: 1;
+        min-height: 0;
+        padding: 0 !important;
+        overflow: hidden;
+    }
+
+    .ssh-terminal-empty {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        padding: var(--sp-6);
+        color: var(--meta);
+        font-size: 13px;
+        text-align: center;
+    }
+
+    .sftp-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) 0;
+        margin-bottom: var(--sp-3);
+    }
+
+    .sftp-path {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .sftp-path span {
+        cursor: pointer;
+    }
+
+    .sftp-path span:hover {
+        color: var(--fg);
+    }
+
+    .sftp-path .sep {
+        color: var(--border);
+    }
+
+    .quick-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--sp-3);
+        margin-bottom: var(--sp-6);
+    }
+
+    .quick-stat {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: var(--sp-3) var(--sp-4);
+    }
+
+    .quick-stat .stat-label {
+        font-size: 10px;
+        color: var(--meta);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .quick-stat .stat-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--fg);
+        margin-top: var(--sp-1);
+    }
+
+    .quick-stat .stat-unit {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 400;
+    }
+
+    .conn-actions {
+        display: flex;
+        gap: var(--sp-2);
+        margin-top: var(--sp-6);
+    }
+
+    .ssh-workbench-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
+        gap: var(--sp-4);
+        align-items: start;
+    }
+
+    .ssh-side-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+    }
+
+    .ssh-session-grid {
+        display: grid;
+        gap: var(--sp-3);
+    }
+
+    .ssh-launch-card {
+        width: 100%;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: var(--r-md);
+        padding: var(--sp-3);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .ssh-launch-card:hover {
+        border-color: var(--accent);
+    }
+
+    .ssh-launch-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-2);
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .ssh-launch-desc {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+    }
+
+    .ssh-module-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .ssh-module-item {
+        width: 100%;
+        padding: var(--sp-3);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: var(--r-sm);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .ssh-module-item:hover {
+        border-color: var(--accent);
+    }
+
+    /* SSH Overview cards */
+    .ssh-ov-page {
+        padding: var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .ssh-ov-page > .ssh-ov {
+        flex: 0 0 auto;
+        padding: 0;
+        overflow: visible;
+    }
+
+    .ssh-ov-page > .proc-panel {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .ssh-ov {
+        padding: var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .ssh-ov--loading,
+    .ssh-ov--error {
+        align-items: center;
+        justify-content: center;
+        min-height: 240px;
+    }
+
+    .ssh-ov-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--sp-4);
+        color: var(--meta);
+        font-size: 13px;
+    }
+
+    .ssh-ov-loading-spinner {
+        width: 28px;
+        height: 28px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin-dot .8s linear infinite;
+    }
+
+    .ssh-ov-error-text {
+        color: var(--danger);
+        margin: 0;
+        text-align: center;
+        max-width: 360px;
+    }
+
+    .ssh-ov-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .ssh-ov-toolbar h3 {
+        font-size: 15px;
+        font-weight: 700;
+    }
+
+    .ssh-ov-cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--sp-4);
+        flex-shrink: 0;
+    }
+
+    .ssh-ov-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: var(--sp-5);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .ssh-ov-card:hover {
+        border-color: var(--border-focus);
+        box-shadow: 0 0 0 1px var(--border-focus);
+    }
+
+    .ssh-ov-card-head {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+    }
+
+    .ssh-ov-card-icon {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r-md);
+    }
+
+    .ssh-ov-card-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--meta);
+    }
+
+    .ssh-ov-card-pct {
+        font-size: 32px;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .ssh-ov-card-bar {
+        margin-top: var(--sp-1);
+    }
+
+    .ssh-ov-card-bar-track {
+        width: 100%;
+        height: 6px;
+        background: var(--bg-deeper);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .ssh-ov-card-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.4s ease;
+    }
+
+    .ssh-ov-card-details {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        border-top: 1px solid var(--border-soft);
+        padding-top: var(--sp-3);
+    }
+
+    .ssh-ov-card-details li {
+        font-size: 12px;
+        color: var(--fg-2);
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .ssh-ov-card-details li::before {
+        content: "";
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--meta);
+        flex-shrink: 0;
+    }
+
+    .ssh-ov--compact {
+        padding: 0;
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .ssh-ov--compact .ssh-ov-cards {
+        grid-template-columns: 1fr;
+        gap: var(--sp-2);
+    }
+
+    .ssh-ov--compact .ssh-ov-card {
+        padding: var(--sp-3);
+        gap: var(--sp-2);
+    }
+
+    .ssh-ov--compact .ssh-ov-card-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    .ssh-ov--compact .ssh-ov-card-pct {
+        font-size: 22px;
+    }
+
+    .ssh-ov--compact .ssh-ov-card-details {
+        font-size: 11px;
+    }
+
+    /* SFTP panel */
+    .sftp-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        height: 100%;
+    }
+
+    .sftp-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    .sftp-path {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 2px 8px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+    }
+
+    .sftp-path--editing {
+        padding: 1px 8px;
+    }
+
+    .sftp-path-crumbs {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .sftp-path-edit-hit {
+        flex: 1;
+        align-self: stretch;
+        min-width: 24px;
+        min-height: 22px;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: text;
+    }
+
+    .sftp-path-input {
+        flex: 1;
+        width: 100%;
+        min-width: 0;
+        padding: 2px 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+    }
+
+    .sftp-path-seg {
+        background: none;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        font: inherit;
+        padding: 2px 0;
+    }
+
+    .sftp-path-seg:hover {
+        text-decoration: underline;
+    }
+
+    .sftp-path-sep {
+        color: var(--meta);
+        margin: 0 2px;
+    }
+
+    .sftp-path-group {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .sftp-mkdir-bar {
+        display: flex;
+        gap: var(--sp-2);
+        align-items: center;
+    }
+
+    .sftp-error {
+        font-size: 12px;
+        color: var(--danger);
+        padding: var(--sp-2) 0;
+    }
+
+    .sftp-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .sftp-table th {
+        text-align: left;
+        padding: var(--sp-1) var(--sp-2);
+        border-bottom: 1px solid var(--border);
+        color: var(--meta);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+    }
+
+    .sftp-table td {
+        padding: var(--sp-1) var(--sp-2);
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .sftp-row-dir td {
+        background: var(--surface);
+    }
+
+    .sftp-row-dir td:hover {
+        background: var(--surface-hover);
+    }
+
+    .sftp-row-file td:hover {
+        background: var(--hover);
+    }
+
+    .sftp-col-name {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        cursor: default;
+        min-width: 0;
+    }
+
+    .sftp-row-dir .sftp-col-name {
+        cursor: pointer;
+    }
+
+    .sftp-name-dir {
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .sftp-name-file {
+        color: var(--fg-2);
+    }
+
+    .sftp-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: var(--muted);
+    }
+
+    .sftp-col-size {
+        width: 80px;
+        color: var(--meta);
+    }
+
+    .sftp-col-actions {
+        width: 32px;
+        text-align: center;
+    }
+
+    .sftp-action-btn {
+        background: none;
+        border: none;
+        color: var(--meta);
+        cursor: pointer;
+        padding: 2px;
+        border-radius: var(--r-sm);
+        transition: color 0.12s, background 0.12s;
+    }
+
+    .sftp-action-btn:hover {
+        color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    .sftp-quick-paths {
+        display: flex;
+        gap: var(--sp-2);
+        padding-top: var(--sp-2);
+        border-top: 1px solid var(--border);
+    }
+
+    .sftp-quick-btn {
+        font-size: 11px;
+        padding: 2px 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg-2);
+        cursor: pointer;
+        transition: all 0.12s;
+    }
+
+    .sftp-quick-btn:hover {
+        background: var(--hover);
+        color: var(--accent);
+        border-color: var(--accent);
+    }
+
+    .sftp-quick-paths--top {
+        padding-top: 0;
+        border-top: none;
+        flex-shrink: 0;
+    }
+
+    .sftp-table-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+    }
+
+    .sftp-row-selected td {
+        background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+    }
+
+    .sftp-context-menu {
+        position: fixed;
+        z-index: 1200;
+        min-width: 148px;
+        padding: var(--sp-1) 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .sftp-ctx-item {
+        display: block;
+        width: 100%;
+        padding: var(--sp-2) var(--sp-3);
+        border: none;
+        background: none;
+        text-align: left;
+        font-size: 12px;
+        color: var(--fg);
+        cursor: pointer;
+    }
+
+    .sftp-ctx-item:hover {
+        background: var(--hover);
+    }
+
+    .sftp-ctx-item--danger {
+        color: var(--danger);
+    }
+
+    .sftp-ctx-item--danger:hover {
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    .sftp-status-bar {
+        flex-shrink: 0;
+        padding: var(--sp-1) var(--sp-2);
+        font-size: 11px;
+        color: var(--meta);
+        border-top: 1px solid var(--border);
+    }
+
+    .sftp-info {
+        font-size: 12px;
+        color: var(--warn);
+        padding: var(--sp-1) 0;
+    }
+
+    .sftp-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 120px;
+        padding: var(--sp-4);
+        font-size: 12px;
+        color: var(--meta);
+        text-align: center;
+    }
+
+    .ssh-tunnel-dialog-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+    }
+
+    .ssh-tunnel-dialog-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--sp-2);
+    }
+
+    .ssh-tunnel-dialog-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        font-size: 12px;
+        color: var(--meta);
+    }
+
+    .ssh-tunnel-dialog-field .input,
+    .ssh-tunnel-dialog-field .select {
+        width: 100%;
+    }
+
+    /* Monitor panel */
+    .monitor-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        padding: var(--sp-4);
+    }
+
+    .monitor-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+    }
+
+    .monitor-toolbar-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .monitor-hint {
+        font-size: 12px;
+        color: var(--meta);
+        padding: var(--sp-2) var(--sp-3);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+    }
+
+    .ssh-ov-refresh-hint {
+        font-size: 11px;
+        color: var(--meta);
+        margin-bottom: var(--sp-2);
+    }
+
+    .monitor-chart-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--sp-4);
+    }
+
+    .monitor-chart {
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        overflow: hidden;
+    }
+
+    .monitor-chart-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .monitor-chart-label {
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .monitor-chart-value {
+        font-size: 13px;
+        font-weight: 700;
+        font-family: var(--font-mono);
+    }
+
+    .monitor-chart-svg {
+        width: 100%;
+        height: auto;
+    }
+
+    .monitor-chart-empty {
+        padding: var(--sp-8);
+        text-align: center;
+        color: var(--meta);
+        font-size: 12px;
+    }
+
+    /* Tunnel panel */
+    .tunnel-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        height: 100%;
+    }
+
+    .tunnel-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .tunnel-label {
+        font-size: 13px;
+        font-weight: 600;
+        flex: 1;
+    }
+
+    .tunnel-create {
+        display: flex;
+        gap: var(--sp-2);
+        align-items: center;
+        padding: var(--sp-2);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+    }
+
+    .tunnel-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .tunnel-item {
+        position: relative;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: var(--sp-3);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        background: var(--bg);
+    }
+
+    .tunnel-item-main {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        font-size: 13px;
+    }
+
+    .tunnel-endpoint {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--fg-2);
+    }
+
+    .tunnel-bind-badge {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+    }
+
+    .tunnel-bind-badge.ipv4 {
+        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        color: var(--accent);
+    }
+
+    .tunnel-bind-badge.ipv6 {
+        background: color-mix(in srgb, var(--success) 15%, transparent);
+        color: var(--success);
+    }
+
+    .tunnel-command {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--meta);
+        background: var(--bg-deeper);
+        padding: var(--sp-1) var(--sp-2);
+        border-radius: var(--r-sm);
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .tunnel-delete-btn {
+        position: absolute;
+        top: var(--sp-2);
+        right: var(--sp-2);
+        background: none;
+        border: none;
+        color: var(--meta);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: var(--r-sm);
+        transition: color 0.12s, background 0.12s;
+    }
+
+    .tunnel-delete-btn:hover {
+        color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    /* Host list enhancements */
+    .host-list-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+    }
+
+    @keyframes icon-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .icon-spin {
+        animation: icon-spin 0.8s linear infinite;
+        transform-origin: center;
+    }
+
+    /* 全局资源标签 */
+    .resource-tags {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .resource-tag {
+        display: inline-flex;
+        align-items: center;
+        max-width: 140px;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 0;
+        color: var(--meta);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+
+    .resource-tag--os {
+        color: var(--fg-2);
+        background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+        border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+    }
+
+    .resource-tag--detail {
+        font-size: 11px;
+        padding: 2px 8px;
+        max-width: 220px;
+    }
+
+    .resource-tag--detail.resource-tag--os {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+
+    .resource-tag--kernel,
+    .resource-tag--arch {
+        color: var(--fg-2);
+    }
+
+    .resource-tag--custom {
+        color: var(--muted);
+    }
+
+    .resource-tag-editor {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+    }
+
+    .resource-tag-editor-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .resource-tag-editor-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--fg-2);
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .resource-tag-editor-hint {
+        font-weight: 400;
+        color: var(--muted);
+        font-size: 11px;
+    }
+
+    .resource-tag-editor-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .resource-tag-editor-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px 2px 8px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        font-size: 12px;
+        color: var(--fg-2);
+        max-width: 200px;
+    }
+
+    .resource-tag-editor-chip-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .resource-tag-editor-chip-remove {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        border-radius: 2px;
+        font-size: 14px;
+        line-height: 1;
+    }
+
+    .resource-tag-editor-chip-remove:hover {
+        color: var(--fg);
+        background: color-mix(in srgb, var(--danger) 12%, transparent);
+    }
+
+    .resource-tag-editor-add {
+        display: flex;
+        gap: var(--sp-2);
+        align-items: center;
+    }
+}

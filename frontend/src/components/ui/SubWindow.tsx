@@ -17,6 +17,10 @@ import {
   unregisterMinimizedSubWindow,
 } from "../../lib/subWindowMinimizedRegistry";
 import {
+  dispatchDebouncedWindowResize,
+  dispatchSubWindowResize,
+} from "../../lib/subWindowResize";
+import {
   clampSubWindowGeometry,
   createCenteredSubWindowGeometry,
   maximizedSubWindowGeometry,
@@ -122,6 +126,7 @@ export function SubWindow({
       if (visualState === "normal") {
         setGeometry((current) => clampSubWindowGeometry(current));
       }
+      dispatchDebouncedWindowResize();
     };
     window.addEventListener("resize", handleViewportResize);
     return () => window.removeEventListener("resize", handleViewportResize);
@@ -130,10 +135,10 @@ export function SubWindow({
   useEffect(() => {
     if (!open || visualState === "minimized") return;
     const frame = requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("resize"));
+      dispatchSubWindowResize(subWindowId);
     });
     return () => cancelAnimationFrame(frame);
-  }, [geometry, open, visualState]);
+  }, [geometry, open, visualState, subWindowId]);
 
   const handleRestoreFromMinimized = useCallback(() => {
     const snapshot = preMinimizeSnapshotRef.current;

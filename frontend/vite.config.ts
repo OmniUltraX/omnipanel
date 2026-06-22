@@ -67,6 +67,27 @@ export default defineConfig({
     target: ["es2022", "chrome120", "safari16"],
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/monaco-editor") || id.includes("@monaco-editor/react")) {
+            return "vendor-monaco";
+          }
+          if (id.includes("node_modules/@xterm/")) {
+            return "vendor-xterm";
+          }
+          if (id.includes("node_modules/dockview") || id.includes("node_modules/dockview-react")) {
+            return "vendor-dockview";
+          }
+          if (
+            id.includes("node_modules/@milkdown/") ||
+            id.includes("node_modules/prosemirror")
+          ) {
+            return "vendor-milkdown";
+          }
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

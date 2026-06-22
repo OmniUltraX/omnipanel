@@ -22,27 +22,17 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
 import { QuickInputHost } from "./components/ui/QuickInputHost";
 import { Button } from "./components/ui/Button";
+import { SuspendedModulePanel } from "./components/ui/SuspendedModulePanel";
 import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
 import { WorkspaceBottomHost } from "./components/workspace/WorkspaceBottomHost";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import { WindowResize } from "./components/shell/WindowResize";
-import { UserWorkspace } from "./modules/workspace/UserWorkspace";
-import { DashboardPage } from "./modules/workspace/DashboardPage";
-import { TerminalPanel } from "./modules/terminal/TerminalPanel";
-import { DatabasePanel } from "./modules/database/DatabasePanel";
-import { DockerPanel } from "./modules/docker/DockerPanel";
-import { ServerPanel } from "./modules/server/ServerPanel";
-import { SshPanel } from "./modules/server/SshPanel";
-import { ProtocolPanel } from "./modules/protocol/ProtocolPanel";
-import { WorkflowPanel } from "./modules/workflow/WorkflowPanel";
-import { KnowledgePanel } from "./modules/knowledge/KnowledgePanel";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { SubWindowMinimizedStack } from "./components/ui/SubWindowMinimizedStack";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
-import { FilesPanel } from "./modules/files/FilesPanel";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
@@ -58,6 +48,19 @@ import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./lib/paths";
+import {
+  LazyDashboardPage,
+  LazyDatabasePanel,
+  LazyDockerPanel,
+  LazyFilesPanel,
+  LazyKnowledgePanel,
+  LazyProtocolPanel,
+  LazyServerPanel,
+  LazySshPanel,
+  LazyTerminalPanel,
+  LazyUserWorkspace,
+  LazyWorkflowPanel,
+} from "./routes/lazyModules";
 
 function TopbarPageActions() {
   const { t } = useI18n();
@@ -377,17 +380,29 @@ function AppShell() {
       <div
         className={`route-panel${isTerminal ? " route-panel--active" : ""}`}
       >
-        {terminalMounted && <TerminalPanel />}
+        {terminalMounted && (
+          <SuspendedModulePanel active={isTerminal}>
+            <LazyTerminalPanel />
+          </SuspendedModulePanel>
+        )}
       </div>
       <div
         className={`route-panel${isDocker ? " route-panel--active" : ""}`}
       >
-        {dockerMounted && <DockerPanel />}
+        {dockerMounted && (
+          <SuspendedModulePanel active={isDocker}>
+            <LazyDockerPanel />
+          </SuspendedModulePanel>
+        )}
       </div>
       <div
         className={`route-panel${isDatabase ? " route-panel--active" : ""}`}
       >
-        {databaseMounted && <DatabasePanel />}
+        {databaseMounted && (
+          <SuspendedModulePanel active={isDatabase}>
+            <LazyDatabasePanel />
+          </SuspendedModulePanel>
+        )}
       </div>
       <div
         className={`route-panel${!isTerminal && !isDocker && !isDatabase ? " route-panel--active" : ""}`}
@@ -395,17 +410,73 @@ function AppShell() {
         {otherRoutesMounted && (
           <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
-            <Route path={DASHBOARD_PATH} element={<DashboardPage />} />
-            <Route path={`${WORKSPACE_PATHS.list}/:workspaceId`} element={<UserWorkspace />} />
+            <Route
+              path={DASHBOARD_PATH}
+              element={
+                <SuspendedModulePanel active={location.pathname === DASHBOARD_PATH}>
+                  <LazyDashboardPage />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={`${WORKSPACE_PATHS.list}/:workspaceId`}
+              element={
+                <SuspendedModulePanel active={isWorkspacePath(location.pathname)}>
+                  <LazyUserWorkspace />
+                </SuspendedModulePanel>
+              }
+            />
             <Route path={MODULE_PATHS.terminal} element={null} />
-            <Route path={MODULE_PATHS.ssh} element={<SshPanel />} />
+            <Route
+              path={MODULE_PATHS.ssh}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.ssh}>
+                  <LazySshPanel />
+                </SuspendedModulePanel>
+              }
+            />
             <Route path={MODULE_PATHS.database} element={null} />
             <Route path={MODULE_PATHS.docker} element={null} />
-            <Route path={MODULE_PATHS.server} element={<ServerPanel />} />
-            <Route path={MODULE_PATHS.protocol} element={<ProtocolPanel />} />
-            <Route path={MODULE_PATHS.workflow} element={<WorkflowPanel />} />
-            <Route path={MODULE_PATHS.knowledge} element={<KnowledgePanel />} />
-            <Route path={MODULE_PATHS.files} element={<FilesPanel />} />
+            <Route
+              path={MODULE_PATHS.server}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.server}>
+                  <LazyServerPanel />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={MODULE_PATHS.protocol}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.protocol}>
+                  <LazyProtocolPanel />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={MODULE_PATHS.workflow}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.workflow}>
+                  <LazyWorkflowPanel />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={MODULE_PATHS.knowledge}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.knowledge}>
+                  <LazyKnowledgePanel />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={MODULE_PATHS.files}
+              element={
+                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.files}>
+                  <LazyFilesPanel />
+                </SuspendedModulePanel>
+              }
+            />
             <Route path="*" element={<Navigate to={DASHBOARD_PATH} replace />} />
           </Routes>
         )}

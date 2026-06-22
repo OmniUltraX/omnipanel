@@ -1,0 +1,3 @@
+@layer components {
+  /* 文件管理样式仍保留在 global.css 末尾；lazy 路由占位，便于后续迁移。 */
+}

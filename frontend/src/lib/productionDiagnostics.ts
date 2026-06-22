@@ -8,7 +8,19 @@ function formatError(reason: unknown): string {
   if (reason instanceof Error) {
     return reason.stack ?? `${reason.name}: ${reason.message}`;
   }
-  return String(reason);
+  if (typeof reason === "string") return reason;
+  if (reason == null || typeof reason === "number" || typeof reason === "boolean") {
+    return String(reason);
+  }
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    try {
+      return String(reason);
+    } catch {
+      return "[unserializable value]";
+    }
+  }
 }
 
 /** 浏览器在 ResizeObserver 同帧反馈布局时的已知无害告警，非应用逻辑错误。 */

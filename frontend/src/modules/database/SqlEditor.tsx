@@ -28,6 +28,8 @@ interface SqlEditorProps {
   readOnly?: boolean;
   /** 在只读模式下高亮匹配的搜索词（用于 ScopedSearch 宿主内的 Monaco）。 */
   highlightQuery?: string;
+  /** false 时不挂载 Monaco（非 active Tab 或模块 suspend 时释放实例）。 */
+  editorActive?: boolean;
 }
 
 const THEME_DEFINITIONS: Record<string, MonacoEditor.IStandaloneThemeData> = {
@@ -159,6 +161,7 @@ export function SqlEditor({
   schemas = [],
   readOnly = false,
   highlightQuery = "",
+  editorActive = true,
 }: SqlEditorProps) {
   const disposables = useRef<IDisposable[]>([]);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -400,6 +403,26 @@ export function SqlEditor({
       })),
     );
   }, [value, highlightQuery]);
+
+  useEffect(() => {
+    if (editorActive) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    editorRef.current = null;
+    for (const d of disposables.current) {
+      try {
+        d.dispose();
+      } catch {
+        // ignore
+      }
+    }
+    disposables.current = [];
+    editor.dispose();
+  }, [editorActive]);
+
+  if (!editorActive) {
+    return <div className="sql-monaco-editor sql-monaco-editor--inactive" data-open-mode={openMode} />;
+  }
 
   return (
     <div className="sql-monaco-editor" data-open-mode={openMode}>

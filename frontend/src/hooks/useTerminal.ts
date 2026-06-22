@@ -18,6 +18,7 @@ import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
+import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 
 const TERMINAL_THEME: ITheme = {
@@ -71,6 +72,7 @@ function decodeBase64(b64: string): Uint8Array {
 
 function decodeOutput(data: unknown): Uint8Array | null {
   // 后端统一以 base64 字符串传输（terminal-output / terminal_snapshot）。
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (typeof data === "string") return data.length === 0 ? new Uint8Array(0) : decodeBase64(data);
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -469,7 +471,16 @@ export function useTerminal(
       );
     }
 
+    let outputBatcher: ReturnType<typeof createTerminalOutputBatcher> | null = null;
+
     async function attachOutputListener() {
+      outputBatcher = createTerminalOutputBatcher((merged) => {
+        if (suspendedRef.current) {
+          runtimeRef.current.outputBuffer.push(merged);
+          return;
+        }
+        term?.write(merged);
+      });
       unlistenOutput = await listen<{ session_id: string; data: unknown }>(
         "terminal-output",
         (ev) => {
@@ -478,15 +489,11 @@ export function useTerminal(
           try {
             const bytes = decodeOutput(ev.payload.data);
             if (!bytes) return;
-            if (suspendedRef.current) {
-              runtimeRef.current.outputBuffer.push(bytes);
-              return;
-            }
-            term?.write(bytes);
+            outputBatcher?.push(bytes);
           } catch (e) {
             console.error(`[Terminal ${sessionId}] terminal-output error:`, e);
           }
-        }
+        },
       );
     }
 
@@ -744,6 +751,7 @@ export function useTerminal(
       }
       unlistenOutput?.();
       unlistenEvent?.();
+      outputBatcher?.dispose();
       webglAddon?.dispose();
       if (term) {
         term.dispose();

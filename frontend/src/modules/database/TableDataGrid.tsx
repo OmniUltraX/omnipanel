@@ -17,6 +17,7 @@ import {
   type ColumnDef,
   type ColumnSizingState,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Button } from "../../components/ui/Button";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -510,6 +511,96 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
 
+  const tableRows = table.getRowModel().rows;
+  const useRowVirtualization = !transposed && tableRows.length > 24;
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => wrapRef.current,
+    estimateSize: (index) => rowHeights[index] ?? DEFAULT_ROW_HEIGHT,
+    overscan: 10,
+  });
+  const virtualRows = useRowVirtualization ? rowVirtualizer.getVirtualItems() : null;
+  const paddingTop =
+    virtualRows && virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows && virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+      : 0;
+  const renderedRowIndexes = useRowVirtualization
+    ? virtualRows!.map((item) => item.index)
+    : tableRows.map((row) => row.index);
+
+  const renderBodyRow = (rowIndex: number) => {
+    const row = tableRows[rowIndex];
+    if (!row) return null;
+    const rowHeight = rowHeights[row.index];
+    const isCustomHeight = rowHeight !== undefined;
+    const rowKey = transposed
+      ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
+      : resolveRowKey(row.original, pkCols);
+    const rowDirty = rowKey ? (displayDirtyRowKeys?.has(rowKey) ?? false) : false;
+    const overrideForRow = rowKey ? displayCellOverrides?.[rowKey] : undefined;
+
+    return (
+      <tr
+        key={row.id}
+        data-row-index={row.index}
+        className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
+        style={isCustomHeight ? { height: rowHeight } : undefined}
+        onMouseDown={(event) => {
+          if (!isNearRowBottom(event.currentTarget, event.clientY)) {
+            return;
+          }
+          event.preventDefault();
+          beginRowResize(row.index, event.clientY);
+        }}
+      >
+        {row.getVisibleCells().map((cell) => {
+          const colMeta = transposed ? undefined : columnMetaMap?.[cell.column.id];
+          const canEdit = effectiveOnCellEdit && colMeta;
+          const overrideValue = overrideForRow?.[cell.column.id];
+          const cellDirty = overrideValue !== undefined && rowDirty;
+          const rawValue = overrideValue !== undefined ? overrideValue : cell.getValue();
+          const baseSize = cell.column.getSize();
+          return (
+            <td
+              key={cell.id}
+              data-col-id={cell.column.id}
+              style={buildColumnCellStyle(cell.column.id, baseSize, lastColumnId, fillDelta)}
+              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${transposed && cell.column.id === TRANSPOSE_FIELD_COL ? " db-data-table-cell--field" : ""}`}
+              onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
+              onContextMenu={
+                onRowEdit && !transposed
+                  ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      cellMenuOpenRef.current({
+                        x: event.clientX,
+                        y: event.clientY,
+                        rowIndex: cell.row.index,
+                        column: cell.column.id,
+                        row: cell.row.original,
+                      });
+                    }
+                  : undefined
+              }
+              title={cellToText(rawValue)}
+            >
+              {overrideValue !== undefined
+                ? flexRender(
+                    typeof overrideValue === "object" && overrideValue !== null
+                      ? () => cellToText(overrideValue)
+                      : () => cellToText(overrideValue),
+                    cell.getContext(),
+                  )
+                : flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
+
   return (
     <div className="db-data-table-panel">
     <div
@@ -573,75 +664,17 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           ))}
         </thead>
         <tbody>
-          {table.getRowModel().rows.map((row) => {
-            const rowHeight = rowHeights[row.index];
-            const isCustomHeight = rowHeight !== undefined;
-            const rowKey = transposed
-              ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
-              : resolveRowKey(row.original, pkCols);
-            const rowDirty = rowKey ? (displayDirtyRowKeys?.has(rowKey) ?? false) : false;
-            const overrideForRow = rowKey ? displayCellOverrides?.[rowKey] : undefined;
-
-            return (
-              <tr
-                key={row.id}
-                data-row-index={row.index}
-                className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
-                style={isCustomHeight ? { height: rowHeight } : undefined}
-                onMouseDown={(event) => {
-                  if (!isNearRowBottom(event.currentTarget, event.clientY)) {
-                    return;
-                  }
-                  event.preventDefault();
-                  beginRowResize(row.index, event.clientY);
-                }}
-              >
-                {row.getVisibleCells().map((cell) => {
-                  const colMeta = transposed ? undefined : columnMetaMap?.[cell.column.id];
-                  const canEdit = effectiveOnCellEdit && colMeta;
-                  const overrideValue = overrideForRow?.[cell.column.id];
-                  const cellDirty = overrideValue !== undefined && rowDirty;
-                  const rawValue = overrideValue !== undefined ? overrideValue : cell.getValue();
-                  const cellTitle = cellToText(rawValue);
-                  const baseSize = cell.column.getSize();
-                  return (
-                    <td
-                      key={cell.id}
-                      data-col-id={cell.column.id}
-                      style={buildColumnCellStyle(cell.column.id, baseSize, lastColumnId, fillDelta)}
-                      className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${transposed && cell.column.id === TRANSPOSE_FIELD_COL ? " db-data-table-cell--field" : ""}`}
-                      onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
-                      onContextMenu={
-                        onRowEdit && !transposed
-                          ? (event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              cellMenuOpenRef.current({
-                                x: event.clientX,
-                                y: event.clientY,
-                                rowIndex: cell.row.index,
-                                column: cell.column.id,
-                                row: cell.row.original,
-                              });
-                            }
-                          : undefined
-                      }
-                      title={cellTitle}
-                    >
-                      {overrideValue !== undefined
-                        ? flexRender(
-                            typeof overrideValue === "object" && overrideValue !== null
-                              ? () => cellToText(overrideValue)
-                              : () => cellToText(overrideValue),
-                            cell.getContext(),
-                          )
-                        : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
+          {useRowVirtualization && paddingTop > 0 ? (
+            <tr aria-hidden className="db-data-table-virtual-spacer">
+              <td colSpan={leafColumns.length} style={{ height: paddingTop, padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
+          {renderedRowIndexes.map((rowIndex) => renderBodyRow(rowIndex))}
+          {useRowVirtualization && paddingBottom > 0 ? (
+            <tr aria-hidden className="db-data-table-virtual-spacer">
+              <td colSpan={leafColumns.length} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>

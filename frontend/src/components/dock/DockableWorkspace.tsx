@@ -97,6 +97,8 @@ export interface DockableWorkspaceProps {
   renderPanel: (tabId: string) => ReactNode;
   /** 控制 panel 内容刷新；与 renderPanel 解耦，避免 callback 引用变化导致死循环 */
   panelContentKey?: string;
+  /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
+  panelContentKeysByTab?: Record<string, string>;
   className?: string;
   emptyContent?: ReactNode;
   onTabContextMenu?: (
@@ -183,6 +185,7 @@ export function DockableWorkspace({
   onSavedLayoutChange,
   renderPanel,
   panelContentKey = "default",
+  panelContentKeysByTab,
   className,
   emptyContent,
   onTabContextMenu,
@@ -223,6 +226,7 @@ export function DockableWorkspace({
   const panelContentKeyRef = useRef(panelContentKey);
   panelContentKeyRef.current = panelContentKey;
   const lastBumpedPanelContentKeyRef = useRef<string | null>(null);
+  const prevPanelContentKeysByTabRef = useRef<Record<string, string>>({});
   const onCloseTabRef = useRef(onCloseTab);
   onCloseTabRef.current = onCloseTab;
   const onActiveTabChangeRef = useRef(onActiveTabChange);
@@ -362,6 +366,24 @@ export function DockableWorkspace({
     }
   }, []);
 
+  const bumpPanelContentRevForTabIds = useCallback((api: DockviewApi, tabIds: string[]) => {
+    if (tabIds.length === 0) return;
+    isSyncingRef.current = true;
+    try {
+      for (const tabId of tabIds) {
+        const panel = api.getPanel(tabId);
+        if (!panel) continue;
+        const current = (panel.api.getParameters() ?? {}) as PanelParams;
+        panel.api.updateParameters({
+          ...current,
+          contentRev: (current.contentRev ?? 0) + 1,
+        });
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, []);
+
   // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId + contentRev
   const components = useMemo(
     () => ({
@@ -388,14 +410,32 @@ export function DockableWorkspace({
     [],
   );
 
-  // panelContentKey 变更时 bump contentRev，通知 dockview 重绘 panel 内容
+  // panelContentKey / panelContentKeysByTab 变更时 bump contentRev
   useEffect(() => {
     const api = apiRef.current;
     if (!api || !layoutLoadedRef.current || isSyncingRef.current) return;
+
+    if (panelContentKeysByTab) {
+      const prev = prevPanelContentKeysByTabRef.current;
+      const changedTabIds: string[] = [];
+      for (const tab of tabsRef.current) {
+        const nextKey = panelContentKeysByTab[tab.id];
+        if (nextKey === undefined) continue;
+        if (prev[tab.id] !== nextKey) {
+          changedTabIds.push(tab.id);
+        }
+      }
+      prevPanelContentKeysByTabRef.current = { ...panelContentKeysByTab };
+      if (changedTabIds.length > 0) {
+        bumpPanelContentRevForTabIds(api, changedTabIds);
+      }
+      return;
+    }
+
     if (lastBumpedPanelContentKeyRef.current === panelContentKey) return;
     lastBumpedPanelContentKeyRef.current = panelContentKey;
     bumpPanelContentRev(api);
-  }, [panelContentKey, bumpPanelContentRev]);
+  }, [panelContentKey, panelContentKeysByTab, bumpPanelContentRev, bumpPanelContentRevForTabIds]);
 
   // 自定义 tab：元数据通过 panel params + DockWorkspaceTabHeader 内 liveMeta 同步
   const defaultTabComponent = DockWorkspaceTabHeader;

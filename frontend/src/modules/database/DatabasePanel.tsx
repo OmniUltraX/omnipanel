@@ -6,11 +6,11 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "./SchemaBrowser";
 import { DatabaseSchemaSidebar } from "./DatabaseSchemaSidebar";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
+import { DbSchemaProvider } from "./DbSchemaContext";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
@@ -25,6 +25,7 @@ import { usePoolConnectionRegistration, type PoolKind } from "../../stores/conne
 import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
@@ -89,8 +90,13 @@ import {
   type TablePreviewState,
   type QueryResult,
 } from "./dbWorkspaceState";
+import { DatabaseWorkspaceDock } from "./DatabaseWorkspaceDock";
+import {
+  buildDatabaseModulePanelContentKey,
+  buildDatabasePanelContentKeysByTab,
+} from "./databasePanelTabKeys";
 import { DbPanelSurface } from "./DbPanelSurface";
-import { DockableWorkspace, ModuleSegmentDock } from "../../components/dock";
+import { ModuleSegmentDock } from "../../components/dock";
 import { patchDockTabFileMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
@@ -319,6 +325,8 @@ export function DatabasePanel() {
   const { t } = useI18n();
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/database";
+  const moduleSuspended = useModuleSuspended();
+  const moduleLive = isActiveRoute && !moduleSuspended;
   const [moduleTab, setModuleTab] = usePersistedModuleTab(
     "database-workspace",
     "query",
@@ -517,7 +525,7 @@ export function DatabasePanel() {
 
   const dbPoolKind: PoolKind =
     activeConn?.db_type?.toLowerCase() === "redis" ? "redis" : "database";
-  usePoolConnectionRegistration(dbPoolKind, isActiveRoute ? activeConn?.id ?? null : null);
+  usePoolConnectionRegistration(dbPoolKind, moduleLive ? activeConn?.id ?? null : null);
 
   const moduleSegmentTabs = useMemo(
     () => [
@@ -2952,42 +2960,44 @@ export function DatabasePanel() {
     setExportMenu(null);
   }, [isActiveRoute]);
 
-  const queryPanelContentKey = useMemo(
+  const modulePanelContentKey = useMemo(
     () =>
-      [
-        workspaceInitialized ? "1" : "0",
+      buildDatabaseModulePanelContentKey({
+        workspaceInitialized,
         moduleTab,
-        workspaceTabs.map((tab) => `${tab.id}:${tab.kind}`).join("|"),
+        workspaceTabCount: workspaceTabs.length,
+      }),
+    [workspaceInitialized, moduleTab, workspaceTabs.length],
+  );
+
+  const panelContentKeysByTab = useMemo(
+    () =>
+      buildDatabasePanelContentKeysByTab({
+        workspaceTabs,
         activeWorkspaceTabId,
-        activeTableKey ?? "",
-        activeDatabaseKey ?? "",
-        schemaRefreshToken,
-        activeGroupId ?? "",
-        activeConnId ?? "",
-        connections.map((c) => `${c.id}:${c.enabled !== false ? 1 : 0}`).join(","),
-        Object.keys(tableDesignerStates).sort().join(","),
-        dockTabs.map((tab) => tab.id).join(","),
-        dialogOpen ? "1" : "0",
-        createDbDialog?.connId ?? "",
-        pendingTabAction?.tabId ?? "",
-      ].join(";"),
+        sqlTabStates,
+        tablePreviews,
+        tableDesignerStates,
+        tabModes,
+      }),
     [
-      workspaceInitialized,
-      moduleTab,
       workspaceTabs,
       activeWorkspaceTabId,
-      activeTableKey,
-      activeDatabaseKey,
-      schemaRefreshToken,
-      activeGroupId,
-      activeConnId,
-      connections,
+      sqlTabStates,
+      tablePreviews,
       tableDesignerStates,
-      dockTabs,
-      dialogOpen,
-      createDbDialog?.connId,
-      pendingTabAction?.tabId,
+      tabModes,
     ],
+  );
+
+  const schemaContextValue = useMemo(
+    () => ({
+      groupConnections,
+      databasesByConnId,
+      schemaByKey,
+      schemaLoadingKey,
+    }),
+    [groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey],
   );
 
   return (
@@ -2995,8 +3005,8 @@ export function DatabasePanel() {
     <DbWorkspaceProvider value={ctxValue}>
     <ModuleSegmentDock
       className="db-module-dock"
-      enabled={isActiveRoute}
-      panelContentKey={queryPanelContentKey}
+      enabled={moduleLive}
+      panelContentKey={modulePanelContentKey}
       tabs={moduleSegmentTabs}
       activeTabId={moduleTab}
       onActiveTabChange={(id) => setModuleTab(id as DbModuleTab)}
@@ -3021,26 +3031,28 @@ export function DatabasePanel() {
         preset="schema"
         sidebarMinPx={280}
         sidebar={
-          <DatabaseSchemaSidebar
-            groups={groups}
-            activeGroupId={activeGroupId}
-            activeConnId={activeConnId}
-            onCreateConnection={() => {
-              setEditingConnection(null);
-              setDialogOpen(true);
-            }}
-            onCreateGroup={() => void handleCreateGroup()}
-            onSelectGroup={handleSelectGroup}
-            onSelectConnection={handleSelectConnection}
-            onOpenSqlFile={openSqlFile}
-            onSelectTable={handleSelectTable}
-            onSelectDatabase={handleSelectDatabase}
-            onContextTable={handleContextTable}
-            onContextConnection={handleContextConnection}
-            activeTableKey={activeTableKey}
-            activeDatabaseKey={activeDatabaseKey}
-            refreshToken={schemaRefreshToken}
-          />
+          <DbSchemaProvider value={schemaContextValue}>
+            <DatabaseSchemaSidebar
+              groups={groups}
+              activeGroupId={activeGroupId}
+              activeConnId={activeConnId}
+              onCreateConnection={() => {
+                setEditingConnection(null);
+                setDialogOpen(true);
+              }}
+              onCreateGroup={() => void handleCreateGroup()}
+              onSelectGroup={handleSelectGroup}
+              onSelectConnection={handleSelectConnection}
+              onOpenSqlFile={openSqlFile}
+              onSelectTable={handleSelectTable}
+              onSelectDatabase={handleSelectDatabase}
+              onContextTable={handleContextTable}
+              onContextConnection={handleContextConnection}
+              activeTableKey={activeTableKey}
+              activeDatabaseKey={activeDatabaseKey}
+              refreshToken={schemaRefreshToken}
+            />
+          </DbSchemaProvider>
         }
       >
         <div
@@ -3048,37 +3060,24 @@ export function DatabasePanel() {
           data-schema-drop-type="workspace"
           {...{ [SCHEMA_TREE_DROP_ZONE_ATTR]: "" }}
         >
-        {!workspaceInitialized ? null : dockTabs.length === 0 ? (
-          <WorkspaceEmptyPage
-            prompt={t("database.workspace.emptyTabs")}
-            actionList={
-              recentClosedActionItems.length > 0
-                ? {
-                    title: t("database.workspace.recentClosed"),
-                    items: recentClosedActionItems,
-                  }
-                : undefined
-            }
-          />
-        ) : (
-          <DockableWorkspace
-            className="db-workspace"
-            dockScope="database"
-            defaultHeaderPosition="top"
-            enableTabGroups={false}
-            tabs={dockTabs}
-            activeTabId={activeWorkspaceTabId}
+        {!workspaceInitialized ? null : (
+          <DatabaseWorkspaceDock
+            workspaceInitialized={workspaceInitialized}
+            dockTabs={dockTabs}
+            activeWorkspaceTabId={activeWorkspaceTabId}
             onActiveTabChange={setActiveWorkspaceTabId}
             onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
-            savedLayout={dockLayout}
-            onSavedLayoutChange={setDockLayout}
-            renderPanel={renderDockPanel}
-            panelContentKey={queryPanelContentKey}
+            dockLayout={dockLayout}
+            onDockLayoutChange={setDockLayout}
+            renderDockPanel={renderDockPanel}
+            panelContentKeysByTab={panelContentKeysByTab}
             onTabContextMenu={handleDockTabContextMenu}
             onCtrlCopyTab={handleCtrlCopyTab}
-            canAcceptExternalDrop={canAcceptSchemaTreeDrop}
-            onExternalDrop={handleExternalSchemaDrop}
-            windowControl={false}
+            canAcceptSchemaTreeDrop={canAcceptSchemaTreeDrop}
+            onExternalSchemaDrop={handleExternalSchemaDrop}
+            recentClosedActionItems={recentClosedActionItems}
+            emptyPrompt={t("database.workspace.emptyTabs")}
+            recentClosedTitle={t("database.workspace.recentClosed")}
           />
         )}
         </div>

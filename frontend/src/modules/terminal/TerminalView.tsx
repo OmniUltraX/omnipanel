@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { useTerminal } from "../../hooks/useTerminal";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import {
   findTerminalPane,
   useTerminalStore,
@@ -42,6 +43,8 @@ export function TerminalView({
   const termRef = useRef<Terminal | null>(null);
   const sendRef = useRef<((cmd: string) => void) | null>(null);
   const setStatus = useTerminalStore((state) => state.setStatus);
+  const moduleSuspended = useModuleSuspended();
+  const terminalSuspended = !isTauriRuntime || moduleSuspended;
 
   useTerminal(
     sessionId,
@@ -49,11 +52,11 @@ export function TerminalView({
     undefined,
     undefined,
     undefined,
-    !isTauriRuntime,
+    terminalSuspended,
     {
       inputMode: "external",
       sendRef,
-      active,
+      active: active && !moduleSuspended,
       reconnectKey,
     },
   );
