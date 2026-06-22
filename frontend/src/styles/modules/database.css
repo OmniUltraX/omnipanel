@@ -1192,7 +1192,7 @@
     .subwindow-overlay {
         position: fixed;
         inset: 0;
-        z-index: 210;
+        z-index: 35;
         background: rgba(0, 0, 0, 0.45);
         box-sizing: border-box;
     }
@@ -1208,7 +1208,7 @@
         position: fixed;
         right: 4px;
         bottom: 68px;
-        z-index: 211;
+        z-index: 36;
         display: flex;
         flex-direction: column-reverse;
         align-items: flex-end;

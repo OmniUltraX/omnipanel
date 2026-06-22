@@ -3,9 +3,7 @@ import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type {
   AppendMessage,
   ExternalStoreAdapter,
-  ThreadAssistantMessage,
   ThreadMessage,
-  ThreadUserMessage,
 } from "@assistant-ui/react";
 import { useExternalStoreRuntime } from "@assistant-ui/react";
 
@@ -16,96 +14,24 @@ import {
   useAiModelsStore,
 } from "../../../stores/aiModelsStore";
 import { useAiStore } from "../../../stores/aiStore";
+import { getModuleAiContextText, getModuleMcpTools, executeModuleMcpTool } from "../../../lib/ai/context";
+import type { ModuleKey } from "../../../lib/paths";
+import { moduleKeyFromPath } from "../../../lib/workspaceModuleRoutes";
 
 import {
   buildModelMessages,
   mergeToolCallDeltas,
   streamModelChat,
+  type AiToolDef,
   type ModelConfig,
-  type StreamChunk,
 } from "./chatModel";
+import {
+  aiMessagesToThreadMessages,
+  threadMessagesToAiMessages,
+} from "./messageBridge";
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-let idCounter = 0;
-function genId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${++idCounter}`;
-}
-
-function toThreadUserMessage(content: string): ThreadUserMessage {
-  return {
-    id: genId("user"),
-    role: "user",
-    createdAt: new Date(),
-    content: [{ type: "text", text: content }],
-    attachments: [],
-    metadata: {
-      custom: {},
-    },
-  };
-}
-
-function buildAssistantMessage(
-  id: string,
-  text: string,
-  reasoningText?: string,
-  toolCalls?: { id: string; name: string; args: string; result?: string; status?: string }[],
-  status?: { type: "running" } | { type: "complete"; reason: "stop" },
-): ThreadAssistantMessage {
-  const parts: ThreadAssistantMessage["content"] = [];
-
-  if (reasoningText) {
-    parts.push({ type: "reasoning", text: reasoningText } as ThreadAssistantMessage["content"][0]);
-  }
-
-  if (text) {
-    parts.push({ type: "text", text } as ThreadAssistantMessage["content"][0]);
-  }
-
-  if (toolCalls?.length) {
-    for (const tc of toolCalls) {
-      parts.push({
-        type: "tool-call",
-        toolCallId: tc.id,
-        toolName: tc.name,
-        args: safeParseJson(tc.args),
-        argsText: tc.args,
-        ...(tc.result !== undefined
-          ? { result: tc.result, isError: tc.status === "failed" }
-          : {}),
-      } as unknown as ThreadAssistantMessage["content"][0]);
-    }
-  }
-
-  return {
-    id,
-    role: "assistant",
-    createdAt: new Date(),
-    status: status ?? { type: "running" },
-    content: parts,
-    metadata: {
-      custom: {},
-      unstable_state: null,
-      unstable_annotations: [],
-      unstable_data: [],
-      steps: [],
-    },
-  };
-}
-
-function safeParseJson(text: string): Record<string, unknown> {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
-  }
-}
-
-function convertToAiStoreRole(role: string): "user" | "assistant" | "tool" {
-  if (role === "user") return "user";
-  return "assistant";
 }
 
 function extractUserContent(threadMessage: ThreadMessage): string {
@@ -115,19 +41,13 @@ function extractUserContent(threadMessage: ThreadMessage): string {
   return "";
 }
 
-interface MpcToolDef {
-  serviceId: string;
-  originalName: string;
-  description: string;
-}
-
-async function loadMcpToolDefs(): Promise<MpcToolDef[]> {
+async function loadExternalMcpToolDefs(): Promise<AiToolDef[]> {
   if (!isTauriRuntime()) return [];
   const listResult = await commands.mcpListServices();
   if (listResult.status !== "ok") return [];
 
   const running = listResult.data.filter((s) => s.status === "running");
-  const defs: MpcToolDef[] = [];
+  const defs: AiToolDef[] = [];
 
   for (const service of running) {
     const toolsResult = await commands.mcpListServiceTools(service.id);
@@ -137,11 +57,42 @@ async function loadMcpToolDefs(): Promise<MpcToolDef[]> {
         serviceId: service.id,
         originalName: tool.name,
         description: tool.description ?? tool.name,
+        kind: "external",
       });
     }
   }
 
   return defs;
+}
+
+function loadModuleToolDefs(moduleKey: ModuleKey | null): AiToolDef[] {
+  if (!moduleKey) return [];
+  return getModuleMcpTools(moduleKey).map((tool) => ({
+    serviceId: `module:${moduleKey}`,
+    originalName: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    kind: "module" as const,
+    moduleKey,
+  }));
+}
+
+async function loadAiToolDefs(moduleKey: ModuleKey | null): Promise<AiToolDef[]> {
+  const [moduleTools, externalTools] = await Promise.all([
+    Promise.resolve(loadModuleToolDefs(moduleKey)),
+    loadExternalMcpToolDefs(),
+  ]);
+  return [...moduleTools, ...externalTools];
+}
+
+async function executeToolCall(
+  toolDef: AiToolDef,
+  args: string,
+): Promise<{ result: string; success: boolean }> {
+  if (toolDef.kind === "module" && toolDef.moduleKey) {
+    return executeModuleMcpTool(toolDef.moduleKey, toolDef.originalName, args);
+  }
+  return executeMcpTool(toolDef.serviceId, toolDef.originalName, args);
 }
 
 async function executeMcpTool(
@@ -175,11 +126,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const setConnectedMcpServices = useAiStore((s) => s.setConnectedMcpServices);
   const setCurrentModelSelectionId = useAiStore((s) => s.setCurrentModelSelectionId);
   const createConversation = useAiStore((s) => s.createConversation);
+  const replaceConversationMessages = useAiStore((s) => s.replaceConversationMessages);
 
   const providers = useAiModelsStore((s) => s.providers);
 
   const abortRef = useRef<AbortController | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
@@ -198,31 +149,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       setThreadMessages([]);
       return;
     }
-
-    const converted: ThreadMessage[] = [];
-    for (const msg of activeConversation.messages) {
-      if (msg.role === "user") {
-        converted.push(toThreadUserMessage(msg.content));
-      } else if (msg.role === "assistant") {
-        const isStreaming = msg.isStreaming || false;
-        converted.push(
-          buildAssistantMessage(
-            msg.id,
-            msg.content,
-            msg.reasoningContent,
-            msg.toolCalls?.map((tc) => ({
-              id: tc.id,
-              name: tc.name,
-              args: tc.arguments,
-              result: tc.result,
-              status: tc.status,
-            })),
-            isStreaming ? { type: "running" } : { type: "complete", reason: "stop" },
-          ),
-        );
-      }
-    }
-    setThreadMessages(converted);
+    setThreadMessages(aiMessagesToThreadMessages(activeConversation.messages));
   }, [activeConversation]);
 
   const getModelConfig = useCallback((): ModelConfig | null => {
@@ -251,80 +178,72 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           id: tc.id,
           name: tc.name,
           arguments: tc.arguments,
+          result: tc.result,
         })),
       }));
     },
     [],
   );
 
-  const onNewRef = useRef<(message: AppendMessage) => Promise<void>>();
+  const handleSetMessages = useCallback(
+    (messages: readonly ThreadMessage[]) => {
+      const next = [...messages];
+      setThreadMessages(next);
+      const convId = activeConversationId;
+      if (!convId) return;
+      replaceConversationMessages(convId, threadMessagesToAiMessages(next));
+    },
+    [activeConversationId, replaceConversationMessages],
+  );
 
-  onNewRef.current = async (msg: AppendMessage) => {
-    const userText = extractUserContent(msg);
-    if (!userText.trim()) return;
-    if (isGenerating) return;
+  const runGenerationRef =
+    useRef<
+      (
+        convId: string,
+        assistantMsgId: string,
+        priorMessages: ReturnType<typeof getPriorMessages>,
+        modelConfig: ModelConfig,
+      ) => Promise<void>
+    >();
 
-    let convId = activeConversationId;
-    if (!convId) {
-      convId = createConversation();
-    }
-
-    const modelConfig = getModelConfig();
-    if (!modelConfig) {
-      addMessage(convId, { role: "user", content: userText });
-      addMessage(convId, {
-        role: "assistant",
-        content: "请先在 **设置 → AI 模型** 中添加并启用至少一个模型。",
-      });
-      return;
-    }
-
-    if (!isTauriRuntime()) {
-      addMessage(convId, { role: "user", content: userText });
-      addMessage(convId, {
-        role: "assistant",
-        content:
-          "AI 助手需要在 Tauri 桌面环境中运行，并先在设置中配置 AI 模型。",
-      });
-      return;
-    }
-
-    addMessage(convId, { role: "user", content: userText });
-
-    const assistantMsgId = addMessage(convId, {
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-      isReasoningStreaming: true,
-    });
-
+  runGenerationRef.current = async (
+    convId,
+    assistantMsgId,
+    priorMessages,
+    modelConfig,
+  ) => {
     setIsGenerating(true);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
 
-    const priorMessages = getPriorMessages(convId);
-    const toolDefs = await loadMcpToolDefs();
+    const moduleKey =
+      typeof window !== "undefined"
+        ? moduleKeyFromPath(window.location.pathname)
+        : null;
+
+    const toolDefs = await loadAiToolDefs(moduleKey);
     setConnectedMcpServices(
       toolDefs.map((t) => ({
         serviceId: t.serviceId,
-        serviceName: t.serviceId,
-        builtin: false,
+        serviceName: t.kind === "module" ? `模块:${t.moduleKey}` : t.serviceId,
+        builtin: t.kind === "module",
         toolCount: 1,
       })),
     );
 
     try {
-      let accumulatedText = "";
-      let accumulatedReasoning = "";
       const toolCallAcc = new Map<number, { id?: string; name?: string; args: string }>();
-      let toolCallsEmitted = false;
+      const moduleContextText = moduleKey
+        ? getModuleAiContextText(moduleKey)
+        : null;
 
       while (true) {
-        const { apiMessages } = buildModelMessages(
-          priorMessages,
-          toolDefs,
-        );
+        toolCallAcc.clear();
+
+        const { apiMessages } = buildModelMessages(priorMessages, toolDefs, {
+          moduleContextText,
+        });
 
         const stream = streamModelChat(apiMessages, modelConfig, toolDefs, {
           signal,
@@ -332,31 +251,25 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             reasoningEffort !== "default" ? reasoningEffort : undefined,
         });
 
-        toolCallsEmitted = false;
-
         for await (const chunk of stream) {
           if (signal.aborted) break;
 
           if (chunk.type === "text") {
-            accumulatedText += chunk.delta;
             appendStreamContent(convId, assistantMsgId, chunk.delta);
           }
 
           if (chunk.type === "reasoning") {
-            accumulatedReasoning += chunk.delta;
             appendStreamReasoning(convId, assistantMsgId, chunk.delta);
           }
 
           if (chunk.type === "tool-call-delta") {
             mergeToolCallDeltas(toolCallAcc, [chunk]);
-            toolCallsEmitted = true;
           }
         }
 
         if (signal.aborted) break;
 
         const resolvedCalls = mergeToolCallDeltas(toolCallAcc, []);
-
         if (resolvedCalls.length === 0) break;
 
         for (const tc of resolvedCalls) {
@@ -404,17 +317,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                 .conversations.find((c) => c.id === convId)
                 ?.messages.find((m) => m.id === assistantMsgId)
                 ?.toolCalls?.map((t) =>
-                  t.id === tc.id ? { ...t, status: "failed", result: "Tool not found" } : t,
+                  t.id === tc.id
+                    ? { ...t, status: "failed", result: "Tool not found" }
+                    : t,
                 ),
             });
             continue;
           }
 
-          const { result, success } = await executeMcpTool(
-            toolDef.serviceId,
-            toolDef.originalName,
-            tc.args,
-          );
+          const { result, success } = await executeToolCall(toolDef, tc.args);
 
           updateMessage(convId, assistantMsgId, {
             toolCalls: useAiStore
@@ -431,14 +342,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           priorMessages.push({
             role: "assistant",
             content: "",
-            toolCalls: [
-              { id: tc.id, name: tc.name, arguments: tc.args },
-            ],
+            toolCalls: [{ id: tc.id, name: tc.name, arguments: tc.args }],
           });
           priorMessages.push({
             role: "tool",
             content: result,
-            toolCalls: [tc],
+            toolCalls: [{ id: tc.id, name: tc.name, arguments: tc.args }],
           });
         }
       }
@@ -470,6 +379,91 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const onNewRef = useRef<(message: AppendMessage) => Promise<void>>();
+  const onReloadRef = useRef<(parentId: string | null) => Promise<void>>();
+
+  onNewRef.current = async (msg: AppendMessage) => {
+    const userText = extractUserContent(msg);
+    if (!userText.trim()) return;
+    if (isGenerating) return;
+
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+
+    const modelConfig = getModelConfig();
+    if (!modelConfig) {
+      addMessage(convId, { role: "user", content: userText });
+      addMessage(convId, {
+        role: "assistant",
+        content: "请先在 **设置 → AI 模型** 中添加并启用至少一个模型。",
+      });
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      addMessage(convId, { role: "user", content: userText });
+      addMessage(convId, {
+        role: "assistant",
+        content:
+          "AI 助手需要在 Tauri 桌面环境中运行，并先在设置中配置 AI 模型。",
+      });
+      return;
+    }
+
+    addMessage(convId, { role: "user", content: userText });
+
+    const assistantMsgId = addMessage(convId, {
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      isReasoningStreaming: true,
+    });
+
+    const priorMessages = getPriorMessages(convId);
+    await runGenerationRef.current!(convId, assistantMsgId, priorMessages, modelConfig);
+  };
+
+  onReloadRef.current = async (parentId) => {
+    if (!parentId || isGenerating) return;
+
+    let convId = activeConversationId;
+    if (!convId) return;
+
+    const modelConfig = getModelConfig();
+    if (!modelConfig || !isTauriRuntime()) return;
+
+    const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
+    if (!conv) return;
+
+    const parentIndex = conv.messages.findIndex((m) => m.id === parentId);
+    if (parentIndex < 0) return;
+
+    const parentMsg = conv.messages[parentIndex];
+    if (parentMsg.role !== "user") return;
+
+    const priorMessages = conv.messages.slice(0, parentIndex + 1).slice(-20).map((m) => ({
+      role: m.role,
+      content: m.content,
+      toolCalls: m.toolCalls?.map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+        result: tc.result,
+      })),
+    }));
+
+    const assistantMsgId = addMessage(convId, {
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      isReasoningStreaming: true,
+    });
+
+    await runGenerationRef.current!(convId, assistantMsgId, priorMessages, modelConfig);
+  };
+
   const handleCancel = useCallback(async () => {
     abortRef.current?.abort();
   }, []);
@@ -479,9 +473,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       messages: threadMessages.length > 0 ? threadMessages : EMPTY_MESSAGE_LIST,
       isRunning: isGenerating,
       onNew: (msg) => onNewRef.current!(msg),
+      setMessages: handleSetMessages,
+      onReload: (parentId) => onReloadRef.current!(parentId),
       onCancel: handleCancel,
     }),
-    [threadMessages, isGenerating, handleCancel],
+    [threadMessages, isGenerating, handleCancel, handleSetMessages],
   );
 
   const runtime = useExternalStoreRuntime(adapter);

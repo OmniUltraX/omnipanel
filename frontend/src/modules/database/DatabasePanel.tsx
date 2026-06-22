@@ -8,6 +8,10 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "./SchemaBrowser";
 import { DatabaseSchemaSidebar } from "./DatabaseSchemaSidebar";
+import {
+  DatabaseModuleContextBridge,
+  resolveDatabaseModuleContext,
+} from "./ai";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DbSchemaProvider } from "./DbSchemaContext";
@@ -2958,6 +2962,7 @@ export function DatabasePanel() {
               tableName={tab.tableName}
               persistedState={tableDesignerStates[tab.id] ?? null}
               onPersistState={(state) => updateTableDesignerState(tab.id, state)}
+              onSaved={() => setSchemaRefreshToken((token) => token + 1)}
             />
           </div>
         );
@@ -3039,8 +3044,27 @@ export function DatabasePanel() {
     [groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey],
   );
 
+  const databaseModuleContext = useMemo(
+    () =>
+      resolveDatabaseModuleContext(
+        connections,
+        activeConnId,
+        activeWorkspaceTab,
+        sqlTabStates,
+        tablePreviews,
+      ),
+    [
+      connections,
+      activeConnId,
+      activeWorkspaceTab,
+      sqlTabStates,
+      tablePreviews,
+    ],
+  );
+
   return (
     <>
+    <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
     <DbWorkspaceProvider value={ctxValue}>
     <ModuleSegmentDock
       className="db-module-dock"

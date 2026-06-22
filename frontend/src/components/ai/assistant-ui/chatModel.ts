@@ -1,4 +1,5 @@
 import type { ApiStandard } from "../../../stores/aiModelsStore";
+import type { ModuleKey } from "../../../lib/paths";
 
 export type StreamChunk =
   | { type: "text"; delta: string }
@@ -37,9 +38,38 @@ export interface ReasoningEffortOption {
   reasoning_effort: "low" | "medium" | "high";
 }
 
+export interface AiToolDef {
+  serviceId: string;
+  originalName: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  kind: "external" | "module";
+  moduleKey?: ModuleKey;
+}
+
+function buildOpenAiTools(tools: AiToolDef[]): Record<string, unknown>[] {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.originalName,
+      description: tool.description,
+      parameters: tool.inputSchema ?? { type: "object", properties: {} },
+    },
+  }));
+}
+
+function buildAnthropicTools(tools: AiToolDef[]): Record<string, unknown>[] {
+  return tools.map((tool) => ({
+    name: tool.originalName,
+    description: tool.description,
+    input_schema: tool.inputSchema ?? { type: "object", properties: {} },
+  }));
+}
+
 export async function* streamOpenAI(
   messages: ApiMessage[],
   config: ModelConfig,
+  tools: AiToolDef[],
   options?: { signal?: AbortSignal; reasoningEffort?: string },
 ): AsyncGenerator<StreamChunk> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
@@ -47,13 +77,18 @@ export async function* streamOpenAI(
 
   const body: Record<string, unknown> = {
     model: config.name,
-    messages,
+    messages: toOpenAiWireMessages(messages),
     stream: true,
     stream_options: { include_usage: true },
   };
 
   if (options?.reasoningEffort && options.reasoningEffort !== "default") {
     body.reasoning_effort = options.reasoningEffort;
+  }
+
+  if (tools.length > 0) {
+    body.tools = buildOpenAiTools(tools);
+    body.tool_choice = "auto";
   }
 
   const response = await fetch(url, {
@@ -126,6 +161,7 @@ export async function* streamOpenAI(
 export async function* streamAnthropic(
   messages: ApiMessage[],
   config: ModelConfig,
+  tools: AiToolDef[],
   options?: { signal?: AbortSignal },
 ): AsyncGenerator<StreamChunk> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
@@ -139,9 +175,9 @@ export async function* streamAnthropic(
     max_tokens: 4096,
   };
 
-  const tools = getAnthropicTools(messages);
-  if (tools.length > 0) {
-    body.tools = tools;
+  const anthropicTools = tools.length > 0 ? buildAnthropicTools(tools) : getAnthropicTools(messages);
+  if (anthropicTools.length > 0) {
+    body.tools = anthropicTools;
   }
 
   const response = await fetch(url, {
@@ -222,18 +258,66 @@ function getAnthropicTools(messages: ApiMessage[]): Record<string, unknown>[] {
   }));
 }
 
+export type BuildModelMessageInput = {
+  role: string;
+  content: string;
+  toolCalls?: {
+    id: string;
+    name: string;
+    arguments: string;
+    result?: string;
+  }[];
+};
+
+function toOpenAiWireMessages(messages: ApiMessage[]): Record<string, unknown>[] {
+  return messages.map((msg) => {
+    if (msg.role === "assistant" && msg.tool_calls?.length) {
+      return {
+        role: "assistant",
+        content: msg.content || null,
+        tool_calls: msg.tool_calls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: {
+            name: tc.name,
+            arguments: tc.args,
+          },
+        })),
+      };
+    }
+    if (msg.role === "tool") {
+      return {
+        role: "tool",
+        content: msg.content,
+        tool_call_id: msg.tool_call_id,
+        name: msg.name,
+      };
+    }
+    return { role: msg.role, content: msg.content };
+  });
+}
+
 export function buildModelMessages(
-  messages: { role: string; content: string; toolCalls?: { id: string; name: string; arguments: string }[] }[],
-  mcpTools: { serviceId: string; originalName: string; description: string }[],
-): { apiMessages: ApiMessage[]; tools: unknown[] } {
+  messages: BuildModelMessageInput[],
+  tools: AiToolDef[],
+  options?: { moduleContextText?: string | null },
+): { apiMessages: ApiMessage[]; tools: AiToolDef[] } {
   const apiMessages: ApiMessage[] = [];
   const systemParts: string[] = [];
 
   systemParts.push(`You are OmniPanel AI assistant, an all-in-one DevOps tool.`);
-  if (mcpTools.length > 0) {
-    systemParts.push(`\nYou have access to MCP tools. When the user asks a question that requires real-time data, prefer using MCP tools to get accurate information.`);
-    const toolDescriptions = mcpTools
-      .map((t) => `- ${t.serviceId}/${t.originalName}: ${t.description}`)
+  if (options?.moduleContextText) {
+    systemParts.push(`\n${options.moduleContextText}`);
+  }
+  if (tools.length > 0) {
+    systemParts.push(
+      `\nYou have access to tools. When the user asks a question that requires real-time data, prefer using tools to get accurate information.`,
+    );
+    const toolDescriptions = tools
+      .map((tool) => {
+        const prefix = tool.kind === "module" ? `[模块:${tool.moduleKey}]` : `[MCP:${tool.serviceId}]`;
+        return `- ${prefix} ${tool.originalName}: ${tool.description}`;
+      })
       .join("\n");
     systemParts.push(`\nAvailable tools:\n${toolDescriptions}`);
   }
@@ -256,24 +340,41 @@ export function buildModelMessages(
         }));
       }
       apiMessages.push(entry);
+      for (const tc of msg.toolCalls ?? []) {
+        if (tc.result !== undefined) {
+          apiMessages.push({
+            role: "tool",
+            content: tc.result,
+            tool_call_id: tc.id,
+            name: tc.name,
+          });
+        }
+      }
     } else if (msg.role === "tool") {
-      apiMessages.push({ role: "tool", content: msg.content, tool_call_id: msg.id, name: msg.name });
+      const tc = msg.toolCalls?.[0];
+      if (!tc?.id || !tc.name) continue;
+      apiMessages.push({
+        role: "tool",
+        content: msg.content,
+        tool_call_id: tc.id,
+        name: tc.name,
+      });
     }
   }
 
-  return { apiMessages, tools: [] };
+  return { apiMessages, tools };
 }
 
 export async function* streamModelChat(
   apiMessages: ApiMessage[],
   config: ModelConfig,
-  mcpTools: { serviceId: string; originalName: string; description: string }[],
+  tools: AiToolDef[],
   options?: { signal?: AbortSignal; reasoningEffort?: string },
 ): AsyncGenerator<StreamChunk> {
   if (config.apiStandard === "anthropic") {
-    yield* streamAnthropic(apiMessages, config, options);
+    yield* streamAnthropic(apiMessages, config, tools, options);
   } else {
-    yield* streamOpenAI(apiMessages, config, options);
+    yield* streamOpenAI(apiMessages, config, tools, options);
   }
 }
 
@@ -283,9 +384,29 @@ export function mergeToolCallDeltas(
 ): { id: string; name: string; args: string }[] {
   for (const d of deltas) {
     const current = acc.get(d.index) ?? { args: "" };
-    if (d.id) current.id = d.id;
+    if (d.id) {
+      if (current.id && current.id !== d.id) {
+        current.args = "";
+      }
+      current.id = d.id;
+    }
     if (d.name) current.name = d.name;
-    current.args += d.argsDelta;
+
+    const delta = d.argsDelta;
+    if (delta) {
+      const existing = current.args.trim();
+      if (existing && delta.trim().startsWith("{")) {
+        try {
+          JSON.parse(existing);
+          current.args = delta;
+        } catch {
+          current.args += delta;
+        }
+      } else {
+        current.args += delta;
+      }
+    }
+
     acc.set(d.index, current);
   }
 
@@ -308,7 +429,7 @@ export async function* streamSimpleChat(
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
   messages.push({ role: "user", content: userContent });
 
-  for await (const chunk of streamOpenAI(messages, config, options)) {
+  for await (const chunk of streamOpenAI(messages, config, [], options)) {
     if (chunk.type === "text") {
       yield chunk.delta;
     }

@@ -33,6 +33,27 @@ export function moduleKeyFromPath(pathname: string): ModuleKey | null {
   return null;
 }
 
+/** AI 助手上下文选择器的 value（module:xxx / workspace:xxx） */
+export function aiContextValueFromPath(
+  pathname: string,
+  workspaceIds?: readonly string[],
+): string {
+  const moduleKey = moduleKeyFromPath(pathname);
+  if (moduleKey) {
+    return `module:${moduleKey}`;
+  }
+
+  const workspaceMatch = pathname.match(/^\/workspace\/([^/]+)/);
+  if (workspaceMatch) {
+    const id = decodeURIComponent(workspaceMatch[1]);
+    if (!workspaceIds || workspaceIds.includes(id)) {
+      return `workspace:${id}`;
+    }
+  }
+
+  return "";
+}
+
 export function moduleNavI18nKey(moduleKey: ModuleKey): string {
   return MODULE_NAV_KEYS[moduleKey];
 }

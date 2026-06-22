@@ -2512,6 +2512,11 @@ export const enUS: TranslationDict = {
     welcome: {
       title: "How can I help you today?",
     },
+    context: {
+      placeholder: "Select context…",
+      modules: "Modules",
+      workspaces: "Workspaces",
+    },
     conversations: {
       toggle: "Conversation list",
       deleteCurrent: "Delete current conversation",

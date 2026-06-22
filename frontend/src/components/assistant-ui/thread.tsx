@@ -18,9 +18,31 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { Button } from "@/components/ui/button";
+import {
+  ModelSelector,
+  type ModelSelectorItem,
+} from "@/components/assistant-ui/model-selector";
+import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
+import {
+  SelectRoot,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectGroup,
+  SelectLabel,
+  SelectValue,
+} from "@/components/assistant-ui/select";
 import { useI18n } from "../../i18n";
+import { useAiStore } from "../../stores/aiStore";
+import {
+  listModelSelections,
+  parseModelSelectionId,
+  useAiModelsStore,
+} from "../../stores/aiModelsStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { type ModuleKey } from "../../lib/paths";
+import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -53,10 +75,14 @@ import {
 import {
   createContext,
   useContext,
+  useEffect,
+  useMemo,
+  useState,
   type ComponentType,
   type FC,
   type PropsWithChildren,
 } from "react";
+import { useLocation } from "react-router-dom";
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
@@ -221,6 +247,70 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
+const MODULE_KEYS: ModuleKey[] = [
+  "terminal",
+  "database",
+  "docker",
+  "ssh",
+  "server",
+  "files",
+  "protocol",
+  "workflow",
+  "knowledge",
+];
+
+const ContextBar: FC = () => {
+  const { t } = useI18n();
+  const location = useLocation();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const workspaceIds = useMemo(
+    () => workspaces.map((ws) => ws.id),
+    [workspaces],
+  );
+  const routeContext = useMemo(
+    () => aiContextValueFromPath(location.pathname, workspaceIds),
+    [location.pathname, workspaceIds],
+  );
+  const [manualContext, setManualContext] = useState<string | null>(null);
+
+  useEffect(() => {
+    setManualContext(null);
+  }, [location.pathname]);
+
+  const context = manualContext ?? routeContext;
+
+  return (
+    <SelectRoot
+      value={context || undefined}
+      onValueChange={setManualContext}
+    >
+      <SelectTrigger className="h-7 w-40 text-xs" variant="ghost">
+        <SelectValue placeholder={t("ai.context.placeholder")} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>{t("ai.context.modules")}</SelectLabel>
+          {MODULE_KEYS.map((key) => (
+            <SelectItem key={key} value={`module:${key}`}>
+              {t(moduleNavI18nKey(key))}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+        {workspaces.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>{t("ai.context.workspaces")}</SelectLabel>
+            {workspaces.map((ws) => (
+              <SelectItem key={ws.id} value={`workspace:${ws.id}`}>
+                {ws.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+      </SelectContent>
+    </SelectRoot>
+  );
+};
+
 const Composer: FC = () => {
   const { t } = useI18n();
   return (
@@ -247,9 +337,53 @@ const Composer: FC = () => {
 
 const ComposerAction: FC = () => {
   const { t } = useI18n();
+  const providers = useAiModelsStore((s) => s.providers);
+  const currentModelSelectionId = useAiStore((s) => s.currentModelSelectionId);
+  const setCurrentModelSelectionId = useAiStore(
+    (s) => s.setCurrentModelSelectionId,
+  );
+  const reasoningEffort = useAiStore((s) => s.reasoningEffort);
+  const setReasoningEffort = useAiStore((s) => s.setReasoningEffort);
+
+  const modelSelectorItems = useMemo((): ModelSelectorItem[] => {
+    return listModelSelections(providers).map(({ id }) => {
+      const parsed = parseModelSelectionId(id);
+      const provider = providers.find((p) => p.id === parsed?.providerId);
+      const modelName = parsed?.modelName ?? id;
+      const standard =
+        provider?.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
+      return {
+        id,
+        name: modelName,
+        description: provider
+          ? `${provider.providerName} · ${standard}`
+          : undefined,
+      };
+    });
+  }, [providers]);
+
+  const selectedValue =
+    currentModelSelectionId &&
+    modelSelectorItems.some((m) => m.id === currentModelSelectionId)
+      ? currentModelSelectionId
+      : modelSelectorItems[0]?.id;
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex items-center gap-1">
+        <ComposerAddAttachment />
+        <ContextBar />
+        {modelSelectorItems.length > 0 && (
+          <ModelSelector
+            models={modelSelectorItems}
+            value={selectedValue}
+            onValueChange={setCurrentModelSelectionId}
+            effort={reasoningEffort}
+            onEffortChange={setReasoningEffort}
+            size="sm"
+          />
+        )}
+      </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
@@ -513,7 +647,10 @@ const UserActionBar: FC = () => {
       className="aui-user-action-bar-root flex flex-col items-end"
     >
       <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton tooltip={t("ai.composer.buttonEdit")} className="aui-user-action-edit">
+        <TooltipIconButton
+          tooltip={t("ai.composer.buttonEdit")}
+          className="aui-user-action-edit"
+        >
           <PencilIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Edit>

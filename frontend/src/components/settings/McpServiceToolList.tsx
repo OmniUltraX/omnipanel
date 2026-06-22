@@ -2,7 +2,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 import { useI18n } from "../../i18n";
 import { commands, type McpToolInfo } from "../../ipc/bindings";
+import {
+  getAllModuleMcpToolInfos,
+  OMNIMCP_BUILTIN_SERVICE_ID,
+} from "../../lib/ai/context/moduleMcpCatalog";
 import { fuzzyMatchModelName } from "../../lib/fetchProviderModels";
+
+function mergeBuiltinModuleTools(serviceId: string, backendTools: McpToolInfo[]): McpToolInfo[] {
+  if (serviceId !== OMNIMCP_BUILTIN_SERVICE_ID) {
+    return backendTools;
+  }
+  const existingNames = new Set(backendTools.map((tool) => tool.name));
+  const merged = [...backendTools];
+  for (const tool of getAllModuleMcpToolInfos()) {
+    if (!existingNames.has(tool.name)) {
+      merged.push(tool);
+    }
+  }
+  return merged;
+}
 
 const PAGE_SIZE = 15;
 
@@ -37,8 +55,9 @@ export function McpServiceToolList({
     try {
       const result = await commands.mcpListServiceTools(serviceId);
       if (result.status === "ok") {
-        setTools(result.data);
-        onToolsLoadedRef.current?.(serviceId, result.data.length);
+        const merged = mergeBuiltinModuleTools(serviceId, result.data);
+        setTools(merged);
+        onToolsLoadedRef.current?.(serviceId, merged.length);
       } else {
         setTools([]);
         onToolsLoadedRef.current?.(serviceId, 0);

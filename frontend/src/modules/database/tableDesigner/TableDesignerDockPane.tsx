@@ -14,6 +14,7 @@ interface TableDesignerDockPaneProps {
   tableName: string;
   persistedState?: TableDesignerTabState | null;
   onPersistState?: (state: TableDesignerTabState) => void;
+  onSaved?: () => void;
 }
 
 function cloneModel(model: TableDesignerModel): TableDesignerModel {
@@ -32,6 +33,7 @@ export function TableDesignerDockPane({
   tableName,
   persistedState,
   onPersistState,
+  onSaved,
 }: TableDesignerDockPaneProps) {
   const { t } = useI18n();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
@@ -157,6 +159,7 @@ export function TableDesignerDockPane({
       setBaseline(nextBaseline);
       persistState(model, nextBaseline);
       setSaveNotice({ kind: "success", message: t("database.tableDesigner.saveSuccess") });
+      onSaved?.();
     } catch (err) {
       setSaveNotice({
         kind: "error",
@@ -165,7 +168,7 @@ export function TableDesignerDockPane({
     } finally {
       setSaving(false);
     }
-  }, [baseline, connection, dbName, driver, enqueueAction, model, persistState, t]);
+  }, [baseline, connection, dbName, driver, enqueueAction, model, onSaved, persistState, t]);
 
   if (loading) {
     return <div className="db-table-designer-state">{t("common.loading")}</div>;

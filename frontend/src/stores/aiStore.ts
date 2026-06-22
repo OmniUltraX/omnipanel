@@ -103,6 +103,7 @@ interface AiStore {
   toggleConversationList: () => void;
   setConversationListOpen: (open: boolean) => void;
   setConversationListWidth: (width: number) => void;
+  replaceConversationMessages: (conversationId: string, messages: AiMessage[]) => void;
 }
 
 let idCounter = 0;
@@ -313,6 +314,15 @@ export const useAiStore = create<AiStore>()(
 
       setConversationListWidth: (width) =>
         set({ conversationListWidth: Math.max(180, Math.min(420, width)) }),
+
+      replaceConversationMessages: (conversationId, messages) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, messages: [...messages], updatedAt: Date.now() }
+              : c,
+          ),
+        })),
     }),
     {
       name: "omnipanel-ai-store",

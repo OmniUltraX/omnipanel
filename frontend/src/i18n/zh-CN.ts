@@ -2471,6 +2471,11 @@ common: {
     welcome: {
       title: "今天有什么可以帮你的？",
     },
+    context: {
+      placeholder: "选择上下文…",
+      modules: "模块",
+      workspaces: "工作区",
+    },
     conversations: {
       toggle: "会话列表",
       deleteCurrent: "删除当前会话",
