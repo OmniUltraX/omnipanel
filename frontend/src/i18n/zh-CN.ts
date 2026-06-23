@@ -661,6 +661,8 @@ export const zhCN = {
       accessKeyRequired: "请输入 Access Key",
       secretKey: "Secret Key",
       prefix: "前缀（可选）",
+      testConnection: "测试连接",
+      testing: "测试中…",
     },
   },
   database: {

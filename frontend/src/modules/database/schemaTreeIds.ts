@@ -34,6 +34,19 @@ export function makeDatabaseNodeId(connId: string, dbName: string) {
   return `db:${connId}:${dbName}`;
 }
 
+export function parseDatabaseNodeId(id: string): { connId: string; dbName: string } | null {
+  if (!id.startsWith("db:")) {
+    return null;
+  }
+  const parts = id.slice(3).split(":");
+  if (parts.length < 2) {
+    return null;
+  }
+  const connId = parts[0];
+  const dbName = parts.slice(1).join(":");
+  return { connId, dbName };
+}
+
 export function connectionDatabasesFolderId(connId: string) {
   return `databases:${connId}`;
 }

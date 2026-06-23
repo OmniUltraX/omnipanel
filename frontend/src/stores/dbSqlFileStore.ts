@@ -338,6 +338,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
       name: "omnipanel-db-sql-files",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ nodes: state.nodes }),
+      migrate: (persisted) => persisted as { nodes: DbSqlFileNode[] },
     },
   ),
 );

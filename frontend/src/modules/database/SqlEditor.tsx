@@ -28,7 +28,7 @@ interface SqlEditorProps {
   readOnly?: boolean;
   /** 在只读模式下高亮匹配的搜索词（用于 ScopedSearch 宿主内的 Monaco）。 */
   highlightQuery?: string;
-  /** false 时不挂载 Monaco（非 active Tab 或模块 suspend 时释放实例）。 */
+  /** false 时仅 CSS 隐藏，保留 Monaco 实例（切换 Tab 更快）。 */
   editorActive?: boolean;
 }
 
@@ -405,27 +405,24 @@ export function SqlEditor({
   }, [value, highlightQuery]);
 
   useEffect(() => {
-    if (editorActive) return;
-    const editor = editorRef.current;
-    if (!editor) return;
-    editorRef.current = null;
-    for (const d of disposables.current) {
-      try {
-        d.dispose();
-      } catch {
-        // ignore
-      }
+    if (!editorActive) {
+      return;
     }
-    disposables.current = [];
-    editor.dispose();
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      editor.layout();
+    });
   }, [editorActive]);
 
-  if (!editorActive) {
-    return <div className="sql-monaco-editor sql-monaco-editor--inactive" data-open-mode={openMode} />;
-  }
-
   return (
-    <div className="sql-monaco-editor" data-open-mode={openMode}>
+    <div
+      className={`sql-monaco-editor${editorActive ? "" : " sql-monaco-editor--inactive"}`}
+      data-open-mode={openMode}
+      aria-hidden={editorActive ? undefined : true}
+    >
       <Editor
         defaultLanguage="sql"
         value={value}

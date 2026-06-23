@@ -5,6 +5,7 @@ type DockLayoutProps = {
   children: React.ReactNode;
   direction?: "horizontal" | "vertical";
   className?: string;
+  defaultLayout?: GroupProps["defaultLayout"];
   onLayoutChange?: GroupProps["onLayoutChange"];
   onLayoutChanged?: GroupProps["onLayoutChanged"];
 };
@@ -13,6 +14,7 @@ export function DockLayout({
   children,
   direction = "horizontal",
   className,
+  defaultLayout,
   onLayoutChange,
   onLayoutChanged,
 }: DockLayoutProps) {
@@ -20,6 +22,7 @@ export function DockLayout({
     <Group
       orientation={direction}
       className={`dock-layout dock-layout--${direction}${className ? ` ${className}` : ""}`}
+      defaultLayout={defaultLayout}
       onLayoutChange={onLayoutChange}
       onLayoutChanged={onLayoutChanged}
     >

@@ -29,11 +29,15 @@ interface DockWorkspaceProps {
   /** 像素；传字符串（如 `"100%"`）时原样交给 Panel */
   leftMaxPx?: number | string;
   leftPreset?: DockRailPreset;
+  /** 左侧面板尺寸变化回调 */
+  onLeftResize?: (sizePx: number) => void;
   rightPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;
   /** 像素；传字符串（如 `"100%"`）时原样交给 Panel */
   rightMaxPx?: number | string;
+  /** 右侧面板尺寸变化回调 */
+  onRightResize?: (sizePx: number) => void;
   bottomSizePx?: number;
   bottomMinPx?: number;
   bottomMaxPx?: number;
@@ -59,10 +63,14 @@ export function DockWorkspace({
   leftSizePx,
   leftMinPx,
   leftMaxPx,
+  onLeftResize,
   rightPreset = "default",
   rightSizePx,
   rightMinPx,
   rightMaxPx,
+  onRightResize,
+  horizontalLayout,
+  onHorizontalLayoutChange,
   bottomSizePx = 220,
   bottomMinPx = 0,
   bottomMaxPx = 420,
@@ -78,6 +86,18 @@ export function DockWorkspace({
       onBottomPanelHeightChange?.(heightPx);
     },
     [onBottomPanelHeightChange],
+  );
+  const handleLeftResize = useCallback(
+    (size: { inPixels: number }) => {
+      onLeftResize?.(size.inPixels);
+    },
+    [onLeftResize],
+  );
+  const handleRightResize = useCallback(
+    (size: { inPixels: number }) => {
+      onRightResize?.(size.inPixels);
+    },
+    [onRightResize],
   );
   const rail = RAIL_PRESETS[leftPreset];
   const leftDefault = leftSizePx ?? rail.defaultSize;
@@ -130,6 +150,7 @@ export function DockWorkspace({
               maxSize={leftMax}
               collapsible
               collapsedSize={0}
+              onResize={onLeftResize ? handleLeftResize : undefined}
               className="dock-panel-left"
             >
               <div className="dock-rail-shell">{left}</div>
@@ -149,6 +170,7 @@ export function DockWorkspace({
               maxSize={rightMax}
               collapsible
               collapsedSize={0}
+              onResize={onRightResize ? handleRightResize : undefined}
               className="dock-panel-right"
             >
               <div className="dock-rail-shell">{right}</div>

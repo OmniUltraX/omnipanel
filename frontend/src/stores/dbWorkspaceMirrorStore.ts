@@ -1,19 +1,19 @@
-import type { DbWorkspaceContextValue } from "../contexts/DbWorkspaceContext";
+import type { DbWorkspaceMirrorContextValue } from "../contexts/DbWorkspaceContext.types";
 import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
 import { resolveSqlTabConnectionId } from "../modules/database/dbWorkspaceState";
 
 export interface MirroredDbTabSnapshot {
-  ctx: DbWorkspaceContextValue;
+  ctx: DbWorkspaceMirrorContextValue;
   tab: DbWorkspaceTab;
 }
 
-let mirrorContext: DbWorkspaceContextValue | null = null;
+let mirrorContext: DbWorkspaceMirrorContextValue | null = null;
 const tabSnapshots = new Map<string, MirroredDbTabSnapshot>();
 const tabVersions = new Map<string, number>();
 const tabListeners = new Map<string, Set<() => void>>();
 
 /** 供底部镜像读取的最新 context（引用随 DatabasePanel 更新）。 */
-export function getDbWorkspaceMirrorContext(): DbWorkspaceContextValue | null {
+export function getDbWorkspaceMirrorContext(): DbWorkspaceMirrorContextValue | null {
   return mirrorContext;
 }
 
@@ -47,7 +47,7 @@ function bumpMirroredDbTabVersion(tabId: string): void {
 }
 
 /** 生成 Tab 镜像渲染所需的 revision（忽略 cursorOffset、activeTabId 等易引发循环的字段）。 */
-function buildMirroredTabRevision(ctx: DbWorkspaceContextValue, tabId: string): string {
+function buildMirroredTabRevision(ctx: DbWorkspaceMirrorContextValue, tabId: string): string {
   const tab = ctx.tabs.find((item) => item.id === tabId);
   const tabState = ctx.sqlTabStates[tabId];
   const preview = ctx.tablePreviews[tabId];
@@ -90,7 +90,7 @@ function buildMirroredTabRevision(ctx: DbWorkspaceContextValue, tabId: string): 
  * 返回新的 revision 缓存供下次 diff。
  */
 export function publishDbWorkspaceMirror(
-  context: DbWorkspaceContextValue | null,
+  context: DbWorkspaceMirrorContextValue | null,
   dockedTabIds: readonly string[],
   prevRevisions: Map<string, string>,
 ): Map<string, string> {

@@ -2,7 +2,11 @@ import type { SqlEditorOpenMode } from "./SqlEditor";
 import type { TablePreviewResult, DbColumnMeta } from "./api";
 import type { TableDesignerModel } from "./tableDesigner/types";
 
-export { type DbWorkspaceTab, type SqlWorkspaceTab } from "./workspaceTabs";
+export {
+  type DbWorkspaceTab,
+  type SqlWorkspaceTab,
+} from "./workspaceTabs";
+import type { DbWorkspaceTab } from "./workspaceTabs";
 
 export type QueryResult = {
   columns: string[];
@@ -97,6 +101,31 @@ export function resolveSqlTabConnectionId(
   tablePreviews: Record<string, TablePreviewState>,
 ): string {
   return tablePreviews[tabId]?.connId ?? sqlTabStates[tabId]?.connId ?? "";
+}
+
+/** 根据工作区 Tab 解析侧栏联动用的连接 id。 */
+export function resolveConnIdForWorkspaceTab(
+  tab: DbWorkspaceTab | undefined,
+  tabStates: {
+    sqlTabStates: Record<string, SqlTabState>;
+    tablePreviews: Record<string, TablePreviewState>;
+  },
+): string | null {
+  if (!tab) {
+    return null;
+  }
+  if (tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer") {
+    return tab.connId;
+  }
+  if (tab.kind === "sql") {
+    const connId = resolveSqlTabConnectionId(
+      tab.id,
+      tabStates.sqlTabStates,
+      tabStates.tablePreviews,
+    );
+    return connId || null;
+  }
+  return null;
 }
 
 export function tabModeToEditorOpenMode(mode: "data" | "sql"): SqlEditorOpenMode {

@@ -107,15 +107,17 @@ export function SidebarBottom({
 
   const targetBottomPx = bottomResizeLocked
     ? WS_HEIGHT_TASKBAR_MAX
-    : workspaceMode === "half" && workspaceDisplayPreference === "split-window"
-      ? splitWindowHeightFromRatio(lastExpandedHeightRatio)
-      : workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
-        ? workspaceHeightPx
-        : lastExpandedHeightPx > WS_HEIGHT_HIDDEN_MAX
-          ? lastExpandedHeightPx
-          : defaultHeightForMode(
-              lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode,
-            );
+    : workspaceMode === "hidden"
+      ? 0
+      : workspaceMode === "half" && workspaceDisplayPreference === "split-window"
+        ? splitWindowHeightFromRatio(lastExpandedHeightRatio)
+        : workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
+          ? workspaceHeightPx
+          : lastExpandedHeightPx > WS_HEIGHT_HIDDEN_MAX
+            ? lastExpandedHeightPx
+            : defaultHeightForMode(
+                lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode,
+              );
 
   const shouldIgnorePanelResize = useCallback(() => {
     return (

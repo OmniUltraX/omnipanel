@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { useDbSidebarLinkage } from "./DbSidebarLinkageContext";
 import { SchemaBrowser, type SchemaBrowserProps } from "./SchemaBrowser";
 import { SqlQueryFilePanel } from "./SqlQueryFilePanel";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
@@ -24,7 +25,8 @@ function readSectionState(): Record<SectionKey, boolean> {
   }
 }
 
-export interface DatabaseSchemaSidebarProps extends SchemaBrowserProps {
+export interface DatabaseSchemaSidebarProps
+  extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey"> {
   onOpenSqlFile: (file: DbSqlFileNode) => void;
 }
 
@@ -33,11 +35,19 @@ export function DatabaseSchemaSidebar({
   ...schemaProps
 }: DatabaseSchemaSidebarProps) {
   const { t } = useI18n();
+  const { activeConnId, activeTableKey, activeDatabaseKey } = useDbSidebarLinkage();
   const [sections, setSections] = useState(readSectionState);
 
   useEffect(() => {
     localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(sections));
   }, [sections]);
+
+  useEffect(() => {
+    if (!activeTableKey && !activeDatabaseKey && !activeConnId) {
+      return;
+    }
+    setSections((prev) => (prev.connections ? prev : { ...prev, connections: true }));
+  }, [activeTableKey, activeDatabaseKey, activeConnId]);
 
   const toggleSection = useCallback((key: SectionKey) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -47,6 +57,9 @@ export function DatabaseSchemaSidebar({
     <div className="schema-sidebar">
       <SchemaBrowser
         {...schemaProps}
+        activeConnId={activeConnId}
+        activeTableKey={activeTableKey}
+        activeDatabaseKey={activeDatabaseKey}
         section={{
           title: t("database.sidebar.connections"),
           expanded: sections.connections,

@@ -8,6 +8,8 @@ import {
   subscribeMirroredDbTab,
 } from "../../stores/dbWorkspaceMirrorStore";
 import { DbPanelSurface } from "./DbPanelSurface";
+import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
+import { isTablePreviewTabId } from "../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import type { SchemaTableSelection } from "./SchemaBrowser";
@@ -67,7 +69,11 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
       <div className="workspace-database-mirror db-dock-workspace">
         <div className="db-workspace-pane db-dock-pane">
           {inlineTab && isSqlWorkspaceTab(inlineTab) ? (
-            <DbPanelSurface tab={inlineTab} />
+            isTablePreviewTabId(inlineTab.id) ? (
+              <DbTablePreviewSurface tab={inlineTab} />
+            ) : (
+              <DbPanelSurface tab={inlineTab} />
+            )
           ) : isConnectionInfoTab(tab) ? (
             (() => {
               const connection =
@@ -96,7 +102,11 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
               );
             })()
           ) : isSqlWorkspaceTab(tab) ? (
-            <DbPanelSurface tab={tab} />
+            isTablePreviewTabId(tab.id) ? (
+              <DbTablePreviewSurface tab={tab} />
+            ) : (
+              <DbPanelSurface tab={tab} />
+            )
           ) : null}
         </div>
       </div>

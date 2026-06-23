@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
 import { SecretInput } from "../../components/ui/SecretInput";
 import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
-import type { Connection } from "../../ipc/bindings";
+import { commands, type Connection } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { saveFileConnection } from "./fileApi";
 
@@ -114,7 +114,9 @@ export function FileConnectionDialog({ open, onClose, onSaved, editConnection }:
   const connections = useConnectionStore((s) => s.connections);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const sshOptions = useMemo(
     () =>
@@ -128,11 +130,14 @@ export function FileConnectionDialog({ open, onClose, onSaved, editConnection }:
     if (!open) return;
     setForm(parseConfig(editConnection));
     setError(null);
+    setSuccessMsg(null);
     setSaving(false);
+    setTesting(false);
   }, [open, editConnection]);
 
   const update = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) => {
     setError(null);
+    setSuccessMsg(null);
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -152,6 +157,33 @@ export function FileConnectionDialog({ open, onClose, onSaved, editConnection }:
     }
     return null;
   };
+
+  const handleTest = useCallback(async () => {
+    const err = validate();
+    if (err) {
+      setError(err);
+      return;
+    }
+    setTesting(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const conn = buildConnection(form, editConnection);
+      const res = await commands.connTest(conn);
+      if (res.status === "ok" && res.data !== undefined) {
+        setSuccessMsg(res.data);
+      } else if (res.error) {
+        const e = res.error;
+        setError(e.cause ? `${e.message}（${e.cause}）` : e.message);
+      } else {
+        setError("测试失败");
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setTesting(false);
+    }
+  }, [form, editConnection]);
 
   const handleSave = async () => {
     const err = validate();
@@ -183,7 +215,15 @@ export function FileConnectionDialog({ open, onClose, onSaved, editConnection }:
       size="md"
       onCancel={onClose}
       cancelDisabled={saving}
-      status={error ? { kind: "error", message: error } : null}
+      status={successMsg ? { kind: "success", message: successMsg } : error ? { kind: "error", message: error } : null}
+      actions={[
+        {
+          label: testing ? t("files.dialog.testing") : t("files.dialog.testConnection"),
+          disabled: testing || saving,
+          variant: "secondary",
+          onClick: () => void handleTest(),
+        },
+      ]}
       primaryAction={{
         label: saving ? t("common.saving") : t("files.dialog.connect"),
         disabled: saving,
