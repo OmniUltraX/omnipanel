@@ -41,22 +41,6 @@ export function DatabaseWorkspaceDock({
     return null;
   }
 
-  if (dockTabs.length === 0) {
-    return (
-      <WorkspaceEmptyPage
-        prompt={emptyPrompt}
-        actionList={
-          recentClosedActionItems.length > 0
-            ? {
-                title: recentClosedTitle,
-                items: recentClosedActionItems,
-              }
-            : undefined
-        }
-      />
-    );
-  }
-
   return (
     <DockableWorkspace
       className="db-workspace"
@@ -74,6 +58,19 @@ export function DatabaseWorkspaceDock({
       onTabContextMenu={onTabContextMenu}
       onCtrlCopyTab={onCtrlCopyTab}
       windowControl={false}
+      emptyContent={
+        <WorkspaceEmptyPage
+          prompt={emptyPrompt}
+          actionList={
+            recentClosedActionItems.length > 0
+              ? {
+                  title: recentClosedTitle,
+                  items: recentClosedActionItems,
+                }
+              : undefined
+          }
+        />
+      }
     />
   );
 }
