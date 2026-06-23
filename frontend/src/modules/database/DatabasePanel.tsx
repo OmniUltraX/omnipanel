@@ -6,7 +6,9 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import type { SchemaDatabaseSelection, SchemaTableSelection } from "./SchemaBrowser";
+import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./SchemaBrowser";
+import type { SchemaTreeItem } from "./schemaTreeItem";
+import type { ContextMenuItem } from "../../components/ui/ContextMenu";
 import { DatabaseSchemaSidebar } from "./DatabaseSchemaSidebar";
 import {
   DatabaseModuleContextBridge,
@@ -14,6 +16,7 @@ import {
 } from "./ai";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
+import { RedisQueryPanel } from "./RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./ConnectionResolvedDockPane";
 import { DbSchemaProvider } from "./DbSchemaContext";
 import { ConnectionDialog } from "./ConnectionDialog";
@@ -48,6 +51,7 @@ import {
   saveConnection,
   isConnectionEnabled,
   isSqlCapableConnection,
+  isRedisConnection,
   isToolboxCapableConnection,
   type DbConnectionConfig,
 } from "./api";
@@ -55,6 +59,7 @@ import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompleti
 import { toCsv } from "./csvExport";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta";
 import { getCachedDatabaseNames } from "./schemaCacheMerge";
+import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import { refreshConnectionSchemaCache } from "./schemaCacheRefresh";
 import type { DatabaseSchema } from "./types";
 import {
@@ -68,12 +73,15 @@ import {
   makeTableTabKey,
   findTabIdForTable,
   findTabIdForDesigner,
+  findTabIdForRedisQuery,
   makeDesignerTabId,
   makeConnectionInfoTabId,
+  makeRedisQueryTabId,
   makeTableDesignerTabLabel,
   type ConnectionInfoWorkspaceTab,
   type DatabaseListWorkspaceTab,
   type DbWorkspaceTab,
+  type RedisQueryWorkspaceTab,
   type SqlWorkspaceTab,
   type TableDesignerWorkspaceTab,
 } from "./workspaceTabs";
@@ -401,22 +409,6 @@ export function DatabasePanel() {
     | null
   >(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
-  const [tableCtxMenu, setTableCtxMenu] = useState<
-    | {
-        x: number;
-        y: number;
-        selection: SchemaTableSelection;
-      }
-    | null
-  >(null);
-  const [connCtxMenu, setConnCtxMenu] = useState<
-    | {
-        x: number;
-        y: number;
-        connId: string;
-      }
-    | null
-  >(null);
   const updateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
   const [createDbDialog, setCreateDbDialog] = useState<
     | {
@@ -1517,6 +1509,19 @@ export function DatabasePanel() {
         }
       }
 
+      if (tab.kind === "redis-query") {
+        const existing = findTabIdForRedisQuery(
+          workspaceTabsRef.current,
+          tab.connId,
+          tab.dbName,
+        );
+        if (existing) {
+          activateWorkspaceTab(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
       if (tab.kind === "designer") {
         const existing = findTabIdForDesigner(
           workspaceTabsRef.current,
@@ -1881,24 +1886,6 @@ export function DatabasePanel() {
     [cellEdit, commitCellDirtyChange],
   );
 
-  const handleContextTable = useCallback(
-    (selection: SchemaTableSelection, event: ReactMouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setTableCtxMenu({ x: event.clientX, y: event.clientY, selection });
-    },
-    [],
-  );
-
-  const handleContextConnection = useCallback(
-    (connId: string, event: ReactMouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setConnCtxMenu({ x: event.clientX, y: event.clientY, connId });
-    },
-    [],
-  );
-
   const toggleConnectionEnabled = useCallback(
     async (connId: string, enabled: boolean) => {
       const connection = connections.find((c) => c.id === connId);
@@ -1947,11 +1934,15 @@ export function DatabasePanel() {
     return ok;
   }
 
-  const copyNameForCurrentTable = useCallback(() => {
-    const ctx = tableCtxMenu;
-    if (!ctx) return;
-    void writeToClipboard(`\`${ctx.selection.dbName}\`.\`${ctx.selection.tableName}\``);
-  }, [tableCtxMenu]);
+  const copyNameForTable = useCallback((selection: SchemaTableSelection) => {
+    void writeToClipboard(`\`${selection.dbName}\`.\`${selection.tableName}\``);
+  }, []);
+
+  const copyDdlForTable = useCallback((selection: SchemaTableSelection) => {
+    fetchTableDdl(selection.connection, selection.dbName, selection.tableName)
+      .then((ddl) => writeToClipboard(ddl))
+      .catch((err) => console.error("[db.copyDdl] fetchTableDdl failed", err));
+  }, []);
 
   const resolveTabExportData = useCallback(
     async (tabId: string) => {
@@ -2061,14 +2052,6 @@ export function DatabasePanel() {
     ];
   }, [copyTabResultToClipboard, exportTabResultToCsv, exportMenu?.tabId, t]);
 
-  const copyDdlForCurrentTable = useCallback(() => {
-    const ctx = tableCtxMenu;
-    if (!ctx) return;
-    fetchTableDdl(ctx.selection.connection, ctx.selection.dbName, ctx.selection.tableName)
-      .then((ddl) => writeToClipboard(ddl))
-      .catch((err) => console.error("[db.copyDdl] fetchTableDdl failed", err));
-  }, [tableCtxMenu]);
-
   const handleDesignTable = useCallback(
     (selection: SchemaTableSelection) => {
       if (!supportsTableDesign(selection.connection)) {
@@ -2101,56 +2084,129 @@ export function DatabasePanel() {
     [workspaceTabs],
   );
 
-  const buildTableContextMenuItems = useCallback(() => {
-    const copyIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <rect x="5" y="5" width="9" height="9" rx="1.5" />
-        <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
-      </svg>
-    );
-    const designIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-        <path d="M5 8h6M8 5v6" />
-      </svg>
-    );
-    const selection = tableCtxMenu?.selection;
-    const canDesign = selection ? supportsTableDesign(selection.connection) : false;
-    return [
-      {
-        id: "design-table",
-        label: t("database.contextMenu.designTable"),
-        icon: designIcon,
-        disabled: !canDesign,
-        onClick: () => {
-          if (!selection) return;
-          handleDesignTable(selection);
-        },
-      },
-      {
-        id: "copy",
-        label: t("database.contextMenu.copy"),
-        icon: copyIcon,
-        children: [
+  const buildSchemaContextMenuItems = useCallback(
+    (item: SchemaTreeItem, context: SchemaContextMenuContext): ContextMenuItem[] => {
+      const copyIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <rect x="5" y="5" width="9" height="9" rx="1.5" />
+          <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+        </svg>
+      );
+      const designIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+          <path d="M5 8h6M8 5v6" />
+        </svg>
+      );
+      const plusIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+      );
+      const editIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M11 2l3 3-8 8H3v-3l8-8z" />
+          <path d="M2 14h12" />
+        </svg>
+      );
+      const openIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M3 6l5-4 5 4" />
+          <path d="M8 2v12" />
+        </svg>
+      );
+      const closeIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M3 10l5 4 5-4" />
+          <path d="M8 14V2" />
+        </svg>
+      );
+
+      if (item.type === "table" && context.tableSelection) {
+        const selection = context.tableSelection;
+        const canDesign = supportsTableDesign(selection.connection);
+        return [
           {
-            id: "copy-name",
-            label: t("database.contextMenu.copyName"),
-            onClick: copyNameForCurrentTable,
+            id: "design-table",
+            label: t("database.contextMenu.designTable"),
+            icon: designIcon,
+            disabled: !canDesign,
+            onClick: () => handleDesignTable(selection),
           },
           {
-            id: "copy-ddl",
-            label: t("database.contextMenu.copyDdl"),
-            onClick: copyDdlForCurrentTable,
+            id: "copy",
+            label: t("database.contextMenu.copy"),
+            icon: copyIcon,
+            children: [
+              {
+                id: "copy-name",
+                label: t("database.contextMenu.copyName"),
+                onClick: () => copyNameForTable(selection),
+              },
+              {
+                id: "copy-ddl",
+                label: t("database.contextMenu.copyDdl"),
+                onClick: () => copyDdlForTable(selection),
+              },
+              {
+                id: "copy-data",
+                label: t("database.contextMenu.copyData"),
+                disabled: true,
+              },
+            ],
+          },
+        ];
+      }
+
+      if (item.type === "connection" && context.connection) {
+        const connection = context.connection;
+        const connEnabled = isConnectionEnabled(connection);
+        return [
+          {
+            id: connEnabled ? "disable-connection" : "enable-connection",
+            label: connEnabled
+              ? t("database.contextMenu.closeConnection")
+              : t("database.contextMenu.openConnection"),
+            icon: connEnabled ? closeIcon : openIcon,
+            onClick: () => {
+              void toggleConnectionEnabled(connection.id, !connEnabled);
+            },
           },
           {
-            id: "copy-data",
-            label: t("database.contextMenu.copyData"),
-            disabled: true,
+            id: "edit-connection",
+            label: t("database.contextMenu.editConnection"),
+            icon: editIcon,
+            onClick: () => {
+              setEditingConnection(connection);
+              setDialogOpen(true);
+            },
           },
-        ],
-      },
-    ];
-  }, [t, copyDdlForCurrentTable, copyNameForCurrentTable, handleDesignTable, tableCtxMenu?.selection]);
+          {
+            id: "create-database",
+            label: t("database.contextMenu.createDatabase"),
+            icon: plusIcon,
+            disabled: !connEnabled,
+            onClick: () => setCreateDbDialog({ connId: connection.id }),
+          },
+        ];
+      }
+
+      return [];
+    },
+    [copyDdlForTable, copyNameForTable, handleDesignTable, t, toggleConnectionEnabled],
+  );
+
+  const handleSchemaCacheConnectionPatched = useCallback(
+    (connId: string, entry: SchemaCacheConnectionEntry) => {
+      const names = entry.databases.map((db) => db.name);
+      setDatabasesByConnId((prev) => ({ ...prev, [connId]: names }));
+      setDatabaseFilters((prev) => ({
+        ...prev,
+        [connId]: mergeFilter(prev[connId], names),
+      }));
+    },
+    [setDatabaseFilters],
+  );
 
   const refreshConnDatabases = useCallback(
     (connId: string) => {
@@ -2176,88 +2232,6 @@ export function DatabasePanel() {
     },
     [connections, setDatabaseFilters],
   );
-
-  const buildConnContextMenuItems = useCallback(() => {
-    const plusIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M8 3v10M3 8h10" />
-      </svg>
-    );
-    const refreshIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-        <path d="M14 2v3h-3" />
-        <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-        <path d="M2 14v-3h3" />
-      </svg>
-    );
-    const editIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M11 2l3 3-8 8H3v-3l8-8z" />
-        <path d="M2 14h12" />
-      </svg>
-    );
-    const openIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M3 6l5-4 5 4" />
-        <path d="M8 2v12" />
-      </svg>
-    );
-    const closeIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M3 10l5 4 5-4" />
-        <path d="M8 14V2" />
-      </svg>
-    );
-    const connId = connCtxMenu?.connId;
-    const connection = connections.find((c) => c.id === connId);
-    const connEnabled = connection ? isConnectionEnabled(connection) : false;
-    return [
-      {
-        id: connEnabled ? "disable-connection" : "enable-connection",
-        label: connEnabled
-          ? t("database.contextMenu.closeConnection")
-          : t("database.contextMenu.openConnection"),
-        icon: connEnabled ? closeIcon : openIcon,
-        disabled: !connection,
-        onClick: () => {
-          if (!connection) return;
-          void toggleConnectionEnabled(connection.id, !connEnabled);
-        },
-      },
-      {
-        id: "edit-connection",
-        label: t("database.contextMenu.editConnection"),
-        icon: editIcon,
-        disabled: !connection,
-        onClick: () => {
-          if (!connection) return;
-          setEditingConnection(connection);
-          setDialogOpen(true);
-        },
-      },
-      {
-        id: "create-database",
-        label: t("database.contextMenu.createDatabase"),
-        icon: plusIcon,
-        disabled: !connId || !connEnabled,
-        onClick: () => {
-          if (!connId) return;
-          setCreateDbDialog({ connId });
-        },
-      },
-      {
-        id: "refresh-databases",
-        label: t("database.contextMenu.refresh"),
-        icon: refreshIcon,
-        disabled: !connId || !connEnabled,
-        onClick: () => {
-          if (!connId) return;
-          refreshConnDatabases(connId);
-        },
-      },
-    ];
-  }, [connCtxMenu?.connId, connections, refreshConnDatabases, toggleConnectionEnabled, t]);
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
@@ -2399,6 +2373,30 @@ export function DatabasePanel() {
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection) => {
       setActiveConnId(selection.connId);
+
+      if (isRedisConnection(selection.connection)) {
+        const existingTabId = findTabIdForRedisQuery(
+          workspaceTabs,
+          selection.connId,
+          selection.dbName,
+        );
+        if (existingTabId) {
+          activateWorkspaceTab(existingTabId);
+          return;
+        }
+
+        const tabId = makeRedisQueryTabId();
+        const tab: RedisQueryWorkspaceTab = {
+          id: tabId,
+          kind: "redis-query",
+          label: `DB ${selection.dbName}`,
+          connId: selection.connId,
+          dbName: selection.dbName,
+        };
+        setWorkspaceTabs((prev) => [...prev, tab]);
+        activateWorkspaceTab(tabId);
+        return;
+      }
 
       const existingTabId = findTabIdForDatabase(
         workspaceTabs,
@@ -2550,6 +2548,28 @@ export function DatabasePanel() {
     [setActiveGroupId],
   );
 
+  const openRedisQueryTab = useCallback(
+    (connId: string, dbName: string | undefined, label: string) => {
+      const existingTabId = findTabIdForRedisQuery(workspaceTabs, connId, dbName);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+
+      const tabId = makeRedisQueryTabId();
+      const tab: RedisQueryWorkspaceTab = {
+        id: tabId,
+        kind: "redis-query",
+        label,
+        connId,
+        dbName,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [workspaceTabs],
+  );
+
   const handleSelectConnection = useCallback(
     (connId: string) => {
       setActiveConnId(connId);
@@ -2559,6 +2579,11 @@ export function DatabasePanel() {
       const group = groups.find((item) => item.name === normalized);
       if (group) {
         setActiveGroupId(group.id);
+      }
+
+      if (isRedisConnection(conn)) {
+        openRedisQueryTab(connId, undefined, conn.name);
+        return;
       }
 
       const existingTabId = findTabIdForConnection(workspaceTabs, connId);
@@ -2577,7 +2602,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
     },
-    [connections, groups, setActiveConnId, setActiveGroupId, workspaceTabs],
+    [connections, groups, setActiveConnId, setActiveGroupId, workspaceTabs, openRedisQueryTab],
   );
 
   const runQuery = useCallback(async (sqlOverride?: string, tabIdOverride?: string) => {
@@ -2893,6 +2918,16 @@ export function DatabasePanel() {
               closable: true,
             };
           }
+          if (tab.kind === "redis-query") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database",
+              icon: "database" as const,
+              tooltip: t("database.redisQuery.search"),
+              closable: true,
+            };
+          }
           if (tab.kind === "designer") {
             const dirty = isDesignerTabDirty(tab.id);
             return {
@@ -2957,7 +2992,6 @@ export function DatabasePanel() {
                 <div className="db-workspace-pane db-dock-pane">
                   <DatabaseTablesPanel
                     selection={selection}
-                    onSelectTable={handleSelectTable}
                     onDesignTable={handleDesignTable}
                   />
                 </div>
@@ -2972,7 +3006,22 @@ export function DatabasePanel() {
           <ConnectionResolvedDockPane connId={tab.connId}>
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane">
-                <DatabaseConnectionInfoPanel connection={connection} />
+                <DatabaseConnectionInfoPanel
+                  connection={connection}
+                  active={tab.id === activeWorkspaceTabId}
+                />
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
+        );
+      }
+
+      if (tab.kind === "redis-query") {
+        return (
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane">
+                <RedisQueryPanel connection={connection} fixedDbName={tab.dbName} />
               </div>
             )}
           </ConnectionResolvedDockPane>
@@ -3018,7 +3067,7 @@ export function DatabasePanel() {
         </div>
       );
     },
-    [workspaceTabs, handleSelectTable, handleDesignTable, tableDesignerStates, updateTableDesignerState, tablePreviewTabIdKey, t],
+    [workspaceTabs, activeWorkspaceTabId, handleSelectTable, handleDesignTable, tableDesignerStates, updateTableDesignerState, tablePreviewTabIdKey, t],
   );
 
   const handleDockTabContextMenu = useCallback(
@@ -3048,13 +3097,7 @@ export function DatabasePanel() {
     setExportMenu(null);
   }, [isActiveRoute]);
 
-  const modulePanelContentKey = useMemo(
-    () =>
-      buildDatabaseModulePanelContentKey({
-        moduleTab,
-      }),
-    [moduleTab],
-  );
+  const modulePanelContentKey = useMemo(() => buildDatabaseModulePanelContentKey(), []);
 
   const moduleSoftRefreshKey = useMemo(
     () =>
@@ -3155,6 +3198,7 @@ export function DatabasePanel() {
     <>
       <SidebarWorkspace
         preset="schema"
+        layoutPersistKey="database-schema"
         sidebarMinPx={280}
         sidebar={
           <DbSchemaProvider value={schemaContextValue}>
@@ -3171,8 +3215,8 @@ export function DatabasePanel() {
                 onOpenSqlFile={openSqlFile}
                 onSelectTable={handleSelectTable}
                 onSelectDatabase={handleSelectDatabase}
-                onContextTable={handleContextTable}
-                onContextConnection={handleContextConnection}
+                buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+                onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
                 refreshToken={schemaRefreshToken}
                 connectionConfigs={connections}
                 connectionsReady={!connectionsLoading || connections.length > 0}
@@ -3301,20 +3345,6 @@ export function DatabasePanel() {
         />
       );
     })()}
-    {isActiveRoute && tableCtxMenu && (
-      <ContextMenu
-        items={buildTableContextMenuItems()}
-        position={{ x: tableCtxMenu.x, y: tableCtxMenu.y }}
-        onClose={() => setTableCtxMenu(null)}
-      />
-    )}
-    {isActiveRoute && connCtxMenu && (
-      <ContextMenu
-        items={buildConnContextMenuItems()}
-        position={{ x: connCtxMenu.x, y: connCtxMenu.y }}
-        onClose={() => setConnCtxMenu(null)}
-      />
-    )}
     {isActiveRoute && exportMenu && (
       <ContextMenu
         items={buildExportMenuItems()}

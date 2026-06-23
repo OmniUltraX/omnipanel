@@ -343,6 +343,14 @@ export const commands = {
 	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
 	/**  从 PDF 文件导入知识文档（提取文本并保存为 document 条目）。 */
 	knowledgeImportPdf: (path: string, parentId: string | null) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_import_pdf", { path, parentId })),
+	/**  将知识条目分块并向量化存储。 */
+	knowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<KnowledgeVectorizeResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vectorize", { args })),
+	/**  查询条目的向量化状态。 */
+	knowledgeVectorStatus: (entryId: string) => typedError<{
+	entryId: string,
+	chunkCount: number | null,
+	embeddedAt: number | null,
+} | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vector_status", { entryId })),
 	/**  列出所有工作流。 */
 	workflowList: () => typedError<Workflow[], OmniError_Serialize>(__TAURI_INVOKE("workflow_list")),
 	/**  按 id 获取工作流详情（含步骤）。 */
@@ -1093,6 +1101,14 @@ export type DockerVolumeSummary = {
 	inUse: boolean,
 };
 
+export type EmbeddingProviderConfig = {
+	providerId: string,
+	modelName: string,
+	baseUrl: string,
+	apiKey: string,
+	apiStandard: string,
+};
+
 /**  错误分类码。前端按 `code` 决定提示文案与重试策略。 */
 export type ErrorCode = 
 /**  未归类的内部错误 */
@@ -1268,6 +1284,26 @@ export type KnowledgeTodoList = {
 	sortOrder?: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
+};
+
+/**  条目向量化状态摘要。 */
+export type KnowledgeVectorStatus = {
+	entryId: string,
+	chunkCount: number | null,
+	embeddedAt: number | null,
+};
+
+export type KnowledgeVectorizeArgs = {
+	entryId: string,
+	provider: EmbeddingProviderConfig,
+	chunkSize: number,
+	chunkOverlap: number,
+};
+
+export type KnowledgeVectorizeResult = {
+	entryId: string,
+	chunkCount: number | null,
+	embeddedAt: number | null,
 };
 
 export type McpEnvEntry = {

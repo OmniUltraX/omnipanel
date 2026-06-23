@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { ScopedSearch, type ScopedSearchHandle } from "../../components/ui/ScopedSearch";
@@ -58,11 +58,15 @@ function FolderTree({
         const indent = depth * 16 + 8;
         if (node.type === "folder") {
           const expanded = expandedIds.has(node.id);
+          const nodeStyle: CSSProperties = {
+            paddingLeft: indent,
+            ["--tree-depth" as string]: depth,
+          };
           return (
             <div key={node.id}>
               <div
-                className="sql-file-tree-node sql-file-tree-node--folder"
-                style={{ paddingLeft: indent }}
+                className={`sql-file-tree-node sql-file-tree-node--folder${expanded ? " sql-file-tree-node--sticky" : ""}`}
+                style={nodeStyle}
                 onContextMenu={(event) => onContextMenu(node, event)}
               >
                 <span
@@ -139,6 +143,7 @@ export function SqlQueryFilePanel({ onOpenFile, section }: SqlQueryFilePanelProp
   const renameNode = useDbSqlFileStore((s) => s.renameNode);
   const deleteNode = useDbSqlFileStore((s) => s.deleteNode);
   const [search, setSearch] = useState("");
+  const stickyAncestors = useMemo(() => !search.trim(), [search]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: DbSqlFileNode } | null>(null);
@@ -251,7 +256,11 @@ export function SqlQueryFilePanel({ onOpenFile, section }: SqlQueryFilePanelProp
         onChange={setSearch}
         placeholder={t("database.queryFiles.search")}
       >
-        <div className="sql-query-file-tree" tabIndex={-1} onKeyDown={handleTreeKeyDown}>
+        <div
+          className={`sql-query-file-tree${stickyAncestors ? " sql-query-file-tree--sticky-ancestors" : ""}`}
+          tabIndex={-1}
+          onKeyDown={handleTreeKeyDown}
+        >
           {rootCount === 0 ? (
             <div className="sql-query-file-empty">{t("database.queryFiles.empty")}</div>
           ) : (

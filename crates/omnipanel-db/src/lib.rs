@@ -15,6 +15,7 @@ mod redis;
 mod sqlite;
 
 pub use mysql::mysql_connect_options;
+pub use redis::{RedisDriver, RedisKeyEntry};
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
@@ -73,6 +74,17 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
             "不支持的数据库类型：{other}"
         ))),
     }
+}
+
+/// Redis 键搜索（SCAN + TYPE + 值预览）。
+pub async fn redis_search_keys(
+    params: &DbParams,
+    pattern: &str,
+    types: &[String],
+    limit: usize,
+) -> OmniResult<Vec<RedisKeyEntry>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.search_keys(pattern, types, limit).await
 }
 
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。

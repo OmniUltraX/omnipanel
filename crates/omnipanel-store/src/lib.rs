@@ -6,6 +6,7 @@ mod database;
 mod http;
 mod knowledge;
 mod knowledge_todo;
+mod knowledge_vector;
 mod paths;
 mod schema_cache;
 mod schema_filters;
@@ -23,6 +24,9 @@ pub use database::{
 pub use http::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
+pub use knowledge_vector::{
+    KnowledgeChunkRecord, KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text,
+};
 pub use paths::{
     database_connections_path, database_schema_cache_path, database_schema_filters_path,
     database_schema_tree_expanded_path, mcp_services_path, meta_db_path, module_dir, omnipd_root,

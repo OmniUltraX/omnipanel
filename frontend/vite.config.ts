@@ -70,8 +70,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/monaco-editor") || id.includes("@monaco-editor/react")) {
-            return "vendor-monaco";
+          if (id.includes("node_modules/@codemirror/")) {
+            return "vendor-codemirror";
           }
           if (id.includes("node_modules/@xterm/")) {
             return "vendor-xterm";

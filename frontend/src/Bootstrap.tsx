@@ -62,7 +62,6 @@ export function Bootstrap() {
         initAcpServicesStore();
 
         advance(3);
-        await import("./lib/monacoSetup");
         await import("@xterm/xterm/css/xterm.css");
 
         advance(4);

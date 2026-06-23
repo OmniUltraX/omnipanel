@@ -14,6 +14,7 @@ import {
   saveConnection,
   testConnection,
 } from "./api";
+import { refreshAndPatchConnectionSchemaCache } from "./schemaCacheRefresh";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
 
 const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
@@ -120,7 +121,8 @@ export function ConnectionDialog({
     setSaving(true);
     setStatus(null);
     try {
-      await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
+      const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
+      void refreshAndPatchConnectionSchemaCache(saved);
       onSaved?.();
       onClose();
     } catch (error) {

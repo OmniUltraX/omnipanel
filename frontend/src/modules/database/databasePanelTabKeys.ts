@@ -102,6 +102,10 @@ export function buildDatabasePanelContentKeysByTab(params: {
       keys[tab.id] = [connectionsFingerprint, tab.connId].join(":");
       continue;
     }
+    if (tab.kind === "redis-query") {
+      keys[tab.id] = [connectionsFingerprint, tab.connId, tab.dbName ?? ""].join(":");
+      continue;
+    }
     if (tab.kind === "designer") {
       keys[tab.id] = [
         connectionsFingerprint,
@@ -116,7 +120,7 @@ export function buildDatabasePanelContentKeysByTab(params: {
   return keys;
 }
 
-/** ModuleSegmentDock 外层仅需模块级 key（工作区 Tab 由内部 Dock 自行 invalidate）。 */
-export function buildDatabaseModulePanelContentKey(params: { moduleTab: string }): string {
-  return params.moduleTab;
+/** ModuleSegmentDock 外层使用稳定 key，避免 query/transfer 切换时重挂载侧栏布局。 */
+export function buildDatabaseModulePanelContentKey(): string {
+  return "database-module";
 }

@@ -1,9 +1,12 @@
-import type { editor, languages, Position } from "monaco-editor";
-import type { DatabaseSchema } from "../types";
+import {
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+  snippetCompletion,
+} from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
+import type { DatabaseSchema, TableSchema } from "../types";
 import { buildTableActionSnippets, getCompletionItems } from "./sqlCompletion";
-import type { TableSchema } from "../types";
-
-type Monaco = typeof import("monaco-editor");
 
 const SQL_NOISE_TOKENS = new Set([
   "SELECT", "FROM", "WHERE", "JOIN", "ON", "AND", "OR", "AS", "INTO", "SET",
@@ -15,19 +18,8 @@ type TableDotContext = {
   table: TableSchema;
   qualifiedTable: string;
   tableTokenInLine: string;
-  /** 来自 `表.字段 运算符 值.` 时已输入的 WHERE 条件（如 `id > 0`） */
   whereClause?: string;
 };
-
-function completionRange(model: editor.ITextModel, position: Position) {
-  const word = model.getWordUntilPosition(position);
-  return {
-    startLineNumber: position.lineNumber,
-    startColumn: word.startColumn,
-    endLineNumber: position.lineNumber,
-    endColumn: word.endColumn,
-  };
-}
 
 function prefixAfterLastDot(linePrefix: string): string {
   const dot = linePrefix.lastIndexOf(".");
@@ -39,16 +31,6 @@ function filterByPrefix<T extends { label: string }>(items: T[], prefix: string)
   if (!prefix) return items;
   const key = prefix.toLowerCase();
   return items.filter((item) => item.label.toLowerCase().startsWith(key));
-}
-
-function textOffset(model: editor.ITextModel, position: Position): number {
-  const lines = model.getValue().split("\n");
-  let offset = 0;
-  for (let i = 0; i < position.lineNumber - 1; i++) {
-    offset += (lines[i]?.length ?? 0) + 1;
-  }
-  offset += position.column - 1;
-  return offset;
 }
 
 function findDatabase(schemas: DatabaseSchema[], name: string): DatabaseSchema | undefined {
@@ -68,7 +50,6 @@ function anySchemaHasTables(schemas: DatabaseSchema[]): boolean {
   return schemas.some((db) => db.tables.length > 0);
 }
 
-/** 解析 `表.` / `库.表.` 上下文；表名优先于库名（避免 `库名.` 误占表片段）。 */
 function resolveDirectTableDotContext(
   linePrefix: string,
   schemas: DatabaseSchema[],
@@ -191,7 +172,6 @@ function columnBelongsToTable(table: TableSchema, columnName: string): boolean {
   return table.columns.some((col) => col.name.toLowerCase() === key);
 }
 
-/** 从 `表.字段 运算符 值[.]` 中提取 WHERE 条件文本（如 `id > 0`）。 */
 function parseWhereClauseAfterTable(
   linePrefix: string,
   tableTokenInLine: string,
@@ -215,7 +195,6 @@ function withWhereClause(ctx: TableDotContext, linePrefix: string): TableDotCont
   return { ...ctx, whereClause };
 }
 
-/** 解析 `表.字段 运算符 值.` / `库.表.字段 运算符 值.` 后的表上下文。 */
 function resolveTableConditionDotContext(
   linePrefix: string,
   schemas: DatabaseSchema[],
@@ -273,229 +252,177 @@ function resolveTableDotContext(
   );
 }
 
+function completionKindToType(kind: number): string {
+  if (kind === 14) return "keyword";
+  if (kind === 3) return "function";
+  if (kind === 5) return "property";
+  if (kind === 22) return "class";
+  if (kind === 9) return "namespace";
+  return "text";
+}
+
 function columnSuggestions(
-  monaco: Monaco,
-  range: languages.CompletionItem["range"],
   tableName: string,
   columns: DatabaseSchema["tables"][number]["columns"],
-): languages.CompletionItem[] {
+): Completion[] {
   return columns.map((col) => ({
     label: col.name,
-    kind: monaco.languages.CompletionItemKind.Field,
+    type: "property",
     detail: `${col.type}${col.isPK ? " (PK)" : ""}${col.isFK ? " (FK)" : ""} · ${tableName}`,
-    insertText: col.name,
-    filterText: col.name,
-    range,
+    apply: col.name,
   }));
 }
 
-function tableSuggestions(
-  monaco: Monaco,
-  range: languages.CompletionItem["range"],
-  database: DatabaseSchema,
-): languages.CompletionItem[] {
+function tableSuggestions(database: DatabaseSchema): Completion[] {
   return database.tables.map((table) => ({
     label: table.name,
-    kind: monaco.languages.CompletionItemKind.Struct,
+    type: "class",
     detail: `表 · ${database.name} (${table.columns.length} 列)`,
-    insertText: table.name,
-    filterText: table.name,
-    range,
+    apply: table.name,
   }));
+}
+
+function applyWithTablePrefixRemoval(
+  view: EditorView,
+  removeFrom: number,
+  removeTo: number,
+  insert: string,
+  cursorPos: number,
+) {
+  view.dispatch({
+    changes: { from: removeFrom, to: removeTo, insert },
+    selection: { anchor: removeFrom + cursorPos },
+  });
 }
 
 function tableDotSuggestions(
-  monaco: Monaco,
-  _model: editor.ITextModel,
-  position: Position,
+  context: CompletionContext,
   linePrefix: string,
   ctx: TableDotContext,
-): languages.CompletionItem[] {
+): CompletionResult {
+  const line = context.state.doc.lineAt(context.pos);
   const dotIndex = linePrefix.lastIndexOf(".");
-  const tableStartCol = linePrefix.indexOf(ctx.tableTokenInLine) + 1;
-  const afterDotCol = dotIndex + 2;
-  const filterRange = {
-    startLineNumber: position.lineNumber,
-    startColumn: afterDotCol,
-    endLineNumber: position.lineNumber,
-    endColumn: position.column,
-  };
-  const removeTablePrefixEdit: languages.CompletionItem["additionalTextEdits"] = [
-    {
-      range: {
-        startLineNumber: position.lineNumber,
-        startColumn: tableStartCol,
-        endLineNumber: position.lineNumber,
-        endColumn: afterDotCol,
-      },
-      text: "",
-    },
-  ];
-
+  const tableStartOffset = line.from + linePrefix.indexOf(ctx.tableTokenInLine);
+  const afterDotOffset = line.from + dotIndex + 1;
+  const replaceTo = context.pos;
   const prefix = prefixAfterLastDot(linePrefix);
+
   const actions = filterByPrefix(
     buildTableActionSnippets(ctx.qualifiedTable, ctx.table, ctx.whereClause),
     prefix,
   );
 
-  const actionItems: languages.CompletionItem[] = actions.map((item) => {
-    const suggestion: languages.CompletionItem = {
-      label: item.label,
-      kind: monaco.languages.CompletionItemKind.Snippet,
-      detail: item.detail,
-      insertText: item.insertText ?? item.label,
-      filterText: item.label,
-      range: filterRange,
-      additionalTextEdits: removeTablePrefixEdit,
-      sortText: `0_${item.label}`,
+  const actionItems: Completion[] = actions.map((item) => {
+    const insertText = item.insertText ?? item.label;
+    const base = item.snippet
+      ? snippetCompletion(insertText, {
+          label: item.label,
+          detail: item.detail,
+          type: completionKindToType(item.kind),
+          boost: 99,
+        })
+      : {
+          label: item.label,
+          type: completionKindToType(item.kind),
+          detail: item.detail,
+          boost: 99,
+        };
+
+    return {
+      ...base,
+      apply: (view: EditorView) => {
+        applyWithTablePrefixRemoval(view, tableStartOffset, replaceTo, insertText, insertText.length);
+      },
     };
-    if (item.snippet) {
-      suggestion.insertTextRules =
-        monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
-    }
-    return suggestion;
   });
 
-  const allColumns = columnSuggestions(
-    monaco,
-    filterRange,
-    ctx.table.name,
-    ctx.table.columns,
-  );
+  const allColumns = columnSuggestions(ctx.table.name, ctx.table.columns);
   const columns = prefix
-    ? allColumns.filter((col) =>
-        String(col.filterText ?? col.label)
-          .toLowerCase()
-          .startsWith(prefix.toLowerCase()),
-      )
+    ? allColumns.filter((col) => col.label.toLowerCase().startsWith(prefix.toLowerCase()))
     : allColumns;
 
-  return [
-    ...actionItems,
-    ...columns.map((col) => ({ ...col, sortText: `1_${col.label}` })),
-  ];
+  return {
+    from: afterDotOffset,
+    to: replaceTo,
+    options: [
+      ...actionItems,
+      ...columns.map((col) => ({
+        ...col,
+        boost: 50,
+        apply: (view: EditorView) => {
+          applyWithTablePrefixRemoval(view, tableStartOffset, replaceTo, col.label, col.label.length);
+        },
+      })),
+    ],
+  };
 }
 
-/** 根据当前库表元数据为 Monaco SQL 编辑器提供补全。 */
-export function provideMonacoSqlCompletions(
-  monaco: Monaco,
-  schemas: DatabaseSchema[],
-  model: editor.ITextModel,
-  position: Position,
-): languages.CompletionList {
-  const range = completionRange(model, position);
-  const linePrefix = model.getLineContent(position.lineNumber).substring(0, position.column - 1);
-
-  const tableCtx = resolveTableDotContext(linePrefix, schemas);
-  if (tableCtx) {
-    const suggestions = tableDotSuggestions(monaco, model, position, linePrefix, tableCtx);
-    return { suggestions: dedupeCompletionItems(suggestions) };
-  }
-
-  const singleDot = linePrefix.match(/(\w+)\.(\w*)$/);
-  if (singleDot) {
-    const token = singleDot[1];
-    const asDatabase = findDatabase(schemas, token);
-    if (asDatabase) {
-      return {
-        suggestions: dedupeCompletionItems(tableSuggestions(monaco, range, asDatabase)),
-      };
-    }
-  }
-
-  const offset = textOffset(model, position);
-  const text = model.getValue();
-  const items = getCompletionItems(text, offset, schemas);
-  const suggestions: languages.CompletionItem[] = items.map((item) => {
-    let kind = monaco.languages.CompletionItemKind.Text;
-    if (item.kind === 14) {
-      kind = monaco.languages.CompletionItemKind.Keyword;
-    } else if (item.kind === 3) {
-      kind = monaco.languages.CompletionItemKind.Function;
-    } else if (item.kind === 5) {
-      kind = monaco.languages.CompletionItemKind.Field;
-    } else if (item.kind === 22) {
-      kind = monaco.languages.CompletionItemKind.Struct;
-    } else if (item.kind === 9) {
-      kind = monaco.languages.CompletionItemKind.Module;
-    }
-
-    const suggestion: languages.CompletionItem = {
-      label: item.label,
-      kind,
-      detail: item.detail,
-      insertText: item.insertText ?? item.label,
-      filterText: item.label,
-      range,
-    };
-    if (item.snippet) {
-      suggestion.insertTextRules =
-        monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
-    }
-    return suggestion;
-  });
-
-  return { suggestions: dedupeCompletionItems(suggestions) };
-}
-
-const modelSchemaGetters = new WeakMap<
-  editor.ITextModel,
-  () => DatabaseSchema[]
->();
-let sqlCompletionProviderRegistered = false;
-
-export function bindEditorModelSchemas(
-  model: editor.ITextModel,
-  getSchemas: () => DatabaseSchema[],
-): void {
-  modelSchemaGetters.set(model, getSchemas);
-}
-
-export function unbindEditorModelSchemas(model: editor.ITextModel): void {
-  modelSchemaGetters.delete(model);
-}
-
-function dedupeCompletionItems(
-  items: languages.CompletionItem[],
-): languages.CompletionItem[] {
+function dedupeCompletions(items: Completion[]): Completion[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = `${String(item.label)}\0${item.insertText ?? item.label}`;
+    const key = `${item.label}\0${String(item.apply ?? item.label)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-/** 全局只注册一次；各编辑器实例通过 bindEditorModelSchemas 绑定 model → schemas。 */
-export function ensureMonacoSqlCompletionProvider(monaco: Monaco): void {
-  if (sqlCompletionProviderRegistered) return;
-  sqlCompletionProviderRegistered = true;
-
-  monaco.languages.registerCompletionItemProvider("sql", {
-    triggerCharacters: [".", " ", "("],
-    provideCompletionItems(model, position) {
-      const getSchemas = modelSchemaGetters.get(model);
-      if (!getSchemas) {
-        return { suggestions: [] };
-      }
-      return provideMonacoSqlCompletions(monaco, getSchemas(), model, position);
-    },
-  });
-}
-
-/** @deprecated 使用 ensureMonacoSqlCompletionProvider + bindEditorModelSchemas */
-export function registerMonacoSqlCompletionProvider(
-  monaco: Monaco,
+/** 根据当前库表元数据为 CodeMirror SQL 编辑器提供补全。 */
+export function createSqlCompletionSource(
   getSchemas: () => DatabaseSchema[],
-) {
-  ensureMonacoSqlCompletionProvider(monaco);
-  return {
-    dispose() {
-      /* 兼容旧调用；实际 provider 为单例 */
-    },
-    bindModel(model: editor.ITextModel) {
-      bindEditorModelSchemas(model, getSchemas);
-    },
+): (context: CompletionContext) => CompletionResult | null {
+  return (context) => {
+    const schemas = getSchemas();
+    const line = context.state.doc.lineAt(context.pos);
+    const linePrefix = line.text.slice(0, context.pos - line.from);
+
+    const tableCtx = resolveTableDotContext(linePrefix, schemas);
+    if (tableCtx) {
+      return tableDotSuggestions(context, linePrefix, tableCtx);
+    }
+
+    const singleDot = linePrefix.match(/(\w+)\.(\w*)$/);
+    if (singleDot) {
+      const token = singleDot[1];
+      const asDatabase = findDatabase(schemas, token);
+      if (asDatabase) {
+        const dotIndex = linePrefix.lastIndexOf(".");
+        return {
+          from: line.from + dotIndex + 1,
+          to: context.pos,
+          options: dedupeCompletions(tableSuggestions(asDatabase)),
+        };
+      }
+    }
+
+    const word = context.matchBefore(/\w*/);
+    if (!word && !context.explicit) {
+      return null;
+    }
+
+    const from = word ? word.from : context.pos;
+    const items = getCompletionItems(context.state.doc.toString(), context.pos, schemas);
+    const options: Completion[] = items.map((item) => {
+      const insertText = item.insertText ?? item.label;
+      if (item.snippet) {
+        return snippetCompletion(insertText, {
+          label: item.label,
+          detail: item.detail,
+          type: completionKindToType(item.kind),
+        });
+      }
+      return {
+        label: item.label,
+        type: completionKindToType(item.kind),
+        detail: item.detail,
+        apply: insertText,
+      };
+    });
+
+    return {
+      from,
+      to: context.pos,
+      options: dedupeCompletions(options),
+    };
   };
 }

@@ -20,7 +20,6 @@ import { getCachedTableCommentMap, getCachedTableNames } from "./schemaCacheMerg
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
-  onSelectTable: (selection: SchemaTableSelection) => void;
   onDesignTable?: (selection: SchemaTableSelection) => void;
 }
 
@@ -45,7 +44,6 @@ function TableNameRow({
   depth,
   selected,
   onPreviewTable,
-  onOpenTable,
   onDesignTable,
   canDesign,
   tableComments,
@@ -54,7 +52,6 @@ function TableNameRow({
   depth: number;
   selected: boolean;
   onPreviewTable: (tableName: string) => void;
-  onOpenTable: (tableName: string) => void;
   onDesignTable: (tableName: string) => void;
   canDesign: boolean;
   tableComments: ReadonlyMap<string, string>;
@@ -69,10 +66,7 @@ function TableNameRow({
       <button
         type="button"
         className="db-tables-panel-item-main"
-        onClick={() => {
-          onPreviewTable(tableName);
-          onOpenTable(tableName);
-        }}
+        onClick={() => onPreviewTable(tableName)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
           <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -118,7 +112,6 @@ function TableNameTreeBranch({
   onToggleFolder,
   previewTableName,
   onPreviewTable,
-  onOpenTable,
   onDesignTable,
   canDesign,
   tableComments,
@@ -129,7 +122,6 @@ function TableNameTreeBranch({
   onToggleFolder: (key: string) => void;
   previewTableName: string | null;
   onPreviewTable: (tableName: string) => void;
-  onOpenTable: (tableName: string) => void;
   onDesignTable: (tableName: string) => void;
   canDesign: boolean;
   tableComments: ReadonlyMap<string, string>;
@@ -163,7 +155,6 @@ function TableNameTreeBranch({
               onToggleFolder={onToggleFolder}
               previewTableName={previewTableName}
               onPreviewTable={onPreviewTable}
-              onOpenTable={onOpenTable}
               onDesignTable={onDesignTable}
               canDesign={canDesign}
               tableComments={tableComments}
@@ -180,7 +171,6 @@ function TableNameTreeBranch({
       depth={depth}
       selected={selected}
       onPreviewTable={onPreviewTable}
-      onOpenTable={onOpenTable}
       onDesignTable={onDesignTable}
       canDesign={canDesign}
       tableComments={tableComments}
@@ -190,7 +180,6 @@ function TableNameTreeBranch({
 
 export function DatabaseTablesPanel({
   selection,
-  onSelectTable,
   onDesignTable,
 }: DatabaseTablesPanelProps) {
   const { t } = useI18n();
@@ -304,18 +293,6 @@ export function DatabaseTablesPanel({
     setPreviewTableName(tableName);
   }, []);
 
-  const handleOpenTable = useCallback(
-    (tableName: string) => {
-      onSelectTable({
-        connId: selection.connId,
-        dbName: selection.dbName,
-        tableName,
-        connection: selection.connection,
-      });
-    },
-    [onSelectTable, selection.connId, selection.dbName, selection.connection],
-  );
-
   const handleDesignTable = useCallback(
     (tableName: string) => {
       onDesignTable?.({
@@ -403,7 +380,6 @@ export function DatabaseTablesPanel({
                     onToggleFolder={toggleFolder}
                     previewTableName={previewTableName}
                     onPreviewTable={handlePreviewTable}
-                    onOpenTable={handleOpenTable}
                     onDesignTable={handleDesignTable}
                     canDesign={canDesign}
                     tableComments={tableComments}
@@ -418,7 +394,6 @@ export function DatabaseTablesPanel({
                     depth={0}
                     selected={previewTableName === tableName}
                     onPreviewTable={handlePreviewTable}
-                    onOpenTable={handleOpenTable}
                     onDesignTable={handleDesignTable}
                     canDesign={canDesign}
                     tableComments={tableComments}

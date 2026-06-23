@@ -11,6 +11,7 @@ pub mod file_manager;
 pub mod fileio;
 pub mod grpc;
 pub mod knowledge;
+pub mod knowledge_vector;
 pub mod log;
 pub mod panel;
 pub mod pool;

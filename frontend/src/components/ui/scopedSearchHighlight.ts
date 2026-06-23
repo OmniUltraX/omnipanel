@@ -6,7 +6,7 @@ import {
 const MARK_CLASS = "scoped-search-mark";
 
 const SKIP_SELECTOR =
-  ".scoped-search-bar, input, textarea, select, option, script, style, .monaco-editor, .sql-monaco-editor, [contenteditable='true']";
+  ".scoped-search-bar, input, textarea, select, option, script, style, .cm-editor, .sql-codemirror-editor, [contenteditable='true']";
 
 function shouldSkipTextNode(node: Text): boolean {
   const parent = node.parentElement;

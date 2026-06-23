@@ -66,6 +66,42 @@ export type TerminalCursorStyle = "block" | "bar" | "underline";
 export const AI_DOCK_WIDTH_MIN = 300;
 export const AI_DOCK_WIDTH_DEFAULT = 480;
 
+export const KNOWLEDGE_CHUNK_SIZE = {
+  min: 200,
+  max: 4000,
+  default: 800,
+  step: 100,
+} as const;
+
+export const KNOWLEDGE_CHUNK_OVERLAP = {
+  min: 0,
+  max: 1000,
+  default: 100,
+  step: 50,
+} as const;
+
+export const KNOWLEDGE_TOP_N = {
+  min: 1,
+  max: 50,
+  default: 5,
+  step: 1,
+} as const;
+
+export function clampKnowledgeChunkSize(value: number): number {
+  const stepped = Math.round(value / KNOWLEDGE_CHUNK_SIZE.step) * KNOWLEDGE_CHUNK_SIZE.step;
+  return Math.min(KNOWLEDGE_CHUNK_SIZE.max, Math.max(KNOWLEDGE_CHUNK_SIZE.min, stepped));
+}
+
+export function clampKnowledgeChunkOverlap(value: number, chunkSize: number): number {
+  const stepped = Math.round(value / KNOWLEDGE_CHUNK_OVERLAP.step) * KNOWLEDGE_CHUNK_OVERLAP.step;
+  const max = Math.max(0, chunkSize - 100);
+  return Math.min(max, Math.max(KNOWLEDGE_CHUNK_OVERLAP.min, stepped));
+}
+
+export function clampKnowledgeTopN(value: number): number {
+  return Math.min(KNOWLEDGE_TOP_N.max, Math.max(KNOWLEDGE_TOP_N.min, Math.round(value)));
+}
+
 interface SettingsState {
   locale: Locale;
   uiDensity: UiDensity;
@@ -84,6 +120,10 @@ interface SettingsState {
   terminalScrollback: number;
   terminalGpuAccel: boolean;
   terminalCopyOnSelect: boolean;
+  knowledgeChunkSize: number;
+  knowledgeChunkOverlap: number;
+  knowledgeTopN: number;
+  knowledgeEmbeddingModelSelectionId: string | null;
   resolved: "light" | "dark";
   setLocale: (locale: Locale) => void;
   setUiDensity: (density: UiDensity) => void;
@@ -98,6 +138,9 @@ interface SettingsState {
     "terminalFontFamily" | "terminalFontSize" | "terminalLineHeight" |
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
     "terminalGpuAccel" | "terminalCopyOnSelect"
+  >>) => void;
+  setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
+    "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" | "knowledgeEmbeddingModelSelectionId"
   >>) => void;
 }
 
@@ -166,6 +209,10 @@ export const useSettingsStore = create<SettingsState>()(
       terminalScrollback: 10000,
       terminalGpuAccel: true,
       terminalCopyOnSelect: false,
+      knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
+      knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
+      knowledgeTopN: KNOWLEDGE_TOP_N.default,
+      knowledgeEmbeddingModelSelectionId: null,
       resolved: resolveTheme("system"),
       setLocale: (locale) => {
         applyDocumentLocale(locale);
@@ -190,6 +237,24 @@ export const useSettingsStore = create<SettingsState>()(
       setAiDockWidth: (aiDockWidth) => set({ aiDockWidth }),
       setDetailPanelMode: (detailPanelMode) => set({ detailPanelMode }),
       setTerminalSettings: (patch) => set(patch),
+      setKnowledgeSettings: (patch) =>
+        set((state) => {
+          const chunkSize = patch.knowledgeChunkSize ?? state.knowledgeChunkSize;
+          const nextChunkSize = clampKnowledgeChunkSize(chunkSize);
+          const nextOverlap =
+            patch.knowledgeChunkOverlap !== undefined
+              ? clampKnowledgeChunkOverlap(patch.knowledgeChunkOverlap, nextChunkSize)
+              : clampKnowledgeChunkOverlap(state.knowledgeChunkOverlap, nextChunkSize);
+          return {
+            ...patch,
+            knowledgeChunkSize: nextChunkSize,
+            knowledgeChunkOverlap: nextOverlap,
+            knowledgeTopN:
+              patch.knowledgeTopN !== undefined
+                ? clampKnowledgeTopN(patch.knowledgeTopN)
+                : state.knowledgeTopN,
+          };
+        }),
     }),
     {
       name: "omnipanel-settings",
@@ -212,6 +277,10 @@ export const useSettingsStore = create<SettingsState>()(
         terminalScrollback: state.terminalScrollback,
         terminalGpuAccel: state.terminalGpuAccel,
         terminalCopyOnSelect: state.terminalCopyOnSelect,
+        knowledgeChunkSize: state.knowledgeChunkSize,
+        knowledgeChunkOverlap: state.knowledgeChunkOverlap,
+        knowledgeTopN: state.knowledgeTopN,
+        knowledgeEmbeddingModelSelectionId: state.knowledgeEmbeddingModelSelectionId,
       }),
       onRehydrateStorage: () => (state) => {
         applyDocumentLocale(state?.locale ?? "zh-CN");

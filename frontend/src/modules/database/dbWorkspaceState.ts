@@ -114,7 +114,7 @@ export function resolveConnIdForWorkspaceTab(
   if (!tab) {
     return null;
   }
-  if (tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer") {
+  if (tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query") {
     return tab.connId;
   }
   if (tab.kind === "sql") {

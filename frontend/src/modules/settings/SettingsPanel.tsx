@@ -24,11 +24,18 @@ import {
   ACCENT_PRESETS,
   ACCENT_ORDER,
   clampUiScale,
+  KNOWLEDGE_CHUNK_SIZE,
+  KNOWLEDGE_CHUNK_OVERLAP,
+  KNOWLEDGE_TOP_N,
+  clampKnowledgeChunkSize,
+  clampKnowledgeChunkOverlap,
+  clampKnowledgeTopN,
   type Locale,
   type ProxyProtocol,
   type AiDisplayMode,
   type DetailPanelMode,
 } from "../../stores/settingsStore";
+import { KnowledgeEmbeddingModelSelect } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import {
   SHORTCUT_DEFS,
   SHORTCUT_CATEGORY_ORDER,
@@ -52,7 +59,7 @@ import { commands } from "../../ipc/bindings";
 import { invoke } from "@tauri-apps/api/core";
 import type { UpdateInfo } from "../../ipc/bindings";
 
-type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "data";
+type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "knowledge" | "data";
 
 interface NavItem {
   id: Section;
@@ -117,6 +124,16 @@ const NAV_ITEMS: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M4 17l6-6-6-6" />
         <path d="M12 19h8" />
+      </svg>
+    ),
+  },
+  {
+    id: "knowledge",
+    label: "知识库",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
       </svg>
     ),
   },
@@ -1286,6 +1303,36 @@ export function SettingsPanel() {
   const terminalCopyOnSelect = useSettingsStore((s) => s.terminalCopyOnSelect);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
 
+  const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
+  const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
+  const knowledgeTopN = useSettingsStore((s) => s.knowledgeTopN);
+  const setKnowledgeSettings = useSettingsStore((s) => s.setKnowledgeSettings);
+
+  const knowledgeChunkSizeOptions = useMemo(() => {
+    const opts: string[] = [];
+    for (let v = KNOWLEDGE_CHUNK_SIZE.min; v <= KNOWLEDGE_CHUNK_SIZE.max; v += KNOWLEDGE_CHUNK_SIZE.step) {
+      opts.push(String(v));
+    }
+    return opts;
+  }, []);
+
+  const knowledgeChunkOverlapOptions = useMemo(() => {
+    const max = Math.max(
+      KNOWLEDGE_CHUNK_OVERLAP.min,
+      knowledgeChunkSize - 100,
+    );
+    const opts: string[] = [];
+    for (let v = KNOWLEDGE_CHUNK_OVERLAP.min; v <= max; v += KNOWLEDGE_CHUNK_OVERLAP.step) {
+      opts.push(String(v));
+    }
+    return opts;
+  }, [knowledgeChunkSize]);
+
+  const knowledgeTopNOptions = useMemo(
+    () => ["1", "3", "5", "8", "10", "15", "20", "30", "50"],
+    [],
+  );
+
   // Detect installed monospace fonts on mount
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
   useEffect(() => {
@@ -1863,6 +1910,65 @@ export function SettingsPanel() {
                   <p>{t("settings.terminal.copyOnSelectDesc")}</p>
                 </div>
                 <Toggle value={terminalCopyOnSelect} onChange={(v) => setTerminalSettings({ terminalCopyOnSelect: v })} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Knowledge */}
+        {activeSection === "knowledge" && (
+          <div className="settings-panel active">
+            <div className="settings-section">
+              <h2>{t("settings.knowledge.label")}</h2>
+              <p className="section-desc">{t("settings.knowledge.desc")}</p>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.knowledge.chunkSize")}</h4>
+                  <p>{t("settings.knowledge.chunkSizeDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(knowledgeChunkSize)}
+                  onChange={(v) =>
+                    setKnowledgeSettings({ knowledgeChunkSize: clampKnowledgeChunkSize(Number(v)) })
+                  }
+                  options={knowledgeChunkSizeOptions}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.knowledge.chunkOverlap")}</h4>
+                  <p>{t("settings.knowledge.chunkOverlapDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(
+                    clampKnowledgeChunkOverlap(knowledgeChunkOverlap, knowledgeChunkSize),
+                  )}
+                  onChange={(v) =>
+                    setKnowledgeSettings({
+                      knowledgeChunkOverlap: clampKnowledgeChunkOverlap(Number(v), knowledgeChunkSize),
+                    })
+                  }
+                  options={knowledgeChunkOverlapOptions}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.knowledge.topN")}</h4>
+                  <p>{t("settings.knowledge.topNDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(knowledgeTopN)}
+                  onChange={(v) => setKnowledgeSettings({ knowledgeTopN: clampKnowledgeTopN(Number(v)) })}
+                  options={knowledgeTopNOptions}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.knowledge.embeddingModel")}</h4>
+                  <p>{t("settings.knowledge.embeddingModelDesc")}</p>
+                </div>
+                <KnowledgeEmbeddingModelSelect className="settings-knowledge-model-select" />
               </div>
             </div>
           </div>

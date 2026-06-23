@@ -18,6 +18,17 @@
         overflow: hidden;
     }
 
+    .schema-sidebar .schema-tree,
+    .schema-sidebar .sql-query-file-tree {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .schema-sidebar .schema-tree::-webkit-scrollbar,
+    .schema-sidebar .sql-query-file-tree::-webkit-scrollbar {
+        display: none;
+    }
+
     .schema-sidebar-section {
         display: flex;
         flex-direction: column;
@@ -145,6 +156,29 @@
         min-height: 0;
         overflow-y: auto;
         padding: var(--sp-2);
+        --schema-tree-row-height: 22px;
+    }
+
+    .sql-query-file-tree--sticky-ancestors {
+        padding: 0 0 var(--sp-2);
+    }
+
+    .sql-query-file-tree--sticky-ancestors .sql-file-tree-node--sticky {
+        position: sticky;
+        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
+        z-index: calc(20 + var(--tree-depth, 0));
+        min-height: var(--schema-tree-row-height);
+        border-radius: 0;
+        background: var(--bg);
+        box-shadow: 0 1px 0 var(--border);
+    }
+
+    .sql-query-file-tree--sticky-ancestors .sql-file-tree-node--sticky:hover {
+        background: var(--hover, rgba(127, 127, 127, 0.08));
+    }
+
+    .sql-query-file-tree--sticky-ancestors .sql-file-tree-node--sticky.sql-file-tree-node--active {
+        background: var(--accent-muted, rgba(0, 122, 255, 0.12));
     }
 
     .sql-query-file-empty {
@@ -200,6 +234,33 @@
         min-height: 0;
         overflow-y: auto;
         padding: var(--sp-2);
+        --schema-tree-row-height: 22px;
+    }
+
+    .schema-tree--sticky-ancestors {
+        padding: 0 0 var(--sp-2);
+    }
+
+    .schema-tree--sticky-ancestors .tree-node--sticky {
+        position: sticky;
+        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
+        z-index: calc(20 + var(--tree-depth, 0));
+        min-height: var(--schema-tree-row-height);
+        border-radius: 0;
+        background: var(--bg);
+        box-shadow: 0 1px 0 var(--border);
+    }
+
+    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active {
+        background: var(--accent-soft);
+    }
+
+    .schema-tree--sticky-ancestors .tree-node--sticky:hover {
+        background: var(--surface-hover);
+    }
+
+    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active:hover {
+        background: var(--accent-soft);
     }
 
     .schema-tree:focus {
@@ -471,13 +532,13 @@
         min-height: 0;
     }
 
-    .table-ddl-viewer .sql-monaco-editor {
+    .table-ddl-viewer .sql-codemirror-editor {
         height: 100%;
         min-height: 0;
     }
 
-    .table-ddl-viewer .sql-monaco-editor > section {
-        height: 100% !important;
+    .table-ddl-viewer .sql-codemirror-editor__host {
+        height: 100%;
     }
 
     .db-tables-panel-item {
@@ -2353,13 +2414,13 @@
         flex-direction: column;
     }
 
-    .db-workspace-pane--sql .sql-monaco-editor {
+    .db-workspace-pane--sql .sql-codemirror-editor {
         flex: 1;
         min-height: 0;
         display: flex;
     }
 
-    .db-workspace-pane--sql .sql-monaco-editor>section {
+    .db-workspace-pane--sql .sql-codemirror-editor__host {
         flex: 1;
         min-height: 0;
     }
@@ -2895,7 +2956,8 @@
 
     .db-connection-info-sections {
         flex: 1;
-        overflow: auto;
+        min-height: 0;
+        overflow: hidden;
         padding: var(--sp-4);
         display: flex;
         flex-direction: column;
@@ -2908,18 +2970,119 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        min-height: 120px;
+        flex: 1;
+        min-height: 0;
     }
 
     .db-connection-info-section-head {
+        flex-shrink: 0;
         padding: var(--sp-2) var(--sp-3);
         background: var(--bg-deeper);
         border-bottom: 1px solid var(--border);
     }
 
+    .db-connection-info-section .db-data-table-panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .db-connection-info-section .db-data-table-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
     .db-connection-info-sql {
         font-size: 11px;
         color: var(--meta);
+    }
+
+    .redis-query-panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        background: var(--bg);
+    }
+
+    .redis-query-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .redis-query-db-select {
+        min-width: 120px;
+        flex-shrink: 0;
+    }
+
+    .redis-query-search-input {
+        flex: 1;
+        min-width: 0;
+        height: 28px;
+        padding: 0 var(--sp-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        color: var(--text);
+        font-size: 12px;
+        font-family: var(--font-mono);
+    }
+
+    .redis-query-search-input:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .redis-query-type-filters {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--sp-2) var(--sp-3);
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .redis-query-type-label {
+        font-size: 11px;
+        color: var(--meta);
+        flex-shrink: 0;
+    }
+
+    .redis-query-type-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--text);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .redis-query-type-option input {
+        margin: 0;
+    }
+
+    .redis-query-results {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .redis-query-truncated {
+        flex-shrink: 0;
+        padding: var(--sp-1) var(--sp-3);
+        font-size: 11px;
+        border-bottom: 1px solid var(--border);
     }
 
     .db-table-designer-toolbar {

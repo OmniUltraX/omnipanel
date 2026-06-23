@@ -59,7 +59,8 @@ export function SchemaTreeObjectDetails({
   onToggle,
   onLoadMore,
   onSelectTable,
-  onContextTable,
+  onContextSchemaNode,
+  resolveNodeMeta,
   tablePinned,
   onToggleTablePin,
 }: {
@@ -81,10 +82,8 @@ export function SchemaTreeObjectDetails({
     tableName: string;
     connection: DbConnectionConfig;
   }) => void;
-  onContextTable?: (
-    selection: { connId: string; dbName: string; tableName: string; connection: DbConnectionConfig },
-    event: ReactMouseEvent,
-  ) => void;
+  onContextSchemaNode?: (item: SchemaTreeItem, event: ReactMouseEvent) => void;
+  resolveNodeMeta?: (nodeId: string, meta?: string) => string | undefined;
   tablePinned?: boolean;
   onToggleTablePin?: () => void;
 }) {
@@ -120,6 +119,10 @@ export function SchemaTreeObjectDetails({
     tableName: tbl.name,
     connection: conn.config,
   };
+  const openContextMenu = onContextSchemaNode
+    ? (item: SchemaTreeItem, event: ReactMouseEvent) => onContextSchemaNode(item, event)
+    : undefined;
+  const metaFor = (nodeId: string, meta?: string) => resolveNodeMeta?.(nodeId, meta) ?? meta;
 
   return (
     <div key={tbl.name}>
@@ -131,10 +134,11 @@ export function SchemaTreeObjectDetails({
         hasChildren={showTableSchemaChildren}
         active={activeTableKey === tableKey}
         labelComment={tbl.comment?.trim() || undefined}
+        meta={metaFor(tableKey, undefined)}
         onLabelClick={
           objectKind === "table" ? () => onSelectTable?.(selection) : undefined
         }
-        onContextMenu={onContextTable ? (e) => onContextTable(selection, e) : undefined}
+        onContextMenu={openContextMenu ? (e) => openContextMenu(tableItem, e) : undefined}
         pinActive={objectKind === "table" ? tablePinned : undefined}
         onPinToggle={objectKind === "table" ? onToggleTablePin : undefined}
       />
@@ -162,8 +166,23 @@ export function SchemaTreeObjectDetails({
             depth={depth + 1}
             expanded={colsExpanded}
             onToggle={() => onToggle(colsFolderId)}
-            meta={String(columns.length)}
+            meta={metaFor(colsFolderId, String(columns.length))}
             hasChildren={columns.length > 0}
+            onContextMenu={
+              openContextMenu
+                ? (e) =>
+                    openContextMenu(
+                      buildFolderTreeItem(
+                        colsFolderId,
+                        t("database.sidebar.fields"),
+                        conn.config.id,
+                        dbName,
+                        tbl.name,
+                      ),
+                      e,
+                    )
+                : undefined
+            }
           />
           {colsExpanded &&
             pagedColumns.visible.map((col) => (
@@ -181,9 +200,25 @@ export function SchemaTreeObjectDetails({
                 expanded={false}
                 onToggle={() => {}}
                 hasChildren={false}
-                meta={col.type}
+                meta={metaFor(`${tableKey}:col:${col.name}`, col.type)}
                 isPk={col.isPk}
                 isFk={col.isFk}
+                onContextMenu={
+                  openContextMenu
+                    ? (e) =>
+                        openContextMenu(
+                          buildColumnTreeItem(
+                            conn.config.id,
+                            dbName,
+                            tbl.name,
+                            col.name,
+                            col.type,
+                            `${tableKey}:col:${col.name}`,
+                          ),
+                          e,
+                        )
+                    : undefined
+                }
               />
             ))}
           {colsExpanded && pagedColumns.hasMore && (
@@ -207,8 +242,23 @@ export function SchemaTreeObjectDetails({
                 depth={depth + 1}
                 expanded={idxExpanded}
                 onToggle={() => onToggle(idxFolderId)}
-                meta={String(indexes.length)}
+                meta={metaFor(idxFolderId, String(indexes.length))}
                 hasChildren={indexes.length > 0}
+                onContextMenu={
+                  openContextMenu
+                    ? (e) =>
+                        openContextMenu(
+                          buildFolderTreeItem(
+                            idxFolderId,
+                            t("database.sidebar.indexes"),
+                            conn.config.id,
+                            dbName,
+                            tbl.name,
+                          ),
+                          e,
+                        )
+                    : undefined
+                }
               />
               {idxExpanded &&
                 pagedIndexes.visible.map((idx) => (
@@ -225,7 +275,22 @@ export function SchemaTreeObjectDetails({
                     expanded={false}
                     onToggle={() => {}}
                     hasChildren={false}
-                    meta={idx.columns.join(", ")}
+                    meta={metaFor(`${tableKey}:idx:${idx.name}`, idx.columns.join(", "))}
+                    onContextMenu={
+                      openContextMenu
+                        ? (e) =>
+                            openContextMenu(
+                              buildIndexTreeItem(
+                                conn.config.id,
+                                dbName,
+                                tbl.name,
+                                idx.name,
+                                `${tableKey}:idx:${idx.name}`,
+                              ),
+                              e,
+                            )
+                        : undefined
+                    }
                   />
                 ))}
               {idxExpanded && pagedIndexes.hasMore && (

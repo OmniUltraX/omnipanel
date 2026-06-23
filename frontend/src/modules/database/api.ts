@@ -130,6 +130,37 @@ export function isMysqlConnectionInfoCapable(
   return engine === "mysql" || engine === "mariadb";
 }
 
+/** Redis 连接（键值查询面板）。 */
+export function isRedisConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return connection.db_type.toLowerCase() === "redis";
+}
+
+export interface RedisKeyEntry {
+  key: string;
+  keyType: string;
+  value: string;
+}
+
+export interface RedisSearchKeysArgs {
+  connection: DbConnectionConfig;
+  pattern: string;
+  types: string[];
+  limit?: number;
+}
+
+export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisKeyEntry[]> {
+  return invoke<RedisKeyEntry[]>("db_redis_search_keys", {
+    args: {
+      connection: args.connection,
+      pattern: args.pattern,
+      types: args.types,
+      limit: args.limit ?? 500,
+    },
+  });
+}
+
 export async function listConnections(): Promise<DbConnectionConfig[]> {
   return invoke<DbConnectionConfig[]>("db_list_connections");
 }

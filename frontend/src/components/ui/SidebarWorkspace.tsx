@@ -19,6 +19,8 @@ export interface SidebarWorkspaceProps {
   sidebarMinPx?: number;
   /** 侧栏最大宽度（px 或百分比字符串） */
   sidebarMaxPx?: number | string;
+  /** 覆盖默认路由级 key，避免与同路由下其他布局共用宽度 */
+  layoutPersistKey?: string;
   className?: string;
 }
 
@@ -40,9 +42,11 @@ export function SidebarWorkspace({
   sidebarSizePx: propSidebarSizePx,
   sidebarMinPx,
   sidebarMaxPx,
+  layoutPersistKey,
   className,
 }: SidebarWorkspaceProps) {
-  const persistKey = useSidebarPersistKey();
+  const routePersistKey = useSidebarPersistKey();
+  const persistKey = layoutPersistKey ?? routePersistKey;
   const savedSize = usePanelLayoutStore((s) => s.leftSizes[persistKey]);
   const setLeftSize = usePanelLayoutStore((s) => s.setLeftSize);
 

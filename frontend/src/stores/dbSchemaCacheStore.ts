@@ -6,11 +6,15 @@ import { emptySchemaCacheSnapshot } from "../modules/database/schemaCache";
 interface DbSchemaCacheState {
   snapshot: SchemaCacheSnapshot;
   hydrated: boolean;
+  /** 工具栏 / 全量刷新时标记整连接 */
   refreshingConnectionIds: Record<string, true>;
+  /** 右键单节点刷新时仅标记该节点 */
+  refreshingNodeIds: Record<string, true>;
   hydrate: () => Promise<void>;
   replaceSnapshot: (snapshot: SchemaCacheSnapshot) => Promise<void>;
   patchConnection: (connId: string, entry: SchemaCacheSnapshot["connections"][string]) => Promise<void>;
   setConnectionRefreshing: (connId: string, refreshing: boolean) => void;
+  setNodeRefreshing: (nodeId: string, refreshing: boolean) => void;
   clearConnectionRefreshing: () => void;
 }
 
@@ -34,6 +38,7 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
   snapshot: emptySchemaCacheSnapshot(),
   hydrated: false,
   refreshingConnectionIds: {},
+  refreshingNodeIds: {},
 
   hydrate: async () => {
     if (get().hydrated) {
@@ -75,7 +80,19 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
     });
   },
 
+  setNodeRefreshing: (nodeId, refreshing) => {
+    set((state) => {
+      const next = { ...state.refreshingNodeIds };
+      if (refreshing) {
+        next[nodeId] = true;
+      } else {
+        delete next[nodeId];
+      }
+      return { refreshingNodeIds: next };
+    });
+  },
+
   clearConnectionRefreshing: () => {
-    set({ refreshingConnectionIds: {} });
+    set({ refreshingConnectionIds: {}, refreshingNodeIds: {} });
   },
 }));

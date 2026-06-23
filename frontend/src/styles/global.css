@@ -2180,12 +2180,23 @@
     tab-size: 2;
 }
 
-.sql-monaco-editor {
+.sql-codemirror-editor {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sql-codemirror-editor__host {
     flex: 1;
     min-height: 0;
 }
 
-.sql-monaco-editor--inactive {
+.sql-codemirror-editor__host .cm-editor {
+    height: 100%;
+}
+
+.sql-codemirror-editor--inactive {
     visibility: hidden;
     pointer-events: none;
     position: absolute;
@@ -4513,7 +4524,7 @@
         -webkit-box-decoration-break: clone;
     }
 
-    .monaco-editor .scoped-search-monaco-match {
+    .cm-editor .cm-search-highlight {
         background: color-mix(in srgb, var(--warn) 35%, transparent);
         border-radius: 2px;
     }

@@ -32,11 +32,21 @@ export type ConnectionInfoWorkspaceTab = {
   connId: string;
 };
 
+export type RedisQueryWorkspaceTab = {
+  id: string;
+  kind: "redis-query";
+  label: string;
+  connId: string;
+  /** 从侧栏点选具体库时锁定；点连接时为空 */
+  dbName?: string;
+};
+
 export type DbWorkspaceTab =
   | SqlWorkspaceTab
   | DatabaseListWorkspaceTab
   | TableDesignerWorkspaceTab
-  | ConnectionInfoWorkspaceTab;
+  | ConnectionInfoWorkspaceTab
+  | RedisQueryWorkspaceTab;
 
 export function isSqlWorkspaceTab(tab: DbWorkspaceTab): tab is SqlWorkspaceTab {
   return tab.kind === "sql";
@@ -54,6 +64,10 @@ export function isConnectionInfoTab(tab: DbWorkspaceTab): tab is ConnectionInfoW
   return tab.kind === "connection";
 }
 
+export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspaceTab {
+  return tab.kind === "redis-query";
+}
+
 export function makeSqlTabId(): string {
   return `sql:${Date.now()}`;
 }
@@ -68,6 +82,10 @@ export function makeDesignerTabId(): string {
 
 export function makeConnectionInfoTabId(): string {
   return `conninfo:${Date.now()}`;
+}
+
+export function makeRedisQueryTabId(): string {
+  return `redisq:${Date.now()}`;
 }
 
 export function makeTableDesignerTabLabel(dbName: string, tableName: string): string {
@@ -143,6 +161,20 @@ export function findTabIdForConnection(
   connId: string,
 ): string | undefined {
   return tabs.find((tab) => tab.kind === "connection" && tab.connId === connId)?.id;
+}
+
+/** 查找已打开的 Redis 查询 Tab */
+export function findTabIdForRedisQuery(
+  tabs: DbWorkspaceTab[],
+  connId: string,
+  dbName?: string,
+): string | undefined {
+  return tabs.find(
+    (tab) =>
+      tab.kind === "redis-query" &&
+      tab.connId === connId &&
+      (tab.dbName ?? "") === (dbName ?? ""),
+  )?.id;
 }
 
 /** 查找已打开指定表的工作区 Tab，未找到返回 undefined */

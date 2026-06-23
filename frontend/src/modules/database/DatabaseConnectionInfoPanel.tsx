@@ -10,19 +10,24 @@ const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
+  /** 当前 Tab 是否处于激活态；激活时自动拉取一次进程列表。 */
+  active?: boolean;
 }
 
 function noopPageChange() {}
 
-export function DatabaseConnectionInfoPanel({ connection }: DatabaseConnectionInfoPanelProps) {
+export function DatabaseConnectionInfoPanel({
+  connection,
+  active = true,
+}: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const capable = isMysqlConnectionInfoCapable(connection);
+  const [loading, setLoading] = useState(capable);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
 
-  const loadProcessList = useCallback(async () => {
-    if (!isMysqlConnectionInfoCapable(connection)) {
+  const refresh = useCallback(async () => {
+    if (!capable) {
       return;
     }
 
@@ -40,13 +45,16 @@ export function DatabaseConnectionInfoPanel({ connection }: DatabaseConnectionIn
     } finally {
       setLoading(false);
     }
-  }, [connection]);
+  }, [capable, connection]);
 
   useEffect(() => {
-    void loadProcessList();
-  }, [loadProcessList, refreshToken]);
+    if (!active || !capable) {
+      return;
+    }
+    void refresh();
+  }, [active, capable, connection.id, refresh]);
 
-  if (!isMysqlConnectionInfoCapable(connection)) {
+  if (!capable) {
     return (
       <div className="db-connection-info-panel">
         <div className="db-table-designer-state">
@@ -68,7 +76,7 @@ export function DatabaseConnectionInfoPanel({ connection }: DatabaseConnectionIn
           <h2 className="db-connection-info-title">{connection.name}</h2>
           <p className="db-connection-info-subtitle">{t("database.connectionInfo.subtitle")}</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setRefreshToken((value) => value + 1)}>
+        <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loading}>
           {t("database.sidebar.refresh")}
         </Button>
       </div>

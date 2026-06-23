@@ -1,9 +1,19 @@
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use redis::{AsyncCommands, Client, aio::MultiplexedConnection};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{DbDriver, DbParams, QueryResult};
+
+/// Redis 键搜索结果（供查询面板展示）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyEntry {
+    pub key: String,
+    pub key_type: String,
+    pub value: String,
+}
 
 const DEFAULT_REDIS_PORT: u16 = 6379;
 
@@ -55,6 +65,70 @@ impl RedisDriver {
             .map_err(|e| OmniError::connection("Redis 连接失败").with_cause(e.to_string()))?;
 
         Ok(Self { conn })
+    }
+
+    /// 使用 SCAN 按模式搜索键，并按类型过滤；值为简要预览。
+    pub async fn search_keys(
+        &self,
+        pattern: &str,
+        types: &[String],
+        limit: usize,
+    ) -> OmniResult<Vec<RedisKeyEntry>> {
+        let pattern = {
+            let trimmed = pattern.trim();
+            if trimmed.is_empty() {
+                "*"
+            } else {
+                trimmed
+            }
+        };
+        let limit = limit.clamp(1, 2000);
+        let type_filter: std::collections::HashSet<String> =
+            types.iter().map(|t| t.to_lowercase()).collect();
+        let filter_types = !type_filter.is_empty();
+
+        let mut conn = self.conn.clone();
+        let mut cursor: u64 = 0;
+        let mut entries = Vec::new();
+
+        loop {
+            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(pattern)
+                .arg("COUNT")
+                .arg(200)
+                .query_async(&mut conn)
+                .await
+                .map_err(map_redis_err)?;
+
+            for key in keys {
+                if entries.len() >= limit {
+                    return Ok(entries);
+                }
+                let key_type: String = redis::cmd("TYPE")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(map_redis_err)?;
+                if filter_types && !type_filter.contains(&key_type) {
+                    continue;
+                }
+                let value = preview_redis_value(&mut conn, &key, &key_type).await?;
+                entries.push(RedisKeyEntry {
+                    key,
+                    key_type,
+                    value,
+                });
+            }
+
+            cursor = next;
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        Ok(entries)
     }
 }
 
@@ -197,6 +271,68 @@ impl DbDriver for RedisDriver {
             _ => 0,
         };
         Ok(count)
+    }
+}
+
+async fn preview_redis_value(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    key_type: &str,
+) -> OmniResult<String> {
+    const MAX: usize = 256;
+    match key_type {
+        "string" => {
+            let v: Option<String> = conn.get(key).await.map_err(map_redis_err)?;
+            Ok(truncate_display(v.unwrap_or_default(), MAX))
+        }
+        "list" => {
+            let len: i64 = conn.llen(key).await.map_err(map_redis_err)?;
+            let values: Vec<String> = conn.lrange(key, 0, 2).await.map_err(map_redis_err)?;
+            let preview = values.join(", ");
+            let suffix = if len > 3 { ", …" } else { "" };
+            Ok(format!("[list len={len}] {preview}{suffix}"))
+        }
+        "set" => {
+            let len: i64 = conn.scard(key).await.map_err(map_redis_err)?;
+            Ok(format!("[set len={len}]"))
+        }
+        "zset" => {
+            let len: i64 = conn.zcard(key).await.map_err(map_redis_err)?;
+            Ok(format!("[zset len={len}]"))
+        }
+        "hash" => {
+            let len: i64 = conn.hlen(key).await.map_err(map_redis_err)?;
+            let fields: Vec<(String, String)> = conn.hgetall(key).await.map_err(map_redis_err)?;
+            if fields.is_empty() {
+                return Ok(format!("[hash len={len}]"));
+            }
+            let preview: String = fields
+                .into_iter()
+                .take(2)
+                .map(|(k, v)| format!("{k}={}", truncate_display(v, 40)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let suffix = if len > 2 { ", …" } else { "" };
+            Ok(format!("[hash len={len}] {preview}{suffix}"))
+        }
+        "stream" => {
+            let len: i64 = redis::cmd("XLEN")
+                .arg(key)
+                .query_async(conn)
+                .await
+                .map_err(map_redis_err)?;
+            Ok(format!("[stream len={len}]"))
+        }
+        other => Ok(format!("[{other}]")),
+    }
+}
+
+fn truncate_display(s: String, max: usize) -> String {
+    if s.chars().count() <= max {
+        s
+    } else {
+        let truncated: String = s.chars().take(max).collect();
+        format!("{truncated}…")
     }
 }
 

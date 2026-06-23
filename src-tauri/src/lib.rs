@@ -189,7 +189,8 @@ fn export_ipc_bindings() {
         commands::knowledge::knowledge_todo_save,
         commands::knowledge::knowledge_todo_delete,
         commands::knowledge::knowledge_import_pdf,
-        // Workflow（工作流）
+        commands::knowledge_vector::knowledge_vectorize,
+        commands::knowledge_vector::knowledge_vector_status,
         commands::workflow::workflow_list,
         commands::workflow::workflow_get,
         commands::workflow::workflow_save,
@@ -444,6 +445,8 @@ pub fn run() {
             commands::database::db_count_table,
             commands::database::db_count_tables,
             commands::database::db_execute_query,
+            commands::database::db_redis_search_keys,
+            commands::database::db_refresh_schema_node,
             // Connections（统一连接模型）
             commands::connection::conn_list,
             commands::connection::conn_save,
@@ -595,6 +598,8 @@ pub fn run() {
             commands::knowledge::knowledge_todo_save,
             commands::knowledge::knowledge_todo_delete,
         commands::knowledge::knowledge_import_pdf,
+            commands::knowledge_vector::knowledge_vectorize,
+            commands::knowledge_vector::knowledge_vector_status,
             // Workflow（工作流）
             commands::workflow::workflow_list,
             commands::workflow::workflow_get,

@@ -1,4 +1,4 @@
-/** 将 Monaco 行列转为字符串 offset。 */
+/** 将行列转为字符串 offset。 */
 export function positionToOffset(text: string, lineNumber: number, column: number): number {
   const lines = text.split("\n");
   let offset = 0;
@@ -132,8 +132,11 @@ export function sqlAtOffset(sql: string, offset: number): string {
   return statement || sql.trim();
 }
 
-/** 当前焦点是否在 SQL Monaco 编辑器内。 */
-export function isSqlMonacoEditorFocused(): boolean {
+/** 当前焦点是否在 SQL 编辑器内。 */
+export function isSqlEditorFocused(): boolean {
   const el = document.activeElement;
-  return !!el?.closest(".sql-monaco-editor");
+  return !!el?.closest(".sql-codemirror-editor");
 }
+
+/** @deprecated 使用 isSqlEditorFocused */
+export const isSqlMonacoEditorFocused = isSqlEditorFocused;

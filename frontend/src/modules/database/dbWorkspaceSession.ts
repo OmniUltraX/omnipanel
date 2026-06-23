@@ -76,6 +76,9 @@ export function sanitizeWorkspaceSession(
     if (tab.kind === "connection") {
       return Boolean(tab.connId);
     }
+    if (tab.kind === "redis-query") {
+      return Boolean(tab.connId);
+    }
     return false;
   });
   if (tabs.length === 0) {

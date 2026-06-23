@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
-import Editor from "@monaco-editor/react";
+import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/CodeEditor";
 import type { DockerActionResult } from "./useDockerWorkspace";
 
 /* eslint-disable react-hooks/set-state-in-effect -- controlled form state reset */
@@ -80,22 +80,16 @@ export function DockerFileEditor({ open, filePath, initialContent, onClose, onSa
               </span>
             )}
           </div>
-          <div className="docker-file-editor-monaco" style={{ height: 360, border: "1px solid var(--border-1, #27272a)", borderRadius: 6, overflow: "hidden" }}>
-            <Editor
-              height="100%"
-              language={filePath?.endsWith(".sql") ? "sql" : filePath?.endsWith(".json") ? "json" : filePath?.endsWith(".yaml") || filePath?.endsWith(".yml") ? "yaml" : filePath?.endsWith(".sh") ? "shell" : "dockerfile"}
+          <div
+            className="docker-file-editor-codemirror"
+            style={{ height: 360, border: "1px solid var(--border-1, #27272a)", borderRadius: 6, overflow: "hidden" }}
+          >
+            <CodeEditor
               value={content}
-              onChange={(v) => setContent(v ?? "")}
-              theme="vs-dark"
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                wordWrap: "on",
-                scrollBeyondLastLine: false,
-                lineNumbers: "on",
-                readOnly: saving,
-                padding: { top: 8 },
-              }}
+              onChange={setContent}
+              language={codeEditorLanguageFromPath(filePath)}
+              readOnly={saving}
+              height="100%"
             />
           </div>
           {error && <div className="text-danger text-sm" style={{ marginTop: 8 }}>{error}</div>}

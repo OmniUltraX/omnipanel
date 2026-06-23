@@ -197,6 +197,19 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_todo_sort ON knowledge_todo_lists(sort_order, updated_at);
     "#,
+    // v8 — 知识库向量分块
+    r#"
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id TEXT PRIMARY KEY,
+        entry_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        embedding TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(entry_id) REFERENCES knowledge_entries(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_entry ON knowledge_chunks(entry_id);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

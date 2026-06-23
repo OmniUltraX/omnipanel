@@ -70,33 +70,147 @@ function mapCachedTable(table: {
   };
 }
 
+function cachedTableEqual(a: CachedTable, b: CachedTable): boolean {
+  if (a.name !== b.name || a.comment !== b.comment || a.detailsError !== b.detailsError) {
+    return false;
+  }
+  const aCols = a.columns ?? [];
+  const bCols = b.columns ?? [];
+  if (aCols.length !== bCols.length) return false;
+  for (let i = 0; i < aCols.length; i += 1) {
+    const left = aCols[i]!;
+    const right = bCols[i]!;
+    if (
+      left.name !== right.name ||
+      left.type !== right.type ||
+      left.isPk !== right.isPk ||
+      left.isFk !== right.isFk
+    ) {
+      return false;
+    }
+  }
+  const aIdx = a.indexes ?? [];
+  const bIdx = b.indexes ?? [];
+  if (aIdx.length !== bIdx.length) return false;
+  for (let i = 0; i < aIdx.length; i += 1) {
+    const left = aIdx[i]!;
+    const right = bIdx[i]!;
+    if (
+      left.name !== right.name ||
+      left.unique !== right.unique ||
+      left.columns.length !== right.columns.length ||
+      left.columns.some((col, j) => col !== right.columns[j])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function mapCachedTableWithReuse(
+  prev: CachedTable | undefined,
+  table: Parameters<typeof mapCachedTable>[0],
+): CachedTable {
+  const next = mapCachedTable(table);
+  if (prev && cachedTableEqual(prev, next)) {
+    return prev;
+  }
+  return next;
+}
+
+function mapCachedDatabaseWithReuse(
+  prev: CachedDatabase | undefined,
+  db: {
+    name: string;
+    loadError?: string;
+    tables: Parameters<typeof mapCachedTable>[0][];
+    views?: Parameters<typeof mapCachedTable>[0][];
+    routines?: { name: string; routineType: string }[];
+  },
+): CachedDatabase {
+  const prevTables = prev?.tables ?? [];
+  const prevViews = prev?.views ?? [];
+  const prevRoutines = prev?.routines ?? [];
+  const tables = db.tables.map((table) =>
+    mapCachedTableWithReuse(
+      prevTables.find((item) => item.name === table.name),
+      table,
+    ),
+  );
+  const views = (db.views ?? []).map((view) =>
+    mapCachedTableWithReuse(
+      prevViews.find((item) => item.name === view.name),
+      view,
+    ),
+  );
+  const routines = (db.routines ?? []).map((routine) => {
+    const prevRoutine = prevRoutines.find((item) => item.name === routine.name);
+    if (
+      prevRoutine &&
+      prevRoutine.name === routine.name &&
+      prevRoutine.routineType === routine.routineType
+    ) {
+      return prevRoutine;
+    }
+    return { name: routine.name, routineType: routine.routineType };
+  });
+  const next: CachedDatabase = {
+    name: db.name,
+    loadError: db.loadError,
+    tables,
+    views,
+    routines,
+  };
+  if (
+    prev &&
+    prev.name === next.name &&
+    prev.loadError === next.loadError &&
+    prev.tables === next.tables &&
+    prev.views === next.views &&
+    prev.routines === next.routines
+  ) {
+    return prev;
+  }
+  return next;
+}
+
 export function mergeConnectionsWithCache(
   configs: DbConnectionConfig[],
   snapshot: SchemaCacheSnapshot,
+  previous?: CachedConnection[] | null,
 ): CachedConnection[] {
   return configs.map((config) => {
     const entry = snapshot.connections[config.id];
+    const prev = previous?.find((item) => item.config.id === config.id);
     if (!entry) {
-      return { config };
+      return prev?.config === config ? prev : { config };
     }
-    return {
+    const users = (entry.users ?? []).map((user) => ({
+      name: user.name,
+      host: user.host ?? undefined,
+    }));
+    const databases = entry.databases.map((db) =>
+      mapCachedDatabaseWithReuse(
+        prev?.databases?.find((item) => item.name === db.name),
+        db,
+      ),
+    );
+    const next: CachedConnection = {
       config,
       databasesError: entry.error,
-      users: (entry.users ?? []).map((user) => ({
-        name: user.name,
-        host: user.host ?? undefined,
-      })),
-      databases: entry.databases.map((db) => ({
-        name: db.name,
-        loadError: db.loadError,
-        tables: db.tables.map(mapCachedTable),
-        views: (db.views ?? []).map(mapCachedTable),
-        routines: (db.routines ?? []).map((routine) => ({
-          name: routine.name,
-          routineType: routine.routineType,
-        })),
-      })),
+      users,
+      databases,
     };
+    if (
+      prev &&
+      prev.config === config &&
+      prev.databasesError === next.databasesError &&
+      prev.databases === next.databases &&
+      prev.users === next.users
+    ) {
+      return prev;
+    }
+    return next;
   });
 }
 

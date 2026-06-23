@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { useSyncExternalStore } from "react";
-import { DbWorkspaceProvider } from "../../contexts/DbWorkspaceContext";
+import { useSyncExternalStore } from "react";import { DbWorkspaceProvider } from "../../contexts/DbWorkspaceContext";
 import {
-  getDbWorkspaceMirrorContext,
   getMirroredDbTabSnapshot,
   getMirroredDbTabVersion,
   subscribeMirroredDbTab,
@@ -12,9 +9,7 @@ import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
 import { isTablePreviewTabId } from "../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
-import type { SchemaTableSelection } from "./SchemaBrowser";
 import { isConnectionInfoTab, isDatabaseListTab, isSqlWorkspaceTab } from "./workspaceTabs";
-
 interface DatabaseTabDockPaneProps {
   tabId: string;
   isActive: boolean;
@@ -33,55 +28,24 @@ function useMirroredDbTabSnapshot(tabId: string) {
 /** 数据库模块 dock 与底部工程工作区镜像共用的完整面板 */
 export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabDockPaneProps) {
   const snapshot = useMirroredDbTabSnapshot(tabId);
-  const [inlineSqlTabId, setInlineSqlTabId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setInlineSqlTabId(null);
-  }, [tabId]);
-
-  const handleSelectTable = useCallback(
-    (selection: SchemaTableSelection) => {
-      const ctx = getDbWorkspaceMirrorContext() ?? snapshot?.ctx;
-      if (!ctx) return;
-      ctx.selectTable(selection);
-      queueMicrotask(() => {
-        const mirror = getDbWorkspaceMirrorContext();
-        const activeId = mirror?.activeTabId;
-        const activeTab = mirror?.tabs.find((item) => item.id === activeId);
-        if (activeId && activeTab && isSqlWorkspaceTab(activeTab)) {
-          setInlineSqlTabId(activeId);
-        }
-      });
-    },
-    [snapshot?.ctx],
-  );
 
   if (!snapshot) {
     return null;
   }
 
   const { ctx, tab } = snapshot;
-  const inlineTab =
-    inlineSqlTabId != null ? ctx.tabs.find((item) => item.id === inlineSqlTabId) : null;
 
   return (
     <DbWorkspaceProvider value={ctx}>
       <div className="workspace-database-mirror db-dock-workspace">
         <div className="db-workspace-pane db-dock-pane">
-          {inlineTab && isSqlWorkspaceTab(inlineTab) ? (
-            isTablePreviewTabId(inlineTab.id) ? (
-              <DbTablePreviewSurface tab={inlineTab} />
-            ) : (
-              <DbPanelSurface tab={inlineTab} />
-            )
-          ) : isConnectionInfoTab(tab) ? (
-            (() => {
-              const connection =
+          {isConnectionInfoTab(tab) ? (
+            (() => {              const connection =
                 ctx.groupConnections.find((item) => item.id === tab.connId) ?? null;
               if (!connection) {
                 return null;
               }
-              return <DatabaseConnectionInfoPanel connection={connection} />;
+              return <DatabaseConnectionInfoPanel connection={connection} active={_isActive} />;
             })()
           ) : isDatabaseListTab(tab) ? (
             (() => {
@@ -97,7 +61,6 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                     dbName: tab.dbName,
                     connection,
                   }}
-                  onSelectTable={handleSelectTable}
                 />
               );
             })()

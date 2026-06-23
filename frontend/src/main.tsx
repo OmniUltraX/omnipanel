@@ -11,10 +11,8 @@ import "./styles/modules/protocol.css";
 import "./styles/modules/server.css";
 import "./styles/modules/workflow.css";
 import { initProductionDiagnostics } from "./lib/productionDiagnostics";
-import { installMonacoCancellationHandlers } from "./lib/monacoCancellation";
 import { Bootstrap } from "./Bootstrap";
 
-installMonacoCancellationHandlers();
 initProductionDiagnostics();
 
 createRoot(document.getElementById("root")!).render(

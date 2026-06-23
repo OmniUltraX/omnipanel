@@ -4,7 +4,6 @@ import { useActionStore } from "../../stores/actionStore";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDockerTopbarStore } from "../../stores/dockerTopbarStore";
-import { useStatusBarStore } from "../../stores/statusBarStore";
 import { usePoolConnectionRegistration } from "../../stores/connectionPoolStore";
 import { ModuleSegmentDock } from "../../components/dock";
 import { useI18n } from "../../i18n";
@@ -544,16 +543,6 @@ export function DockerPanel() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal]);
-
-  useEffect(() => {
-    const setHint = useStatusBarStore.getState().setHint;
-    if (isActiveRoute && dataRefreshing) {
-      setHint(t("docker.overview.refreshing"));
-    } else {
-      setHint(null);
-    }
-    return () => setHint(null);
-  }, [isActiveRoute, dataRefreshing, t]);
 
   // 概览统计已到位但列表未齐时自动重试，避免 SSH 串行加载中途被取消后一直卡住。
   useEffect(() => {

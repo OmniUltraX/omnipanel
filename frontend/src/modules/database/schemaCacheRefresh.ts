@@ -12,6 +12,23 @@ import type {
   SchemaCacheSnapshot,
 } from "./schemaCache";
 import { emptySchemaCacheSnapshot } from "./schemaCache";
+import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
+
+export async function refreshAndPatchConnectionSchemaCache(
+  connection: DbConnectionConfig,
+): Promise<void> {
+  if (!isConnectionEnabled(connection)) {
+    return;
+  }
+  const store = useDbSchemaCacheStore.getState();
+  store.setConnectionRefreshing(connection.id, true);
+  try {
+    const entry = await refreshConnectionSchemaCache(connection);
+    await store.patchConnection(connection.id, entry);
+  } finally {
+    store.setConnectionRefreshing(connection.id, false);
+  }
+}
 
 export async function fetchConnectionSchemaCache(
   connection: DbConnectionConfig,
