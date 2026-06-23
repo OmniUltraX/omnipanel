@@ -547,6 +547,10 @@ export function SchemaBrowser({
   }, [useExternalConnections, loadConnections, refreshToken]);
 
   useEffect(() => {
+    console.log("[db.linkage] SchemaBrowser props - activeConnId:", activeConnId, "activeDatabaseKey:", activeDatabaseKey, "activeTableKey:", activeTableKey);
+  }, [activeConnId, activeDatabaseKey, activeTableKey]);
+
+  useEffect(() => {
     if (!activeGroupId) return;
     const groupNodeId = `grp:${activeGroupId}`;
     updateExpanded((prev) => {

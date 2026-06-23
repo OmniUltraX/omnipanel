@@ -103,6 +103,10 @@ export function SchemaTreeObjectDetails({
   const indexes = tbl.indexes ?? [];
   const pagedColumns = paginateSchemaChildren(columns, colsFolderId, childVisibleLimits);
   const pagedIndexes = paginateSchemaChildren(indexes, idxFolderId, childVisibleLimits);
+  const isActive = activeTableKey === tableKey;
+  if (isActive) {
+    console.log("[db.linkage] SchemaTreeObjectDetails tableNode active MATCH", { tableKey, activeTableKey });
+  }
   const tableItem: SchemaTreeItem =
     objectKind === "view"
       ? {

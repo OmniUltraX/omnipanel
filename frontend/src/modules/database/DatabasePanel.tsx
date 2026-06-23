@@ -65,7 +65,6 @@ import {
   findTabIdForDatabase,
   findTabIdForConnection,
   findTabIdForSqlFile,
-  makeTableDesignerTabKey,
   makeTableTabLabel,
   makeTableTabKey,
   findTabIdForTable,
@@ -2254,6 +2253,7 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
+      console.log("[db.linkage] handleSelectTable called", selection);
       setActiveConnId(selection.connId);
 
       const existingTabId = findTabIdForTable(
@@ -2333,6 +2333,7 @@ export function DatabasePanel() {
 
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection) => {
+      console.log("[db.linkage] handleSelectDatabase called", selection);
       setActiveConnId(selection.connId);
 
       const existingTabId = findTabIdForDatabase(
@@ -2360,36 +2361,76 @@ export function DatabasePanel() {
   );
 
   const activeDatabaseKey = useMemo(() => {
-    if (activeWorkspaceTab?.kind === "database") {
-      return makeDatabaseTabKey(activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
+    if (!activeWorkspaceTab) {
+      console.log("[db.linkage] activeDatabaseKey: no active tab");
+      return null;
+    }
+    if (activeWorkspaceTab.kind === "database" || activeWorkspaceTab.kind === "designer") {
+      const key = makeDatabaseTabKey(activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
+      console.log("[db.linkage] activeDatabaseKey", key, "from tab", activeWorkspaceTab.kind, activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
+      return key;
+    }
+    if (activeWorkspaceTab.kind === "sql") {
+      const sqlState = sqlTabStates[activeWorkspaceTab.id];
+      if (sqlState?.connId && sqlState?.database) {
+        const key = makeDatabaseTabKey(sqlState.connId, sqlState.database);
+        console.log("[db.linkage] activeDatabaseKey", key, "from SQL tab state");
+        return key;
+      }
+      console.log("[db.linkage] activeDatabaseKey: SQL tab but no sqlState.connId/database", sqlState);
     }
     return null;
-  }, [activeWorkspaceTab]);
+  }, [activeWorkspaceTab, sqlTabStates]);
 
   const activeTableKey = useMemo<string | null>(() => {
-    if (!activeWorkspaceTab) return null;
+    if (!activeWorkspaceTab) {
+      console.log("[db.linkage] activeTableKey: no active tab");
+      return null;
+    }
     if (activeWorkspaceTab.kind === "sql") {
       const preview = tablePreviews[activeWorkspaceTab.id];
       if (preview?.connId && preview?.dbName && preview?.tableName) {
-        return makeTableTabKey(preview.connId, preview.dbName, preview.tableName);
+        const key = makeTableTabKey(preview.connId, preview.dbName, preview.tableName);
+        console.log("[db.linkage] activeTableKey", key, "from SQL tab preview");
+        return key;
       }
+      console.log("[db.linkage] activeTableKey: SQL tab but no preview", { tabId: activeWorkspaceTab.id, preview });
       return null;
     }
     if (activeWorkspaceTab.kind === "designer") {
-      return makeTableDesignerTabKey(
+      const key = makeTableTabKey(
         activeWorkspaceTab.connId,
         activeWorkspaceTab.dbName,
         activeWorkspaceTab.tableName,
       );
+      console.log("[db.linkage] activeTableKey", key, "from designer tab");
+      return key;
     }
+    console.log("[db.linkage] activeTableKey: tab kind not handled", activeWorkspaceTab.kind);
     return null;
   }, [activeWorkspaceTab, tablePreviews]);
 
   useEffect(() => {
-    if (activeWorkspaceTab?.kind === "database" || activeWorkspaceTab?.kind === "connection") {
-      setActiveConnId(activeWorkspaceTab.connId);
+    if (!activeWorkspaceTab) {
+      console.log("[db.linkage] setActiveConnId effect: no active tab");
+      return;
     }
-  }, [activeWorkspaceTab]);
+    const kind = activeWorkspaceTab.kind;
+    if (kind === "database" || kind === "connection" || kind === "designer") {
+      console.log("[db.linkage] setActiveConnId effect: kind", kind, "connId", activeWorkspaceTab.connId);
+      setActiveConnId(activeWorkspaceTab.connId);
+    } else if (kind === "sql") {
+      const connId = resolveSqlTabConnectionId(
+        activeWorkspaceTab.id,
+        sqlTabStates,
+        tablePreviews,
+      );
+      console.log("[db.linkage] setActiveConnId effect: kind sql, resolved connId", connId);
+      if (connId) {
+        setActiveConnId(connId);
+      }
+    }
+  }, [activeWorkspaceTab, sqlTabStates, tablePreviews]);
 
   const applySchemaTableDrop = useCallback(
     (item: SchemaTreeItem) => {
@@ -2561,6 +2602,7 @@ export function DatabasePanel() {
 
   const handleSelectConnection = useCallback(
     (connId: string) => {
+      console.log("[db.linkage] handleSelectConnection called", connId);
       setActiveConnId(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
@@ -3012,8 +3054,11 @@ export function DatabasePanel() {
       connections.map((c) => c.id).join(","),
       connectionsLoading ? "1" : "0",
       workspaceTabs.map((t) => t.id).join(","),
+      activeConnId,
+      activeDatabaseKey,
+      activeTableKey,
     ].join("|"),
-    [connections, connectionsLoading, workspaceTabs],
+    [connections, connectionsLoading, workspaceTabs, activeConnId, activeDatabaseKey, activeTableKey],
   );
 
   const panelContentKeysByTab = useMemo(
