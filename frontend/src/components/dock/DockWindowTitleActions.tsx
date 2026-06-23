@@ -1,11 +1,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { WinControls } from "../shell/WinControls";
 
 export type DockWindowChromeMode = "drag" | "controls" | "both";
 
 export interface DockWindowChromeActionsProps {
   mode: DockWindowChromeMode;
+  leftActions?: ReactNode;
 }
 
 function DockWindowDragSpacer() {
@@ -45,7 +46,7 @@ function DockWindowDragSpacer() {
 }
 
 /** 嵌入 dockview tab 栏右侧：按布局挂载拖拽区与/或窗口控制按钮 */
-export function DockWindowChromeActions({ mode }: DockWindowChromeActionsProps) {
+export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeActionsProps) {
   const handleDoubleClick = async (event: React.MouseEvent) => {
     if (mode === "controls") return;
     const target = event.target as HTMLElement;
@@ -68,6 +69,7 @@ export function DockWindowChromeActions({ mode }: DockWindowChromeActionsProps) 
       onDoubleClick={handleDoubleClick}
     >
       {showDrag ? <DockWindowDragSpacer /> : null}
+      {leftActions ? <div className="dock-window-chrome-left-actions">{leftActions}</div> : null}
       {showControls ? <WinControls /> : null}
     </div>
   );

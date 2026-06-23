@@ -31,6 +31,8 @@ export function WorkspaceTaskBarPanelSubWindow({
       className="workspace-taskbar-subwindow-panel"
       widthRatio={0.88}
       heightRatio={0.82}
+      noOverlay
+      onMinimize={onClose}
     >
       <div className="workspace-taskbar-subwindow">
         <WorkspaceDockTabPanel tab={tab} isActive={open} />

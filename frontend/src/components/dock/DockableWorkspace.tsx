@@ -144,6 +144,8 @@ export interface DockableWorkspaceProps {
    * default：按布局树解析顶部/右上角 group。
    */
   windowChromeVariant?: "default" | "segment";
+  /** 窗口控制按钮左侧的额外操作按钮 */
+  windowChromeLeftActions?: ReactNode;
 }
 
 interface PanelParams {
@@ -204,6 +206,7 @@ export function DockableWorkspace({
   windowControl = false,
   onPanelTransferredOut,
   windowChromeVariant = "default",
+  windowChromeLeftActions,
 }: DockableWorkspaceProps) {
   const [windowChromeHosts, setWindowChromeHosts] = useState<{
     dragGroupId: string | null;
@@ -268,6 +271,9 @@ export function DockableWorkspace({
   windowControlRef.current = windowControl;
   const windowChromeVariantRef = useRef(windowChromeVariant);
   windowChromeVariantRef.current = windowChromeVariant;
+
+  const windowChromeLeftActionsRef = useRef(windowChromeLeftActions);
+  windowChromeLeftActionsRef.current = windowChromeLeftActions;
 
   const windowChromeHostsRef = useRef(windowChromeHosts);
   windowChromeHostsRef.current = windowChromeHosts;
@@ -457,7 +463,12 @@ export function DockableWorkspace({
         // 占据顶部（非右上角）：仅移动
         mode = "drag";
       }
-      return <DockWindowChromeActions mode={mode} />;
+      return (
+        <DockWindowChromeActions
+          mode={mode}
+          leftActions={windowChromeLeftActionsRef.current}
+        />
+      );
     },
     [windowChromeHosts],
   );

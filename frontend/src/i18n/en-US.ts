@@ -475,6 +475,8 @@ export const enUS: TranslationDict = {
       welcomePrompt: "Drag panels from other modules here to arrange freely, or switch modules to continue",
       fullscreen: "Fullscreen workspace",
       exitFullscreen: "Exit fullscreen",
+      modeUp: "Move workspace up one level",
+      modeDown: "Move workspace down one level",
       mirroredDatabase: "Database panel moved to engineering workspace",
       mirroredUnknown: "External panel",
       mirroredMissing: "Source panel no longer exists",

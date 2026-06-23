@@ -126,5 +126,5 @@ export function TerminalView({
     };
   }, [onSenderChange, resource, sessionId, setStatus, startup]);
 
-  return <div ref={containerRef} className="term-xterm-wrap" />;
+  return <div ref={containerRef} className="term-xterm-wrap term-xterm-wrap--external-input" />;
 }

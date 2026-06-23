@@ -59,8 +59,8 @@ export function TerminalPanel() {
   const removeTab = useTerminalStore((state) => state.removeTab);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const openOrFocusLocalTab = useTerminalStore((state) => state.openOrFocusLocalTab);
-  const openOrFocusSshTab = useTerminalStore((state) => state.openOrFocusSshTab);
   const addLocalTerminalTab = useTerminalStore((state) => state.addLocalTerminalTab);
+  const addSshTerminalTab = useTerminalStore((state) => state.addSshTerminalTab);
   const sshHosts = useSshHostResources();
 
   const dockLayout = useTerminalDockLayoutStore((state) => state.savedLayout);
@@ -92,26 +92,21 @@ export function TerminalPanel() {
     });
   }, [removeDockedOrigin, setActiveTab]);
 
-  // 工作区切换时：保存当前终端 tab 快照 → 恢复目标工作区的快照
   useEffect(() => {
     return onWorkspaceSwitch(({ prevWorkspaceId, nextWorkspaceId }) => {
       const store = useTerminalStore.getState();
       const wsTabStoreState = wsTabStore.getState();
 
-      // 保存当前终端 tabs 到旧工作区
       const snapshots = store.tabs
         .filter((tab) => !tab.workspaceOnly)
         .map(terminalTabToSnapshot);
       wsTabStoreState.saveTabs(prevWorkspaceId, snapshots);
 
-      // 恢复目标工作区的终端 tabs
       const targetSnapshots = wsTabStoreState.getTabs(nextWorkspaceId).filter(
         (s): s is TerminalTabSnapshot => s.module === "terminal",
       );
-      // 目标工作区没有保存过快照 → 保留当前 tab（新工作区继承）
       if (targetSnapshots.length === 0) return;
 
-      // 有快照 → 清空当前 tabs 并恢复
       for (const tab of [...store.tabs]) {
         clearTerminalPaneSender(tab.id);
         clearPaneBackendPending(tab.id);
@@ -145,7 +140,6 @@ export function TerminalPanel() {
     index: number;
   } | null>(null);
 
-  // 进入模块时若没有任何 Tab，则自动建一个本地终端
   useEffect(() => {
     if (!isActiveRoute) return;
     if (tabs.length === 0) {
@@ -170,7 +164,6 @@ export function TerminalPanel() {
     [tabs, activeTabId],
   );
 
-  // 同步 workspace 资源选中（仅当面板处于激活路由时）
   useEffect(() => {
     if (!isActiveRoute || !activeTab?.session.resourceId) return;
     if (activeTab.session.resourceId !== workspaceActiveResourceId) {
@@ -257,14 +250,14 @@ export function TerminalPanel() {
       }
       const host = sshHosts.find((item) => item.id === id);
       if (host) {
-        const tabId = openOrFocusSshTab(host.id, host.name);
+        const tabId = addSshTerminalTab(host.id, host.name);
         selectResource(host.id);
         setActiveTab(tabId);
       }
     },
     [
       addLocalTerminalTab,
-      openOrFocusSshTab,
+      addSshTerminalTab,
       selectResource,
       setActiveTab,
       sshHosts,

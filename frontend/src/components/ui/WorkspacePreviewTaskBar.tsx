@@ -18,6 +18,7 @@ import { useI18n } from "../../i18n";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 import { WorkspaceTaskBarPanelSubWindow } from "../workspace/WorkspaceTaskBarPanelSubWindow";
 import { WorkspaceSwitcher } from "../shell/WorkspaceSwitcher";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 
 function TaskBarPanelTile({
   tab,
@@ -86,12 +87,13 @@ function TaskBarPanelTile({
   );
 }
 
-/** task-bar 模式：浏览器式标签页（图标左 + 标题右），可关闭非内置面板 */
 export function WorkspacePreviewTaskBar() {
   const { t } = useI18n();
   const workspace = useWorkspaceStore((state) => state.workspace);
   const setActiveTabId = useWorkspaceBottomDockStore((state) => state.setActiveTabId);
   const removeTab = useWorkspaceBottomDockStore((state) => state.removeTab);
+  const shiftWorkspaceModeUp = useBottomPanelStore((state) => state.shiftWorkspaceModeUp);
+  const shiftWorkspaceModeDown = useBottomPanelStore((state) => state.shiftWorkspaceModeDown);
   const rawTabs = useWorkspaceBottomDockStore(
     (state) => state.tabsByWorkspace[workspace.id],
   );
@@ -194,6 +196,30 @@ export function WorkspacePreviewTaskBar() {
               />
             ))
           )}
+        </div>
+        <div className="workspace-preview-taskbar__controls drag-ignore">
+          <button
+            type="button"
+            className="workspace-panel-mode-btn"
+            title={t("shell.workspacePanel.modeUp")}
+            aria-label={t("shell.workspacePanel.modeUp")}
+            onClick={shiftWorkspaceModeUp}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+              <path d="M6 14l6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="workspace-panel-mode-btn"
+            title={t("shell.workspacePanel.modeDown")}
+            aria-label={t("shell.workspacePanel.modeDown")}
+            onClick={shiftWorkspaceModeDown}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+              <path d="M6 10l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
       </div>
       <WorkspaceTaskBarPanelSubWindow

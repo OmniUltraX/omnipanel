@@ -589,6 +589,23 @@
     background: var(--bg-deeper);
 }
 
+.workspace-preview-taskbar__controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    border-left: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.workspace-preview-taskbar__controls .workspace-panel-mode-btn {
+    border-left: none;
+    border-right: 1px solid var(--border);
+}
+
+.workspace-preview-taskbar__controls .workspace-panel-mode-btn:last-child {
+    border-right: none;
+}
+
 .workspace-preview-taskbar__panels::-webkit-scrollbar {
     display: none;
 }
@@ -625,6 +642,20 @@
     overflow: hidden;
     box-sizing: border-box;
     transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+    position: relative;
+}
+
+.workspace-preview-taskbar-tab.is-active::after,
+.workspace-preview-taskbar__tile.is-active .workspace-preview-taskbar-tab::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 24px);
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
 }
 
 .workspace-preview-taskbar-tab__main {
@@ -671,7 +702,7 @@
 
 .workspace-preview-taskbar-tab:hover {
     color: var(--fg-2);
-    background: color-mix(in srgb, var(--surface-hover, var(--surface)) 65%, transparent);
+    background: color-mix(in srgb, var(--surface-hover) 40%, transparent);
 }
 
 .workspace-preview-taskbar-tab:hover .workspace-preview-taskbar-tab__close,
@@ -687,8 +718,7 @@
 .workspace-preview-taskbar-tab.is-active,
 .workspace-preview-taskbar__tile.is-active .workspace-preview-taskbar-tab {
     color: var(--fg);
-    background: var(--surface);
-    border-bottom-color: var(--accent);
+    background: color-mix(in srgb, var(--surface) 50%, transparent);
 }
 
 .workspace-preview-taskbar-tab__icon {
@@ -1207,8 +1237,8 @@
     box-sizing: border-box;
 }
 
-.workspace-panel-frame:has(.workspace-panel-fullscreen-btn) .workspace-panel-dock .dv-tabs-and-actions-container {
-    padding-right: var(--shell-dv-tab-bar-h);
+.workspace-panel-frame:has(.workspace-panel-mode-controls) .workspace-panel-dock .dv-tabs-and-actions-container {
+    padding-right: calc(var(--shell-dv-tab-bar-h) * 3);
 }
 
 .workspace-panel-chrome .workspace-panel-fullscreen-btn {
@@ -1229,11 +1259,13 @@
     align-self: stretch;
 }
 
-.workspace-panel-frame .workspace-panel-fullscreen-btn {
+.workspace-panel-frame .workspace-panel-mode-controls {
     position: absolute;
     top: 0;
     right: 0;
     z-index: 20;
+    display: flex;
+    align-items: stretch;
     box-sizing: border-box;
 }
 
@@ -1328,17 +1360,16 @@
     min-width: 0;
 }
 
+.workspace-panel-mode-btn,
 .workspace-panel-fullscreen-btn {
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 20;
+    position: static;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: var(--shell-dv-tab-bar-h);
     height: var(--shell-dv-tab-bar-h);
     min-width: var(--shell-dv-tab-bar-h);
+    padding: 0;
     border: none;
     border-left: 1px solid var(--border);
     border-radius: 0;
@@ -1346,15 +1377,46 @@
     color: var(--muted);
     cursor: pointer;
     -webkit-app-region: no-drag;
-    transition: color 0.12s, background-color 0.12s;
+    transition: color 0.12s, background-color 0.12s, opacity 0.12s;
 }
 
+.workspace-panel-empty-topbar .workspace-panel-mode-btn,
 .workspace-panel-empty-topbar .workspace-panel-fullscreen-btn {
     position: static;
     flex-shrink: 0;
 }
 
+.workspace-panel-mode-btn:hover:not(:disabled),
 .workspace-panel-fullscreen-btn:hover {
+    color: var(--fg);
+    background: var(--surface-hover);
+}
+
+.workspace-panel-mode-btn:disabled {
+    color: var(--border-strong, var(--border));
+    cursor: default;
+    opacity: 0.55;
+}
+
+.workspace-home-btn {
+    width: var(--shell-dv-tab-bar-h);
+    height: var(--shell-dv-tab-bar-h);
+    min-width: var(--shell-dv-tab-bar-h);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+    transition: color 0.12s, background-color 0.12s;
+}
+
+.workspace-home-btn:hover {
     color: var(--fg);
     background: var(--surface-hover);
 }
@@ -3349,6 +3411,32 @@
     margin-left: 0;
     height: 100%;
     align-items: stretch;
+}
+
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    height: 100%;
+}
+
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-mode-btn,
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-fullscreen-btn {
+    width: var(--shell-dv-tab-bar-h);
+    height: 100%;
+    min-width: var(--shell-dv-tab-bar-h);
+    border: none;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-mode-btn:hover:not(:disabled),
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-fullscreen-btn:hover {
+    color: var(--fg);
+    background: var(--surface-hover);
 }
 
 .dockable-workspace.dock-window-control .dock-window-title-actions .win-btn {

@@ -223,6 +223,55 @@ function disposeBackendSession(sessionId: string, backendSid: string) {
   invoke(cmd, { id: backendSid }).catch(() => {});
 }
 
+const REMOTE_CWD_HOOK_TOKEN = "__OMNIPANEL_CWD_HOOK";
+
+function createRemoteInitEchoFilter(emit: (bytes: Uint8Array) => void) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let active = true;
+  let buffered = "";
+
+  function emitText(text: string) {
+    if (!text) return;
+    emit(encoder.encode(text));
+  }
+
+  function flushTail() {
+    const tail = buffered + decoder.decode();
+    buffered = "";
+    emitText(tail);
+  }
+
+  return {
+    push(bytes: Uint8Array) {
+      if (!active) {
+        emit(bytes);
+        return false;
+      }
+      buffered += decoder.decode(bytes, { stream: true });
+      let newlineIndex = buffered.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = buffered.slice(0, newlineIndex + 1);
+        buffered = buffered.slice(newlineIndex + 1);
+        if (line.includes(REMOTE_CWD_HOOK_TOKEN)) {
+          active = false;
+          flushTail();
+          return false;
+        }
+        emitText(line);
+        newlineIndex = buffered.indexOf("\n");
+      }
+      return true;
+    },
+    releasePending() {
+      if (!active) return false;
+      active = false;
+      flushTail();
+      return false;
+    },
+  };
+}
+
 /** 远端 shell 无本地 init-file 注入时，通过 PROMPT_COMMAND / precmd 上报 cwd。 */
 function injectRemoteShellCwdReporting(write: (data: string) => void) {
   const script = [
@@ -472,6 +521,12 @@ export function useTerminal(
     }
 
     let outputBatcher: ReturnType<typeof createTerminalOutputBatcher> | null = null;
+    let remoteInitEchoFilter: ReturnType<typeof createRemoteInitEchoFilter> | null = null;
+    let remoteInitEchoFilterTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function queueOutput(bytes: Uint8Array) {
+      outputBatcher?.push(bytes);
+    }
 
     async function attachOutputListener() {
       outputBatcher = createTerminalOutputBatcher((merged) => {
@@ -481,6 +536,15 @@ export function useTerminal(
         }
         term?.write(merged);
       });
+      if (remote) {
+        remoteInitEchoFilter = createRemoteInitEchoFilter(queueOutput);
+        remoteInitEchoFilterTimer = window.setTimeout(() => {
+          if (!remoteInitEchoFilter) return;
+          remoteInitEchoFilter.releasePending();
+          remoteInitEchoFilter = null;
+          remoteInitEchoFilterTimer = null;
+        }, 2500);
+      }
       unlistenOutput = await listen<{ session_id: string; data: unknown }>(
         "terminal-output",
         (ev) => {
@@ -489,7 +553,18 @@ export function useTerminal(
           try {
             const bytes = decodeOutput(ev.payload.data);
             if (!bytes) return;
-            outputBatcher?.push(bytes);
+            if (remoteInitEchoFilter) {
+              const stillActive = remoteInitEchoFilter.push(bytes);
+              if (!stillActive) {
+                remoteInitEchoFilter = null;
+                if (remoteInitEchoFilterTimer) {
+                  clearTimeout(remoteInitEchoFilterTimer);
+                  remoteInitEchoFilterTimer = null;
+                }
+              }
+              return;
+            }
+            queueOutput(bytes);
           } catch (e) {
             console.error(`[Terminal ${sessionId}] terminal-output error:`, e);
           }
@@ -725,7 +800,9 @@ export function useTerminal(
               requestAnimationFrame(() => {
                 if (destroyed || suspendedRef.current) return;
                 fitAddon?.fit();
-                term?.focus();
+                if (inputMode !== "external") {
+                  term?.focus();
+                }
               });
             }
           }
@@ -742,6 +819,10 @@ export function useTerminal(
       if (resizeTimer) {
         clearTimeout(resizeTimer);
       }
+      if (remoteInitEchoFilterTimer) {
+        clearTimeout(remoteInitEchoFilterTimer);
+      }
+      remoteInitEchoFilter?.releasePending();
       if (contextmenuHandler) {
         container.removeEventListener("contextmenu", contextmenuHandler);
       }

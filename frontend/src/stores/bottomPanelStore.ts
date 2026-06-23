@@ -70,6 +70,8 @@ interface BottomPanelState {
   leaveFullscreenByDrag: () => void;
   /** 半屏及以下右上角：进入工程工作区全屏 */
   handleWorkspaceChromeIcon: () => void;
+  shiftWorkspaceModeUp: () => void;
+  shiftWorkspaceModeDown: () => void;
   /** 状态栏：在 split-window ↔ task-bar 间切换（持久化偏好） */
   toggleWorkspaceDisplayPreference: () => void;
   /** 按用户偏好设置嵌入高度与模式 */
@@ -303,6 +305,43 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           return;
         }
         get().enterWorkspaceFullscreen();
+      },
+
+      shiftWorkspaceModeUp: () => {
+        const { workspaceMode } = get();
+        const normalized = normalizeWorkspaceMode(workspaceMode);
+        if (normalized === "fullscreen") {
+          return;
+        }
+        if (normalized === "hidden") {
+          get().applyWorkspaceDisplayPreference("task-bar");
+          set((state) => ({ expandSignal: state.expandSignal + 1 }));
+          return;
+        }
+        if (normalized === "taskbar" || normalized === "thumbnail") {
+          get().applyWorkspaceDisplayPreference("split-window");
+          set((state) => ({ expandSignal: state.expandSignal + 1 }));
+          return;
+        }
+        get().enterWorkspaceFullscreen();
+      },
+
+      shiftWorkspaceModeDown: () => {
+        const { workspaceMode } = get();
+        const normalized = normalizeWorkspaceMode(workspaceMode);
+        if (normalized === "hidden") {
+          return;
+        }
+        if (normalized === "fullscreen") {
+          get().leaveFullscreenByDrag();
+          return;
+        }
+        if (normalized === "half") {
+          get().applyWorkspaceDisplayPreference("task-bar");
+          set((state) => ({ expandSignal: state.expandSignal + 1 }));
+          return;
+        }
+        get().requestCollapse();
       },
 
       toggleFullscreen: () => {

@@ -1345,8 +1345,11 @@
         min-height: 160px;
         background: var(--bg);
         border: 1px solid var(--border);
-        border-radius: var(--r-lg);
-        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+        border-radius: var(--r-md);
+        box-shadow:
+            0 0 0 1px rgba(0, 0, 0, 0.12),
+            0 8px 24px rgba(0, 0, 0, 0.28),
+            0 2px 8px rgba(0, 0, 0, 0.18);
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -1365,7 +1368,7 @@
     }
 
     .subwindow-panel--maximized {
-        border-radius: var(--r-md);
+        border-radius: 0;
     }
 
     .subwindow-header {
@@ -1374,8 +1377,10 @@
         justify-content: space-between;
         gap: var(--sp-3);
         flex-shrink: 0;
-        padding: var(--sp-3) var(--sp-4);
+        height: var(--topbar-h);
+        padding: 0 var(--sp-4);
         border-bottom: 1px solid var(--border);
+        background: var(--bg);
     }
 
     .subwindow-header--draggable {
@@ -1391,11 +1396,12 @@
     .subwindow-win-controls {
         flex-shrink: 0;
         margin-left: 0;
+        height: 100%;
     }
 
     .subwindow-win-controls .win-btn {
-        width: 40px;
-        height: 32px;
+        width: 46px;
+        height: 100%;
     }
 
     .subwindow-resize-handle {

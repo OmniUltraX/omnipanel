@@ -295,7 +295,6 @@ function AppShell() {
       const path = (event as CustomEvent<{ path: string }>).detail?.path;
       if (!path) return;
       if (isWorkspacePath(path)) {
-        useWorkspaceStore.getState().setActivePath(path);
         navigate(path);
       } else {
         navigateToFeature(path, navigate);

@@ -7,7 +7,9 @@ let chromeIconTransition = false;
 
 function dispatchNavigate(path: string, navigate?: NavigateFunction): void {
   if (navigate) {
-    useWorkspaceStore.getState().setActivePath(path);
+    if (!isWorkspacePath(path)) {
+      useWorkspaceStore.getState().setActivePath(path);
+    }
     navigate(path, { replace: true });
     return;
   }

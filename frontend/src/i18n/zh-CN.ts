@@ -471,6 +471,8 @@ export const zhCN = {
       welcomePrompt: "从其他模块拖入面板到此自由布局，或切换到模块继续工作",
       fullscreen: "全屏显示工作区",
       exitFullscreen: "退出全屏",
+      modeUp: "切换到上一级布局",
+      modeDown: "切换到下一级布局",
       mirroredDatabase: "数据库面板已迁入工程工作区",
       mirroredUnknown: "外部面板",
       mirroredMissing: "源面板已不存在",

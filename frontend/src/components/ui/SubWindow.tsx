@@ -43,6 +43,10 @@ export interface SubWindowProps {
   headerExtra?: ReactNode;
   /** 是否启用拖动、缩放与最大化/最小化，默认 true */
   windowChrome?: boolean;
+  /** 是否隐藏遮罩层，默认 false */
+  noOverlay?: boolean;
+  /** 自定义最小化行为，不传则使用内置最小化（右侧浮动条） */
+  onMinimize?: () => void;
 }
 
 type SubWindowVisualState = "normal" | "maximized" | "minimized";
@@ -77,6 +81,8 @@ export function SubWindow({
   className,
   headerExtra,
   windowChrome = true,
+  noOverlay = false,
+  onMinimize,
 }: SubWindowProps) {
   const { t } = useI18n();
   const subWindowId = useId();
@@ -156,6 +162,10 @@ export function SubWindow({
   }, []);
 
   const handleMinimize = useCallback(() => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
     if (visualState === "maximized") {
       preMinimizeSnapshotRef.current = {
         visualState: "maximized",
@@ -168,7 +178,7 @@ export function SubWindow({
       };
     }
     setVisualState("minimized");
-  }, [geometry, visualState]);
+  }, [geometry, onMinimize, visualState]);
 
   useEffect(() => {
     if (!open) return;
@@ -321,6 +331,7 @@ export function SubWindow({
   const overlayClass = [
     "subwindow-overlay",
     windowChrome ? "" : "subwindow-overlay--centered",
+    noOverlay ? "subwindow-overlay--no-backdrop" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -352,6 +363,70 @@ export function SubWindow({
       {visualState === "minimized" ? (
         <div className="subwindow-minimized-content-host" aria-hidden>
           {children}
+        </div>
+      ) : noOverlay ? (
+        <div
+          className={panelClass}
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="subwindow-title"
+          style={panelStyle}
+        >
+          <div
+            className={`subwindow-header${windowChrome ? " subwindow-header--draggable" : ""}`}
+            onPointerDown={handleHeaderPointerDown}
+            onPointerMove={handleHeaderPointerMove}
+            onPointerUp={handleHeaderPointerUp}
+            onPointerCancel={handleHeaderPointerUp}
+            onDoubleClick={handleHeaderDoubleClick}
+          >
+            {titleNode}
+            {headerExtra ? (
+              <div className="subwindow-header-extra">{headerExtra}</div>
+            ) : null}
+            {windowChrome ? (
+              <SubWindowControls
+                isMaximized={visualState === "maximized"}
+                onMinimize={handleMinimize}
+                onToggleMaximize={handleToggleMaximize}
+                onClose={onClose}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="icon"
+                className="subwindow-close"
+                title={closeLabel}
+                aria-label={closeLabel}
+                onClick={onClose}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  width="14"
+                  height="14"
+                  aria-hidden
+                >
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </Button>
+            )}
+          </div>
+          <div className="subwindow-body">{children}</div>
+          {windowChrome && visualState === "normal"
+            ? RESIZE_HANDLES.map((direction) => (
+                <div
+                  key={direction}
+                  className={`subwindow-resize-handle subwindow-resize-handle--${direction}`}
+                  onPointerDown={handleResizePointerDown(direction)}
+                  onPointerMove={handleResizePointerMove}
+                  onPointerUp={handleResizePointerUp}
+                  onPointerCancel={handleResizePointerUp}
+                />
+              ))
+            : null}
         </div>
       ) : (
         <div className={overlayClass} role="presentation" onClick={onClose}>

@@ -51,13 +51,28 @@ function PaneViewBody(
     }
   }, [isActive]);
 
+  const focusCommandInput = () => {
+    requestAnimationFrame(() => {
+      cmdRef.current?.focus();
+    });
+  };
+
   return (
     <div
       className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}`}
       data-pane-id={paneId}
       onMouseDown={onActivate}
     >
-      <div className="terminal-area term-terminal-shell" tabIndex={-1}>
+      <div
+        className="terminal-area term-terminal-shell"
+        tabIndex={-1}
+        onMouseDownCapture={(event) => {
+          onActivate();
+          event.preventDefault();
+          focusCommandInput();
+        }}
+        onClick={focusCommandInput}
+      >
         <TerminalView
           key={`${paneId}:${blueprintSource.type ?? "local"}:${currentResourceId}`}
           sessionId={paneId}

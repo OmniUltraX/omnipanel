@@ -24,6 +24,7 @@ export interface WorkspaceDockCoreProps {
   tabStyle?: "topbar" | "segment";
   windowControl?: boolean;
   windowChromeVariant?: "segment" | "default";
+  windowChromeLeftActions?: ReactNode;
   emptyContent?: ReactNode;
 }
 
@@ -39,6 +40,7 @@ export function WorkspaceDockCore({
   tabStyle = "topbar",
   windowControl = false,
   windowChromeVariant = "default",
+  windowChromeLeftActions,
   emptyContent = <div className="dashboard dashboard-home" />,
 }: WorkspaceDockCoreProps) {
   const workspaceId = workspace.id;
@@ -174,6 +176,7 @@ export function WorkspaceDockCore({
       preActions={preActions}
       windowControl={windowControl}
       windowChromeVariant={windowChromeVariant}
+      windowChromeLeftActions={windowChromeLeftActions}
       enableTabGroups={false}
       emptyContent={emptyContent}
     />
