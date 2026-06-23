@@ -5,8 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { useCtrlKeyHeld } from "../../hooks/useCtrlKeyHeld";
@@ -51,7 +49,8 @@ import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
 import { publishDockTabMeta } from "./dockTabLiveMeta";
 import type { DockTabIconKind } from "./DockTabIcon";
 import type { DockTabPageType } from "./dockableTab";
-import { DockWindowChromeActions, type DockWindowChromeMode } from "./DockWindowTitleActions";
+import type { DockWindowChromeMode } from "./dockWindowChromeActions";
+import { DockWindowChromeActions } from "./DockWindowTitleActions";
 import { resolveDockWindowChromeLayout, resolveSegmentWindowChromeHosts } from "./dockWindowChromeLayout";
 import {
   syncGroupHeaderPosition,
@@ -67,9 +66,11 @@ function resolveOwnedDockTabId(
   container: HTMLElement,
   dockRoot: HTMLElement,
 ): string | undefined {
-  for (const surface of container.querySelectorAll<HTMLElement>(
+  const surfaces = container.querySelectorAll<HTMLElement>(
     ".dock-pane-surface[data-dock-tab-id]",
-  )) {
+  );
+  for (let i = 0; i < surfaces.length; i++) {
+    const surface = surfaces[i]!;
     if (surface.closest(".dockable-workspace") === dockRoot) {
       return surface.dataset.dockTabId;
     }
@@ -87,7 +88,9 @@ export interface DockAddTabConfig {
   onMenuSelect?: (id: string) => void;
 }
 
-export interface DockableWorkspaceProps {
+import type { DockPanelRefreshProps } from "./dockPanelRefresh";
+
+export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   tabs: DockableTab[];
   activeTabId: string;
   onActiveTabChange: (tabId: string) => void;
@@ -95,10 +98,6 @@ export interface DockableWorkspaceProps {
   savedLayout: SerializedDockview | null;
   onSavedLayoutChange: (layout: SerializedDockview | null) => void;
   renderPanel: (tabId: string) => ReactNode;
-  /** 控制 panel 内容刷新；与 renderPanel 解耦，避免 callback 引用变化导致死循环 */
-  panelContentKey?: string;
-  /** 软刷新 key：变更时触发 panel re-render（reconcile）而非 remount（不破坏嵌套 dock 状态） */
-  softRefreshKey?: string;
   /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
   panelContentKeysByTab?: Record<string, string>;
   className?: string;

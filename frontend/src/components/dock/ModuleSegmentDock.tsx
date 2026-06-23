@@ -5,6 +5,7 @@ import {
   type DockAddTabConfig,
   type DockableTab,
 } from "./DockableWorkspace";
+import type { DockPanelRefreshProps } from "./dockPanelRefresh";
 import type { DockTabIconKind } from "./DockTabIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 
@@ -18,7 +19,7 @@ export interface ModuleSegmentTab {
   panelType?: string;
 }
 
-export interface ModuleSegmentDockProps {
+export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   tabs: ModuleSegmentTab[];
   activeTabId: string;
   onActiveTabChange: (tabId: string) => void;
@@ -47,10 +48,6 @@ export interface ModuleSegmentDockProps {
   acceptExternalDrops?: boolean;
   /** Tab 栏前缀区域（tabs 左侧，如首页工作区切换） */
   preActions?: ReactNode;
-  /** 递增/变更时刷新 panel 内容（renderPanel 在 dockview 内不会随父 state 自动重绘） */
-  panelContentKey?: string;
-  /** 软刷新 key：变更时触发 panel re-render 而非 remount（保持嵌套 dock 状态） */
-  softRefreshKey?: string;
 }
 
 const EMPTY_LAYOUT = null;

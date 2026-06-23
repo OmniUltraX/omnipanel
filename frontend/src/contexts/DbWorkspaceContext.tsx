@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type {
   SqlTabState,
   TablePreviewState,
@@ -9,7 +9,6 @@ import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
 import type { DbConnectionConfig } from "../modules/database/api";
 import type { DatabaseSchema } from "../modules/database/types";
 import type { SqlEditorOpenMode } from "../modules/database/SqlEditor";
-
 import type { SchemaTableSelection } from "../modules/database/SchemaBrowser";
 
 export type DbTabAction = {
@@ -19,20 +18,12 @@ export type DbTabAction = {
   sort?: SortState | null;
 };
 
-export interface DbWorkspaceContextValue {
-  // 共享引用
+/** 工作区共享状态与操作（不含 activeTabId，切换 Tab 时不触发 Panel reconcile）。 */
+export interface DbWorkspaceStateContextValue {
   tabs: DbWorkspaceTab[];
-  activeTabId: string;
-  setActiveTabId: (id: string) => void;
-
-  // 标签操作
   closeTab: (id: string) => void;
-
-  // 编辑器 / SQL 执行
   runQuery: (sqlOverride?: string, tabIdOverride?: string) => Promise<void>;
   updateSqlTabState: (id: string, patch: Partial<SqlTabState>) => void;
-
-  // 表预览
   refreshTablePreview: (
     tabId: string,
     connId: string,
@@ -47,7 +38,6 @@ export interface DbWorkspaceContextValue {
     page: number,
   ) => void;
   requestTabAction: (action: DbTabAction) => void;
-  /** 直接设置表预览的排序状态并重新拉取首页数据。 */
   setTableSort: (tabId: string, sort: SortState | null) => void;
   handleCellEdit: (
     tabId: string,
@@ -62,14 +52,9 @@ export interface DbWorkspaceContextValue {
     cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },
   ) => void;
   handleRowNew: (tabId: string) => void;
-  /** 按 id 查找连接（不受当前分组过滤影响） */
   resolveConnection: (connId: string) => DbConnectionConfig | null;
-  /** DatabasePanel 连接列表是否仍在首次加载 */
   connectionsLoading: boolean;
   selectTable: (selection: SchemaTableSelection) => void;
-  activeTableKey: string | null;
-
-  // 状态字典 (by tabId)
   sqlTabStates: Record<string, SqlTabState>;
   tablePreviews: Record<string, TablePreviewState>;
   tableColumnMeta: Record<string, DbColumnMeta[]>;
@@ -79,9 +64,6 @@ export interface DbWorkspaceContextValue {
   committingTabs: Set<string>;
   commitTabDirty: (tabId: string) => Promise<void>;
   openExportMenu: (x: number, y: number, tabId: string) => void;
-
-  // 连接 / 数据库 / schema（按 Tab 独立，不与 Schema 侧栏联动）
-  /** 全部可用 SQL 连接（不受侧栏分组过滤） */
   sqlConnections: DbConnectionConfig[];
   groupConnections: DbConnectionConfig[];
   databasesByConnId: Record<string, string[]>;
@@ -92,24 +74,96 @@ export interface DbWorkspaceContextValue {
   getSqlCompletionSchemas: (tabId: string) => DatabaseSchema[];
   connectionForSqlTab: (tabId: string) => DbConnectionConfig | null;
   setSqlTabConnection: (tabId: string, connId: string | null) => void;
-
-  // 工具
   rowsToRecord: (cols: string[], rows: unknown[][]) => Record<string, unknown>[];
   tabModeToEditorOpenMode: (mode: "data" | "sql") => SqlEditorOpenMode;
-  /** 保存当前或指定 SQL Tab 的查询文件（Ctrl+S） */
   saveSqlTab: (tabId?: string) => Promise<void>;
-  /** Tab 是否显示未落盘标记 */
   isSqlTabDirty: (tabId: string) => boolean;
 }
 
-const Ctx = createContext<DbWorkspaceContextValue | null>(null);
+export interface DbWorkspaceActiveTabContextValue {
+  activeTabId: string;
+  setActiveTabId: (id: string) => void;
+}
 
-export const DbWorkspaceProvider = Ctx.Provider;
+/** 底部镜像 / 外部同步用的完整快照（含 activeTabId、activeTableKey）。 */
+export type DbWorkspaceMirrorContextValue = DbWorkspaceStateContextValue &
+  DbWorkspaceActiveTabContextValue & {
+    activeTableKey: string | null;
+  };
 
-export function useDbWorkspace(): DbWorkspaceContextValue {
-  const v = useContext(Ctx);
+/** @deprecated 镜像与旧代码兼容别名 */
+export type DbWorkspaceContextValue = DbWorkspaceMirrorContextValue;
+
+const StateCtx = createContext<DbWorkspaceStateContextValue | null>(null);
+const ActiveTabCtx = createContext<DbWorkspaceActiveTabContextValue | null>(null);
+
+export function DbWorkspaceProviders({
+  state,
+  activeTab,
+  children,
+}: {
+  state: DbWorkspaceStateContextValue;
+  activeTab: DbWorkspaceActiveTabContextValue;
+  children: ReactNode;
+}) {
+  return (
+    <StateCtx.Provider value={state}>
+      <ActiveTabCtx.Provider value={activeTab}>{children}</ActiveTabCtx.Provider>
+    </StateCtx.Provider>
+  );
+}
+
+/** 镜像 Tab 等场景：从完整快照注入双 Context。 */
+export function DbWorkspaceMirrorProvider({
+  value,
+  children,
+}: {
+  value: DbWorkspaceMirrorContextValue;
+  children: ReactNode;
+}) {
+  const {
+    activeTabId,
+    setActiveTabId,
+    activeTableKey: _activeTableKey,
+    ...state
+  } = value;
+  return (
+    <DbWorkspaceProviders
+      state={state}
+      activeTab={{ activeTabId, setActiveTabId }}
+    >
+      {children}
+    </DbWorkspaceProviders>
+  );
+}
+
+/** @deprecated 请使用 DbWorkspaceProviders；保留以兼容镜像注入。 */
+export function DbWorkspaceProvider({
+  value,
+  children,
+}: {
+  value: DbWorkspaceMirrorContextValue;
+  children: ReactNode;
+}) {
+  return <DbWorkspaceMirrorProvider value={value}>{children}</DbWorkspaceMirrorProvider>;
+}
+
+export function useDbWorkspace(): DbWorkspaceStateContextValue {
+  const v = useContext(StateCtx);
   if (!v) {
-    throw new Error("useDbWorkspace must be used inside <DbWorkspaceProvider>");
+    throw new Error("useDbWorkspace must be used inside DbWorkspaceProviders");
   }
   return v;
+}
+
+export function useDbWorkspaceActiveTab(): DbWorkspaceActiveTabContextValue {
+  const v = useContext(ActiveTabCtx);
+  if (!v) {
+    throw new Error("useDbWorkspaceActiveTab must be used inside DbWorkspaceProviders");
+  }
+  return v;
+}
+
+export function useDbWorkspaceActiveTabId(): string {
+  return useDbWorkspaceActiveTab().activeTabId;
 }

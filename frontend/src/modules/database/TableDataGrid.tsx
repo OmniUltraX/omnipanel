@@ -18,7 +18,6 @@ import {
   type ColumnDef,
   type ColumnSizingState,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Button } from "../../components/ui/Button";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -790,16 +789,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   }, [columnSizing, displayColumns, totalTableWidth, containerWidth, fillDelta, lastColumnId, resolveColumnWidth]);
 
   const allColumnsHidden = columns.length > 0 && visibleColumns.length === 0;
-
-  if (columns.length === 0) {
-    return null;
-  }
-
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-  const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
-  const showingTo = Math.min((page + 1) * pageSize, totalRows);
-
   const tableRows = table.getRowModel().rows;
+
   const handleSelectAll = useCallback(() => {
     if (transposed) return;
     const maxRow = tableRows.length - 1;
@@ -822,23 +813,13 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     });
   }, [transposed, displayColumns, tableRows.length, setCellRange]);
 
-  const useRowVirtualization = !transposed && tableRows.length > 24;
-  const rowVirtualizer = useVirtualizer({
-    count: tableRows.length,
-    getScrollElement: () => wrapRef.current,
-    estimateSize: (index) => rowHeights[index] ?? DEFAULT_ROW_HEIGHT,
-    overscan: 10,
-  });
-  const virtualRows = useRowVirtualization ? rowVirtualizer.getVirtualItems() : null;
-  const paddingTop =
-    virtualRows && virtualRows.length > 0 ? virtualRows[0]!.start : 0;
-  const paddingBottom =
-    virtualRows && virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
-      : 0;
-  const renderedRowIndexes = useRowVirtualization
-    ? virtualRows!.map((item) => item.index)
-    : tableRows.map((row) => row.index);
+  if (columns.length === 0) {
+    return null;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
+  const showingTo = Math.min((page + 1) * pageSize, totalRows);
 
   const renderBodyRow = (rowIndex: number) => {
     const row = tableRows[rowIndex];
@@ -1028,17 +1009,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           ))}
         </thead>
         <tbody>
-          {useRowVirtualization && paddingTop > 0 ? (
-            <tr aria-hidden className="db-data-table-virtual-spacer">
-              <td colSpan={leafColumns.length} style={{ height: paddingTop, padding: 0, border: 0 }} />
-            </tr>
-          ) : null}
-          {renderedRowIndexes.map((rowIndex) => renderBodyRow(rowIndex))}
-          {useRowVirtualization && paddingBottom > 0 ? (
-            <tr aria-hidden className="db-data-table-virtual-spacer">
-              <td colSpan={leafColumns.length} style={{ height: paddingBottom, padding: 0, border: 0 }} />
-            </tr>
-          ) : null}
+          {tableRows.map((row) => renderBodyRow(row.index))}
         </tbody>
       </table>
     </div>
@@ -1059,7 +1030,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         {columns.length > 0 && (
           <Button
             ref={colVisAnchorRef}
-            variant={colVisOpen ? "primary" : "ghost"}
+            variant={colVisOpen ? "default" : "ghost"}
             size="sm"
             className="db-col-visibility-toggle"
             title={t("database.results.columnVisibilityTitle")}
@@ -1085,7 +1056,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         )}
         {enableTranspose && (
           <Button
-            variant={transposed ? "primary" : "ghost"}
+            variant={transposed ? "default" : "ghost"}
             size="sm"
             className="db-transpose-toggle"
             title={transposed ? t("database.results.transposeOff") : t("database.results.transposeOn")}
@@ -1109,7 +1080,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           </Button>
         )}
         {loading ? (
-          <span>Loading...</span>
+          <span>{t("common.loading")}</span>
         ) : totalRows > 0 ? (
           <span>
             {showingFrom.toLocaleString()}–{showingTo.toLocaleString()} of{" "}

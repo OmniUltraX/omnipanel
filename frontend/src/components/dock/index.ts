@@ -13,6 +13,7 @@ export {
   type ModuleSegmentDockProps,
   type ModuleSegmentTab,
 } from "./ModuleSegmentDock";
+export type { DockPanelRefreshProps } from "./dockPanelRefresh";
 export type { SerializedDockview } from "dockview-core";
 export {
   collectPanelIds,

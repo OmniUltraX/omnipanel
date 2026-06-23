@@ -104,9 +104,14 @@ import {
   buildDatabasePanelContentKeysByTab,
 } from "./databasePanelTabKeys";
 import { DbPanelSurface } from "./DbPanelSurface";
+import { DbSidebarLinkageProvider } from "./DbSidebarLinkageContext";
 import { ModuleSegmentDock } from "../../components/dock";
 import { patchDockTabFileMeta } from "../../components/dock/dockTabLiveMeta";
-import { DbWorkspaceProvider, type DbWorkspaceContextValue } from "../../contexts/DbWorkspaceContext";
+import {
+  DbWorkspaceProviders,
+  type DbWorkspaceMirrorContextValue,
+  type DbWorkspaceStateContextValue,
+} from "../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../stores/dbDockLayoutStore";
 import {
   schedulePersistWorkspaceSession,
@@ -126,18 +131,7 @@ import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useWorkspaceStore, onWorkspaceSwitch } from "../../stores/workspaceStore";
 import { dbTabToSnapshot, addSnapshotToWorkspace, syncDatabaseTableTabToWorkspace } from "../../lib/workspaceTabActions";
 import { useWorkspaceTabStore, type DbTabSnapshot } from "../../stores/workspaceTabStore";
-import {
-  canAcceptSchemaTreeDrop,
-  parseSchemaTreeItemFromDrop,
-  setActiveSchemaDragItem,
-} from "./schemaTreeItem";
-import {
-  registerSchemaTreeDropListener,
-  SCHEMA_TREE_DROP_ZONE_ATTR,
-} from "./schemaTreePointerDrag";
-import { logSchemaTreeDrop } from "./schemaTreeDragLog";
 import { connectionNodeId } from "./schemaTreeExpanded";
-import type { SchemaTreeItem } from "./schemaTreeItem";
 
 type DbModuleTab = "query" | "transfer";
 const DB_MODULE_TABS: DbModuleTab[] = ["query", "transfer"];
@@ -2253,7 +2247,6 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
-      console.log("[db.linkage] handleSelectTable called", selection);
       setActiveConnId(selection.connId);
 
       const existingTabId = findTabIdForTable(
@@ -2333,7 +2326,6 @@ export function DatabasePanel() {
 
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection) => {
-      console.log("[db.linkage] handleSelectDatabase called", selection);
       setActiveConnId(selection.connId);
 
       const existingTabId = findTabIdForDatabase(
@@ -2362,62 +2354,47 @@ export function DatabasePanel() {
 
   const activeDatabaseKey = useMemo(() => {
     if (!activeWorkspaceTab) {
-      console.log("[db.linkage] activeDatabaseKey: no active tab");
       return null;
     }
     if (activeWorkspaceTab.kind === "database" || activeWorkspaceTab.kind === "designer") {
-      const key = makeDatabaseTabKey(activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
-      console.log("[db.linkage] activeDatabaseKey", key, "from tab", activeWorkspaceTab.kind, activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
-      return key;
+      return makeDatabaseTabKey(activeWorkspaceTab.connId, activeWorkspaceTab.dbName);
     }
     if (activeWorkspaceTab.kind === "sql") {
       const sqlState = sqlTabStates[activeWorkspaceTab.id];
       if (sqlState?.connId && sqlState?.database) {
-        const key = makeDatabaseTabKey(sqlState.connId, sqlState.database);
-        console.log("[db.linkage] activeDatabaseKey", key, "from SQL tab state");
-        return key;
+        return makeDatabaseTabKey(sqlState.connId, sqlState.database);
       }
-      console.log("[db.linkage] activeDatabaseKey: SQL tab but no sqlState.connId/database", sqlState);
     }
     return null;
   }, [activeWorkspaceTab, sqlTabStates]);
 
   const activeTableKey = useMemo<string | null>(() => {
     if (!activeWorkspaceTab) {
-      console.log("[db.linkage] activeTableKey: no active tab");
       return null;
     }
     if (activeWorkspaceTab.kind === "sql") {
       const preview = tablePreviews[activeWorkspaceTab.id];
       if (preview?.connId && preview?.dbName && preview?.tableName) {
-        const key = makeTableTabKey(preview.connId, preview.dbName, preview.tableName);
-        console.log("[db.linkage] activeTableKey", key, "from SQL tab preview");
-        return key;
+        return makeTableTabKey(preview.connId, preview.dbName, preview.tableName);
       }
-      console.log("[db.linkage] activeTableKey: SQL tab but no preview", { tabId: activeWorkspaceTab.id, preview });
       return null;
     }
     if (activeWorkspaceTab.kind === "designer") {
-      const key = makeTableTabKey(
+      return makeTableTabKey(
         activeWorkspaceTab.connId,
         activeWorkspaceTab.dbName,
         activeWorkspaceTab.tableName,
       );
-      console.log("[db.linkage] activeTableKey", key, "from designer tab");
-      return key;
     }
-    console.log("[db.linkage] activeTableKey: tab kind not handled", activeWorkspaceTab.kind);
     return null;
   }, [activeWorkspaceTab, tablePreviews]);
 
   useEffect(() => {
     if (!activeWorkspaceTab) {
-      console.log("[db.linkage] setActiveConnId effect: no active tab");
       return;
     }
     const kind = activeWorkspaceTab.kind;
     if (kind === "database" || kind === "connection" || kind === "designer") {
-      console.log("[db.linkage] setActiveConnId effect: kind", kind, "connId", activeWorkspaceTab.connId);
       setActiveConnId(activeWorkspaceTab.connId);
     } else if (kind === "sql") {
       const connId = resolveSqlTabConnectionId(
@@ -2425,55 +2402,12 @@ export function DatabasePanel() {
         sqlTabStates,
         tablePreviews,
       );
-      console.log("[db.linkage] setActiveConnId effect: kind sql, resolved connId", connId);
       if (connId) {
         setActiveConnId(connId);
       }
     }
   }, [activeWorkspaceTab, sqlTabStates, tablePreviews]);
 
-  const applySchemaTableDrop = useCallback(
-    (item: SchemaTreeItem) => {
-      if (item.type !== "table") {
-        return;
-      }
-      if (!item.connId || !item.dbName || !item.tableName) {
-        return;
-      }
-
-      const connection = connections.find((c) => c.id === item.connId);
-      if (!connection) {
-        return;
-      }
-
-      handleSelectTable({
-        connId: item.connId,
-        dbName: item.dbName,
-        tableName: item.tableName,
-        connection,
-      });
-      setActiveSchemaDragItem(null);
-    },
-    [connections, handleSelectTable],
-  );
-
-  const handleExternalSchemaDrop = useCallback(
-    (dataTransfer: DataTransfer) => {
-      const item = parseSchemaTreeItemFromDrop(dataTransfer);
-      logSchemaTreeDrop(item?.type ?? "unknown", "workspace");
-      if (!item) {
-        return;
-      }
-      applySchemaTableDrop(item);
-    },
-    [applySchemaTableDrop],
-  );
-
-  useEffect(() => {
-    return registerSchemaTreeDropListener((item) => {
-      applySchemaTableDrop(item);
-    });
-  }, [applySchemaTableDrop]);
   const openSqlFile = useCallback(
     (file: DbSqlFileNode) => {
       const existingTabId = findTabIdForSqlFile(workspaceTabs, file.id);
@@ -2602,7 +2536,6 @@ export function DatabasePanel() {
 
   const handleSelectConnection = useCallback(
     (connId: string) => {
-      console.log("[db.linkage] handleSelectConnection called", connId);
       setActiveConnId(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
@@ -2802,11 +2735,9 @@ export function DatabasePanel() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isActiveRoute, activeWorkspaceTabId, saveSqlTab]);
 
-  const ctxValue = useMemo<DbWorkspaceContextValue>(() => ({
+  const workspaceStateValue = useMemo<DbWorkspaceStateContextValue>(() => ({
     tabs: workspaceTabs,
-    activeTabId: activeWorkspaceTabId,
-    setActiveTabId: setActiveWorkspaceTabId,
-    closeTab: (tabId) => requestTabAction({ kind: "close", tabId }),
+    closeTab: (tabId: string) => requestTabAction({ kind: "close", tabId }),
     runQuery,
     updateSqlTabState,
     refreshTablePreview,
@@ -2820,12 +2751,11 @@ export function DatabasePanel() {
     resolveConnection,
     connectionsLoading,
     selectTable: handleSelectTable,
-    activeTableKey,
     sqlTabStates,
     tablePreviews,
     tableColumnMeta,
     tabModes,
-    setTabMode: (id, mode) => setTabModes((prev) => ({ ...prev, [id]: mode })),
+    setTabMode: (id: string, mode: "data" | "sql") => setTabModes((prev) => ({ ...prev, [id]: mode })),
     tabDirtyRows,
     committingTabs,
     commitTabDirty,
@@ -2845,25 +2775,66 @@ export function DatabasePanel() {
     saveSqlTab,
     isSqlTabDirty,
   }), [
-    workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, requestTabAction,
-    runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit, handleRowEdit, handleCellSetNull, handleRowNew, resolveConnection, connectionsLoading, handleSelectTable,
-    activeTableKey,
-    sqlTabStates, tablePreviews, tableColumnMeta, tabModes, tabDirtyRows, committingTabs,
-    commitTabDirty, sqlConnections, groupConnections, databasesByConnId,
-    schemaByKey, schemaLoadingKey, resolveSqlTabConnection, getSqlTabDatabases,
-    getSqlCompletionSchemas, connectionForSqlTab, setSqlTabConnection,
-    saveSqlTab, isSqlTabDirty,
+    workspaceTabs,
+    requestTabAction,
+    runQuery,
+    updateSqlTabState,
+    refreshTablePreview,
+    goToPage,
+    handleCellEdit,
+    handleRowEdit,
+    handleCellSetNull,
+    handleRowNew,
+    resolveConnection,
+    connectionsLoading,
+    handleSelectTable,
+    sqlTabStates,
+    tablePreviews,
+    tableColumnMeta,
+    tabModes,
+    tabDirtyRows,
+    committingTabs,
+    commitTabDirty,
+    sqlConnections,
+    groupConnections,
+    databasesByConnId,
+    schemaByKey,
+    schemaLoadingKey,
+    resolveSqlTabConnection,
+    getSqlTabDatabases,
+    getSqlCompletionSchemas,
+    connectionForSqlTab,
+    setSqlTabConnection,
+    saveSqlTab,
+    isSqlTabDirty,
   ]);
+
+  const activeTabContextValue = useMemo(
+    () => ({
+      activeTabId: activeWorkspaceTabId,
+      setActiveTabId: setActiveWorkspaceTabId,
+    }),
+    [activeWorkspaceTabId, setActiveWorkspaceTabId],
+  );
+
+  const mirrorContextValue = useMemo<DbWorkspaceMirrorContextValue>(
+    () => ({
+      ...workspaceStateValue,
+      ...activeTabContextValue,
+      activeTableKey,
+    }),
+    [workspaceStateValue, activeTabContextValue, activeTableKey],
+  );
 
   const mirrorRevisionsRef = useRef(new Map<string, string>());
 
   useLayoutEffect(() => {
     mirrorRevisionsRef.current = publishDbWorkspaceMirror(
-      ctxValue,
+      mirrorContextValue,
       referencedDatabaseTabIds,
       mirrorRevisionsRef.current,
     );
-  }, [ctxValue, referencedDatabaseTabIds]);
+  }, [mirrorContextValue, referencedDatabaseTabIds]);
 
   const dockTabs = useMemo(
     () =>
@@ -3050,37 +3021,31 @@ export function DatabasePanel() {
   );
 
   const moduleSoftRefreshKey = useMemo(
-    () => [
-      connections.map((c) => c.id).join(","),
-      connectionsLoading ? "1" : "0",
-      workspaceTabs.map((t) => t.id).join(","),
-      activeConnId,
-      activeDatabaseKey,
-      activeTableKey,
-    ].join("|"),
-    [connections, connectionsLoading, workspaceTabs, activeConnId, activeDatabaseKey, activeTableKey],
+    () =>
+      [
+        connections.map((c) => c.id).join(","),
+        connectionsLoading ? "1" : "0",
+        workspaceTabs.map((t) => t.id).join(","),
+      ].join("|"),
+    [connections, connectionsLoading, workspaceTabs],
+  );
+
+  const sidebarLinkageValue = useMemo(
+    () => ({ activeConnId, activeDatabaseKey, activeTableKey }),
+    [activeConnId, activeDatabaseKey, activeTableKey],
   );
 
   const panelContentKeysByTab = useMemo(
     () =>
       buildDatabasePanelContentKeysByTab({
         workspaceTabs,
-        activeWorkspaceTabId,
         sqlTabStates,
         tablePreviews,
         tableDesignerStates,
         tabModes,
         connections,
       }),
-    [
-      workspaceTabs,
-      activeWorkspaceTabId,
-      sqlTabStates,
-      tablePreviews,
-      tableDesignerStates,
-      tabModes,
-      connections,
-    ],
+    [workspaceTabs, sqlTabStates, tablePreviews, tableDesignerStates, tabModes, connections],
   );
 
   const schemaContextValue = useMemo(
@@ -3114,7 +3079,8 @@ export function DatabasePanel() {
   return (
     <>
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
-    <DbWorkspaceProvider value={ctxValue}>
+    <DbSidebarLinkageProvider value={sidebarLinkageValue}>
+    <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
     <ModuleSegmentDock
       className="db-module-dock"
       enabled={moduleLive}
@@ -3146,35 +3112,28 @@ export function DatabasePanel() {
         sidebar={
           <DbSchemaProvider value={schemaContextValue}>
             <DatabaseSchemaSidebar
-              groups={groups}
-              activeGroupId={activeGroupId}
-              activeConnId={activeConnId}
-              onCreateConnection={() => {
-                setEditingConnection(null);
-                setDialogOpen(true);
-              }}
-              onCreateGroup={() => void handleCreateGroup()}
-              onSelectGroup={handleSelectGroup}
-              onSelectConnection={handleSelectConnection}
-              onOpenSqlFile={openSqlFile}
-              onSelectTable={handleSelectTable}
-              onSelectDatabase={handleSelectDatabase}
-              onContextTable={handleContextTable}
-              onContextConnection={handleContextConnection}
-              activeTableKey={activeTableKey}
-              activeDatabaseKey={activeDatabaseKey}
-              refreshToken={schemaRefreshToken}
-              connectionConfigs={connections}
-              connectionsReady={!connectionsLoading || connections.length > 0}
+                groups={groups}
+                activeGroupId={activeGroupId}
+                onCreateConnection={() => {
+                  setEditingConnection(null);
+                  setDialogOpen(true);
+                }}
+                onCreateGroup={() => void handleCreateGroup()}
+                onSelectGroup={handleSelectGroup}
+                onSelectConnection={handleSelectConnection}
+                onOpenSqlFile={openSqlFile}
+                onSelectTable={handleSelectTable}
+                onSelectDatabase={handleSelectDatabase}
+                onContextTable={handleContextTable}
+                onContextConnection={handleContextConnection}
+                refreshToken={schemaRefreshToken}
+                connectionConfigs={connections}
+                connectionsReady={!connectionsLoading || connections.length > 0}
             />
           </DbSchemaProvider>
         }
       >
-        <div
-          className="db-workspace-drop-zone"
-          data-schema-drop-type="workspace"
-          {...{ [SCHEMA_TREE_DROP_ZONE_ATTR]: "" }}
-        >
+        <div className="db-workspace-drop-zone">
         {!workspaceInitialized ? null : (
           <DatabaseWorkspaceDock
             workspaceInitialized={workspaceInitialized}
@@ -3188,8 +3147,6 @@ export function DatabasePanel() {
             panelContentKeysByTab={panelContentKeysByTab}
             onTabContextMenu={handleDockTabContextMenu}
             onCtrlCopyTab={handleCtrlCopyTab}
-            canAcceptSchemaTreeDrop={canAcceptSchemaTreeDrop}
-            onExternalSchemaDrop={handleExternalSchemaDrop}
             recentClosedActionItems={recentClosedActionItems}
             emptyPrompt={t("database.workspace.emptyTabs")}
             recentClosedTitle={t("database.workspace.recentClosed")}
@@ -3272,7 +3229,8 @@ export function DatabasePanel() {
       groups={groups}
       initialConnection={editingConnection}
     />
-    </DbWorkspaceProvider>
+    </DbWorkspaceProviders>
+    </DbSidebarLinkageProvider>
     <DatabaseTableEditorHost
       cellEdit={cellEdit}
       rowEdit={rowEdit}

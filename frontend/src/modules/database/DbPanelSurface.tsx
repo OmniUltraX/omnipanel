@@ -1,27 +1,69 @@
 import { useMemo, memo, useCallback } from "react";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
-import { useDbWorkspace } from "../../contexts/DbWorkspaceContext";
+import {
+  useDbWorkspace,
+  useDbWorkspaceActiveTabId,
+} from "../../contexts/DbWorkspaceContext";
 import type { SqlWorkspaceTab } from "./workspaceTabs";
 import { DockLayout, DockHandle, DockPanel } from "../../components/dock";
 import { Button } from "../../components/ui/Button";
 import { IconPlus } from "../../components/ui/Icons";
 import { Select } from "../../components/ui/Select";
 import { TableDataGrid } from "./TableDataGrid";
-import { SqlEditor } from "./SqlEditor";
+import { SqlEditor, type SqlEditorOpenMode } from "./SqlEditor";
 import { useI18n } from "../../i18n";
-import { createDefaultSqlTabState, DEFAULT_QUERY_LIMIT, NEW_ROW_KEY_PREFIX, PENDING_INSERT_ROW_KEY, type SortState } from "./dbWorkspaceState";
+import { createDefaultSqlTabState, DEFAULT_QUERY_LIMIT, NEW_ROW_KEY_PREFIX, PENDING_INSERT_ROW_KEY, type SortState, type SqlTabState } from "./dbWorkspaceState";
 import { connectionHasTableSchemaChildren, isConnectionEnabled } from "./api";
+import type { DatabaseSchema } from "./types";
 
 interface DbPanelSurfaceProps {
   tab: SqlWorkspaceTab;
 }
 
+interface DbPanelSqlEditorProps {
+  tabId: string;
+  tabState: SqlTabState;
+  openMode: SqlEditorOpenMode;
+  scopedSchemas: DatabaseSchema[];
+  onChange: (value: string) => void;
+  onCursorOffsetChange: (cursorOffset: number) => void;
+  onRun: (sql: string) => void;
+  onSave: () => void;
+}
+
+/** 单独订阅 activeTabId，避免切换 Tab 时整页 DbPanelSurface reconcile。 */
+const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
+  tabId,
+  tabState,
+  openMode,
+  scopedSchemas,
+  onChange,
+  onCursorOffsetChange,
+  onRun,
+  onSave,
+}: DbPanelSqlEditorProps) {
+  const activeTabId = useDbWorkspaceActiveTabId();
+  const moduleSuspended = useModuleSuspended();
+  const editorActive = activeTabId === tabId && !moduleSuspended;
+
+  return (
+    <SqlEditor
+      key={tabId}
+      editorActive={editorActive}
+      openMode={openMode}
+      value={tabState.sql}
+      onChange={onChange}
+      onCursorOffsetChange={onCursorOffsetChange}
+      onRun={onRun}
+      onSave={onSave}
+      schemas={scopedSchemas}
+    />
+  );
+});
+
 export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
-  const moduleSuspended = useModuleSuspended();
-  const editorActive = ws.activeTabId === tab.id && !moduleSuspended;
-
   const tabState = ws.sqlTabStates[tab.id] ?? createDefaultSqlTabState();
   const preview = ws.tablePreviews[tab.id];
   const colMeta = ws.tableColumnMeta[tab.id];
@@ -126,6 +168,23 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
     },
     [ws.requestTabAction, tab.id],
   );
+  const handleSqlChange = useCallback(
+    (value: string) => ws.updateSqlTabState(tab.id, { sql: value }),
+    [ws.updateSqlTabState, tab.id],
+  );
+  const handleSqlCursorChange = useCallback(
+    (cursorOffset: number) => ws.updateSqlTabState(tab.id, { cursorOffset }),
+    [ws.updateSqlTabState, tab.id],
+  );
+  const handleSqlRun = useCallback(
+    (sql: string) => void ws.runQuery(sql, tab.id),
+    [ws.runQuery, tab.id],
+  );
+  const handleSqlSave = useCallback(
+    () => void ws.saveSqlTab(tab.id),
+    [ws.saveSqlTab, tab.id],
+  );
+  const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(mode);
   const noopPageChange = useCallback(() => {}, []);
 
   const dismissSqlResults = () => {
@@ -283,18 +342,15 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           {tabState.running ? t("database.running") : t("database.runSql")}
         </Button>
       </div>
-      <SqlEditor
-        key={tab.id}
-        editorActive={editorActive}
-        openMode={ws.tabModeToEditorOpenMode(mode)}
-        value={tabState.sql}
-        onChange={(value) => ws.updateSqlTabState(tab.id, { sql: value })}
-        onCursorOffsetChange={(cursorOffset) =>
-          ws.updateSqlTabState(tab.id, { cursorOffset })
-        }
-        onRun={(sql) => void ws.runQuery(sql, tab.id)}
-        onSave={() => void ws.saveSqlTab(tab.id)}
-        schemas={scopedSchemas}
+      <DbPanelSqlEditor
+        tabId={tab.id}
+        tabState={tabState}
+        openMode={sqlEditorOpenMode}
+        scopedSchemas={scopedSchemas}
+        onChange={handleSqlChange}
+        onCursorOffsetChange={handleSqlCursorChange}
+        onRun={handleSqlRun}
+        onSave={handleSqlSave}
       />
     </div>
   );
@@ -384,16 +440,16 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           />
         )
       ) : isPreviewTab && preview ? (
-        preview.loading ? (
-          <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
-            {t("common.loading")}
-          </div>
-        ) : preview.error ? (
+        preview.error ? (
           <div
             className="empty-state compact text-danger"
             style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}
           >
             {preview.error}
+          </div>
+        ) : !preview.data && preview.loading ? (
+          <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
+            {t("common.loading")}
           </div>
         ) : preview.data && canRefresh ? (
           <TableDataGrid
@@ -402,7 +458,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
             totalRows={preview.totalRows + (previewDisplayRows.length - preview.data.rows.length)}
             page={preview.page}
             pageSize={preview.pageSize}
-            loading={false}
+            loading={preview.loading}
             columnMeta={colMeta}
             enableTranspose
             enableSort

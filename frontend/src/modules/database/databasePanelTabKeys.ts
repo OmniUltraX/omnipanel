@@ -10,9 +10,27 @@ function connectionConfigFingerprint(configs: { id: string }[]): string {
 }
 
 /** 按 Tab 计算 Dock panel 局部 invalidate key，避免全局 bump。 */
+function buildTablePreviewPanelContentKey(
+  tabId: string,
+  preview: TablePreviewState,
+  tabMode: "data" | "sql" | undefined,
+): string {
+  return [
+    preview.connId,
+    preview.dbName,
+    preview.tableName,
+    preview.page,
+    preview.pageSize,
+    preview.loading ? "1" : "0",
+    preview.error ?? "",
+    preview.data ? `${preview.data.rows.length}:${preview.totalRows}` : "0",
+    tabMode ?? "data",
+    tabId,
+  ].join("|");
+}
+
 export function buildDatabasePanelContentKeysByTab(params: {
   workspaceTabs: DbWorkspaceTab[];
-  activeWorkspaceTabId: string;
   sqlTabStates: Record<string, SqlTabState>;
   tablePreviews: Record<string, TablePreviewState>;
   tableDesignerStates: Record<string, unknown>;
@@ -22,6 +40,15 @@ export function buildDatabasePanelContentKeysByTab(params: {
   const connectionsFingerprint = connectionConfigFingerprint(params.connections);
   const keys: Record<string, string> = {};
   for (const tab of params.workspaceTabs) {
+    const preview = params.tablePreviews[tab.id];
+    if (tab.kind === "sql" && preview?.tableName) {
+      keys[tab.id] = buildTablePreviewPanelContentKey(
+        tab.id,
+        preview,
+        params.tabModes[tab.id],
+      );
+      continue;
+    }
     if (tab.kind === "sql") {
       const state = params.sqlTabStates[tab.id];
       keys[tab.id] = [
@@ -34,7 +61,6 @@ export function buildDatabasePanelContentKeysByTab(params: {
         state?.error ? "1" : "0",
         state?.result ? `${state.result.columns.length}:${state.result.rows.length}` : "0",
         params.tabModes[tab.id] ?? "sql",
-        tab.id === params.activeWorkspaceTabId ? "1" : "0",
       ].join("|");
       continue;
     }
@@ -55,20 +81,6 @@ export function buildDatabasePanelContentKeysByTab(params: {
         params.tableDesignerStates[tab.id] ? "1" : "0",
       ].join(":");
       continue;
-    }
-    const preview = params.tablePreviews[tab.id];
-    if (preview?.tableName) {
-      keys[tab.id] = [
-        preview.connId,
-        preview.dbName,
-        preview.tableName,
-        preview.page,
-        preview.pageSize,
-        preview.loading ? "1" : "0",
-        preview.error ?? "",
-        preview.data ? `${preview.data.rows.length}:${preview.totalRows}` : "0",
-        params.tabModes[tab.id] ?? "data",
-      ].join("|");
     }
   }
   return keys;

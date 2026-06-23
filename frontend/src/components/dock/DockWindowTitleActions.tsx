@@ -1,13 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { WinControls } from "../shell/WinControls";
+import type { DockWindowChromeActionsProps } from "./dockWindowChromeActions";
 
-export type DockWindowChromeMode = "drag" | "controls" | "both";
-
-export interface DockWindowChromeActionsProps {
-  mode: DockWindowChromeMode;
-  leftActions?: ReactNode;
-}
+export type { DockWindowChromeActionsProps, DockWindowChromeMode } from "./dockWindowChromeActions";
 
 function DockWindowDragSpacer() {
   const spacerDragRef = useRef<{ startX: number; startY: number } | null>(null);

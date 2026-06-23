@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { ScopedSearch, type ScopedSearchHandle } from "../../components/ui/ScopedSearch";
@@ -32,7 +41,6 @@ import {
   buildGroupTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
-import { shouldSuppressSchemaTreeClick } from "./schemaTreePointerDrag";
 import {
   nextSchemaChildLimit,
   paginateSchemaChildren,
@@ -57,6 +65,13 @@ import {
 import { SchemaTreeObjectDetails } from "./schemaTreeObjectDetails";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
+import {
+  buildPaginationPatchesForScrollTarget,
+  collectExpandedIdsForScrollTarget,
+  resolveSchemaTreeScrollTarget,
+  resolveScrollTargetGroupId,
+  scrollSchemaTreeToNode,
+} from "./schemaTreeSidebarLinkage";
 
 type LoadedDatabase = CachedDatabase;
 
@@ -143,9 +158,6 @@ function TreeNode({
     : "";
 
   const runLabelClick = () => {
-    if (shouldSuppressSchemaTreeClick()) {
-      return;
-    }
     if (onLabelClick) {
       onLabelClick();
       return;
@@ -166,6 +178,7 @@ function TreeNode({
       className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${connectionStateClass}`}
       style={{ paddingLeft: indent }}
       data-schema-item-type={type}
+      data-schema-node-id={item.id}
       onContextMenu={onContextMenu}
     >
       <span
@@ -547,10 +560,6 @@ export function SchemaBrowser({
   }, [useExternalConnections, loadConnections, refreshToken]);
 
   useEffect(() => {
-    console.log("[db.linkage] SchemaBrowser props - activeConnId:", activeConnId, "activeDatabaseKey:", activeDatabaseKey, "activeTableKey:", activeTableKey);
-  }, [activeConnId, activeDatabaseKey, activeTableKey]);
-
-  useEffect(() => {
     if (!activeGroupId) return;
     const groupNodeId = `grp:${activeGroupId}`;
     updateExpanded((prev) => {
@@ -720,6 +729,86 @@ export function SchemaBrowser({
   }, [groups, filtered, search]);
 
   const hasAnyConnection = filtered.length > 0;
+
+  const sidebarScrollTargetId = useMemo(
+    () =>
+      resolveSchemaTreeScrollTarget({
+        activeTableKey,
+        activeDatabaseKey,
+        activeConnId,
+      }),
+    [activeTableKey, activeDatabaseKey, activeConnId],
+  );
+
+  useEffect(() => {
+    if (!sidebarScrollTargetId || loading || search.trim()) {
+      return;
+    }
+
+    const groupId = resolveScrollTargetGroupId(sidebarScrollTargetId, {
+      groups,
+      connections,
+      activeGroupId,
+      activeConnId,
+    });
+    const expandIds = collectExpandedIdsForScrollTarget(sidebarScrollTargetId, groupId);
+
+    updateExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of expandIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    if (connections.length === 0) {
+      return;
+    }
+
+    setChildVisibleLimits((prev) => {
+      const patch = buildPaginationPatchesForScrollTarget(
+        sidebarScrollTargetId,
+        {
+          groups,
+          connections,
+          activeGroupId,
+          databaseFilters,
+          tableFilters,
+        },
+        prev,
+      );
+      if (Object.keys(patch).length === 0) {
+        return prev;
+      }
+      return { ...prev, ...patch };
+    });
+  }, [
+    sidebarScrollTargetId,
+    loading,
+    search,
+    activeGroupId,
+    activeConnId,
+    groups,
+    connections,
+    databaseFilters,
+    tableFilters,
+    updateExpanded,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!sidebarScrollTargetId || loading || search.trim()) {
+      return;
+    }
+    const container = schemaTreeRef.current;
+    if (!container) {
+      return;
+    }
+    scrollSchemaTreeToNode(container, sidebarScrollTargetId);
+  }, [sidebarScrollTargetId, loading, search, expandedNodeIds, childVisibleLimits]);
 
   const filterDialogConn = filterDialogConnId
     ? connections.find((conn) => conn.config.id === filterDialogConnId)

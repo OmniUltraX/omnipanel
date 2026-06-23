@@ -15,8 +15,6 @@ export interface DatabaseWorkspaceDockProps {
   panelContentKeysByTab: Record<string, string>;
   onTabContextMenu: (event: React.MouseEvent, tabId: string, index: number) => void;
   onCtrlCopyTab: (tabId: string) => void;
-  canAcceptSchemaTreeDrop: (dataTransfer: DataTransfer) => boolean;
-  onExternalSchemaDrop: (dataTransfer: DataTransfer) => void;
   recentClosedActionItems: Array<{ id: string; label: string; meta: string; onClick: () => void }>;
   emptyPrompt: string;
   recentClosedTitle: string;
@@ -35,8 +33,6 @@ export function DatabaseWorkspaceDock({
   panelContentKeysByTab,
   onTabContextMenu,
   onCtrlCopyTab,
-  canAcceptSchemaTreeDrop,
-  onExternalSchemaDrop,
   recentClosedActionItems,
   emptyPrompt,
   recentClosedTitle,
@@ -77,8 +73,6 @@ export function DatabaseWorkspaceDock({
       panelContentKeysByTab={panelContentKeysByTab}
       onTabContextMenu={onTabContextMenu}
       onCtrlCopyTab={onCtrlCopyTab}
-      canAcceptExternalDrop={canAcceptSchemaTreeDrop}
-      onExternalDrop={onExternalSchemaDrop}
       windowControl={false}
     />
   );
