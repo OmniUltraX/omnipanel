@@ -20,6 +20,9 @@ import {
   getVisibleItems,
   makeTableFilterKey,
   mergeFilter,
+  applyTablePinOrder,
+  isTablePinned,
+  toggleTablePin,
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import {
@@ -27,17 +30,9 @@ import {
   buildDatabaseTreeItem,
   buildFolderTreeItem,
   buildGroupTreeItem,
-  handleSchemaTreeDragStart,
-  handleSchemaTreeDragEnd,
-  isSchemaTreeItemDraggable,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
-import {
-  handleSchemaTreePointerDown,
-  registerSchemaTreeReorderListener,
-  shouldSuppressSchemaTreeClick,
-} from "./schemaTreePointerDrag";
-import { reorderOrderedNames } from "./schemaTreeReorder";
+import { shouldSuppressSchemaTreeClick } from "./schemaTreePointerDrag";
 import {
   nextSchemaChildLimit,
   paginateSchemaChildren,
@@ -81,10 +76,10 @@ interface TreeNodeProps {
   onLabelClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   iconUrl?: string | null;
-  reorderScope?: string;
-  reorderName?: string;
   onMetaClick?: () => void;
   metaTitle?: string;
+  pinActive?: boolean;
+  onPinToggle?: () => void;
   /** 表节点：名称后显示的灰色注释 */
   labelComment?: string;
   /** 连接节点：是否启用（禁用与树折叠无关） */
@@ -130,17 +125,16 @@ function TreeNode({
   onLabelClick,
   onContextMenu,
   iconUrl,
-  reorderScope,
-  reorderName,
   onMetaClick,
   metaTitle,
+  pinActive,
+  onPinToggle,
   labelComment,
   connectionEnabled = true,
 }: TreeNodeProps) {
   const { t } = useI18n();
   const { type, label } = item;
   const indent = depth * 16 + 8;
-  const draggable = isSchemaTreeItemDraggable(type);
   const isConnection = type === "connection";
   const connectionStateClass = isConnection
     ? connectionEnabled
@@ -169,21 +163,9 @@ function TreeNode({
 
   return (
     <div
-      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${draggable ? " tree-node--draggable" : ""}${connectionStateClass}`}
+      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${connectionStateClass}`}
       style={{ paddingLeft: indent }}
       data-schema-item-type={type}
-      {...(reorderScope && reorderName
-        ? {
-            "data-schema-reorder-scope": reorderScope,
-            "data-schema-reorder-name": reorderName,
-          }
-        : {})}
-      draggable={draggable}
-      onPointerDown={draggable ? (event) => handleSchemaTreePointerDown(item, event) : undefined}
-      onDragStart={
-        draggable ? (event) => handleSchemaTreeDragStart(item, event) : undefined
-      }
-      onDragEnd={draggable ? () => handleSchemaTreeDragEnd(item) : undefined}
       onContextMenu={onContextMenu}
     >
       <span
@@ -289,7 +271,28 @@ function TreeNode({
       </span>
       {isPk && <span className="tree-badge tree-badge--pk">PK</span>}
       {isFk && <span className="tree-badge tree-badge--fk">FK</span>}
-      {meta && (
+      {onPinToggle ? (
+        <button
+          type="button"
+          className={`tree-pin-btn${pinActive ? " tree-pin-btn--active" : ""}`}
+          title={
+            pinActive ? t("database.sidebar.unpinTable") : t("database.sidebar.pinTable")
+          }
+          aria-label={
+            pinActive ? t("database.sidebar.unpinTable") : t("database.sidebar.pinTable")
+          }
+          aria-pressed={pinActive}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPinToggle();
+          }}
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden>
+            <path d="M9.5 1.5 8 3 6.5 1.5 5 3v4.6L2.8 9.8l-.3.3v1.4l.3.3L5 12.9V14l1.5-1.5L8 14l1.5-1.5L11 14v-1.1l2.2-2.2.3-.3v-1.4l-.3-.3L11 7.6V3L9.5 1.5Z" />
+          </svg>
+        </button>
+      ) : null}
+      {!onPinToggle && meta ? (
         <span
           className={`tree-meta${onMetaClick ? " tree-meta--clickable" : ""}`}
           title={metaTitle}
@@ -304,7 +307,7 @@ function TreeNode({
         >
           {meta}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -378,6 +381,9 @@ export interface SchemaBrowserProps {
   activeDatabaseKey?: string | null;
   refreshToken?: number;
   section?: SchemaSidebarSectionConfig;
+  /** 由 DatabasePanel 注入，避免重复 listConnections 与 remount 后空白加载 */
+  connectionConfigs?: DbConnectionConfig[];
+  connectionsReady?: boolean;
 }
 
 export function SchemaBrowser({
@@ -396,17 +402,21 @@ export function SchemaBrowser({
   activeDatabaseKey = null,
   refreshToken = 0,
   section,
+  connectionConfigs,
+  connectionsReady,
 }: SchemaBrowserProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
+  const useExternalConnections =
+    connectionConfigs !== undefined && connectionsReady !== undefined;
   const [search, setSearch] = useState("");
   const expandedNodeIds = useDbSchemaTreeExpandedStore((s) => s.expandedNodeIds);
   const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
   const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
   const updateExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
   const [childVisibleLimits, setChildVisibleLimits] = useState<Record<string, number>>({});
-  const [connections, setConnections] = useState<LoadedConnection[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [internalConnections, setInternalConnections] = useState<LoadedConnection[]>([]);
+  const [internalLoading, setInternalLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const databaseFilters = useDbSchemaFilterStore((s) => s.databaseFilters);
   const tableFilters = useDbSchemaFilterStore((s) => s.tableFilters);
@@ -421,14 +431,25 @@ export function SchemaBrowser({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const schemaTreeRef = useRef<HTMLDivElement>(null);
   const scopedSearchRef = useRef<ScopedSearchHandle>(null);
-  const connectionsRef = useRef(connections);
-  const hydrateSchemaCache = useDbSchemaCacheStore((s) => s.hydrate);
   const replaceSchemaSnapshot = useDbSchemaCacheStore((s) => s.replaceSnapshot);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const refreshingConnectionIds = useDbSchemaCacheStore((s) => s.refreshingConnectionIds);
-  const [refreshingSchema, setRefreshingSchema] = useState(false);
+  const anyConnectionRefreshing = Object.keys(refreshingConnectionIds).length > 0;
+  const syncSeqRef = useRef(0);
 
-  connectionsRef.current = connections;
+  const externalConnections = useMemo(() => {
+    if (!useExternalConnections) {
+      return null;
+    }
+    if (!connectionsReady) {
+      return null;
+    }
+    return mergeConnectionsWithCache(connectionConfigs, schemaSnapshot);
+  }, [useExternalConnections, connectionConfigs, connectionsReady, schemaSnapshot]);
+
+  const connections = useExternalConnections ? (externalConnections ?? []) : internalConnections;
+  const loading = useExternalConnections ? externalConnections === null : internalLoading;
+  const connectionsRef = useRef(connections);
 
   const syncDatabaseFilter = useCallback((connId: string, names: string[]) => {
     setDatabaseFilters((prev) => ({
@@ -446,54 +467,84 @@ export function SchemaBrowser({
   }, []);
 
   const loadConnections = useCallback(async () => {
-    setLoading(true);
+    const seq = ++syncSeqRef.current;
+    setInternalLoading(true);
     setLoadError(null);
+    useDbSchemaCacheStore.getState().clearConnectionRefreshing();
     try {
-      await hydrateSchemaCache();
+      await useDbSchemaCacheStore.getState().hydrate();
       const list = await listConnections();
       const snapshot = useDbSchemaCacheStore.getState().snapshot;
       const merged = mergeConnectionsWithCache(list, snapshot);
+      if (seq !== syncSeqRef.current) {
+        return;
+      }
       connectionsRef.current = merged;
-      setConnections(merged);
+      setInternalConnections(merged);
     } catch (error) {
-      setConnections([]);
+      if (seq !== syncSeqRef.current) {
+        return;
+      }
+      setInternalConnections([]);
       setLoadError(String(error));
     } finally {
-      setLoading(false);
+      if (seq === syncSeqRef.current) {
+        setInternalLoading(false);
+      }
     }
-  }, [hydrateSchemaCache]);
+  }, []);
 
   const refreshSchemaCache = useCallback(async () => {
-    setRefreshingSchema(true);
     setLoadError(null);
+    let enabledConnIds: string[] = [];
+    const { setConnectionRefreshing, replaceSnapshot } = useDbSchemaCacheStore.getState();
     try {
       const list = await listConnections();
+      enabledConnIds = list.filter(isConnectionEnabled).map((conn) => conn.id);
+      for (const connId of enabledConnIds) {
+        setConnectionRefreshing(connId, true);
+      }
       const snapshot = await refreshAllSchemaCache();
       await replaceSchemaSnapshot(snapshot);
       const merged = mergeConnectionsWithCache(list, snapshot);
       connectionsRef.current = merged;
-      setConnections(merged);
+      setInternalConnections(merged);
       syncFiltersFromSnapshot(snapshot, syncDatabaseFilter, syncTableFilter);
     } catch (error) {
       setLoadError(String(error));
     } finally {
-      setRefreshingSchema(false);
+      for (const connId of enabledConnIds) {
+        setConnectionRefreshing(connId, false);
+      }
     }
   }, [replaceSchemaSnapshot, syncDatabaseFilter, syncTableFilter]);
 
   useEffect(() => {
+    if (useExternalConnections) {
+      return;
+    }
     const configs = connectionsRef.current.map((item) => item.config);
     if (configs.length === 0) {
       return;
     }
     const merged = mergeConnectionsWithCache(configs, schemaSnapshot);
     connectionsRef.current = merged;
-    setConnections(merged);
-  }, [schemaSnapshot]);
+    setInternalConnections(merged);
+  }, [useExternalConnections, schemaSnapshot]);
 
   useEffect(() => {
+    connectionsRef.current = connections;
+  }, [connections]);
+
+  useEffect(() => {
+    if (useExternalConnections) {
+      return;
+    }
     void loadConnections();
-  }, [loadConnections, refreshToken]);
+    return () => {
+      syncSeqRef.current += 1;
+    };
+  }, [useExternalConnections, loadConnections, refreshToken]);
 
   useEffect(() => {
     if (!activeGroupId) return;
@@ -517,54 +568,6 @@ export function SchemaBrowser({
       void hydrateSchemaExpanded();
     }
   }, [expandedHydrated, hydrateSchemaExpanded]);
-
-  useEffect(() => {
-    return registerSchemaTreeReorderListener((item, target) => {
-      if (target.kind === "database" && item.connId && item.dbName) {
-        setDatabaseFilters((prev) => {
-          const existing = prev[item.connId!];
-          if (!existing) {
-            return prev;
-          }
-          const nextOrder = reorderOrderedNames(
-            existing.orderedNames,
-            item.dbName!,
-            target.insertBeforeName,
-          );
-          if (!nextOrder) {
-            return prev;
-          }
-          return {
-            ...prev,
-            [item.connId!]: { ...existing, orderedNames: nextOrder },
-          };
-        });
-        return;
-      }
-
-      if (target.kind === "table" && item.connId && item.dbName && item.tableName) {
-        const key = makeTableFilterKey(item.connId, item.dbName);
-        setTableFilters((prev) => {
-          const existing = prev[key];
-          if (!existing) {
-            return prev;
-          }
-          const nextOrder = reorderOrderedNames(
-            existing.orderedNames,
-            item.tableName!,
-            target.insertBeforeName,
-          );
-          if (!nextOrder) {
-            return prev;
-          }
-          return {
-            ...prev,
-            [key]: { ...existing, orderedNames: nextOrder },
-          };
-        });
-      }
-    });
-  }, [setDatabaseFilters, setTableFilters]);
 
   const loadMoreChildren = useCallback((parentNodeId: string) => {
     setChildVisibleLimits((prev) => ({
@@ -746,7 +749,7 @@ export function SchemaBrowser({
       <Button
         variant="icon"
         title={t("database.sidebar.refresh")}
-        disabled={refreshingSchema}
+        disabled={anyConnectionRefreshing}
         onClick={() => void refreshSchemaCache()}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -784,7 +787,7 @@ export function SchemaBrowser({
             {t("database.sidebar.empty")}
           </div>
         )}
-        {groupSections.map(({ group, connections: groupConns }) => {
+        {!loading && !loadError && groupSections.map(({ group, connections: groupConns }) => {
           const groupNodeId = `grp:${group.id}`;
           const groupExpanded = expandedNodeIds.has(groupNodeId);
           const totalInGroup = connections.filter((conn) =>
@@ -823,7 +826,7 @@ export function SchemaBrowser({
           const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
           const connEnabled = isConnectionEnabled(conn.config);
           const connRefreshing =
-            connEnabled && (refreshingSchema || Boolean(refreshingConnectionIds[conn.config.id]));
+            connEnabled && Boolean(refreshingConnectionIds[conn.config.id]);
 
           return (
             <div key={conn.config.id}>
@@ -978,8 +981,6 @@ export function SchemaBrowser({
                         depth={3}
                         expanded={dbExpanded}
                         onToggle={() => toggle(dbId)}
-                        reorderScope={conn.config.id}
-                        reorderName={db.name}
                         active={activeDatabaseKey === dbId}
                         onLabelClick={() => {
                           if (!dbExpanded) {
@@ -1069,6 +1070,18 @@ export function SchemaBrowser({
                                 expandedNodeIds={expandedNodeIds}
                                 childVisibleLimits={childVisibleLimits}
                                 activeTableKey={activeTableKey}
+                                tablePinned={isTablePinned(tableFilter, tbl.name)}
+                                onToggleTablePin={() => {
+                                  const key = makeTableFilterKey(conn.config.id, db.name);
+                                  setTableFilters((prev) => ({
+                                    ...prev,
+                                    [key]: toggleTablePin(
+                                      prev[key],
+                                      tbl.name,
+                                      allTables.map((item) => item.name),
+                                    ),
+                                  }));
+                                }}
                                 onToggle={toggle}
                                 onLoadMore={loadMoreChildren}
                                 onSelectTable={onSelectTable}
@@ -1303,10 +1316,21 @@ export function SchemaBrowser({
           }
           onClose={() => setFilterDialogTable(null)}
           onApply={(state) => {
-            setTableFilters((prev) => ({
-              ...prev,
-              [makeTableFilterKey(filterDialogTable.connId, filterDialogTable.dbName)]: state,
-            }));
+            const key = makeTableFilterKey(filterDialogTable.connId, filterDialogTable.dbName);
+            const items = filterDialogTableDb.tables.map((tbl) => tbl.name);
+            setTableFilters((prev) => {
+              const pinnedNames = (prev[key]?.pinnedNames ?? []).filter((name) =>
+                state.visibleNames.has(name),
+              );
+              return {
+                ...prev,
+                [key]: {
+                  ...state,
+                  pinnedNames,
+                  orderedNames: applyTablePinOrder(state.orderedNames, pinnedNames, items),
+                },
+              };
+            });
           }}
         />
       )}

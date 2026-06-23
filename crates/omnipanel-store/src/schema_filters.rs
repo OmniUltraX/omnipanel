@@ -14,6 +14,8 @@ use crate::paths;
 pub struct SchemaFilterRecord {
     pub ordered_names: Vec<String>,
     pub visible_names: Vec<String>,
+    #[serde(default)]
+    pub pinned_names: Vec<String>,
 }
 
 /// 全部连接的 Schema 过滤快照。
@@ -107,6 +109,7 @@ mod tests {
             SchemaFilterRecord {
                 ordered_names: vec!["app".into()],
                 visible_names: vec!["app".into()],
+                pinned_names: vec![],
             },
         );
         snapshot.table_filters.insert(
@@ -114,6 +117,7 @@ mod tests {
             SchemaFilterRecord {
                 ordered_names: vec!["users".into()],
                 visible_names: vec![],
+                pinned_names: vec![],
             },
         );
         save_schema_filters_to(&path, &snapshot).unwrap();

@@ -76,9 +76,9 @@ export function getSchemaTreeDragText(item: SchemaTreeItem): string {
   }
 }
 
-/** 仅表级节点可拖动（插入 SQL / 树内排序）。 */
-export function isSchemaTreeItemDraggable(type: SchemaTreeItemType): boolean {
-  return type === "table" || type === "view";
+/** Schema 树节点拖动已禁用（排序请使用图钉固定）。 */
+export function isSchemaTreeItemDraggable(_type: SchemaTreeItemType): boolean {
+  return false;
 }
 
 /**

@@ -1542,6 +1542,7 @@ export type SchemaCacheUser_Serialize = {
 export type SchemaFilterRecord = {
 	orderedNames: string[],
 	visibleNames: string[],
+	pinnedNames?: string[],
 };
 
 /**  全部连接的 Schema 过滤快照。 */

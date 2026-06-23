@@ -1,0 +1,460 @@
+/* SubWindow 全局样式（Settings / AI / 各模块 SubWindow 共用） */
+/* ─── SubWindow（居中子窗口，内容由调用方填充） ───────────────────── */
+.subwindow-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-subwindow-overlay);
+    background: rgba(0, 0, 0, 0.45);
+    box-sizing: border-box;
+}
+
+.subwindow-overlay--centered {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-4);
+}
+
+.subwindow-minimized-stack {
+    position: fixed;
+    right: 4px;
+    bottom: 68px;
+    z-index: calc(var(--z-subwindow-overlay) + 1);
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    gap: 2px;
+    max-height: calc(100vh - 26px - var(--sp-3));
+    overflow-y: auto;
+    overflow-x: hidden;
+    pointer-events: none;
+    scrollbar-width: none;
+}
+
+.subwindow-minimized-stack::-webkit-scrollbar {
+    display: none;
+}
+
+.subwindow-minimized-content-host {
+    position: fixed;
+    left: -10000px;
+    top: -10000px;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.subwindow-minimized-bar {
+    display: flex;
+    align-items: stretch;
+    width: min(280px, calc(100vw - 12px));
+    min-width: 148px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: var(--r-sm) 0 0 var(--r-sm);
+    background: var(--bg-deeper);
+    box-shadow: -6px 0 20px rgba(0, 0, 0, 0.18);
+    color: var(--muted);
+    pointer-events: auto;
+    overflow: hidden;
+    transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease,
+        box-shadow 0.12s ease;
+}
+
+.subwindow-minimized-bar:hover,
+.subwindow-minimized-bar:focus-within {
+    color: var(--fg);
+    background: var(--surface-2);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.22);
+}
+
+.subwindow-minimized-bar__restore {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 10px 0 12px;
+    border: none;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+}
+
+.subwindow-minimized-bar:hover .subwindow-minimized-bar__restore,
+.subwindow-minimized-bar:focus-within .subwindow-minimized-bar__restore {
+    border-left-color: var(--accent);
+}
+
+.subwindow-minimized-bar__icon {
+    flex-shrink: 0;
+    color: var(--accent);
+    opacity: 0.9;
+}
+
+.subwindow-minimized-bar__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.subwindow-minimized-bar__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--meta);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+
+.subwindow-minimized-bar__close svg {
+    width: 12px;
+    height: 12px;
+}
+
+.subwindow-minimized-bar:hover .subwindow-minimized-bar__close,
+.subwindow-minimized-bar:focus-within .subwindow-minimized-bar__close {
+    opacity: 1;
+}
+
+.subwindow-minimized-bar__close:hover {
+    color: var(--fg);
+    background: var(--surface-hover);
+}
+
+.subwindow-minimized-bar__close:active {
+    background: var(--surface-active);
+}
+
+.subwindow-panel {
+    min-width: 280px;
+    min-height: 160px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.12),
+        0 8px 24px rgba(0, 0, 0, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.18);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.subwindow-panel:not(.subwindow-panel--windowed) {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.subwindow-panel--windowed {
+    position: absolute;
+    max-width: none;
+    max-height: none;
+    box-sizing: border-box;
+}
+
+.subwindow-panel--maximized {
+    border-radius: 0;
+}
+
+.subwindow-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    flex-shrink: 0;
+    height: var(--topbar-h);
+    padding: 0 var(--sp-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.subwindow-header--draggable {
+    cursor: default;
+    user-select: none;
+    touch-action: none;
+}
+
+.subwindow-header--draggable:active {
+    cursor: grabbing;
+}
+
+.subwindow-win-controls {
+    flex-shrink: 0;
+    margin-left: 0;
+    height: 100%;
+}
+
+.subwindow-win-controls .win-btn {
+    width: 46px;
+    height: 100%;
+}
+
+.subwindow-resize-handle {
+    position: absolute;
+    z-index: 2;
+    touch-action: none;
+}
+
+.subwindow-resize-handle--n,
+.subwindow-resize-handle--s {
+    left: 10px;
+    right: 10px;
+    height: 6px;
+}
+
+.subwindow-resize-handle--n {
+    top: -3px;
+    cursor: ns-resize;
+}
+
+.subwindow-resize-handle--s {
+    bottom: -3px;
+    cursor: ns-resize;
+}
+
+.subwindow-resize-handle--e,
+.subwindow-resize-handle--w {
+    top: 10px;
+    bottom: 10px;
+    width: 6px;
+}
+
+.subwindow-resize-handle--e {
+    right: -3px;
+    cursor: ew-resize;
+}
+
+.subwindow-resize-handle--w {
+    left: -3px;
+    cursor: ew-resize;
+}
+
+.subwindow-resize-handle--ne,
+.subwindow-resize-handle--nw,
+.subwindow-resize-handle--se,
+.subwindow-resize-handle--sw {
+    width: 12px;
+    height: 12px;
+}
+
+.subwindow-resize-handle--ne {
+    top: -4px;
+    right: -4px;
+    cursor: nesw-resize;
+}
+
+.subwindow-resize-handle--nw {
+    top: -4px;
+    left: -4px;
+    cursor: nwse-resize;
+}
+
+.subwindow-resize-handle--se {
+    right: -4px;
+    bottom: -4px;
+    cursor: nwse-resize;
+}
+
+.subwindow-resize-handle--sw {
+    left: -4px;
+    bottom: -4px;
+    cursor: nesw-resize;
+}
+
+.subwindow-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subwindow-header-extra {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+.subwindow-close {
+    flex-shrink: 0;
+}
+
+.ai-subwindow .subwindow-header {
+    gap: var(--sp-2);
+}
+
+.ai-subwindow-header-extra {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-end;
+}
+
+.ai-subwindow-header-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    width: 100%;
+    min-width: 0;
+}
+
+.ai-subwindow-header-toolbar .ai-panel-header-left {
+    flex-shrink: 1;
+}
+
+.ai-subwindow-header-toolbar .ai-panel-header-right {
+    flex-shrink: 0;
+}
+
+.ai-subwindow .subwindow-title.ai-conversation-title,
+.ai-subwindow h2.subwindow-title.ai-conversation-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.ai-subwindow h2.subwindow-title.ai-conversation-title .ai-conversation-title-button {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.ai-mcp-connections {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: min(360px, 46vw);
+}
+
+.ai-mcp-connections-label {
+    font-size: 10px;
+    color: var(--meta);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ai-mcp-connections-empty {
+    font-size: 11px;
+    color: var(--meta);
+    white-space: nowrap;
+}
+
+.ai-mcp-connections-list {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.ai-mcp-connections-list::-webkit-scrollbar {
+    display: none;
+}
+
+.ai-mcp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ai-mcp-chip--builtin {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.ai-mcp-chip--empty {
+    opacity: 0.65;
+}
+
+.ai-mcp-chip-badge {
+    font-size: 9px;
+    color: var(--accent);
+}
+
+.ai-mcp-chip-count {
+    font-size: 10px;
+    color: var(--meta);
+}
+
+.ai-subwindow-model {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: min(320px, 42vw);
+}
+
+.ai-subwindow-model-label {
+    font-size: 10px;
+    color: var(--meta);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ai-subwindow-model-select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+}
+
+.subwindow-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Radix 等 portaled 到 body 的下拉/菜单，须高于 SubWindow 遮罩 */
+[data-slot="select-content"],
+[data-slot="tooltip-content"],
+.aui-action-bar-more-content {
+    z-index: var(--z-subwindow-popover);
+}
+

@@ -64,6 +64,8 @@ export interface DbWorkspaceContextValue {
   handleRowNew: (tabId: string) => void;
   /** 按 id 查找连接（不受当前分组过滤影响） */
   resolveConnection: (connId: string) => DbConnectionConfig | null;
+  /** DatabasePanel 连接列表是否仍在首次加载 */
+  connectionsLoading: boolean;
   selectTable: (selection: SchemaTableSelection) => void;
   activeTableKey: string | null;
 

@@ -704,6 +704,8 @@ export const enUS: TranslationDict = {
       noColumns: "No columns",
       noIndexes: "No indexes",
       detailsFailed: "Failed to load table structure",
+      pinTable: "Pin to top",
+      unpinTable: "Unpin",
       loadMore: "Load more…",
       connectionEnabled: "Enabled",
       connectionDisabled: "Disabled",

@@ -1,5 +1,13 @@
 import type { DbWorkspaceTab } from "./workspaceTabs";
 import type { SqlTabState, TablePreviewState } from "./dbWorkspaceState";
+import type { DbConnectionConfig } from "./api";
+
+function connectionConfigFingerprint(configs: { id: string }[]): string {
+  if (configs.length === 0) {
+    return "";
+  }
+  return configs.map((c) => c.id).join(",");
+}
 
 /** 按 Tab 计算 Dock panel 局部 invalidate key，避免全局 bump。 */
 export function buildDatabasePanelContentKeysByTab(params: {
@@ -9,7 +17,9 @@ export function buildDatabasePanelContentKeysByTab(params: {
   tablePreviews: Record<string, TablePreviewState>;
   tableDesignerStates: Record<string, unknown>;
   tabModes: Record<string, "data" | "sql">;
+  connections: DbConnectionConfig[];
 }): Record<string, string> {
+  const connectionsFingerprint = connectionConfigFingerprint(params.connections);
   const keys: Record<string, string> = {};
   for (const tab of params.workspaceTabs) {
     if (tab.kind === "sql") {
@@ -29,15 +39,16 @@ export function buildDatabasePanelContentKeysByTab(params: {
       continue;
     }
     if (tab.kind === "database") {
-      keys[tab.id] = `${tab.connId}:${tab.dbName}`;
+      keys[tab.id] = [connectionsFingerprint, tab.connId, tab.dbName].join(":");
       continue;
     }
     if (tab.kind === "connection") {
-      keys[tab.id] = tab.connId;
+      keys[tab.id] = [connectionsFingerprint, tab.connId].join(":");
       continue;
     }
     if (tab.kind === "designer") {
       keys[tab.id] = [
+        connectionsFingerprint,
         tab.connId,
         tab.dbName,
         tab.tableName,
@@ -63,15 +74,7 @@ export function buildDatabasePanelContentKeysByTab(params: {
   return keys;
 }
 
-/** ModuleSegmentDock 外层仅需模块级 key。 */
-export function buildDatabaseModulePanelContentKey(params: {
-  workspaceInitialized: boolean;
-  moduleTab: string;
-  workspaceTabCount: number;
-}): string {
-  return [
-    params.workspaceInitialized ? "1" : "0",
-    params.moduleTab,
-    params.workspaceTabCount,
-  ].join(";");
+/** ModuleSegmentDock 外层仅需模块级 key（工作区 Tab 由内部 Dock 自行 invalidate）。 */
+export function buildDatabaseModulePanelContentKey(params: { moduleTab: string }): string {
+  return params.moduleTab;
 }

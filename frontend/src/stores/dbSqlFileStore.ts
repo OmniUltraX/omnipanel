@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
 import type { SqlTabState } from "../modules/database/dbWorkspaceState";
@@ -211,7 +212,6 @@ function commitNodesInMemory(
   nodes: DbSqlFileNode[],
   dirtyIds: string[] = [],
 ) {
-  writeNodesCache(nodes);
   set((state) => ({
     nodes,
     dirtyFileIds: markDirtyIds(state.dirtyFileIds, dirtyIds),
@@ -232,7 +232,9 @@ export function getSqlFileChildren(
     });
 }
 
-export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
+export const useDbSqlFileStore = create<DbSqlFileState>()(
+  persist(
+    (set, get) => ({
   nodes: [],
   dirtyFileIds: [],
 
@@ -331,7 +333,14 @@ export const useDbSqlFileStore = create<DbSqlFileState>()((set, get) => ({
   },
 
   getNode: (id) => get().nodes.find((node) => node.id === id),
-}));
+}),
+    {
+      name: "omnipanel-db-sql-files",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ nodes: state.nodes }),
+    },
+  ),
+);
 
 export async function initDbSqlFilesStore(force = false): Promise<void> {
   if (!force && useDbSqlFileStore.getState().nodes.length > 0) {
@@ -384,10 +393,6 @@ export async function initDbSqlFilesStore(force = false): Promise<void> {
   })();
 
   await initPromise;
-}
-
-export async function persistDbSqlFilesStore(): Promise<void> {
-  await useDbSqlFileStore.getState().flushToDisk();
 }
 
 /** 从侧栏 SQL 文件恢复 Tab 编辑器状态（文件内容为权威来源）。 */

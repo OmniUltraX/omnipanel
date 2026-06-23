@@ -700,6 +700,8 @@ export const zhCN = {
       noColumns: "无字段",
       noIndexes: "无索引",
       detailsFailed: "加载表结构失败",
+      pinTable: "固定到列表顶部",
+      unpinTable: "取消固定",
       loadMore: "加载更多…",
       connectionEnabled: "已启用",
       connectionDisabled: "已关闭",

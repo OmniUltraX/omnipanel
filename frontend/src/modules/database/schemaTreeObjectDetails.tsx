@@ -2,7 +2,6 @@ import type { MouseEvent as ReactMouseEvent, ReactElement } from "react";
 import { useI18n } from "../../i18n";
 import type { DbConnectionConfig } from "./api";
 import { connectionHasTableSchemaChildren } from "./api";
-import { makeTableFilterKey } from "./DatabaseFilterDialog";
 import type { CachedTable } from "./schemaCacheMerge";
 import {
   buildColumnTreeItem,
@@ -26,9 +25,9 @@ type TreeNodeComponent = (props: {
   active?: boolean;
   onLabelClick?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
-  reorderScope?: string;
-  reorderName?: string;
   labelComment?: string;
+  pinActive?: boolean;
+  onPinToggle?: () => void;
 }) => ReactElement;
 
 type LoadMoreComponent = (props: {
@@ -61,6 +60,8 @@ export function SchemaTreeObjectDetails({
   onLoadMore,
   onSelectTable,
   onContextTable,
+  tablePinned,
+  onToggleTablePin,
 }: {
   TreeNode: TreeNodeComponent;
   LoadMoreButton: LoadMoreComponent;
@@ -84,6 +85,8 @@ export function SchemaTreeObjectDetails({
     selection: { connId: string; dbName: string; tableName: string; connection: DbConnectionConfig },
     event: ReactMouseEvent,
   ) => void;
+  tablePinned?: boolean;
+  onToggleTablePin?: () => void;
 }) {
   const { t } = useI18n();
   const tableKey =
@@ -125,8 +128,6 @@ export function SchemaTreeObjectDetails({
         depth={depth}
         expanded={tableExpanded}
         onToggle={() => onToggle(tableKey)}
-        reorderScope={objectKind === "table" ? makeTableFilterKey(conn.config.id, dbName) : undefined}
-        reorderName={objectKind === "table" ? tbl.name : undefined}
         hasChildren={showTableSchemaChildren}
         active={activeTableKey === tableKey}
         labelComment={tbl.comment?.trim() || undefined}
@@ -134,15 +135,8 @@ export function SchemaTreeObjectDetails({
           objectKind === "table" ? () => onSelectTable?.(selection) : undefined
         }
         onContextMenu={onContextTable ? (e) => onContextTable(selection, e) : undefined}
-        meta={
-          !showTableSchemaChildren
-            ? undefined
-            : tbl.detailsError
-              ? t("database.sidebar.detailsFailed")
-              : tbl.columns
-                ? `${columns.length} ${t("database.sidebar.fields")} · ${objectKind === "table" ? `${indexes.length} ${t("database.sidebar.indexes")}` : ""}`.trim()
-                : undefined
-        }
+        pinActive={objectKind === "table" ? tablePinned : undefined}
+        onPinToggle={objectKind === "table" ? onToggleTablePin : undefined}
       />
       {showTableSchemaChildren && tableExpanded && tbl.detailsError && (
         <div

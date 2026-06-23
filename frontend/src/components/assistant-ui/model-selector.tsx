@@ -184,7 +184,7 @@ export function ModelSelector({
           role="listbox"
           aria-label="Model options"
           className={cn(
-            "aui-model-selector-list absolute left-0 bottom-full z-50 mb-1",
+            "aui-model-selector-list absolute left-0 bottom-full z-[var(--z-subwindow-popover)] mb-1",
             "bg-popover text-popover-foreground rounded-xl border p-1 shadow-lg backdrop-blur-sm",
             "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1",
             "max-h-[320px] overflow-y-auto overscroll-contain",

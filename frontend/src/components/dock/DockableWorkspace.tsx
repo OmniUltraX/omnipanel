@@ -97,6 +97,8 @@ export interface DockableWorkspaceProps {
   renderPanel: (tabId: string) => ReactNode;
   /** 控制 panel 内容刷新；与 renderPanel 解耦，避免 callback 引用变化导致死循环 */
   panelContentKey?: string;
+  /** 软刷新 key：变更时触发 panel re-render（reconcile）而非 remount（不破坏嵌套 dock 状态） */
+  softRefreshKey?: string;
   /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
   panelContentKeysByTab?: Record<string, string>;
   className?: string;
@@ -156,6 +158,8 @@ interface PanelParams {
   status?: TopbarTabDef["status"];
   /** 递增以触发 panel 内容重渲染（renderPanel 通过 ref 注入，需靠 params 变更通知 dockview） */
   contentRev?: number;
+  /** 软刷新计数器：与 contentRev 不同，不参与 key，仅触发 reconcile 而非 remount */
+  softRev?: number;
   type?: DockTabPageType;
   dirty?: boolean;
   saved?: boolean;
@@ -187,6 +191,7 @@ export function DockableWorkspace({
   onSavedLayoutChange,
   renderPanel,
   panelContentKey = "default",
+  softRefreshKey,
   panelContentKeysByTab,
   className,
   emptyContent,
@@ -216,6 +221,11 @@ export function DockableWorkspace({
   const viewIdRef = useRef<string | null>(null);
   const transferredOutRef = useRef(new Set<string>());
   const layoutLoadedRef = useRef(false);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const markLayoutReady = useCallback(() => {
+    layoutLoadedRef.current = true;
+    setLayoutReady(true);
+  }, []);
   const isSyncingRef = useRef(false);
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
   // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
@@ -229,6 +239,7 @@ export function DockableWorkspace({
   const panelContentKeyRef = useRef(panelContentKey);
   panelContentKeyRef.current = panelContentKey;
   const lastBumpedPanelContentKeyRef = useRef<string | null>(null);
+  const lastBumpedSoftRefreshKeyRef = useRef<string | null>(null);
   const prevPanelContentKeysByTabRef = useRef<Record<string, string>>({});
   const onCloseTabRef = useRef(onCloseTab);
   onCloseTabRef.current = onCloseTab;
@@ -390,13 +401,33 @@ export function DockableWorkspace({
     }
   }, []);
 
+  const bumpPanelSoftRev = useCallback((api: DockviewApi) => {
+    isSyncingRef.current = true;
+    try {
+      for (const tab of tabsRef.current) {
+        const panel = api.getPanel(tab.id);
+        if (!panel) continue;
+        const current = (panel.api.getParameters() ?? {}) as PanelParams;
+        panel.api.updateParameters({
+          ...current,
+          softRev: (current.softRev ?? 0) + 1,
+        });
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, []);
+
   // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId + contentRev
+  // 注意：key 仅含 contentRev，softRev 变化时 reconcile 而非 remount
   const components = useMemo(
     () => ({
       [COMPONENT_NAME]: (props: IDockviewPanelProps<PanelParams>) => {
         const tabId = props.params.tabId;
+        const contentRev = props.params.contentRev ?? 0;
         return (
           <div
+            key={`${tabId}:${contentRev}`}
             className="dock-pane-surface"
             data-dock-tab-id={tabId}
             onClick={(e) => {
@@ -441,7 +472,17 @@ export function DockableWorkspace({
     if (lastBumpedPanelContentKeyRef.current === panelContentKey) return;
     lastBumpedPanelContentKeyRef.current = panelContentKey;
     bumpPanelContentRev(api);
-  }, [panelContentKey, panelContentKeysByTab, bumpPanelContentRev, bumpPanelContentRevForTabIds]);
+  }, [panelContentKey, panelContentKeysByTab, layoutReady, bumpPanelContentRev, bumpPanelContentRevForTabIds]);
+
+  // softRefreshKey 变更时 bump softRev（reconcile 而非 remount，保持嵌套 dock 状态）
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current || isSyncingRef.current) return;
+    if (softRefreshKey === undefined) return;
+    if (lastBumpedSoftRefreshKeyRef.current === softRefreshKey) return;
+    lastBumpedSoftRefreshKeyRef.current = softRefreshKey;
+    bumpPanelSoftRev(api);
+  }, [softRefreshKey, layoutReady, bumpPanelSoftRev]);
 
   // 自定义 tab：元数据通过 panel params + DockWorkspaceTabHeader 内 liveMeta 同步
   const defaultTabComponent = DockWorkspaceTabHeader;
@@ -678,7 +719,7 @@ export function DockableWorkspace({
         api.removePanel(panel);
       }
       ensureExternalDropTarget(api);
-      layoutLoadedRef.current = true;
+      markLayoutReady();
       syncWindowChromeHostRef.current(api);
       return;
     }
@@ -729,7 +770,7 @@ export function DockableWorkspace({
       } finally {
         isSyncingRef.current = false;
       }
-      layoutLoadedRef.current = true;
+      markLayoutReady();
       syncTabGroups(api);
       if (acceptExternalDropsRef.current) {
         ensureExternalDropTarget(api);
@@ -771,7 +812,7 @@ export function DockableWorkspace({
     } finally {
       isSyncingRef.current = false;
     }
-    layoutLoadedRef.current = true;
+    markLayoutReady();
     syncTabGroups(api);
     if (acceptExternalDropsRef.current) {
       ensureExternalDropTarget(api);
@@ -807,7 +848,7 @@ export function DockableWorkspace({
       }
       syncTabGroups(api);
     }
-  }, [syncTabGroups, bumpPanelContentRev]);
+  }, [syncTabGroups, bumpPanelContentRev, markLayoutReady]);
 
   /** 将 tabs 元数据同步到 dockview api（布局被 clear 后亦需调用以恢复 panel） */
   const syncTabsToApi = useCallback(

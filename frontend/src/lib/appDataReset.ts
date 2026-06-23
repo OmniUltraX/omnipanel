@@ -95,7 +95,6 @@ export async function clearAppUserData(): Promise<void> {
     expandedIds: [],
     selectedEntryId: null,
     searchQuery: "",
-    draftById: {},
     error: null,
   });
 

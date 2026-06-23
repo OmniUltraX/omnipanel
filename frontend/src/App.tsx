@@ -68,8 +68,8 @@ function TopbarPageActions() {
   const path = location.pathname;
   const activeResourceId = useWorkspaceStore((state) => state.activeResourceId);
   const activeResource = getResourceById(activeResourceId);
-  const dockerRefresh = useDockerTopbarStore((s) => s.refresh);
   const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
+  const requestDockerRefresh = useDockerTopbarStore((s) => s.requestRefresh);
 
   if (path === MODULE_PATHS.terminal) {
     return null;
@@ -133,14 +133,14 @@ function TopbarPageActions() {
     );
   }
 
-  if (path === MODULE_PATHS.docker && dockerRefresh) {
+  if (path === MODULE_PATHS.docker) {
     return (
       <Button
         variant="icon"
         title={t("common.refresh")}
         aria-label={t("common.refresh")}
         disabled={dockerRefreshing}
-        onClick={dockerRefresh}
+        onClick={requestDockerRefresh}
       >
         <svg
           className={dockerRefreshing ? "icon-spin" : undefined}

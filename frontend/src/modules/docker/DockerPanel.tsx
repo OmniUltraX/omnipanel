@@ -534,42 +534,16 @@ export function DockerPanel() {
   );
   
   useEffect(() => {
-    const setRefresh = useDockerTopbarStore.getState().setRefresh;
-    const canRefresh =
-      isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
-    if (!canRefresh) {
-      setRefresh(null, false);
-      return;
-    }
-    setRefresh(refresh, dataRefreshing);
-    return () => setRefresh(null, false);
-  }, [
-    isActiveRoute,
-    connectionsLoading,
-    connections.length,
-    selectedConnectionId,
-    refresh,
-    dataRefreshing,
-  ]);
+    useDockerTopbarStore.getState().setRefreshing(dataRefreshing);
+  }, [dataRefreshing]);
 
+  const refreshSignal = useDockerTopbarStore((s) => s.refreshSignal);
   useEffect(() => {
-    const setRefresh = useDockerTopbarStore.getState().setRefresh;
-    const canRefresh =
-      isActiveRoute && !connectionsLoading && connections.length > 0 && !!selectedConnectionId;
-    if (!canRefresh) {
-      setRefresh(null, false);
-      return;
-    }
-    setRefresh(refresh, dataRefreshing);
-    return () => setRefresh(null, false);
-  }, [
-    isActiveRoute,
-    connectionsLoading,
-    connections.length,
-    selectedConnectionId,
-    refresh,
-    dataRefreshing,
-  ]);
+    if (!refreshSignal) return;
+    if (connectionsLoading || !selectedConnectionId) return;
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   useEffect(() => {
     const setHint = useStatusBarStore.getState().setHint;

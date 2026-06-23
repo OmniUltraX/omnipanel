@@ -14,6 +14,7 @@ import {
 } from "./ai";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
+import { ConnectionResolvedDockPane } from "./ConnectionResolvedDockPane";
 import { DbSchemaProvider } from "./DbSchemaContext";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -350,6 +351,7 @@ export function DatabasePanel() {
   const [schemaRefreshToken, setSchemaRefreshToken] = useState(0);
 
   const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
   const [sqlTabStates, setSqlTabStates] = useState<Record<string, SqlTabState>>({});
 
@@ -390,9 +392,10 @@ export function DatabasePanel() {
   const [committingTabs, setCommittingTabs] = useState<Set<string>>(() => new Set());
   const [pendingTabAction, setPendingTabAction] = useState<
     | {
-        kind: "refresh" | "page" | "close";
+        kind: "refresh" | "page" | "close" | "sort";
         tabId: string;
         page?: number;
+        sort?: SortState | null;
       }
     | null
   >(null);
@@ -646,6 +649,7 @@ export function DatabasePanel() {
   );
 
   const refreshConnections = useCallback(async () => {
+    setConnectionsLoading(true);
     try {
       const list = await listConnections();
       setConnections(list);
@@ -664,13 +668,15 @@ export function DatabasePanel() {
         return inGroup?.id ?? pickEnabled(list)?.id ?? null;
       });
     } catch {
-      // 非 Tauri 环境（纯前端 dev）忽略。
+      // 连接列表加载失败时保留当前状态
+    } finally {
+      setConnectionsLoading(false);
     }
   }, [activeGroupName]);
 
   useEffect(() => {
     void refreshConnections();
-  }, [refreshConnections, schemaRefreshToken]);
+  }, [schemaRefreshToken, refreshConnections]);
 
   useEffect(() => {
     const bootstrapWorkspace = () => {
@@ -2756,6 +2762,7 @@ export function DatabasePanel() {
     handleCellSetNull,
     handleRowNew,
     resolveConnection,
+    connectionsLoading,
     selectTable: handleSelectTable,
     activeTableKey,
     sqlTabStates,
@@ -2783,7 +2790,7 @@ export function DatabasePanel() {
     isSqlTabDirty,
   }), [
     workspaceTabs, activeWorkspaceTabId, setActiveWorkspaceTabId, requestTabAction,
-    runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit, handleRowEdit, handleCellSetNull, handleRowNew, resolveConnection, handleSelectTable,
+    runQuery, updateSqlTabState, refreshTablePreview, goToPage, handleCellEdit, handleRowEdit, handleCellSetNull, handleRowNew, resolveConnection, connectionsLoading, handleSelectTable,
     activeTableKey,
     sqlTabStates, tablePreviews, tableColumnMeta, tabModes, tabDirtyRows, committingTabs,
     commitTabDirty, sqlConnections, groupConnections, databasesByConnId,
@@ -2878,93 +2885,67 @@ export function DatabasePanel() {
       const tab = workspaceTabs.find((item) => item.id === tabId);
       if (!tab) return null;
 
-      const resolveConnection = (connId: string) => {
-        const connection = connections.find((item) => item.id === connId);
-        if (connection) {
-          return connection;
-        }
-        if (connections.length === 0) {
-          return "pending" as const;
-        }
-        return null;
-      };
-
       if (tab.kind === "database") {
-        const resolved = resolveConnection(tab.connId);
-        if (resolved === "pending") {
-          return (
-            <div className="db-workspace-pane db-dock-pane">
-              <div className="db-table-designer-state">{t("common.loading")}</div>
-            </div>
-          );
-        }
-        if (!resolved) {
-          return null;
-        }
-        const selection: SchemaDatabaseSelection = {
-          connId: tab.connId,
-          dbName: tab.dbName,
-          connection: resolved,
-        };
         return (
-          <div className="db-workspace-pane db-dock-pane">
-            <DatabaseTablesPanel
-              selection={selection}
-              onSelectTable={handleSelectTable}
-              onDesignTable={handleDesignTable}
-            />
-          </div>
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => {
+              const selection: SchemaDatabaseSelection = {
+                connId: tab.connId,
+                dbName: tab.dbName,
+                connection,
+              };
+              return (
+                <div className="db-workspace-pane db-dock-pane">
+                  <DatabaseTablesPanel
+                    selection={selection}
+                    onSelectTable={handleSelectTable}
+                    onDesignTable={handleDesignTable}
+                  />
+                </div>
+              );
+            }}
+          </ConnectionResolvedDockPane>
         );
       }
 
       if (tab.kind === "connection") {
-        const resolved = resolveConnection(tab.connId);
-        if (resolved === "pending") {
-          return (
-            <div className="db-workspace-pane db-dock-pane">
-              <div className="db-table-designer-state">{t("common.loading")}</div>
-            </div>
-          );
-        }
-        if (!resolved) {
-          return null;
-        }
         return (
-          <div className="db-workspace-pane db-dock-pane">
-            <DatabaseConnectionInfoPanel connection={resolved} />
-          </div>
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane">
+                <DatabaseConnectionInfoPanel connection={connection} />
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
         );
       }
 
       if (tab.kind === "designer") {
-        const resolved = resolveConnection(tab.connId);
-        if (resolved === "pending") {
-          return (
-            <div className="db-workspace-pane db-dock-pane db-workspace-pane--designer">
-              <div className="db-table-designer-state">{t("common.loading")}</div>
-            </div>
-          );
-        }
-        if (!resolved) {
-          return (
-            <div className="db-workspace-pane db-dock-pane db-workspace-pane--designer">
-              <div className="db-table-designer-state db-table-designer-state--error">
-                {t("database.tableDesigner.loadFailed")}
-              </div>
-            </div>
-          );
-        }
         return (
-          <div className="db-workspace-pane db-dock-pane db-workspace-pane--designer">
-            <TableDesignerDockPane
-              connection={resolved}
-              dbName={tab.dbName}
-              tableName={tab.tableName}
-              persistedState={tableDesignerStates[tab.id] ?? null}
-              onPersistState={(state) => updateTableDesignerState(tab.id, state)}
-              onSaved={() => setSchemaRefreshToken((token) => token + 1)}
-            />
-          </div>
+          <ConnectionResolvedDockPane
+            connId={tab.connId}
+            className="db-workspace-pane db-dock-pane db-workspace-pane--designer"
+            missingFallback={
+              <div className="db-workspace-pane db-dock-pane db-workspace-pane--designer">
+                <div className="db-table-designer-state db-table-designer-state--error">
+                  {t("database.tableDesigner.loadFailed")}
+                </div>
+              </div>
+            }
+          >
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane db-workspace-pane--designer">
+                <TableDesignerDockPane
+                  connection={connection}
+                  dbName={tab.dbName}
+                  tableName={tab.tableName}
+                  persistedState={tableDesignerStates[tab.id] ?? null}
+                  onPersistState={(state) => updateTableDesignerState(tab.id, state)}
+                  onSaved={() => setSchemaRefreshToken((token) => token + 1)}
+                />
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
         );
       }
 
@@ -2974,7 +2955,7 @@ export function DatabasePanel() {
         </div>
       );
     },
-    [workspaceTabs, connections, handleSelectTable, handleDesignTable, tableDesignerStates, updateTableDesignerState, t],
+    [workspaceTabs, handleSelectTable, handleDesignTable, tableDesignerStates, updateTableDesignerState, t],
   );
 
   const handleDockTabContextMenu = useCallback(
@@ -3007,11 +2988,18 @@ export function DatabasePanel() {
   const modulePanelContentKey = useMemo(
     () =>
       buildDatabaseModulePanelContentKey({
-        workspaceInitialized,
         moduleTab,
-        workspaceTabCount: workspaceTabs.length,
       }),
-    [workspaceInitialized, moduleTab, workspaceTabs.length],
+    [moduleTab],
+  );
+
+  const moduleSoftRefreshKey = useMemo(
+    () => [
+      connections.map((c) => c.id).join(","),
+      connectionsLoading ? "1" : "0",
+      workspaceTabs.map((t) => t.id).join(","),
+    ].join("|"),
+    [connections, connectionsLoading, workspaceTabs],
   );
 
   const panelContentKeysByTab = useMemo(
@@ -3023,6 +3011,7 @@ export function DatabasePanel() {
         tablePreviews,
         tableDesignerStates,
         tabModes,
+        connections,
       }),
     [
       workspaceTabs,
@@ -3031,6 +3020,7 @@ export function DatabasePanel() {
       tablePreviews,
       tableDesignerStates,
       tabModes,
+      connections,
     ],
   );
 
@@ -3070,6 +3060,7 @@ export function DatabasePanel() {
       className="db-module-dock"
       enabled={moduleLive}
       panelContentKey={modulePanelContentKey}
+      softRefreshKey={moduleSoftRefreshKey}
       tabs={moduleSegmentTabs}
       activeTabId={moduleTab}
       onActiveTabChange={(id) => setModuleTab(id as DbModuleTab)}
@@ -3114,6 +3105,8 @@ export function DatabasePanel() {
               activeTableKey={activeTableKey}
               activeDatabaseKey={activeDatabaseKey}
               refreshToken={schemaRefreshToken}
+              connectionConfigs={connections}
+              connectionsReady={!connectionsLoading || connections.length > 0}
             />
           </DbSchemaProvider>
         }
@@ -3195,7 +3188,7 @@ export function DatabasePanel() {
               </Button>
               <Button
                 type="button"
-                variant="primary"
+                variant="default"
                 onClick={confirmPendingCommit}
                 disabled={committingTabs.has(pendingTabAction.tabId)}
               >

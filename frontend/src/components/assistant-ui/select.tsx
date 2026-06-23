@@ -101,7 +101,7 @@ const SelectContent = ({
       position={position}
       sideOffset={6}
       className={cn(
-        "bg-popover/95 text-popover-foreground relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm",
+        "bg-popover/95 text-popover-foreground relative z-[var(--z-subwindow-popover)] max-h-96 min-w-[8rem] overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm",
         "data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in",
         "data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out",
         "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",

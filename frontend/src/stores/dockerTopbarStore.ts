@@ -1,13 +1,15 @@
 import { create } from "zustand";
 
 interface DockerTopbarState {
-  refresh: (() => void) | null;
+  refreshSignal: number;
   refreshing: boolean;
-  setRefresh: (refresh: (() => void) | null, refreshing?: boolean) => void;
+  requestRefresh: () => void;
+  setRefreshing: (refreshing: boolean) => void;
 }
 
 export const useDockerTopbarStore = create<DockerTopbarState>((set) => ({
-  refresh: null,
+  refreshSignal: 0,
   refreshing: false,
-  setRefresh: (refresh, refreshing = false) => set({ refresh, refreshing }),
+  requestRefresh: () => set((s) => ({ refreshSignal: s.refreshSignal + 1 })),
+  setRefreshing: (refreshing) => set({ refreshing }),
 }));

@@ -71,6 +71,10 @@
   --bottom-feed-h: 220px;
   --anim-fast: 120ms;
   --anim-normal: 200ms;
+
+  /* Layering — SubWindow 与其上方的 portaled 弹出层 */
+  --z-subwindow-overlay: 1200;
+  --z-subwindow-popover: 1300;
 }
 
 /* Light theme */

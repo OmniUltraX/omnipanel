@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
 import { fetchProviderModelList, mergeModelCatalog } from "../lib/fetchProviderModels";
@@ -190,17 +191,6 @@ function readProvidersCache(): AiModelProvider[] | null {
   }
 }
 
-function writeProvidersCache(providers: AiModelProvider[]): void {
-  try {
-    window.localStorage.setItem(
-      PROVIDERS_CACHE_LS_KEY,
-      JSON.stringify({ version: 1, providers: providers.map(serializeProviderForDisk) }),
-    );
-  } catch (e) {
-    console.warn("[aiModelsStore] 写入 localStorage 缓存失败:", e);
-  }
-}
-
 /** 放宽后的 provider 形态（apiStandard 是 string），来自 bindings。 */
 interface LooseProvider {
   id: string;
@@ -256,9 +246,8 @@ function serializeProviderForDisk(provider: AiModelProvider) {
   };
 }
 
-/** 持久化当前 providers：先写 localStorage 镜像，再写 ai-models.json。 */
+/** 持久化当前 providers：写 ai-models.json（localStorage 由 persist 中间件自动处理）。 */
 async function persistProviders(providers: AiModelProvider[]): Promise<void> {
-  writeProvidersCache(providers);
   if (!isTauriRuntime()) {
     return;
   }
@@ -280,7 +269,9 @@ async function persistProviders(providers: AiModelProvider[]): Promise<void> {
  * 之后由各 action（addProvider/removeProvider/updateProvider/resetProviders）
  * 在更新 store 后立即调用 `persistProviders(next)` 触发。
  */
-export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
+export const useAiModelsStore = create<AiModelsState>()(
+  persist(
+    (set, get) => ({
   providers: [],
   addProvider: (input) => {
     const provider: AiModelProvider = {
@@ -378,7 +369,14 @@ export const useAiModelsStore = create<AiModelsState>()((set, get) => ({
     set({ providers: [] });
     void persistProviders([]);
   },
-}));
+}),
+    {
+      name: "omnipanel-ai-models",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ providers: state.providers }),
+    },
+  ),
+);
 
 const HMR_STATE_KEY = "aiModelsProviders";
 
@@ -434,7 +432,6 @@ export async function initAiModelsStore(force = false): Promise<void> {
         });
         if (saveRes.status === "ok") {
           useAiModelsStore.setState({ providers: legacy });
-          writeProvidersCache(legacy);
           console.info(
             `[aiModelsStore] 已从 localStorage 迁移 ${legacy.length} 个 AI 提供商到磁盘`
           );
@@ -454,7 +451,6 @@ export async function initAiModelsStore(force = false): Promise<void> {
     } else {
       const providers = toStrictProviders(file.providers);
       useAiModelsStore.setState({ providers });
-      writeProvidersCache(providers);
     }
   } catch (e) {
     console.warn("[aiModelsStore] 初始化加载失败:", e);
@@ -463,12 +459,6 @@ export async function initAiModelsStore(force = false): Promise<void> {
       useAiModelsStore.setState({ providers: cached });
     }
   }
-}
-
-/** 显式持久化当前 store 内容（一般无需调用，action 已自动落盘）。 */
-export async function persistAiModelsStore(): Promise<void> {
-  const { providers } = useAiModelsStore.getState();
-  await persistProviders(providers);
 }
 
 /** 掩码显示 API Key：仅保留最后 4 个可见字符 */

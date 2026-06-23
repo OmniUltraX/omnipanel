@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
-import { getEntryOrDraft, useKnowledgeStore } from "../../stores/knowledgeStore";
+import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";
 import { isKnowledgeFolder } from "./knowledgeTree";
 
@@ -13,24 +13,34 @@ export function KnowledgeMarkdownWorkspace() {
   const { t } = useI18n();
   const entries = useKnowledgeStore((s) => s.entries);
   const selectedEntryId = useKnowledgeStore((s) => s.selectedEntryId);
-  const draftById = useKnowledgeStore((s) => s.draftById);
-  const updateDraft = useKnowledgeStore((s) => s.updateDraft);
   const saveEntry = useKnowledgeStore((s) => s.saveEntry);
   const renameEntry = useKnowledgeStore((s) => s.renameEntry);
   const createDocument = useKnowledgeStore((s) => s.createDocument);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleRef = useRef("");
 
   const entry = useMemo(
-    () => getEntryOrDraft(entries, draftById, selectedEntryId),
-    [draftById, entries, selectedEntryId],
+    () => (selectedEntryId ? entries.find((e) => e.id === selectedEntryId) ?? null : null),
+    [entries, selectedEntryId],
   );
-
   const isFolder = entry ? isKnowledgeFolder(entry) : false;
-  const title = entry?.title ?? "";
-  const content = entry?.content ?? "";
-  titleRef.current = title;
+
+  const [draftContent, setDraftContent] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftContent(null);
+    setDraftTitle(null);
+  }, [entry?.id]);
+
+  const displayTitle = draftTitle ?? entry?.title ?? "";
+  const displayContent = draftContent ?? entry?.content ?? "";
+
+  const titleRef = useRef("");
+  titleRef.current = displayTitle;
+
+  const contentRef = useRef("");
+  contentRef.current = draftContent ?? entry?.content ?? "";
 
   const scheduleSave = useCallback(
     (nextTitle: string, nextContent: string) => {
@@ -50,10 +60,10 @@ export function KnowledgeMarkdownWorkspace() {
   const handleContentChange = useCallback(
     (markdown: string) => {
       if (!entry || isFolder) return;
-      updateDraft(entry.id, { title: titleRef.current, content: markdown });
+      setDraftContent(markdown);
       scheduleSave(titleRef.current, markdown);
     },
-    [entry, isFolder, scheduleSave, updateDraft],
+    [entry, isFolder, scheduleSave],
   );
 
   useEffect(
@@ -89,9 +99,9 @@ export function KnowledgeMarkdownWorkspace() {
         <div className="knowledge-workspace-header">
           <input
             className="knowledge-workspace-title"
-            value={title}
+            value={displayTitle}
             onChange={(e) => {
-              updateDraft(entry.id, { title: e.target.value });
+              setDraftTitle(e.target.value);
               void renameEntry(entry.id, e.target.value);
             }}
             aria-label={t("knowledge.title")}
@@ -107,12 +117,11 @@ export function KnowledgeMarkdownWorkspace() {
       <div className="knowledge-workspace-header">
         <input
           className="knowledge-workspace-title"
-          value={title}
+          value={displayTitle}
           onChange={(e) => {
             const next = e.target.value;
-            titleRef.current = next;
-            updateDraft(entry.id, { title: next, content });
-            scheduleSave(next, content);
+            setDraftTitle(next);
+            scheduleSave(next, contentRef.current);
           }}
           aria-label={t("knowledge.title")}
         />
@@ -120,7 +129,7 @@ export function KnowledgeMarkdownWorkspace() {
       <KnowledgeCrepeEditor
         key={entry.id}
         entryId={entry.id}
-        defaultContent={content}
+        defaultContent={displayContent}
         placeholder={t("knowledge.contentPlaceholder")}
         onChange={handleContentChange}
       />

@@ -17,7 +17,6 @@ interface KnowledgeStore {
   searchQuery: string;
   isLoading: boolean;
   error: string | null;
-  draftById: Record<string, { title: string; content: string }>;
 
   loadEntries: () => Promise<void>;
   saveEntry: (entry: KnowledgeEntry) => Promise<boolean>;
@@ -34,8 +33,6 @@ interface KnowledgeStore {
   setSelectedEntry: (id: string | null) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, open: boolean) => void;
-  updateDraft: (id: string, patch: Partial<{ title: string; content: string }>) => void;
-  clearDraft: (id: string) => void;
   clearError: () => void;
 }
 
@@ -48,7 +45,6 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       searchQuery: "",
       isLoading: false,
       error: null,
-      draftById: {},
 
       loadEntries: async () => {
         set({ isLoading: true, error: null });
@@ -78,7 +74,6 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                 : [...state.entries, entry];
               return { entries };
             });
-            get().clearDraft(entry.id);
             return true;
           }
           set({ error: res.error.message });
@@ -98,7 +93,6 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               selectedEntryId: state.selectedEntryId === id ? null : state.selectedEntryId,
               expandedIds: state.expandedIds.filter((x) => x !== id),
             }));
-            get().clearDraft(id);
           } else {
             set({ error: res.error.message });
           }
@@ -232,23 +226,6 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               : [...state.expandedIds, id]
             : state.expandedIds.filter((x) => x !== id),
         })),
-      updateDraft: (id, patch) =>
-        set((state) => ({
-          draftById: {
-            ...state.draftById,
-            [id]: {
-              title: patch.title ?? state.draftById[id]?.title ?? "",
-              content: patch.content ?? state.draftById[id]?.content ?? "",
-            },
-          },
-        })),
-      clearDraft: (id) =>
-        set((state) => {
-          if (!state.draftById[id]) return state;
-          const next = { ...state.draftById };
-          delete next[id];
-          return { draftById: next };
-        }),
       clearError: () => set({ error: null }),
     }),
     {
@@ -260,16 +237,3 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
     },
   ),
 );
-
-export function getEntryOrDraft(
-  entries: KnowledgeEntry[],
-  draftById: Record<string, { title: string; content: string }>,
-  id: string | null,
-): KnowledgeEntry | null {
-  if (!id) return null;
-  const entry = entries.find((e) => e.id === id);
-  if (!entry) return null;
-  const draft = draftById[id];
-  if (!draft) return entry;
-  return { ...entry, title: draft.title, content: draft.content };
-}

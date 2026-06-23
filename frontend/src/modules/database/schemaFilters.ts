@@ -3,6 +3,7 @@ import type { SchemaFilterState } from "./DatabaseFilterDialog";
 export interface SerializableSchemaFilter {
   orderedNames: string[];
   visibleNames: string[];
+  pinnedNames?: string[];
 }
 
 export interface SchemaFiltersSnapshot {
@@ -14,6 +15,9 @@ export function filterStateToSerializable(state: SchemaFilterState): Serializabl
   return {
     orderedNames: [...state.orderedNames],
     visibleNames: [...state.visibleNames],
+    ...(state.pinnedNames && state.pinnedNames.length > 0
+      ? { pinnedNames: [...state.pinnedNames] }
+      : {}),
   };
 }
 
@@ -21,6 +25,7 @@ export function filterStateFromSerializable(data: SerializableSchemaFilter): Sch
   return {
     orderedNames: [...data.orderedNames],
     visibleNames: new Set(data.visibleNames),
+    pinnedNames: data.pinnedNames ? [...data.pinnedNames] : [],
   };
 }
 
