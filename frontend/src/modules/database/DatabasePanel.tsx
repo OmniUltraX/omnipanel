@@ -65,6 +65,7 @@ import {
   findTabIdForDatabase,
   findTabIdForConnection,
   findTabIdForSqlFile,
+  makeTableDesignerTabKey,
   makeTableTabLabel,
   makeTableTabKey,
   findTabIdForTable,
@@ -367,7 +368,6 @@ export function DatabasePanel() {
   );
   const tablePreviewRestoreDoneRef = useRef(false);
   const [tablePreviews, setTablePreviews] = useState<Record<string, TablePreviewState>>({});
-  const [activeTableKey, setActiveTableKey] = useState<string | null>(null);
   const [tableColumnMeta, setTableColumnMeta] = useState<Record<string, DbColumnMeta[]>>({});
   const [tabModes, setTabModes] = useState<Record<string, "data" | "sql">>({});
   const [tableDesignerStates, setTableDesignerStates] = useState<Record<string, TableDesignerTabState>>({});
@@ -737,9 +737,6 @@ export function DatabasePanel() {
         const activeMeta = session.tablePreviewMeta[session.activeTabId];
         if (activeMeta) {
           setActiveConnId(activeMeta.connId);
-          setActiveTableKey(
-            makeTableTabKey(activeMeta.connId, activeMeta.dbName, activeMeta.tableName),
-          );
         }
       }
 
@@ -2257,8 +2254,6 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection) => {
-      const tableKey = makeTableTabKey(selection.connId, selection.dbName, selection.tableName);
-      setActiveTableKey(tableKey);
       setActiveConnId(selection.connId);
 
       const existingTabId = findTabIdForTable(
@@ -2370,6 +2365,25 @@ export function DatabasePanel() {
     }
     return null;
   }, [activeWorkspaceTab]);
+
+  const activeTableKey = useMemo<string | null>(() => {
+    if (!activeWorkspaceTab) return null;
+    if (activeWorkspaceTab.kind === "sql") {
+      const preview = tablePreviews[activeWorkspaceTab.id];
+      if (preview?.connId && preview?.dbName && preview?.tableName) {
+        return makeTableTabKey(preview.connId, preview.dbName, preview.tableName);
+      }
+      return null;
+    }
+    if (activeWorkspaceTab.kind === "designer") {
+      return makeTableDesignerTabKey(
+        activeWorkspaceTab.connId,
+        activeWorkspaceTab.dbName,
+        activeWorkspaceTab.tableName,
+      );
+    }
+    return null;
+  }, [activeWorkspaceTab, tablePreviews]);
 
   useEffect(() => {
     if (activeWorkspaceTab?.kind === "database" || activeWorkspaceTab?.kind === "connection") {

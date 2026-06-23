@@ -473,23 +473,33 @@ async fn list_s3_dir(
         path = %path,
         "list_s3_dir"
     );
-    let pages = bucket
-        .list(prefix.clone(), Some("/".to_string()))
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                bucket = %cfg.bucket,
-                region = %cfg.region,
-                endpoint = %cfg.endpoint,
-                prefix = %prefix,
-                path = %path,
-                error = %e,
-                "列出 S3 对象失败"
-            );
-            OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
-        })?;
+    // 使用单页 list_page（max_keys=1000 + delimiter='/')），避免 bucket.list 内部
+    // 无限翻页导致大桶文件数多时延迟爆炸。最多翻 MAX_PAGES 页（5000 条）即截断。
+    const MAX_PAGES: usize = 5;
     let mut entries = Vec::new();
-    for page in pages {
+    let mut continuation_token: Option<String> = None;
+    for page_idx in 0..MAX_PAGES {
+        let (page, _status) = bucket
+            .list_page(
+                prefix.clone(),
+                Some("/".to_string()),
+                continuation_token.clone(),
+                None,
+                Some(1000),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    bucket = %cfg.bucket,
+                    region = %cfg.region,
+                    endpoint = %cfg.endpoint,
+                    prefix = %prefix,
+                    page = page_idx,
+                    error = %e,
+                    "列出 S3 对象失败"
+                );
+                OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
+            })?;
         if let Some(prefixes) = page.common_prefixes {
             for cp in prefixes {
                 let key = cp.prefix.trim_end_matches('/');
@@ -524,6 +534,18 @@ async fn list_s3_dir(
                 permissions: None,
             });
         }
+        if !page.is_truncated {
+            break;
+        }
+        continuation_token = page.next_continuation_token.clone();
+    }
+    if continuation_token.is_some() {
+        tracing::warn!(
+            bucket = %cfg.bucket,
+            prefix = %prefix,
+            entries = entries.len(),
+            "S3 目录条目超过最大可取页数 (MAX_PAGES=5)，已截断；请缩小目录范围"
+        );
     }
     entries.sort_by(|a, b| {
         let ad = a.kind == "dir";
@@ -632,10 +654,28 @@ pub async fn file_test_connection_config(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            bucket.list(String::new(), None).await.map_err(|e| {
-                OmniError::new(ErrorCode::Connection, "S3 连接测试失败").with_cause(e.to_string())
-            })?;
-            Ok("S3 连接成功".into())
+            // 使用 head_object 对一个几乎不存在的 key 做探测，避免 list 的 XML
+            // 反序列化（rust-s3 0.35 的 ListBucketResult 要求 Name 字段，部分 S3 兼容
+            // 服务响应里会缺失该字段导致 "missing field `Name`" 报错）。
+            // head_object 不解析响应体，仅依据 HTTP 状态码判断连通性与凭据：
+            //   2xx / 404 -> 凭据有效，Bucket 可达
+            //   403        -> 凭据/权限被拒绝
+            //   其它 / Err -> 连接或签名失败
+            let probe_key = "__omnipanel_connect_probe__";
+            match bucket.head_object(probe_key).await {
+                Ok((_, status)) => match status {
+                    200 | 204 | 404 => Ok("S3 连接成功".into()),
+                    403 => Err(OmniError::new(
+                        ErrorCode::Auth,
+                        "S3 凭据被拒绝（Access Key / Secret Key 无效或无权限）",
+                    )),
+                    other => Err(OmniError::new(
+                        ErrorCode::Connection,
+                        format!("S3 连接测试失败（HTTP {other}）"),
+                    )),
+                },
+                Err(e) => Err(OmniError::new(ErrorCode::Connection, "S3 连接测试失败").with_cause(e.to_string())),
+            }
         }
     }
 }

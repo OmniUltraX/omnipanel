@@ -16,6 +16,7 @@ import { useFileManagerStore } from "../../stores/fileManagerStore";
 import { quickInput } from "../../stores/quickInputStore";
 import { FileConnectionDialog } from "./FileConnectionDialog";
 import { FilesSidebar } from "./FilesSidebar";
+import { VirtualFileList, VirtualFileGrid } from "./VirtualFileList";
 import {
   IconGridView,
   IconListView,
@@ -596,53 +597,23 @@ function FilesBrowserView() {
             ) : filteredEntries.length === 0 ? (
               <ModuleEmptyState preset="folder" title={t("files.empty")} />
             ) : viewMode === "list" ? (
-              <>
-                <div className="fm-table-header">
-                  <span className="fm-th-name">{t("files.columns.name")}</span>
-                  <span className="fm-th-size">{t("files.columns.size")}</span>
-                  <span className="fm-th-type">{t("files.columns.type")}</span>
-                  <span className="fm-th-modified">{t("files.columns.modified")}</span>
-                  <span className="fm-th-perms">{t("files.columns.permissions")}</span>
-                </div>
-                <div className="fm-file-list">
-                  {filteredEntries.map((entry) => (
-                    <div
-                      key={entry.path}
-                      className={`fm-file-row${selected?.path === entry.path ? " selected" : ""}`}
-                      onClick={() => handleEnter(entry)}
-                      onContextMenu={(e) => handleFileContextMenu(e, entry)}
-                      onDoubleClick={() => entry.kind === "file" && void handleDownload(entry)}
-                    >
-                      <span className={`fm-file-icon${entry.kind === "dir" ? " folder" : ""}`}>
-                        <FileEntryIcon type={entry.kind === "dir" ? "dir" : "file"} />
-                      </span>
-                      <span className="fm-file-name">{entry.name}</span>
-                      <span className="fm-file-size">{entry.kind === "dir" ? "—" : formatFileSize(entry.size)}</span>
-                      <span className="fm-file-type">{fileTypeLabel(entry)}</span>
-                      <span className="fm-file-modified">{formatFileTime(entry.modified)}</span>
-                      <span className="fm-file-perms">{entry.permissions ?? "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
+              <VirtualFileList
+                entries={filteredEntries}
+                selected={selected}
+                scrollResetSignal={currentPath + activeId}
+                onActivate={handleEnter}
+                onContextMenu={handleFileContextMenu}
+                onDownload={handleDownload}
+              />
             ) : (
-              <div className="fm-grid">
-                {filteredEntries.map((entry) => (
-                  <div
-                    key={entry.path}
-                    className={`fm-grid-item${selected?.path === entry.path ? " selected" : ""}`}
-                    onClick={() => handleEnter(entry)}
-                    onContextMenu={(e) => handleFileContextMenu(e, entry)}
-                    onDoubleClick={() => entry.kind === "file" && void handleDownload(entry)}
-                  >
-                    <span className={`grid-icon${entry.kind === "dir" ? " folder" : ""}`}>
-                      <FileEntryIcon type={entry.kind === "dir" ? "dir" : "file"} />
-                    </span>
-                    <span className="grid-name">{entry.name}</span>
-                    <span className="grid-size">{entry.kind === "dir" ? "—" : formatFileSize(entry.size)}</span>
-                  </div>
-                ))}
-              </div>
+              <VirtualFileGrid
+                entries={filteredEntries}
+                selected={selected}
+                scrollResetSignal={currentPath + activeId}
+                onActivate={handleEnter}
+                onContextMenu={handleFileContextMenu}
+                onDownload={handleDownload}
+              />
             )}
           </div>
 

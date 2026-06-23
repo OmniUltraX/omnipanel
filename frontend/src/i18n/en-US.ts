@@ -663,6 +663,8 @@ export const enUS: TranslationDict = {
       accessKeyRequired: "Enter access key",
       secretKey: "Secret Key",
       prefix: "Prefix (optional)",
+      testConnection: "Test connection",
+      testing: "Testing…",
     },
   },
   database: {
