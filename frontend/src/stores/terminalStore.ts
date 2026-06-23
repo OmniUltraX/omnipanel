@@ -97,6 +97,8 @@ interface TerminalState {
   setTabResource: (tabId: string, session: TerminalSessionInfo) => void;
   /** 调整 Tab 标题（如资源改名） */
   renameTab: (tabId: string, title: string) => void;
+  /** 设置 tab 是否仅在工作区中显示 */
+  setTabWorkspaceOnly: (tabId: string, workspaceOnly: boolean) => void;
   upsertEmbeddedPane: (
     pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">,
   ) => string;
@@ -300,8 +302,17 @@ export const useTerminalStore = create<TerminalState>()(
           })),
         })),
 
-      renameTab: (tabId, title) =>
-        set((state) => ({ tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, title })) })),
+      renameTab: (tabId, title) => {
+        set((state) => ({
+          tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, title })),
+        }));
+      },
+
+      setTabWorkspaceOnly: (tabId, workspaceOnly) => {
+        set((state) => ({
+          tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, workspaceOnly })),
+        }));
+      },
 
       upsertEmbeddedPane: (pane) => {
         const id = pane.id;

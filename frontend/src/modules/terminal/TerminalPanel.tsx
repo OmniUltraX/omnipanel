@@ -77,8 +77,6 @@ export function TerminalPanel() {
     resolveResourceById(LOCAL_TERMINAL_RESOURCE_ID);
   const selectResource = useWorkspaceStore((state) => state.selectResource);
 
-  const isOriginDocked = useWorkspaceBottomDockStore((s) => s.isOriginDocked);
-  const removeDockedOrigin = useWorkspaceBottomDockStore((s) => s.removeDockedOrigin);
   const activeWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
 
   useEffect(() => {
@@ -89,7 +87,6 @@ export function TerminalPanel() {
       const originTerminalId = meta.originPanelId.startsWith(prefix)
         ? meta.originPanelId.slice(prefix.length)
         : meta.originPanelId;
-      removeDockedOrigin("terminal", originTerminalId);
       setActiveTab(originTerminalId);
     });
   }, [removeDockedOrigin, setActiveTab]);
@@ -152,9 +149,9 @@ export function TerminalPanel() {
   const visibleTabs = useMemo(
     () =>
       tabs.filter(
-        (tab) => !tab.workspaceOnly && !isOriginDocked("terminal", tab.id),
+        (tab) => !tab.workspaceOnly,
       ),
-    [tabs, isOriginDocked],
+    [tabs],
   );
 
   const dockTabs = useMemo(
@@ -254,6 +251,7 @@ export function TerminalPanel() {
         if (!activeWorkspaceId) return;
         const ctxTab = visibleTabs.find((tab) => tab.id === ctxMenu.tabId);
         if (ctxTab) {
+          useTerminalStore.getState().setTabWorkspaceOnly(ctxTab.id, true);
           addSnapshotToWorkspace(activeWorkspaceId, moveTerminalTabToWorkspaceSnapshot(ctxTab));
         }
         setCtxMenu(null);

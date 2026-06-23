@@ -6,6 +6,8 @@ export type SqlWorkspaceTab = {
   label: string;
   /** 侧栏 SQL 文件树中的文件 id，用于持久化连接/库绑定。 */
   sqlFileId?: string;
+  /** 是否仅在底部工作区中显示（例如移动到工作区后） */
+  workspaceOnly?: boolean;
 };
 
 export type DatabaseListWorkspaceTab = {
@@ -14,6 +16,7 @@ export type DatabaseListWorkspaceTab = {
   label: string;
   connId: string;
   dbName: string;
+  workspaceOnly?: boolean;
 };
 
 export type TableDesignerWorkspaceTab = {
@@ -23,6 +26,7 @@ export type TableDesignerWorkspaceTab = {
   connId: string;
   dbName: string;
   tableName: string;
+  workspaceOnly?: boolean;
 };
 
 export type ConnectionInfoWorkspaceTab = {
@@ -30,6 +34,7 @@ export type ConnectionInfoWorkspaceTab = {
   kind: "connection";
   label: string;
   connId: string;
+  workspaceOnly?: boolean;
 };
 
 export type DbWorkspaceTab =

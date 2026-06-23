@@ -28,10 +28,6 @@ export interface WorkspaceDockTab {
   kind: WorkspaceDockTabKind;
   /** 面板类型：同源模块面板共享类型，用于 tab group 折叠 */
   panelType?: string;
-  /** 来源 dock 实例 scope（如 terminal / database） */
-  originScope?: string;
-  /** 来源模块中的原始 panel / tab id */
-  originPanelId?: string;
   /** 序列化快照（复制/移动到工作区） */
   payload?: WorkspaceTabSnapshot;
   /** @deprecated 旧版内置面板类型，迁移后不再创建 */
@@ -42,7 +38,6 @@ export interface WorkspaceDockTab {
 /** 解析工作区 dock tab 的面板类型 */
 export function resolveWorkspaceDockPanelType(tab: WorkspaceDockTab): string {
   if (tab.panelType) return tab.panelType;
-  if (tab.originScope) return tab.originScope;
   return "unknown";
 }
 
@@ -88,8 +83,6 @@ interface WorkspaceBottomDockState {
   tabsByWorkspace: Record<string, WorkspaceDockTab[]>;
   layoutByWorkspace: Record<string, SerializedDockview | null>;
   activeTabByWorkspace: Record<string, string>;
-  /** 已被拖入底部工作区的来源 panel id，按 scope 分组 */
-  dockedOriginByScope: Record<string, string[]>;
 
   ensureWorkspaceData: (workspaceId: string, workspace: WorkspaceInfo) => void;
   setLayout: (workspaceId: string, layout: SerializedDockview | null) => void;
@@ -105,8 +98,6 @@ interface WorkspaceBottomDockState {
     tab: Omit<WorkspaceDockTab, "kind"> & { payload: WorkspaceTabSnapshot },
   ) => WorkspaceDockTab;
   removeTab: (workspaceId: string, workspace: WorkspaceInfo, tabId: string) => void;
-  removeDockedOrigin: (scope: string, originPanelId: string) => void;
-  isOriginDocked: (scope: string, originPanelId: string) => boolean;
   /** 删除工作区时清理底部 dock 持久化数据 */
   removeWorkspaceData: (workspaceId: string) => void;
   /** 重置全部底部工作区布局与 Tab（清除应用缓存时使用） */
@@ -119,7 +110,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
       tabsByWorkspace: {},
       layoutByWorkspace: {},
       activeTabByWorkspace: {},
-      dockedOriginByScope: {},
 
       ensureWorkspaceData: (workspaceId, workspace) => {
         const existing = get().tabsByWorkspace[workspaceId];
@@ -167,7 +157,7 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
         const nextTab: WorkspaceDockTab = {
           ...tab,
           kind: "mirrored",
-          panelType: tab.panelType ?? tab.originScope ?? "unknown",
+          panelType: tab.panelType ?? "unknown",
           closable: tab.closable !== false,
         };
         set((state) => {
@@ -178,19 +168,12 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
           const tabs = current.some((item) => item.id === nextTab.id)
             ? current.map((item) => (item.id === nextTab.id ? nextTab : item))
             : [...current, nextTab];
-          const dockedOriginByScope = { ...state.dockedOriginByScope };
-          if (nextTab.originScope && nextTab.originPanelId) {
-            const prev = new Set(dockedOriginByScope[nextTab.originScope] ?? []);
-            prev.add(nextTab.originPanelId);
-            dockedOriginByScope[nextTab.originScope] = [...prev];
-          }
           return {
             tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
             activeTabByWorkspace: {
               ...state.activeTabByWorkspace,
               [workspaceId]: nextTab.id,
             },
-            dockedOriginByScope,
           };
         });
         return nextTab;
@@ -218,13 +201,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
             mergePanelsIntoLayout(prevLayout, tabIds, nextTab.id) ??
             createDefaultLayout(tabIds, nextTab.id);
 
-          const dockedOriginByScope = { ...state.dockedOriginByScope };
-          if (nextTab.originScope && nextTab.originPanelId) {
-            const prev = new Set(dockedOriginByScope[nextTab.originScope] ?? []);
-            prev.add(nextTab.originPanelId);
-            dockedOriginByScope[nextTab.originScope] = [...prev];
-          }
-
           return {
             tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
             layoutByWorkspace: {
@@ -235,7 +211,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
               ...state.activeTabByWorkspace,
               [workspaceId]: nextTab.id,
             },
-            dockedOriginByScope,
           };
         });
         return nextTab;
@@ -247,17 +222,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
           const removed = current.find((tab) => tab.id === tabId);
           if (!removed || isWorkspaceBuiltinTab(removed)) return state;
           const tabs = current.filter((tab) => tab.id !== tabId);
-          const dockedOriginByScope = { ...state.dockedOriginByScope };
-          if (removed.originScope && removed.originPanelId) {
-            const list = (dockedOriginByScope[removed.originScope] ?? []).filter(
-              (id) => id !== removed.originPanelId,
-            );
-            if (list.length === 0) {
-              delete dockedOriginByScope[removed.originScope];
-            } else {
-              dockedOriginByScope[removed.originScope] = list;
-            }
-          }
           const prevLayout = state.layoutByWorkspace[workspaceId] ?? null;
           const nextLayout = removePanelFromLayout(prevLayout, tabId);
           const active = state.activeTabByWorkspace[workspaceId];
@@ -273,46 +237,12 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
               ...state.activeTabByWorkspace,
               [workspaceId]: nextActive,
             },
-            dockedOriginByScope,
           };
         });
       },
 
-      removeDockedOrigin: (scope, originPanelId) => {
-        set((state) => {
-          const list = (state.dockedOriginByScope[scope] ?? []).filter(
-            (id) => id !== originPanelId,
-          );
-          const dockedOriginByScope = { ...state.dockedOriginByScope };
-          if (list.length === 0) {
-            delete dockedOriginByScope[scope];
-          } else {
-            dockedOriginByScope[scope] = list;
-          }
-          return { dockedOriginByScope };
-        });
-      },
-
-      isOriginDocked: (scope, originPanelId) => {
-        const list = get().dockedOriginByScope[scope] ?? [];
-        return list.includes(originPanelId);
-      },
-
       removeWorkspaceData: (workspaceId) => {
         set((state) => {
-          const tabs = tabsNeedNormalize(state.tabsByWorkspace[workspaceId]);
-          const dockedOriginByScope = { ...state.dockedOriginByScope };
-          for (const tab of tabs) {
-            if (!tab.originScope || !tab.originPanelId) continue;
-            const list = (dockedOriginByScope[tab.originScope] ?? []).filter(
-              (id) => id !== tab.originPanelId,
-            );
-            if (list.length === 0) {
-              delete dockedOriginByScope[tab.originScope];
-            } else {
-              dockedOriginByScope[tab.originScope] = list;
-            }
-          }
           const tabsByWorkspace = { ...state.tabsByWorkspace };
           const layoutByWorkspace = { ...state.layoutByWorkspace };
           const activeTabByWorkspace = { ...state.activeTabByWorkspace };
@@ -323,7 +253,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
             tabsByWorkspace,
             layoutByWorkspace,
             activeTabByWorkspace,
-            dockedOriginByScope,
           };
         });
       },
@@ -333,7 +262,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
           tabsByWorkspace: {},
           layoutByWorkspace: {},
           activeTabByWorkspace: {},
-          dockedOriginByScope: {},
         }),
     }),
     {
@@ -344,7 +272,6 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
         tabsByWorkspace: state.tabsByWorkspace,
         layoutByWorkspace: state.layoutByWorkspace,
         activeTabByWorkspace: state.activeTabByWorkspace,
-        dockedOriginByScope: state.dockedOriginByScope,
       }),
       migrate: (persistedState, fromVersion) => {
         const p = persistedState as

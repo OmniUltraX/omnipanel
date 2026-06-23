@@ -12,7 +12,7 @@ import {
 import { isWorkspaceBuiltinTabId } from "../../lib/workspaceBuiltinPanels";
 import { isLayoutUsable, collectPanelIds, mergePanelsIntoLayout } from "../dock/dockViewLayout";
 import { syncWorkspaceDockActiveTabSideEffects } from "../../lib/syncWorkspaceDockActiveTab";
-import { cleanupWorkspaceDockTerminalTab } from "../../lib/workspaceTabActions";
+import { cleanupWorkspaceDockTab } from "../../lib/workspaceTabActions";
 import { WorkspaceDockTabPanel } from "./WorkspaceDockTabPanel";
 
 export interface WorkspaceDockCoreProps {
@@ -29,7 +29,7 @@ export interface WorkspaceDockCoreProps {
 }
 
 /**
- * 工作区 dockview 核心：读取持久化的 tabs/layout，渲染镜像与快照面板。
+ * 工作�?dockview 核心：读取持久化�?tabs/layout，渲染镜像与快照面板�?
  */
 export function WorkspaceDockCore({
   workspace,
@@ -128,14 +128,14 @@ export function WorkspaceDockCore({
     [tabs, activeTabId],
   );
 
-  // 仅随激活 Tab 触发 softRefresh，更新 isActive 状态，避免 remount 导致状态丢失
+  // 仅随激�?Tab 触发 softRefresh，更�?isActive 状态，避免 remount 导致状态丢�?
   const softRefreshKey = activeTabId;
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
       if (isWorkspaceBuiltinTabId(tabId)) return;
       const tab = tabs.find((item) => item.id === tabId);
-      cleanupWorkspaceDockTerminalTab(tab);
+      cleanupWorkspaceDockTab(tab);
       removeTab(workspaceId, workspace, tabId);
     },
     [removeTab, tabs, workspace, workspaceId],
@@ -144,7 +144,7 @@ export function WorkspaceDockCore({
   const handlePanelTransferredOut = useCallback(
     (panelId: string) => {
       const tab = tabs.find((item) => item.id === panelId);
-      cleanupWorkspaceDockTerminalTab(tab);
+      cleanupWorkspaceDockTab(tab);
       removeTab(workspaceId, workspace, panelId);
     },
     [removeTab, tabs, workspace, workspaceId],
