@@ -367,6 +367,7 @@ export function DatabasePanel() {
   const setSqlTabStates = useDbWorkspaceTabStore((state) => state.setSqlTabStates);
   const setTablePreviews = useDbWorkspaceTabStore((state) => state.setTablePreviews);
   const setTableColumnMeta = useDbWorkspaceTabStore((state) => state.setTableColumnMeta);
+  const tabModes = useDbWorkspaceTabStore((state) => state.tabModes);
   const setTabModes = useDbWorkspaceTabStore((state) => state.setTabModes);
   const setTabDirtyRows = useDbWorkspaceTabStore((state) => state.setTabDirtyRows);
   const setCommittingTabs = useDbWorkspaceTabStore((state) => state.setCommittingTabs);
