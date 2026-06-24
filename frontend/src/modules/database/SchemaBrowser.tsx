@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type CSSProperties,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
@@ -20,27 +20,20 @@ import {
   listConnections,
   isConnectionEnabled,
   connectionHasTableSchemaChildren,
-  isRedisConnection,
 } from "./api";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { getEngineIconByType } from "./engineIcons";
 import {
   DatabaseFilterDialog,
-  getVisibleItems,
   makeTableFilterKey,
   mergeFilter,
   applyTablePinOrder,
-  isTablePinned,
   toggleTablePin,
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import {
-  buildConnectionTreeItem,
-  buildDatabaseTreeItem,
-  buildFolderTreeItem,
   buildTableTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
@@ -52,7 +45,6 @@ import {
 import { isSchemaNodeDeletable, isSchemaNodeRefreshable } from "./schemaTreeNodeActions";
 import {
   nextSchemaChildLimit,
-  paginateSchemaChildren,
 } from "./schemaTreePagination";
 import { mergeConnectionsWithCache, type CachedConnection } from "./schemaCacheMerge";
 import { refreshAllSchemaCache } from "./schemaCacheRefresh";
@@ -64,27 +56,26 @@ import {
 } from "./schemaCacheStatusLog";
 import type { SchemaCacheSnapshot } from "./schemaCache";
 import {
-  connectionDatabasesFolderId,
-  connectionUsersFolderId,
-  databaseOtherFolderId,
-  databaseTablesFolderId,
-  databaseViewsFolderId,
-  formatUserLabel,
-  makeDatabaseNodeId,
   parseTableNodeId,
   parseViewNodeId,
-  routineNodeId,
-  userNodeId,
-  SCHEMA_ROOT_CONNECTIONS_ID,
 } from "./schemaTreeIds";
-import { SchemaTreeObjectDetails } from "./schemaTreeObjectDetails";
+import {
+  buildSchemaFlatRows,
+  collectStickySchemaAncestors,
+  estimateSchemaFlatRowSize,
+  filterStickySchemaAncestorsForOverlay,
+  findSchemaFlatRowIndexByNodeId,
+  isSchemaFlatRowIndexCenteredInViewport,
+  scrollSchemaFlatRowToCenter,
+  type SchemaFlatRow,
+  type SchemaNodeFlatRow,
+} from "./schemaTreeFlatRows";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
 import {
   buildPaginationPatchesForScrollTarget,
   collectExpandedIdsForScrollTarget,
   resolveSchemaTreeScrollTarget,
-  scrollSchemaTreeToNode,
 } from "./schemaTreeSidebarLinkage";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
@@ -122,6 +113,8 @@ interface TreeNodeProps {
   refreshDisabled?: boolean;
   onDelete?: () => void;
   deleteDisabled?: boolean;
+  /** 虚拟树吸顶条中的祖先节点样式 */
+  stickyAncestor?: boolean;
 }
 
 function SchemaLoadMoreButton({
@@ -174,6 +167,7 @@ function TreeNode({
   refreshDisabled = false,
   onDelete,
   deleteDisabled = false,
+  stickyAncestor = false,
 }: TreeNodeProps) {
   const { t } = useI18n();
   const { type, label } = item;
@@ -201,7 +195,7 @@ function TreeNode({
     runLabelClick();
   };
 
-  const stickyClass = hasChildren && expanded ? " tree-node--sticky" : "";
+  const stickyClass = stickyAncestor && hasChildren && expanded ? " tree-node--sticky" : "";
   const nodeStyle: CSSProperties = {
     paddingLeft: indent,
     ["--tree-depth" as string]: depth,
@@ -419,19 +413,6 @@ function TreeNode({
   );
 }
 
-function routineTypeLabel(t: (key: string) => string, routineType: string): string {
-  switch (routineType.toLowerCase()) {
-    case "procedure":
-      return t("database.sidebar.routineProcedure");
-    case "function":
-      return t("database.sidebar.routineFunction");
-    case "trigger":
-      return t("database.sidebar.routineTrigger");
-    default:
-      return routineType;
-  }
-}
-
 export { makeDatabaseNodeId } from "./schemaTreeIds";
 
 function tableColumnsFolderId(tableId: string) {
@@ -440,15 +421,6 @@ function tableColumnsFolderId(tableId: string) {
 
 function tableIndexesFolderId(tableId: string) {
   return `${tableId}:idxs`;
-}
-
-function schemaNodeMeta(
-  refreshingNodeIds: Record<string, true>,
-  nodeId: string,
-  meta: string | undefined,
-  loadingLabel: string,
-): string | undefined {
-  return refreshingNodeIds[nodeId] ? loadingLabel : meta;
 }
 
 export type SchemaTableSelection = {
@@ -995,10 +967,52 @@ export function SchemaBrowser({
     scopedSearchRef.current?.open(e.key);
   }, []);
 
-  const pagedRootConns = useMemo(
-    () => paginateSchemaChildren(connections, SCHEMA_ROOT_CONNECTIONS_ID, childVisibleLimits),
-    [connections, childVisibleLimits],
+  const flatRows = useMemo(
+    () =>
+      buildSchemaFlatRows({
+        t,
+        connections,
+        expandedNodeIds,
+        childVisibleLimits,
+        databaseFilters,
+        tableFilters,
+        activeConnId,
+        activeTableKey,
+        activeDatabaseKey,
+        refreshingConnectionIds,
+        refreshingNodeIds,
+        resolvedTheme,
+        searchQuery: search,
+      }),
+    [
+      t,
+      connections,
+      expandedNodeIds,
+      childVisibleLimits,
+      databaseFilters,
+      tableFilters,
+      activeConnId,
+      activeTableKey,
+      activeDatabaseKey,
+      refreshingConnectionIds,
+      refreshingNodeIds,
+      resolvedTheme,
+      search,
+    ],
   );
+
+  useEffect(() => {
+    if (schemaTreeRef.current) {
+      schemaTreeRef.current.scrollTop = 0;
+    }
+  }, [search]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => schemaTreeRef.current,
+    estimateSize: (index) => estimateSchemaFlatRowSize(flatRows[index]),
+    overscan: 24,
+  });
 
   const hasAnyConnection = connections.length > 0;
 
@@ -1013,51 +1027,102 @@ export function SchemaBrowser({
   );
 
   const sidebarLinkageRafRef = useRef<number | null>(null);
+  const lastLinkageScrollRef = useRef<{ targetId: string; rowIndex: number } | null>(null);
 
   useEffect(() => {
     if (!sidebarScrollTargetId || loading || search.trim()) {
       return;
     }
 
+    const expandIds = collectExpandedIdsForScrollTarget(sidebarScrollTargetId);
+
+    updateExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of expandIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    if (connections.length === 0) {
+      return;
+    }
+
+    setChildVisibleLimits((prev) => {
+      const patch = buildPaginationPatchesForScrollTarget(
+        sidebarScrollTargetId,
+        {
+          connections,
+          databaseFilters,
+          tableFilters,
+        },
+        prev,
+      );
+      if (Object.keys(patch).length === 0) {
+        return prev;
+      }
+      return { ...prev, ...patch };
+    });
+  }, [
+    sidebarScrollTargetId,
+    loading,
+    search,
+    connections,
+    databaseFilters,
+    tableFilters,
+    updateExpanded,
+  ]);
+
+  useEffect(() => {
+    if (!sidebarScrollTargetId || loading || search.trim()) {
+      lastLinkageScrollRef.current = null;
+      return;
+    }
+    const container = schemaTreeRef.current;
+    if (!container) {
+      return;
+    }
+    const rowIndex = findSchemaFlatRowIndexByNodeId(flatRows, sidebarScrollTargetId);
+    if (rowIndex < 0) {
+      return;
+    }
+
+    const last = lastLinkageScrollRef.current;
+    if (
+      last?.targetId === sidebarScrollTargetId &&
+      last.rowIndex === rowIndex &&
+      isSchemaFlatRowIndexCenteredInViewport(container, flatRows, rowIndex)
+    ) {
+      return;
+    }
+
+    const scrollToCenter = () => {
+      scrollSchemaFlatRowToCenter(
+        container,
+        flatRows,
+        rowIndex,
+        (index) => rowVirtualizer.scrollToIndex(index, { align: "center", behavior: "auto" }),
+      );
+    };
+
     if (sidebarLinkageRafRef.current != null) {
       cancelAnimationFrame(sidebarLinkageRafRef.current);
     }
 
     sidebarLinkageRafRef.current = requestAnimationFrame(() => {
-      sidebarLinkageRafRef.current = null;
-
-      const expandIds = collectExpandedIdsForScrollTarget(sidebarScrollTargetId);
-
-      updateExpanded((prev) => {
-        let changed = false;
-        const next = new Set(prev);
-        for (const id of expandIds) {
-          if (!next.has(id)) {
-            next.add(id);
-            changed = true;
+      sidebarLinkageRafRef.current = requestAnimationFrame(() => {
+        sidebarLinkageRafRef.current = null;
+        scrollToCenter();
+        requestAnimationFrame(() => {
+          if (!isSchemaFlatRowIndexCenteredInViewport(container, flatRows, rowIndex)) {
+            scrollToCenter();
           }
-        }
-        return changed ? next : prev;
-      });
-
-      if (connections.length === 0) {
-        return;
-      }
-
-      setChildVisibleLimits((prev) => {
-        const patch = buildPaginationPatchesForScrollTarget(
-          sidebarScrollTargetId,
-          {
-            connections,
-            databaseFilters,
-            tableFilters,
-          },
-          prev,
-        );
-        if (Object.keys(patch).length === 0) {
-          return prev;
-        }
-        return { ...prev, ...patch };
+          lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
+        });
       });
     });
 
@@ -1066,27 +1131,7 @@ export function SchemaBrowser({
         cancelAnimationFrame(sidebarLinkageRafRef.current);
       }
     };
-  }, [
-    sidebarScrollTargetId,
-    loading,
-    search,
-    activeConnId,
-    connections,
-    databaseFilters,
-    tableFilters,
-    updateExpanded,
-  ]);
-
-  useLayoutEffect(() => {
-    if (!sidebarScrollTargetId || loading || search.trim()) {
-      return;
-    }
-    const container = schemaTreeRef.current;
-    if (!container) {
-      return;
-    }
-    scrollSchemaTreeToNode(container, sidebarScrollTargetId);
-  }, [sidebarScrollTargetId, loading, search, expandedNodeIds, childVisibleLimits]);
+  }, [sidebarScrollTargetId, loading, search, flatRows, rowVirtualizer]);
 
   const filterDialogConn = filterDialogConnId
     ? connections.find((conn) => conn.config.id === filterDialogConnId)
@@ -1097,6 +1142,162 @@ export function SchemaBrowser({
     connections
       .find((conn) => conn.config.id === filterDialogTable.connId)
       ?.databases?.find((db) => db.name === filterDialogTable.dbName);
+
+  const renderFlatRow = useCallback(
+    (row: SchemaFlatRow, options?: { stickyAncestor?: boolean }) => {
+      if (row.kind === "message") {
+        const paddingLeft = row.depth * 16 + 24;
+        const color =
+          row.variant === "error"
+            ? "var(--color-danger, #ff3b30)"
+            : "var(--text-secondary, #8e8e93)";
+        return (
+          <div style={{ padding: "4px 0", paddingLeft, fontSize: "11px", color }}>
+            {row.text}
+          </div>
+        );
+      }
+      if (row.kind === "load-more") {
+        return (
+          <SchemaLoadMoreButton
+            depth={row.depth}
+            remaining={row.remaining}
+            label={t("database.sidebar.loadMore")}
+            onClick={() => loadMoreChildren(row.parentNodeId)}
+          />
+        );
+      }
+
+      const connection = row.item.connId
+        ? connectionsRef.current.find((entry) => entry.config.id === row.item.connId)?.config
+        : undefined;
+
+      const onMetaClick =
+        row.metaClick === "database-filter" && row.metaClickConnId
+          ? () => setFilterDialogConnId(row.metaClickConnId!)
+          : row.metaClick === "table-filter" && row.metaClickConnId && row.metaClickDbName
+            ? () =>
+                setFilterDialogTable({
+                  connId: row.metaClickConnId!,
+                  dbName: row.metaClickDbName!,
+                })
+            : undefined;
+
+      let onLabelClick: (() => void) | undefined;
+      if (row.labelClickKind === "connection" && row.labelClickConnId) {
+        onLabelClick = () => onSelectConnection?.(row.labelClickConnId!);
+      } else if (
+        row.labelClickKind === "database" &&
+        row.labelClickConnId &&
+        row.labelClickDbName &&
+        connection
+      ) {
+        onLabelClick = () => {
+          if (!expandedNodeIds.has(row.item.id)) {
+            toggle(row.item.id);
+          }
+          onSelectDatabase?.({
+            connId: row.labelClickConnId!,
+            dbName: row.labelClickDbName!,
+            connection,
+          });
+        };
+      } else if (
+        row.labelClickKind === "table" &&
+        row.labelClickConnId &&
+        row.labelClickDbName &&
+        row.labelClickTableName &&
+        connection
+      ) {
+        onLabelClick = () =>
+          onSelectTable?.({
+            connId: row.labelClickConnId!,
+            dbName: row.labelClickDbName!,
+            tableName: row.labelClickTableName!,
+            connection,
+          });
+      }
+
+      let onPinToggle: (() => void) | undefined;
+      if (
+        row.pinActive !== undefined &&
+        row.labelClickConnId &&
+        row.labelClickDbName &&
+        row.labelClickTableName
+      ) {
+        onPinToggle = () => {
+          const key = makeTableFilterKey(row.labelClickConnId!, row.labelClickDbName!);
+          const conn = connectionsRef.current.find(
+            (entry) => entry.config.id === row.labelClickConnId!,
+          );
+          const allTables =
+            conn?.databases?.find((db) => db.name === row.labelClickDbName)?.tables ?? [];
+          setTableFilters((prev) => ({
+            ...prev,
+            [key]: toggleTablePin(
+              prev[key],
+              row.labelClickTableName!,
+              allTables.map((item) => item.name),
+            ),
+          }));
+        };
+      }
+
+      const nodeActions =
+        connection != null ? resolveSchemaNodeActions(connection, row.item) : {};
+
+      return (
+        <TreeNode
+          item={row.item}
+          depth={row.depth}
+          expanded={row.expanded}
+          onToggle={() => toggle(row.item.id)}
+          hasChildren={row.hasChildren}
+          active={row.active}
+          meta={row.meta}
+          metaTitle={row.metaTitle}
+          onMetaClick={onMetaClick}
+          isPk={row.isPk}
+          isFk={row.isFk}
+          labelComment={row.labelComment}
+          connectionEnabled={row.connectionEnabled}
+          iconUrl={row.iconUrl}
+          pinActive={row.pinActive}
+          onPinToggle={onPinToggle}
+          onLabelClick={onLabelClick}
+          onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
+          stickyAncestor={options?.stickyAncestor}
+          {...nodeActions}
+        />
+      );
+    },
+    [
+      t,
+      loadMoreChildren,
+      expandedNodeIds,
+      onSelectConnection,
+      onSelectDatabase,
+      onSelectTable,
+      resolveSchemaNodeActions,
+      handleContextSchemaNode,
+      setTableFilters,
+    ],
+  );
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const stickyOverlayRows = useMemo(() => {
+    if (!stickyAncestors || flatRows.length === 0) {
+      return [] as { row: SchemaNodeFlatRow; rowIndex: number }[];
+    }
+    const firstVisibleIndex = virtualRows[0]?.index ?? 0;
+    const ancestors = collectStickySchemaAncestors(flatRows, firstVisibleIndex);
+    const visibleIndexes = virtualRows.map((item) => item.index);
+    return filterStickySchemaAncestorsForOverlay(ancestors, visibleIndexes);
+  }, [stickyAncestors, flatRows, virtualRows]);
+
+  const handleCollapseAll = useCallback(() => {
+    updateExpanded(() => new Set());
+  }, [updateExpanded]);
 
   const toolbar = (
     <div className="schema-toolbar schema-toolbar--inline">
@@ -1120,6 +1321,18 @@ export function SchemaBrowser({
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
         </svg>
       </Button>
+      <Button
+        variant="icon"
+        title={t("database.sidebar.collapseAll")}
+        aria-label={t("database.sidebar.collapseAll")}
+        disabled={expandedNodeIds.size === 0}
+        onClick={handleCollapseAll}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden>
+          <path d="M8 16l4-4 4 4" />
+          <path d="M8 11l4-4 4 4" />
+        </svg>
+      </Button>
     </div>
   );
 
@@ -1135,7 +1348,7 @@ export function SchemaBrowser({
         enabled={filterDialogConnId === null && filterDialogTable === null}
       >
         <div
-          className={`schema-tree${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
+          className={`schema-tree schema-tree--virtual${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
           ref={schemaTreeRef}
           tabIndex={-1}
           onKeyDown={handleTreeKeyDown}
@@ -1155,573 +1368,46 @@ export function SchemaBrowser({
             {t("database.sidebar.empty")}
           </div>
         )}
-        {!loading && !loadError && pagedRootConns.visible.map((conn) => {
-          const connId = `conn:${conn.config.id}`;
-          const connExpanded = expandedNodeIds.has(connId);
-          const databasesFolderId = connectionDatabasesFolderId(conn.config.id);
-          const allDatabases = conn.databases ?? [];
-          const filter = databaseFilters[conn.config.id];
-          const visibleDatabases = getVisibleItems(allDatabases, filter);
-          const visibleCount = visibleDatabases.length;
-          const totalCount = allDatabases.length;
-          const isFiltered = totalCount > 0 && visibleCount < totalCount;
-          const pagedDatabases = paginateSchemaChildren(
-            visibleDatabases,
-            databasesFolderId,
-            childVisibleLimits,
-          );
-
-          const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
-          const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
-          const connEnabled = isConnectionEnabled(conn.config);
-          const fullConnRefreshing =
-            connEnabled && Boolean(refreshingConnectionIds[conn.config.id]);
-          const connNodeRefreshing = Boolean(refreshingNodeIds[connId]);
-
-          return (
-            <div key={conn.config.id}>
-              <TreeNode
-                item={connItem}
-                depth={0}
-                expanded={connExpanded}
-                onToggle={() => toggle(connId)}
-                active={activeConnId === conn.config.id}
-                connectionEnabled={connEnabled}
-                onLabelClick={() => onSelectConnection?.(conn.config.id)}
-                onContextMenu={(e) => handleContextSchemaNode(connItem, e)}
-                iconUrl={engineIconUrl}
-                meta={
-                  !connEnabled
-                    ? t("database.sidebar.connectionDisabled")
-                    : fullConnRefreshing || connNodeRefreshing
-                      ? t("common.loading")
-                      : conn.databases
-                        ? isFiltered
-                          ? `${visibleCount}/${totalCount} DB`
-                          : `${totalCount} DB`
-                        : t("database.sidebar.cacheEmpty")
-                }
-                onMetaClick={
-                  connEnabled &&
-                  !fullConnRefreshing &&
-                  !connNodeRefreshing &&
-                  conn.databases &&
-                  totalCount > 0
-                    ? () => setFilterDialogConnId(conn.config.id)
-                    : undefined
-                }
-                metaTitle={
-                  connEnabled &&
-                  !fullConnRefreshing &&
-                  !connNodeRefreshing &&
-                  conn.databases &&
-                  totalCount > 0
-                    ? t("database.sidebar.filterDisplay")
-                    : undefined
-                }
-                hasChildren={connEnabled}
-                {...resolveSchemaNodeActions(conn.config, connItem)}
-              />
-              {connEnabled && connExpanded && conn.databasesError && (
-                <div style={{ padding: "4px 24px", fontSize: "11px", color: "var(--color-danger, #ff3b30)" }}>
-                  {conn.databasesError}
-                </div>
-              )}
-              {connEnabled && connExpanded && conn.databases && !fullConnRefreshing && visibleCount === 0 && totalCount > 0 && (
+        {!loading && !loadError && hasAnyConnection && (
+          <>
+            {stickyOverlayRows.length > 0 && (
+              <div className="schema-tree-sticky-ancestors">
+                {stickyOverlayRows.map(({ row }) => (
+                  <div key={`sticky:${row.key}`} className="schema-tree-sticky-ancestor-row">
+                    {renderFlatRow(row, { stickyAncestor: true })}
+                  </div>
+                ))}
+              </div>
+            )}
+          <div
+            className="schema-tree-virtual-inner"
+            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+          >
+            {virtualRows.map((virtualRow) => {
+              const row = flatRows[virtualRow.index];
+              if (!row) {
+                return null;
+              }
+              return (
                 <div
+                  key={row.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="schema-tree-virtual-row"
                   style={{
-                    padding: "4px 24px",
-                    fontSize: "11px",
-                    color: "var(--text-secondary, #8e8e93)",
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  {t("database.sidebar.filterHidden")}
+                  {renderFlatRow(row)}
                 </div>
-              )}
-              {connEnabled && connExpanded && conn.databases && pagedDatabases.visible.map((db) => {
-                  const isRedis = isRedisConnection(conn.config);
-                  const dbId = makeDatabaseNodeId(conn.config.id, db.name);
-                  const dbExpanded = expandedNodeIds.has(dbId);
-                  const allTables = db.tables ?? [];
-                  const allViews = db.views ?? [];
-                  const allRoutines = db.routines ?? [];
-                  const tableFilter = tableFilters[makeTableFilterKey(conn.config.id, db.name)];
-                  const visibleTables = getVisibleItems(allTables, tableFilter);
-                  const tableVisibleCount = visibleTables.length;
-                  const tableTotalCount = allTables.length;
-                  const isTableFiltered = tableTotalCount > 0 && tableVisibleCount < tableTotalCount;
-                  const viewTotalCount = allViews.length;
-                  const routineTotalCount = allRoutines.length;
-                  const tblsFolderId = databaseTablesFolderId(conn.config.id, db.name);
-                  const viewsFolderId = databaseViewsFolderId(conn.config.id, db.name);
-                  const otherFolderId = databaseOtherFolderId(conn.config.id, db.name);
-                  const tblsExpanded = expandedNodeIds.has(tblsFolderId);
-                  const viewsExpanded = expandedNodeIds.has(viewsFolderId);
-                  const otherExpanded = expandedNodeIds.has(otherFolderId);
-                  const pagedTables = paginateSchemaChildren(
-                    visibleTables,
-                    tblsFolderId,
-                    childVisibleLimits,
-                  );
-                  const pagedViews = paginateSchemaChildren(
-                    allViews,
-                    viewsFolderId,
-                    childVisibleLimits,
-                  );
-                  const pagedRoutines = paginateSchemaChildren(
-                    allRoutines,
-                    otherFolderId,
-                    childVisibleLimits,
-                  );
-                  const dbItem = buildDatabaseTreeItem(conn.config.id, db.name);
-                  const dbNodeRefreshing = Boolean(refreshingNodeIds[dbId]);
-                  const tblsFolderRefreshing = Boolean(refreshingNodeIds[tblsFolderId]);
-                  const viewsFolderRefreshing = Boolean(refreshingNodeIds[viewsFolderId]);
-                  const otherFolderRefreshing = Boolean(refreshingNodeIds[otherFolderId]);
-                  const showTablesFolder = tableTotalCount > 0 || tblsFolderRefreshing;
-                  const showViewsFolder = viewTotalCount > 0 || viewsFolderRefreshing;
-                  const showOtherFolder = routineTotalCount > 0 || otherFolderRefreshing;
-                  const hasDbObjectFolders = showTablesFolder || showViewsFolder || showOtherFolder;
-                  const objectSummary = isRedis
-                    ? undefined
-                    : [
-                    tableTotalCount > 0 ? `${tableTotalCount} ${t("database.sidebar.tables")}` : null,
-                    viewTotalCount > 0 ? `${viewTotalCount} ${t("database.sidebar.views")}` : null,
-                    routineTotalCount > 0 ? `${routineTotalCount} ${t("database.sidebar.other")}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ");
-
-                  return (
-                    <div key={db.name}>
-                      <TreeNode
-                        item={dbItem}
-                        depth={1}
-                        expanded={dbExpanded}
-                        onToggle={() => toggle(dbId)}
-                        active={activeDatabaseKey === dbId}
-                        onLabelClick={() => {
-                          if (!dbExpanded) {
-                            toggle(dbId);
-                          }
-                          onSelectDatabase?.({
-                            connId: conn.config.id,
-                            dbName: db.name,
-                            connection: conn.config,
-                          });
-                        }}
-                        meta={
-                          dbNodeRefreshing
-                            ? t("common.loading")
-                            : db.loadError
-                              ? t("database.sidebar.tablesFailed")
-                              : objectSummary || undefined
-                        }
-                        hasChildren={!isRedis && (hasDbObjectFolders || Boolean(db.loadError))}
-                        onContextMenu={(e) => handleContextSchemaNode(dbItem, e)}
-                        {...resolveSchemaNodeActions(conn.config, dbItem)}
-                      />
-                      {dbExpanded && db.loadError && (
-                        <div
-                          style={{
-                            padding: "4px 40px",
-                            fontSize: "11px",
-                            color: "var(--color-danger, #ff3b30)",
-                          }}
-                        >
-                          {db.loadError}
-                        </div>
-                      )}
-                      {dbExpanded && !isRedis && hasDbObjectFolders && (
-                        <>
-                          {showTablesFolder ? (
-                          <>
-                          <TreeNode
-                            item={buildFolderTreeItem(
-                              tblsFolderId,
-                              t("database.sidebar.tables"),
-                              conn.config.id,
-                              db.name,
-                            )}
-                            depth={2}
-                            expanded={tblsExpanded}
-                            onToggle={() => toggle(tblsFolderId)}
-                            meta={
-                              tblsFolderRefreshing
-                                ? t("common.loading")
-                                : db.tables
-                                  ? isTableFiltered
-                                    ? `${tableVisibleCount}/${tableTotalCount}`
-                                    : String(tableTotalCount)
-                                  : undefined
-                            }
-                            onMetaClick={
-                              !tblsFolderRefreshing &&
-                              db.tables &&
-                              tableTotalCount > 0
-                                ? () =>
-                                    setFilterDialogTable({
-                                      connId: conn.config.id,
-                                      dbName: db.name,
-                                    })
-                                : undefined
-                            }
-                            metaTitle={
-                              !tblsFolderRefreshing &&
-                              db.tables &&
-                              tableTotalCount > 0
-                                ? t("database.sidebar.filterDisplay")
-                                : undefined
-                            }
-                            hasChildren
-                            onContextMenu={(e) =>
-                              handleContextSchemaNode(
-                                buildFolderTreeItem(
-                                  tblsFolderId,
-                                  t("database.sidebar.tables"),
-                                  conn.config.id,
-                                  db.name,
-                                ),
-                                e,
-                              )
-                            }
-                            {...resolveSchemaNodeActions(
-                              conn.config,
-                              buildFolderTreeItem(
-                                tblsFolderId,
-                                t("database.sidebar.tables"),
-                                conn.config.id,
-                                db.name,
-                              ),
-                            )}
-                          />
-                          {tblsExpanded && tableVisibleCount === 0 && tableTotalCount > 0 && (
-                            <div
-                              style={{
-                                padding: "4px 56px",
-                                fontSize: "11px",
-                                color: "var(--text-secondary, #8e8e93)",
-                              }}
-                            >
-                              {t("database.sidebar.filterHiddenTables")}
-                            </div>
-                          )}
-                          {tblsExpanded &&
-                            pagedTables.visible.map((tbl) => (
-                              <SchemaTreeObjectDetails
-                                key={tbl.name}
-                                TreeNode={TreeNode}
-                                LoadMoreButton={SchemaLoadMoreButton}
-                                conn={conn}
-                                dbName={db.name}
-                                tbl={tbl}
-                                objectKind="table"
-                                depth={3}
-                                expandedNodeIds={expandedNodeIds}
-                                childVisibleLimits={childVisibleLimits}
-                                activeTableKey={activeTableKey}
-                                tablePinned={isTablePinned(tableFilter, tbl.name)}
-                                onToggleTablePin={() => {
-                                  const key = makeTableFilterKey(conn.config.id, db.name);
-                                  setTableFilters((prev) => ({
-                                    ...prev,
-                                    [key]: toggleTablePin(
-                                      prev[key],
-                                      tbl.name,
-                                      allTables.map((item) => item.name),
-                                    ),
-                                  }));
-                                }}
-                                onToggle={toggle}
-                                onLoadMore={loadMoreChildren}
-                                onSelectTable={onSelectTable}
-                                onContextSchemaNode={handleContextSchemaNode}
-                                resolveNodeMeta={(nodeId, meta) =>
-                                  schemaNodeMeta(refreshingNodeIds, nodeId, meta, t("common.loading"))
-                                }
-                                resolveNodeActions={(item) => resolveSchemaNodeActions(conn.config, item)}
-                              />
-                            ))}
-                          {tblsExpanded && pagedTables.hasMore && (
-                            <SchemaLoadMoreButton
-                              depth={3}
-                              remaining={pagedTables.remaining}
-                              label={t("database.sidebar.loadMore")}
-                              onClick={() => loadMoreChildren(tblsFolderId)}
-                            />
-                          )}
-                          </>
-                          ) : null}
-
-                          {showViewsFolder ? (
-                          <>
-                          <TreeNode
-                            item={buildFolderTreeItem(
-                              viewsFolderId,
-                              t("database.sidebar.views"),
-                              conn.config.id,
-                              db.name,
-                            )}
-                            depth={2}
-                            expanded={viewsExpanded}
-                            onToggle={() => toggle(viewsFolderId)}
-                            meta={
-                              viewsFolderRefreshing
-                                ? t("common.loading")
-                                : viewTotalCount > 0
-                                  ? String(viewTotalCount)
-                                  : undefined
-                            }
-                            hasChildren
-                            onContextMenu={(e) =>
-                              handleContextSchemaNode(
-                                buildFolderTreeItem(
-                                  viewsFolderId,
-                                  t("database.sidebar.views"),
-                                  conn.config.id,
-                                  db.name,
-                                ),
-                                e,
-                              )
-                            }
-                            {...resolveSchemaNodeActions(
-                              conn.config,
-                              buildFolderTreeItem(
-                                viewsFolderId,
-                                t("database.sidebar.views"),
-                                conn.config.id,
-                                db.name,
-                              ),
-                            )}
-                          />
-                          {viewsExpanded &&
-                            pagedViews.visible.map((view) => (
-                              <SchemaTreeObjectDetails
-                                key={view.name}
-                                TreeNode={TreeNode}
-                                LoadMoreButton={SchemaLoadMoreButton}
-                                conn={conn}
-                                dbName={db.name}
-                                tbl={view}
-                                objectKind="view"
-                                depth={3}
-                                expandedNodeIds={expandedNodeIds}
-                                childVisibleLimits={childVisibleLimits}
-                                activeTableKey={activeTableKey}
-                                onToggle={toggle}
-                                onLoadMore={loadMoreChildren}
-                                onSelectTable={onSelectTable}
-                                onContextSchemaNode={handleContextSchemaNode}
-                                resolveNodeMeta={(nodeId, meta) =>
-                                  schemaNodeMeta(refreshingNodeIds, nodeId, meta, t("common.loading"))
-                                }
-                                resolveNodeActions={(item) => resolveSchemaNodeActions(conn.config, item)}
-                              />
-                            ))}
-                          {viewsExpanded && pagedViews.hasMore && (
-                            <SchemaLoadMoreButton
-                              depth={3}
-                              remaining={pagedViews.remaining}
-                              label={t("database.sidebar.loadMore")}
-                              onClick={() => loadMoreChildren(viewsFolderId)}
-                            />
-                          )}
-                          </>
-                          ) : null}
-
-                          {showOtherFolder ? (
-                          <>
-                          <TreeNode
-                            item={buildFolderTreeItem(
-                              otherFolderId,
-                              t("database.sidebar.other"),
-                              conn.config.id,
-                              db.name,
-                            )}
-                            depth={2}
-                            expanded={otherExpanded}
-                            onToggle={() => toggle(otherFolderId)}
-                            meta={
-                              otherFolderRefreshing
-                                ? t("common.loading")
-                                : routineTotalCount > 0
-                                  ? String(routineTotalCount)
-                                  : undefined
-                            }
-                            hasChildren
-                            onContextMenu={(e) =>
-                              handleContextSchemaNode(
-                                buildFolderTreeItem(
-                                  otherFolderId,
-                                  t("database.sidebar.other"),
-                                  conn.config.id,
-                                  db.name,
-                                ),
-                                e,
-                              )
-                            }
-                            {...resolveSchemaNodeActions(
-                              conn.config,
-                              buildFolderTreeItem(
-                                otherFolderId,
-                                t("database.sidebar.other"),
-                                conn.config.id,
-                                db.name,
-                              ),
-                            )}
-                          />
-                          {otherExpanded &&
-                            pagedRoutines.visible.map((routine) => {
-                              const routineId = routineNodeId(conn.config.id, db.name, routine.name);
-                              const routineItem: SchemaTreeItem = {
-                                type: "routine",
-                                id: routineId,
-                                label: routine.name,
-                                connId: conn.config.id,
-                                dbName: db.name,
-                              };
-                              return (
-                                <TreeNode
-                                  key={routineId}
-                                  item={routineItem}
-                                  depth={3}
-                                  expanded={false}
-                                  onToggle={() => {}}
-                                  hasChildren={false}
-                                  meta={
-                                    schemaNodeMeta(
-                                      refreshingNodeIds,
-                                      routineId,
-                                      routineTypeLabel(t, routine.routineType),
-                                      t("common.loading"),
-                                    )
-                                  }
-                                  onContextMenu={(e) => handleContextSchemaNode(routineItem, e)}
-                                />
-                              );
-                            })}
-                          {otherExpanded && pagedRoutines.hasMore && (
-                            <SchemaLoadMoreButton
-                              depth={3}
-                              remaining={pagedRoutines.remaining}
-                              label={t("database.sidebar.loadMore")}
-                              onClick={() => loadMoreChildren(otherFolderId)}
-                            />
-                          )}
-                          </>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              {connEnabled && connExpanded && conn.databases && pagedDatabases.hasMore && (
-                <SchemaLoadMoreButton
-                  depth={1}
-                  remaining={pagedDatabases.remaining}
-                  label={t("database.sidebar.loadMore")}
-                  onClick={() => loadMoreChildren(databasesFolderId)}
-                />
-              )}
-              {connEnabled &&
-                connExpanded &&
-                !isRedisConnection(conn.config) &&
-                (() => {
-                  const usersFolderId = connectionUsersFolderId(conn.config.id);
-                  const usersExpanded = expandedNodeIds.has(usersFolderId);
-                  const usersFolderRefreshing = Boolean(refreshingNodeIds[usersFolderId]);
-                  const allUsers = conn.users ?? [];
-                  const showUsersFolder = allUsers.length > 0 || usersFolderRefreshing;
-                  if (!showUsersFolder) {
-                    return null;
-                  }
-                  const pagedUsers = paginateSchemaChildren(
-                    allUsers,
-                    usersFolderId,
-                    childVisibleLimits,
-                  );
-                  return (
-                    <>
-                      <TreeNode
-                        item={buildFolderTreeItem(
-                          usersFolderId,
-                          t("database.sidebar.users"),
-                          conn.config.id,
-                        )}
-                        depth={1}
-                        expanded={usersExpanded}
-                        onToggle={() => toggle(usersFolderId)}
-                        meta={
-                          fullConnRefreshing || usersFolderRefreshing
-                            ? t("common.loading")
-                            : allUsers.length > 0
-                              ? String(allUsers.length)
-                              : undefined
-                        }
-                        hasChildren
-                        onContextMenu={(e) =>
-                          handleContextSchemaNode(
-                            buildFolderTreeItem(
-                              usersFolderId,
-                              t("database.sidebar.users"),
-                              conn.config.id,
-                            ),
-                            e,
-                          )
-                        }
-                        {...resolveSchemaNodeActions(
-                          conn.config,
-                          buildFolderTreeItem(
-                            usersFolderId,
-                            t("database.sidebar.users"),
-                            conn.config.id,
-                          ),
-                        )}
-                      />
-                      {usersExpanded &&
-                        pagedUsers.visible.map((user) => {
-                          const uid = userNodeId(conn.config.id, user.name, user.host);
-                          const userItem: SchemaTreeItem = {
-                            type: "user",
-                            id: uid,
-                            label: formatUserLabel(user.name, user.host),
-                            connId: conn.config.id,
-                          };
-                          const userRefreshing = Boolean(refreshingNodeIds[uid]);
-                          return (
-                            <TreeNode
-                              key={uid}
-                              item={userItem}
-                              depth={2}
-                              expanded={false}
-                              onToggle={() => {}}
-                              hasChildren={false}
-                              meta={userRefreshing ? t("common.loading") : undefined}
-                              onContextMenu={(e) => handleContextSchemaNode(userItem, e)}
-                            />
-                          );
-                        })}
-                      {usersExpanded && pagedUsers.hasMore && (
-                        <SchemaLoadMoreButton
-                          depth={2}
-                          remaining={pagedUsers.remaining}
-                          label={t("database.sidebar.loadMore")}
-                          onClick={() => loadMoreChildren(usersFolderId)}
-                        />
-                      )}
-                    </>
-                  );
-                })()}
-            </div>
-          );
-        })}
-        {pagedRootConns.hasMore && (
-          <SchemaLoadMoreButton
-            depth={0}
-            remaining={pagedRootConns.remaining}
-            label={t("database.sidebar.loadMore")}
-            onClick={() => loadMoreChildren(SCHEMA_ROOT_CONNECTIONS_ID)}
-          />
+              );
+            })}
+          </div>
+          </>
         )}
       </div>
       </ScopedSearch>

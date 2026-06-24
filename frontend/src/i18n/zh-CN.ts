@@ -695,6 +695,7 @@ export const zhCN = {
       search: "搜索表…",
       refresh: "刷新",
       createConnection: "创建连接",
+      collapseAll: "全部收起",
       empty: "暂无连接，点击 + 创建",
       noConnectionsInGroup: "该分组暂无连接",
       loadFailed: "加载连接失败",

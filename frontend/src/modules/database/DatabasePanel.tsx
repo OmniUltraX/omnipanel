@@ -63,6 +63,7 @@ import { getCachedDatabaseNames } from "./schemaCacheMerge";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import { refreshConnectionSchemaCache } from "./schemaCacheRefresh";
 import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
+import { parseDatabaseNodeId, parseTableNodeId } from "./schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
@@ -3282,9 +3283,29 @@ export function DatabasePanel() {
     [connections, connectionsLoading, workspaceTabs, activeWorkspaceTabId],
   );
 
+  const sidebarLinkageConnId = useMemo(() => {
+    if (activeTableKey) {
+      const parsed = parseTableNodeId(activeTableKey);
+      if (parsed) {
+        return parsed.connId;
+      }
+    }
+    if (activeDatabaseKey) {
+      const parsed = parseDatabaseNodeId(activeDatabaseKey);
+      if (parsed) {
+        return parsed.connId;
+      }
+    }
+    return activeConnId;
+  }, [activeTableKey, activeDatabaseKey, activeConnId]);
+
   const sidebarLinkageValue = useMemo(
-    () => ({ activeConnId, activeDatabaseKey, activeTableKey }),
-    [activeConnId, activeDatabaseKey, activeTableKey],
+    () => ({
+      activeConnId: sidebarLinkageConnId,
+      activeDatabaseKey,
+      activeTableKey,
+    }),
+    [sidebarLinkageConnId, activeDatabaseKey, activeTableKey],
   );
 
   const panelContentKeysByTab = useMemo(() => {

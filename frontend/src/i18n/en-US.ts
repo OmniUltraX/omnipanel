@@ -699,6 +699,7 @@ export const enUS: TranslationDict = {
       search: "Search tables…",
       refresh: "Refresh",
       createConnection: "Create Connection",
+      collapseAll: "Collapse all",
       empty: "No connections yet. Click + to create one.",
       noConnectionsInGroup: "No connections in this group",
       loadFailed: "Failed to load connections",

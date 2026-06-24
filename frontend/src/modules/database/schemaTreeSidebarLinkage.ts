@@ -4,6 +4,8 @@ import { connectionNodeId } from "./schemaTreeExpanded";
 import {
   connectionDatabasesFolderId,
   databaseTablesFolderId,
+  databaseViewsFolderId,
+  makeDatabaseNodeId,
   parseDatabaseNodeId,
   parseTableNodeId,
   parseViewNodeId,
@@ -47,12 +49,18 @@ function ensureMinChildLimit(
 export function collectExpandedIdsForScrollTarget(targetId: string): string[] {
   const ids: string[] = [];
 
-  const tableParsed = parseTableNodeId(targetId) ?? parseViewNodeId(targetId);
-  if (tableParsed) {
-    const { connId, dbName } = tableParsed;
+  const viewParsed = parseViewNodeId(targetId);
+  const tableParsed = parseTableNodeId(targetId);
+  if (viewParsed || tableParsed) {
+    const parsed = viewParsed ?? tableParsed!;
+    const { connId, dbName } = parsed;
     ids.push(connectionNodeId(connId));
-    ids.push(`db:${connId}:${dbName}`);
-    ids.push(databaseTablesFolderId(connId, dbName));
+    ids.push(makeDatabaseNodeId(connId, dbName));
+    ids.push(
+      viewParsed
+        ? databaseViewsFolderId(connId, dbName)
+        : databaseTablesFolderId(connId, dbName),
+    );
     return ids;
   }
 
@@ -79,10 +87,12 @@ export function buildPaginationPatchesForScrollTarget(
   limits: Record<string, number>,
 ): Record<string, number> {
   const patch: Record<string, number> = {};
-  const tableParsed = parseTableNodeId(targetId) ?? parseViewNodeId(targetId);
+  const tableParsed = parseTableNodeId(targetId);
+  const viewParsed = parseViewNodeId(targetId);
+  const tableOrViewParsed = tableParsed ?? viewParsed;
   const databaseParsed = parseDatabaseNodeId(targetId);
   const connId =
-    tableParsed?.connId ??
+    tableOrViewParsed?.connId ??
     databaseParsed?.connId ??
     (targetId.startsWith("conn:") ? targetId.slice(5) : null);
 
@@ -99,8 +109,8 @@ export function buildPaginationPatchesForScrollTarget(
   }
 
   const databasesFolderId = connectionDatabasesFolderId(connId);
-  if (databaseParsed || tableParsed) {
-    const dbName = databaseParsed?.dbName ?? tableParsed!.dbName;
+  if (databaseParsed || tableOrViewParsed) {
+    const dbName = databaseParsed?.dbName ?? tableOrViewParsed!.dbName;
     const allDatabases = conn.databases ?? [];
     const visibleDatabases = getVisibleItems(allDatabases, params.databaseFilters[connId]);
     const dbIndex = visibleDatabases.findIndex((db) => db.name === dbName);
@@ -115,6 +125,14 @@ export function buildPaginationPatchesForScrollTarget(
     const visibleTables = getVisibleItems(allTables, params.tableFilters[tableFilterKey]);
     const tableIndex = visibleTables.findIndex((table) => table.name === tableParsed.tableName);
     ensureMinChildLimit(limits, tablesFolderId, tableIndex + 1, patch);
+  }
+
+  if (viewParsed) {
+    const db = conn.databases?.find((item) => item.name === viewParsed.dbName);
+    const viewsFolderId = databaseViewsFolderId(connId, viewParsed.dbName);
+    const allViews = db?.views ?? [];
+    const viewIndex = allViews.findIndex((view) => view.name === viewParsed.tableName);
+    ensureMinChildLimit(limits, viewsFolderId, viewIndex + 1, patch);
   }
 
   return patch;
@@ -143,7 +161,13 @@ export function isSchemaTreeNodeInView(
 export function scrollSchemaTreeToNode(
   container: HTMLElement,
   targetId: string,
+  scrollToIndex?: (index: number) => void,
+  rowIndex?: number,
 ): boolean {
+  if (scrollToIndex != null && rowIndex != null && rowIndex >= 0) {
+    scrollToIndex(rowIndex);
+    return true;
+  }
   if (isSchemaTreeNodeInView(container, targetId)) {
     return true;
   }
