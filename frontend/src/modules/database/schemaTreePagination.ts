@@ -11,8 +11,17 @@ export function paginateSchemaChildren<T>(
   items: readonly T[],
   parentNodeId: string,
   limits: Record<string, number>,
+  options?: { unpaginated?: boolean },
 ): { visible: T[]; hasMore: boolean; total: number; remaining: number } {
   const total = items.length;
+  if (options?.unpaginated) {
+    return {
+      visible: [...items],
+      hasMore: false,
+      total,
+      remaining: 0,
+    };
+  }
   const limit = getSchemaChildVisibleLimit(limits, parentNodeId);
   const visible = items.slice(0, limit);
   const remaining = Math.max(0, total - visible.length);

@@ -29,6 +29,10 @@ import { type DbColumnMeta } from "./api";
 import { PENDING_INSERT_ROW_KEY, type SortState } from "./dbWorkspaceState";
 import { getFilterColumnNames, buildTablePreviewSql } from "./tablePreviewFilter";
 import { TableDataGridFilterPopover } from "./TableDataGridFilterPopover";
+import {
+  TableDataGridCellPreviewDrawer,
+  type TableDataGridCellPreview,
+} from "./TableDataGridCellPreviewDrawer";
 
 export type TableDataGridProps = {
   columns: string[];
@@ -512,6 +516,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   }, [columns, columnMeta]);
   const [transposed, setTransposed] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => new Set());
+  const [cellPreview, setCellPreview] = useState<TableDataGridCellPreview | null>(null);
   const [colVisOpen, setColVisOpen] = useState(false);
   const colVisAnchorRef = useRef<HTMLButtonElement>(null);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -613,6 +618,31 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   }, [effectiveColumns]);
 
   const pkCols = useMemo(() => (columnMeta ?? []).filter((c) => c.isPk), [columnMeta]);
+
+  const buildCellPreviewRowLabel = useCallback(
+    (row: Record<string, unknown>, rowIndex: number) =>
+      buildTransposeRowHeader(row, rowIndex, page, pageSize, columnMeta),
+    [columnMeta, page, pageSize],
+  );
+
+  const openCellPreview = useCallback(
+    (info: {
+      column: string;
+      rowIndex: number;
+      row: Record<string, unknown>;
+      value: unknown;
+      columnType?: string;
+    }) => {
+      setCellPreview({
+        column: info.column,
+        rowIndex: info.rowIndex,
+        rowLabel: buildCellPreviewRowLabel(info.row, info.rowIndex),
+        value: info.value,
+        columnType: info.columnType,
+      });
+    },
+    [buildCellPreviewRowLabel],
+  );
   const filterColumnNames = useMemo(() => getFilterColumnNames(filter), [filter]);
   const canFilter = enableFilter && Boolean(onFilterChange && columnMeta?.length);
 
@@ -1051,6 +1081,21 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     }
                   : (event) => {
                 if (event.button !== 0) return;
+                if (event.altKey) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const previewColumn = transposed
+                    ? String(cell.row.original[TRANSPOSE_FIELD_COL] ?? cell.column.id)
+                    : cell.column.id;
+                  openCellPreview({
+                    column: previewColumn,
+                    rowIndex: row.index,
+                    row: cell.row.original,
+                    value: rawValue,
+                    columnType: colMeta?.type,
+                  });
+                  return;
+                }
                 if (event.shiftKey || event.ctrlKey || event.metaKey) return;
                 const tr = event.currentTarget.closest('tr');
                 if (!tr) return;
@@ -1407,6 +1452,10 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         onClose={() => setFilterOpen(false)}
       />
     )}
+    <TableDataGridCellPreviewDrawer
+      preview={cellPreview}
+      onClose={() => setCellPreview(null)}
+    />
     </div>
   );
 });

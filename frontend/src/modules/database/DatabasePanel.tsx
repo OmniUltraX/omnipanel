@@ -25,6 +25,7 @@ import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
@@ -94,7 +95,6 @@ import {
   createDefaultSqlTabState,
   createDefaultTablePreviewState,
   buildOrderByClause,
-  DEFAULT_QUERY_LIMIT,
   NEW_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
   resolveSqlTabConnectionId,
@@ -2716,7 +2716,11 @@ export function DatabasePanel() {
     [connections, groups, setActiveConnId, setActiveGroupId, workspaceTabs, openRedisQueryTab],
   );
 
-  const runQuery = useCallback(async (sqlOverride?: string, tabIdOverride?: string) => {
+  const runQuery = useCallback(async (
+    sqlOverride?: string,
+    tabIdOverride?: string,
+    options?: { resultPage?: number },
+  ) => {
     const tabId = tabIdOverride ?? activeWorkspaceTab?.id;
     const tab = tabId ? workspaceTabs.find((t) => t.id === tabId) : null;
     if (!tab || tab.kind !== "sql") {
@@ -2725,7 +2729,13 @@ export function DatabasePanel() {
     const resolvedTabId = tab.id;
     const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId] ?? createDefaultSqlTabState();
     const conn = connectionForSqlTab(resolvedTabId);
-    const sql = (sqlOverride ?? tabState.sql).trim();
+    const isPageNav = options?.resultPage !== undefined;
+    const resultPage = isPageNav ? Math.max(0, options!.resultPage!) : 0;
+    const sql = (isPageNav
+      ? (tabState.lastExecutedSql ?? tabState.sql)
+      : (sqlOverride ?? tabState.sql)
+    ).trim();
+    const pageSize = useSettingsStore.getState().databaseQueryPageSize;
     if (!conn) {
       updateSqlTabState(resolvedTabId, { error: t("database.results.noConnection") });
       return;
@@ -2739,24 +2749,30 @@ export function DatabasePanel() {
       return;
     }
     updateSqlTabState(resolvedTabId, { running: true, error: null });
-    enqueueAction({
-      type: "sql",
-      title: t("database.actions.runQuery"),
-      description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
-      command: sql,
-      resourceId: conn.id,
-      source: "用户",
-    });
+    if (!isPageNav) {
+      enqueueAction({
+        type: "sql",
+        title: t("database.actions.runQuery"),
+        description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
+        command: sql,
+        resourceId: conn.id,
+        source: "用户",
+      });
+    }
     const started = performance.now();
     try {
       const res = await invoke<QueryResult>("db_execute_query", {
         connection: conn,
         sql,
-        limit: DEFAULT_QUERY_LIMIT,
-        offset: 0,
+        limit: pageSize,
+        offset: resultPage * pageSize,
       });
+      const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
       updateSqlTabState(resolvedTabId, {
         result: res,
+        resultPage,
+        lastExecutedSql: sql,
+        resultHasMore: hasMore,
         elapsed: Math.round(performance.now() - started),
         running: false,
       });
@@ -2775,6 +2791,14 @@ export function DatabasePanel() {
     t,
     updateSqlTabState,
   ]);
+
+  const goToQueryResultPage = useCallback(
+    async (tabId: string, page: number) => {
+      if (page < 0) return;
+      await runQuery(undefined, tabId, { resultPage: page });
+    },
+    [runQuery],
+  );
 
   // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 ??Ctrl+Enter??
   useEffect(() => {
@@ -2891,6 +2915,7 @@ export function DatabasePanel() {
         tabs: workspaceTabs,
         closeTab: (tabId: string) => requestTabAction({ kind: "close", tabId }),
         runQuery,
+        goToQueryResultPage,
         updateSqlTabState,
         refreshTablePreview,
         goToPage,

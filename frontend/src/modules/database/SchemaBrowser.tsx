@@ -449,7 +449,9 @@ export function SchemaBrowser({
   const useExternalConnections =
     connectionConfigs !== undefined && connectionsReady !== undefined;
   const [search, setSearch] = useState("");
-  const stickyAncestors = useMemo(() => !search.trim(), [search]);
+  const searchActive = search.trim().length > 0;
+  const paginateOpts = searchActive ? { unpaginated: true as const } : undefined;
+  const stickyAncestors = useMemo(() => !searchActive, [searchActive]);
   const expandedNodeIds = useDbSchemaTreeExpandedStore((s) => s.expandedNodeIds);
   const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
   const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
@@ -852,8 +854,8 @@ export function SchemaBrowser({
   }, [connections, search, databaseFilters, tableFilters]);
 
   const pagedRootConns = useMemo(
-    () => paginateSchemaChildren(filtered, SCHEMA_ROOT_CONNECTIONS_ID, childVisibleLimits),
-    [filtered, childVisibleLimits],
+    () => paginateSchemaChildren(filtered, SCHEMA_ROOT_CONNECTIONS_ID, childVisibleLimits, paginateOpts),
+    [filtered, childVisibleLimits, paginateOpts],
   );
 
   const hasAnyConnection = filtered.length > 0;
@@ -1013,7 +1015,7 @@ export function SchemaBrowser({
         )}
         {!loading && !loadError && pagedRootConns.visible.map((conn) => {
           const connId = `conn:${conn.config.id}`;
-          const connExpanded = expandedNodeIds.has(connId);
+          const connExpanded = searchActive || expandedNodeIds.has(connId);
           const databasesFolderId = connectionDatabasesFolderId(conn.config.id);
           const allDatabases = conn.databases ?? [];
           const filter = databaseFilters[conn.config.id];
@@ -1021,7 +1023,12 @@ export function SchemaBrowser({
           const visibleCount = visibleDatabases.length;
           const totalCount = allDatabases.length;
           const isFiltered = totalCount > 0 && visibleCount < totalCount;
-          const pagedDatabases = paginateSchemaChildren(visibleDatabases, databasesFolderId, childVisibleLimits);
+          const pagedDatabases = paginateSchemaChildren(
+            visibleDatabases,
+            databasesFolderId,
+            childVisibleLimits,
+            paginateOpts,
+          );
 
           const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
           const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
@@ -1092,7 +1099,7 @@ export function SchemaBrowser({
               {connEnabled && connExpanded && conn.databases && pagedDatabases.visible.map((db) => {
                   const isRedis = isRedisConnection(conn.config);
                   const dbId = makeDatabaseNodeId(conn.config.id, db.name);
-                  const dbExpanded = expandedNodeIds.has(dbId);
+                  const dbExpanded = searchActive || expandedNodeIds.has(dbId);
                   const allTables = db.tables ?? [];
                   const allViews = db.views ?? [];
                   const allRoutines = db.routines ?? [];
@@ -1106,12 +1113,27 @@ export function SchemaBrowser({
                   const tblsFolderId = databaseTablesFolderId(conn.config.id, db.name);
                   const viewsFolderId = databaseViewsFolderId(conn.config.id, db.name);
                   const otherFolderId = databaseOtherFolderId(conn.config.id, db.name);
-                  const tblsExpanded = expandedNodeIds.has(tblsFolderId);
-                  const viewsExpanded = expandedNodeIds.has(viewsFolderId);
-                  const otherExpanded = expandedNodeIds.has(otherFolderId);
-                  const pagedTables = paginateSchemaChildren(visibleTables, tblsFolderId, childVisibleLimits);
-                  const pagedViews = paginateSchemaChildren(allViews, viewsFolderId, childVisibleLimits);
-                  const pagedRoutines = paginateSchemaChildren(allRoutines, otherFolderId, childVisibleLimits);
+                  const tblsExpanded = searchActive || expandedNodeIds.has(tblsFolderId);
+                  const viewsExpanded = searchActive || expandedNodeIds.has(viewsFolderId);
+                  const otherExpanded = searchActive || expandedNodeIds.has(otherFolderId);
+                  const pagedTables = paginateSchemaChildren(
+                    visibleTables,
+                    tblsFolderId,
+                    childVisibleLimits,
+                    paginateOpts,
+                  );
+                  const pagedViews = paginateSchemaChildren(
+                    allViews,
+                    viewsFolderId,
+                    childVisibleLimits,
+                    paginateOpts,
+                  );
+                  const pagedRoutines = paginateSchemaChildren(
+                    allRoutines,
+                    otherFolderId,
+                    childVisibleLimits,
+                    paginateOpts,
+                  );
                   const dbItem = buildDatabaseTreeItem(conn.config.id, db.name);
                   const dbNodeRefreshing = Boolean(refreshingNodeIds[dbId]);
                   const tblsFolderRefreshing = Boolean(refreshingNodeIds[tblsFolderId]);
@@ -1248,6 +1270,7 @@ export function SchemaBrowser({
                                 depth={3}
                                 expandedNodeIds={expandedNodeIds}
                                 childVisibleLimits={childVisibleLimits}
+                                searchActive={searchActive}
                                 activeTableKey={activeTableKey}
                                 tablePinned={isTablePinned(tableFilter, tbl.name)}
                                 onToggleTablePin={() => {
@@ -1326,6 +1349,7 @@ export function SchemaBrowser({
                                 depth={3}
                                 expandedNodeIds={expandedNodeIds}
                                 childVisibleLimits={childVisibleLimits}
+                                searchActive={searchActive}
                                 activeTableKey={activeTableKey}
                                 onToggle={toggle}
                                 onLoadMore={loadMoreChildren}
@@ -1437,14 +1461,19 @@ export function SchemaBrowser({
                 !isRedisConnection(conn.config) &&
                 (() => {
                   const usersFolderId = connectionUsersFolderId(conn.config.id);
-                  const usersExpanded = expandedNodeIds.has(usersFolderId);
+                  const usersExpanded = searchActive || expandedNodeIds.has(usersFolderId);
                   const usersFolderRefreshing = Boolean(refreshingNodeIds[usersFolderId]);
                   const allUsers = conn.users ?? [];
                   const showUsersFolder = allUsers.length > 0 || usersFolderRefreshing;
                   if (!showUsersFolder) {
                     return null;
                   }
-                  const pagedUsers = paginateSchemaChildren(allUsers, usersFolderId, childVisibleLimits);
+                  const pagedUsers = paginateSchemaChildren(
+                    allUsers,
+                    usersFolderId,
+                    childVisibleLimits,
+                    paginateOpts,
+                  );
                   return (
                     <>
                       <TreeNode

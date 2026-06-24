@@ -23,7 +23,12 @@ export type DbTabAction = {
 export interface DbWorkspaceSharedContextValue {
   tabs: DbWorkspaceTab[];
   closeTab: (id: string) => void;
-  runQuery: (sqlOverride?: string, tabIdOverride?: string) => Promise<void>;
+  runQuery: (
+    sqlOverride?: string,
+    tabIdOverride?: string,
+    options?: { resultPage?: number },
+  ) => Promise<void>;
+  goToQueryResultPage: (tabId: string, page: number) => Promise<void>;
   updateSqlTabState: (id: string, patch: Partial<SqlTabState>) => void;
   refreshTablePreview: (
     tabId: string,

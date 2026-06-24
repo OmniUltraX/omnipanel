@@ -28,6 +28,120 @@ const lightHighlight = HighlightStyle.define([
   { tag: t.function(t.variableName), color: "#ff9500" },
 ]);
 
+const sharedAutocompleteTheme = {
+  ".cm-tooltip": {
+    backgroundColor: "var(--surface)",
+    border: "1px solid var(--border)",
+    color: "var(--fg)",
+    borderRadius: "8px",
+    boxShadow:
+      "0 10px 28px color-mix(in srgb, #000 24%, transparent), 0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent)",
+    overflow: "hidden",
+  },
+  ".cm-tooltip-autocomplete": {
+    padding: 0,
+    minWidth: "220px",
+    maxWidth: "min(520px, 92vw)",
+  },
+  ".cm-tooltip-autocomplete > ul": {
+    fontFamily: "var(--font-ui)",
+    fontSize: "12px",
+    lineHeight: "1.35",
+    maxHeight: "min(320px, 42vh)",
+    overflowY: "auto",
+    overflowX: "hidden",
+    margin: 0,
+    padding: "6px",
+    listStyle: "none",
+  },
+  ".cm-tooltip-autocomplete > ul > li": {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "6px 8px",
+    margin: 0,
+    borderRadius: "6px",
+    cursor: "default",
+    transition: "background-color 0.1s ease, color 0.1s ease",
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+    backgroundColor: "var(--accent-soft)",
+    color: "var(--fg)",
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail": {
+    color: "var(--fg-2)",
+  },
+  ".cm-completionIcon": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "20px",
+    height: "20px",
+    flexShrink: 0,
+    borderRadius: "5px",
+    fontSize: "9px",
+    fontWeight: 700,
+    fontFamily: "var(--font-ui)",
+    letterSpacing: "-0.02em",
+    lineHeight: 1,
+    backgroundColor: "var(--bg-deeper)",
+    border: "1px solid var(--border-soft)",
+    color: "var(--muted)",
+    opacity: 1,
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionIcon": {
+    backgroundColor: "color-mix(in srgb, var(--accent) 18%, var(--surface))",
+    borderColor: "color-mix(in srgb, var(--accent) 35%, var(--border))",
+    color: "var(--accent)",
+  },
+  ".cm-completionIcon-keyword": {
+    color: "var(--accent)",
+  },
+  ".cm-completionIcon-function": {
+    color: "#bf5af2",
+  },
+  ".cm-completionIcon-class": {
+    color: "var(--warn)",
+  },
+  ".cm-completionIcon-property": {
+    color: "var(--success)",
+  },
+  ".cm-completionIcon-namespace": {
+    color: "var(--muted)",
+  },
+  ".cm-completionLabel": {
+    fontFamily: "var(--font-mono)",
+    fontSize: "12px",
+    fontWeight: 500,
+    flex: "1 1 auto",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  ".cm-completionDetail": {
+    fontFamily: "var(--font-ui)",
+    fontSize: "11px",
+    color: "var(--meta)",
+    flex: "0 1 auto",
+    maxWidth: "55%",
+    marginLeft: "auto",
+    paddingLeft: "12px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    opacity: 0.92,
+  },
+  ".cm-completionMatchedText": {
+    color: "var(--accent)",
+    fontWeight: 700,
+    textDecoration: "none",
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText": {
+    color: "var(--accent-hover)",
+  },
+};
+
 const darkTheme = EditorView.theme(
   {
     "&": {
@@ -59,21 +173,11 @@ const darkTheme = EditorView.theme(
       backgroundColor: "#007aff20",
       outline: "1px solid #007aff50",
     },
-    ".cm-tooltip": {
-      backgroundColor: "#302c2c",
-      border: "1px solid #464343",
-      color: "#fdfcfc",
-    },
-    ".cm-tooltip-autocomplete": {
-      "& > ul > li[aria-selected]": {
-        backgroundColor: "#007aff25",
-        color: "#fdfcfc",
-      },
-    },
     ".cm-search-highlight": {
       backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
       borderRadius: "2px",
     },
+    ...sharedAutocompleteTheme,
   },
   { dark: true },
 );
@@ -109,21 +213,11 @@ const lightTheme = EditorView.theme(
       backgroundColor: "#007aff15",
       outline: "1px solid #007aff40",
     },
-    ".cm-tooltip": {
-      backgroundColor: "#ffffff",
-      border: "1px solid #d2d2d7",
-      color: "#1d1d1f",
-    },
-    ".cm-tooltip-autocomplete": {
-      "& > ul > li[aria-selected]": {
-        backgroundColor: "#007aff18",
-        color: "#1d1d1f",
-      },
-    },
     ".cm-search-highlight": {
       backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
       borderRadius: "2px",
     },
+    ...sharedAutocompleteTheme,
   },
   { dark: false },
 );

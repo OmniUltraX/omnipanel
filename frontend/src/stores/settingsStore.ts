@@ -102,6 +102,19 @@ export function clampKnowledgeTopN(value: number): number {
   return Math.min(KNOWLEDGE_TOP_N.max, Math.max(KNOWLEDGE_TOP_N.min, Math.round(value)));
 }
 
+/** SQL 查询结果每页行数（设置页可选值）。 */
+export const DATABASE_QUERY_PAGE_SIZE_OPTIONS = [10, 100, 1000, 5000] as const;
+export type DatabaseQueryPageSize = (typeof DATABASE_QUERY_PAGE_SIZE_OPTIONS)[number];
+export const DEFAULT_DATABASE_QUERY_PAGE_SIZE: DatabaseQueryPageSize = 100;
+
+export function clampDatabaseQueryPageSize(value: number): DatabaseQueryPageSize {
+  const n = Math.round(value);
+  if ((DATABASE_QUERY_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) {
+    return n as DatabaseQueryPageSize;
+  }
+  return DEFAULT_DATABASE_QUERY_PAGE_SIZE;
+}
+
 interface SettingsState {
   locale: Locale;
   uiDensity: UiDensity;
@@ -124,6 +137,7 @@ interface SettingsState {
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;
   knowledgeEmbeddingModelSelectionId: string | null;
+  databaseQueryPageSize: DatabaseQueryPageSize;
   resolved: "light" | "dark";
   setLocale: (locale: Locale) => void;
   setUiDensity: (density: UiDensity) => void;
@@ -142,6 +156,7 @@ interface SettingsState {
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" | "knowledgeEmbeddingModelSelectionId"
   >>) => void;
+  setDatabaseSettings: (patch: Partial<Pick<SettingsState, "databaseQueryPageSize">>) => void;
 }
 
 export function clampUiScale(percent: number): number {
@@ -213,6 +228,7 @@ export const useSettingsStore = create<SettingsState>()(
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
       knowledgeEmbeddingModelSelectionId: null,
+      databaseQueryPageSize: DEFAULT_DATABASE_QUERY_PAGE_SIZE,
       resolved: resolveTheme("system"),
       setLocale: (locale) => {
         applyDocumentLocale(locale);
@@ -255,6 +271,13 @@ export const useSettingsStore = create<SettingsState>()(
                 : state.knowledgeTopN,
           };
         }),
+      setDatabaseSettings: (patch) =>
+        set((state) => ({
+          databaseQueryPageSize:
+            patch.databaseQueryPageSize !== undefined
+              ? clampDatabaseQueryPageSize(patch.databaseQueryPageSize)
+              : state.databaseQueryPageSize,
+        })),
     }),
     {
       name: "omnipanel-settings",
@@ -281,6 +304,7 @@ export const useSettingsStore = create<SettingsState>()(
         knowledgeChunkOverlap: state.knowledgeChunkOverlap,
         knowledgeTopN: state.knowledgeTopN,
         knowledgeEmbeddingModelSelectionId: state.knowledgeEmbeddingModelSelectionId,
+        databaseQueryPageSize: state.databaseQueryPageSize,
       }),
       onRehydrateStorage: () => (state) => {
         applyDocumentLocale(state?.locale ?? "zh-CN");

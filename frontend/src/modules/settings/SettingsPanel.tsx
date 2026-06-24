@@ -29,6 +29,8 @@ import {
   clampKnowledgeChunkSize,
   clampKnowledgeChunkOverlap,
   clampKnowledgeTopN,
+  DATABASE_QUERY_PAGE_SIZE_OPTIONS,
+  clampDatabaseQueryPageSize,
   type Locale,
   type ProxyProtocol,
   type AiDisplayMode,
@@ -58,7 +60,7 @@ import { commands } from "../../ipc/bindings";
 import { invoke } from "@tauri-apps/api/core";
 import type { UpdateInfo } from "../../ipc/bindings";
 
-type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "knowledge" | "data";
+type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "database" | "knowledge" | "data";
 
 interface NavItem {
   id: Section;
@@ -123,6 +125,17 @@ const NAV_ITEMS: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M4 17l6-6-6-6" />
         <path d="M12 19h8" />
+      </svg>
+    ),
+  },
+  {
+    id: "database",
+    label: "数据库",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+        <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
       </svg>
     ),
   },
@@ -1307,6 +1320,13 @@ export function SettingsPanel() {
   const knowledgeTopN = useSettingsStore((s) => s.knowledgeTopN);
   const setKnowledgeSettings = useSettingsStore((s) => s.setKnowledgeSettings);
 
+  const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
+  const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
+  const databaseQueryPageSizeOptions = useMemo(
+    () => DATABASE_QUERY_PAGE_SIZE_OPTIONS.map((n) => String(n)),
+    [],
+  );
+
   const knowledgeChunkSizeOptions = useMemo(() => {
     const opts: string[] = [];
     for (let v = KNOWLEDGE_CHUNK_SIZE.min; v <= KNOWLEDGE_CHUNK_SIZE.max; v += KNOWLEDGE_CHUNK_SIZE.step) {
@@ -1909,6 +1929,30 @@ export function SettingsPanel() {
                   <p>{t("settings.terminal.copyOnSelectDesc")}</p>
                 </div>
                 <Toggle value={terminalCopyOnSelect} onChange={(v) => setTerminalSettings({ terminalCopyOnSelect: v })} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Database */}
+        {activeSection === "database" && (
+          <div className="settings-panel active">
+            <div className="settings-section">
+              <h2>{t("settings.database.label")}</h2>
+              <p className="section-desc">{t("settings.database.desc")}</p>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.queryPageSize")}</h4>
+                  <p>{t("settings.database.queryPageSizeDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(databaseQueryPageSize)}
+                  onChange={(v) =>
+                    setDatabaseSettings({ databaseQueryPageSize: clampDatabaseQueryPageSize(Number(v)) })
+                  }
+                  options={databaseQueryPageSizeOptions}
+                />
               </div>
             </div>
           </div>

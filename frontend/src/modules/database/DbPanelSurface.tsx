@@ -1,5 +1,6 @@
 import { memo, useCallback } from "react";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   useDbWorkspace,
   useDbWorkspaceActiveTabId,
@@ -12,7 +13,7 @@ import { Select } from "../../components/ui/Select";
 import { TableDataGrid } from "./TableDataGrid";
 import { SqlEditor, type SqlEditorOpenMode } from "./SqlEditor";
 import { useI18n } from "../../i18n";
-import { createDefaultSqlTabState, DEFAULT_QUERY_LIMIT, type SqlTabState } from "./dbWorkspaceState";
+import { createDefaultSqlTabState, estimateSqlResultTotalRows, type SqlTabState } from "./dbWorkspaceState";
 import { isConnectionEnabled } from "./api";
 import type { DatabaseSchema } from "./types";
 
@@ -69,6 +70,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
     tabMode: mode,
   } = useDbTabWorkspaceSliceOrMirror(tab.id);
   const tabState = sqlTabState ?? createDefaultSqlTabState();
+  const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
 
   const hasSqlQueryOutput = !!(tabState.result || tabState.error);
 
@@ -87,6 +89,15 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
     ? ws.rowsToRecord(tabState.result.columns, tabState.result.rows)
     : [];
   const rowCount = resultRows.length;
+
+  const resultPage = tabState.resultPage ?? 0;
+  const resultHasMore = tabState.resultHasMore ?? false;
+  const estimatedTotalRows = estimateSqlResultTotalRows(
+    resultPage,
+    databaseQueryPageSize,
+    rowCount,
+    resultHasMore,
+  );
 
   const sqlConnections = ws.sqlConnections;
 
@@ -113,10 +124,20 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
     [ws.saveSqlTab, tab.id],
   );
   const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(mode);
-  const noopPageChange = useCallback(() => {}, []);
+  const handleQueryPageChange = useCallback(
+    (page: number) => void ws.goToQueryResultPage(tab.id, page),
+    [ws.goToQueryResultPage, tab.id],
+  );
 
   const dismissSqlResults = () => {
-    ws.updateSqlTabState(tab.id, { result: null, error: null, elapsed: null });
+    ws.updateSqlTabState(tab.id, {
+      result: null,
+      error: null,
+      elapsed: null,
+      resultPage: 0,
+      lastExecutedSql: null,
+      resultHasMore: false,
+    });
   };
 
   const editorContent = (
@@ -219,7 +240,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
         )}
         <span className="results-meta">
           {t("database.results.meta", {
-            rows: rowCount,
+            rows: resultHasMore ? `${estimatedTotalRows}+` : estimatedTotalRows,
             ms: tabState.elapsed ?? 0,
             mode: t("common.readonly"),
           })}
@@ -261,11 +282,11 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           <TableDataGrid
             columns={tabState.result.columns}
             rows={resultRows}
-            totalRows={resultRows.length}
-            page={0}
-            pageSize={resultRows.length}
-            loading={false}
-            onPageChange={noopPageChange}
+            totalRows={estimatedTotalRows}
+            page={resultPage}
+            pageSize={databaseQueryPageSize}
+            loading={tabState.running}
+            onPageChange={handleQueryPageChange}
           />
         )
       ) : (
@@ -276,14 +297,17 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
       {tabState.result && (
         <div className="exec-stats">
           <span className="stat">
-            {t("database.results.title")}: <span className="stat-val">{rowCount}</span>
+            {t("database.results.title")}:{" "}
+            <span className="stat-val">
+              {resultHasMore ? `${estimatedTotalRows}+` : estimatedTotalRows}
+            </span>
           </span>
           <span className="stat">
             Latency: <span className="stat-val">{tabState.elapsed ?? 0}ms</span>
           </span>
-          {rowCount >= DEFAULT_QUERY_LIMIT && (
+          {resultHasMore && (
             <span className="stat db-exec-stats-truncated">
-              {t("database.results.truncated", { limit: DEFAULT_QUERY_LIMIT })}
+              {t("database.results.hasMore")}
             </span>
           )}
         </div>

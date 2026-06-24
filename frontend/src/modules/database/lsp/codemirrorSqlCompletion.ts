@@ -6,7 +6,7 @@ import {
 } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import type { DatabaseSchema, TableSchema } from "../types";
-import { buildTableActionSnippets, getCompletionItems } from "./sqlCompletion";
+import { buildTableActionSnippets, getCompletionItems, resolveFromTableInStatement, resolveSqlCompletionContext } from "./sqlCompletion";
 
 const SQL_NOISE_TOKENS = new Set([
   "SELECT", "FROM", "WHERE", "JOIN", "ON", "AND", "OR", "AS", "INTO", "SET",
@@ -395,20 +395,28 @@ export function createSqlCompletionSource(
       }
     }
 
+    const docText = context.state.doc.toString();
+    const completionContext = resolveSqlCompletionContext(docText, context.pos);
+    const hasSelectListColumnExpansion =
+      completionContext === "select_list" &&
+      resolveFromTableInStatement(docText, context.pos, schemas) !== null;
+
     const word = context.matchBefore(/\w*/);
-    if (!word && !context.explicit) {
+    if (!word && !context.explicit && !hasSelectListColumnExpansion) {
       return null;
     }
 
     const from = word ? word.from : context.pos;
-    const items = getCompletionItems(context.state.doc.toString(), context.pos, schemas);
+    const items = getCompletionItems(docText, context.pos, schemas);
     const options: Completion[] = items.map((item) => {
       const insertText = item.insertText ?? item.label;
+      const boost = item.boost;
       if (item.snippet) {
         return snippetCompletion(insertText, {
           label: item.label,
           detail: item.detail,
           type: completionKindToType(item.kind),
+          boost,
         });
       }
       return {
@@ -416,6 +424,7 @@ export function createSqlCompletionSource(
         type: completionKindToType(item.kind),
         detail: item.detail,
         apply: insertText,
+        boost,
       };
     });
 

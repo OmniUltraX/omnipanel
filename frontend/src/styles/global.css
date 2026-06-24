@@ -2205,6 +2205,41 @@
     overflow: hidden;
 }
 
+/* SQL 编辑器 CodeMirror 补全列表（tooltip 挂载在 body，随主题变量切换） */
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
+    width: 8px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted) 45%, transparent);
+    border-radius: 999px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li.cm-sql-completion--function .cm-completionIcon {
+    color: #bf5af2;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li.cm-sql-completion--class .cm-completionIcon {
+    color: var(--warn);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li.cm-sql-completion--property .cm-completionIcon {
+    color: var(--success);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li.cm-sql-completion--keyword .cm-completionIcon {
+    color: var(--accent);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected].cm-sql-completion--function .cm-completionIcon {
+    background-color: color-mix(in srgb, #bf5af2 16%, var(--surface));
+    border-color: color-mix(in srgb, #bf5af2 32%, var(--border));
+}
+
 .context-panel {
     height: 100%;
     display: flex;
@@ -3007,7 +3042,7 @@
     min-width: 0;
 }
 
-/* Ctrl+复制到工作区：悬停目标 panel 显示半透明遮罩 */
+/* Ctrl+Alt+复制到工作区：悬停目标 panel 显示半透明遮罩 */
 .dockable-workspace.dock-copy-mode {
     cursor: copy;
 }

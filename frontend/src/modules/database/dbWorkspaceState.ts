@@ -52,12 +52,29 @@ export type SqlTabState = {
   error: string | null;
   elapsed: number | null;
   running: boolean;
+  /** 当前结果页（0-based），翻页时按 lastExecutedSql 重新查询。 */
+  resultPage: number;
+  /** 最近一次成功执行并展示结果的 SQL。 */
+  lastExecutedSql: string | null;
+  /** 当前页是否可能还有后续数据（返回行数达到 pageSize 时为 true）。 */
+  resultHasMore: boolean;
 };
 
 export const DEFAULT_PAGE_SIZE = 100;
-/** SQL 编辑器执行查询时的默认行数上限（防止超大结果集卡死前端）。 */
+/** @deprecated 查询结果分页改由设置页 databaseQueryPageSize 控制；保留供旧文案兼容。 */
 export const DEFAULT_QUERY_LIMIT = 1000;
 export const DEFAULT_SQL = `SELECT version();`;
+
+/** 无总行数时估算分页 totalRows，以支持「下一页 / 末页」按钮。 */
+export function estimateSqlResultTotalRows(
+  page: number,
+  pageSize: number,
+  rowCount: number,
+  hasMore: boolean,
+): number {
+  const base = page * pageSize + rowCount;
+  return hasMore ? base + pageSize : base;
+}
 
 /** 未提交的新建行在 tabDirtyRows 中的 key 前缀 */
 export const NEW_ROW_KEY_PREFIX = "__new__:";
@@ -102,6 +119,9 @@ export function createDefaultSqlTabState(database = "", connId = ""): SqlTabStat
     error: null,
     elapsed: 0,
     running: false,
+    resultPage: 0,
+    lastExecutedSql: null,
+    resultHasMore: false,
   };
 }
 

@@ -14,6 +14,7 @@ import {
 import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
 import { moduleKeyFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
 import { addModulePanelToWorkspace } from "../../lib/workspaceTabActions";
+import { isPointerCopyModifier } from "../../lib/platform";
 
 const navPaths = [
   {
@@ -143,7 +144,7 @@ export function Sidebar() {
   };
 
   const handleModuleNav = (path: string, event: MouseEvent) => {
-    if (event.ctrlKey || event.metaKey) {
+    if (isPointerCopyModifier(event)) {
       event.preventDefault();
       const moduleKey = moduleKeyFromPath(path);
       if (!moduleKey) {

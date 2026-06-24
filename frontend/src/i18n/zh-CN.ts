@@ -418,7 +418,7 @@ export const zhCN = {
       moveTo: "移动到工作区",
       noOther: "没有其他工作区",
       addToCurrent: "添加到当前工作区",
-      addPanelHint: "Ctrl+点击添加到当前工作区",
+      addPanelHint: "Ctrl+Alt+点击添加到当前工作区",
     },
     detailPanel: {
       modeDrawer: "切换为右侧抽屉",
@@ -446,7 +446,7 @@ export const zhCN = {
       },
     },
     workspacePreview: {
-      noPanels: "暂无面板，Ctrl+点击侧边栏或模块内面板添加",
+      noPanels: "暂无面板，Ctrl+Alt+点击侧边栏或模块内面板添加",
       removePanel: "从工作区移除",
       confirmRemoveTitle: "移除面板",
       confirmRemovePanel: "确定从工作区移除面板「{name}」吗？",
@@ -545,7 +545,7 @@ export const zhCN = {
       },
       notFoundTitle: "工作区不存在",
       notFoundPrompt: "请从工作区列表选择有效的工作区。",
-      emptyPanelsHint: "按住 Ctrl 点击侧边栏模块或模块内面板，将其添加到此工作区。",
+      emptyPanelsHint: "按住 Ctrl+Alt 点击侧边栏模块或模块内面板，将其添加到此工作区。",
     },
   },
   env: {
@@ -1050,6 +1050,11 @@ export const zhCN = {
       columnVisibilityNoResults: "无匹配列",
       columnVisibilityAllHidden: "所有列已隐藏，请在列选择器中恢复显示",
       truncated: "结果已截断，仅显示前 {limit} 行（如需更多请缩小查询范围或添加 LIMIT）",
+      hasMore: "当前页已满，可能还有更多数据，请翻到下一页",
+      cellPreviewTitle: "单元格预览",
+      cellPreviewRow: "行 {row}",
+      cellPreviewClose: "关闭预览",
+      cellPreviewHint: "Alt+点击单元格可预览完整内容",
       sortHint: "点击排序（升序 / 降序 / 取消）",
       selectAll: "选择所有行",
       selectColumn: "点击选择列",
@@ -1794,6 +1799,12 @@ export const zhCN = {
       gpuAccelDesc: "使用 WebGL 渲染终端",
       copyOnSelect: "选中即复制",
       copyOnSelectDesc: "选中文本时自动复制到剪贴板",
+    },
+    database: {
+      label: "数据库",
+      desc: "SQL 查询与结果展示相关参数",
+      queryPageSize: "查询结果分页大小",
+      queryPageSizeDesc: "执行 SELECT 时每次加载的行数，可在结果区翻页浏览更多数据",
     },
     knowledge: {
       label: "知识库",

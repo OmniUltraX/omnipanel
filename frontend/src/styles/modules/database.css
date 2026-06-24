@@ -242,6 +242,11 @@
         overflow: hidden;
     }
 
+    /* sticky 祖先节点 z-index 可达 20+，搜索栏需在其上方 */
+    .schema-tree-scoped-search .scoped-search-bar {
+        z-index: 50;
+    }
+
     .schema-tree {
         flex: 1;
         min-height: 0;
@@ -3670,6 +3675,83 @@
 
     .db-data-table tbody tr.db-data-table-row > td.db-cell--editable:hover:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
         background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    /* 单元格 Alt+预览抽屉 */
+    .db-cell-preview-drawer {
+        width: min(560px, 92vw);
+    }
+
+    .db-cell-preview-drawer-header {
+        align-items: flex-start;
+    }
+
+    .db-cell-preview-drawer-heading {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .db-cell-preview-drawer-eyebrow {
+        font-size: 11px;
+        color: var(--meta);
+        margin-bottom: var(--sp-1);
+    }
+
+    .db-cell-preview-drawer-title {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0;
+        word-break: break-word;
+    }
+
+    .db-cell-preview-drawer-meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin-top: var(--sp-1);
+        font-size: 11px;
+        color: var(--meta);
+    }
+
+    .db-cell-preview-drawer-type {
+        font-family: var(--font-mono);
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--fg-2);
+    }
+
+    .db-cell-preview-drawer-body {
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .db-cell-preview-json {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: var(--sp-3) var(--sp-4);
+    }
+
+    .db-cell-preview-json .w-json-view {
+        background: transparent !important;
+    }
+
+    .db-cell-preview-text {
+        flex: 1;
+        min-height: 0;
+        margin: 0;
+        padding: var(--sp-4);
+        overflow: auto;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--fg-2);
     }
 
     /* cell-edit-dialog styles — moved to global.css */

@@ -55,6 +55,7 @@ export function SchemaTreeObjectDetails({
   depth,
   expandedNodeIds,
   childVisibleLimits,
+  searchActive = false,
   activeTableKey,
   onToggle,
   onLoadMore,
@@ -73,6 +74,7 @@ export function SchemaTreeObjectDetails({
   depth: number;
   expandedNodeIds: Set<string>;
   childVisibleLimits: Record<string, number>;
+  searchActive?: boolean;
   activeTableKey: string | null;
   onToggle: (id: string) => void;
   onLoadMore: (parentNodeId: string) => void;
@@ -92,16 +94,17 @@ export function SchemaTreeObjectDetails({
     objectKind === "view"
       ? makeViewNodeId(conn.config.id, dbName, tbl.name)
       : makeTableNodeId(conn.config.id, dbName, tbl.name);
-  const tableExpanded = expandedNodeIds.has(tableKey);
+  const tableExpanded = searchActive || expandedNodeIds.has(tableKey);
   const showTableSchemaChildren = connectionHasTableSchemaChildren(conn.config);
   const colsFolderId = tableColumnsFolderId(tableKey);
   const idxFolderId = tableIndexesFolderId(tableKey);
-  const colsExpanded = expandedNodeIds.has(colsFolderId);
-  const idxExpanded = expandedNodeIds.has(idxFolderId);
+  const colsExpanded = searchActive || expandedNodeIds.has(colsFolderId);
+  const idxExpanded = searchActive || expandedNodeIds.has(idxFolderId);
   const columns = tbl.columns ?? [];
   const indexes = tbl.indexes ?? [];
-  const pagedColumns = paginateSchemaChildren(columns, colsFolderId, childVisibleLimits);
-  const pagedIndexes = paginateSchemaChildren(indexes, idxFolderId, childVisibleLimits);
+  const paginateOpts = searchActive ? { unpaginated: true as const } : undefined;
+  const pagedColumns = paginateSchemaChildren(columns, colsFolderId, childVisibleLimits, paginateOpts);
+  const pagedIndexes = paginateSchemaChildren(indexes, idxFolderId, childVisibleLimits, paginateOpts);
   const tableItem: SchemaTreeItem =
     objectKind === "view"
       ? {

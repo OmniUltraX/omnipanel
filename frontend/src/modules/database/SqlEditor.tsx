@@ -122,6 +122,10 @@ export function SqlEditor({
       getSearchHighlightExtension(),
       autocompletion({
         activateOnTyping: true,
+        maxRenderedOptions: 80,
+        icons: true,
+        optionClass: (completion) =>
+          `cm-sql-completion cm-sql-completion--${completion.type ?? "text"}`,
         override: [createSqlCompletionSource(() => schemasRef.current)],
       }),
       keymap.of([

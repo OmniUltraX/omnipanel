@@ -422,7 +422,7 @@ export const enUS: TranslationDict = {
       moveTo: "Move to Workspace",
       noOther: "No other workspaces",
       addToCurrent: "Add to Current Workspace",
-      addPanelHint: "Ctrl+click to add to current workspace",
+      addPanelHint: "Ctrl+Alt+click to add to current workspace",
     },
     detailPanel: {
       modeDrawer: "Switch to right drawer",
@@ -450,7 +450,7 @@ export const enUS: TranslationDict = {
       },
     },
     workspacePreview: {
-      noPanels: "No panels yet — Ctrl+click sidebar modules or in-module panels to add",
+      noPanels: "No panels yet — Ctrl+Alt+click sidebar modules or in-module panels to add",
       removePanel: "Remove from workspace",
       confirmRemoveTitle: "Remove panel",
       confirmRemovePanel: "Remove panel \"{name}\" from this workspace?",
@@ -549,7 +549,7 @@ export const enUS: TranslationDict = {
       },
       notFoundTitle: "Workspace not found",
       notFoundPrompt: "Choose a valid workspace from the list.",
-      emptyPanelsHint: "Ctrl+click sidebar modules or in-module panels to add them here.",
+      emptyPanelsHint: "Ctrl+Alt+click sidebar modules or in-module panels to add them here.",
     },
   },
   env: {
@@ -1054,6 +1054,11 @@ export const enUS: TranslationDict = {
       columnVisibilityNoResults: "No matching columns",
       columnVisibilityAllHidden: "All columns are hidden. Restore them from the column picker.",
       truncated: "Results truncated — showing first {limit} rows (narrow your query or add LIMIT for more)",
+      hasMore: "This page is full — more rows may exist; go to the next page",
+      cellPreviewTitle: "Cell preview",
+      cellPreviewRow: "Row {row}",
+      cellPreviewClose: "Close preview",
+      cellPreviewHint: "Alt+click a cell to preview its full value",
       sortHint: "Click to sort (ascending / descending / clear)",
       selectAll: "Select all rows",
       selectColumn: "Click to select column",
@@ -1835,6 +1840,12 @@ export const enUS: TranslationDict = {
       gpuAccelDesc: "Use WebGL for terminal rendering",
       copyOnSelect: "Copy on Select",
       copyOnSelectDesc: "Automatically copy selected text to clipboard",
+    },
+    database: {
+      label: "Database",
+      desc: "SQL query execution and result display options",
+      queryPageSize: "Query result page size",
+      queryPageSizeDesc: "Rows loaded per SELECT execution; paginate in the results panel for more data",
     },
     knowledge: {
       label: "Knowledge Base",
