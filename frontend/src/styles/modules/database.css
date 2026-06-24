@@ -3106,6 +3106,30 @@
         white-space: nowrap;
     }
 
+    .db-col-visibility-popover-select-all {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: 6px var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .db-col-visibility-popover-select-all input[type="checkbox"] {
+        margin: 0;
+        flex-shrink: 0;
+        accent-color: var(--accent);
+    }
+
+    .db-col-visibility-popover-select-all-count {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--meta);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
     .db-col-visibility-popover-toolbar {
         display: flex;
         gap: var(--sp-1);
@@ -3207,6 +3231,19 @@
         left: 0;
         z-index: 2;
         box-shadow: 1px 0 0 var(--border);
+    }
+
+    .db-data-table-wrap--transposed .db-data-table-cell--row-select {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .db-data-table-wrap--transposed .db-data-table-cell--row-select:hover:not(.db-data-table-cell--selected) {
+        background: color-mix(in srgb, var(--accent) 12%, var(--accent-soft));
+    }
+
+    .db-data-table-wrap--transposed .db-data-table-cell--selected.db-data-table-cell--row-select {
+        background: color-mix(in srgb, var(--accent) 22%, var(--accent-soft));
     }
 
     .db-pagination-controls {

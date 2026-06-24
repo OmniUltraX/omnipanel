@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  KnowledgeEmbeddingModelSelect,
-  useKnowledgeEmbeddingModelSelectionId,
-} from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import { Button } from "../../components/ui/Button";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
-import { useAiModelsStore } from "../../stores/aiModelsStore";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";
 import { isKnowledgeFolder } from "./knowledgeTree";
-import { loadKnowledgeVectorStatus, vectorizeKnowledgeEntry } from "./knowledgeVectorize";
+import { loadKnowledgeVectorStatus, KNOWLEDGE_VECTORIZED_EVENT } from "./knowledgeVectorize";
 
 const AUTOSAVE_MS = 800;
 
@@ -23,20 +17,12 @@ export function KnowledgeMarkdownWorkspace() {
   const saveEntry = useKnowledgeStore((s) => s.saveEntry);
   const renameEntry = useKnowledgeStore((s) => s.renameEntry);
   const createDocument = useKnowledgeStore((s) => s.createDocument);
-  const providers = useAiModelsStore((s) => s.providers);
-  const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
-  const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
-  const modelSelectionId = useKnowledgeEmbeddingModelSelectionId();
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [vectorStatus, setVectorStatus] = useState<{
     chunkCount: number;
     embeddedAt: number;
   } | null>(null);
-  const [vectorizing, setVectorizing] = useState(false);
-  const [vectorMessage, setVectorMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(
-    null,
-  );
 
   const entry = useMemo(
     () => (selectedEntryId ? entries.find((e) => e.id === selectedEntryId) ?? null : null),
@@ -50,7 +36,6 @@ export function KnowledgeMarkdownWorkspace() {
   useEffect(() => {
     setDraftContent(null);
     setDraftTitle(null);
-    setVectorMessage(null);
   }, [entry?.id]);
 
   useEffect(() => {
@@ -59,20 +44,31 @@ export function KnowledgeMarkdownWorkspace() {
       return;
     }
     let cancelled = false;
-    void loadKnowledgeVectorStatus(entry.id)
-      .then((status) => {
-        if (cancelled) return;
-        if (status?.chunkCount != null && status.embeddedAt != null) {
-          setVectorStatus({ chunkCount: status.chunkCount, embeddedAt: status.embeddedAt });
-        } else {
-          setVectorStatus(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setVectorStatus(null);
-      });
+    const loadStatus = () => {
+      void loadKnowledgeVectorStatus(entry.id)
+        .then((status) => {
+          if (cancelled) return;
+          if (status?.chunkCount != null && status.embeddedAt != null) {
+            setVectorStatus({ chunkCount: status.chunkCount, embeddedAt: status.embeddedAt });
+          } else {
+            setVectorStatus(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setVectorStatus(null);
+        });
+    };
+    loadStatus();
+    const onVectorized = (e: Event) => {
+      const detail = (e as CustomEvent<{ entryId: string }>).detail;
+      if (detail?.entryId === entry.id) {
+        loadStatus();
+      }
+    };
+    window.addEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
     return () => {
       cancelled = true;
+      window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
     };
   }, [entry, isFolder]);
 
@@ -99,64 +95,6 @@ export function KnowledgeMarkdownWorkspace() {
     },
     [entry, isFolder, saveEntry],
   );
-
-  const flushSave = useCallback(async () => {
-    if (!entry || isFolder) return;
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    await saveEntry({
-      ...entry,
-      title: titleRef.current,
-      content: contentRef.current,
-    });
-  }, [entry, isFolder, saveEntry]);
-
-  const handleVectorize = useCallback(async () => {
-    if (!entry || isFolder || vectorizing) return;
-    if (!modelSelectionId) {
-      setVectorMessage({ kind: "err", text: t("knowledge.vectorize.noModel") });
-      return;
-    }
-    setVectorizing(true);
-    setVectorMessage(null);
-    try {
-      await flushSave();
-      const result = await vectorizeKnowledgeEntry(
-        entry.id,
-        modelSelectionId,
-        providers,
-        { knowledgeChunkSize, knowledgeChunkOverlap },
-      );
-      if (result.ok) {
-        setVectorStatus({
-          chunkCount: result.chunkCount,
-          embeddedAt: Date.now(),
-        });
-        setVectorMessage({
-          kind: "ok",
-          text: t("knowledge.vectorize.success", { count: result.chunkCount }),
-        });
-      } else {
-        setVectorMessage({ kind: "err", text: result.error });
-      }
-    } catch (e) {
-      setVectorMessage({ kind: "err", text: String(e) });
-    } finally {
-      setVectorizing(false);
-    }
-  }, [
-    entry,
-    flushSave,
-    isFolder,
-    knowledgeChunkOverlap,
-    knowledgeChunkSize,
-    modelSelectionId,
-    providers,
-    t,
-    vectorizing,
-  ]);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
@@ -232,32 +170,14 @@ export function KnowledgeMarkdownWorkspace() {
           aria-label={t("knowledge.title")}
         />
         <div className="knowledge-workspace-header-actions">
-          <KnowledgeEmbeddingModelSelect disabled={vectorizing} />
           <span
             className={`knowledge-vector-status ${vectorStatus ? "knowledge-vector-status--ok" : ""}`}
             title={vectorStatusLabel}
           >
             {vectorStatusLabel}
           </span>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={vectorizing || !modelSelectionId}
-            onClick={() => void handleVectorize()}
-          >
-            {vectorizing ? t("knowledge.vectorize.parsing") : t("knowledge.vectorize.parse")}
-          </Button>
         </div>
       </div>
-      {vectorMessage && (
-        <div
-          className={`knowledge-vector-message knowledge-vector-message--${vectorMessage.kind}`}
-          role="status"
-        >
-          {vectorMessage.text}
-        </div>
-      )}
       <KnowledgeCrepeEditor
         key={entry.id}
         entryId={entry.id}

@@ -11317,6 +11317,16 @@
     min-width: 0;
 }
 
+.context-menu-item__shortcut {
+    flex-shrink: 0;
+    margin-left: auto;
+    padding-left: var(--sp-4);
+    font-size: 11px;
+    color: var(--meta);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .context-menu-item:hover:not(:disabled) {
     background: var(--surface);
 }

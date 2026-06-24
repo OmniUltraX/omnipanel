@@ -56,6 +56,14 @@ export async function vectorizeKnowledgeEntry(
   return { ok: false, error: res.error.message };
 }
 
+export const KNOWLEDGE_VECTORIZED_EVENT = "omnipanel:knowledge-vectorized";
+
+export function dispatchKnowledgeVectorized(entryId: string) {
+  window.dispatchEvent(
+    new CustomEvent(KNOWLEDGE_VECTORIZED_EVENT, { detail: { entryId } }),
+  );
+}
+
 export async function loadKnowledgeVectorStatus(entryId: string) {
   const res = await commands.knowledgeVectorStatus(entryId);
   if (res.status === "ok") {

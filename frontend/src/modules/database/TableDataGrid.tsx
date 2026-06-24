@@ -347,6 +347,7 @@ function ColumnVisibilityPopover({
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -380,6 +381,13 @@ function ColumnVisibilityPopover({
   );
 
   const visibleCount = columns.length - hiddenColumns.size;
+  const allVisible = columns.length > 0 && visibleCount === columns.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = visibleCount > 0 && visibleCount < columns.length;
+    }
+  }, [visibleCount, columns.length]);
 
   const toggleOne = useCallback(
     (name: string) => {
@@ -394,8 +402,9 @@ function ColumnVisibilityPopover({
     [hiddenColumns, onChange],
   );
 
-  const selectAll = useCallback(() => onChange(new Set()), [onChange]);
-  const deselectAll = useCallback(() => onChange(new Set(columns)), [columns, onChange]);
+  const toggleAll = useCallback(() => {
+    onChange(allVisible ? new Set(columns) : new Set());
+  }, [allVisible, columns, onChange]);
 
   const margin = 8;
   const maxLeft = Math.max(margin, Math.min(window.innerWidth - 320 - margin, anchorRect.left));
@@ -416,21 +425,22 @@ function ColumnVisibilityPopover({
         <span className="db-col-visibility-popover-title">
           {t("database.results.columnVisibilityTitle")}
         </span>
-        <span className="db-col-visibility-popover-count">
+      </div>
+      <label className="db-col-visibility-popover-select-all">
+        <input
+          ref={selectAllRef}
+          type="checkbox"
+          checked={allVisible}
+          onChange={toggleAll}
+        />
+        <span>{t("database.results.columnVisibilityToggleAll")}</span>
+        <span className="db-col-visibility-popover-select-all-count">
           {t("database.results.columnVisibilitySelected", {
             count: visibleCount,
             total: columns.length,
           })}
         </span>
-      </div>
-      <div className="db-col-visibility-popover-toolbar">
-        <Button variant="ghost" size="sm" type="button" onClick={selectAll} disabled={visibleCount === columns.length}>
-          {t("database.results.columnVisibilitySelectAll")}
-        </Button>
-        <Button variant="ghost" size="sm" type="button" onClick={deselectAll} disabled={visibleCount === 0}>
-          {t("database.results.columnVisibilityDeselectAll")}
-        </Button>
-      </div>
+      </label>
       <div className="db-col-visibility-popover-search">
         <svg
           viewBox="0 0 16 16"
@@ -614,8 +624,15 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
 
   const canCopyPreviewSql = Boolean(dbType && tableName);
 
+  const visibleColumns = useMemo(
+    () => (hiddenColumns.size === 0 ? effectiveColumns : effectiveColumns.filter((c) => !hiddenColumns.has(c))),
+    [effectiveColumns, hiddenColumns],
+  );
+
   const previewSql = useMemo(() => {
     if (!canCopyPreviewSql || !dbType || !tableName) return "";
+    const allColumnsVisible =
+      visibleColumns.length === 0 || visibleColumns.length >= effectiveColumns.length;
     return buildTablePreviewSql({
       dbType,
       tableName,
@@ -623,8 +640,19 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       sort,
       page,
       pageSize,
+      selectColumns: allColumnsVisible ? undefined : visibleColumns,
     });
-  }, [canCopyPreviewSql, dbType, filter, page, pageSize, sort, tableName]);
+  }, [
+    canCopyPreviewSql,
+    dbType,
+    effectiveColumns.length,
+    filter,
+    page,
+    pageSize,
+    sort,
+    tableName,
+    visibleColumns,
+  ]);
 
   const handleCopyPreviewSql = useCallback(async () => {
     if (!previewSql) return;
@@ -665,11 +693,6 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       onSortChange(next);
     },
     [enableSort, onSortChange, sort, transposed],
-  );
-
-  const visibleColumns = useMemo(
-    () => (hiddenColumns.size === 0 ? effectiveColumns : effectiveColumns.filter((c) => !hiddenColumns.has(c))),
-    [effectiveColumns, hiddenColumns],
   );
 
   const transposedData = useMemo(() => {
@@ -924,26 +947,29 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   }, [rowHeights, tableRows.length]);
 
   const handleSelectAll = useCallback(() => {
-    if (transposed) return;
     const maxRow = tableRows.length - 1;
     if (maxRow < 0) return;
+    const maxCol = leafColumnCount - 1;
+    if (maxCol < 0) return;
     setCellRange({
       start: { row: 0, col: 0 },
-      end: { row: maxRow, col: displayColumns.length },
+      end: { row: maxRow, col: maxCol },
     });
-  }, [transposed, tableRows.length, displayColumns.length, setCellRange]);
+  }, [tableRows.length, leafColumnCount]);
 
-  const handleColumnSelect = useCallback((colId: string) => {
-    if (transposed) return;
-    const colIdx = displayColumns.indexOf(colId) + 1;
-    if (colIdx <= 0) return;
-    const maxRow = tableRows.length - 1;
-    if (maxRow < 0) return;
-    setCellRange({
-      start: { row: 0, col: colIdx },
-      end: { row: maxRow, col: colIdx },
-    });
-  }, [transposed, displayColumns, tableRows.length, setCellRange]);
+  const handleColumnSelect = useCallback(
+    (colId: string) => {
+      const colIdx = leafColumns.findIndex((c) => c.id === colId);
+      if (colIdx < 0) return;
+      const maxRow = tableRows.length - 1;
+      if (maxRow < 0) return;
+      setCellRange({
+        start: { row: 0, col: colIdx },
+        end: { row: maxRow, col: colIdx },
+      });
+    },
+    [leafColumns, tableRows.length],
+  );
 
   if (effectiveColumns.length === 0) {
     return null;
@@ -987,22 +1013,24 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       >
         {row.getVisibleCells().map((cell, cellIdx) => {
           const isRowNum = cell.column.id === ROW_NUM_COL_ID;
-          const colMeta = isRowNum ? undefined : (transposed ? undefined : columnMetaMap?.[cell.column.id]);
-          const canEdit = !isRowNum && effectiveOnCellEdit && colMeta;
-          const overrideValue = isRowNum ? undefined : overrideForRow?.[cell.column.id];
-          const cellDirty = !isRowNum && overrideValue !== undefined && rowDirty;
-          const rawValue = isRowNum ? undefined : (overrideValue !== undefined ? overrideValue : cell.getValue());
+          const isFieldCol = transposed && cell.column.id === TRANSPOSE_FIELD_COL;
+          const isRowSelector = isRowNum || isFieldCol;
+          const colMeta = isRowNum || isFieldCol ? undefined : (transposed ? undefined : columnMetaMap?.[cell.column.id]);
+          const canEdit = !isRowSelector && effectiveOnCellEdit && colMeta;
+          const overrideValue = isRowSelector ? undefined : overrideForRow?.[cell.column.id];
+          const cellDirty = !isRowSelector && overrideValue !== undefined && rowDirty;
+          const rawValue = isRowSelector ? undefined : (overrideValue !== undefined ? overrideValue : cell.getValue());
           const baseSize = cell.column.getSize();
-          const selected = !transposed && isCellInRange(row.index, cellIdx, cellRange);
+          const selected = isCellInRange(row.index, cellIdx, cellRange);
           return (
             <td
               key={cell.id}
               data-col-id={cell.column.id}
               data-col-index={cellIdx}
               style={buildColumnCellStyle(cell.column.id, baseSize, lastColumnId, fillDelta)}
-              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${transposed && cell.column.id === TRANSPOSE_FIELD_COL ? " db-data-table-cell--field" : ""}${selected ? " db-data-table-cell--selected" : ""}`}
+              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${selected ? " db-data-table-cell--selected" : ""}`}
               onMouseDown={
-                isRowNum
+                isRowSelector
                   ? (event) => {
                       if (event.button !== 0) return;
                       const tr = event.currentTarget.closest("tr");
@@ -1015,16 +1043,15 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                       }
                       event.preventDefault();
                       event.stopPropagation();
-                      const totalDataCols = displayColumns.length;
+                      const maxCol = leafColumnCount - 1;
                       setCellRange({
                         start: { row: row.index, col: 0 },
-                        end: { row: row.index, col: totalDataCols },
+                        end: { row: row.index, col: maxCol },
                       });
                     }
                   : (event) => {
                 if (event.button !== 0) return;
                 if (event.shiftKey || event.ctrlKey || event.metaKey) return;
-                if (transposed) return;
                 const tr = event.currentTarget.closest('tr');
                 if (!tr) return;
                 if (isNearRowBottom(tr, event.clientY)) {
@@ -1040,7 +1067,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               }}
               onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
               onContextMenu={
-                !isRowNum && onRowEdit && !transposed
+                !isRowSelector && onRowEdit && !transposed
                   ? (event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1054,7 +1081,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     }
                   : undefined
               }
-              title={!isRowNum ? cellToText(rawValue) : undefined}
+              title={!isRowSelector ? cellToText(rawValue) : undefined}
             >
               {flexRender(cell.column.columnDef.cell, cell.getContext())}
             </td>
@@ -1095,6 +1122,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 const baseSize = header.getSize();
                 const colId = header.column.id;
                 const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
+                const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
                 const canSort = enableSort && !isFieldCol && colId !== ROW_NUM_COL_ID;
                 const sortActive = canSort && sort?.column === colId;
                 const sortDirection = sortActive ? sort!.direction : null;
@@ -1105,16 +1133,19 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                   : "";
                 const filterClass =
                   canFilter && filterColumnNames.has(colId) ? " db-data-table-th--filtered" : "";
-                const thSelected =
-                  !transposed && isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
+                const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
                 return (
                 <th
                   key={header.id}
                   data-col-id={colId}
                   style={buildColumnCellStyle(colId, baseSize, lastColumnId, fillDelta)}
-                  className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${colId !== ROW_NUM_COL_ID && !transposed ? " db-data-table-th--selectable" : ""}${colId === ROW_NUM_COL_ID ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}`}
-                  onClick={colId === ROW_NUM_COL_ID ? handleSelectAll : (colId !== ROW_NUM_COL_ID && !transposed ? () => handleColumnSelect(colId) : undefined)}
-                  title={colId === ROW_NUM_COL_ID ? t("database.results.selectAll") : t("database.results.selectColumn")}
+                  className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}`}
+                  onClick={
+                    isSelectAllHeader
+                      ? handleSelectAll
+                      : () => handleColumnSelect(colId)
+                  }
+                  title={isSelectAllHeader ? t("database.results.selectAll") : t("database.results.selectColumn")}
                 >
                   {header.isPlaceholder ? null : (
                     <span className="db-data-table-th-inner">

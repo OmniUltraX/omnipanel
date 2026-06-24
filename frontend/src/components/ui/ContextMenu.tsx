@@ -20,6 +20,8 @@ export interface ContextMenuItem {
   separator?: boolean;
   /** 左侧图标（可选） */
   icon?: ReactNode;
+  /** 右侧快捷键提示（可选） */
+  shortcut?: string;
   /** 子菜单项（仅一层，不再递归） */
   children?: ContextMenuItem[];
 }
@@ -95,6 +97,9 @@ function ContextMenuSubmenuList({
           >
             {item.icon ? <span className="context-menu-item__icon">{item.icon}</span> : null}
             <span className="context-menu-item__label">{item.label}</span>
+            {item.shortcut ? (
+              <span className="context-menu-item__shortcut">{item.shortcut}</span>
+            ) : null}
           </button>
         ),
       )}
@@ -164,6 +169,9 @@ function ContextMenuPanel({
             >
               {item.icon ? <span className="context-menu-item__icon">{item.icon}</span> : null}
               <span className="context-menu-item__label">{item.label}</span>
+              {item.shortcut ? (
+                <span className="context-menu-item__shortcut">{item.shortcut}</span>
+              ) : null}
               {hasChildren && (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" aria-hidden>
                   <path d="M9 18l6-6-6-6" />

@@ -11,10 +11,14 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { Button } from "../../components/ui/Button";
+import { useKnowledgeEmbeddingModelSelectionId } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
+import { publishModuleStatusLog } from "../../lib/moduleStatusLog";
+import { useAiModelsStore } from "../../stores/aiModelsStore";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 import {
   buildKnowledgeTree,
@@ -24,6 +28,7 @@ import {
   normalizeParentId,
   type KnowledgeTreeNode,
 } from "./knowledgeTree";
+import { dispatchKnowledgeVectorized, vectorizeKnowledgeEntry } from "./knowledgeVectorize";
 
 type TreeCtx = {
   x: number;
@@ -195,6 +200,11 @@ export function KnowledgeSidebar() {
   const deleteEntryRecursive = useKnowledgeStore((s) => s.deleteEntryRecursive);
   const moveEntry = useKnowledgeStore((s) => s.moveEntry);
 
+  const modelSelectionId = useKnowledgeEmbeddingModelSelectionId();
+  const providers = useAiModelsStore((s) => s.providers);
+  const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
+  const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
+
   const [ctxMenu, setCtxMenu] = useState<TreeCtx | null>(null);
   const [blankCtx, setBlankCtx] = useState<{ x: number; y: number } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
@@ -243,6 +253,31 @@ export function KnowledgeSidebar() {
     [importPdfFromPath, t],
   );
 
+  const handleVectorize = useCallback(
+    async (entry: KnowledgeEntry) => {
+      if (!modelSelectionId) {
+        publishModuleStatusLog("knowledge", t("knowledge.vectorize.noModel"), "error");
+        return;
+      }
+      publishModuleStatusLog("knowledge", t("knowledge.vectorize.parsing"), "progress");
+      const result = await vectorizeKnowledgeEntry(entry.id, modelSelectionId, providers, {
+        knowledgeChunkSize,
+        knowledgeChunkOverlap,
+      });
+      if (result.ok) {
+        publishModuleStatusLog(
+          "knowledge",
+          t("knowledge.vectorize.success", { count: result.chunkCount }),
+          "success",
+        );
+        dispatchKnowledgeVectorized(entry.id);
+      } else {
+        publishModuleStatusLog("knowledge", result.error, "error");
+      }
+    },
+    [knowledgeChunkOverlap, knowledgeChunkSize, modelSelectionId, providers, t],
+  );
+
   const buildMenuItems = useCallback((): ContextMenuItem[] => {
     if (!ctxEntry) return [];
     const parentId = normalizeParentId(ctxEntry.parentId);
@@ -262,21 +297,35 @@ export function KnowledgeSidebar() {
         label: t("knowledge.tree.importPdf"),
         onClick: () => void handleImportPdf(isKnowledgeFolder(ctxEntry) ? ctxEntry.id : parentId),
       },
+      ...(!isKnowledgeFolder(ctxEntry)
+        ? [
+            { id: "sep-vectorize", separator: true, label: "" } as ContextMenuItem,
+            {
+              id: "vectorize",
+              label: t("knowledge.vectorize.parse"),
+              disabled: !modelSelectionId,
+              onClick: () => void handleVectorize(ctxEntry),
+            },
+          ]
+        : []),
       { id: "sep1", separator: true, label: "" },
       {
         id: "rename",
-        label: `${t("knowledge.tree.rename")} (F2)`,
+        label: t("knowledge.tree.rename"),
+        shortcut: "F2",
         onClick: () => void handleRename(ctxEntry),
       },
       {
         id: "copy",
-        label: `${t("knowledge.tree.duplicate")} (Ctrl+D)`,
+        label: t("knowledge.tree.duplicate"),
+        shortcut: "Ctrl+D",
         onClick: () => void duplicateEntry(ctxEntry.id),
       },
       { id: "sep2", separator: true, label: "" },
       {
         id: "delete",
-        label: `${t("knowledge.delete")} (Del)`,
+        label: t("knowledge.delete"),
+        shortcut: "Del",
         danger: true,
         onClick: () => {
           void (async () => {
@@ -286,7 +335,18 @@ export function KnowledgeSidebar() {
         },
       },
     ];
-  }, [ctxEntry, createDocument, createFolder, deleteEntryRecursive, duplicateEntry, handleImportPdf, handleRename, t]);
+  }, [
+    ctxEntry,
+    createDocument,
+    createFolder,
+    deleteEntryRecursive,
+    duplicateEntry,
+    handleImportPdf,
+    handleRename,
+    handleVectorize,
+    modelSelectionId,
+    t,
+  ]);
 
   const resolveDropPosition = (e: DragEvent, rowEl: HTMLElement): DropHint["position"] => {
     const rect = rowEl.getBoundingClientRect();
@@ -474,6 +534,7 @@ export function KnowledgeSidebar() {
           items={buildMenuItems()}
           position={{ x: ctxMenu.x, y: ctxMenu.y }}
           onClose={() => setCtxMenu(null)}
+          className="context-menu--wide"
         />
       )}
 

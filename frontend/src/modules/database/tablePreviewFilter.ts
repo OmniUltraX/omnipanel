@@ -196,6 +196,8 @@ export interface TablePreviewSqlContext {
   sort?: SortState | null;
   page: number;
   pageSize: number;
+  /** 指定 SELECT 列；省略或空则使用 * */
+  selectColumns?: string[];
 }
 
 /** 组装与表预览后端一致的 SELECT 语句（含 QueryBuilder 过滤、排序与分页） */
@@ -206,6 +208,7 @@ export function buildTablePreviewSql({
   sort,
   page,
   pageSize,
+  selectColumns,
 }: TablePreviewSqlContext): string {
   const tableRef = quoteSqlIdentifier(tableName, dbType);
   const whereClause = formatFilterWhere(filter, dbType);
@@ -213,5 +216,9 @@ export function buildTablePreviewSql({
   const orderSql = sort ? ` ORDER BY ${buildOrderByClause(sort, dbType)}` : "";
   const limit = Math.max(0, pageSize);
   const offset = Math.max(0, page) * limit;
-  return `SELECT * FROM ${tableRef}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
+  const selectSql =
+    selectColumns && selectColumns.length > 0
+      ? selectColumns.map((col) => quoteSqlIdentifier(col, dbType)).join(", ")
+      : "*";
+  return `SELECT ${selectSql} FROM ${tableRef}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
 }
