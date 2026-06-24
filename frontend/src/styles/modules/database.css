@@ -2536,15 +2536,6 @@
     .db-data-table td {
         overflow: hidden;
         text-overflow: ellipsis;
-        cursor: text;
-    }
-
-    .db-data-table-cell-text {
-        display: inline-block;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        vertical-align: bottom;
     }
 
     .db-data-table th {
@@ -3027,13 +3018,6 @@
     .db-data-table-wrap--col-resizing {
         cursor: col-resize;
         user-select: none;
-    }
-
-    .db-data-table-wrap--cell-selecting td,
-    .db-data-table-wrap--cell-selecting td * {
-        -webkit-user-select: none;
-        user-select: none;
-        cursor: cell;
     }
 
     .db-pagination {

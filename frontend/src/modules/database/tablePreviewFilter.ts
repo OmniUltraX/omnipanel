@@ -7,6 +7,8 @@ import {
   type RuleType,
 } from "react-querybuilder";
 import type { DbColumnMeta } from "./api";
+import type { SortState } from "./dbWorkspaceState";
+import { buildOrderByClause } from "./dbWorkspaceState";
 
 const EMPTY_TABLE_FILTER_BASE: RuleGroupType = {
   combinator: "and",
@@ -173,4 +175,43 @@ export function mergeColumnFilter(
     rules: [...without.rules, ...forced.rules],
   });
   return isTableFilterActive(merged) ? merged : null;
+}
+
+function quoteSqlIdentifier(name: string, dbType: string): string {
+  const normalized = dbType.toLowerCase();
+  const safe = normalized === "mysql" || normalized === "mariadb"
+    ? name.replace(/`/g, "")
+    : name.replace(/"/g, "");
+  if (normalized === "mysql" || normalized === "mariadb") {
+    return `\`${safe}\``;
+  }
+  return `"${safe}"`;
+}
+
+export interface TablePreviewSqlContext {
+  dbType: string;
+  tableName: string;
+  dbName?: string;
+  filter?: RuleGroupType | null;
+  sort?: SortState | null;
+  page: number;
+  pageSize: number;
+}
+
+/** 组装与表预览后端一致的 SELECT 语句（含 QueryBuilder 过滤、排序与分页） */
+export function buildTablePreviewSql({
+  dbType,
+  tableName,
+  filter,
+  sort,
+  page,
+  pageSize,
+}: TablePreviewSqlContext): string {
+  const tableRef = quoteSqlIdentifier(tableName, dbType);
+  const whereClause = formatFilterWhere(filter, dbType);
+  const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
+  const orderSql = sort ? ` ORDER BY ${buildOrderByClause(sort, dbType)}` : "";
+  const limit = Math.max(0, pageSize);
+  const offset = Math.max(0, page) * limit;
+  return `SELECT * FROM ${tableRef}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
 }

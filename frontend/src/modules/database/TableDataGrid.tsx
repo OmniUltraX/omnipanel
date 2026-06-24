@@ -27,7 +27,7 @@ import { useI18n } from "../../i18n";
 import { textSearchMatches } from "../../lib/textSearchMatch";
 import { type DbColumnMeta } from "./api";
 import { PENDING_INSERT_ROW_KEY, type SortState } from "./dbWorkspaceState";
-import { getFilterColumnNames } from "./tablePreviewFilter";
+import { getFilterColumnNames, buildTablePreviewSql } from "./tablePreviewFilter";
 import { TableDataGridFilterPopover } from "./TableDataGridFilterPopover";
 
 export type TableDataGridProps = {
@@ -62,6 +62,10 @@ export type TableDataGridProps = {
   onFilterChange?: (filter: RuleGroupType | null) => void;
   /** 是否启用列过滤（表预览模式） */
   enableFilter?: boolean;
+  /** 表预览 SQL 复制：数据库类型 */
+  dbType?: string;
+  /** 表预览 SQL 复制：表名 */
+  tableName?: string;
 };
 
 function buildRowKey(row: Record<string, unknown>, pkCols: { name: string }[]): string {
@@ -85,7 +89,6 @@ const MIN_ROW_HEIGHT = 28;
 const DEFAULT_ROW_HEIGHT = 36;
 const ROW_RESIZE_ZONE_PX = 8;
 const COLUMN_MIN_WIDTH = 60;
-const CELL_DRAG_THRESHOLD_PX = 4;
 const ROW_NUM_COL_ID = '__row_num__';
 
 type CellPos = { row: number; col: number };
@@ -129,19 +132,6 @@ function isNearRowBottom(target: HTMLElement, clientY: number): boolean {
   const rect = target.getBoundingClientRect();
   return clientY >= rect.bottom - ROW_RESIZE_ZONE_PX;
 }
-
-function hasActiveTextSelection(): boolean {
-  const sel = window.getSelection();
-  return Boolean(sel && sel.type === "Range" && sel.toString().length > 0);
-}
-
-type CellDragState = {
-  pending: boolean;
-  active: boolean;
-  start: CellPos;
-  startX: number;
-  startY: number;
-};
 
 /** 清除 WebView 在 DOM 更新后粘住的 :hover 伪类 */
 function resetStuckPointerHover(container: HTMLElement | null) {
@@ -499,7 +489,7 @@ function ColumnVisibilityPopover({
   );
 }
 
-export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false }: TableDataGridProps) {
+export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false, dbType, tableName }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
     if (columns.length > 0) {
@@ -517,6 +507,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterLockedField, setFilterLockedField] = useState<string | null>(null);
   const [filterAnchorRect, setFilterAnchorRect] = useState<DOMRect | null>(null);
+  const [copySqlHint, setCopySqlHint] = useState(false);
+  const copySqlHintTimerRef = useRef<number | null>(null);
   const cellMenuOpenRef = useRef<(state: CellMenuState) => void>(() => {});
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -539,7 +531,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   const [cellRange, setCellRange] = useState<CellRange | null>(null);
   const cellRangeRef = useRef(cellRange);
   cellRangeRef.current = cellRange;
-  const cellDragRef = useRef<CellDragState | null>(null);
+  const cellDragRef = useRef<{ active: boolean; start: CellPos } | null>(null);
   const hoverResetPendingRef = useRef(false);
 
   useEffect(() => {
@@ -620,6 +612,45 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     setFilterOpen(true);
   }, []);
 
+  const canCopyPreviewSql = Boolean(dbType && tableName);
+
+  const previewSql = useMemo(() => {
+    if (!canCopyPreviewSql || !dbType || !tableName) return "";
+    return buildTablePreviewSql({
+      dbType,
+      tableName,
+      filter,
+      sort,
+      page,
+      pageSize,
+    });
+  }, [canCopyPreviewSql, dbType, filter, page, pageSize, sort, tableName]);
+
+  const handleCopyPreviewSql = useCallback(async () => {
+    if (!previewSql) return;
+    try {
+      await navigator.clipboard.writeText(previewSql);
+      setCopySqlHint(true);
+      if (copySqlHintTimerRef.current != null) {
+        window.clearTimeout(copySqlHintTimerRef.current);
+      }
+      copySqlHintTimerRef.current = window.setTimeout(() => {
+        setCopySqlHint(false);
+        copySqlHintTimerRef.current = null;
+      }, 2000);
+    } catch {
+      // clipboard unavailable
+    }
+  }, [previewSql]);
+
+  useEffect(() => {
+    return () => {
+      if (copySqlHintTimerRef.current != null) {
+        window.clearTimeout(copySqlHintTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleHeaderClick = useCallback(
     (columnId: string) => {
       if (!enableSort || !onSortChange || transposed) return;
@@ -688,7 +719,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           header: headerLabel,
           cell: ({ getValue }) => {
             const value = getValue();
-            return <span className="db-data-table-cell-text">{cellToText(value)}</span>;
+            return <span>{cellToText(value)}</span>;
           },
           minSize: isFieldCol ? 100 : COLUMN_MIN_WIDTH,
           size: isFieldCol ? 140 : 150,
@@ -752,34 +783,17 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       if (!wrap) return;
 
       const cellDrag = cellDragRef.current;
-      if (cellDrag) {
-        if (cellDrag.pending && !cellDrag.active) {
-          const dx = event.clientX - cellDrag.startX;
-          const dy = event.clientY - cellDrag.startY;
-          if (Math.hypot(dx, dy) < CELL_DRAG_THRESHOLD_PX) {
-            return;
-          }
-          if (hasActiveTextSelection()) {
-            cellDragRef.current = null;
-            return;
-          }
-          cellDrag.pending = false;
-          cellDrag.active = true;
-          wrap?.classList.add("db-data-table-wrap--cell-selecting");
-          setCellRange({ start: cellDrag.start, end: cellDrag.start });
-        }
-        if (cellDrag.active) {
-          const el = document.elementFromPoint(event.clientX, event.clientY);
-          const td = el?.closest("td");
-          if (!td) return;
-          const tr = td.closest("tr");
-          if (!tr) return;
-          const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
-          const colIndex = Number((td as HTMLElement).dataset.colIndex);
-          if (isNaN(rowIndex) || isNaN(colIndex)) return;
-          setCellRange({ start: cellDrag.start, end: { row: rowIndex, col: colIndex } });
-          return;
-        }
+      if (cellDrag?.active) {
+        const el = document.elementFromPoint(event.clientX, event.clientY);
+        const td = el?.closest('td');
+        if (!td) return;
+        const tr = td.closest('tr');
+        if (!tr) return;
+        const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
+        const colIndex = Number((td as HTMLElement).dataset.colIndex);
+        if (isNaN(rowIndex) || isNaN(colIndex)) return;
+        setCellRange({ start: cellDrag.start, end: { row: rowIndex, col: colIndex } });
+        return;
       }
 
       const drag = dragRef.current;
@@ -812,10 +826,6 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       const wrap = wrapRef.current;
 
       if (cellDragRef.current) {
-        const cellDrag = cellDragRef.current;
-        if (cellDrag.pending && !cellDrag.active && !hasActiveTextSelection()) {
-          setCellRange({ start: cellDrag.start, end: cellDrag.start });
-        }
         cellDragRef.current = null;
       }
 
@@ -839,18 +849,13 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
 
       dragRef.current = null;
       colResizeRef.current = null;
-      wrap?.classList.remove(
-        "db-data-table-wrap--resizing",
-        "db-data-table-wrap--col-resizing",
-        "db-data-table-wrap--cell-selecting",
-      );
+      wrap?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && cellRangeRef.current) {
         setCellRange(null);
         cellDragRef.current = null;
-        wrapRef.current?.classList.remove("db-data-table-wrap--cell-selecting");
       }
     };
     window.addEventListener("mousemove", onMouseMove);
@@ -1016,21 +1021,11 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                         end: { row: row.index, col: totalDataCols },
                       });
                     }
-                  : transposed
-                    ? (event) => {
-                        if (event.button !== 0) return;
-                        const tr = event.currentTarget.closest("tr");
-                        if (!tr) return;
-                        if (isNearRowBottom(tr, event.clientY)) {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          beginRowResize(row.index, event.clientY);
-                        }
-                      }
-                    : (event) => {
+                  : (event) => {
                 if (event.button !== 0) return;
                 if (event.shiftKey || event.ctrlKey || event.metaKey) return;
-                const tr = event.currentTarget.closest("tr");
+                if (transposed) return;
+                const tr = event.currentTarget.closest('tr');
                 if (!tr) return;
                 if (isNearRowBottom(tr, event.clientY)) {
                   event.preventDefault();
@@ -1038,13 +1033,10 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                   beginRowResize(row.index, event.clientY);
                   return;
                 }
-                cellDragRef.current = {
-                  pending: true,
-                  active: false,
-                  start: { row: row.index, col: cellIdx },
-                  startX: event.clientX,
-                  startY: event.clientY,
-                };
+                event.preventDefault();
+                event.stopPropagation();
+                cellDragRef.current = { active: true, start: { row: row.index, col: cellIdx } };
+                setCellRange({ start: { row: row.index, col: cellIdx }, end: { row: row.index, col: cellIdx } });
               }}
               onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
               onContextMenu={
@@ -1278,6 +1270,30 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               <rect x="1.5" y="1.5" width="5" height="5" rx="0.75" />
               <rect x="9.5" y="9.5" width="5" height="5" rx="0.75" />
               <path d="M6.5 4h3M4 6.5v3M12 9.5v3M9.5 12h3" strokeLinecap="round" />
+            </svg>
+          </Button>
+        )}
+        {canCopyPreviewSql && (
+          <Button
+            variant={copySqlHint ? "default" : "ghost"}
+            size="sm"
+            className="db-copy-preview-sql"
+            type="button"
+            title={copySqlHint ? t("database.results.copyPreviewSqlDone") : previewSql}
+            aria-label={t("database.results.copyPreviewSql")}
+            onClick={() => void handleCopyPreviewSql()}
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              width="14"
+              height="14"
+              aria-hidden
+            >
+              <rect x="5" y="5" width="8" height="9" rx="1" />
+              <path d="M4 11V3.5A1.5 1.5 0 0 1 5.5 2H11" strokeLinecap="round" />
             </svg>
           </Button>
         )}

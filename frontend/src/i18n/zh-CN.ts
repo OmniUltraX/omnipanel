@@ -1071,6 +1071,8 @@ export const zhCN = {
       filterAddRule: "添加条件",
       filterAddGroup: "添加组",
       filterCombinator: "组合",
+      copyPreviewSql: "复制当前查询 SQL",
+      copyPreviewSqlDone: "已复制 SQL",
     },
     context: {
       title: "数据库上下文",

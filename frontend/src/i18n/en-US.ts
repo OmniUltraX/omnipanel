@@ -1075,6 +1075,8 @@ export const enUS: TranslationDict = {
       filterAddRule: "Add rule",
       filterAddGroup: "Add group",
       filterCombinator: "Combinator",
+      copyPreviewSql: "Copy current query SQL",
+      copyPreviewSqlDone: "SQL copied",
     },
     context: {
       title: "Database Context",

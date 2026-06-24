@@ -241,6 +241,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             dirtyRowKeys={previewDirtyRowKeys}
             cellOverrides={previewCellOverrides}
             onPageChange={handlePreviewPageChange}
+            dbType={previewConnection?.db_type}
+            tableName={preview.tableName ?? undefined}
           />
         ) : null}
       </div>
