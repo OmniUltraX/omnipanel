@@ -5,9 +5,41 @@ import { switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { isWorkspacePath } from "../../lib/paths";
+import { pathnameToModuleKey } from "../../lib/moduleStatusLog";
+import { useStatusBarLogStore } from "../../stores/statusBarLogStore";
 import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+
+/** 订阅当前激活模块的运行日志并展示在状态栏 */
+function StatusBarModuleLog() {
+  const location = useLocation();
+  const setActivePublisher = useStatusBarLogStore((s) => s.setActivePublisher);
+  const logEntry = useStatusBarLogStore((s) => {
+    const key = s.activePublisher;
+    return key ? s.logsByModule[key] : undefined;
+  });
+
+  useEffect(() => {
+    setActivePublisher(pathnameToModuleKey(location.pathname));
+  }, [location.pathname, setActivePublisher]);
+
+  if (!logEntry?.message) {
+    return null;
+  }
+
+  return (
+    <span
+      className={`statusbar-log statusbar-log--${logEntry.level}`}
+      title={logEntry.message}
+    >
+      {logEntry.level === "progress" ? (
+        <span className="statusbar-dot yellow" aria-hidden />
+      ) : null}
+      {logEntry.message}
+    </span>
+  );
+}
 
 function StatusBarWorkspacePanelToggle() {
   const { t } = useI18n();
@@ -96,6 +128,7 @@ export function StatusBar() {
     return (
       <div className="statusbar">
         <ConnectionPoolIndicator />
+        <StatusBarModuleLog />
         <span className="statusbar-item">
           <span className="statusbar-dot green" />
           {terminalState}
@@ -129,6 +162,7 @@ export function StatusBar() {
   return (
     <div className="statusbar">
       <ConnectionPoolIndicator />
+      <StatusBarModuleLog />
       <span className="statusbar-spacer" />
       {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
     </div>

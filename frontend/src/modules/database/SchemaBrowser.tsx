@@ -46,6 +46,12 @@ import {
 } from "./schemaTreePagination";
 import { mergeConnectionsWithCache, type CachedConnection, type CachedDatabase } from "./schemaCacheMerge";
 import { refreshAllSchemaCache } from "./schemaCacheRefresh";
+import {
+  createSchemaCacheRefreshReporter,
+  publishSchemaNodeRefreshDone,
+  publishSchemaNodeRefreshFailed,
+  publishSchemaNodeRefreshStart,
+} from "./schemaCacheStatusLog";
 import type { SchemaCacheSnapshot } from "./schemaCache";
 import { textSearchMatches } from "../../lib/textSearchMatch";
 import {
@@ -520,6 +526,11 @@ export function SchemaBrowser({
     [syncDatabaseFilter, syncTableFilter, onSchemaCacheConnectionPatched],
   );
 
+  const schemaCacheReporter = useMemo(
+    () => createSchemaCacheRefreshReporter(t),
+    [t],
+  );
+
   const handleContextSchemaNode = useCallback(
     (item: SchemaTreeItem, event: ReactMouseEvent) => {
       event.preventDefault();
@@ -584,7 +595,10 @@ export function SchemaBrowser({
       disabled: !canRefresh || connRefreshing,
       onClick: () => {
         if (connection) {
-          void refreshAndApplySchemaTreeNode(connection, item, schemaRefreshHooks);
+          publishSchemaNodeRefreshStart(t, item.label);
+          void refreshAndApplySchemaTreeNode(connection, item, schemaRefreshHooks)
+            .then(() => publishSchemaNodeRefreshDone(t, item.label))
+            .catch((err) => publishSchemaNodeRefreshFailed(t, item.label, String(err)));
         }
       },
     };
@@ -638,20 +652,21 @@ export function SchemaBrowser({
       for (const connId of enabledConnIds) {
         setConnectionRefreshing(connId, true);
       }
-      const snapshot = await refreshAllSchemaCache();
+      const snapshot = await refreshAllSchemaCache(schemaCacheReporter);
       await replaceSchemaSnapshot(snapshot);
       const merged = mergeConnectionsWithCache(list, snapshot, connectionsRef.current);
       connectionsRef.current = merged;
       setInternalConnections(merged);
       syncFiltersFromSnapshot(snapshot, syncDatabaseFilter, syncTableFilter);
     } catch (error) {
+      schemaCacheReporter.onError?.(String(error));
       setLoadError(String(error));
     } finally {
       for (const connId of enabledConnIds) {
         setConnectionRefreshing(connId, false);
       }
     }
-  }, [replaceSchemaSnapshot, syncDatabaseFilter, syncTableFilter]);
+  }, [replaceSchemaSnapshot, schemaCacheReporter, syncDatabaseFilter, syncTableFilter]);
 
   useEffect(() => {
     if (useExternalConnections) {

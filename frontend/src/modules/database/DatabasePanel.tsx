@@ -61,6 +61,7 @@ import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta
 import { getCachedDatabaseNames } from "./schemaCacheMerge";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import { refreshConnectionSchemaCache } from "./schemaCacheRefresh";
+import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
@@ -341,6 +342,7 @@ function CreateDatabaseDialog({
 
 export function DatabasePanel() {
   const { t } = useI18n();
+  const schemaCacheReporter = useMemo(() => createSchemaCacheRefreshReporter(t), [t]);
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/database";
   const moduleSuspended = useModuleSuspended();
@@ -2169,7 +2171,7 @@ export function DatabasePanel() {
       }
       const { setConnectionRefreshing, patchConnection } = useDbSchemaCacheStore.getState();
       setConnectionRefreshing(connId, true);
-      void refreshConnectionSchemaCache(conn)
+      void refreshConnectionSchemaCache(conn, schemaCacheReporter)
         .then(async (entry) => {
           await patchConnection(connId, entry);
           const names = entry.databases.map((db) => db.name);
@@ -2179,11 +2181,14 @@ export function DatabasePanel() {
             [connId]: mergeFilter(prev[connId], names),
           }));
         })
+        .catch((err) => {
+          schemaCacheReporter.onError?.(String(err));
+        })
         .finally(() => {
           setConnectionRefreshing(connId, false);
         });
     },
-    [connections, setDatabaseFilters],
+    [connections, schemaCacheReporter, setDatabaseFilters],
   );
 
   const handleSelectTable = useCallback(
@@ -2192,7 +2197,7 @@ export function DatabasePanel() {
 
       const existingTabId = findTabIdForTable(
         useDbWorkspaceTabStore.getState().tablePreviews,
-        workspaceTabs.map((tab) => tab.id),
+        workspaceTabsRef.current.map((tab) => tab.id),
         selection.connId,
         selection.dbName,
         selection.tableName,
@@ -2258,7 +2263,7 @@ export function DatabasePanel() {
         }
       });
     },
-    [loadTablePreview, workspaceTabs],
+    [loadTablePreview, activateWorkspaceTab],
   );
 
   const activeSqlSidebarSeed = useDbWorkspaceTabStore(
@@ -2322,7 +2327,7 @@ export function DatabasePanel() {
 
       if (isRedisConnection(selection.connection)) {
         const existingTabId = findTabIdForRedisQuery(
-          workspaceTabs,
+          workspaceTabsRef.current,
           selection.connId,
           selection.dbName,
         );
@@ -2345,7 +2350,7 @@ export function DatabasePanel() {
       }
 
       const existingTabId = findTabIdForDatabase(
-        workspaceTabs,
+        workspaceTabsRef.current,
         selection.connId,
         selection.dbName,
       );
@@ -2365,7 +2370,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
     },
-    [workspaceTabs],
+    [activateWorkspaceTab],
   );
 
   const openSqlFile = useCallback(
@@ -3274,13 +3279,11 @@ export function DatabasePanel() {
           <DatabaseWorkspaceDock
             workspaceInitialized={workspaceInitialized}
             dockTabs={dockTabs}
-            activeWorkspaceTabId={activeWorkspaceTabId}
-            onActiveTabChange={activateWorkspaceTab}
             onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
             dockLayout={dockLayout}
             onDockLayoutChange={setDockLayout}
             renderDockPanel={renderDockPanel}
-            softRefreshKey={activeWorkspaceTabId}
+            panelContentKeysByTab={panelContentKeysByTab}
             onTabContextMenu={handleDockTabContextMenu}
             onCtrlCopyTab={handleCtrlCopyTab}
             recentClosedActionItems={recentClosedActionItems}

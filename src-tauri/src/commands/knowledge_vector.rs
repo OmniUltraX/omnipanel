@@ -148,7 +148,12 @@ pub async fn knowledge_vectorize(
             &batch_inputs,
         )
         .await
-        .map_err(|e| OmniError::connection(e))?;
+        .map_err(|e| {
+            OmniError::connection(format!(
+                "provider {} / {}: {e}",
+                args.provider.provider_id, args.provider.model_name
+            ))
+        })?;
         embeddings.extend(batch_vectors);
     }
 

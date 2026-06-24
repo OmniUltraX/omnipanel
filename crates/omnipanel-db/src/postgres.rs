@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow};
-use sqlx::{Column, Row, TypeInfo, ValueRef};
+use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
 
@@ -87,6 +87,18 @@ impl DbDriver for PgDriver {
     }
 }
 
+async fn select_columns(pool: &PgPool, sql: &str, rows: &[PgRow]) -> OmniResult<Vec<String>> {
+    if let Some(row) = rows.first() {
+        return Ok(row.columns().iter().map(|c| c.name().to_string()).collect());
+    }
+    let statement = pool.prepare(sql).await.map_err(map_sqlx_err)?;
+    Ok(statement
+        .columns()
+        .iter()
+        .map(|c| c.name().to_string())
+        .collect())
+}
+
 async fn run(pool: &PgPool, sql: &str) -> OmniResult<QueryResult> {
     let statements = split_statements(sql);
     if statements.is_empty() {
@@ -108,10 +120,7 @@ async fn run(pool: &PgPool, sql: &str) -> OmniResult<QueryResult> {
                 .fetch_all(pool)
                 .await
                 .map_err(map_sqlx_err)?;
-            let columns: Vec<String> = match rows.first() {
-                Some(r) => r.columns().iter().map(|c| c.name().to_string()).collect(),
-                None => Vec::new(),
-            };
+            let columns = select_columns(pool, &stmt, &rows).await?;
             let data = rows
                 .iter()
                 .map(|r| (0..columns.len()).map(|i| extract(r, i)).collect())

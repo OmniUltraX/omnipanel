@@ -1,5 +1,16 @@
 @layer components {
 
+    /* 数据库模块内使用不透明 accent-soft，避免半透明叠底导致选中/hover 发灰 */
+    .db-module-dock,
+    .db-module-transfer {
+        --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    }
+
+    [data-theme="light"] .db-module-dock,
+    [data-theme="light"] .db-module-transfer {
+        --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    }
+
     .db-layout {
         display: flex;
         flex: 1;
@@ -16,6 +27,8 @@
         flex-direction: column;
         flex-shrink: 0;
         overflow: hidden;
+        container-type: inline-size;
+        container-name: schema-sidebar;
     }
 
     .schema-sidebar .schema-tree,
@@ -740,7 +753,28 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        flex-shrink: 1;
+        flex: 1 1 auto;
+        flex-shrink: 0;
+    }
+
+    @container schema-sidebar (max-width: 260px) {
+        .tree-label-comment {
+            display: none;
+        }
+    }
+
+    .tree-label-comment {
+        margin-left: auto;
+        flex: 0 1 auto;
+        min-width: 0;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: min(240px, 40%);
+        text-align: right;
     }
 
     .tree-node--connection .tree-label {
@@ -824,20 +858,6 @@
 
     .tree-node--table .tree-label {
         color: var(--fg-2);
-    }
-
-    .tree-label-comment {
-        margin-left: auto;
-        flex-shrink: 1;
-        min-width: 0;
-        font-size: 11px;
-        font-weight: 400;
-        color: var(--muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: min(240px, 40vw);
-        text-align: right;
     }
 
     .tree-node--table .tree-icon {
@@ -2569,7 +2589,7 @@
     .db-data-table-th--sort-asc,
     .db-data-table-th--sort-desc {
         color: var(--accent);
-        background: var(--accent-soft, rgba(0, 122, 255, 0.06));
+        background: var(--accent-soft);
     }
 
     .db-data-table-th-inner {
@@ -2645,8 +2665,19 @@
         background: var(--bg);
     }
 
-    .db-data-table tbody tr.db-data-table-row:nth-child(even) {
+    .db-data-table tbody tr.db-data-table-row--even {
         background: var(--surface);
+    }
+
+    .db-data-table tbody tr.db-data-table-row--even > td:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
+        background: var(--surface);
+    }
+
+    .db-data-table-spacer-row td {
+        padding: 0;
+        border: none;
+        background: transparent;
+        line-height: 0;
     }
 
     .db-data-table tbody tr.db-data-table-row > td {
@@ -2695,7 +2726,7 @@
 
     .db-data-table-th--sort-asc.db-data-table-th--selected,
     .db-data-table-th--sort-desc.db-data-table-th--selected {
-        background: color-mix(in srgb, var(--accent) 22%, var(--accent-soft, rgba(0, 122, 255, 0.06))) !important;
+        background: color-mix(in srgb, var(--accent) 22%, var(--accent-soft)) !important;
     }
 
     .db-row-num-header,
@@ -2933,7 +2964,7 @@
     .db-data-table-wrap--transposed .db-data-table th:first-child {
         font-weight: 600;
         color: var(--accent);
-        background: var(--accent-soft, rgba(0, 122, 255, 0.06));
+        background: var(--accent-soft);
     }
 
     .db-pagination-controls {

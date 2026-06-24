@@ -671,6 +671,17 @@ export const zhCN = {
       query: "数据查询",
       transfer: "数据传输",
     },
+    statusLog: {
+      refreshingAll: "正在刷新 Schema 缓存…",
+      refreshingConnection: "正在刷新连接 {name}（{index}/{total}）…",
+      refreshingDatabase: "正在刷新 {connection} / {database}…",
+      connectionDone: "已刷新连接 {name}（{index}/{total}）",
+      allDone: "Schema 缓存刷新完成",
+      allFailed: "Schema 缓存刷新失败：{message}",
+      refreshingNode: "正在刷新 {name}…",
+      nodeDone: "已刷新 {name}",
+      nodeFailed: "刷新 {name} 失败：{message}",
+    },
     sidebar: {
       title: "Schema",
       connections: "连接",

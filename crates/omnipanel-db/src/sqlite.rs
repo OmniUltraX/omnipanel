@@ -285,6 +285,16 @@ mod tests {
     }
 
     #[test]
+    fn select_empty_table_returns_columns() {
+        let conn = test_conn();
+        conn.execute("CREATE TABLE empty_t (id INTEGER, name TEXT)", [])
+            .unwrap();
+        let result = super::run(&conn, "SELECT id, name FROM empty_t").unwrap();
+        assert_eq!(result.columns, vec!["id".to_string(), "name".to_string()]);
+        assert!(result.rows.is_empty());
+    }
+
+    #[test]
     fn insert_returns_rows_affected() {
         let conn = test_conn();
         let result = super::run(

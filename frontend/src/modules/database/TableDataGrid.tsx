@@ -18,6 +18,7 @@ import {
   type ColumnDef,
   type ColumnSizingState,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Button } from "../../components/ui/Button";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -477,6 +478,15 @@ function ColumnVisibilityPopover({
 
 export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false }: TableDataGridProps) {
   const { t } = useI18n();
+  const effectiveColumns = useMemo(() => {
+    if (columns.length > 0) {
+      return columns;
+    }
+    if (columnMeta?.length) {
+      return columnMeta.map((col) => col.name);
+    }
+    return [];
+  }, [columns, columnMeta]);
   const [transposed, setTransposed] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => new Set());
   const [colVisOpen, setColVisOpen] = useState(false);
@@ -555,12 +565,12 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     dragRef.current = null;
     colResizeRef.current = null;
     wrapRef.current?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
-  }, [columns, transposed]);
+  }, [effectiveColumns, transposed]);
 
   useEffect(() => {
     setHiddenColumns((prev) => {
       if (prev.size === 0) return prev;
-      const valid = new Set(columns);
+      const valid = new Set(effectiveColumns);
       let changed = false;
       const next = new Set<string>();
       for (const name of prev) {
@@ -572,7 +582,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       }
       return changed ? next : prev;
     });
-  }, [columns]);
+  }, [effectiveColumns]);
 
   const pkCols = useMemo(() => (columnMeta ?? []).filter((c) => c.isPk), [columnMeta]);
 
@@ -593,8 +603,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   );
 
   const visibleColumns = useMemo(
-    () => (hiddenColumns.size === 0 ? columns : columns.filter((c) => !hiddenColumns.has(c))),
-    [columns, hiddenColumns],
+    () => (hiddenColumns.size === 0 ? effectiveColumns : effectiveColumns.filter((c) => !hiddenColumns.has(c))),
+    [effectiveColumns, hiddenColumns],
   );
 
   const transposedData = useMemo(() => {
@@ -823,8 +833,30 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     }
   }, [columnSizing, displayColumns, totalTableWidth, containerWidth, fillDelta, lastColumnId, resolveColumnWidth]);
 
-  const allColumnsHidden = columns.length > 0 && visibleColumns.length === 0;
+  const allColumnsHidden = effectiveColumns.length > 0 && visibleColumns.length === 0;
   const tableRows = table.getRowModel().rows;
+  const leafColumnCount = table.getAllLeafColumns().length;
+
+  const getRowHeight = useCallback(
+    (index: number) => {
+      const row = tableRows[index];
+      if (!row) return DEFAULT_ROW_HEIGHT;
+      return rowHeights[row.index] ?? DEFAULT_ROW_HEIGHT;
+    },
+    [tableRows, rowHeights],
+  );
+
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => wrapRef.current,
+    estimateSize: getRowHeight,
+    overscan: 12,
+    getItemKey: (index) => tableRows[index]?.id ?? String(index),
+  });
+
+  useLayoutEffect(() => {
+    rowVirtualizer.measure();
+  }, [rowHeights, tableRows.length]);
 
   const handleSelectAll = useCallback(() => {
     if (transposed) return;
@@ -848,13 +880,20 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     });
   }, [transposed, displayColumns, tableRows.length, setCellRange]);
 
-  if (columns.length === 0) {
+  if (effectiveColumns.length === 0) {
     return null;
   }
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const virtualPaddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+      : 0;
 
   const renderBodyRow = (rowIndex: number) => {
     const row = tableRows[rowIndex];
@@ -871,7 +910,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       <tr
         key={row.id}
         data-row-index={row.index}
-        className={`db-data-table-row${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
+        className={`db-data-table-row${row.index % 2 === 1 ? " db-data-table-row--even" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
         style={isCustomHeight ? { height: rowHeight } : undefined}
         onMouseDown={(event) => {
           if (!isNearRowBottom(event.currentTarget, event.clientY)) {
@@ -969,7 +1008,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
+      className={`db-data-table-wrap db-data-table-wrap--virtual${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
     >
       <table
         className="db-data-table"
@@ -1071,7 +1110,17 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           ))}
         </thead>
         <tbody>
-          {tableRows.map((row) => renderBodyRow(row.index))}
+          {virtualPaddingTop > 0 && (
+            <tr className="db-data-table-spacer-row" aria-hidden>
+              <td colSpan={leafColumnCount} style={{ height: virtualPaddingTop }} />
+            </tr>
+          )}
+          {virtualRows.map((virtualRow) => renderBodyRow(virtualRow.index))}
+          {virtualPaddingBottom > 0 && (
+            <tr className="db-data-table-spacer-row" aria-hidden>
+              <td colSpan={leafColumnCount} style={{ height: virtualPaddingBottom }} />
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -1089,7 +1138,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       <div className="db-pagination-left">
         {toolbar ? <div className="db-pagination-toolbar">{toolbar}</div> : null}
         <div className="db-pagination-info">
-        {columns.length > 0 && (
+        {effectiveColumns.length > 0 && (
           <Button
             ref={colVisAnchorRef}
             variant={colVisOpen ? "default" : "ghost"}
@@ -1204,7 +1253,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     {colVisOpen && colVisAnchorRef.current && (
       <ColumnVisibilityPopover
         anchorRect={colVisAnchorRef.current.getBoundingClientRect()}
-        columns={columns}
+        columns={effectiveColumns}
         hiddenColumns={hiddenColumns}
         onChange={setHiddenColumns}
         onClose={() => setColVisOpen(false)}

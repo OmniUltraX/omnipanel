@@ -6051,6 +6051,30 @@
         flex: 1;
     }
 
+    .statusbar-log {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        min-width: 0;
+        max-width: min(480px, 45vw);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--fg-2);
+    }
+
+    .statusbar-log--progress {
+        color: var(--fg-2);
+    }
+
+    .statusbar-log--success {
+        color: var(--success);
+    }
+
+    .statusbar-log--error {
+        color: var(--danger);
+    }
+
     .connection-pool-indicator {
         cursor: default;
         user-select: none;

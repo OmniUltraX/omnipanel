@@ -675,6 +675,17 @@ export const enUS: TranslationDict = {
       query: "Data Query",
       transfer: "Data Transfer",
     },
+    statusLog: {
+      refreshingAll: "Refreshing schema cache…",
+      refreshingConnection: "Refreshing connection {name} ({index}/{total})…",
+      refreshingDatabase: "Refreshing {connection} / {database}…",
+      connectionDone: "Refreshed connection {name} ({index}/{total})",
+      allDone: "Schema cache refresh complete",
+      allFailed: "Schema cache refresh failed: {message}",
+      refreshingNode: "Refreshing {name}…",
+      nodeDone: "Refreshed {name}",
+      nodeFailed: "Failed to refresh {name}: {message}",
+    },
     sidebar: {
       title: "Schema",
       connections: "Connections",

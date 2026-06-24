@@ -26,7 +26,7 @@
   --accent: #007aff;
   --accent-hover: #0056b3;
   --accent-active: #004085;
-  --accent-soft: rgba(0, 122, 255, 0.12);
+  --accent-soft: rgba(0, 122, 255);
 
   /* Semantic */
   --success: #30d158;

@@ -14,8 +14,28 @@ import type {
 import { emptySchemaCacheSnapshot } from "./schemaCache";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 
+export interface SchemaCacheRefreshReporter {
+  onStart?: (params: { connectionCount: number }) => void;
+  onConnectionStart?: (params: { name: string; index: number; total: number }) => void;
+  onDatabaseStart?: (params: {
+    connectionName: string;
+    databaseName: string;
+    index: number;
+    total: number;
+  }) => void;
+  onConnectionComplete?: (params: {
+    name: string;
+    index: number;
+    total: number;
+    databaseCount: number;
+  }) => void;
+  onComplete?: () => void;
+  onError?: (message: string) => void;
+}
+
 export async function refreshAndPatchConnectionSchemaCache(
   connection: DbConnectionConfig,
+  reporter?: SchemaCacheRefreshReporter,
 ): Promise<void> {
   if (!isConnectionEnabled(connection)) {
     return;
@@ -23,8 +43,20 @@ export async function refreshAndPatchConnectionSchemaCache(
   const store = useDbSchemaCacheStore.getState();
   store.setConnectionRefreshing(connection.id, true);
   try {
-    const entry = await refreshConnectionSchemaCache(connection);
+    reporter?.onStart?.({ connectionCount: 1 });
+    reporter?.onConnectionStart?.({ name: connection.name, index: 1, total: 1 });
+    const entry = await fetchConnectionSchemaCache(connection, reporter);
     await store.patchConnection(connection.id, entry);
+    reporter?.onConnectionComplete?.({
+      name: connection.name,
+      index: 1,
+      total: 1,
+      databaseCount: entry.databases.length,
+    });
+    reporter?.onComplete?.();
+  } catch (err) {
+    reporter?.onError?.(String(err));
+    throw err;
   } finally {
     store.setConnectionRefreshing(connection.id, false);
   }
@@ -32,6 +64,7 @@ export async function refreshAndPatchConnectionSchemaCache(
 
 export async function fetchConnectionSchemaCache(
   connection: DbConnectionConfig,
+  reporter?: SchemaCacheRefreshReporter,
 ): Promise<SchemaCacheConnectionEntry> {
   const refreshedAt = Date.now();
   try {
@@ -39,7 +72,14 @@ export async function fetchConnectionSchemaCache(
     const dbNames = presetDb ? [presetDb] : await listDatabases(connection);
     const databases: SchemaCacheDatabaseEntry[] = [];
 
-    for (const dbName of dbNames) {
+    for (let index = 0; index < dbNames.length; index++) {
+      const dbName = dbNames[index];
+      reporter?.onDatabaseStart?.({
+        connectionName: connection.name,
+        databaseName: dbName,
+        index: index + 1,
+        total: dbNames.length,
+      });
       try {
         const result = await introspectSchema(connection, dbName);
         databases.push({
@@ -68,27 +108,50 @@ export async function fetchConnectionSchemaCache(
 
 export async function buildFullSchemaCacheSnapshot(
   connections: DbConnectionConfig[],
+  reporter?: SchemaCacheRefreshReporter,
 ): Promise<SchemaCacheSnapshot> {
+  const enabled = connections.filter(isConnectionEnabled);
+  reporter?.onStart?.({ connectionCount: enabled.length });
   const snapshot = emptySchemaCacheSnapshot();
-  for (const connection of connections) {
-    if (!isConnectionEnabled(connection)) {
-      continue;
-    }
-    snapshot.connections[connection.id] = await fetchConnectionSchemaCache(connection);
+  let index = 0;
+  for (const connection of enabled) {
+    index += 1;
+    reporter?.onConnectionStart?.({ name: connection.name, index, total: enabled.length });
+    snapshot.connections[connection.id] = await fetchConnectionSchemaCache(connection, reporter);
+    reporter?.onConnectionComplete?.({
+      name: connection.name,
+      index,
+      total: enabled.length,
+      databaseCount: snapshot.connections[connection.id].databases.length,
+    });
   }
+  reporter?.onComplete?.();
   return snapshot;
 }
 
-export async function refreshAllSchemaCache(): Promise<SchemaCacheSnapshot> {
+export async function refreshAllSchemaCache(
+  reporter?: SchemaCacheRefreshReporter,
+): Promise<SchemaCacheSnapshot> {
   const connections = await listConnections();
-  return buildFullSchemaCacheSnapshot(connections);
+  return buildFullSchemaCacheSnapshot(connections, reporter);
 }
 
 export async function refreshConnectionSchemaCache(
   connection: DbConnectionConfig,
+  reporter?: SchemaCacheRefreshReporter,
 ): Promise<SchemaCacheConnectionEntry> {
   if (!isConnectionEnabled(connection)) {
     return { databases: [] };
   }
-  return fetchConnectionSchemaCache(connection);
+  reporter?.onStart?.({ connectionCount: 1 });
+  reporter?.onConnectionStart?.({ name: connection.name, index: 1, total: 1 });
+  const entry = await fetchConnectionSchemaCache(connection, reporter);
+  reporter?.onConnectionComplete?.({
+    name: connection.name,
+    index: 1,
+    total: 1,
+    databaseCount: entry.databases.length,
+  });
+  reporter?.onComplete?.();
+  return entry;
 }

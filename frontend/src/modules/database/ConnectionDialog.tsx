@@ -15,6 +15,7 @@ import {
   testConnection,
 } from "./api";
 import { refreshAndPatchConnectionSchemaCache } from "./schemaCacheRefresh";
+import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
 
 const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
@@ -66,6 +67,8 @@ export function ConnectionDialog({
   const [saving, setSaving] = useState(false);
 
   const isEditMode = Boolean(initialConnection);
+
+  const schemaCacheReporter = useMemo(() => createSchemaCacheRefreshReporter(t), [t]);
 
   useEffect(() => {
     if (!open) {
@@ -122,7 +125,7 @@ export function ConnectionDialog({
     setStatus(null);
     try {
       const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
-      void refreshAndPatchConnectionSchemaCache(saved);
+      void refreshAndPatchConnectionSchemaCache(saved, schemaCacheReporter);
       onSaved?.();
       onClose();
     } catch (error) {

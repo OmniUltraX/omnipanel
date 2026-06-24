@@ -55,6 +55,14 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     return [...preview.data.rows, ...pendingRows];
   }, [preview?.data, colMeta, tabDirtyRowsForTab]);
 
+  const previewColumns = useMemo(() => {
+    const fromData = preview?.data?.columns ?? [];
+    if (fromData.length > 0) {
+      return fromData;
+    }
+    return colMeta?.map((col) => col.name) ?? [];
+  }, [preview?.data?.columns, colMeta]);
+
   const previewDirtyRowKeys = useMemo(
     () => new Set(Object.keys(tabDirtyRowsForTab)),
     [tabDirtyRowsForTab],
@@ -205,7 +213,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
           </div>
         ) : preview?.data && canRefresh ? (
           <TableDataGrid
-            columns={preview.data.columns}
+            columns={previewColumns}
             rows={previewDisplayRows}
             totalRows={preview.totalRows + (previewDisplayRows.length - preview.data.rows.length)}
             page={preview.page}
