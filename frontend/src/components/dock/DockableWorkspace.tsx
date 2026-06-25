@@ -114,6 +114,8 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   addTabConfig?: DockAddTabConfig;
   /** Tab 栏前缀区域（dockview dv-pre-actions-container / prefixHeaderActions） */
   preActions?: ReactNode;
+  /** 点击 tab 时回调；wasActive 为 true 表示点击的是当前已激活 tab */
+  onTabClick?: (tabId: string, wasActive: boolean) => void;
   /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
   /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
@@ -191,6 +193,7 @@ export function DockableWorkspace({
   tabStyle = "default",
   addTabConfig,
   preActions,
+  onTabClick,
   windowControl = false,
   onPanelTransferredOut,
   windowChromeVariant = "default",
@@ -313,13 +316,17 @@ export function DockableWorkspace({
 
   const tabStyleRef = useRef(tabStyle);
   tabStyleRef.current = tabStyle;
+  const onTabClickRef = useRef(onTabClick);
+  onTabClickRef.current = onTabClick;
 
   const tabHeaderRuntime = useMemo(
     (): DockTabHeaderRuntime => ({
       tabsRef,
+      activeTabIdRef,
       tabStyleRef,
       onTabContextMenuRef,
       onTabDoubleClickRef,
+      onTabClickRef,
     }),
     [],
   );
@@ -564,6 +571,7 @@ export function DockableWorkspace({
 
   // 自定义 tab 关闭按钮 drag-ignore
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const pressedActiveTabIdRef = useRef<string | null>(null);
   useEffect(() => {
     const root = wrapperRef.current;
     if (!root) return;
@@ -577,6 +585,54 @@ export function DockableWorkspace({
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [tabs.length]);
+
+  // 再次点击已激活 tab：以 pointerdown 时的激活态为准。
+  // dockview 会在 click 前完成切换，若只看 click 时的 dv-active-tab，
+  // 点击其它 tab 也会被误判为“当前激活 tab”。
+  useEffect(() => {
+    if (!onTabClick) return;
+    const root = wrapperRef.current;
+    if (!root) return;
+
+    const findTabHeader = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return null;
+      const tabHeader = target.closest<HTMLElement>(
+        ".dv-default-tab[data-dock-tab-id]",
+      );
+      return tabHeader && root.contains(tabHeader) ? tabHeader : null;
+    };
+
+    const onCapturePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const tabHeader = findTabHeader(event.target);
+      if (!tabHeader) return;
+      const tab = tabHeader.closest(".dv-tab");
+      const tabId = tabHeader.dataset.dockTabId;
+      pressedActiveTabIdRef.current =
+        tabId && tab?.classList.contains("dv-active-tab") ? tabId : null;
+    };
+
+    const onCaptureClick = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      const tabHeader = findTabHeader(event.target);
+      const tabId = tabHeader?.dataset.dockTabId;
+      if (!tabId || pressedActiveTabIdRef.current !== tabId) {
+        pressedActiveTabIdRef.current = null;
+        return;
+      }
+      pressedActiveTabIdRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      onTabClickRef.current?.(tabId, true);
+    };
+
+    root.addEventListener("pointerdown", onCapturePointerDown, true);
+    root.addEventListener("click", onCaptureClick, true);
+    return () => {
+      root.removeEventListener("pointerdown", onCapturePointerDown, true);
+      root.removeEventListener("click", onCaptureClick, true);
+    };
+  }, [onTabClick, tabs.length]);
 
   // 加载初始布局（在 onReady 中执行）
   const applyInitialLayout = useCallback((api: DockviewApi) => {

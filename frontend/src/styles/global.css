@@ -4020,6 +4020,7 @@
     flex: 1;
     min-height: 0;
     height: 100%;
+    position: relative;
 }
 
 .advance-terminal-main {
@@ -4036,6 +4037,27 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+.advance-terminal-side--collapsed {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    width: 38px !important;
+    min-width: 38px !important;
+    max-width: 38px !important;
+    flex: 0 0 38px !important;
+    border-left: none;
+}
+
+.advance-terminal-side--collapsed .advance-terminal-side-dock .dv-content-container {
+    display: none !important;
+}
+
+.advance-terminal-side--collapsed .advance-terminal-side-dock .dv-groupview {
+    width: 38px !important;
 }
 
 /* 终端右侧工具面板：dockview 原生 right header（保留拖拽分屏），
