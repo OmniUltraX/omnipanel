@@ -1,7 +1,7 @@
 import type { McpToolRegistration } from "../../../lib/ai/context";
 import { useTerminalStore } from "../../../stores/terminalStore";
 import { resolveResourceById } from "../../../stores/connectionStore";
-import { requestTerminalExecution } from "../executeTerminalCommand";
+import { requestTerminalExecution, type TerminalExecutionResult } from "../executeTerminalCommand";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../paneResource";
 
 function requireString(args: Record<string, unknown>, key: string): string {
@@ -12,8 +12,16 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return value.trim();
 }
 
-async function runTerminalCommand(args: Record<string, unknown>): Promise<string> {
-  const command = requireString(args, "command");
+export interface TerminalCommandCoreArgs {
+  command: string;
+  session_id?: string;
+}
+
+/** 供 inlineToolBridge 与 MCP 工具共用的终端命令执行核心 */
+export async function executeTerminalCommandCore(
+  args: TerminalCommandCoreArgs,
+): Promise<TerminalExecutionResult & { outputJson: string }> {
+  const command = args.command.trim();
   const tabId =
     typeof args.session_id === "string" && args.session_id.trim()
       ? args.session_id.trim()
@@ -40,11 +48,12 @@ async function runTerminalCommand(args: Record<string, unknown>): Promise<string
 
   const block = "block" in result ? result.block : undefined;
   if (!block) {
-    return JSON.stringify({ status: "submitted", command }, null, 2);
+    const outputJson = JSON.stringify({ status: "submitted", command }, null, 2);
+    return { ...result, outputJson };
   }
 
   const output = block.output.trim();
-  return JSON.stringify(
+  const outputJson = JSON.stringify(
     {
       command: block.command.trim() || command,
       exitCode: block.exitCode,
@@ -55,6 +64,17 @@ async function runTerminalCommand(args: Record<string, unknown>): Promise<string
     null,
     2,
   );
+
+  return { ...result, outputJson };
+}
+
+async function runTerminalCommand(args: Record<string, unknown>): Promise<string> {
+  const command = requireString(args, "command");
+  const { outputJson } = await executeTerminalCommandCore({
+    command,
+    session_id: typeof args.session_id === "string" ? args.session_id : undefined,
+  });
+  return outputJson;
 }
 
 export const TERMINAL_MODULE_MCP_TOOLS: McpToolRegistration[] = [

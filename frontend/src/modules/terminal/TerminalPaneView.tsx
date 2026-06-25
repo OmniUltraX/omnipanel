@@ -7,6 +7,7 @@ import type { TerminalBlock } from "../../stores/blocksStore";
 import { useI18n } from "../../i18n";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
+import { TerminalBlockFeed } from "./TerminalBlockFeed";
 import { type BlueprintSource } from "./sessionBlueprints";
 import {
   buildSessionMetaLine,
@@ -198,7 +199,7 @@ function PaneViewBody(
         onToggleInputMode={toggleInputMode}
       />
       <div
-        className="terminal-area term-terminal-shell"
+        className={`terminal-area term-terminal-shell${inputMode === "external" ? " term-terminal-shell--warp" : ""}`}
         tabIndex={-1}
         onMouseDownCapture={(event) => {
           onActivate();
@@ -213,6 +214,9 @@ function PaneViewBody(
           }
         }}
       >
+        {inputMode === "external" ? (
+          <TerminalBlockFeed sessionId={paneId} promptSymbol={promptSymbol} />
+        ) : null}
         <TerminalView
           key={`${paneId}:${blueprintSource.type ?? "local"}:${currentResourceId}`}
           sessionId={paneId}

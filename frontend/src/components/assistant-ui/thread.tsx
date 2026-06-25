@@ -725,3 +725,23 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
     </BranchPickerPrimitive.Root>
   );
 };
+
+/** 仅消息列表（无 Composer），供终端内嵌 AI 卡片使用 */
+export const ThreadMessagesOnly: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
+  return (
+    <ThreadComponentsContext.Provider value={components}>
+      <ThreadPrimitive.Root
+        className="aui-root aui-thread-root term-warp-ai-thread-root flex flex-col"
+        style={{
+          ["--thread-max-width" as string]: "100%",
+        }}
+      >
+        <ThreadPrimitive.Viewport className="flex flex-col overflow-x-auto overflow-y-hidden px-1 py-1">
+          <div className="aui_message-group flex flex-col gap-y-4 empty:hidden">
+            <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+          </div>
+        </ThreadPrimitive.Viewport>
+      </ThreadPrimitive.Root>
+    </ThreadComponentsContext.Provider>
+  );
+};

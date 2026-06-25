@@ -1,7 +1,18 @@
+export interface InlineTerminalAiTarget {
+  sessionId: string;
+  blockId: string;
+  /** 在同一张 AI 卡片内继续追问 */
+  continueThread?: boolean;
+  /** 当前 assistant 轮次 id（流式写入） */
+  assistantTurnId?: string;
+}
+
 export interface SubmitAiPromptOptions {
-  /** 新建会话（终端 # 自然语言等场景） */
+  /** 新建会话（侧栏 AI 等场景） */
   newConversation?: boolean;
   contextChips?: { type: string; label: string }[];
+  /** 终端 Command Bar `#` / `/agent` 默认走内联 Block 流；侧栏用于长对话 */
+  inline?: InlineTerminalAiTarget;
 }
 
 type SubmitAiPromptHandler = (

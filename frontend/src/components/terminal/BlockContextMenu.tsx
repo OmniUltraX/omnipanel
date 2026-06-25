@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { useAiStore } from "../../stores/aiStore";
 import type { TerminalBlock } from "../../stores/blocksStore";
+import { getAiBlockTextForContext, getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";
 
 interface Props {
   block: TerminalBlock;
@@ -28,7 +29,9 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
   );
 
   const hasError = block.exitCode !== null && block.exitCode !== 0;
-  const hasOutput = block.output.trim().length > 0;
+  const isAiBlock = block.kind === "ai";
+  const aiContext = isAiBlock ? getAiBlockTextForContext(block) : "";
+  const hasOutput = isAiBlock ? aiContext.trim().length > 0 : block.output.trim().length > 0;
 
   const items = useMemo((): ContextMenuItem[] => {
     const menu: ContextMenuItem[] = [
@@ -47,7 +50,34 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
       },
     ];
 
-    if (hasError && hasOutput) {
+    if (isAiBlock) {
+      menu.push({
+        id: "continue-in-sidebar",
+        label: "在侧栏继续",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+          </svg>
+        ),
+        onClick: () => {
+          const convId = createConversation();
+          addContext(convId, { type: "terminal", label: "终端 AI 卡片" });
+          const thread = getResolvedAiThread(block);
+          for (const item of thread) {
+            if (item.kind === "message") {
+              addMessage(convId, {
+                role: item.role,
+                content: item.content,
+              });
+            }
+          }
+          openDrawer();
+          onClose();
+        },
+      });
+    }
+
+    if (hasError && hasOutput && !isAiBlock) {
       menu.push(
         {
           id: "explain-error",
@@ -96,7 +126,9 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
         ),
         onClick: () =>
           sendToAI(
-            `Analyze this terminal block:\n\nCommand: \`${block.command}\`\n${block.exitCode !== null ? `Exit code: ${block.exitCode}` : "Status: running"}\n${block.cwd ? `Directory: ${block.cwd}` : ""}\n${hasOutput ? `\nOutput:\n\`\`\`\n${block.output.slice(-1500)}\n\`\`\`` : ""}`,
+            isAiBlock
+              ? `分析以下终端 AI 对话：\n\n${aiContext}`
+              : `Analyze this terminal block:\n\nCommand: \`${block.command}\`\n${block.exitCode !== null ? `Exit code: ${block.exitCode}` : "Status: running"}\n${block.cwd ? `Directory: ${block.cwd}` : ""}\n${hasOutput ? `\nOutput:\n\`\`\`\n${(isAiBlock ? aiContext : block.output).slice(-1500)}\n\`\`\`` : ""}`,
           ),
       },
     );
@@ -137,7 +169,7 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
     });
 
     return menu;
-  }, [block, hasError, hasOutput, onClose, onRunCommand, sendToAI]);
+  }, [block, hasError, hasOutput, isAiBlock, aiContext, onClose, onRunCommand, sendToAI]);
 
   return (
     <ContextMenu

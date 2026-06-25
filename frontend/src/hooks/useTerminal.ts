@@ -19,12 +19,19 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
 import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
-import { decodeTerminalBytes, resolveBlockStatus } from "../modules/terminal/terminalOutputText";
-import { feedTerminalOutputForWatch } from "../modules/terminal/executeTerminalCommand";
+import { decodeTerminalBytes, extractCommandOutput, normalizeBlockCommand, resolveBlockStatus } from "../modules/terminal/terminalOutputText";
+import {
+  claimFeedCaptureBlockId,
+  clearOutputWatch,
+  feedTerminalOutputForWatch,
+  hasActiveFeedCapture,
+  releaseFeedCapture,
+} from "../modules/terminal/executeTerminalCommand";
 import {
   trackTerminalOutputForAutoReturn,
   tryAutoReturnAfterBlockEnd,
 } from "../modules/terminal/terminalAutoReturn";
+import { isWarpDisplay } from "../modules/terminal/terminalDisplayMode";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { useModuleVisibility } from "../lib/moduleVisibility";
 
@@ -532,14 +539,39 @@ export function useTerminal(
               if (!pendingBlock) {
                 pendingBlock = { startLine: y, command: commandText, cwd: currentCwd };
               } else {
-                pendingBlock.command = commandText;
+                pendingBlock.command = commandText || pendingBlock.command;
+              }
+
+              const existingBlockId = pendingBlock.blockId;
+              if (existingBlockId) {
+                const cmd = normalizeBlockCommand(commandText);
+                if (cmd) {
+                  useBlocksStore.getState().updateBlock(existingBlockId, { command: cmd });
+                }
+                break;
+              }
+
+              const captureBlockId = claimFeedCaptureBlockId(sessionId);
+              if (captureBlockId) {
+                const cmd = normalizeBlockCommand(commandText);
+                if (cmd) {
+                  useBlocksStore.getState().updateBlock(captureBlockId, { command: cmd });
+                }
+                pendingBlock = { ...pendingBlock, blockId: captureBlockId };
+                break;
+              }
+              const effectiveCmd = (pendingBlock.command || commandText).trim();
+              if (!effectiveCmd) {
+                pendingBlock = null;
+                break;
               }
               const marker = t.registerMarker(0);
               const blockId = createBlockId();
               addBlock(sessionId, {
                 id: blockId,
                 sessionId,
-                command: pendingBlock.command,
+                kind: "shell",
+                command: effectiveCmd,
                 output: "",
                 exitCode: null,
                 startLine: pendingBlock.startLine,
@@ -557,12 +589,22 @@ export function useTerminal(
               if (pendingBlock?.blockId) {
                 const blockId = pendingBlock.blockId;
                 const endLine = t.buffer.active.cursorY + t.buffer.active.baseY;
+                const existing = useBlocksStore.getState().findBlockById(blockId);
+                const cmd = normalizeBlockCommand(existing?.command ?? pendingBlock.command);
+                const cleaned =
+                  existing && cmd
+                    ? extractCommandOutput(existing.output, cmd)
+                    : "";
                 updateBlock(blockId, {
                   exitCode,
                   endLine,
                   status: resolveBlockStatus(exitCode),
+                  ...(cleaned ? { output: cleaned } : {}),
                 });
                 tryAutoReturnAfterBlockEnd(sessionId, blockId);
+                trimXtermAfterBlockEnd(t);
+                clearOutputWatch(sessionId);
+                releaseFeedCapture(sessionId);
               }
               pendingBlock = null;
               break;
@@ -594,19 +636,34 @@ export function useTerminal(
       outputBatcher?.push(bytes);
     }
 
+    function trimXtermAfterBlockEnd(t: Terminal) {
+      if (!isWarpDisplay(sessionId)) return;
+      t.clear();
+    }
+
+    function shouldWriteToXterm(): boolean {
+      if (suspendedRef.current) return false;
+      if (!isWarpDisplay(sessionId)) return true;
+      return Boolean(pendingBlock?.blockId) || hasActiveFeedCapture(sessionId);
+    }
+
     async function attachOutputListener() {
       outputBatcher = createTerminalOutputBatcher((merged) => {
         trackTerminalOutputForAutoReturn(sessionId, merged);
         const text = decodeTerminalBytes(merged);
         feedTerminalOutputForWatch(sessionId, text);
-        if (pendingBlock?.blockId) {
-          useBlocksStore.getState().appendBlockOutput(pendingBlock.blockId, text);
+        const outputBlockId =
+          pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
+        if (outputBlockId) {
+          useBlocksStore.getState().appendBlockOutput(outputBlockId, text);
         }
         if (suspendedRef.current) {
           runtimeRef.current.outputBuffer.push(merged);
           return;
         }
-        term?.write(merged);
+        if (shouldWriteToXterm()) {
+          term?.write(merged);
+        }
       });
       if (remote) {
         remoteInitEchoFilter = createRemoteInitEchoFilter(queueOutput);
@@ -663,6 +720,9 @@ export function useTerminal(
         const bytes = decodeOutput(b64);
         term.reset();
         if (bytes && bytes.length > 0) term.write(bytes);
+        if (isWarpDisplay(sessionId)) {
+          term.clear();
+        }
       } catch (err) {
         if (isSessionNotFoundError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);

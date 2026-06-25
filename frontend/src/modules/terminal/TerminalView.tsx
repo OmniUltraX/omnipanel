@@ -134,7 +134,7 @@ export function TerminalView({
   return (
     <div
       ref={containerRef}
-      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--external-input" : ""}`}
+      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--live" : ""}`}
     />
   );
 }

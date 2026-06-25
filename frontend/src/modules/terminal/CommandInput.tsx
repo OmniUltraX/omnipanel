@@ -21,11 +21,14 @@ import {
   buildCommandPlanPrompt,
   buildExplainErrorPrompt,
   buildFixErrorPrompt,
-  buildNaturalLanguagePrompt,
   openAiWithPrompt,
   saveCommandsAsWorkflow,
   type CommandPlanStep,
 } from "./warpExperience";
+import { useCommandBarDraftStore } from "./commandBarDraftStore";
+import { submitInlineFollowUp, submitInlineNaturalLanguage } from "./warpInlineAi";
+import { useTerminalUiStore } from "./terminalUiStore";
+import { TerminalToolCallDock } from "./TerminalToolCallDock";
 
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
@@ -43,6 +46,7 @@ function syncCommandInputHeight(element: HTMLTextAreaElement) {
 
 export type CommandInputHandle = {
   focus: () => void;
+  setValue: (text: string) => void;
 };
 
 export type CommandInputProps = {
@@ -79,6 +83,10 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
     const [planSteps, setPlanSteps] = useState<CommandPlanStep[] | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const { t } = useI18n();
+    const expandedAiBlockId = useTerminalUiStore(
+      (state) => state.expandedAiBlockIds[sessionId] ?? null,
+    );
+    const followUpBlockId = expandedAiBlockId;
 
     const completionCtx = useMemo<TerminalCompletionContext | null>(() => {
       if (disabled || value.startsWith("#")) return null;
@@ -100,7 +108,25 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       focus: () => {
         textareaRef.current?.focus();
       },
+      setValue: (text: string) => {
+        setValue(text);
+        setCursor(text.length);
+        const el = textareaRef.current;
+        if (el) syncCommandInputHeight(el);
+      },
     }));
+
+    const draftVersion = useCommandBarDraftStore((s) => s.draftVersion[sessionId] ?? 0);
+
+    useEffect(() => {
+      const draft = useCommandBarDraftStore.getState().consumeDraft(sessionId);
+      if (!draft) return;
+      setValue(draft);
+      setCursor(draft.length);
+      const el = textareaRef.current;
+      if (el) syncCommandInputHeight(el);
+      textareaRef.current?.focus();
+    }, [sessionId, draftVersion]);
 
     const applyCandidate = useCallback(
       (index: number) => {
@@ -124,10 +150,16 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       const trimmed = value.trim();
       if (!trimmed) return;
 
-      if (trimmed.startsWith("#")) {
-        const query = trimmed.slice(1).trim();
+      if (trimmed.startsWith("#") || trimmed.startsWith("/agent ")) {
+        const query = trimmed.startsWith("#")
+          ? trimmed.slice(1).trim()
+          : trimmed.slice("/agent ".length).trim();
         if (query) {
-          openAiWithPrompt(buildNaturalLanguagePrompt(query, cwd));
+          if (followUpBlockId) {
+            void submitInlineFollowUp(sessionId, followUpBlockId, query, cwd);
+          } else {
+            void submitInlineNaturalLanguage(sessionId, query, cwd);
+          }
         }
         setValue("");
         setCompletionOpen(false);
@@ -151,7 +183,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
         requestAnimationFrame(() => onRequestNativeMode());
       }
       return;
-    }, [cwd, onRequestNativeMode, onSend, value]);
+    }, [cwd, followUpBlockId, onRequestNativeMode, onSend, sessionId, value]);
 
     useLayoutEffect(() => {
       const element = textareaRef.current;
@@ -179,10 +211,13 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
 
     const placeholder = lastError
       ? t("terminal.command.explainHint")
-      : t("terminal.command.placeholder");
+      : followUpBlockId
+        ? t("terminal.command.followUpHint")
+        : t("terminal.command.placeholder");
 
     return (
       <div className="term-cmd-input-wrap">
+        <TerminalToolCallDock sessionId={sessionId} />
         {planSteps && planSteps.length > 0 ? (
           <div className="term-cmd-plan">
             <div className="term-cmd-plan-header">

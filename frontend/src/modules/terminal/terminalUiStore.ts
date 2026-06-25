@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 
 import { clearAutoReturnTracking, armAutoReturn } from "./terminalAutoReturn";
+import { clampAiDockHeight, DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
 
 
 
@@ -21,6 +22,10 @@ interface TerminalUiState {
   inputModes: Record<string, TerminalInputMode>;
 
   autoReturnToCommandBar: Record<string, boolean>;
+  /** 当前展开的 AI 卡片（Warp 式详情） */
+  expandedAiBlockIds: Record<string, string | null>;
+  /** 吸顶 AI 面板高度（px） */
+  aiDockHeights: Record<string, number>;
 
   setInputMode: (
 
@@ -38,6 +43,10 @@ interface TerminalUiState {
 
   returnToCommandBar: (sessionId: string) => void;
 
+  setExpandedAiBlock: (sessionId: string, blockId: string | null) => void;
+  getExpandedAiBlock: (sessionId: string) => string | null;
+  setAiDockHeight: (sessionId: string, height: number) => void;
+  getAiDockHeight: (sessionId: string) => number;
 }
 
 
@@ -48,6 +57,9 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
 
   autoReturnToCommandBar: {},
 
+  expandedAiBlockIds: {},
+
+  aiDockHeights: {},
 
 
   setInputMode: (sessionId, mode, options) => {
@@ -120,5 +132,21 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
 
   },
 
+  setExpandedAiBlock: (sessionId, blockId) =>
+    set((state) => ({
+      expandedAiBlockIds: { ...state.expandedAiBlockIds, [sessionId]: blockId },
+    })),
+
+  getExpandedAiBlock: (sessionId) => get().expandedAiBlockIds[sessionId] ?? null,
+
+  setAiDockHeight: (sessionId, height) =>
+    set((state) => ({
+      aiDockHeights: {
+        ...state.aiDockHeights,
+        [sessionId]: clampAiDockHeight(height),
+      },
+    })),
+
+  getAiDockHeight: (sessionId) => get().aiDockHeights[sessionId] ?? DEFAULT_AI_DOCK_HEIGHT,
 }));
 

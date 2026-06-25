@@ -1229,6 +1229,7 @@ export const enUS: TranslationDict = {
     sidebar: { title: "Terminal Resources", collapse: "Collapse sidebar", expand: "Expand sidebar" },
     command: {
       placeholder: "Enter to send, Shift+Enter for newline; # natural language; Tab completion",
+      followUpHint: "Enter to follow up in the open AI card; prefix with #",
       send: "Send",
       naturalHint: "# Describe what you want…",
       explainHint: "Ctrl+Shift+E explain last error",

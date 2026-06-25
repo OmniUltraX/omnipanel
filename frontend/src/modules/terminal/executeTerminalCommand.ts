@@ -1,11 +1,9 @@
 import { useActionStore, type WorkspaceAction } from "../../stores/actionStore";
-import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
+import { createBlockId, useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import {
-  extractCommandOutput,
-  isMeaningfulTerminalBlock,
-} from "./terminalOutputText";
+import { extractCommandOutput, isMeaningfulTerminalBlock, normalizeBlockCommand } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
+import { isWarpDisplay } from "./terminalDisplayMode";
 
 const BLOCK_WAIT_TIMEOUT_MS = 60_000;
 const OUTPUT_IDLE_MS = 600;
@@ -35,6 +33,85 @@ interface OutputWatch {
 }
 
 const outputWatches = new Map<string, OutputWatch>();
+
+/** Command Bar 模式下预注册的 Feed 采集块（与 OSC 133 合并） */
+const feedCaptures = new Map<string, string>();
+
+export function hasActiveFeedCapture(sessionId: string): boolean {
+  return feedCaptures.has(sessionId) || outputWatches.has(sessionId);
+}
+
+/** OSC 133;C 优先绑定到预注册块，避免重复 shell block */
+export function claimFeedCaptureBlockId(sessionId: string): string | null {
+  const blockId = feedCaptures.get(sessionId);
+  if (!blockId) return null;
+  return blockId;
+}
+
+export function releaseFeedCapture(sessionId: string): void {
+  feedCaptures.delete(sessionId);
+}
+
+export function clearOutputWatch(sessionId: string): void {
+  const watch = outputWatches.get(sessionId);
+  if (!watch) return;
+  if (watch.idleTimer) clearTimeout(watch.idleTimer);
+  clearTimeout(watch.hardTimer);
+  outputWatches.delete(sessionId);
+}
+
+function ensureShellBlockInStore(sessionId: string, block: TerminalBlock): TerminalBlock {
+  const store = useBlocksStore.getState();
+  const existing = store.findBlockById(block.id);
+  if (existing) return existing;
+
+  const blocks = store.getBlocks(sessionId);
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const candidate = blocks[i];
+    if (candidate.kind === "ai") continue;
+    if (candidate.status === "running" && candidate.command.trim() === block.command.trim()) {
+      store.updateBlock(candidate.id, {
+        output: block.output || candidate.output,
+        exitCode: block.exitCode,
+        status: block.status,
+        cwd: block.cwd || candidate.cwd,
+      });
+      return { ...block, id: candidate.id };
+    }
+  }
+
+  const blockId = createBlockId();
+  store.addBlock(sessionId, {
+    ...block,
+    id: blockId,
+    sessionId,
+    kind: "shell",
+  });
+  return { ...block, id: blockId };
+}
+
+function armFeedCapture(sessionId: string, command: string): string {
+  const blockId = createBlockId();
+  const cwd = resolveSessionCwd(sessionId);
+  feedCaptures.set(sessionId, blockId);
+
+  useBlocksStore.getState().addBlock(sessionId, {
+    id: blockId,
+    sessionId,
+    kind: "shell",
+    command: normalizeBlockCommand(command) || command,
+    output: "",
+    exitCode: null,
+    startLine: -1,
+    endLine: -1,
+    marker: null,
+    cwd,
+    timestamp: Date.now(),
+    status: "running",
+  });
+
+  return blockId;
+}
 
 export interface TerminalExecutionRequest {
   tabId: string;
@@ -77,14 +154,6 @@ function buildSyntheticBlock(
     timestamp: Date.now(),
     status,
   };
-}
-
-function clearOutputWatch(sessionId: string): void {
-  const watch = outputWatches.get(sessionId);
-  if (!watch) return;
-  if (watch.idleTimer) clearTimeout(watch.idleTimer);
-  clearTimeout(watch.hardTimer);
-  outputWatches.delete(sessionId);
 }
 
 function findLatestMeaningfulBlock(
@@ -155,7 +224,7 @@ function startOutputWatch(sessionId: string, command: string): Promise<TerminalB
   });
 }
 
-/** 终端输出流回调：采集 AI 等待中的命令输出 */
+/** 终端输出流回调：采集命令输出到 output watch */
 export function feedTerminalOutputForWatch(sessionId: string, chunk: string): void {
   const watch = outputWatches.get(sessionId);
   if (!watch || !chunk) return;
@@ -285,7 +354,10 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
     sender(pending.command);
     void resultPromise
       .then((block) => {
-        pending.resolveBlock?.(block);
+        const stored = isWarpDisplay(pending.tabId)
+          ? ensureShellBlockInStore(pending.tabId, block)
+          : block;
+        pending.resolveBlock?.(stored);
       })
       .catch((err) => {
         pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
@@ -295,6 +367,9 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
         pendingExecutions.delete(action.id);
       });
   } else {
+    if (isWarpDisplay(pending.tabId)) {
+      armFeedCapture(pending.tabId, pending.command);
+    }
     sender(pending.command);
     pendingExecutions.delete(action.id);
   }

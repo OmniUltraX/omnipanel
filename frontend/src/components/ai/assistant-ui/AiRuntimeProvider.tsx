@@ -16,7 +16,19 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 import { resolveScenarioModelSelectionId } from "../../../lib/aiScenarioModels";
 import { useAiStore } from "../../../stores/aiStore";
 import { getModuleAiContextText, getModuleMcpTools, executeModuleMcpTool } from "../../../lib/ai/context";
-import { registerAiPromptSubmit } from "../../../lib/ai/submitAiPrompt";
+import { registerAiPromptSubmit, type InlineTerminalAiTarget } from "../../../lib/ai/submitAiPrompt";
+import { useBlocksStore } from "../../../stores/blocksStore";
+import { useTerminalUiStore } from "../../../modules/terminal/terminalUiStore";
+import {
+  aiThreadToModelMessages,
+  pushAssistantErrorMessage,
+} from "../../../modules/terminal/aiThreadBridge";
+import {
+  cancelPendingInlineTools,
+  createInlineTerminalToolCall,
+  newInlineToolCallId,
+  waitForInlineToolDecision,
+} from "../../../modules/terminal/inlineToolBridge";
 import type { ModuleKey } from "../../../lib/paths";
 import { moduleKeyFromPath } from "../../../lib/workspaceModuleRoutes";
 
@@ -205,10 +217,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const runGenerationRef =
     useRef<
       (
-        convId: string,
-        assistantMsgId: string,
+        convId: string | null,
+        assistantMsgId: string | null,
         priorMessages: ReturnType<typeof getPriorMessages>,
         modelConfig: ModelConfig,
+        inline?: InlineTerminalAiTarget,
       ) => Promise<void>
     >(undefined);
 
@@ -217,11 +230,59 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     assistantMsgId,
     priorMessages,
     modelConfig,
+    inline,
   ) => {
+    const appendText = (chunk: string) => {
+      if (inline?.assistantTurnId) {
+        useBlocksStore
+          .getState()
+          .appendAiThreadMessageField(
+            inline.blockId,
+            inline.assistantTurnId,
+            "content",
+            chunk,
+          );
+      } else if (convId && assistantMsgId) {
+        appendStreamContent(convId, assistantMsgId, chunk);
+      }
+    };
+    const appendReasoning = (chunk: string) => {
+      if (inline?.assistantTurnId) {
+        useBlocksStore
+          .getState()
+          .appendAiThreadMessageField(
+            inline.blockId,
+            inline.assistantTurnId,
+            "reasoning",
+            chunk,
+          );
+      } else if (convId && assistantMsgId) {
+        appendStreamReasoning(convId, assistantMsgId, chunk);
+      }
+    };
     setIsGenerating(true);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
+
+    const finishGeneration = (failed = false) => {
+      if (inline) {
+        if (signal.aborted) {
+          cancelPendingInlineTools(inline.blockId);
+        }
+        useBlocksStore.getState().updateBlock(inline.blockId, {
+          status: failed ? "failed" : "completed",
+          exitCode: failed ? 1 : 0,
+        });
+        // 输出结束后保持展开，便于阅读与追问
+        useTerminalUiStore.getState().setExpandedAiBlock(inline.sessionId, inline.blockId);
+      } else if (convId && assistantMsgId) {
+        updateMessage(convId, assistantMsgId, {
+          isStreaming: false,
+          isReasoningStreaming: false,
+        });
+      }
+    };
 
     const moduleKey =
       typeof window !== "undefined"
@@ -261,11 +322,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           if (signal.aborted) break;
 
           if (chunk.type === "text") {
-            appendStreamContent(convId, assistantMsgId, chunk.delta);
+            appendText(chunk.delta);
           }
 
           if (chunk.type === "reasoning") {
-            appendStreamReasoning(convId, assistantMsgId, chunk.delta);
+            appendReasoning(chunk.delta);
           }
 
           if (chunk.type === "tool-call-delta") {
@@ -279,27 +340,29 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         if (resolvedCalls.length === 0) break;
 
         for (const tc of resolvedCalls) {
-          const currentConv = useAiStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          const currentMsg = currentConv?.messages.find(
-            (m) => m.id === assistantMsgId,
-          );
-          const existing = currentMsg?.toolCalls ?? [];
+          if (!inline) {
+            const currentConv = useAiStore
+              .getState()
+              .conversations.find((c) => c.id === convId);
+            const currentMsg = currentConv?.messages.find(
+              (m) => m.id === assistantMsgId,
+            );
+            const existing = currentMsg?.toolCalls ?? [];
 
-          if (!existing.some((e) => e.id === tc.id)) {
-            appendStreamContent(convId, assistantMsgId, "");
-            updateMessage(convId, assistantMsgId, {
-              toolCalls: [
-                ...existing,
-                {
-                  id: tc.id,
-                  name: tc.name,
-                  arguments: tc.args,
-                  status: "running",
-                },
-              ],
-            });
+            if (!existing.some((e) => e.id === tc.id)) {
+              appendText("");
+              updateMessage(convId!, assistantMsgId!, {
+                toolCalls: [
+                  ...existing,
+                  {
+                    id: tc.id,
+                    name: tc.name,
+                    arguments: tc.args,
+                    status: "running",
+                  },
+                ],
+              });
+            }
           }
         }
 
@@ -311,73 +374,101 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
               tc.name.includes(t.originalName),
           );
 
+          const toolCallId = tc.id ?? newInlineToolCallId();
+          let result: string;
+          let success: boolean;
+
           if (!toolDef) {
-            appendStreamContent(
-              convId,
-              assistantMsgId,
-              `\n\n*Unknown tool: ${tc.name}*`,
+            result = `Unknown tool: ${tc.name}`;
+            success = false;
+            if (inline) {
+              useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
+                kind: "tool_call",
+                id: toolCallId,
+                toolName: tc.name,
+                args: tc.args,
+                status: "failed",
+                result,
+              });
+            } else {
+              appendText(`\n\n*${result}*`);
+            }
+          } else if (
+            inline &&
+            toolDef.kind === "module" &&
+            toolDef.originalName === "run_terminal_command"
+          ) {
+            const created = createInlineTerminalToolCall(
+              inline.blockId,
+              inline.sessionId,
+              toolCallId,
+              tc.name,
+              tc.args,
             );
-            updateMessage(convId, assistantMsgId, {
-              toolCalls: useAiStore
-                .getState()
-                .conversations.find((c) => c.id === convId)
-                ?.messages.find((m) => m.id === assistantMsgId)
-                ?.toolCalls?.map((t) =>
-                  t.id === tc.id
-                    ? { ...t, status: "failed", result: "Tool not found" }
-                    : t,
-                ),
+            const decision = await waitForInlineToolDecision(
+              inline.blockId,
+              toolCallId,
+              inline.sessionId,
+              created.command,
+            );
+            result = decision.result;
+            success =
+              decision.approved &&
+              (decision.exitCode === 0 || decision.exitCode === null);
+          } else if (inline) {
+            useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
+              kind: "tool_call",
+              id: toolCallId,
+              toolName: tc.name,
+              args: tc.args,
+              status: "running",
             });
-            continue;
+            const executed = await executeToolCall(toolDef, tc.args);
+            result = executed.result;
+            success = executed.success;
+            useBlocksStore.getState().updateAiThreadItem(inline.blockId, toolCallId, {
+              status: success ? "completed" : "failed",
+              result,
+            });
+          } else {
+            const executed = await executeToolCall(toolDef, tc.args);
+            result = executed.result;
+            success = executed.success;
+            if (convId && assistantMsgId) {
+              updateMessage(convId, assistantMsgId, {
+                toolCalls: useAiStore
+                  .getState()
+                  .conversations.find((c) => c.id === convId)
+                  ?.messages.find((m) => m.id === assistantMsgId)
+                  ?.toolCalls?.map((t) =>
+                    t.id === tc.id
+                      ? { ...t, status: success ? "completed" : "failed", result }
+                      : t,
+                  ),
+              });
+            }
           }
-
-          const { result, success } = await executeToolCall(toolDef, tc.args);
-
-          updateMessage(convId, assistantMsgId, {
-            toolCalls: useAiStore
-              .getState()
-              .conversations.find((c) => c.id === convId)
-              ?.messages.find((m) => m.id === assistantMsgId)
-              ?.toolCalls?.map((t) =>
-                t.id === tc.id
-                  ? { ...t, status: success ? "completed" : "failed", result }
-                  : t,
-              ),
-          });
 
           priorMessages.push({
             role: "assistant",
             content: "",
-            toolCalls: [{ id: tc.id, name: tc.name, arguments: tc.args, result: undefined }],
+            toolCalls: [{ id: toolCallId, name: tc.name, arguments: tc.args, result: undefined }],
           });
           priorMessages.push({
             role: "tool",
             content: result,
-            toolCalls: [{ id: tc.id, name: tc.name, arguments: tc.args, result: undefined }],
+            toolCalls: [{ id: toolCallId, name: tc.name, arguments: tc.args, result: undefined }],
           });
         }
       }
 
-      updateMessage(convId, assistantMsgId, {
-        isStreaming: false,
-        isReasoningStreaming: false,
-      });
+      finishGeneration();
     } catch (err) {
       if (signal.aborted) {
-        updateMessage(convId, assistantMsgId, {
-          isStreaming: false,
-          isReasoningStreaming: false,
-        });
+        finishGeneration();
       } else {
-        appendStreamContent(
-          convId,
-          assistantMsgId,
-          `\n\nError: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        updateMessage(convId, assistantMsgId, {
-          isStreaming: false,
-          isReasoningStreaming: false,
-        });
+        appendText(`\n\nError: ${err instanceof Error ? err.message : String(err)}`);
+        finishGeneration(true);
       }
     } finally {
       setIsGenerating(false);
@@ -391,13 +482,72 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     useRef<
       (
         userText: string,
-        options?: { newConversation?: boolean; contextChips?: { type: string; label: string }[] },
+        options?: {
+          newConversation?: boolean;
+          contextChips?: { type: string; label: string }[];
+          inline?: InlineTerminalAiTarget;
+        },
       ) => Promise<void>
     >(undefined);
 
   runUserPromptRef.current = async (userText, options) => {
     if (!userText.trim()) return;
     if (useAiStore.getState().isGenerating) return;
+
+    const modelConfig = getModelConfig();
+
+    if (options?.inline) {
+      const { blockId, sessionId, continueThread } = options.inline;
+      if (!modelConfig) {
+        pushAssistantErrorMessage(
+          blockId,
+          "请先在 **设置 → AI 模型** 中添加并启用至少一个模型。",
+        );
+        useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
+        return;
+      }
+      if (!isTauriRuntime()) {
+        pushAssistantErrorMessage(blockId, "AI 助手需要在 Tauri 桌面环境中运行。");
+        useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
+        return;
+      }
+
+      const assistantTurnId = useBlocksStore.getState().pushAiThreadItem(blockId, {
+        kind: "message",
+        role: "assistant",
+        content: "",
+        reasoning: "",
+      });
+
+      useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
+
+      const block = useBlocksStore.getState().findBlockById(blockId);
+      let priorMessages: ReturnType<typeof getPriorMessages>;
+
+      if (continueThread && block?.aiThread) {
+        priorMessages = aiThreadToModelMessages(block.aiThread, {
+          excludeIds: new Set([assistantTurnId]),
+        }) as ReturnType<typeof getPriorMessages>;
+      } else {
+        priorMessages = [{ role: "user" as const, content: userText, toolCalls: undefined }];
+      }
+
+      const inlineTarget: InlineTerminalAiTarget = {
+        sessionId,
+        blockId,
+        continueThread,
+        assistantTurnId,
+      };
+
+      await runGenerationRef.current!(
+        null,
+        null,
+        priorMessages,
+        modelConfig,
+        inlineTarget,
+      );
+      return;
+    }
 
     let convId = options?.newConversation
       ? null
@@ -412,7 +562,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const modelConfig = getModelConfig();
     if (!modelConfig) {
       addMessage(convId, { role: "user", content: userText });
       addMessage(convId, {

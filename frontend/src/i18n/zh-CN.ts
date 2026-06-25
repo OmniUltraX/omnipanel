@@ -1225,6 +1225,7 @@ export const zhCN = {
     sidebar: { title: "终端资源", collapse: "收起侧栏", expand: "展开侧栏" },
     command: {
       placeholder: "Enter 发送，Shift+Enter 换行；# 自然语言；Tab 补全",
+      followUpHint: "Enter 追问当前 AI 卡片；# 开头；Shift+Enter 换行",
       send: "发送",
       naturalHint: "# 输入自然语言需求…",
       explainHint: "Ctrl+Shift+E 解释上次错误",
