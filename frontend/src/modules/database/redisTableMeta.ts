@@ -18,6 +18,7 @@ export function buildRedisColumnMeta(columns: string[]): DbColumnMeta[] {
     type: "varchar",
     isPk: name === pkName,
     isFk: false,
+    nullable: true,
   }));
 }
 

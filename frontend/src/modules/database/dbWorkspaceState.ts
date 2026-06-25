@@ -34,6 +34,10 @@ export type TablePreviewState = {
   tableName?: string;
   sort: SortState | null;
   filter: RuleGroupType | null;
+  /** 隐藏的列名；空数组表示全部显示 */
+  hiddenColumns: string[];
+  /** 是否开启行列转置 */
+  transposed: boolean;
 };
 
 export type TableDesignerTabState = {
@@ -91,6 +95,8 @@ export function createDefaultTablePreviewState(): TablePreviewState {
     pageSize: DEFAULT_PAGE_SIZE,
     sort: null,
     filter: null,
+    hiddenColumns: [],
+    transposed: false,
   };
 }
 
@@ -145,7 +151,7 @@ export function resolveConnIdForWorkspaceTab(
   if (!tab) {
     return null;
   }
-  if (tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query") {
+  if (tab.kind === "table" || tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query") {
     return tab.connId;
   }
   if (tab.kind === "sql") {

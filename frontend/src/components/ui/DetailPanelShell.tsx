@@ -17,6 +17,8 @@ export interface DetailPanelShellProps {
   drawerClassName?: string;
   widthRatio?: number;
   heightRatio?: number;
+  /** 浮动 SubWindow 标题栏附加控件（抽屉模式请放在子内容 header 内） */
+  floatingHeaderExtra?: ReactNode;
 }
 
 function PopoutIcon() {
@@ -96,6 +98,7 @@ export function DetailPanelShell({
   drawerClassName,
   widthRatio = 0.55,
   heightRatio = 0.85,
+  floatingHeaderExtra,
 }: DetailPanelShellProps) {
   const mode = useSettingsStore((s) => s.detailPanelMode);
   const [mounted, setMounted] = useState(open);
@@ -141,7 +144,12 @@ export function DetailPanelShell({
           onClose={onClose}
           widthRatio={widthRatio}
           heightRatio={heightRatio}
-          headerExtra={<DetailPanelModeToggle placement="header" />}
+          headerExtra={
+            <>
+              {floatingHeaderExtra}
+              <DetailPanelModeToggle placement="header" />
+            </>
+          }
           className="detail-panel-subwindow"
         >
           <div

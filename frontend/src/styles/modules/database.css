@@ -340,6 +340,45 @@
         margin-right: var(--sp-1);
     }
 
+    .schema-tree .tree-node[draggable="true"] {
+        cursor: grab;
+    }
+
+    .schema-tree .tree-node--layout-draggable {
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .schema-tree .tree-node--layout-draggable:active {
+        cursor: grabbing;
+    }
+
+    .schema-tree .tree-node--layout-source-dragging {
+        opacity: 0.45;
+    }
+
+    body.schema-layout-dragging {
+        cursor: grabbing !important;
+        user-select: none;
+    }
+
+    body.schema-layout-dragging * {
+        cursor: grabbing !important;
+    }
+
+    .schema-tree .tree-node--drag-over {
+        background: var(--accent-soft);
+        outline: 1px dashed var(--accent);
+        outline-offset: -1px;
+    }
+
+    .tree-node--layout-drag-ghost {
+        opacity: 0.85;
+        background: var(--surface);
+        box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+        z-index: 9999;
+    }
+
     .schema-db {
         font-size: 11px;
         font-weight: 700;
@@ -2789,6 +2828,13 @@
         text-overflow: ellipsis;
     }
 
+    .db-data-table-cell-text {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .db-data-table th {
         overflow: visible;
         text-overflow: ellipsis;
@@ -2805,8 +2851,14 @@
         background: var(--surface);
         font-weight: 600;
         color: var(--fg-2);
-        z-index: 1;
+        z-index: 2;
         box-sizing: border-box;
+        isolation: isolate;
+    }
+
+    .db-data-table thead {
+        position: relative;
+        z-index: 2;
     }
 
     .db-data-table-th--sortable {
@@ -2824,23 +2876,23 @@
     }
 
     .db-data-table-th--select-all:hover {
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
     }
 
     .db-data-table-th--selectable:hover {
-        background: color-mix(in srgb, var(--accent) 10%, transparent);
+        background: color-mix(in srgb, var(--accent) 10%, var(--surface));
         color: var(--text);
     }
 
     .db-data-table-th--selectable.db-data-table-th--selected:hover,
     .db-data-table-th--select-all.db-data-table-th--selected:hover {
-        background: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+        background: color-mix(in srgb, var(--accent) 22%, var(--surface)) !important;
     }
 
     .db-data-table-th--sort-asc,
     .db-data-table-th--sort-desc {
         color: var(--accent);
-        background: var(--accent-soft);
+        background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
     }
 
     .db-data-table-th-inner {
@@ -2856,6 +2908,42 @@
         white-space: nowrap;
         flex: 1 1 auto;
         min-width: 0;
+    }
+
+    .db-data-table-th-label-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .db-data-table-th-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
+
+    .db-data-table-th-nullability {
+        flex-shrink: 0;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 0 4px;
+        border-radius: var(--r-sm);
+        line-height: 1.45;
+        font-family: var(--font-mono);
+    }
+
+    .db-data-table-th-nullability--yes {
+        color: var(--meta);
+        background: var(--surface);
+    }
+
+    .db-data-table-th-nullability--no {
+        color: var(--fg-2);
+        background: color-mix(in srgb, var(--accent) 10%, var(--surface));
     }
 
     .db-data-table-sort-indicator {
@@ -3199,13 +3287,13 @@
     }
 
     .db-data-table-th--selected {
-        background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+        background: color-mix(in srgb, var(--accent) 18%, var(--surface)) !important;
         color: var(--accent);
     }
 
     .db-data-table-th--sort-asc.db-data-table-th--selected,
     .db-data-table-th--sort-desc.db-data-table-th--selected {
-        background: color-mix(in srgb, var(--accent) 22%, var(--accent-soft)) !important;
+        background: color-mix(in srgb, var(--accent) 22%, color-mix(in srgb, var(--accent-soft) 55%, var(--surface))) !important;
     }
 
     .db-row-num-header,
@@ -3695,6 +3783,20 @@
         border-bottom: 1px solid var(--border);
     }
 
+    .redis-query-results .db-data-table-panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .redis-query-results .db-data-table-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
     .db-table-designer-toolbar {
         display: flex;
         align-items: center;
@@ -3923,13 +4025,30 @@
         background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
 
+    .detail-panel-subwindow .subwindow-header-extra {
+        gap: var(--sp-2);
+    }
+
     /* 单元格 Alt+预览抽屉 */
     .db-cell-preview-drawer {
         width: min(560px, 92vw);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .detail-panel-floating-inner.db-cell-preview-drawer {
+        width: 100%;
     }
 
     .db-cell-preview-drawer-header {
         align-items: flex-start;
+    }
+
+    .db-cell-preview-drawer-actions {
+        align-self: flex-start;
+        margin-top: var(--sp-2);
+        gap: var(--sp-2);
     }
 
     .db-cell-preview-drawer-heading {
@@ -3972,7 +4091,48 @@
         padding: 0;
         display: flex;
         flex-direction: column;
+        flex: 1;
         min-height: 0;
+    }
+
+    .db-cell-preview-drawer-body.db-cell-preview-drawer-body--web {
+        overflow: hidden;
+        position: relative;
+    }
+
+    .db-cell-preview-text-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        flex-shrink: 0;
+        padding: 1px;
+        border-radius: var(--r-sm);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        width: fit-content;
+    }
+
+    .db-cell-preview-text-mode-btn {
+        padding: 3px 10px;
+        border: none;
+        border-radius: calc(var(--r-sm) - 2px);
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.2;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .db-cell-preview-text-mode-btn:hover {
+        color: var(--fg-2);
+        background: var(--surface);
+    }
+
+    .db-cell-preview-text-mode-btn.is-active {
+        color: var(--fg);
+        background: var(--surface);
+        font-weight: 600;
     }
 
     .db-cell-preview-json {
@@ -3998,6 +4158,151 @@
         white-space: pre-wrap;
         word-break: break-word;
         color: var(--fg-2);
+    }
+
+    .db-cell-preview-markdown {
+        flex: 1;
+        min-height: 0;
+        padding: var(--sp-4);
+        overflow: auto;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--fg-2);
+        word-break: break-word;
+    }
+
+    .db-cell-preview-web {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--bg);
+    }
+
+    .db-cell-preview-web-frame {
+        flex: 1;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        min-width: 0;
+        border: none;
+        background: #fff;
+    }
+
+    .db-cell-preview-markdown > :first-child {
+        margin-top: 0;
+    }
+
+    .db-cell-preview-markdown > :last-child {
+        margin-bottom: 0;
+    }
+
+    .db-cell-preview-markdown h1,
+    .db-cell-preview-markdown h2,
+    .db-cell-preview-markdown h3,
+    .db-cell-preview-markdown h4,
+    .db-cell-preview-markdown h5,
+    .db-cell-preview-markdown h6 {
+        color: var(--fg);
+        font-weight: 600;
+        line-height: 1.35;
+        margin: 1em 0 0.5em;
+    }
+
+    .db-cell-preview-markdown h1 { font-size: 1.35em; }
+    .db-cell-preview-markdown h2 { font-size: 1.2em; }
+    .db-cell-preview-markdown h3 { font-size: 1.1em; }
+    .db-cell-preview-markdown h4,
+    .db-cell-preview-markdown h5,
+    .db-cell-preview-markdown h6 { font-size: 1em; }
+
+    .db-cell-preview-markdown p {
+        margin: 0.75em 0;
+    }
+
+    .db-cell-preview-markdown a {
+        color: var(--accent);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .db-cell-preview-markdown a:hover {
+        color: var(--accent-hover, var(--accent));
+    }
+
+    .db-cell-preview-markdown ul,
+    .db-cell-preview-markdown ol {
+        margin: 0.75em 0;
+        padding-left: 1.4em;
+    }
+
+    .db-cell-preview-markdown li + li {
+        margin-top: 0.25em;
+    }
+
+    .db-cell-preview-markdown blockquote {
+        margin: 0.75em 0;
+        padding-left: 0.85em;
+        border-left: 3px solid var(--accent);
+        color: var(--meta);
+    }
+
+    .db-cell-preview-markdown hr {
+        margin: 1em 0;
+        border: none;
+        border-top: 1px solid var(--border);
+    }
+
+    .db-cell-preview-markdown code {
+        font-family: var(--font-mono);
+        font-size: 0.92em;
+        padding: 0.1em 0.35em;
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--fg);
+    }
+
+    .db-cell-preview-markdown pre {
+        margin: 0.75em 0;
+        padding: var(--sp-3);
+        overflow: auto;
+        border-radius: var(--r-md);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+
+    .db-cell-preview-markdown pre code {
+        padding: 0;
+        background: transparent;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+
+    .db-cell-preview-markdown table {
+        width: 100%;
+        margin: 0.75em 0;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .db-cell-preview-markdown th,
+    .db-cell-preview-markdown td {
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        text-align: left;
+    }
+
+    .db-cell-preview-markdown th {
+        background: var(--surface);
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .db-cell-preview-markdown img {
+        max-width: 100%;
+        height: auto;
+        border-radius: var(--r-sm);
     }
 
     /* cell-edit-dialog styles — moved to global.css */

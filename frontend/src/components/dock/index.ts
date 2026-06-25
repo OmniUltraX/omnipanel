@@ -20,6 +20,7 @@ export {
   createDefaultLayout,
   mergePanelsIntoLayout,
   removePanelFromLayout,
+  removePanelsFromLayout,
   diffRemovedPanelIds,
   normalizeDockLayout,
   describeDockLayout,

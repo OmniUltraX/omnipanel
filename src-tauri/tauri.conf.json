@@ -20,7 +20,7 @@
         "decorations": false,
         "transparent": false,
         "resizable": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -31,8 +31,9 @@
         "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline'",
         "worker-src": "'self' blob:",
-        "img-src": "'self' asset: http://asset.localhost data: blob:",
-        "font-src": "'self' data:"
+        "img-src": "'self' asset: http://asset.localhost data: blob: https: http:",
+        "font-src": "'self' data:",
+        "frame-src": "'self' https: http:"
       }
     }
   },

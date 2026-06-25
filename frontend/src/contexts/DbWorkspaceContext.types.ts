@@ -46,6 +46,10 @@ export interface DbWorkspaceSharedContextValue {
   requestTabAction: (action: DbTabAction) => void;
   setTableSort: (tabId: string, sort: SortState | null) => void;
   setTableFilter: (tabId: string, filter: RuleGroupType | null) => void;
+  setTableGridView: (
+    tabId: string,
+    patch: Partial<Pick<TablePreviewState, "hiddenColumns" | "transposed">>,
+  ) => void;
   handleCellEdit: (
     tabId: string,
     cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },

@@ -705,6 +705,20 @@ export function DockableWorkspace({
   const syncTabsToApi = useCallback(
     (api: DockviewApi) => {
       const currentTabs = tabsRef.current;
+      const persistLayoutFromApi = () => {
+        if (!layoutLoadedRef.current) return;
+        const raw = api.toJSON();
+        const normalized = normalizeDockLayout(raw) ?? raw;
+        const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
+        lastWrittenLayoutRef.current = next;
+        onSavedLayoutChangeRef.current(next);
+      };
+      const persistEmptyLayout = () => {
+        if (!layoutLoadedRef.current) return;
+        lastWrittenLayoutRef.current = null;
+        onSavedLayoutChangeRef.current(null);
+      };
+
       if (currentTabs.length === 0) {
         if (acceptExternalDropsRef.current) {
           for (const panel of [...api.panels]) {
@@ -714,9 +728,11 @@ export function DockableWorkspace({
         } else {
           api.clear();
         }
+        persistEmptyLayout();
         return;
       }
       isSyncingRef.current = true;
+      let layoutChanged = false;
       try {
         const desiredIds = new Set(currentTabs.map((t) => t.id));
         const scopePrefix = dockScopeRef.current ? `${dockScopeRef.current}:` : null;
@@ -730,12 +746,13 @@ export function DockableWorkspace({
               continue;
             }
             api.removePanel(panel);
+            layoutChanged = true;
           }
         }
         const existing = new Set(api.panels.map((p) => p.id));
         for (const tab of currentTabs) {
           if (!existing.has(tab.id)) {
-            const firstPanel = api.panels.find(p => desiredIds.has(p.id));
+            const firstPanel = api.panels.find((p) => desiredIds.has(p.id));
             const options: Parameters<typeof api.addPanel>[0] = {
               id: tab.id,
               component: COMPONENT_NAME,
@@ -751,6 +768,7 @@ export function DockableWorkspace({
             }
             api.addPanel(options);
             syncPanelTabParams(api, tab);
+            layoutChanged = true;
           } else {
             syncPanelTabParams(api, tab);
           }
@@ -759,6 +777,9 @@ export function DockableWorkspace({
       } finally {
         isSyncingRef.current = false;
         syncWindowChromeHostRef.current(api);
+        if (layoutChanged) {
+          persistLayoutFromApi();
+        }
       }
     },
     [syncTabGroups],

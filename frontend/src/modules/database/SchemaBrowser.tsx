@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { quickInput } from "../../lib/quickInput";
 import { useActionStore } from "../../stores/actionStore";
 import { Button } from "../../components/ui/Button";
 import { ScopedSearch, type ScopedSearchHandle } from "../../components/ui/ScopedSearch";
@@ -24,6 +25,10 @@ import {
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
+import {
+  useDbSchemaConnectionLayoutStore,
+  schemaConnectionFolderNodeId,
+} from "../../stores/dbSchemaConnectionLayoutStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import {
   DatabaseFilterDialog,
@@ -80,11 +85,38 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import {
+  createLayoutDragGhost,
+  isLayoutPointerDragExcludedTarget,
+  resolveLayoutDropFromPointer,
+  SCHEMA_LAYOUT_POINTER_DRAG_THRESHOLD,
+  type SchemaLayoutDragPayload,
+} from "./schemaLayoutPointerDnD";
+import {
   refreshAndApplySchemaTreeNode,
   type SchemaTreeRefreshHooks,
 } from "./schemaTreeRefresh";
 
 type LoadedConnection = CachedConnection;
+
+function resolveLayoutFolderIdFromItem(item: SchemaTreeItem): string | null {
+  if (item.type !== "connection-folder") {
+    return null;
+  }
+  return item.id;
+}
+
+function buildLayoutDragPayload(item: SchemaTreeItem): SchemaLayoutDragPayload | null {
+  if (item.type === "connection" && item.connId) {
+    return { kind: "connection", connId: item.connId };
+  }
+  if (item.type === "connection-folder") {
+    return {
+      kind: "connection-folder",
+      folderId: resolveLayoutFolderIdFromItem(item) ?? item.id,
+    };
+  }
+  return null;
+}
 
 interface TreeNodeProps {
   item: SchemaTreeItem;
@@ -115,6 +147,10 @@ interface TreeNodeProps {
   deleteDisabled?: boolean;
   /** 虚拟树吸顶条中的祖先节点样式 */
   stickyAncestor?: boolean;
+  layoutDraggable?: boolean;
+  layoutDraggingSource?: boolean;
+  dragOver?: boolean;
+  onLayoutPointerDown?: (e: React.PointerEvent<HTMLElement>) => void;
 }
 
 function SchemaLoadMoreButton({
@@ -168,6 +204,10 @@ function TreeNode({
   onDelete,
   deleteDisabled = false,
   stickyAncestor = false,
+  layoutDraggable = false,
+  layoutDraggingSource = false,
+  dragOver = false,
+  onLayoutPointerDown,
 }: TreeNodeProps) {
   const { t } = useI18n();
   const { type, label } = item;
@@ -196,6 +236,9 @@ function TreeNode({
   };
 
   const stickyClass = stickyAncestor && hasChildren && expanded ? " tree-node--sticky" : "";
+  const dragClass = dragOver ? " tree-node--drag-over" : "";
+  const layoutDragClass = layoutDraggable ? " tree-node--layout-draggable" : "";
+  const layoutSourceClass = layoutDraggingSource ? " tree-node--layout-source-dragging" : "";
   const nodeStyle: CSSProperties = {
     paddingLeft: indent,
     ["--tree-depth" as string]: depth,
@@ -203,10 +246,15 @@ function TreeNode({
 
   return (
     <div
-      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${connectionStateClass}${stickyClass}`}
+      className={`tree-node tree-node--${type}${active ? " tree-node--active" : ""}${connectionStateClass}${stickyClass}${dragClass}${layoutDragClass}${layoutSourceClass}`}
       style={nodeStyle}
       data-schema-item-type={type}
       data-schema-node-id={item.id}
+      onPointerDown={(event) => {
+        if (layoutDraggable) {
+          onLayoutPointerDown?.(event);
+        }
+      }}
       onContextMenu={onContextMenu}
     >
       <span
@@ -271,7 +319,7 @@ function TreeNode({
             <path d="M8 18h8" />
           </svg>
         )}
-        {(type === "folder" || type === "group") && (
+        {(type === "folder" || type === "group" || type === "connection-folder") && (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
           </svg>
@@ -521,12 +569,31 @@ export function SchemaBrowser({
     | {
         x: number;
         y: number;
-        item: SchemaTreeItem;
+        item: SchemaTreeItem | null;
         connection?: DbConnectionConfig;
         tableSelection?: SchemaTableSelection;
+        layoutRoot?: boolean;
       }
     | null
   >(null);
+  const [layoutDragOverNodeId, setLayoutDragOverNodeId] = useState<string | null>(null);
+  const [layoutDraggingSourceId, setLayoutDraggingSourceId] = useState<string | null>(null);
+  const layoutPointerDragRef = useRef<{
+    payload: SchemaLayoutDragPayload;
+    sourceNodeId: string;
+    startX: number;
+    startY: number;
+    pointerId: number;
+    active: boolean;
+  } | null>(null);
+  const layoutDragGhostRef = useRef<HTMLElement | null>(null);
+  const layoutFolders = useDbSchemaConnectionLayoutStore((s) => s.folders);
+  const connectionParents = useDbSchemaConnectionLayoutStore((s) => s.connectionParents);
+  const addLayoutFolder = useDbSchemaConnectionLayoutStore((s) => s.addFolder);
+  const renameLayoutFolder = useDbSchemaConnectionLayoutStore((s) => s.renameFolder);
+  const deleteLayoutFolder = useDbSchemaConnectionLayoutStore((s) => s.deleteFolder);
+  const moveLayoutFolder = useDbSchemaConnectionLayoutStore((s) => s.moveFolder);
+  const setConnectionLayoutParent = useDbSchemaConnectionLayoutStore((s) => s.setConnectionParent);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const schemaTreeRef = useRef<HTMLDivElement>(null);
   const scopedSearchRef = useRef<ScopedSearchHandle>(null);
@@ -738,11 +805,249 @@ export function SchemaBrowser({
     [],
   );
 
+  const handleContextLayoutRoot = useCallback((event: ReactMouseEvent) => {
+    if (search.trim()) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-schema-item-type]")) {
+      return;
+    }
+    event.preventDefault();
+    setSchemaCtxMenu({
+      x: event.clientX,
+      y: event.clientY,
+      item: null,
+      layoutRoot: true,
+    });
+  }, [search]);
+
+  const handleCreateLayoutFolder = useCallback(
+    async (parentId: string | null) => {
+      const name = await quickInput({
+        title: t("database.sidebar.newFolderTitle"),
+        placeholder: t("database.sidebar.folderNamePlaceholder"),
+        defaultValue: t("database.sidebar.defaultFolderName"),
+        validate: (value) => (value.trim() ? null : t("database.sidebar.folderNameRequired")),
+      });
+      if (!name) {
+        return;
+      }
+      const folder = addLayoutFolder(parentId, name.trim());
+      const nodeId = schemaConnectionFolderNodeId(folder.id);
+      updateExpanded((prev) => new Set(prev).add(nodeId));
+      if (parentId) {
+        updateExpanded((prev) => new Set(prev).add(schemaConnectionFolderNodeId(parentId)));
+      }
+    },
+    [addLayoutFolder, t, updateExpanded],
+  );
+
+  const handleRenameLayoutFolder = useCallback(
+    async (folderId: string, currentName: string) => {
+      const name = await quickInput({
+        title: t("database.sidebar.renameFolderTitle"),
+        defaultValue: currentName,
+        validate: (value) => (value.trim() ? null : t("database.sidebar.folderNameRequired")),
+      });
+      if (!name) {
+        return;
+      }
+      renameLayoutFolder(folderId, name.trim());
+    },
+    [renameLayoutFolder, t],
+  );
+
+  const handleDeleteLayoutFolder = useCallback(
+    async (folderId: string) => {
+      const confirmed = await appConfirm(
+        t("database.sidebar.deleteFolderConfirm"),
+        t("database.sidebar.deleteFolderTitle"),
+      );
+      if (!confirmed) {
+        return;
+      }
+      deleteLayoutFolder(folderId);
+    },
+    [deleteLayoutFolder, t],
+  );
+
+  const applyLayoutDrop = useCallback(
+    (payload: SchemaLayoutDragPayload, targetFolderId: string | null) => {
+      if (payload.kind === "connection") {
+        setConnectionLayoutParent(payload.connId, targetFolderId);
+        return;
+      }
+      if (payload.folderId === targetFolderId) {
+        return;
+      }
+      moveLayoutFolder(payload.folderId, targetFolderId);
+      if (targetFolderId) {
+        updateExpanded((prev) => new Set(prev).add(schemaConnectionFolderNodeId(targetFolderId)));
+      }
+    },
+    [moveLayoutFolder, setConnectionLayoutParent, updateExpanded],
+  );
+
+  const cleanupLayoutPointerDrag = useCallback(() => {
+    layoutDragGhostRef.current?.remove();
+    layoutDragGhostRef.current = null;
+    layoutPointerDragRef.current = null;
+    setLayoutDragOverNodeId(null);
+    setLayoutDraggingSourceId(null);
+    document.body.classList.remove("schema-layout-dragging");
+  }, []);
+
+  const updateLayoutDropHighlight = useCallback((clientX: number, clientY: number) => {
+    const { hoverNodeId } = resolveLayoutDropFromPointer(clientX, clientY);
+    const folderHoverId =
+      hoverNodeId &&
+      document.querySelector(
+        `[data-schema-node-id="${hoverNodeId}"][data-schema-item-type="connection-folder"]`,
+      )
+        ? hoverNodeId
+        : null;
+    setLayoutDragOverNodeId(folderHoverId);
+  }, []);
+
+  const beginLayoutPointerDrag = useCallback(
+    (
+      event: React.PointerEvent<HTMLElement>,
+      payload: SchemaLayoutDragPayload,
+      sourceNodeId: string,
+    ) => {
+      if (search.trim()) {
+        return;
+      }
+      if (event.button !== 0) {
+        return;
+      }
+      if (isLayoutPointerDragExcludedTarget(event.target)) {
+        return;
+      }
+      layoutPointerDragRef.current = {
+        payload,
+        sourceNodeId,
+        startX: event.clientX,
+        startY: event.clientY,
+        pointerId: event.pointerId,
+        active: false,
+      };
+    },
+    [search],
+  );
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const session = layoutPointerDragRef.current;
+      if (!session || event.pointerId !== session.pointerId) {
+        return;
+      }
+      const dx = event.clientX - session.startX;
+      const dy = event.clientY - session.startY;
+      if (!session.active) {
+        if (Math.hypot(dx, dy) < SCHEMA_LAYOUT_POINTER_DRAG_THRESHOLD) {
+          return;
+        }
+        session.active = true;
+        setLayoutDraggingSourceId(session.sourceNodeId);
+        document.body.classList.add("schema-layout-dragging");
+        const sourceEl = document.querySelector(
+          `[data-schema-node-id="${session.sourceNodeId}"]`,
+        ) as HTMLElement | null;
+        if (sourceEl) {
+          const ghost = createLayoutDragGhost(sourceEl, sourceEl.textContent?.trim() ?? "");
+          ghost.style.left = `${event.clientX + 12}px`;
+          ghost.style.top = `${event.clientY + 12}px`;
+          layoutDragGhostRef.current = ghost;
+        }
+      }
+      event.preventDefault();
+      const ghost = layoutDragGhostRef.current;
+      if (ghost) {
+        ghost.style.left = `${event.clientX + 12}px`;
+        ghost.style.top = `${event.clientY + 12}px`;
+      }
+      updateLayoutDropHighlight(event.clientX, event.clientY);
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const session = layoutPointerDragRef.current;
+      if (!session || event.pointerId !== session.pointerId) {
+        return;
+      }
+      if (session.active) {
+        event.preventDefault();
+        const { targetFolderId } = resolveLayoutDropFromPointer(event.clientX, event.clientY);
+        applyLayoutDrop(session.payload, targetFolderId);
+        const suppressClick = (clickEvent: MouseEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopImmediatePropagation();
+          window.removeEventListener("click", suppressClick, true);
+        };
+        window.addEventListener("click", suppressClick, true);
+        window.setTimeout(() => {
+          window.removeEventListener("click", suppressClick, true);
+        }, 0);
+      }
+      cleanupLayoutPointerDrag();
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [applyLayoutDrop, cleanupLayoutPointerDrag, updateLayoutDropHighlight]);
+
   const buildSchemaTreeContextMenuItems = useCallback((): ContextMenuItem[] => {
     if (!schemaCtxMenu) {
       return [];
     }
-    const { item, connection } = schemaCtxMenu;
+    const { item, connection, layoutRoot } = schemaCtxMenu;
+
+    if (layoutRoot) {
+      return [
+        {
+          id: "layout-new-folder",
+          label: t("database.sidebar.newFolder"),
+          onClick: () => void handleCreateLayoutFolder(null),
+        },
+      ];
+    }
+
+    if (item?.type === "connection-folder") {
+      const folderId = resolveLayoutFolderIdFromItem(item);
+      if (!folderId) {
+        return [];
+      }
+      return [
+        {
+          id: "layout-new-folder",
+          label: t("database.sidebar.newFolder"),
+          onClick: () => void handleCreateLayoutFolder(folderId),
+        },
+        {
+          id: "layout-rename-folder",
+          label: t("database.sidebar.renameFolder"),
+          onClick: () => void handleRenameLayoutFolder(folderId, item.label),
+        },
+        {
+          id: "layout-delete-folder",
+          label: t("database.sidebar.deleteFolder"),
+          danger: true,
+          onClick: () => void handleDeleteLayoutFolder(folderId),
+        },
+      ];
+    }
+
+    if (!item) {
+      return [];
+    }
+
     const extra =
       buildSchemaContextMenuItems?.(item, {
         connection,
@@ -803,6 +1108,9 @@ export function SchemaBrowser({
   }, [
     buildSchemaContextMenuItems,
     deletingNodeIds,
+    handleCreateLayoutFolder,
+    handleDeleteLayoutFolder,
+    handleRenameLayoutFolder,
     handleDeleteSchemaNode,
     handleRefreshSchemaNode,
     refreshingNodeIds,
@@ -983,6 +1291,8 @@ export function SchemaBrowser({
         refreshingNodeIds,
         resolvedTheme,
         searchQuery: search,
+        layoutFolders,
+        connectionParents,
       }),
     [
       t,
@@ -998,6 +1308,8 @@ export function SchemaBrowser({
       refreshingNodeIds,
       resolvedTheme,
       search,
+      layoutFolders,
+      connectionParents,
     ],
   );
 
@@ -1249,6 +1561,14 @@ export function SchemaBrowser({
       const nodeActions =
         connection != null ? resolveSchemaNodeActions(connection, row.item) : {};
 
+      const layoutDnDEnabled = !search.trim();
+      const itemType = row.item.type;
+      const isLayoutDraggable =
+        layoutDnDEnabled && (itemType === "connection" || itemType === "connection-folder");
+      const isLayoutDropTarget = layoutDnDEnabled && itemType === "connection-folder";
+
+      const layoutPayload = buildLayoutDragPayload(row.item);
+
       return (
         <TreeNode
           item={row.item}
@@ -1270,6 +1590,14 @@ export function SchemaBrowser({
           onLabelClick={onLabelClick}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
           stickyAncestor={options?.stickyAncestor}
+          layoutDraggable={isLayoutDraggable}
+          layoutDraggingSource={layoutDraggingSourceId === row.item.id}
+          dragOver={isLayoutDropTarget && layoutDragOverNodeId === row.item.id}
+          onLayoutPointerDown={
+            isLayoutDraggable && layoutPayload
+              ? (event) => beginLayoutPointerDrag(event, layoutPayload, row.item.id)
+              : undefined
+          }
           {...nodeActions}
         />
       );
@@ -1284,6 +1612,10 @@ export function SchemaBrowser({
       resolveSchemaNodeActions,
       handleContextSchemaNode,
       setTableFilters,
+      search,
+      layoutDragOverNodeId,
+      layoutDraggingSourceId,
+      beginLayoutPointerDrag,
     ],
   );
 
@@ -1355,6 +1687,7 @@ export function SchemaBrowser({
           ref={schemaTreeRef}
           tabIndex={-1}
           onKeyDown={handleTreeKeyDown}
+          onContextMenu={handleContextLayoutRoot}
         >
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
@@ -1399,10 +1732,9 @@ export function SchemaBrowser({
                   className="schema-tree-virtual-row"
                   style={{
                     position: "absolute",
-                    top: 0,
+                    top: virtualRow.start,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
                   {renderFlatRow(row)}

@@ -464,20 +464,33 @@ export function mergePanelsIntoLayout(
   return stripSideHeaderLayout(addMissingPanels(cleaned, missing, activeTabId));
 }
 
+/** 从布局中批量移除 panel；空布局返回 null */
+export function removePanelsFromLayout(
+  layout: SerializedDockview | null,
+  panelIds: string[],
+  activeTabId?: string,
+): SerializedDockview | null {
+  if (!layout || panelIds.length === 0) return layout;
+  const allowed = new Set(collectPanelIds(layout));
+  for (const panelId of panelIds) {
+    allowed.delete(panelId);
+  }
+  if (allowed.size === 0) return null;
+  const remaining = [...allowed];
+  const fallback =
+    activeTabId && allowed.has(activeTabId) ? activeTabId : remaining[0];
+  return (
+    mergePanelsIntoLayout(layout, remaining, fallback) ??
+    createDefaultLayout(remaining, fallback)
+  );
+}
+
 /** 从布局中移除指定 panel；空布局返回 null */
 export function removePanelFromLayout(
   layout: SerializedDockview | null,
   panelId: string,
 ): SerializedDockview | null {
-  if (!layout) return null;
-  const allowed = new Set(collectPanelIds(layout));
-  allowed.delete(panelId);
-  if (allowed.size === 0) return null;
-  const fallbackActive = [...allowed][0] ?? panelId;
-  return (
-    mergePanelsIntoLayout(layout, [...allowed], fallbackActive) ??
-    createDefaultLayout([...allowed], fallbackActive)
-  );
+  return removePanelsFromLayout(layout, [panelId]);
 }
 
 /** 剥除侧/底 Tab 栏等已废弃的布局字段，避免 fromJSON 恢复旧状态 */

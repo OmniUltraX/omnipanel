@@ -10,12 +10,18 @@ import { getEngineIconByType } from "./engineIcons";
 import {
   buildColumnTreeItem,
   buildConnectionTreeItem,
+  buildConnectionFolderTreeItem,
   buildDatabaseTreeItem,
   buildFolderTreeItem,
   buildIndexTreeItem,
   buildTableTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
+import { listSchemaConnectionLayoutChildren } from "./schemaConnectionLayoutTree";
+import {
+  schemaConnectionFolderNodeId,
+  type SchemaConnectionFolder,
+} from "../../stores/dbSchemaConnectionLayoutStore";
 import {
   connectionDatabasesFolderId,
   connectionUsersFolderId,
@@ -106,6 +112,8 @@ export interface SchemaFlatRowsParams {
   refreshingNodeIds: Record<string, true>;
   resolvedTheme: "light" | "dark";
   searchQuery?: string;
+  layoutFolders?: SchemaConnectionFolder[];
+  connectionParents?: Record<string, string | null>;
 }
 
 function routineTypeLabel(t: SchemaFlatRowsParams["t"], routineType: string): string {
@@ -367,10 +375,31 @@ function appendTableObjectRows(
   }
 }
 
-export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow[] {
+
+interface SchemaFlatRowsBuildContext {
+  q: string;
+  isSearchMode: boolean;
+  paginateOpts: { unpaginated: true } | undefined;
+  searchLabels: {
+    tables: string;
+    views: string;
+    other: string;
+    fields: string;
+    indexes: string;
+    users: string;
+  };
+  routineLabel: (routineType: string) => string;
+}
+
+function appendConnectionSchemaRows(
+  rows: SchemaFlatRow[],
+  params: SchemaFlatRowsParams,
+  conn: CachedConnection,
+  baseDepth: number,
+  ctx: SchemaFlatRowsBuildContext,
+): void {
   const {
     t,
-    connections,
     expandedNodeIds,
     childVisibleLimits,
     databaseFilters,
@@ -380,31 +409,9 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
     refreshingConnectionIds,
     refreshingNodeIds,
     resolvedTheme,
-    searchQuery,
   } = params;
+  const { q, isSearchMode, paginateOpts, searchLabels, routineLabel } = ctx;
 
-  const q = searchQuery?.trim() ?? "";
-  const isSearchMode = q.length > 0;
-  const paginateOpts = isSearchMode ? { unpaginated: true } : undefined;
-  const searchLabels = {
-    tables: t("database.sidebar.tables"),
-    views: t("database.sidebar.views"),
-    other: t("database.sidebar.other"),
-    fields: t("database.sidebar.fields"),
-    indexes: t("database.sidebar.indexes"),
-    users: t("database.sidebar.users"),
-  };
-  const routineLabel = (routineType: string) => routineTypeLabel(t, routineType);
-
-  const rows: SchemaFlatRow[] = [];
-  const pagedRootConns = paginateSchemaChildren(
-    connections,
-    SCHEMA_ROOT_CONNECTIONS_ID,
-    childVisibleLimits,
-    paginateOpts,
-  );
-
-  for (const conn of pagedRootConns.visible) {
     const connId = `conn:${conn.config.id}`;
     if (
       isSearchMode &&
@@ -419,7 +426,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
         routineLabel,
       )
     ) {
-      continue;
+      return;
     }
 
     const connExpanded = expandedNodeIds.has(connId);
@@ -447,7 +454,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
       kind: "node",
       key: connId,
       item: connItem,
-      depth: 0,
+      depth: baseDepth,
       expanded: connExpanded,
       hasChildren: connEnabled,
       active: activeConnId === conn.config.id,
@@ -484,15 +491,15 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
     });
 
     if (!connEnabled || !connExpanded) {
-      continue;
+      return;
     }
 
     if (conn.databasesError) {
-      pushMessage(rows, `${connId}:db-error`, 1, conn.databasesError, "error");
+      pushMessage(rows, `${connId}:db-error`, baseDepth + 1, conn.databasesError, "error");
     }
 
     if (conn.databases && !isSearchMode && visibleCount === 0 && totalCount > 0) {
-      pushMessage(rows, `${connId}:filter-hidden`, 1, t("database.sidebar.filterHidden"), "empty");
+      pushMessage(rows, `${connId}:filter-hidden`, baseDepth + 1, t("database.sidebar.filterHidden"), "empty");
     }
 
     if (conn.databases) {
@@ -628,7 +635,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
           kind: "node",
           key: dbId,
           item: dbItem,
-          depth: 1,
+          depth: baseDepth + 1,
           expanded: dbExpanded,
           hasChildren: !isRedis && (hasDbObjectFolders || Boolean(db.loadError)),
           active: activeDatabaseKey === dbId,
@@ -647,7 +654,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
         }
 
         if (db.loadError) {
-          pushMessage(rows, `${dbId}:load-error`, 2, db.loadError, "error");
+          pushMessage(rows, `${dbId}:load-error`, baseDepth + 2, db.loadError, "error");
         }
 
         if (isRedis || !hasDbObjectFolders) {
@@ -665,7 +672,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
             kind: "node",
             key: tblsFolderId,
             item: tblsFolderItem,
-            depth: 2,
+            depth: baseDepth + 2,
             expanded: tblsExpanded,
             hasChildren: true,
             meta: tblsFolderRefreshing
@@ -696,19 +703,12 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
               );
             }
             for (const tbl of pagedTables.visible) {
-              appendTableObjectRows(
-                rows,
-                params,
-                conn,
-                db.name,
-                tbl,
-                "table",
-                3,
+              appendTableObjectRows(rows, params, conn, db.name, tbl, "table", baseDepth + 3,
                 isTablePinned(tableFilter, tbl.name),
               );
             }
             if (!isSearchMode && pagedTables.hasMore) {
-              pushLoadMore(rows, tblsFolderId, 3, pagedTables.remaining);
+              pushLoadMore(rows, tblsFolderId, baseDepth + 3, pagedTables.remaining);
             }
           }
         }
@@ -724,7 +724,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
             kind: "node",
             key: viewsFolderId,
             item: viewsFolderItem,
-            depth: 2,
+            depth: baseDepth + 2,
             expanded: viewsExpanded,
             hasChildren: true,
             meta: viewsFolderRefreshing
@@ -736,10 +736,10 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
 
           if (viewsExpanded) {
             for (const view of pagedViews.visible) {
-              appendTableObjectRows(rows, params, conn, db.name, view, "view", 3, undefined);
+              appendTableObjectRows(rows, params, conn, db.name, view, "view", baseDepth + 3, undefined);
             }
             if (!isSearchMode && pagedViews.hasMore) {
-              pushLoadMore(rows, viewsFolderId, 3, pagedViews.remaining);
+              pushLoadMore(rows, viewsFolderId, baseDepth + 3, pagedViews.remaining);
             }
           }
         }
@@ -755,7 +755,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
             kind: "node",
             key: otherFolderId,
             item: otherFolderItem,
-            depth: 2,
+            depth: baseDepth + 2,
             expanded: otherExpanded,
             hasChildren: true,
             meta: otherFolderRefreshing
@@ -779,7 +779,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
                 kind: "node",
                 key: routineId,
                 item: routineItem,
-                depth: 3,
+                depth: baseDepth + 3,
                 expanded: false,
                 hasChildren: false,
                 meta: schemaNodeMeta(
@@ -791,14 +791,14 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
               });
             }
             if (!isSearchMode && pagedRoutines.hasMore) {
-              pushLoadMore(rows, otherFolderId, 3, pagedRoutines.remaining);
+              pushLoadMore(rows, otherFolderId, baseDepth + 3, pagedRoutines.remaining);
             }
           }
         }
       }
 
       if (!isSearchMode && pagedDatabases.hasMore) {
-        pushLoadMore(rows, databasesFolderId, 1, pagedDatabases.remaining);
+        pushLoadMore(rows, databasesFolderId, baseDepth + 1, pagedDatabases.remaining);
       }
     }
 
@@ -829,7 +829,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
           kind: "node",
           key: usersFolderId,
           item: usersFolderItem,
-          depth: 1,
+          depth: baseDepth + 1,
           expanded: usersExpanded,
           hasChildren: true,
           meta:
@@ -860,22 +860,101 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
               kind: "node",
               key: uid,
               item: userItem,
-              depth: 2,
+              depth: baseDepth + 2,
               expanded: false,
               hasChildren: false,
               meta: userRefreshing ? t("common.loading") : undefined,
             });
           }
           if (!isSearchMode && pagedUsers.hasMore) {
-            pushLoadMore(rows, usersFolderId, 2, pagedUsers.remaining);
+            pushLoadMore(rows, usersFolderId, baseDepth + 2, pagedUsers.remaining);
           }
         }
       }
     }
+}
+
+function appendConnectionLayoutRows(
+  rows: SchemaFlatRow[],
+  params: SchemaFlatRowsParams,
+  parentFolderId: string | null,
+  baseDepth: number,
+  ctx: SchemaFlatRowsBuildContext,
+): void {
+  const { connections, expandedNodeIds, childVisibleLimits, layoutFolders, connectionParents } = params;
+  const { isSearchMode, paginateOpts } = ctx;
+  const folders = layoutFolders ?? [];
+  const parents = connectionParents ?? {};
+  const parentKey = parentFolderId ?? SCHEMA_ROOT_CONNECTIONS_ID;
+  const entries = listSchemaConnectionLayoutChildren(parentFolderId, folders, connections, parents);
+  const paged = paginateSchemaChildren(entries, parentKey, childVisibleLimits, paginateOpts);
+
+  for (const entry of paged.visible) {
+    if (entry.kind === "folder") {
+      const folderNodeId = schemaConnectionFolderNodeId(entry.folder.id);
+      const folderExpanded = expandedNodeIds.has(folderNodeId);
+      const folderItem = buildConnectionFolderTreeItem(folderNodeId, entry.folder.name);
+      pushNode(rows, {
+        kind: "node",
+        key: folderNodeId,
+        item: folderItem,
+        depth: baseDepth,
+        expanded: folderExpanded,
+        hasChildren: true,
+      });
+      if (folderExpanded) {
+        appendConnectionLayoutRows(rows, params, entry.folder.id, baseDepth + 1, ctx);
+      }
+      continue;
+    }
+    appendConnectionSchemaRows(rows, params, entry.connection, baseDepth, ctx);
   }
 
-  if (!isSearchMode && pagedRootConns.hasMore) {
-    pushLoadMore(rows, SCHEMA_ROOT_CONNECTIONS_ID, 0, pagedRootConns.remaining);
+  if (!isSearchMode && paged.hasMore) {
+    pushLoadMore(rows, parentKey, baseDepth, paged.remaining);
+  }
+}
+
+export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow[] {
+  const { t, connections, childVisibleLimits, searchQuery } = params;
+
+  const q = searchQuery?.trim() ?? "";
+  const isSearchMode = q.length > 0;
+  const paginateOpts = isSearchMode ? ({ unpaginated: true as const }) : undefined;
+  const searchLabels = {
+    tables: t("database.sidebar.tables"),
+    views: t("database.sidebar.views"),
+    other: t("database.sidebar.other"),
+    fields: t("database.sidebar.fields"),
+    indexes: t("database.sidebar.indexes"),
+    users: t("database.sidebar.users"),
+  };
+  const routineLabel = (routineType: string) => routineTypeLabel(t, routineType);
+
+  const rows: SchemaFlatRow[] = [];
+  const ctx: SchemaFlatRowsBuildContext = {
+    q,
+    isSearchMode,
+    paginateOpts,
+    searchLabels,
+    routineLabel,
+  };
+
+  if (isSearchMode) {
+    const pagedRootConns = paginateSchemaChildren(
+      connections,
+      SCHEMA_ROOT_CONNECTIONS_ID,
+      childVisibleLimits,
+      paginateOpts,
+    );
+    for (const conn of pagedRootConns.visible) {
+      appendConnectionSchemaRows(rows, params, conn, 0, ctx);
+    }
+    if (pagedRootConns.hasMore) {
+      pushLoadMore(rows, SCHEMA_ROOT_CONNECTIONS_ID, 0, pagedRootConns.remaining);
+    }
+  } else {
+    appendConnectionLayoutRows(rows, params, null, 0, ctx);
   }
 
   if (isSearchMode && !rows.some((row) => row.kind === "node")) {

@@ -340,6 +340,10 @@ pub struct DbColumnMeta {
     pub column_type: String,
     pub is_pk: bool,
     pub is_fk: bool,
+    #[serde(default)]
+    pub nullable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -917,7 +921,7 @@ async fn introspect_mysql_schema(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT \
          FROM information_schema.COLUMNS \
          WHERE TABLE_SCHEMA = ? \
          ORDER BY TABLE_NAME, ORDINAL_POSITION",
@@ -951,6 +955,8 @@ async fn introspect_mysql_schema(
         let column_key = mysql_row_string(row, 3);
         let is_pk = column_key == "PRI";
         let is_fk = column_key == "MUL";
+        let nullable = mysql_row_string(row, 4).eq_ignore_ascii_case("yes");
+        let comment = normalize_table_comment(&mysql_row_string(row, 5));
 
         if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             table.columns.push(DbColumnMeta {
@@ -958,6 +964,8 @@ async fn introspect_mysql_schema(
                 column_type: data_type,
                 is_pk,
                 is_fk,
+                nullable,
+                comment,
             });
         } else {
             all_objects.push(DbTableSchema {
@@ -967,6 +975,8 @@ async fn introspect_mysql_schema(
                     column_type: data_type,
                     is_pk,
                     is_fk,
+                    nullable,
+                    comment,
                 }],
                 indexes: Vec::new(),
                 comment: None,
@@ -994,7 +1004,7 @@ async fn introspect_mysql_table(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY \
+        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT \
          FROM information_schema.COLUMNS \
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
          ORDER BY ORDINAL_POSITION",
@@ -1031,6 +1041,8 @@ async fn introspect_mysql_table(
                 column_type: data_type,
                 is_pk: column_key == "PRI",
                 is_fk: column_key == "MUL",
+                nullable: mysql_row_string(row, 3).eq_ignore_ascii_case("yes"),
+                comment: normalize_table_comment(&mysql_row_string(row, 4)),
             }
         })
         .collect();
@@ -1518,7 +1530,8 @@ async fn introspect_pg_schema(
 
     let col_rows = sqlx::query(
         "SELECT c.table_name, c.column_name, c.data_type, \
-         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk \
+         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk, \
+         c.is_nullable = 'YES' AS nullable, pgd.description AS column_comment \
          FROM information_schema.columns c \
          LEFT JOIN ( \
              SELECT ku.column_name, ku.table_name \
@@ -1526,6 +1539,10 @@ async fn introspect_pg_schema(
              JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name \
              WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' \
          ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
+         LEFT JOIN pg_catalog.pg_statio_all_tables st \
+           ON c.table_schema = st.schemaname AND c.table_name = st.relname \
+         LEFT JOIN pg_catalog.pg_description pgd \
+           ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position \
          WHERE c.table_schema = 'public' \
          ORDER BY c.table_name, c.ordinal_position",
     )
@@ -1559,6 +1576,12 @@ async fn introspect_pg_schema(
         let column_name: String = row.try_get(1).unwrap_or_default();
         let data_type: String = row.try_get(2).unwrap_or_default();
         let is_pk: bool = row.try_get(3).unwrap_or(false);
+        let nullable: bool = row.try_get(4).unwrap_or(false);
+        let comment: Option<String> = row
+            .try_get::<Option<String>, _>(5)
+            .ok()
+            .flatten()
+            .and_then(|c| normalize_table_comment(&c));
 
         if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             table.columns.push(DbColumnMeta {
@@ -1566,6 +1589,8 @@ async fn introspect_pg_schema(
                 column_type: data_type,
                 is_pk,
                 is_fk: false,
+                nullable,
+                comment,
             });
         } else {
             all_objects.push(DbTableSchema {
@@ -1575,6 +1600,8 @@ async fn introspect_pg_schema(
                     column_type: data_type,
                     is_pk,
                     is_fk: false,
+                    nullable,
+                    comment,
                 }],
                 indexes: Vec::new(),
                 comment: None,
@@ -1621,7 +1648,8 @@ async fn introspect_pg_table(
 
     let col_rows = sqlx::query(
         "SELECT c.column_name, c.data_type, \
-         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk \
+         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk, \
+         c.is_nullable = 'YES' AS nullable, pgd.description AS column_comment \
          FROM information_schema.columns c \
          LEFT JOIN ( \
              SELECT ku.column_name, ku.table_name \
@@ -1629,6 +1657,10 @@ async fn introspect_pg_table(
              JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name \
              WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' \
          ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
+         LEFT JOIN pg_catalog.pg_statio_all_tables st \
+           ON c.table_schema = st.schemaname AND c.table_name = st.relname \
+         LEFT JOIN pg_catalog.pg_description pgd \
+           ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position \
          WHERE c.table_schema = 'public' AND c.table_name = $1 \
          ORDER BY c.ordinal_position",
     )
@@ -1662,6 +1694,12 @@ async fn introspect_pg_table(
             column_type: row.try_get(1).unwrap_or_default(),
             is_pk: row.try_get(2).unwrap_or(false),
             is_fk: false,
+            nullable: row.try_get(3).unwrap_or(false),
+            comment: row
+                .try_get::<Option<String>, _>(4)
+                .ok()
+                .flatten()
+                .and_then(|c| normalize_table_comment(&c)),
         })
         .collect();
 
@@ -1804,11 +1842,14 @@ fn sqlite_pragma_columns(
         .map_err(|e| format!("PRAGMA table_info failed: {e}"))?;
     let rows = stmt
         .query_map([], |row| {
+            let notnull: i32 = row.get(3)?;
             Ok(DbColumnMeta {
                 name: row.get::<_, String>(1)?,
                 column_type: row.get::<_, String>(2)?,
                 is_pk: row.get::<_, i32>(5)? > 0,
                 is_fk: false,
+                nullable: notnull == 0,
+                comment: None,
             })
         })
         .map_err(|e| format!("PRAGMA table_info query failed: {e}"))?;

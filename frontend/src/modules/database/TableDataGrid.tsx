@@ -70,6 +70,12 @@ export type TableDataGridProps = {
   dbType?: string;
   /** 表预览 SQL 复制：表名 */
   tableName?: string;
+  /** 隐藏的列名（受控，表预览持久化） */
+  hiddenColumns?: string[];
+  onHiddenColumnsChange?: (hiddenColumns: string[]) => void;
+  /** 行列转置（受控，表预览持久化） */
+  transposed?: boolean;
+  onTransposedChange?: (transposed: boolean) => void;
 };
 
 function buildRowKey(row: Record<string, unknown>, pkCols: { name: string }[]): string {
@@ -130,6 +136,54 @@ function cellToText(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function buildColumnHeaderTooltip(
+  meta: DbColumnMeta | undefined,
+  columnName: string,
+  t: (key: string) => string,
+): string {
+  const lines: string[] = [columnName];
+  if (meta?.type) {
+    lines.push(meta.type);
+  }
+  const comment = meta?.comment?.trim();
+  if (comment) {
+    lines.push(comment);
+  }
+  if (meta !== undefined && meta.nullable !== undefined) {
+    lines.push(
+      meta.nullable
+        ? t("database.results.columnNullable")
+        : t("database.results.columnNotNullable"),
+    );
+  }
+  return lines.join("\n");
+}
+
+function ColumnHeaderLabel({
+  label,
+  meta,
+  t,
+}: {
+  label: string;
+  meta?: DbColumnMeta;
+  t: (key: string) => string;
+}) {
+  const showNotNull = meta?.nullable === false;
+  return (
+    <span className="db-data-table-th-label-wrap">
+      <span className="db-data-table-th-name">{label}</span>
+      {showNotNull ? (
+        <span
+          className="db-data-table-th-nullability db-data-table-th-nullability--no"
+          title={t("database.results.columnNotNullable")}
+        >
+          {t("database.results.columnNotNullableShort")}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function isNearRowBottom(target: HTMLElement, clientY: number): boolean {
@@ -503,7 +557,7 @@ function ColumnVisibilityPopover({
   );
 }
 
-export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false, dbType, tableName }: TableDataGridProps) {
+export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false, dbType, tableName, hiddenColumns: hiddenColumnsProp, onHiddenColumnsChange, transposed: transposedProp, onTransposedChange }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
     if (columns.length > 0) {
@@ -514,8 +568,39 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     }
     return [];
   }, [columns, columnMeta]);
-  const [transposed, setTransposed] = useState(false);
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => new Set());
+  const isHiddenColumnsControlled = onHiddenColumnsChange != null;
+  const isTransposedControlled = onTransposedChange != null;
+  const [localHiddenColumns, setLocalHiddenColumns] = useState<Set<string>>(() => new Set());
+  const [localTransposed, setLocalTransposed] = useState(false);
+  const hiddenColumns = useMemo(() => {
+    if (isHiddenColumnsControlled) {
+      return new Set(hiddenColumnsProp ?? []);
+    }
+    return localHiddenColumns;
+  }, [isHiddenColumnsControlled, hiddenColumnsProp, localHiddenColumns]);
+  const transposed = isTransposedControlled ? (transposedProp ?? false) : localTransposed;
+  const setHiddenColumns = useCallback(
+    (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      const next = typeof updater === "function" ? updater(hiddenColumns) : updater;
+      if (isHiddenColumnsControlled) {
+        onHiddenColumnsChange!([...next]);
+        return;
+      }
+      setLocalHiddenColumns(next);
+    },
+    [hiddenColumns, isHiddenColumnsControlled, onHiddenColumnsChange],
+  );
+  const setTransposed = useCallback(
+    (updater: boolean | ((prev: boolean) => boolean)) => {
+      const next = typeof updater === "function" ? updater(transposed) : updater;
+      if (isTransposedControlled) {
+        onTransposedChange!(next);
+        return;
+      }
+      setLocalTransposed(next);
+    },
+    [transposed, isTransposedControlled, onTransposedChange],
+  );
   const [cellPreview, setCellPreview] = useState<TableDataGridCellPreview | null>(null);
   const [colVisOpen, setColVisOpen] = useState(false);
   const colVisAnchorRef = useRef<HTMLButtonElement>(null);
@@ -756,6 +841,14 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     return map;
   }, [columnMeta]);
 
+  const handleCellEdit = useCallback(
+    (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
+      cellDragRef.current = null;
+      effectiveOnCellEdit?.(info);
+    },
+    [effectiveOnCellEdit],
+  );
+
   const columnDefs = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => {
       const defs: ColumnDef<Record<string, unknown>>[] = displayColumns.map((col) => {
@@ -766,13 +859,47 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           : transposed && !Number.isNaN(rowHeaderIndex)
             ? transposeRowHeaders[rowHeaderIndex] ?? col
             : col;
+        const headerMeta = !isFieldCol && !transposed ? columnMetaMap?.[col] : undefined;
         return {
           id: col,
           accessorFn: (row) => row[col],
-          header: headerLabel,
-          cell: ({ getValue }) => {
+          header: () => (
+            <ColumnHeaderLabel
+              label={headerLabel}
+              meta={headerMeta}
+              t={t}
+            />
+          ),
+          cell: ({ getValue, row, column }) => {
             const value = getValue();
-            return <span>{cellToText(value)}</span>;
+            const isRowNumCol = column.id === ROW_NUM_COL_ID;
+            const colMetaForCell =
+              isFieldCol || isRowNumCol
+                ? undefined
+                : transposed
+                  ? undefined
+                  : columnMetaMap?.[column.id];
+            const canEditCell = Boolean(effectiveOnCellEdit && colMetaForCell && !isFieldCol && !isRowNumCol);
+            return (
+              <span
+                className="db-data-table-cell-text"
+                onDoubleClick={
+                  canEditCell
+                    ? (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleCellEdit({
+                          rowIndex: row.index,
+                          column: column.id,
+                          row: row.original,
+                        });
+                      }
+                    : undefined
+                }
+              >
+                {cellToText(value)}
+              </span>
+            );
           },
           minSize: isFieldCol ? 100 : COLUMN_MIN_WIDTH,
           size: isFieldCol ? 140 : 150,
@@ -794,7 +921,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       }
       return defs;
     },
-    [displayColumns, transposed, transposeRowHeaders, columnMetaMap, t, page, pageSize],
+    [displayColumns, transposed, transposeRowHeaders, columnMetaMap, t, page, pageSize, effectiveOnCellEdit, handleCellEdit],
   );
 
   const table = useReactTable({
@@ -1081,6 +1208,10 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     }
                   : (event) => {
                 if (event.button !== 0) return;
+                if (event.detail >= 2) {
+                  cellDragRef.current = null;
+                  return;
+                }
                 if (event.altKey) {
                   event.preventDefault();
                   event.stopPropagation();
@@ -1110,7 +1241,19 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 cellDragRef.current = { active: true, start: { row: row.index, col: cellIdx } };
                 setCellRange({ start: { row: row.index, col: cellIdx }, end: { row: row.index, col: cellIdx } });
               }}
-              onDoubleClick={canEdit ? () => effectiveOnCellEdit!({ rowIndex: cell.row.index, column: cell.column.id, row: cell.row.original }) : undefined}
+              onDoubleClick={
+                canEdit
+                  ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleCellEdit({
+                        rowIndex: cell.row.index,
+                        column: cell.column.id,
+                        row: cell.row.original,
+                      });
+                    }
+                  : undefined
+              }
               onContextMenu={
                 !isRowSelector && onRowEdit && !transposed
                   ? (event) => {
@@ -1179,6 +1322,16 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 const filterClass =
                   canFilter && filterColumnNames.has(colId) ? " db-data-table-th--filtered" : "";
                 const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
+                const colMeta = !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
+                  ? columnMetaMap?.[colId]
+                  : undefined;
+                const headerTitle = isSelectAllHeader
+                  ? t("database.results.selectAll")
+                  : colMeta
+                    ? buildColumnHeaderTooltip(colMeta, colId, t)
+                    : colId !== ROW_NUM_COL_ID
+                      ? colId
+                      : undefined;
                 return (
                 <th
                   key={header.id}
@@ -1190,7 +1343,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                       ? handleSelectAll
                       : () => handleColumnSelect(colId)
                   }
-                  title={isSelectAllHeader ? t("database.results.selectAll") : t("database.results.selectColumn")}
+                  title={headerTitle}
                 >
                   {header.isPlaceholder ? null : (
                     <span className="db-data-table-th-inner">

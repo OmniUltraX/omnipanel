@@ -226,6 +226,8 @@ export interface DbColumnMeta {
   type: string;
   isPk: boolean;
   isFk: boolean;
+  nullable?: boolean;
+  comment?: string | null;
 }
 
 export interface DbIndexMeta {

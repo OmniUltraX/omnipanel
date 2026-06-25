@@ -1,4 +1,3 @@
-import type { TablePreviewState } from "./dbWorkspaceState";
 
 export type SqlWorkspaceTab = {
   id: string;
@@ -7,6 +6,16 @@ export type SqlWorkspaceTab = {
   /** 侧栏 SQL 文件树中的文件 id，用于持久化连接/库绑定。 */
   sqlFileId?: string;
   /** 是否仅在底部工作区中显示（例如移动到工作区后） */
+  workspaceOnly?: boolean;
+};
+
+export type TablePreviewWorkspaceTab = {
+  id: string;
+  kind: "table";
+  label: string;
+  connId: string;
+  dbName: string;
+  tableName: string;
   workspaceOnly?: boolean;
 };
 
@@ -49,6 +58,7 @@ export type RedisQueryWorkspaceTab = {
 
 export type DbWorkspaceTab =
   | SqlWorkspaceTab
+  | TablePreviewWorkspaceTab
   | DatabaseListWorkspaceTab
   | TableDesignerWorkspaceTab
   | ConnectionInfoWorkspaceTab
@@ -56,6 +66,10 @@ export type DbWorkspaceTab =
 
 export function isSqlWorkspaceTab(tab: DbWorkspaceTab): tab is SqlWorkspaceTab {
   return tab.kind === "sql";
+}
+
+export function isTablePreviewTab(tab: DbWorkspaceTab): tab is TablePreviewWorkspaceTab {
+  return tab.kind === "table";
 }
 
 export function isDatabaseListTab(tab: DbWorkspaceTab): tab is DatabaseListWorkspaceTab {
@@ -81,6 +95,10 @@ export function isModuleDockTab(tab: DbWorkspaceTab): boolean {
 
 export function makeSqlTabId(): string {
   return `sql:${Date.now()}`;
+}
+
+export function makeTableTabId(): string {
+  return `tbltab:${Date.now()}`;
 }
 
 export function makeDatabaseTabId(): string {
@@ -200,22 +218,17 @@ export function findTabIdForRedisQuery(
 
 /** 查找已打开指定表的工作区 Tab，未找到返回 undefined */
 export function findTabIdForTable(
-  tablePreviews: Record<string, TablePreviewState>,
-  openTabIds: Iterable<string>,
+  tabs: DbWorkspaceTab[],
   connId: string,
   dbName: string,
   tableName: string,
 ): string | undefined {
-  const openIds = new Set(openTabIds);
-  for (const [tabId, preview] of Object.entries(tablePreviews)) {
-    if (!openIds.has(tabId)) continue;
-    if (
-      preview.connId === connId &&
-      preview.dbName === dbName &&
-      preview.tableName === tableName
-    ) {
-      return tabId;
-    }
-  }
-  return undefined;
+  return tabs.find(
+    (tab) =>
+      isModuleDockTab(tab) &&
+      tab.kind === "table" &&
+      tab.connId === connId &&
+      tab.dbName === dbName &&
+      tab.tableName === tableName,
+  )?.id;
 }

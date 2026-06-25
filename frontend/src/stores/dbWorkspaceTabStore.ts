@@ -5,6 +5,7 @@ import {
   type SqlTabState,
   type TablePreviewState,
 } from "../modules/database/dbWorkspaceState";
+import type { DbWorkspaceTab, TablePreviewWorkspaceTab } from "../modules/database/workspaceTabs";
 
 type TabDirtyRows = Record<string, Record<string, Record<string, unknown>>>;
 
@@ -129,7 +130,16 @@ export function useDbTabWorkspaceSlice(tabId: string): DbTabWorkspaceSlice {
   );
 }
 
-export function isTablePreviewTabId(tabId: string): boolean {
+export function isTablePreviewTab(tab: DbWorkspaceTab): tab is TablePreviewWorkspaceTab {
+  return tab.kind === "table";
+}
+
+/** @deprecated 使用 isTablePreviewTab(tab) */
+export function isTablePreviewTabId(tabId: string, tabs?: DbWorkspaceTab[]): boolean {
+  if (tabs) {
+    const tab = tabs.find((item) => item.id === tabId);
+    return tab ? isTablePreviewTab(tab) : false;
+  }
   const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
   return Boolean(preview?.tableName);
 }

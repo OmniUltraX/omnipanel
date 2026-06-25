@@ -14,6 +14,27 @@ export function cellValueToDisplayText(value: unknown): string {
   return String(value);
 }
 
+/** 单元格整段内容为 http(s) 网址时返回规范化 URL，否则为 null。 */
+export function normalizeCellWebUrl(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || /\s/.test(trimmed) || trimmed.length > 2048) return null;
+
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!url.hostname) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+export function isCellWebUrl(text: string): boolean {
+  return normalizeCellWebUrl(text) !== null;
+}
+
 /** 解析单元格预览内容：JSON 对象/数组用 JsonView，其余用纯文本。 */
 export function resolveCellPreviewContent(
   value: unknown,

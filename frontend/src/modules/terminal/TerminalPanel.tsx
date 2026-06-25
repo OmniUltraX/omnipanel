@@ -133,16 +133,27 @@ export function TerminalPanel() {
     workspaceActiveResourceId,
   ]);
 
+  const handleCloseTabs = useCallback(
+    (ids: string[]) => {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      if (uniqueIds.length === 0) return;
+      for (const id of uniqueIds) {
+        clearTerminalPaneSender(id);
+        clearPaneBackendPending(id);
+        disposeTabBackendSessions(id);
+      }
+      for (const id of uniqueIds) {
+        removeTab(id);
+      }
+    },
+    [removeTab],
+  );
+
   const handleCloseTab = useCallback(
     (id: string) => {
-      clearTerminalPaneSender(id);
-      clearPaneBackendPending(id);
-      disposeTabBackendSessions(id);
-      const currentLayout = useTerminalDockLayoutStore.getState().savedLayout;
-      setDockLayout(removeTabFromTerminalLayout(currentLayout, id));
-      removeTab(id);
+      handleCloseTabs([id]);
     },
-    [removeTab, setDockLayout],
+    [handleCloseTabs],
   );
 
   const visibleTabs = useMemo(
@@ -233,13 +244,18 @@ export function TerminalPanel() {
   const handleContextAction = useCallback(
     (action: TabContextMenuAction) => {
       if (!ctxMenu) return;
+      const dockVisibleTabs = useTerminalStore
+        .getState()
+        .tabs.filter((tab) => !tab.workspaceOnly);
+      const idx = dockVisibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
+
       if (action === "rename") {
         setCtxMenu(null);
         return;
       }
       if (action === "copyToWorkspace") {
         if (!activeWorkspaceId) return;
-        const ctxTab = visibleTabs.find((tab) => tab.id === ctxMenu.tabId);
+        const ctxTab = dockVisibleTabs.find((tab) => tab.id === ctxMenu.tabId);
         if (ctxTab) {
           addSnapshotToWorkspace(activeWorkspaceId, copyTerminalTabToWorkspaceSnapshot(ctxTab));
         }
@@ -248,7 +264,7 @@ export function TerminalPanel() {
       }
       if (action === "moveToWorkspace") {
         if (!activeWorkspaceId) return;
-        const ctxTab = visibleTabs.find((tab) => tab.id === ctxMenu.tabId);
+        const ctxTab = dockVisibleTabs.find((tab) => tab.id === ctxMenu.tabId);
         if (ctxTab) {
           const currentLayout = useTerminalDockLayoutStore.getState().savedLayout;
           setDockLayout(removeTabFromTerminalLayout(currentLayout, ctxTab.id));
@@ -265,24 +281,28 @@ export function TerminalPanel() {
         setCtxMenu(null);
         return;
       }
-      const idx = ctxMenu.index;
-      const tabList = visibleTabs;
       if (action === "close") {
         handleCloseTab(ctxMenu.tabId);
       } else if (action === "closeLeft") {
-        for (let i = idx - 1; i >= 0; i--) handleCloseTab(tabList[i].id);
+        if (idx > 0) {
+          handleCloseTabs(dockVisibleTabs.slice(0, idx).map((tab) => tab.id));
+        }
       } else if (action === "closeRight") {
-        for (let i = tabList.length - 1; i > idx; i--) handleCloseTab(tabList[i].id);
+        if (idx >= 0 && idx < dockVisibleTabs.length - 1) {
+          handleCloseTabs(dockVisibleTabs.slice(idx + 1).map((tab) => tab.id));
+        }
       } else if (action === "closeOthers") {
-        for (let i = tabList.length - 1; i >= 0; i--) {
-          if (i !== idx) handleCloseTab(tabList[i].id);
+        if (idx >= 0) {
+          handleCloseTabs(
+            dockVisibleTabs.filter((tab) => tab.id !== ctxMenu.tabId).map((tab) => tab.id),
+          );
         }
       } else if (action === "closeAll") {
-        for (let i = tabList.length - 1; i >= 0; i--) handleCloseTab(tabList[i].id);
+        handleCloseTabs(dockVisibleTabs.map((tab) => tab.id));
       }
       setCtxMenu(null);
     },
-    [ctxMenu, handleCloseTab, visibleTabs, activeWorkspaceId, setActiveTab, setDockLayout],
+    [ctxMenu, handleCloseTab, handleCloseTabs, activeWorkspaceId, setActiveTab, setDockLayout],
   );
 
   const renderDockPanel = useCallback(
@@ -334,10 +354,11 @@ export function TerminalPanel() {
         }
       />
       {ctxMenu && (() => {
+        const menuTabIndex = visibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
         const closeItems = buildTabCloseMenuItems(
           t,
           visibleTabs.length,
-          ctxMenu.index,
+          menuTabIndex >= 0 ? menuTabIndex : 0,
           handleContextAction,
           { showWorkspaceActions: true },
         );

@@ -2,6 +2,7 @@
 export type SchemaTreeItemType =
   | "group"
   | "connection"
+  | "connection-folder"
   | "database"
   | "table"
   | "view"
@@ -28,6 +29,10 @@ export interface SchemaTreeItem {
 
 export function buildGroupTreeItem(groupId: string, label: string): SchemaTreeItem {
   return { type: "group", id: `grp:${groupId}`, label, groupId };
+}
+
+export function buildConnectionFolderTreeItem(folderId: string, label: string): SchemaTreeItem {
+  return { type: "connection-folder", id: folderId, label };
 }
 
 export function buildConnectionTreeItem(

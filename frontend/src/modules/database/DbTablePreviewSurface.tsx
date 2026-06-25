@@ -3,7 +3,7 @@ import {
   useDbWorkspace,
   useDbTabWorkspaceSliceOrMirror,
 } from "../../contexts/DbWorkspaceContext";
-import type { SqlWorkspaceTab } from "./workspaceTabs";
+import type { TablePreviewWorkspaceTab } from "./workspaceTabs";
 import { Button } from "../../components/ui/Button";
 import { IconPlus } from "../../components/ui/Icons";
 import { TableDataGrid } from "./TableDataGrid";
@@ -13,7 +13,7 @@ import type { RuleGroupType } from "react-querybuilder";
 import { connectionHasTableSchemaChildren } from "./api";
 
 interface DbTablePreviewSurfaceProps {
-  tab: SqlWorkspaceTab;
+  tab: TablePreviewWorkspaceTab;
 }
 
 export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
@@ -28,9 +28,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     isCommitting,
   } = useDbTabWorkspaceSliceOrMirror(tab.id);
 
-  const canRefresh = preview?.connId && preview?.dbName && preview?.tableName;
+  const canRefresh = tab.connId && tab.dbName && tab.tableName;
 
-  const previewConnection = preview?.connId ? ws.resolveConnection(preview.connId) : null;
+  const previewConnection = tab.connId ? ws.resolveConnection(tab.connId) : null;
   const canInsertRow = !!(
     canRefresh &&
     preview?.data &&
@@ -105,6 +105,18 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       ws.requestTabAction({ kind: "filter", tabId: tab.id, filter: nextFilter });
     },
     [ws.requestTabAction, tab.id],
+  );
+  const handleHiddenColumnsChange = useCallback(
+    (hiddenColumns: string[]) => {
+      ws.setTableGridView(tab.id, { hiddenColumns });
+    },
+    [ws.setTableGridView, tab.id],
+  );
+  const handleTransposedChange = useCallback(
+    (transposed: boolean) => {
+      ws.setTableGridView(tab.id, { transposed });
+    },
+    [ws.setTableGridView, tab.id],
   );
 
   const showPreviewGrid = Boolean(
@@ -242,7 +254,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             cellOverrides={previewCellOverrides}
             onPageChange={handlePreviewPageChange}
             dbType={previewConnection?.db_type}
-            tableName={preview.tableName ?? undefined}
+            tableName={tab.tableName}
+            hiddenColumns={preview.hiddenColumns}
+            onHiddenColumnsChange={handleHiddenColumnsChange}
+            transposed={preview.transposed}
+            onTransposedChange={handleTransposedChange}
           />
         ) : null}
       </div>

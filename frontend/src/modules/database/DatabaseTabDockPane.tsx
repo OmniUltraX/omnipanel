@@ -7,7 +7,7 @@ import {
 } from "../../stores/dbWorkspaceMirrorStore";
 import { DbPanelSurface } from "./DbPanelSurface";
 import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
-import { isTablePreviewTabId } from "../../stores/dbWorkspaceTabStore";
+import { isTablePreviewTab } from "../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import { isConnectionInfoTab, isDatabaseListTab, isSqlWorkspaceTab } from "./workspaceTabs";
@@ -74,12 +74,10 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                 />
               );
             })()
+          ) : isTablePreviewTab(tab) ? (
+            <DbTablePreviewSurface tab={tab} />
           ) : isSqlWorkspaceTab(tab) ? (
-            isTablePreviewTabId(tab.id) ? (
-              <DbTablePreviewSurface tab={tab} />
-            ) : (
-              <DbPanelSurface tab={tab} />
-            )
+            <DbPanelSurface tab={tab} />
           ) : null}
         </div>
       </div>

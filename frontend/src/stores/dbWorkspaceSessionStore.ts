@@ -56,6 +56,7 @@ export const useDbWorkspaceSessionStore = create<DbWorkspaceSessionState>()(
         if (persisted?.session) {
           persisted.session = sanitizeWorkspaceSession({
             ...persisted.session,
+            tablePreviewStates: persisted.session.tablePreviewStates ?? {},
             tableDesignerStates: persisted.session.tableDesignerStates ?? {},
           });
         }
@@ -73,13 +74,28 @@ export const useDbWorkspaceSessionStore = create<DbWorkspaceSessionState>()(
 );
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSnapshot: DbWorkspaceSessionSnapshot | null | undefined;
 
 export function schedulePersistWorkspaceSession(snapshot: DbWorkspaceSessionSnapshot | null): void {
+  pendingSnapshot = snapshot;
   if (saveTimer) {
     clearTimeout(saveTimer);
   }
   saveTimer = setTimeout(() => {
     saveTimer = null;
     useDbWorkspaceSessionStore.getState().setSession(snapshot);
+    pendingSnapshot = undefined;
   }, 400);
+}
+
+/** 应用退出前立即写入待持久化的会话，避免 debounce 导致表预览元数据丢失。 */
+export function flushPersistWorkspaceSession(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (pendingSnapshot !== undefined) {
+    useDbWorkspaceSessionStore.getState().setSession(pendingSnapshot);
+    pendingSnapshot = undefined;
+  }
 }

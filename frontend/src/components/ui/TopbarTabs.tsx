@@ -80,20 +80,23 @@ export function TopbarTabs({ tabs, tabMode, showAddTab, addTabTitle, handlers }:
         setCtxMenu(null);
         return;
       }
-      const idx = ctxMenu.index;
-      const tabList = tabs;
+      const idx = tabs.findIndex((tab) => tab.id === ctxMenu.tabId);
+      if (idx < 0) {
+        setCtxMenu(null);
+        return;
+      }
       if (action === "close") {
         handlers.onClose(ctxMenu.tabId);
       } else if (action === "closeLeft") {
-        for (let i = idx - 1; i >= 0; i--) handlers.onClose(tabList[i].id);
+        for (let i = idx - 1; i >= 0; i--) handlers.onClose(tabs[i].id);
       } else if (action === "closeRight") {
-        for (let i = tabList.length - 1; i > idx; i--) handlers.onClose(tabList[i].id);
+        for (let i = tabs.length - 1; i > idx; i--) handlers.onClose(tabs[i].id);
       } else if (action === "closeOthers") {
-        for (let i = tabList.length - 1; i >= 0; i--) {
-          if (i !== idx) handlers.onClose(tabList[i].id);
+        for (let i = tabs.length - 1; i >= 0; i--) {
+          if (i !== idx) handlers.onClose(tabs[i].id);
         }
       } else if (action === "closeAll") {
-        for (let i = tabList.length - 1; i >= 0; i--) handlers.onClose(tabList[i].id);
+        for (let i = tabs.length - 1; i >= 0; i--) handlers.onClose(tabs[i].id);
       }
       setCtxMenu(null);
     },
@@ -150,7 +153,12 @@ export function TopbarTabs({ tabs, tabMode, showAddTab, addTabTitle, handlers }:
 
       {ctxMenu && isSession && (
         <ContextMenu
-          items={buildTabCloseMenuItems(t, tabs.length, ctxMenu.index, handleContextAction)}
+          items={buildTabCloseMenuItems(
+            t,
+            tabs.length,
+            Math.max(0, tabs.findIndex((tab) => tab.id === ctxMenu.tabId)),
+            handleContextAction,
+          )}
           position={{ x: ctxMenu.x, y: ctxMenu.y }}
           onClose={() => setCtxMenu(null)}
         />
