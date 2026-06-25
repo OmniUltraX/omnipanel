@@ -1,5 +1,5 @@
-import type { IDockviewPanelHeaderProps } from "dockview-react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { DockTabChrome } from "./DockTabChrome";
 import { DockTabIcon, type DockTabIconKind } from "./DockTabIcon";
 import type { DockTabPageType } from "./dockableTab";
@@ -73,6 +73,7 @@ export function DockTabHeader({
       isPreview={preview}
       onContextMenu={onContextMenu}
       onPointerUp={onPointerUp}
+      tabId={tabId}
       onDoubleClick={handleDoubleClick}
     >
       {icon ? <DockTabIcon kind={icon} /> : null}

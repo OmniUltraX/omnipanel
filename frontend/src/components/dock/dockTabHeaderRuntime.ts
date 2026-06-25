@@ -3,6 +3,7 @@ import type { DockableTab } from "./dockableTab";
 
 export interface DockTabHeaderRuntime {
   tabsRef: { current: DockableTab[] };
+  activeTabIdRef?: { current: string };
   tabStyleRef: { current: "default" | "topbar" | "segment" };
   onTabContextMenuRef: {
     current:
@@ -11,6 +12,10 @@ export interface DockTabHeaderRuntime {
   };
   onTabDoubleClickRef: {
     current: ((tabId: string) => void) | undefined;
+  };
+  /** 点击已激活 tab 时触发（dockview 不会再次派发 active 变更） */
+  onTabClickRef?: {
+    current: ((tabId: string, wasActive: boolean) => void) | undefined;
   };
 }
 

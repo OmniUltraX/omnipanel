@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import {
   DockHandle,
   DockLayout,
@@ -28,6 +29,9 @@ type SidePanelWorkspaceSpec = {
   props?: Record<string, unknown>;
   snapshotId?: string;
 };
+
+/** 侧栏竖排 tab 轨宽度，与 global.css 中 dv-tabs-and-actions-container 一致 */
+const SIDE_TAB_RAIL_PX = 38;
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -134,10 +138,66 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
 
   const defaultSideTab = isLocal ? "files" : "processes";
   const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(defaultSideTab);
+  const [sideContentCollapsed, setSideContentCollapsed] = useState(false);
+  const sideContentCollapsedRef = useRef(false);
+  const sidePanelRef = useRef<PanelImperativeHandle | null>(null);
+  const expandedSideSizeRef = useRef<number>(0);
   const sideLayoutRef = useRef<SerializedDockview | null>(null);
   const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
     sideLayoutRef.current = layout;
   }, []);
+
+  const resizeSidePanel = useCallback((collapsed: boolean) => {
+    const handle = sidePanelRef.current;
+    if (!handle) return;
+    if (collapsed) {
+      handle.resize(SIDE_TAB_RAIL_PX);
+      return;
+    }
+
+    const restored =
+      expandedSideSizeRef.current > SIDE_TAB_RAIL_PX + 8
+        ? expandedSideSizeRef.current
+        : Math.floor(window.innerWidth * 0.5);
+    handle.resize(restored);
+  }, []);
+
+  const applySidePanelCollapsed = useCallback((collapsed: boolean) => {
+    const handle = sidePanelRef.current;
+    if (collapsed && handle) {
+      const size = handle.getSize();
+      if (size.inPixels > SIDE_TAB_RAIL_PX + 8) {
+        expandedSideSizeRef.current = size.inPixels;
+      }
+    }
+    sideContentCollapsedRef.current = collapsed;
+    setSideContentCollapsed(collapsed);
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeSidePanel(sideContentCollapsed);
+    const raf = requestAnimationFrame(() => resizeSidePanel(sideContentCollapsed));
+    return () => cancelAnimationFrame(raf);
+  }, [resizeSidePanel, sideContentCollapsed]);
+
+  const handleSideTabChange = useCallback(
+    (id: string) => {
+      setActiveSideTab(id as SidePanelId);
+      if (sideContentCollapsedRef.current) {
+        applySidePanelCollapsed(false);
+      }
+    },
+    [applySidePanelCollapsed],
+  );
+
+  const handleSideTabClick = useCallback(
+    (_tabId: string, wasActive: boolean) => {
+      if (wasActive) {
+        applySidePanelCollapsed(!sideContentCollapsedRef.current);
+      }
+    },
+    [applySidePanelCollapsed],
+  );
 
   useEffect(() => {
     if (!sideTabs.some((item) => item.id === activeSideTab)) {
@@ -147,7 +207,8 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
 
   const openTunnelTab = useCallback(() => {
     setActiveSideTab("tunnel");
-  }, []);
+    applySidePanelCollapsed(false);
+  }, [applySidePanelCollapsed]);
 
   const requestSftp = useSshDetailNavigationStore((s) => s.requestSftp);
   const lastSyncedSftpCwdRef = useRef<string | null>(null);
@@ -235,17 +296,20 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       <DockLayout direction="horizontal" className="advance-terminal-split">
         <DockPanel
           defaultSize="50%"
-          minSize="40%"
+          minSize={sideContentCollapsed ? "0%" : "40%"}
           className="advance-terminal-main"
         >
           {terminalPane}
         </DockPanel>
-        <DockHandle direction="horizontal" />
+        {!sideContentCollapsed ? <DockHandle direction="horizontal" /> : null}
         <DockPanel
           defaultSize="50%"
-          minSize="20%"
-          maxSize="60%"
-          className="advance-terminal-side"
+          minSize={SIDE_TAB_RAIL_PX}
+          maxSize={sideContentCollapsed ? SIDE_TAB_RAIL_PX : "60%"}
+          collapsible
+          collapsedSize={SIDE_TAB_RAIL_PX}
+          panelRef={sidePanelRef}
+          className={`advance-terminal-side${sideContentCollapsed ? " advance-terminal-side--collapsed" : ""}`}
         >
           <DockableWorkspace
             key={`${tabId}-${isLocal ? "local" : "remote"}`}
@@ -253,7 +317,8 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
             dockScope={`terminal-side-${tabId}`}
             tabs={sideTabs}
             activeTabId={activeSideTab}
-            onActiveTabChange={(id) => setActiveSideTab(id as SidePanelId)}
+            onActiveTabChange={handleSideTabChange}
+            onTabClick={handleSideTabClick}
             onCloseTab={() => {}}
             savedLayout={sideLayoutRef.current}
             onSavedLayoutChange={handleSideLayoutChange}

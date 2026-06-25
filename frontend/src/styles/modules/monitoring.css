@@ -8,6 +8,8 @@
     flex-direction: column;
     gap: var(--sp-3);
     min-height: 0;
+    container-type: inline-size;
+    container-name: mon-dashboard;
 }
 
 .mon-dashboard--compact {
@@ -101,14 +103,25 @@
     align-items: stretch;
 }
 
-/* 终端侧栏：一行 2 卡 */
+/* 终端侧栏：固定 2×2，避免 auto-fit 在中宽面板出现 3+1 */
 .mon-dashboard--compact .mon-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-/* 详情页窄屏时降为 2 列，宽屏保持 4 列 */
-@media (max-width: 1100px) {
+/* 详情页：中等宽度降为 2 列 */
+@container mon-dashboard (max-width: 1040px) {
     .mon-dashboard:not(.mon-dashboard--compact) .mon-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* 窄面板：指标单列 */
+@container mon-dashboard (max-width: 520px) {
+    .mon-dashboard .mon-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mon-dashboard--compact .mon-net-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
