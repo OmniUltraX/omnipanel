@@ -114,33 +114,7 @@ jobs:
         env:
           RAW_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
           KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "${RAW_KEY:-}" ]; then
-            echo "::error::GitHub Secret UPDATER_PRIVATE_KEY 未配置。"
-            echo "请执行: cd frontend && npm run tauri -- signer generate -w tauri-signing.key --ci -p \"\""
-            echo "将 tauri-signing.key 文件全文（单行 base64）粘贴到 Secret。"
-            exit 1
-          fi
-          KEY_FILE="${RUNNER_TEMP}/tauri-signing.key"
-          trimmed="$(printf '%s' "$RAW_KEY" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-          if printf '%s' "$trimmed" | grep -q 'untrusted comment:'; then
-            # 误粘贴了 minisign 明文，转回 Tauri 要求的 base64 单行格式
-            printf '%s' "$RAW_KEY" | base64 -w0 > "$KEY_FILE"
-            echo "已将 minisign 明文密钥转换为 base64"
-          else
-            # 标准：tauri-signing.key 本身就是单行 base64
-            printf '%s' "$trimmed" > "$KEY_FILE"
-          fi
-          if ! decoded="$(base64 -d "$KEY_FILE" 2>/dev/null)" || [ -z "$decoded" ]; then
-            echo "::error::UPDATER_PRIVATE_KEY 不是有效 base64。"
-            echo "请直接粘贴 tauri-signing.key 文件全文，不要手动解码或添加空格/换行。"
-            exit 1
-          fi
-          chmod 600 "$KEY_FILE"
-          # bundle 会先按文件路径读取，再对文件内容做 base64 解码
-          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_FILE" >> "$GITHUB_ENV"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${KEY_PASSWORD:-}" >> "$GITHUB_ENV"
+        run: bash scripts/prepare-tauri-signing-key.sh
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0

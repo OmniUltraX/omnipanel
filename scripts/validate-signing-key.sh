@@ -66,11 +66,43 @@ trap cleanup EXIT
 
 validate_base64_file() {
   local file="$1"
-  if ! decoded="$(base64 -d "$file" 2>/dev/null)" || [[ -z "$decoded" ]]; then
+  local decoded=""
+  if ! decoded="$(decode_base64_file "$file")" || [[ -z "$decoded" ]]; then
     fail "不是有效的 base64（请粘贴 tauri-signing.key 全文，勿手动解码）"
     exit 1
   fi
   ok "base64 有效（解码后 ${#decoded} 字节）"
+}
+
+decode_base64_file() {
+  local file="$1"
+  local decoded=""
+
+  if decoded="$(base64 -d <"$file" 2>/dev/null)" && [[ -n "$decoded" ]]; then
+    printf '%s' "$decoded"
+    return 0
+  fi
+  if decoded="$(base64 --decode <"$file" 2>/dev/null)" && [[ -n "$decoded" ]]; then
+    printf '%s' "$decoded"
+    return 0
+  fi
+  if decoded="$(base64 -D -i "$file" 2>/dev/null)" && [[ -n "$decoded" ]]; then
+    printf '%s' "$decoded"
+    return 0
+  fi
+  if decoded="$(base64 -D <"$file" 2>/dev/null)" && [[ -n "$decoded" ]]; then
+    printf '%s' "$decoded"
+    return 0
+  fi
+  return 1
+}
+
+encode_base64_nowrap() {
+  if base64 --help 2>&1 | grep -qE '(^|[[:space:]])-w([,[:space:]]|$)'; then
+    base64 -w0
+  else
+    base64 | tr -d '\n'
+  fi
 }
 
 prepare_key_from_secret() {
@@ -92,7 +124,7 @@ prepare_key_from_secret() {
   trimmed="$(printf '%s' "$raw" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   if printf '%s' "$trimmed" | grep -q 'untrusted comment:'; then
     echo "    检测到 minisign 明文，转换为 base64 单行格式..."
-    printf '%s' "$raw" | base64 -w0 >"$out_path"
+    printf '%s' "$raw" | encode_base64_nowrap >"$out_path"
   else
     printf '%s' "$trimmed" >"$out_path"
   fi
