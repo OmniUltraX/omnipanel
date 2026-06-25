@@ -194,6 +194,8 @@ interface SettingsState {
   sqlEditorFontSize: SqlEditorFontSize;
   sqlEditorLineHeight: SqlEditorLineHeight;
   filePreviewThresholdBytes: FilePreviewThresholdBytes;
+  /** 文件索引存储目录，空字符串表示默认 ~/.omnipd/files/index */
+  fileIndexStorageDir: string;
   resolved: "light" | "dark";
   setLocale: (locale: Locale) => void;
   setUiDensity: (density: UiDensity) => void;
@@ -218,7 +220,7 @@ interface SettingsState {
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,
     "databaseQueryPageSize" | "sqlEditorFontFamily" | "sqlEditorFontSize" | "sqlEditorLineHeight"
   >>) => void;
-  setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes">>) => void;
+  setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir">>) => void;
 }
 
 export function clampUiScale(percent: number): number {
@@ -297,6 +299,7 @@ export const useSettingsStore = create<SettingsState>()(
       sqlEditorFontSize: DEFAULT_SQL_EDITOR_FONT_SIZE,
       sqlEditorLineHeight: DEFAULT_SQL_EDITOR_LINE_HEIGHT,
       filePreviewThresholdBytes: DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
+      fileIndexStorageDir: "",
       resolved: resolveTheme("system"),
       setLocale: (locale) => {
         applyDocumentLocale(locale);
@@ -365,6 +368,10 @@ export const useSettingsStore = create<SettingsState>()(
             patch.filePreviewThresholdBytes !== undefined
               ? clampFilePreviewThresholdBytes(patch.filePreviewThresholdBytes)
               : state.filePreviewThresholdBytes,
+          fileIndexStorageDir:
+            patch.fileIndexStorageDir !== undefined
+              ? patch.fileIndexStorageDir.trim()
+              : state.fileIndexStorageDir,
         })),
     }),
     {
@@ -399,6 +406,7 @@ export const useSettingsStore = create<SettingsState>()(
         sqlEditorFontSize: state.sqlEditorFontSize,
         sqlEditorLineHeight: state.sqlEditorLineHeight,
         filePreviewThresholdBytes: state.filePreviewThresholdBytes,
+        fileIndexStorageDir: state.fileIndexStorageDir,
       }),
       onRehydrateStorage: () => (state) => {
         applyDocumentLocale(state?.locale ?? "zh-CN");
@@ -411,6 +419,7 @@ export const useSettingsStore = create<SettingsState>()(
             state?.databaseQueryPageSize ?? DEFAULT_DATABASE_QUERY_PAGE_SIZE,
           filePreviewThresholdBytes:
             state?.filePreviewThresholdBytes ?? DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
+          fileIndexStorageDir: state?.fileIndexStorageDir ?? "",
         });
       },
     }

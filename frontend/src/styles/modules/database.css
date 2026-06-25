@@ -2866,6 +2866,7 @@
         flex-shrink: 0;
         opacity: 0.45;
         cursor: pointer;
+        gap: 2px;
     }
 
     .db-data-table-sort-indicator:hover,
@@ -2873,8 +2874,36 @@
         opacity: 1;
     }
 
+    .db-data-table-sort-field-col {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.75em;
+        opacity: 0.85;
+    }
+
     .db-data-table-th--filtered {
         color: var(--accent);
+    }
+
+    .db-data-table-cell--filtered.db-data-table-cell--field {
+        color: var(--accent);
+    }
+
+    .db-data-table-field-inner {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 0;
+        width: 100%;
+    }
+
+    .db-data-table-field-inner .db-data-table-cell-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .db-data-table-filter-btn {

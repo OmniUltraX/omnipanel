@@ -1,4 +1,4 @@
-import { commands, type Connection, type FileListDirResult, type FileManagerConnectionInfo, type OmniError_Serialize } from "../../ipc/bindings";
+import { commands, type Connection, type FileIndexProgress, type FileIndexSearchResult, type FileIndexStatus, type FileListDirResult, type FileManagerConnectionInfo, type OmniError_Serialize } from "../../ipc/bindings";
 import { fmtError } from "./utils";
 
 function ipcErrorToError(error: OmniError_Serialize): Error {
@@ -82,5 +82,35 @@ export async function readRemotePreview(connectionId: string, path: string, maxB
 export async function loadQuickPaths() {
   return unwrap(await commands.fileLocalQuickPaths());
 }
+
+export async function buildFileIndex(connectionId: string): Promise<FileIndexStatus> {
+  return unwrap(await commands.fileIndexBuild(connectionId), { op: "fileIndexBuild", connectionId });
+}
+
+export async function searchFileIndex(
+  connectionId: string,
+  query: string,
+  limit = 100,
+): Promise<FileIndexSearchResult[]> {
+  return unwrap(await commands.fileIndexSearch(connectionId, query, limit), {
+    op: "fileIndexSearch",
+    connectionId,
+    query,
+  });
+}
+
+export async function getFileIndexStatus(connectionId: string): Promise<FileIndexStatus> {
+  return unwrap(await commands.fileIndexStatus(connectionId), { op: "fileIndexStatus", connectionId });
+}
+
+export async function clearFileIndex(connectionId: string): Promise<void> {
+  await unwrap(await commands.fileIndexClear(connectionId), { op: "fileIndexClear", connectionId });
+}
+
+export async function cancelFileIndex(connectionId: string): Promise<void> {
+  await unwrap(await commands.fileIndexCancel(connectionId), { op: "fileIndexCancel", connectionId });
+}
+
+export type { FileIndexProgress, FileIndexStatus };
 
 export { fmtError };

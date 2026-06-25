@@ -8,6 +8,7 @@ pub mod debug;
 pub mod docker;
 pub mod exec;
 pub mod file_manager;
+pub mod file_index;
 pub mod fileio;
 pub mod grpc;
 pub mod knowledge;

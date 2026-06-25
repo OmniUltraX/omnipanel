@@ -13,6 +13,7 @@ import {
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { ScopedSearch } from "../ui/ScopedSearch";
 import { ResourceTags } from "../ui/ResourceTags";
 import {
   syncFromOpenSshConfig,
@@ -240,20 +241,7 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
     if (syncing) return;
     setSyncing(true);
     try {
-      const result = await syncFromOpenSshConfig();
-      if (result) {
-        const failHint =
-          result.failures.length > 0
-            ? `\n${t("ssh.sidebar.syncFailures", { count: result.failures.length })}`
-            : "";
-        window.alert(
-          t("ssh.sidebar.syncResult", {
-            added: result.added,
-            updated: result.updated,
-            skipped: result.skipped,
-          }) + failHint,
-        );
-      }
+      await syncFromOpenSshConfig();
     } finally {
       setSyncing(false);
     }
@@ -435,59 +423,52 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
           </Button>
         </div>
       </div>
-      <div className="host-list-search">
-        <input
-          className="input input-search"
-          placeholder={t("ssh.sidebar.search")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          style={{ width: "100%" }}
-        />
-      </div>
-      <div className="host-list">
-        {grouped.length === 0 ? (
-          <div className="empty-state compact">{t("common.noResources")}</div>
-        ) : (
-          grouped.map((group) => (
-            <HostGroupSection
-              key={group.groupKey}
-              groupKey={group.groupKey}
-              label={group.label}
-              count={group.items.length}
-              expanded={isGroupExpanded(group.groupKey)}
-              onToggle={() => toggleGroup(group.groupKey)}
-              onContextMenu={(e) => handleGroupContextMenu(e, group.groupKey)}
-            >
-              {group.items.map((host) => (
-                <div
-                  key={`${group.groupKey}::${host.id}`}
-                  className={`host-item-row${activeHostId === host.id ? " active" : ""}`}
-                  onContextMenu={(e) => handleContextMenu(e, host)}
-                >
-                  <button
-                    type="button"
-                    className="host-item"
-                    onClick={() => selectHost(host)}
-                    onDoubleClick={() => onConnect?.(host.id)}
+      <ScopedSearch value={query} onChange={setQuery} placeholder={t("ssh.sidebar.search")}>
+        <div className="host-list">
+          {grouped.length === 0 ? (
+            <div className="empty-state compact">{t("common.noResources")}</div>
+          ) : (
+            grouped.map((group) => (
+              <HostGroupSection
+                key={group.groupKey}
+                groupKey={group.groupKey}
+                label={group.label}
+                count={group.items.length}
+                expanded={isGroupExpanded(group.groupKey)}
+                onToggle={() => toggleGroup(group.groupKey)}
+                onContextMenu={(e) => handleGroupContextMenu(e, group.groupKey)}
+              >
+                {group.items.map((host) => (
+                  <div
+                    key={`${group.groupKey}::${host.id}`}
+                    className={`host-item-row${activeHostId === host.id ? " active" : ""}`}
+                    onContextMenu={(e) => handleContextMenu(e, host)}
                   >
-                    <HostStatusIndicator resourceId={host.id} />
-                    <div className="host-icon">{HOST_ICON}</div>
-                    <div className="host-info">
-                      <div className="host-row-1">
-                        <span className="host-name">{host.name}</span>
-                        <HostResourceTags resourceId={host.id} />
-                        <HostMonitoringBadge resourceId={host.id} />
+                    <button
+                      type="button"
+                      className="host-item"
+                      onClick={() => selectHost(host)}
+                      onDoubleClick={() => onConnect?.(host.id)}
+                    >
+                      <HostStatusIndicator resourceId={host.id} />
+                      <div className="host-icon">{HOST_ICON}</div>
+                      <div className="host-info">
+                        <div className="host-row-1">
+                          <span className="host-name">{host.name}</span>
+                          <HostResourceTags resourceId={host.id} />
+                          <HostMonitoringBadge resourceId={host.id} />
+                        </div>
+                        <div className="host-row-2">{host.subtitle}</div>
                       </div>
-                      <div className="host-row-2">{host.subtitle}</div>
-                    </div>
-                  </button>
-                  <HostPanelBadge sshId={host.id} />
-                </div>
-              ))}
-            </HostGroupSection>
-          ))
-        )}
-      </div>
+                    </button>
+                    <HostPanelBadge sshId={host.id} />
+                  </div>
+                ))}
+              </HostGroupSection>
+            ))
+          )}
+        </div>
+      </ScopedSearch>
 
       {listCtxMenu && (
         <ContextMenu

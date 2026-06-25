@@ -298,6 +298,20 @@ export const commands = {
 	fileDelete: (connectionId: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_delete", { connectionId, path })),
 	/**  本机常用目录快捷路径。 */
 	fileLocalQuickPaths: () => typedError<FileQuickPaths, OmniError_Serialize>(__TAURI_INVOKE("file_local_quick_paths")),
+	/**  启动后台文件索引构建（本地与远程连接均支持）。 */
+	fileIndexBuild: (connectionId: string) => typedError<FileIndexStatus, OmniError_Serialize>(__TAURI_INVOKE("file_index_build", { connectionId })),
+	/**  FTS5 搜索已索引文件。 */
+	fileIndexSearch: (connectionId: string, query: string, limit: number | null) => typedError<FileIndexSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("file_index_search", { connectionId, query, limit })),
+	/**  获取连接的文件索引状态。 */
+	fileIndexStatus: (connectionId: string) => typedError<FileIndexStatus, OmniError_Serialize>(__TAURI_INVOKE("file_index_status", { connectionId })),
+	/**  清除连接的文件索引。 */
+	fileIndexClear: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_index_clear", { connectionId })),
+	/**  取消正在进行的索引构建。 */
+	fileIndexCancel: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_index_cancel", { connectionId })),
+	/**  获取当前文件索引存储目录信息。 */
+	fileIndexStorageInfo: () => typedError<FileIndexStorageInfo, OmniError_Serialize>(__TAURI_INVOKE("file_index_storage_info")),
+	/**  设置文件索引存储目录（空字符串表示恢复默认）。切换目录后需重新构建索引。 */
+	setFileIndexStorageDir: (dir: string) => typedError<FileIndexStorageInfo, OmniError_Serialize>(__TAURI_INVOKE("set_file_index_storage_dir", { dir })),
 	checkUpdate: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("check_update")),
 	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
 	/**  列出知识条目（可选按 kind / tag 过滤）。 */
@@ -1216,6 +1230,57 @@ export type FileEntry = {
 	size: number | null,
 	modified: number | null,
 	permissions: string | null,
+};
+
+/**  单条索引记录（不含正文）。 */
+export type FileIndexEntry = {
+	connectionId: string,
+	path: string,
+	name: string,
+	/**  file | dir */
+	kind: string,
+	size: number | null,
+	modified: number | null,
+};
+
+/**  FTS5 搜索结果。 */
+export type FileIndexSearchResult = {
+	entry: FileIndexEntry,
+	snippet: string,
+	score: number | null,
+};
+
+/**  文件索引元信息（按连接维度）。 */
+export type FileIndexStatus = {
+	connectionId: string,
+	/**  idle | building | ready | failed */
+	status: string,
+	rootPath: string,
+	indexedCount: number | null,
+	error: string,
+	startedAt: number | null,
+	finishedAt: number | null,
+};
+
+/**  文件索引存储目录信息。 */
+export type FileIndexStorageInfo = {
+	/**  当前生效的索引目录（数据库文件所在目录）。 */
+	storageDir: string,
+	/**  索引 SQLite 文件完整路径。 */
+	databasePath: string,
+	/**  默认索引目录。 */
+	defaultDir: string,
+	/**  是否为用户自定义目录。 */
+	isCustom: boolean,
+};
+
+/**  索引进度事件载荷。 */
+export type FileIndexProgress = {
+	connectionId: string,
+	/**  building | done | failed */
+	status: string,
+	indexedCount: number | null,
+	error: string,
 };
 
 /**  目录列表结果。 */

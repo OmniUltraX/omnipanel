@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "./components/shell/SplashScreen";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
+import { commands } from "./ipc/bindings";
 import { initAiModelsStore } from "./stores/aiModelsStore";
 import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
 import { initAcpServicesStore } from "./stores/acpServicesStore";
@@ -52,6 +53,9 @@ export function Bootstrap() {
         if (proxy.enabled) {
           invoke("set_proxy_config", { config: proxy }).catch(() => {});
         }
+
+        const fileIndexStorageDir = useSettingsStore.getState().fileIndexStorageDir;
+        commands.setFileIndexStorageDir(fileIndexStorageDir).catch(() => {});
 
         advance(2);
         initConnections();

@@ -14,7 +14,7 @@ use omnipanel_core::terminal::Terminal;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_ssh::SshSession;
-use omnipanel_store::{DatabaseConnectionStore, Storage};
+use omnipanel_store::{DatabaseConnectionStore, FileIndexStorage, Storage};
 
 /// Proxy 配置，从前端设置同步到后端。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -83,6 +83,12 @@ pub struct AppState {
     pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 文件管理器独立 SFTP 会话（按 file 连接 id 索引）。
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+    /// 文件索引独立 SQLite 存储（目录可在设置中配置）。
+    pub file_index_storage: Arc<Mutex<FileIndexStorage>>,
+    /// 用户配置的索引存储目录，空字符串表示默认 `~/.omnipd/files/index`。
+    pub file_index_storage_dir: Arc<Mutex<String>>,
+    /// 文件索引后台任务取消标记（按连接 id）。
+    pub file_index_tasks: Arc<StdMutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 本轮会话内已验证可用的文件连接（测试通过或成功列目录）。
     pub file_connection_online: Arc<StdMutex<HashSet<String>>>,
     /// 网络代理配置（由前端通用设置同步而来）。
@@ -94,7 +100,9 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         app_handle: AppHandle,
-        storage: Storage,
+        storage: Arc<Mutex<Storage>>,
+        file_index_storage: Arc<Mutex<FileIndexStorage>>,
+        file_index_storage_dir: String,
         db_connections: DatabaseConnectionStore,
         mcp_manager: SharedMcpManager,
     ) -> Self {
@@ -121,7 +129,7 @@ impl AppState {
             current_provider: Arc::new(Mutex::new(None)),
             current_model: Arc::new(Mutex::new(None)),
             db_connections,
-            storage: Arc::new(Mutex::new(storage)),
+            storage,
             engine: Arc::new(engine),
             ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
             ssh_pool,
@@ -135,6 +143,9 @@ impl AppState {
             running_workflows: Arc::new(Mutex::new(HashMap::new())),
             running_tasks: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
+            file_index_storage,
+            file_index_storage_dir: Arc::new(Mutex::new(file_index_storage_dir)),
+            file_index_tasks: Arc::new(StdMutex::new(HashMap::new())),
             file_connection_online: Arc::new(StdMutex::new(HashSet::new())),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
             mcp_manager,

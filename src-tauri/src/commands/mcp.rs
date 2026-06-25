@@ -4,6 +4,7 @@ use omnipanel_mcp::{
     McpManager, McpServiceConfig, McpServiceView, McpServicesFile, McpTransport, McpTransportKind,
     BUILTIN_SERVICE_ID,
 };
+use omnipanel_store::Storage;
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -188,8 +189,10 @@ fn chrono_like_id() -> String {
     )
 }
 
-pub async fn init_mcp_manager() -> Result<Arc<Mutex<McpManager>>, String> {
-    McpManager::bootstrap()
+pub async fn init_mcp_manager(
+    storage: Arc<Mutex<Storage>>,
+) -> Result<Arc<Mutex<McpManager>>, String> {
+    McpManager::bootstrap(storage)
         .await
         .map(|manager| Arc::new(Mutex::new(manager)))
         .map_err(|e| e.to_string())

@@ -9,6 +9,7 @@ import { useConnectionStore, useSshHostResources } from "../../../../stores/conn
 import { useWorkspaceStore } from "../../../../stores/workspaceStore";
 import { usePersistedModuleTab } from "../../../../hooks/usePersistedModuleTab";
 import { parseSshConfig } from "../../panel/serverConnection";
+import { WorkspaceEmptyPage } from "../../../../components/ui/WorkspaceEmptyPage";
 import { HostStatusIndicator } from "./HostStatusIndicator";
 import { useSshMonitoring } from "../hooks/useSshMonitoring";
 import { HostTunnelsDetailTab } from "./detail/HostTunnelsDetailTab";
@@ -60,17 +61,20 @@ export function HostDetailPanel(ctx: Props) {
     if (!selectedSshId) return null;
     return sshResources.find((resource) => resource.id === selectedSshId) ?? null;
   }, [selectedSshId, sshResources]);
+
+  if (!activeResource) {
+    return <WorkspaceEmptyPage prompt={t("ssh.empty.selectHost")} />;
+  }
+
   const profile = getProfile(activeResource);
-  const hostAddress = activeResource?.subtitle?.split("@").at(-1) ?? "10.0.1.10:22";
-  const hostName = activeResource?.name ?? "prod-web-01";
+  const hostAddress = activeResource.subtitle?.split("@").at(-1) ?? "10.0.1.10:22";
+  const hostName = activeResource.name ?? "prod-web-01";
 
   const connections = useConnectionStore((s) => s.connections);
-  const connection = activeResource
-    ? connections.find((c) => c.id === activeResource.id)
-    : undefined;
+  const connection = connections.find((c) => c.id === activeResource.id);
   const sshConfig = connection ? parseSshConfig(connection) : null;
   const username = sshConfig?.user ?? profile.username;
-  const resourceId = activeResource?.id ?? null;
+  const resourceId = activeResource.id;
 
   return (
     <div className="ssh-detail">

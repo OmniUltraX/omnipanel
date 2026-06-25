@@ -191,7 +191,7 @@ impl SshPool {
         self.log
             .log("ssh-pool", "info", "SSH 连接池初始化中…")
             .await;
-        self.reload_hosts(storage, app_handle.clone()).await;
+        self.reload_hosts(storage, app_handle.clone(), true).await;
         if self
             .background_started
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -205,13 +205,13 @@ impl SshPool {
                 app_handle.clone(),
                 self.log.clone(),
             );
-            self.probe_all_hosts(&app_handle).await;
-            self.emit_all_status(&app_handle).await;
         }
     }
 
-    /// 从持久化存储重新加载主机列表（同步 ~/.ssh/config 后调用，不扫描端口）。
-    pub async fn reload_hosts(&self, storage: Arc<Mutex<Storage>>, app_handle: tauri::AppHandle) {
+    /// 从持久化存储重新加载主机列表。
+    /// `probe=true` 时会顺序探测每个主机的 SSH 端口（启动时使用）；
+    /// 同步 ~/.ssh/config 时应传 `false` 避免阻塞。
+    pub async fn reload_hosts(&self, storage: Arc<Mutex<Storage>>, app_handle: tauri::AppHandle, probe: bool) {
         let connections = {
             let guard = storage.lock().await;
             match guard.list_connections_by_kind(ConnectionKind::Ssh) {
@@ -299,7 +299,9 @@ impl SshPool {
             }
         }
 
-        self.probe_all_hosts(&app_handle).await;
+        if probe {
+            self.probe_all_hosts(&app_handle).await;
+        }
         self.emit_all_status(&app_handle).await;
     }
 

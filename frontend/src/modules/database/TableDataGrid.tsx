@@ -160,6 +160,34 @@ function buildColumnHeaderTooltip(
   return lines.join("\n");
 }
 
+function ColumnFilterButton({
+  columnName,
+  active,
+  onOpen,
+}: {
+  columnName: string;
+  active: boolean;
+  onOpen: (anchor: HTMLElement, field: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      className={`db-data-table-filter-btn${active ? " db-data-table-filter-btn--active" : ""}`}
+      title={t("database.results.filterColumnHint")}
+      aria-label={t("database.results.filterColumnHint")}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(event.currentTarget, columnName);
+      }}
+    >
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10" aria-hidden>
+        <path d="M2 3h12M4.5 8h7M7 13h2" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
 function ColumnHeaderLabel({
   label,
   meta,
@@ -779,7 +807,16 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
 
   const handleHeaderClick = useCallback(
     (columnId: string) => {
-      if (!enableSort || !onSortChange || transposed) return;
+      if (!enableSort || !onSortChange) return;
+      if (transposed) {
+        if (!sort) return;
+        onSortChange(
+          sort.direction === "asc"
+            ? { column: sort.column, direction: "desc" }
+            : null,
+        );
+        return;
+      }
       let next: SortState | null;
       if (!sort || sort.column !== columnId) {
         next = { column: columnId, direction: "asc" };
@@ -855,6 +892,22 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
           ),
           cell: ({ getValue, row, column }) => {
             const value = getValue();
+            if (isFieldCol) {
+              const fieldName = String(value ?? "");
+              const fieldFiltered = canFilter && filterColumnNames.has(fieldName);
+              return (
+                <span className="db-data-table-field-inner">
+                  <span className="db-data-table-cell-text">{fieldName}</span>
+                  {canFilter ? (
+                    <ColumnFilterButton
+                      columnName={fieldName}
+                      active={fieldFiltered}
+                      onOpen={openFilterPopover}
+                    />
+                  ) : null}
+                </span>
+              );
+            }
             const isRowNumCol = column.id === ROW_NUM_COL_ID;
             const colMetaForCell =
               isFieldCol || isRowNumCol
@@ -904,7 +957,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       }
       return defs;
     },
-    [displayColumns, transposed, transposeRowHeaders, columnMetaMap, t, page, pageSize, effectiveOnCellEdit, handleCellEdit],
+    [displayColumns, transposed, transposeRowHeaders, columnMetaMap, t, page, pageSize, effectiveOnCellEdit, handleCellEdit, canFilter, filterColumnNames, openFilterPopover],
   );
 
   const table = useReactTable({
@@ -1232,6 +1285,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         {row.getVisibleCells().map((cell, cellIdx) => {
           const isRowNum = cell.column.id === ROW_NUM_COL_ID;
           const isFieldCol = transposed && cell.column.id === TRANSPOSE_FIELD_COL;
+          const fieldName = isFieldCol ? String(row.original[TRANSPOSE_FIELD_COL] ?? "") : "";
+          const fieldFiltered = isFieldCol && canFilter && filterColumnNames.has(fieldName);
           const isRowSelector = isRowNum || isFieldCol;
           const colMeta = isRowNum || isFieldCol ? undefined : (transposed ? undefined : columnMetaMap?.[cell.column.id]);
           const canEdit = !isRowSelector && effectiveOnCellEdit && colMeta;
@@ -1246,7 +1301,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               data-col-id={cell.column.id}
               data-col-index={cellIdx}
               style={buildColumnCellStyle(cell.column.id, baseSize, lastColumnId, fillDelta)}
-              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${selected ? " db-data-table-cell--selected" : ""}`}
+              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${selected ? " db-data-table-cell--selected" : ""}`}
               onMouseDown={
                 isRowSelector
                   ? (event) => {
@@ -1384,8 +1439,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 const colId = header.column.id;
                 const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
                 const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
-                const canSort = enableSort && !isFieldCol && colId !== ROW_NUM_COL_ID;
-                const sortActive = canSort && sort?.column === colId;
+                const canSort = enableSort && colId !== ROW_NUM_COL_ID && (!transposed || isFieldCol);
+                const sortActive = canSort && (transposed && isFieldCol ? !!sort : sort?.column === colId);
                 const sortDirection = sortActive ? sort!.direction : null;
                 const sortClass = sortActive
                   ? sortDirection === "asc"
@@ -1393,7 +1448,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     : " db-data-table-th--sort-desc"
                   : "";
                 const filterClass =
-                  canFilter && filterColumnNames.has(colId) ? " db-data-table-th--filtered" : "";
+                  !transposed && canFilter && filterColumnNames.has(colId) ? " db-data-table-th--filtered" : "";
                 const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
                 const colMeta = !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
                   ? columnMetaMap?.[colId]
@@ -1432,37 +1487,43 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                           }}
                           title={t("database.results.sortHint")}
                         >
-                          {sortDirection === "asc" ? (
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                              <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          ) : sortDirection === "desc" ? (
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                              <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                          {transposed && isFieldCol && sort ? (
+                            <>
+                              <span className="db-data-table-sort-field-col">{sort.column}</span>
+                              {sortDirection === "asc" ? (
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+                                  <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              ) : (
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+                                  <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </>
                           ) : (
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10">
-                              <path d="M8 13V3M4.5 6.5L8 3l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
-                              <path d="M4.5 9.5L8 13l3.5-3.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
-                            </svg>
+                            sortDirection === "asc" ? (
+                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+                                <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : sortDirection === "desc" ? (
+                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+                                <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10">
+                                <path d="M8 13V3M4.5 6.5L8 3l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M4.5 9.5L8 13l3.5-3.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
+                              </svg>
+                            )
                           )}
                         </span>
                       )}
-                      {canFilter && colId !== ROW_NUM_COL_ID && !isFieldCol && (
-                        <button
-                          type="button"
-                          className={`db-data-table-filter-btn${filterColumnNames.has(colId) ? " db-data-table-filter-btn--active" : ""}`}
-                          title={t("database.results.filterColumnHint")}
-                          aria-label={t("database.results.filterColumnHint")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openFilterPopover(event.currentTarget, colId);
-                          }}
-                        >
-                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10" aria-hidden>
-                            <path d="M2 3h12M4.5 8h7M7 13h2" strokeLinecap="round" />
-                          </svg>
-                        </button>
+                      {canFilter && colId !== ROW_NUM_COL_ID && !isFieldCol && !transposed && (
+                        <ColumnFilterButton
+                          columnName={colId}
+                          active={filterColumnNames.has(colId)}
+                          onOpen={openFilterPopover}
+                        />
                       )}
                     </span>
                   )}

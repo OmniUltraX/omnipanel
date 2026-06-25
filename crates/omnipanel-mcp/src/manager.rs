@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Context;
 use rmcp::transport::{
@@ -9,6 +10,8 @@ use rmcp::transport::{
 };
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
+
+use omnipanel_store::Storage;
 
 use crate::builtin::OmniMcpHandler;
 use crate::store::{
@@ -33,15 +36,17 @@ pub struct McpManager {
     file: McpServicesFile,
     builtin: Option<BuiltinServerRuntime>,
     stdio_runtimes: HashMap<String, StdioServiceRuntime>,
+    storage: Arc<Mutex<Storage>>,
 }
 
 impl McpManager {
-    pub async fn bootstrap() -> anyhow::Result<Self> {
+    pub async fn bootstrap(storage: Arc<Mutex<Storage>>) -> anyhow::Result<Self> {
         let file = load_services_file().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let mut manager = Self {
             file,
             builtin: None,
             stdio_runtimes: HashMap::new(),
+            storage,
         };
         manager.start_builtin().await?;
         manager.sync_custom_services().await?;
@@ -210,8 +215,9 @@ impl McpManager {
         let endpoint = format!("http://127.0.0.1:{port}/mcp");
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let storage = self.storage.clone();
         let service = StreamableHttpService::new(
-            || Ok(OmniMcpHandler::new()),
+            move || Ok(OmniMcpHandler::new(storage.clone())),
             LocalSessionManager::default().into(),
             StreamableHttpServerConfig::default(),
         );

@@ -87,7 +87,7 @@ pub struct FileManagerConnectionInfo {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FileConnConfig {
+pub(crate) struct FileConnConfig {
     #[serde(default)]
     protocol: String,
     #[serde(default)]
@@ -97,7 +97,7 @@ struct FileConnConfig {
     #[serde(default)]
     user: String,
     #[serde(default, rename = "rootPath")]
-    root_path: String,
+    pub(crate) root_path: String,
     /// FTPS TLS 开关（当前预留字段，后续接入显式 FTPS）。
     #[allow(dead_code)]
     #[serde(default)]
@@ -120,13 +120,13 @@ struct FileConnConfig {
     access_key: String,
 }
 
-fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
+pub(crate) fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
     serde_json::from_str(&conn.config).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "文件连接配置解析失败").with_cause(e.to_string())
     })
 }
 
-fn resolve_secret(conn: &Connection) -> Option<String> {
+pub(crate) fn resolve_secret(conn: &Connection) -> Option<String> {
     conn.credential_ref
         .as_deref()
         .and_then(|r| Vault::get(r).ok())
@@ -138,14 +138,14 @@ fn unix_secs(t: SystemTime) -> i64 {
         .unwrap_or(0)
 }
 
-fn local_home() -> Result<PathBuf, OmniError> {
+pub(crate) fn local_home() -> Result<PathBuf, OmniError> {
     if let Ok(p) = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
         return Ok(PathBuf::from(p));
     }
     Err(OmniError::new(ErrorCode::Internal, "无法获取用户主目录"))
 }
 
-fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
+pub(crate) fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
     if path.is_empty() || path == "/" || path == "~" {
         local_home()
     } else if let Some(rest) = path.strip_prefix("~/") {
@@ -155,7 +155,7 @@ fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
     }
 }
 
-fn join_posix(base: &str, name: &str) -> String {
+pub(crate) fn join_posix(base: &str, name: &str) -> String {
     if base == "/" || base.is_empty() {
         format!("/{name}")
     } else {
@@ -163,7 +163,7 @@ fn join_posix(base: &str, name: &str) -> String {
     }
 }
 
-async fn load_file_connection(
+pub(crate) async fn load_file_connection(
     state: &AppState,
     connection_id: &str,
 ) -> Result<Option<Connection>, OmniError> {
@@ -176,7 +176,7 @@ async fn load_file_connection(
 
 // ─── Local backend ───────────────────────────────────────────────────────────
 
-fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
+pub(crate) fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
     let p = resolve_local_path(path)?;
     if !p.exists() {
         return Err(OmniError::new(
@@ -253,7 +253,7 @@ fn local_delete(path: &str) -> Result<(), OmniError> {
     }
 }
 
-fn local_read(path: &str, max_bytes: u64) -> Result<Vec<u8>, OmniError> {
+pub(crate) fn local_read(path: &str, max_bytes: u64) -> Result<Vec<u8>, OmniError> {
     let data = std::fs::read(path)
         .map_err(|e| OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string()))?;
     if data.len() as u64 > max_bytes {
@@ -313,7 +313,7 @@ async fn ssh_config_from_file_conn(
     })
 }
 
-async fn sftp_session_for(
+pub(crate) async fn sftp_session_for(
     state: &AppState,
     connection_id: &str,
     conn: &Connection,
@@ -339,7 +339,7 @@ async fn sftp_session_for(
     Ok(arc)
 }
 
-fn sftp_entry_to_file(entry: &omnipanel_ssh::SftpEntry, base: &str) -> FileEntry {
+pub(crate) fn sftp_entry_to_file(entry: &omnipanel_ssh::SftpEntry, base: &str) -> FileEntry {
     FileEntry {
         name: entry.name.clone(),
         path: join_posix(base, &entry.name),
@@ -354,7 +354,7 @@ fn sftp_entry_to_file(entry: &omnipanel_ssh::SftpEntry, base: &str) -> FileEntry
     }
 }
 
-async fn list_sftp_dir(
+pub(crate) async fn list_sftp_dir(
     state: &AppState,
     connection_id: &str,
     conn: &Connection,
@@ -380,7 +380,7 @@ async fn list_sftp_dir(
 
 // ─── FTP backend（同步客户端 + spawn_blocking）────────────────────────────────
 
-fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<FtpStream, OmniError> {
+pub(crate) fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<FtpStream, OmniError> {
     let port = cfg.port.unwrap_or(21);
     let addr = format!("{}:{}", cfg.host, port);
     let mut ftp = FtpStream::connect(&addr).map_err(|e| {
@@ -394,7 +394,7 @@ fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<FtpStream, Omn
     Ok(ftp)
 }
 
-fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
+pub(crate) fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
     if path.is_empty() {
         if cfg.root_path.is_empty() {
             "/".to_string()
@@ -406,7 +406,7 @@ fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
     }
 }
 
-async fn list_ftp_dir(
+pub(crate) async fn list_ftp_dir(
     cfg: &FileConnConfig,
     secret: &str,
     path: &str,
@@ -465,7 +465,7 @@ async fn ftp_test(cfg: &FileConnConfig, secret: &str) -> Result<(), OmniError> {
 
 // ─── S3 backend ──────────────────────────────────────────────────────────────
 
-fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniError> {
+pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniError> {
     let region = if cfg.endpoint.is_empty() {
         Region::Custom {
             region: cfg.region.clone(),
@@ -484,7 +484,7 @@ fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniErro
     })
 }
 
-fn normalize_s3_prefix(path: &str, cfg: &FileConnConfig) -> String {
+pub(crate) fn normalize_s3_prefix(path: &str, cfg: &FileConnConfig) -> String {
     let base = cfg.prefix.trim_matches('/');
     let p = path.trim_matches('/');
     if path.is_empty() || path == "/" {
@@ -605,14 +605,14 @@ async fn list_s3_dir(
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
-enum FileProtocol {
+pub(crate) enum FileProtocol {
     Local,
     Sftp,
     Ftp,
     S3,
 }
 
-fn protocol_of(cfg: &FileConnConfig) -> FileProtocol {
+pub(crate) fn protocol_of(cfg: &FileConnConfig) -> FileProtocol {
     match cfg.protocol.as_str() {
         "ftp" => FileProtocol::Ftp,
         "s3" => FileProtocol::S3,

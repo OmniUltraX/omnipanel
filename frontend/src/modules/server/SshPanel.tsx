@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { HostListPanel } from "../../components/workspace/HostListPanel";
 import { ModuleSegmentDock } from "../../components/dock";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
@@ -48,11 +47,7 @@ export function SshPanel() {
         }
         return (
           <SidebarWorkspace preset="host" sidebar={<HostListPanel resources={sshResources} />}>
-            {ctx.activeResource ? (
-              <HostDetailPanel {...ctx} />
-            ) : (
-              <WorkspaceEmptyPage prompt={t("ssh.empty.selectHost")} />
-            )}
+            <HostDetailPanel {...ctx} />
           </SidebarWorkspace>
         );
       }}

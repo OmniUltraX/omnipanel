@@ -3,6 +3,8 @@
 
 mod connection;
 mod database;
+mod file_index;
+mod file_index_storage;
 mod http;
 mod knowledge;
 mod knowledge_todo;
@@ -17,6 +19,11 @@ mod vault;
 mod workflow;
 
 pub use connection::{Connection, ConnectionKind};
+pub use file_index::{
+    FileIndexBatchItem, FileIndexEntry, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
+};
+pub use file_index_storage::{FileIndexStorage, resolve_file_index_db_path};
+pub use paths::default_file_index_storage_dir;
 pub use database::{
     DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
     save_database_connections,

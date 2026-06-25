@@ -65,7 +65,8 @@ import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import { invoke } from "@tauri-apps/api/core";
-import type { UpdateInfo } from "../../ipc/bindings";
+import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
 
 type Section = "general" | "appearance" | "keybindings" | "ai" | "security" | "terminal" | "database" | "files" | "knowledge" | "data";
@@ -1346,7 +1347,13 @@ export function SettingsPanel() {
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
+  const fileIndexStorageDir = useSettingsStore((s) => s.fileIndexStorageDir);
   const setFileSettings = useSettingsStore((s) => s.setFileSettings);
+  const [fileIndexStorageDraft, setFileIndexStorageDraft] = useState(fileIndexStorageDir);
+  const [fileIndexStorageInfo, setFileIndexStorageInfo] = useState<FileIndexStorageInfo | null>(null);
+  const [fileIndexStorageError, setFileIndexStorageError] = useState<string | null>(null);
+  const [pickingIndexStorageDir, setPickingIndexStorageDir] = useState(false);
+  const [applyingIndexStorageDir, setApplyingIndexStorageDir] = useState(false);
   const databaseQueryPageSizeOptions = useMemo(
     () => DATABASE_QUERY_PAGE_SIZE_OPTIONS.map((n) => String(n)),
     [],
@@ -1464,6 +1471,63 @@ export function SettingsPanel() {
       console.warn("Failed to sync proxy config to backend:", e);
     });
   }, [proxy]);
+
+  // Sync file index storage info when opening Files settings
+  useEffect(() => {
+    if (activeSection !== "files") return;
+    setFileIndexStorageDraft(fileIndexStorageDir);
+    commands.fileIndexStorageInfo().then((result) => {
+      if (result.status === "ok") {
+        setFileIndexStorageInfo(result.data);
+        setFileIndexStorageError(null);
+      }
+    });
+  }, [activeSection, fileIndexStorageDir]);
+
+  const applyFileIndexStorageDir = useCallback(
+    async (dir: string) => {
+      const normalized = dir.trim();
+      if (normalized === fileIndexStorageDir) {
+        setFileIndexStorageDraft(normalized);
+        return;
+      }
+      setApplyingIndexStorageDir(true);
+      setFileIndexStorageError(null);
+      try {
+        setFileSettings({ fileIndexStorageDir: normalized });
+        const result = await commands.setFileIndexStorageDir(normalized);
+        if (result.status === "ok") {
+          setFileIndexStorageInfo(result.data);
+          setFileIndexStorageDraft(normalized);
+        } else {
+          setFileIndexStorageError(
+            typeof result.error === "string" ? result.error : JSON.stringify(result.error),
+          );
+        }
+      } finally {
+        setApplyingIndexStorageDir(false);
+      }
+    },
+    [fileIndexStorageDir, setFileSettings],
+  );
+
+  const browseFileIndexStorageDir = useCallback(async () => {
+    setPickingIndexStorageDir(true);
+    try {
+      const selected = await openFileDialog({
+        directory: true,
+        multiple: false,
+        title: t("settings.files.indexStorageBrowse"),
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        await applyFileIndexStorageDir(selected.trim());
+      }
+    } catch (e) {
+      console.warn("Failed to pick index storage directory:", e);
+    } finally {
+      setPickingIndexStorageDir(false);
+    }
+  }, [applyFileIndexStorageDir, t]);
 
   return (
     <SidebarWorkspace
@@ -2060,6 +2124,66 @@ export function SettingsPanel() {
                   options={filePreviewThresholdOptions}
                   optionLabels={filePreviewThresholdLabels}
                 />
+              </div>
+
+              <div className="settings-section-divider" />
+
+              <div className="setting-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "var(--sp-2)" }}>
+                <div className="setting-label">
+                  <h4>{t("settings.files.indexStorage")}</h4>
+                  <p>{t("settings.files.indexStorageDesc")}</p>
+                </div>
+                <div style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
+                  <input
+                    className="setting-input"
+                    type="text"
+                    style={{ flex: 1 }}
+                    placeholder={t("settings.files.indexStoragePlaceholder")}
+                    value={fileIndexStorageDraft}
+                    disabled={applyingIndexStorageDir}
+                    onChange={(e) => setFileIndexStorageDraft(e.target.value)}
+                    onBlur={() => void applyFileIndexStorageDir(fileIndexStorageDraft)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={pickingIndexStorageDir || applyingIndexStorageDir}
+                    onClick={() => void browseFileIndexStorageDir()}
+                  >
+                    {t("settings.files.indexStorageBrowse")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!fileIndexStorageDraft || applyingIndexStorageDir}
+                    onClick={() => void applyFileIndexStorageDir("")}
+                  >
+                    {t("settings.files.indexStorageReset")}
+                  </Button>
+                </div>
+                {fileIndexStorageInfo && (
+                  <p className="section-desc" style={{ margin: 0 }}>
+                    {t("settings.files.indexStorageDbPath", { path: fileIndexStorageInfo.databasePath })}
+                  </p>
+                )}
+                {fileIndexStorageInfo && !fileIndexStorageInfo.isCustom && (
+                  <p className="section-desc" style={{ margin: 0 }}>
+                    {t("settings.files.indexStorageDefaultHint", { path: fileIndexStorageInfo.defaultDir })}
+                  </p>
+                )}
+                <p className="section-desc" style={{ margin: 0 }}>
+                  {t("settings.files.indexStorageChangeHint")}
+                </p>
+                {fileIndexStorageError && (
+                  <p className="section-desc" style={{ margin: 0, color: "var(--danger)" }}>
+                    {fileIndexStorageError}
+                  </p>
+                )}
               </div>
             </div>
           </div>

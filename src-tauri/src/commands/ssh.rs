@@ -451,7 +451,7 @@ pub async fn ssh_sync_config_hosts(
 
     state
         .ssh_pool
-        .reload_hosts(state.storage.clone(), state.app_handle.clone())
+        .reload_hosts(state.storage.clone(), state.app_handle.clone(), false)
         .await;
 
     Ok(SshConfigSyncResult {

@@ -6,8 +6,11 @@ mod panel;
 mod protocol;
 mod state;
 
+use std::sync::Arc;
+
 use state::AppState;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 /// reqwest 0.13（rmcp、tauri-plugin-updater 等）使用 rustls-no-provider，
 /// 必须在首次构建 TLS Client 前安装 crypto provider。沿用 ring 后端，避免 Windows 上 aws-lc-rs 依赖 NASM。
@@ -177,6 +180,13 @@ fn export_ipc_bindings() {
         commands::file_manager::file_rename,
         commands::file_manager::file_delete,
         commands::file_manager::file_local_quick_paths,
+        commands::file_index::file_index_build,
+        commands::file_index::file_index_search,
+        commands::file_index::file_index_status,
+        commands::file_index::file_index_clear,
+        commands::file_index::file_index_cancel,
+        commands::file_index::file_index_storage_info,
+        commands::file_index::set_file_index_storage_dir,
         commands::updater::check_update,
         commands::updater::install_update,
         commands::knowledge::knowledge_list,
@@ -314,6 +324,13 @@ pub fn run() {
             }
             try_migrate_legacy_storage(&db_path, app);
             let storage = omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
+            let _ = omnipanel_store::FileIndexStorage::import_from_meta_storage_if_empty(&storage)
+                .expect("迁移旧版文件索引失败");
+            let file_index_storage = Arc::new(Mutex::new(
+                omnipanel_store::FileIndexStorage::open_at_dir("")
+                    .expect("打开文件索引存储失败"),
+            ));
+            let storage = Arc::new(Mutex::new(storage));
             let db_connections =
                 omnipanel_store::DatabaseConnectionStore::open().expect("加载数据库连接配置失败");
             tracing::info!(
@@ -321,12 +338,16 @@ pub fn run() {
                 "应用数据目录已就绪"
             );
 
-            let mcp_manager = tauri::async_runtime::block_on(commands::mcp::init_mcp_manager())
-                .expect("启动 MCP 管理器失败");
+            let mcp_manager = tauri::async_runtime::block_on(
+                commands::mcp::init_mcp_manager(storage.clone()),
+            )
+            .expect("启动 MCP 管理器失败");
 
             let app_state = AppState::new(
                 app.handle().clone(),
                 storage,
+                file_index_storage,
+                String::new(),
                 db_connections,
                 mcp_manager,
             );
@@ -587,6 +608,13 @@ pub fn run() {
             commands::file_manager::file_rename,
             commands::file_manager::file_delete,
             commands::file_manager::file_local_quick_paths,
+        commands::file_index::file_index_build,
+        commands::file_index::file_index_search,
+        commands::file_index::file_index_status,
+        commands::file_index::file_index_clear,
+        commands::file_index::file_index_cancel,
+        commands::file_index::file_index_storage_info,
+        commands::file_index::set_file_index_storage_dir,
             commands::log::clear_backend_logs,
             // Knowledge（知识库）
             commands::knowledge::knowledge_list,

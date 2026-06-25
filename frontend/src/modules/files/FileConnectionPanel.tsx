@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import type { FileEntry, FileManagerConnectionInfo } from "../../ipc/bindings";
+import type { FileEntry, FileIndexProgress, FileIndexStatus, FileManagerConnectionInfo } from "../../ipc/bindings";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
 import { quickInput } from "../../stores/quickInputStore";
 import { VirtualFileList, VirtualFileGrid } from "./VirtualFileList";
@@ -25,11 +26,13 @@ import {
   deleteRemote,
   downloadRemote,
   fmtError,
+  getFileIndexStatus,
   listDirectory,
   loadQuickPaths,
   mkdirRemote,
   readRemotePreview,
   renameRemote,
+  searchFileIndex,
   uploadRemote,
 } from "./fileApi";
 import { mergeFileEntries } from "./mergeFileEntries";
@@ -136,6 +139,7 @@ export function FileConnectionPanel({
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<FileEntry[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [indexStatus, setIndexStatus] = useState<FileIndexStatus | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(savedState?.viewMode ?? "list");
   const [detailVisible, setDetailVisible] = useState(savedState?.detailVisible ?? true);
   const [selected, setSelected] = useState<FileEntry | null>(null);
@@ -332,6 +336,45 @@ export function FileConnectionPanel({
   }, [isActive, navigateTo, onRegisterNavigate]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getFileIndexStatus(connId)
+      .then((status) => {
+        if (!cancelled) setIndexStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setIndexStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connId]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<FileIndexProgress>("file-index-progress", (event) => {
+      if (event.payload.connectionId !== connId) return;
+      if (event.payload.status === "building") {
+        setIndexStatus((prev) => ({
+          connectionId: connId,
+          status: "building",
+          rootPath: prev?.rootPath ?? "",
+          indexedCount: event.payload.indexedCount,
+          error: "",
+          startedAt: prev?.startedAt ?? 0,
+          finishedAt: 0,
+        }));
+        return;
+      }
+      void getFileIndexStatus(connId).then(setIndexStatus).catch(() => setIndexStatus(null));
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [connId]);
+
+  useEffect(() => {
     if (!isActive) return;
     const q = search.trim();
     if (!q) {
@@ -343,9 +386,24 @@ export function FileConnectionPanel({
     }
     const seq = ++searchSeq.current;
     ++loadMoreSeq.current;
+    const useIndex = indexStatus?.status === "ready";
     const timer = window.setTimeout(() => {
       setSearchLoading(true);
-      void listDirectory(connId, currentPath, q, null)
+      const searchPromise = useIndex
+        ? searchFileIndex(connId, q).then((results) => ({
+            entries: results.map((hit) => ({
+              name: hit.entry.name,
+              path: hit.entry.path,
+              kind: hit.entry.kind,
+              size: hit.entry.size,
+              modified: hit.entry.modified,
+              permissions: null as string | null,
+            } satisfies FileEntry)),
+            truncated: false,
+            nextContinuationToken: null as string | null,
+          }))
+        : listDirectory(connId, currentPath, q, null);
+      void searchPromise
         .then((result) => {
           if (seq !== searchSeq.current) return;
           setSearchResults(result.entries);
@@ -366,7 +424,7 @@ export function FileConnectionPanel({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [search, connId, currentPath, isActive]);
+  }, [search, connId, currentPath, isActive, indexStatus?.status]);
 
   const s3InfiniteScroll = protocol === "s3" && hasMoreEntries;
   const listScrollProps = {
@@ -630,7 +688,13 @@ export function FileConnectionPanel({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("files.toolbar.search")}
+              placeholder={
+                indexStatus?.status === "ready"
+                  ? t("files.toolbar.searchIndexed")
+                  : indexStatus?.status === "building"
+                    ? t("files.toolbar.searchIndexing", { count: indexStatus.indexedCount ?? 0 })
+                    : t("files.toolbar.search")
+              }
             />
           </div>
           <span className="fm-toolbar-divider" />
@@ -687,7 +751,13 @@ export function FileConnectionPanel({
             ) : displayEntries.length === 0 ? (
               <ModuleEmptyState
                 preset="folder"
-                title={search.trim() ? t("files.searchNoResults") : t("files.empty")}
+                title={
+                  search.trim()
+                    ? indexStatus?.status === "ready"
+                      ? t("files.searchNoIndexResults")
+                      : t("files.searchNoResults")
+                    : t("files.empty")
+                }
               />
             ) : viewMode === "list" ? (
               <VirtualFileList

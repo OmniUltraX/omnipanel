@@ -18,6 +18,7 @@ pub mod modules {
     #[allow(dead_code)]
     pub const DOCKER: &str = "docker";
     pub const MCP: &str = "mcp";
+    pub const FILES: &str = "files";
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -79,7 +80,12 @@ pub fn mcp_services_path() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::MCP)?.join("services.json"))
 }
 
-fn map_io(err: std::io::Error) -> OmniError {
+/// 默认文件索引存储目录：`~/.omnipd/files/index`。
+pub fn default_file_index_storage_dir() -> OmniResult<PathBuf> {
+    Ok(module_dir(modules::FILES)?.join("index"))
+}
+
+pub(crate) fn map_io(err: std::io::Error) -> OmniError {
     OmniError::new(ErrorCode::Io, "读写应用数据目录失败").with_cause(err.to_string())
 }
 
