@@ -14,6 +14,7 @@ pub mod grpc;
 pub mod knowledge;
 pub mod knowledge_vector;
 pub mod log;
+pub mod opencode;
 pub mod panel;
 pub mod pool;
 pub mod protocol;

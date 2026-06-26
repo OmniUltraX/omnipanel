@@ -446,6 +446,8 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile_Serialize, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
+	/**  检测本机是否已安装 OpenCode CLI。 */
+	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
@@ -1491,6 +1493,7 @@ export type HttpHistoryEntry = {
 	requestSize: number | null,
 	responseSize: number | null,
 	createdAt: number | null,
+	requestId: string | null,
 };
 
 /**  知识条目模型。 */
@@ -1687,6 +1690,15 @@ export type OmniError_Serialize = {
 	message: string,
 	/**  可选的底层原因（调试用，可能含技术细节） */
 	cause?: string | null,
+};
+
+export type OpenCodeInstallStatus = {
+	/**  是否检测到 OpenCode CLI。 */
+	installed: boolean,
+	/**  解析到的可执行文件路径。 */
+	executablePath: string | null,
+	/**  `opencode --version` 输出（若可用）。 */
+	version: string | null,
 };
 
 /**  单类连接的活跃 / 空闲统计。 */

@@ -6471,6 +6471,15 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         color: var(--fg-2);
+        cursor: pointer;
+    }
+
+    .statusbar-log:hover {
+        color: var(--fg-1);
+    }
+
+    .statusbar-log--copied {
+        color: var(--success);
     }
 
     .statusbar-log--progress {
@@ -11051,6 +11060,52 @@
         font-size: 11px;
         color: var(--meta);
         font-family: var(--font-mono, monospace);
+    }
+
+    .opencode-detect-status {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-top: var(--sp-3);
+        padding: var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface-2);
+    }
+
+    .opencode-detect-status--installed {
+        border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+    }
+
+    .opencode-detect-status--missing {
+        border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+    }
+
+    .opencode-detect-status__text {
+        color: var(--fg-1);
+        font-size: var(--text-sm);
+    }
+
+    .opencode-detect-status__text--error {
+        color: var(--danger);
+    }
+
+    .opencode-detect-status__path {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--text-xs);
+        color: var(--meta);
+    }
+
+    .opencode-detect-status__hint {
+        flex: 1 1 100%;
+        font-size: var(--text-xs);
+        color: var(--meta);
+        line-height: 1.5;
     }
 
     .ai-provider-models-panel {

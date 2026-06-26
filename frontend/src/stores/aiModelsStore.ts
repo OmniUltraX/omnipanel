@@ -779,7 +779,7 @@ export function resolveModelSelection(
     apiStandard: provider.apiStandard,
     name: parsed.modelName,
     baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
+    apiKey: provider.apiKey.trim(),
   };
 }
 

@@ -1,5 +1,8 @@
 import type { ApiStandard } from "../../../stores/aiModelsStore";
 import type { ModuleKey } from "../../../lib/paths";
+import { buildApiKeyHeader, buildBearerAuthorization, fetchWithNetworkHint } from "../../../lib/fetchHeaders";
+import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { streamPostViaTauri } from "../../../lib/tauriHttpStream";
 
 export type StreamChunk =
   | { type: "text"; delta: string }
@@ -66,39 +69,21 @@ function buildAnthropicTools(tools: AiToolDef[]): Record<string, unknown>[] {
   }));
 }
 
-export async function* streamOpenAI(
-  messages: ApiMessage[],
-  config: ModelConfig,
-  tools: AiToolDef[],
-  options?: { signal?: AbortSignal; reasoningEffort?: string },
-): AsyncGenerator<StreamChunk> {
-  const baseUrl = config.baseUrl.replace(/\/+$/, "");
-  const url = baseUrl.includes("/v1") ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
-
-  const body: Record<string, unknown> = {
-    model: config.name,
-    messages: toOpenAiWireMessages(messages),
-    stream: true,
-    stream_options: { include_usage: true },
-  };
-
-  if (options?.reasoningEffort && options.reasoningEffort !== "default") {
-    body.reasoning_effort = options.reasoningEffort;
+async function openStreamingResponseBody(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal?: AbortSignal,
+): Promise<AsyncIterable<string>> {
+  if (isTauriRuntime()) {
+    return streamPostViaTauri(url, headers, body, { signal, timeoutMs: 120_000 });
   }
 
-  if (tools.length > 0) {
-    body.tools = buildOpenAiTools(tools);
-    body.tool_choice = "auto";
-  }
-
-  const response = await fetch(url, {
+  const response = await fetchWithNetworkHint(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: options?.signal,
+    headers,
+    body,
+    signal,
   });
 
   if (!response.ok) {
@@ -106,15 +91,29 @@ export async function* streamOpenAI(
     throw new Error(`API error ${response.status}: ${errorText || response.statusText}`);
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("响应体为空");
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
+
+  async function* fromFetch(): AsyncGenerator<string> {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      yield decoder.decode(value, { stream: true });
+    }
+  }
+
+  return fromFetch();
+}
+
+async function* parseOpenAiSseStream(chunks: AsyncIterable<string>): AsyncGenerator<StreamChunk> {
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
+  for await (const chunk of chunks) {
+    buffer += chunk;
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
 
@@ -158,6 +157,44 @@ export async function* streamOpenAI(
   }
 }
 
+export async function* streamOpenAI(
+  messages: ApiMessage[],
+  config: ModelConfig,
+  tools: AiToolDef[],
+  options?: { signal?: AbortSignal; reasoningEffort?: string },
+): AsyncGenerator<StreamChunk> {
+  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const url = baseUrl.includes("/v1") ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
+
+  const body: Record<string, unknown> = {
+    model: config.name,
+    messages: toOpenAiWireMessages(messages),
+    stream: true,
+    stream_options: { include_usage: true },
+  };
+
+  if (options?.reasoningEffort && options.reasoningEffort !== "default") {
+    body.reasoning_effort = options.reasoningEffort;
+  }
+
+  if (tools.length > 0) {
+    body.tools = buildOpenAiTools(tools);
+    body.tool_choice = "auto";
+  }
+
+  const responseBody = await openStreamingResponseBody(
+    url,
+    {
+      "Content-Type": "application/json",
+      Authorization: buildBearerAuthorization(config.apiKey),
+    },
+    JSON.stringify(body),
+    options?.signal,
+  );
+
+  yield* parseOpenAiSseStream(responseBody);
+}
+
 export async function* streamAnthropic(
   messages: ApiMessage[],
   config: ModelConfig,
@@ -180,31 +217,20 @@ export async function* streamAnthropic(
     body.tools = anthropicTools;
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
+  const responseBody = await openStreamingResponseBody(
+    url,
+    {
       "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
+      "x-api-key": buildApiKeyHeader(config.apiKey),
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify(body),
-    signal: options?.signal,
-  });
+    JSON.stringify(body),
+    options?.signal,
+  );
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`Anthropic API error ${response.status}: ${errorText || response.statusText}`);
-  }
-
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
   let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
+  for await (const chunk of responseBody) {
+    buffer += chunk;
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
 

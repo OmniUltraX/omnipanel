@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tauri::{State, ipc::Channel};
+use std::collections::HashMap;
+use std::time::Duration;
+use tauri::{ipc::Channel, State};
 
 use crate::state::AppState;
+use futures::StreamExt;
 use omnipanel_ai::ir::{StopReason, StreamEvent, ToolStatus};
 use omnipanel_ai::types::{
     ChatMessage, ChatRequest, FunctionCall, FunctionDef, ModelInfo, Role, ToolCall, ToolDef,
@@ -653,5 +656,98 @@ pub async fn ai_add_custom_provider(
     let provider = OpenAiProvider::with_client(&name, &api_key, &base_url, models, Some(client));
     let mut registry = state.ai_registry.lock().await;
     registry.register(Box::new(provider));
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AiHttpStreamEvent {
+    Chunk { data: String },
+    Error { message: String },
+    Done { status: u16 },
+}
+
+/// 桌面端 AI 聊天流式 HTTP 代理：由 Rust reqwest 发起请求并逐块回传 SSE 正文。
+#[tauri::command]
+pub async fn ai_http_stream_post(
+    state: State<'_, AppState>,
+    url: String,
+    headers: HashMap<String, String>,
+    body: String,
+    timeout_ms: Option<u64>,
+    on_event: Channel<AiHttpStreamEvent>,
+) -> Result<(), String> {
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let mut client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms.unwrap_or(120_000)))
+        .redirect(reqwest::redirect::Policy::limited(10));
+
+    if proxy_config.enabled && !proxy_config.host.is_empty() {
+        let proxy_url = format!(
+            "{}://{}:{}",
+            proxy_config.protocol, proxy_config.host, proxy_config.port
+        );
+        if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+            let proxy = if !proxy_config.username.is_empty() {
+                proxy.basic_auth(&proxy_config.username, &proxy_config.password)
+            } else {
+                proxy
+            };
+            client_builder = client_builder.proxy(proxy);
+        }
+    }
+
+    let client = client_builder
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+
+    let mut req = client.post(&url);
+    for (key, value) in headers {
+        req = req.header(key.as_str(), value.as_str());
+    }
+    req = req.body(body);
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP 请求失败: {e}"))?;
+
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        let message = if text.is_empty() {
+            format!("HTTP {status}")
+        } else {
+            format!("HTTP {status}: {text}")
+        };
+        let _ = on_event.send(AiHttpStreamEvent::Error {
+            message: message.clone(),
+        });
+        return Err(message);
+    }
+
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(bytes) => {
+                let data = String::from_utf8_lossy(&bytes).into_owned();
+                if on_event
+                    .send(AiHttpStreamEvent::Chunk { data })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            Err(e) => {
+                let message = format!("读取响应流失败: {e}");
+                let _ = on_event.send(AiHttpStreamEvent::Error {
+                    message: message.clone(),
+                });
+                return Err(message);
+            }
+        }
+    }
+
+    let _ = on_event.send(AiHttpStreamEvent::Done { status });
     Ok(())
 }

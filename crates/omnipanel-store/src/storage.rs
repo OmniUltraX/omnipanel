@@ -210,6 +210,11 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_entry ON knowledge_chunks(entry_id);
     "#,
+    // v9 — HTTP 历史关联已保存请求
+    r#"
+    ALTER TABLE http_history ADD COLUMN request_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_http_history_request ON http_history(request_id, created_at);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -42,6 +42,7 @@ pub struct HttpHistoryEntry {
     pub response_size: Option<i64>,
     #[specta(type = f64)]
     pub created_at: i64,
+    pub request_id: Option<String>,
 }
 
 /// HTTP 集合。
@@ -95,8 +96,8 @@ impl Storage {
 
     pub fn http_add_history(&self, entry: &HttpHistoryEntry) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT INTO http_history (id, method, url, status_code, response_time_ms, request_size, response_size, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![entry.id, entry.method, entry.url, entry.status_code, entry.response_time_ms, entry.request_size, entry.response_size, entry.created_at],
+            "INSERT INTO http_history (id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![entry.id, entry.method, entry.url, entry.status_code, entry.response_time_ms, entry.request_size, entry.response_size, entry.created_at, entry.request_id],
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         Ok(())
     }
@@ -104,7 +105,7 @@ impl Storage {
     pub fn http_list_history(&self, limit: i64) -> OmniResult<Vec<HttpHistoryEntry>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, method, url, status_code, response_time_ms, request_size, response_size, created_at FROM http_history ORDER BY created_at DESC LIMIT ?1"
+            "SELECT id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id FROM http_history ORDER BY created_at DESC LIMIT ?1"
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map(params![limit], |row| {
@@ -117,6 +118,7 @@ impl Storage {
                     request_size: row.get(5)?,
                     response_size: row.get(6)?,
                     created_at: row.get(7)?,
+                    request_id: row.get(8)?,
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;

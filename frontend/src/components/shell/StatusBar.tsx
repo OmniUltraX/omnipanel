@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
@@ -13,7 +13,9 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 /** 订阅当前激活模块的运行日志并展示在状态栏 */
 function StatusBarModuleLog() {
+  const { t } = useI18n();
   const location = useLocation();
+  const [copied, setCopied] = useState(false);
   const setActivePublisher = useStatusBarLogStore((s) => s.setActivePublisher);
   const logEntry = useStatusBarLogStore((s) => {
     const key = s.activePublisher;
@@ -24,14 +26,50 @@ function StatusBarModuleLog() {
     setActivePublisher(pathnameToModuleKey(location.pathname));
   }, [location.pathname, setActivePublisher]);
 
+  useEffect(() => {
+    setCopied(false);
+  }, [logEntry?.id]);
+
+  const handleCopy = useCallback(async () => {
+    if (!logEntry?.message) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(logEntry.message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }, [logEntry?.message]);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLSpanElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        void handleCopy();
+      }
+    },
+    [handleCopy],
+  );
+
   if (!logEntry?.message) {
     return null;
   }
 
+  const title = copied
+    ? t("common.copied")
+    : `${logEntry.message}\n${t("shell.statusbar.copyLog")}`;
+
   return (
     <span
-      className={`statusbar-log statusbar-log--${logEntry.level}`}
-      title={logEntry.message}
+      role="button"
+      tabIndex={0}
+      className={`statusbar-log statusbar-log--${logEntry.level}${copied ? " statusbar-log--copied" : ""}`}
+      title={title}
+      aria-label={logEntry.message}
+      onClick={() => void handleCopy()}
+      onKeyDown={handleKeyDown}
     >
       {logEntry.level === "progress" ? (
         <span className="statusbar-dot yellow" aria-hidden />

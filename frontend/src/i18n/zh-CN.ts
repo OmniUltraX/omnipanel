@@ -449,6 +449,7 @@ export const zhCN = {
       collapseWorkspace: "收起工作区",
       switchToTaskBar: "切换为标签栏模式",
       switchToSplitWindow: "切换为分屏模式",
+      copyLog: "点击复制完整内容",
     },
     connectionPool: {
       summary: "连接 {active} / {total}",
@@ -2126,7 +2127,18 @@ export const zhCN = {
     },
     aiOther: {
       title: "其他",
-      desc: "不归属于模型或 ACP 服务的 AI 相关偏好设置。",
+      desc: "不归属于模型或 MCP 服务的 AI 相关偏好设置。",
+    },
+    agent: {
+      comingSoon: "配置项即将推出，用于对接 SDK。",
+      opencode: {
+        title: "OpenCode",
+        description: "配置 OpenCode Agent SDK 连接与运行参数。",
+      },
+      cursor: {
+        title: "Cursor",
+        description: "配置 Cursor Agent SDK 连接与运行参数。",
+      },
     },
     aiScenarios: {
       title: "应用场景",
@@ -2421,11 +2433,31 @@ export const zhCN = {
   protocol: {
     tabs: { http: "HTTP / REST", ws: "WebSocket", mqtt: "MQTT", serial: "串口", grpc: "gRPC", sniffer: "抓包", modbus: "Modbus" },
     sidebar: {
+      apiList: "接口列表",
       history: "请求历史",
       endpoints: "连接端点",
       topics: "订阅主题",
       ports: "串口列表",
       addTopic: "添加主题",
+      newFolder: "创建文件夹",
+      newRequest: "创建请求",
+      newRequestTitle: "创建请求",
+      defaultRequestName: "新建请求",
+      newFolderTitle: "新建文件夹",
+      folderNamePlaceholder: "文件夹名称",
+      defaultFolderName: "新建文件夹",
+      defaultCollectionName: "新建集合",
+      folderNameRequired: "名称不能为空",
+      renameFolder: "重命名",
+      renameFolderTitle: "重命名文件夹",
+      deleteFolder: "删除文件夹",
+      deleteFolderTitle: "删除文件夹",
+      deleteFolderConfirm: "删除此文件夹？其中的子文件夹将一并删除，接口将移至根级。",
+      deleteCollection: "删除集合",
+      deleteRequest: "删除请求",
+      apiListEmpty: "右键可创建文件夹或请求",
+      selectRequestForHistory: "请在接口列表中选择一个请求",
+      noRequestHistory: "该请求暂无历史记录",
     },
     actions: { newRequest: "新建请求", importCurl: "导入 cURL", newTab: "新建标签" },
 common: {

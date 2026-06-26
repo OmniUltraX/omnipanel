@@ -11,6 +11,7 @@ import { GrpcPanel } from "./GrpcPanel";
 import { SnifferPanel } from "./SnifferPanel";
 import { ModbusPanel } from "./ModbusPanel";
 import { ProtocolContextSidebar, type ProtocolKind } from "./ProtocolContextSidebar";
+import { ProtocolHttpProvider } from "./ProtocolHttpContext";
 const PROTOCOLS: ProtocolKind[] = ["http", "ws", "mqtt", "serial", "grpc", "sniffer", "modbus"];
 
 export function ProtocolPanel() {
@@ -30,8 +31,12 @@ export function ProtocolPanel() {
 
   const renderPanel = useCallback((tabId: string) => {
     const protocol = tabId as ProtocolKind;
-    return (
-      <SidebarWorkspace sidebar={<ProtocolContextSidebar protocol={protocol} />}>
+    const content = (
+      <SidebarWorkspace
+        layoutPersistKey="protocol"
+        className="protocol-workspace"
+        sidebar={<ProtocolContextSidebar protocol={protocol} />}
+      >
         {protocol === "http" && <HttpPanel />}
         {protocol === "ws" && <WsPanel />}
         {protocol === "mqtt" && <MqttPanel />}
@@ -41,6 +46,11 @@ export function ProtocolPanel() {
         {protocol === "modbus" && <ModbusPanel />}
       </SidebarWorkspace>
     );
+
+    if (protocol === "http") {
+      return <ProtocolHttpProvider>{content}</ProtocolHttpProvider>;
+    }
+    return content;
   }, []);
 
 

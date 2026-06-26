@@ -257,6 +257,7 @@ fn export_ipc_bindings() {
         // AI 模型持久化
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
+        commands::opencode::detect_opencode_install,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
         // MCP 服务管理
@@ -393,6 +394,7 @@ pub fn run() {
             commands::ai::ai_add_acp_agent,
             commands::ai::ai_get_active,
             commands::ai::ai_add_custom_provider,
+            commands::ai::ai_http_stream_post,
             // Protocol Lab — Serial
             commands::protocol::serial_scan_ports,
             commands::protocol::serial_open,
@@ -664,6 +666,7 @@ pub fn run() {
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
+            commands::opencode::detect_opencode_install,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
             // MCP 服务管理

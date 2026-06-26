@@ -1,4 +1,5 @@
 import { normalizeBaseUrlForFetch } from "../stores/aiModelsStore";
+import { buildBearerAuthorization } from "./fetchHeaders";
 
 interface OpenAiModelsResponse {
   data?: Array<{
@@ -36,7 +37,7 @@ export async function fetchProviderModelList(
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: buildBearerAuthorization(apiKey),
         Accept: "application/json",
       },
     });

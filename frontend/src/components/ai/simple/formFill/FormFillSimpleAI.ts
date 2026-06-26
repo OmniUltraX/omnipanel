@@ -2,6 +2,7 @@ import type { ClipboardSnapshot } from "../../../../lib/readLatestClipboard";
 import { firstModelSelectionId, resolveModelSelection } from "../../../../stores/aiModelsStore";
 import type { AiModelProvider } from "../../../../stores/aiModelsStore";
 import type { ModelConfig } from "../../assistant-ui/chatModel";
+import { buildBearerAuthorization } from "../../../../lib/fetchHeaders";
 import type {
   FormFillFieldDef,
   FormFillSimpleAIInput,
@@ -166,7 +167,7 @@ export async function runFormFillSimpleAI(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${modelConfig.apiKey}`,
+      Authorization: buildBearerAuthorization(modelConfig.apiKey),
     },
     body: JSON.stringify({
       model: modelConfig.name,

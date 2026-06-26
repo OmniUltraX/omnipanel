@@ -453,6 +453,7 @@ export const enUS: TranslationDict = {
       collapseWorkspace: "Collapse workspace",
       switchToTaskBar: "Switch to tab bar mode",
       switchToSplitWindow: "Switch to split window mode",
+      copyLog: "Click to copy full message",
     },
     connectionPool: {
       summary: "Connections {active} / {total}",
@@ -2167,7 +2168,18 @@ export const enUS: TranslationDict = {
     },
     aiOther: {
       title: "Other",
-      desc: "AI-related preferences that don't belong to models or ACP services.",
+      desc: "AI-related preferences that don't belong to models or MCP services.",
+    },
+    agent: {
+      comingSoon: "Configuration options coming soon for SDK integration.",
+      opencode: {
+        title: "OpenCode",
+        description: "Configure OpenCode Agent SDK connection and runtime options.",
+      },
+      cursor: {
+        title: "Cursor",
+        description: "Configure Cursor Agent SDK connection and runtime options.",
+      },
     },
     aiScenarios: {
       title: "Application Scenarios",
@@ -2462,11 +2474,31 @@ export const enUS: TranslationDict = {
   protocol: {
     tabs: { http: "HTTP / REST", ws: "WebSocket", mqtt: "MQTT", serial: "Serial", grpc: "gRPC", sniffer: "Sniffer", modbus: "Modbus" },
     sidebar: {
+      apiList: "API List",
       history: "Request History",
       endpoints: "Endpoints",
       topics: "Subscriptions",
       ports: "Serial Ports",
       addTopic: "Add Topic",
+      newFolder: "New Folder",
+      newRequest: "New Request",
+      newRequestTitle: "New Request",
+      defaultRequestName: "New Request",
+      newFolderTitle: "New Folder",
+      folderNamePlaceholder: "Folder name",
+      defaultFolderName: "New Folder",
+      defaultCollectionName: "New Collection",
+      folderNameRequired: "Name is required",
+      renameFolder: "Rename",
+      renameFolderTitle: "Rename Folder",
+      deleteFolder: "Delete Folder",
+      deleteFolderTitle: "Delete Folder",
+      deleteFolderConfirm: "Delete this folder? Subfolders are removed; requests move to root.",
+      deleteCollection: "Delete Collection",
+      deleteRequest: "Delete Request",
+      apiListEmpty: "Right-click to create folders or requests",
+      selectRequestForHistory: "Select a request in the API list",
+      noRequestHistory: "No history for this request yet",
     },
     actions: { newRequest: "New Request", importCurl: "Import cURL", newTab: "New Tab" },
     common: {
