@@ -11,7 +11,7 @@ import type { Connection, FileIndexProgress, FileIndexStatus, FileManagerConnect
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
 import { useFilesWorkspaceSessionStore } from "../../stores/filesWorkspaceSessionStore";
-import { FileConnectionDialog } from "./FileConnectionDialog";
+import { FileConnectionDialog, type FileProtocol } from "./FileConnectionDialog";
 import { FileConnectionPanel } from "./FileConnectionPanel";
 import { FilesSidebar } from "./FilesSidebar";
 import { FilesWorkspaceDock } from "./FilesWorkspaceDock";
@@ -59,6 +59,7 @@ function FilesBrowserView() {
   );
   const [connections, setConnections] = useState<FileManagerConnectionInfo[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogInitialProtocol, setDialogInitialProtocol] = useState<FileProtocol | undefined>();
   const [editConnection, setEditConnection] = useState<Connection | undefined>();
   const [ctxMenu, setCtxMenu] = useState<ConnCtxState>(null);
   const [quickPaths, setQuickPaths] = useState<{
@@ -81,16 +82,6 @@ function FilesBrowserView() {
       setSessionHydrated(true);
     });
   }, []);
-
-  const groupedConnections = useMemo(() => {
-    const groups = new Map<string, FileManagerConnectionInfo[]>();
-    for (const conn of connections) {
-      const g = conn.group || t("files.groups.other");
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g)!.push(conn);
-    }
-    return Array.from(groups.entries());
-  }, [connections, t]);
 
   const sidebarActiveId = useMemo(() => {
     if (!activePanelId) return LOCAL_CONNECTION_ID;
@@ -225,8 +216,9 @@ function FilesBrowserView() {
     await loadConnections();
   }, [loadConnections, refreshConnections]);
 
-  const openNewConnectionDialog = () => {
+  const openNewConnectionDialog = (protocol?: FileProtocol) => {
     setEditConnection(undefined);
+    setDialogInitialProtocol(protocol);
     setDialogOpen(true);
   };
 
@@ -370,11 +362,13 @@ function FilesBrowserView() {
   return (
     <>
       <SidebarWorkspace
-        preset="server"
+        preset="schema"
+        layoutPersistKey="files-sidebar"
+        sidebarMinPx={280}
         className="files-workspace dock-workspace"
         sidebar={
           <FilesSidebar
-            groupedConnections={groupedConnections}
+            connections={connections}
             activeId={sidebarActiveId}
             quickPaths={quickPaths}
             onSelectConnection={openConnectionPanel}
@@ -429,8 +423,10 @@ function FilesBrowserView() {
         onClose={() => {
           setDialogOpen(false);
           setEditConnection(undefined);
+          setDialogInitialProtocol(undefined);
         }}
         editConnection={editConnection}
+        initialProtocol={dialogInitialProtocol}
         onSaved={() => void handleSavedConnection()}
         onTestSuccess={(connId) => patchConnectionStatus(connId, "online")}
       />

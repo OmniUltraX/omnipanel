@@ -62,9 +62,13 @@ function dbPreviewLines(tabId: string): WorkspaceTabPreviewData | null {
       : ["SELECT …"];
     if (sqlState?.running) preview.push("执行中…");
     if (sqlState?.error) preview.push(sqlState.error);
-    if (sqlState?.result?.columns?.length) {
-      preview.push(sqlState.result.columns.join(" | "));
-      const row = sqlState.result.rows[0];
+    const activeSession =
+      sqlState?.resultSessions?.find(
+        (item) => item.id === sqlState.activeResultSessionId,
+      ) ?? sqlState?.resultSessions?.[sqlState.resultSessions.length - 1];
+    if (activeSession?.result?.columns?.length) {
+      preview.push(activeSession.result.columns.join(" | "));
+      const row = activeSession.result.rows[0];
       if (row) preview.push(row.map(String).join(" | "));
     }
     return {

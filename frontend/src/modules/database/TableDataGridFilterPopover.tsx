@@ -13,6 +13,7 @@ import {
   forceColumnOnQuery,
   isTableFilterActive,
   mergeColumnFilter,
+  TABLE_FILTER_ALL_COLUMNS,
 } from "./tablePreviewFilter";
 
 export function TableDataGridFilterPopover({
@@ -32,21 +33,30 @@ export function TableDataGridFilterPopover({
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
+  const isTableWide = lockedField === TABLE_FILTER_ALL_COLUMNS;
+
   const [draft, setDraft] = useState<RuleGroupType>(() =>
-    extractColumnFilter(initialQuery, lockedField),
+    isTableWide ? ensureTableFilterQuery(initialQuery) : extractColumnFilter(initialQuery, lockedField),
   );
 
   const fields = useMemo(
-    () => buildFilterFields(columnMeta.filter((col) => col.name === lockedField)),
-    [columnMeta, lockedField],
+    () =>
+      isTableWide
+        ? buildFilterFields(columnMeta)
+        : buildFilterFields(columnMeta.filter((col) => col.name === lockedField)),
+    [columnMeta, isTableWide, lockedField],
   );
 
   const controlElements = useMemo(
-    () => createTableQueryBuilderControlElements(lockedField),
-    [lockedField],
+    () => (isTableWide ? undefined : createTableQueryBuilderControlElements(lockedField)),
+    [isTableWide, lockedField],
   );
 
   useEffect(() => {
+    if (isTableWide) {
+      setDraft(ensureTableFilterQuery(initialQuery));
+      return;
+    }
     setDraft((prev) => {
       const prepared = forceColumnOnQuery(prev, lockedField);
       const hasRule = prepared.rules.some(
@@ -55,13 +65,13 @@ export function TableDataGridFilterPopover({
       if (hasRule) return prepared;
       return appendFilterRuleForColumn(prepared, lockedField);
     });
-  }, [lockedField]);
+  }, [initialQuery, isTableWide, lockedField]);
 
   const handleQueryChange = useCallback(
     (next: RuleGroupType) => {
-      setDraft(forceColumnOnQuery(next, lockedField));
+      setDraft(isTableWide ? ensureTableFilterQuery(next) : forceColumnOnQuery(next, lockedField));
     },
-    [lockedField],
+    [isTableWide, lockedField],
   );
 
   useEffect(() => {
@@ -120,11 +130,17 @@ export function TableDataGridFilterPopover({
       className="db-query-filter-popover"
       style={{ left, top, width }}
       role="dialog"
-      aria-label={t("database.results.filterColumnTitle", { column: lockedField })}
+      aria-label={
+        isTableWide
+          ? t("database.results.filterTableTitle")
+          : t("database.results.filterColumnTitle", { column: lockedField })
+      }
     >
       <div className="db-query-filter-popover-header">
         <span className="db-query-filter-popover-title">
-          {t("database.results.filterColumnTitle", { column: lockedField })}
+          {isTableWide
+            ? t("database.results.filterTableTitle")
+            : t("database.results.filterColumnTitle", { column: lockedField })}
         </span>
         <span className="db-query-filter-popover-count">
           {t("database.results.filterRuleCount", { count: activeRuleCount })}
@@ -161,7 +177,11 @@ export function TableDataGridFilterPopover({
           size="xs"
           type="button"
           onClick={() => {
-            onApply(mergeColumnFilter(initialQuery, lockedField, null));
+            if (isTableWide) {
+              onApply(null);
+            } else {
+              onApply(mergeColumnFilter(initialQuery, lockedField, null));
+            }
             onClose();
           }}
         >
@@ -176,12 +196,16 @@ export function TableDataGridFilterPopover({
             size="xs"
             type="button"
             onClick={() => {
-              const merged = mergeColumnFilter(
-                initialQuery,
-                lockedField,
-                isTableFilterActive(draft) ? ensureTableFilterQuery(draft) : null,
-              );
-              onApply(merged);
+              if (isTableWide) {
+                onApply(isTableFilterActive(draft) ? ensureTableFilterQuery(draft) : null);
+              } else {
+                const merged = mergeColumnFilter(
+                  initialQuery,
+                  lockedField,
+                  isTableFilterActive(draft) ? ensureTableFilterQuery(draft) : null,
+                );
+                onApply(merged);
+              }
               onClose();
             }}
           >

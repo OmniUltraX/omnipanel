@@ -1,6 +1,26 @@
-import type { FileEntry } from "../../ipc/bindings";
+import type { FileEntry, FileManagerConnectionInfo } from "../../ipc/bindings";
 
 export const LOCAL_CONNECTION_ID = "__local__";
+
+export type FileSidebarProtocolSection = "local" | "s3" | "remote";
+
+export type FileConnectionsByProtocol = Record<FileSidebarProtocolSection, FileManagerConnectionInfo[]>;
+
+export function fileSidebarSectionForProtocol(protocol: string): FileSidebarProtocolSection {
+  if (protocol === "local") return "local";
+  if (protocol === "s3") return "s3";
+  return "remote";
+}
+
+export function groupFileConnectionsByProtocol(
+  connections: FileManagerConnectionInfo[],
+): FileConnectionsByProtocol {
+  const grouped: FileConnectionsByProtocol = { local: [], s3: [], remote: [] };
+  for (const conn of connections) {
+    grouped[fileSidebarSectionForProtocol(conn.protocol)].push(conn);
+  }
+  return grouped;
+}
 
 const GRID_IMAGE_EXTENSIONS = new Set(["svg", "png", "jpg", "jpeg", "webp"]);
 

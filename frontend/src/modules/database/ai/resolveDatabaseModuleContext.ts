@@ -69,6 +69,9 @@ export function resolveDatabaseModuleContext(
         }
         break;
       }
+      case "table":
+      case "redis-query":
+        break;
     }
   }
 

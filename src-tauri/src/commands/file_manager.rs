@@ -613,22 +613,160 @@ async fn list_s3_dir(
     Ok((entries, has_more, next_token))
 }
 
-/// 在 S3 存储桶内按文件名递归搜索（ListObjectsV2，无 delimiter）。
+fn push_s3_list_page_entries(
+    page: &s3::serde_types::ListBucketResult,
+    entries: &mut Vec<FileEntry>,
+    name_filter: Option<&str>,
+) {
+    if let Some(prefixes) = &page.common_prefixes {
+        for cp in prefixes {
+            let key = cp.prefix.trim_end_matches('/');
+            let name = key.rsplit('/').next().unwrap_or(&key).to_string();
+            if name_filter.map_or(true, |q| name.to_lowercase().contains(q)) {
+                entries.push(FileEntry {
+                    name: name.clone(),
+                    path: cp.prefix.clone(),
+                    kind: "dir".into(),
+                    size: 0,
+                    modified: 0,
+                    permissions: None,
+                });
+            }
+        }
+    }
+    for obj in &page.contents {
+        if obj.key.ends_with('/') {
+            continue;
+        }
+        let name = obj
+            .key
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&obj.key)
+            .to_string();
+        if name_filter.map_or(true, |q| name.to_lowercase().contains(q)) {
+            entries.push(FileEntry {
+                name: name.clone(),
+                path: obj.key.clone(),
+                kind: "file".into(),
+                size: obj.size,
+                modified: 0,
+                permissions: None,
+            });
+        }
+    }
+}
+
+fn sort_s3_entries(entries: &mut [FileEntry]) {
+    entries.sort_by(|a, b| {
+        let ad = a.kind == "dir";
+        let bd = b.kind == "dir";
+        ad.cmp(&bd).then_with(|| a.name.cmp(&b.name))
+    });
+}
+
+/// 搜索词含 `/` 时按 S3 对象 key 前缀查询（如 `foo/`）。
+fn is_s3_key_prefix_search(query: &str) -> bool {
+    query.trim().contains('/')
+}
+
+/// 将用户输入拼成 ListObjectsV2 的 Prefix（保留末尾 `/`）。
+pub(crate) fn normalize_s3_search_key_prefix(query: &str, cfg: &FileConnConfig) -> String {
+    let base = cfg.prefix.trim();
+    let q = query.trim();
+    let q = q.strip_prefix('/').unwrap_or(q);
+    if q.is_empty() {
+        if base.is_empty() {
+            return String::new();
+        }
+        let base = base.trim_end_matches('/');
+        return format!("{base}/");
+    }
+    if base.is_empty() {
+        return q.to_string();
+    }
+    let base = base.trim_end_matches('/');
+    format!("{base}/{q}")
+}
+
+/// 按 key 前缀列出 S3「目录」一层（Delimiter=/，含子目录 CommonPrefixes）。
+async fn list_s3_prefix_page(
+    cfg: &FileConnConfig,
+    secret: &str,
+    prefix: &str,
+    start_token: Option<&str>,
+) -> Result<(Vec<FileEntry>, bool, Option<String>), OmniError> {
+    let bucket = s3_bucket(cfg, secret)?;
+    const S3_PAGE_SIZE: usize = 200;
+    let (page, _status) = bucket
+        .list_page(
+            prefix.to_string(),
+            Some("/".to_string()),
+            start_token.map(str::to_string),
+            None,
+            Some(S3_PAGE_SIZE),
+        )
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Io, "S3 前缀搜索失败").with_cause(e.to_string())
+        })?;
+    let mut entries = Vec::new();
+    push_s3_list_page_entries(&page, &mut entries, None);
+    sort_s3_entries(&mut entries);
+    let has_more = page.is_truncated;
+    let next_token = if has_more {
+        page.next_continuation_token
+    } else {
+        None
+    };
+    Ok((entries, has_more, next_token))
+}
+
+/// 在 S3 存储桶内搜索：含 `/` 时按 key 前缀；否则按文件名子串匹配。
 async fn search_s3(
     cfg: &FileConnConfig,
     secret: &str,
     query: &str,
     start_token: Option<&str>,
 ) -> Result<(Vec<FileEntry>, bool, Option<String>), OmniError> {
-    let bucket = s3_bucket(cfg, secret)?;
-    let prefix = normalize_s3_prefix("", cfg);
-    let search_q = query.trim().to_lowercase();
-    if search_q.is_empty() {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
         return Ok((Vec::new(), false, None));
     }
 
+    let key_prefix_mode = is_s3_key_prefix_search(trimmed);
+    if key_prefix_mode && trimmed.ends_with('/') {
+        let prefix = normalize_s3_search_key_prefix(trimmed, cfg);
+        tracing::debug!(
+            bucket = %cfg.bucket,
+            prefix = %prefix,
+            query = %trimmed,
+            start_token = ?start_token,
+            "search_s3 prefix dir"
+        );
+        return list_s3_prefix_page(cfg, secret, &prefix, start_token).await;
+    }
+
+    let bucket = s3_bucket(cfg, secret)?;
+    let prefix = if key_prefix_mode {
+        normalize_s3_search_key_prefix(trimmed, cfg)
+    } else {
+        normalize_s3_prefix("", cfg)
+    };
+    let search_q = trimmed.to_lowercase();
+
     const S3_LIST_PAGE_SIZE: usize = 1000;
     const S3_SEARCH_RESULT_LIMIT: usize = 200;
+
+    tracing::debug!(
+        bucket = %cfg.bucket,
+        prefix = %prefix,
+        key_prefix_mode,
+        query = %trimmed,
+        start_token = ?start_token,
+        "search_s3"
+    );
 
     let mut entries = Vec::new();
     let mut token = start_token.map(str::to_string);
@@ -660,7 +798,7 @@ async fn search_s3(
                 .next()
                 .unwrap_or(&obj.key)
                 .to_string();
-            if !name.to_lowercase().contains(&search_q) {
+            if !key_prefix_mode && !name.to_lowercase().contains(&search_q) {
                 continue;
             }
             entries.push(FileEntry {
@@ -672,13 +810,7 @@ async fn search_s3(
                 permissions: None,
             });
             if entries.len() >= S3_SEARCH_RESULT_LIMIT {
-                let truncated = page.is_truncated;
-                let next = if truncated {
-                    page.next_continuation_token
-                } else {
-                    None
-                };
-                return Ok((entries, truncated, next));
+                return Ok((entries, true, page.next_continuation_token));
             }
         }
 
@@ -692,6 +824,52 @@ async fn search_s3(
     }
 
     Ok((entries, false, None))
+}
+
+#[cfg(test)]
+mod s3_search_tests {
+    use super::*;
+
+    fn cfg(prefix: &str) -> FileConnConfig {
+        FileConnConfig {
+            protocol: "s3".into(),
+            host: String::new(),
+            port: None,
+            user: String::new(),
+            root_path: String::new(),
+            tls: false,
+            ssh_connection_id: None,
+            bucket: "b".into(),
+            region: "us-east-1".into(),
+            endpoint: String::new(),
+            public_domain: String::new(),
+            prefix: prefix.into(),
+            access_key: String::new(),
+        }
+    }
+
+    #[test]
+    fn key_prefix_search_detects_slash() {
+        assert!(is_s3_key_prefix_search("foo/"));
+        assert!(is_s3_key_prefix_search("a/b"));
+        assert!(!is_s3_key_prefix_search("report"));
+    }
+
+    #[test]
+    fn normalize_search_key_prefix_preserves_trailing_slash() {
+        assert_eq!(
+            normalize_s3_search_key_prefix("foo/", &cfg("")),
+            "foo/"
+        );
+        assert_eq!(
+            normalize_s3_search_key_prefix("foo/", &cfg("root")),
+            "root/foo/"
+        );
+        assert_eq!(
+            normalize_s3_search_key_prefix("foo/bar", &cfg("root")),
+            "root/foo/bar"
+        );
+    }
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
@@ -917,7 +1095,7 @@ pub async fn file_list_dir(
     })
 }
 
-/// 在 S3 连接存储桶内按文件名搜索（递归 ListObjectsV2）。
+/// 在 S3 连接存储桶内搜索：含 `/` 时按 key 前缀，否则按文件名子串。
 #[tauri::command]
 #[specta::specta]
 pub async fn file_s3_search(

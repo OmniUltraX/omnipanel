@@ -9,6 +9,23 @@ function connectionConfigFingerprint(configs: { id: string }[]): string {
   return configs.map((c) => c.id).join(",");
 }
 
+function sqlTabSessionsFingerprint(state: SqlTabState | undefined): string {
+  if (!state?.resultSessions?.length) {
+    return "0";
+  }
+  return state.resultSessions
+    .map((session) =>
+      [
+        session.id,
+        session.running ? "1" : "0",
+        session.error ? "1" : "0",
+        session.result ? `${session.result.columns.length}:${session.result.rows.length}` : "0",
+        String(session.resultPage ?? 0),
+      ].join(":"),
+    )
+    .join(",");
+}
+
 /** 非表预览 SQL Tab 的 volatile 指纹，用于 panel content key 增量失效。 */
 export function buildSqlTabPanelKeySeed(
   workspaceTabs: DbWorkspaceTab[],
@@ -29,7 +46,8 @@ export function buildSqlTabPanelKeySeed(
         s?.database ?? "",
         s?.running ? "1" : "0",
         s?.error ? "1" : "0",
-        s?.result ? `${s.result.columns.length}:${s.result.rows.length}` : "0",
+        sqlTabSessionsFingerprint(s),
+        s?.activeResultSessionId ?? "",
       ].join("|"),
     );
   }
@@ -77,7 +95,8 @@ export function buildDatabasePanelContentKeysByTab(params: {
         state?.database ?? "",
         state?.running ? "1" : "0",
         state?.error ? "1" : "0",
-        state?.result ? `${state.result.columns.length}:${state.result.rows.length}` : "0",
+        sqlTabSessionsFingerprint(state),
+        state?.activeResultSessionId ?? "",
       ].join("|");
       continue;
     }

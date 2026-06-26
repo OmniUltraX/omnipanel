@@ -88,10 +88,11 @@ function splitBreadcrumb(path: string, protocol: string): { label: string; path:
     if (!trimmed) return [{ label: "/", path: "" }];
     const parts = trimmed.split("/").filter(Boolean);
     let acc = "";
-    return parts.map((part) => {
+    const segments = parts.map((part) => {
       acc = acc ? `${acc}${part}/` : `${part}/`;
       return { label: part, path: acc };
     });
+    return [{ label: "/", path: "" }, ...segments];
   }
   const parts = path.split("/").filter(Boolean);
   const out: { label: string; path: string }[] = [{ label: "/", path: "/" }];
@@ -170,6 +171,13 @@ export function FileConnectionPanel({
     return searchResults ?? [];
   }, [entries, search, searchResults]);
 
+  const clearSearchState = useCallback(() => {
+    ++searchSeq.current;
+    setSearch("");
+    setSearchResults(null);
+    setSearchLoading(false);
+  }, []);
+
   const loadDir = useCallback(async (path: string) => {
     const seq = ++loadSeq.current;
     ++loadMoreSeq.current;
@@ -239,6 +247,7 @@ export function FileConnectionPanel({
   ]);
 
   const navigateTo = useCallback((path: string, pushHistory = true) => {
+    clearSearchState();
     if (pushHistory) {
       setHistory((prev) => {
         const base = prev.slice(0, historyIndex + 1);
@@ -247,7 +256,7 @@ export function FileConnectionPanel({
       setHistoryIndex((i) => i + 1);
     }
     void loadDir(path);
-  }, [historyIndex, loadDir]);
+  }, [clearSearchState, historyIndex, loadDir]);
 
   const flushPanelState = useCallback(() => {
     setPanelState(connId, sessionRef.current);
@@ -592,11 +601,13 @@ export function FileConnectionPanel({
       },
     ];
     if (entry.kind === "file") {
-      items.push({
-        id: "download",
-        label: t("files.actions.download"),
-        onClick: () => void handleDownload(entry),
-      });
+      if (connId !== LOCAL_CONNECTION_ID) {
+        items.push({
+          id: "download",
+          label: t("files.actions.download"),
+          onClick: () => void handleDownload(entry),
+        });
+      }
       if (protocol === "s3") {
         items.push({
           id: "copyLink",
@@ -642,6 +653,7 @@ export function FileConnectionPanel({
             disabled={!canBack}
             onClick={() => {
               const next = historyIndex - 1;
+              clearSearchState();
               setHistoryIndex(next);
               void loadDir(history[next]);
             }}
@@ -655,6 +667,7 @@ export function FileConnectionPanel({
             disabled={!canForward}
             onClick={() => {
               const next = historyIndex + 1;
+              clearSearchState();
               setHistoryIndex(next);
               void loadDir(history[next]);
             }}
@@ -806,7 +819,11 @@ export function FileConnectionPanel({
                 </div>
                 <div className="fm-detail-preview">
                   <span className={`preview-icon${selected.kind === "dir" ? " folder" : ""}`}>
-                    <FileEntryIcon type={selected.kind === "dir" ? "dir" : "file"} />
+                    <FileEntryIcon
+                      type={selected.kind === "dir" ? "dir" : "file"}
+                      fileName={selected.kind === "file" ? selected.name : undefined}
+                      size={32}
+                    />
                   </span>
                 </div>
                 {previewText && (
@@ -837,7 +854,7 @@ export function FileConnectionPanel({
                   </div>
                 </div>
                 <div className="fm-detail-actions">
-                  {selected.kind === "file" && (
+                  {selected.kind === "file" && connId !== LOCAL_CONNECTION_ID && (
                     <button
                       type="button"
                       className="fm-detail-action"
@@ -881,7 +898,11 @@ export function FileConnectionPanel({
         entry={previewEntry}
         connectionId={connId}
         onClose={() => setPreviewEntry(null)}
-        onDownload={(entry) => void handleDownload(entry)}
+        onDownload={
+          connId === LOCAL_CONNECTION_ID
+            ? undefined
+            : (entry) => void handleDownload(entry)
+        }
       />
     </>
   );

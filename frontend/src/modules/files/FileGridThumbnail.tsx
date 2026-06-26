@@ -60,7 +60,7 @@ function FileGridThumbnailInner({ connectionId, entry }: FileGridThumbnailProps)
           draggable={false}
         />
       ) : (
-        <FileEntryIcon type="file" />
+        <FileEntryIcon type="file" fileName={entry.name} size={40} />
       )}
     </span>
   );

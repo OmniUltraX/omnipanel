@@ -45,6 +45,17 @@ export type TableDesignerTabState = {
   baseline: TableDesignerModel;
 };
 
+export type SqlResultSession = {
+  id: string;
+  sql: string;
+  result: QueryResult | null;
+  error: string | null;
+  elapsed: number | null;
+  running: boolean;
+  resultPage: number;
+  resultHasMore: boolean;
+};
+
 export type SqlTabState = {
   /** 查询 Tab 选用的连接 id（表预览 Tab 以 tablePreviews.connId 为准）。 */
   connId: string;
@@ -52,16 +63,19 @@ export type SqlTabState = {
   database: string;
   /** 上次光标位置，表预览模式无编辑器焦点时 ⌘+Enter 用此 offset 取语句。 */
   cursorOffset: number;
-  result: QueryResult | null;
+  /** 工具栏校验类错误（非查询执行错误） */
   error: string | null;
-  elapsed: number | null;
+  /** 是否有查询正在执行 */
   running: boolean;
-  /** 当前结果页（0-based），翻页时按 lastExecutedSql 重新查询。 */
-  resultPage: number;
-  /** 最近一次成功执行并展示结果的 SQL。 */
-  lastExecutedSql: string | null;
-  /** 当前页是否可能还有后续数据（返回行数达到 pageSize 时为 true）。 */
-  resultHasMore: boolean;
+  /** 每次执行对应一个结果会话 */
+  resultSessions: SqlResultSession[];
+  activeResultSessionId: string | null;
+  /** @deprecated 旧版单结果字段，仅兼容读取 */
+  result?: QueryResult | null;
+  elapsed?: number | null;
+  resultPage?: number;
+  lastExecutedSql?: string | null;
+  resultHasMore?: boolean;
 };
 
 export const DEFAULT_PAGE_SIZE = 100;
@@ -126,19 +140,37 @@ export function buildOrderByClause(
   return `${quote}${safe}${quote} ${sort.direction.toUpperCase()}`;
 }
 
+export function makeSqlResultSessionId(): string {
+  return `sqlsess:${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function makeSqlResultSessionLabel(index: number): string {
+  return `Result${index}`;
+}
+
+export function createSqlResultSession(sql: string): SqlResultSession {
+  return {
+    id: makeSqlResultSessionId(),
+    sql,
+    result: null,
+    error: null,
+    elapsed: null,
+    running: true,
+    resultPage: 0,
+    resultHasMore: false,
+  };
+}
+
 export function createDefaultSqlTabState(database = "", connId = ""): SqlTabState {
   return {
     connId,
     sql: DEFAULT_SQL,
     database,
     cursorOffset: 0,
-    result: null,
     error: null,
-    elapsed: 0,
     running: false,
-    resultPage: 0,
-    lastExecutedSql: null,
-    resultHasMore: false,
+    resultSessions: [],
+    activeResultSessionId: null,
   };
 }
 

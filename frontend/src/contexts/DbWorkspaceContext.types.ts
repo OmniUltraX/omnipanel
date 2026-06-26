@@ -28,8 +28,9 @@ export interface DbWorkspaceSharedContextValue {
     tabIdOverride?: string,
     options?: { resultPage?: number },
   ) => Promise<void>;
-  goToQueryResultPage: (tabId: string, page: number) => Promise<void>;
+  goToQueryResultPage: (tabId: string, page: number, sessionId?: string) => Promise<void>;
   updateSqlTabState: (id: string, patch: Partial<SqlTabState>) => void;
+  closeSqlResultSession: (sqlTabId: string, sessionId: string) => void;
   refreshTablePreview: (
     tabId: string,
     connId: string,
@@ -68,7 +69,7 @@ export interface DbWorkspaceSharedContextValue {
   selectTable: (selection: SchemaTableSelection) => void;
   setTabMode: (id: string, mode: "data" | "sql") => void;
   commitTabDirty: (tabId: string) => Promise<void>;
-  openExportMenu: (x: number, y: number, tabId: string) => void;
+  openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) => void;
   sqlConnections: DbConnectionConfig[];
   groupConnections: DbConnectionConfig[];
   databasesByConnId: Record<string, string[]>;

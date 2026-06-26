@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import JsonView from "@uiw/react-json-view";
-import { darkTheme } from "@uiw/react-json-view/dark";
-import { lightTheme } from "@uiw/react-json-view/light";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Button } from "../../components/ui/Button";
+import {
+  ContentPreviewTextModeToolbar,
+  ContentPreviewView,
+  useContentPreviewTextModes,
+  type ContentPreviewTextMode,
+} from "../../components/ui/ContentPreviewView";
 import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import { useI18n } from "../../i18n";
-import { useSettingsStore } from "../../stores/settingsStore";
-import {
-  isCellWebUrl,
-  normalizeCellWebUrl,
-  resolveCellPreviewContent,
-} from "./tableCellPreview";
-
-export type TextCellPreviewMode = "plain" | "markdown" | "web";
+import { resolveCellPreviewContent } from "./tableCellPreview";
 
 export type TableDataGridCellPreview = {
   column: string;
@@ -29,86 +23,39 @@ interface TableDataGridCellPreviewDrawerProps {
   onClose: () => void;
 }
 
-function CellPreviewTextModeToolbar({
-  mode,
-  onModeChange,
-  showWebMode,
-}: {
-  mode: TextCellPreviewMode;
-  onModeChange: (mode: TextCellPreviewMode) => void;
-  showWebMode: boolean;
-}) {
-  const { t } = useI18n();
-  return (
-    <div
-      className="db-cell-preview-text-toolbar"
-      role="group"
-      aria-label={t("database.results.cellPreviewTextMode")}
-    >
-      <button
-        type="button"
-        className={`db-cell-preview-text-mode-btn${mode === "plain" ? " is-active" : ""}`}
-        aria-pressed={mode === "plain"}
-        onClick={() => onModeChange("plain")}
-      >
-        {t("database.results.cellPreviewModePlain")}
-      </button>
-      <button
-        type="button"
-        className={`db-cell-preview-text-mode-btn${mode === "markdown" ? " is-active" : ""}`}
-        aria-pressed={mode === "markdown"}
-        onClick={() => onModeChange("markdown")}
-      >
-        {t("database.results.cellPreviewModeMarkdown")}
-      </button>
-      {showWebMode ? (
-        <button
-          type="button"
-          className={`db-cell-preview-text-mode-btn${mode === "web" ? " is-active" : ""}`}
-          aria-pressed={mode === "web"}
-          onClick={() => onModeChange("web")}
-        >
-          {t("database.results.cellPreviewModeWeb")}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 export function TableDataGridCellPreviewDrawer({
   preview,
   onClose,
 }: TableDataGridCellPreviewDrawerProps) {
   const { t } = useI18n();
-  const resolvedTheme = useSettingsStore((s) => s.resolved);
   const open = preview !== null;
-  const [textPreviewMode, setTextPreviewMode] = useState<TextCellPreviewMode>("plain");
-
-  useEffect(() => {
-    setTextPreviewMode("plain");
-  }, [preview?.column, preview?.rowIndex, preview?.rowLabel]);
+  const [textPreviewMode, setTextPreviewMode] = useState<ContentPreviewTextMode>("plain");
 
   const content = useMemo(() => {
     if (!preview) return null;
     return resolveCellPreviewContent(preview.value, preview.columnType);
   }, [preview]);
 
-  const jsonTheme = resolvedTheme === "dark" ? darkTheme : lightTheme;
+  const textContent = content?.kind === "text" ? content.text : undefined;
+  const { showWebMode } = useContentPreviewTextModes(textContent);
+
+  useEffect(() => {
+    setTextPreviewMode("plain");
+  }, [preview?.column, preview?.rowIndex, preview?.rowLabel]);
+
   const floatingTitle = preview
     ? `${preview.column} · ${preview.rowLabel}`
     : t("database.results.cellPreviewTitle");
 
   const showTextModeToolbar = content?.kind === "text";
-  const webPreviewUrl =
-    content?.kind === "text" && isCellWebUrl(content.text)
-      ? normalizeCellWebUrl(content.text)
-      : null;
 
-  useEffect(() => {
-    if (textPreviewMode === "web" && !webPreviewUrl) {
-      setTextPreviewMode("plain");
-    }
-  }, [textPreviewMode, webPreviewUrl]);
+  const toolbar = showTextModeToolbar ? (
+    <ContentPreviewTextModeToolbar
+      mode={textPreviewMode}
+      onModeChange={setTextPreviewMode}
+      showWebMode={showWebMode}
+    />
+  ) : null;
 
   return (
     <DetailPanelShell
@@ -120,15 +67,7 @@ export function TableDataGridCellPreviewDrawer({
       drawerClassName="db-cell-preview-drawer"
       widthRatio={0.45}
       heightRatio={0.75}
-      floatingHeaderExtra={
-        showTextModeToolbar ? (
-          <CellPreviewTextModeToolbar
-            mode={textPreviewMode}
-            onModeChange={setTextPreviewMode}
-            showWebMode={webPreviewUrl != null}
-          />
-        ) : null
-      }
+      floatingHeaderExtra={toolbar}
     >
       {preview && content && (
         <>
@@ -146,13 +85,7 @@ export function TableDataGridCellPreviewDrawer({
               </div>
             </div>
             <div className="docker-drawer-header-actions db-cell-preview-drawer-actions">
-              {showTextModeToolbar ? (
-                <CellPreviewTextModeToolbar
-                  mode={textPreviewMode}
-                  onModeChange={setTextPreviewMode}
-                  showWebMode={webPreviewUrl != null}
-                />
-              ) : null}
+              {toolbar}
               <DetailPanelModeToggle />
               <Button
                 variant="icon"
@@ -164,42 +97,16 @@ export function TableDataGridCellPreviewDrawer({
               </Button>
             </div>
           </header>
-          <div
-            className={`drawer-body db-cell-preview-drawer-body${textPreviewMode === "web" && webPreviewUrl ? " db-cell-preview-drawer-body--web" : ""}`}
-          >
-            {content.kind === "json" ? (
-              <div className="db-cell-preview-json">
-                <JsonView
-                  value={content.value}
-                  style={{
-                    ...jsonTheme,
-                    backgroundColor: "transparent",
-                    fontSize: 12,
-                    fontFamily: "var(--font-mono, ui-monospace, monospace)",
-                  }}
-                  displayObjectSize={false}
-                  displayDataTypes={false}
-                  shortenTextAfterLength={0}
-                />
-              </div>
-            ) : textPreviewMode === "web" && webPreviewUrl ? (
-              <div className="db-cell-preview-web">
-                <iframe
-                  key={webPreviewUrl}
-                  className="db-cell-preview-web-frame"
-                  src={webPreviewUrl}
-                  title={t("database.results.cellPreviewModeWeb")}
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-            ) : textPreviewMode === "markdown" ? (
-              <div className="db-cell-preview-markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content.text}</ReactMarkdown>
-              </div>
-            ) : (
-              <pre className="db-cell-preview-text">{content.text}</pre>
-            )}
+          <div className="drawer-body db-cell-preview-drawer-body">
+            <ContentPreviewView
+              status="ready"
+              content={content}
+              textMode={textPreviewMode}
+              onTextModeChange={setTextPreviewMode}
+              showTextModeToolbar={false}
+              contentResetKey={`${preview.column}|${preview.rowIndex}|${preview.rowLabel}`}
+              className="content-preview-view--embedded"
+            />
           </div>
         </>
       )}

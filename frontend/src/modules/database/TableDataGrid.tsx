@@ -9,6 +9,7 @@ import {
   type MutableRefObject,
   type CSSProperties,
   type ReactNode,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
   flexRender,
@@ -21,7 +22,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
 import { Button } from "../../components/ui/Button";
-import { ContextMenu } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { useI18n } from "../../i18n";
 import { textSearchMatches } from "../../lib/textSearchMatch";
 import { type DbColumnMeta } from "./api";
@@ -75,6 +76,8 @@ export type TableDataGridProps = {
   /** 行列转置（受控，表预览持久化） */
   transposed?: boolean;
   onTransposedChange?: (transposed: boolean) => void;
+  /** 底部分页栏中间区域（如 SQL 结果统计、导出等） */
+  footerExtra?: ReactNode;
 };
 
 function buildRowKey(row: Record<string, unknown>, pkCols: { name: string }[]): string {
@@ -185,6 +188,49 @@ function ColumnFilterButton({
         <path d="M2 3h12M4.5 8h7M7 13h2" strokeLinecap="round" />
       </svg>
     </button>
+  );
+}
+
+function ColumnSortIndicator({
+  active,
+  direction,
+  onClick,
+  title,
+}: {
+  active: boolean;
+  direction: "asc" | "desc" | null;
+  onClick: (event: ReactMouseEvent) => void;
+  title: string;
+}) {
+  return (
+    <span
+      className={`db-data-table-sort-indicator${active ? " db-data-table-sort-indicator--active" : ""}`}
+      onClick={onClick}
+      title={title}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick(event as unknown as ReactMouseEvent);
+        }
+      }}
+    >
+      {direction === "asc" ? (
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+          <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : direction === "desc" ? (
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+          <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10">
+          <path d="M8 13V3M4.5 6.5L8 3l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4.5 9.5L8 13l3.5-3.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
+        </svg>
+      )}
+    </span>
   );
 }
 
@@ -310,7 +356,30 @@ type CellMenuState = {
   rowIndex: number;
   column: string;
   row: Record<string, unknown>;
+  value: unknown;
+  columnType?: string;
+  /** 转置模式下字段名列仅支持预览 */
+  rowActionsEnabled?: boolean;
 };
+
+function resolveTransposedDataCellContext(
+  cellColumnId: string,
+  transposedRow: Record<string, unknown>,
+  sourceRows: Record<string, unknown>[],
+): {
+  originalRowIndex: number;
+  originalRow: Record<string, unknown>;
+  fieldColumn: string;
+} | null {
+  if (!cellColumnId.startsWith("__row__")) return null;
+  const originalRowIndex = parseInt(cellColumnId.replace("__row__", ""), 10);
+  if (Number.isNaN(originalRowIndex) || sourceRows[originalRowIndex] == null) return null;
+  return {
+    originalRowIndex,
+    originalRow: sourceRows[originalRowIndex],
+    fieldColumn: String(transposedRow[TRANSPOSE_FIELD_COL] ?? ""),
+  };
+}
 
 function applyColumnWidthDom(wrap: HTMLElement, columnId: string, width: number) {
   const px = `${width}px`;
@@ -337,13 +406,21 @@ function buildColumnCellStyle(
 
 function TableCellContextMenu({
   menuOpenRef,
+  onPreview,
   onRowEdit,
   onCellSetNull,
   columnMeta,
   cellOverrides,
 }: {
   menuOpenRef: MutableRefObject<(state: CellMenuState) => void>;
-  onRowEdit: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
+  onPreview: (info: {
+    column: string;
+    rowIndex: number;
+    row: Record<string, unknown>;
+    value: unknown;
+    columnType?: string;
+  }) => void;
+  onRowEdit?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   onCellSetNull?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   columnMeta?: DbColumnMeta[];
   cellOverrides?: Record<string, Record<string, unknown>>;
@@ -358,8 +435,20 @@ function TableCellContextMenu({
     };
   }, [menuOpenRef]);
 
-  const handleEditRow = useCallback(() => {
+  const handlePreview = useCallback(() => {
     if (!menu) return;
+    onPreview({
+      column: menu.column,
+      rowIndex: menu.rowIndex,
+      row: menu.row,
+      value: menu.value,
+      columnType: menu.columnType,
+    });
+    setMenu(null);
+  }, [menu, onPreview]);
+
+  const handleEditRow = useCallback(() => {
+    if (!menu || !onRowEdit) return;
     onRowEdit({
       rowIndex: menu.rowIndex,
       column: menu.column,
@@ -389,22 +478,31 @@ function TableCellContextMenu({
     return currentValue == null;
   }, [menu, onCellSetNull, columnMeta, cellOverrides]);
 
-  const items = useMemo(
-    () => [
+  const items = useMemo(() => {
+    const list: ContextMenuItem[] = [
       {
-        id: "edit-row",
-        label: t("database.rowEditor.contextMenu"),
-        onClick: handleEditRow,
+        id: "preview",
+        label: t("database.results.cellPreviewContextMenu"),
+        onClick: handlePreview,
       },
-      {
-        id: "set-null",
-        label: t("database.cellEditor.setNull"),
-        disabled: setNullDisabled,
-        onClick: handleSetNull,
-      },
-    ],
-    [t, handleEditRow, handleSetNull, setNullDisabled],
-  );
+    ];
+    if (onRowEdit && menu && menu.rowActionsEnabled !== false) {
+      list.push(
+        {
+          id: "edit-row",
+          label: t("database.rowEditor.contextMenu"),
+          onClick: handleEditRow,
+        },
+        {
+          id: "set-null",
+          label: t("database.cellEditor.setNull"),
+          disabled: setNullDisabled,
+          onClick: handleSetNull,
+        },
+      );
+    }
+    return list;
+  }, [t, handlePreview, handleEditRow, handleSetNull, onRowEdit, setNullDisabled, menu]);
 
   if (!menu) return null;
 
@@ -567,7 +665,7 @@ function ColumnVisibilitySidebar({
   );
 }
 
-export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false, dbType, tableName, hiddenColumns: hiddenColumnsProp, onHiddenColumnsChange, transposed: transposedProp, onTransposedChange }: TableDataGridProps) {
+export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalRows, page, pageSize, loading, onPageChange, columnMeta, onCellEdit, onRowEdit, onCellSetNull, dirtyRowKeys, cellOverrides, enableTranspose = false, toolbar, sort = null, onSortChange, enableSort = false, filter = null, onFilterChange, enableFilter = false, dbType, tableName, hiddenColumns: hiddenColumnsProp, onHiddenColumnsChange, transposed: transposedProp, onTransposedChange, footerExtra }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
     if (columns.length > 0) {
@@ -805,18 +903,9 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
     };
   }, []);
 
-  const handleHeaderClick = useCallback(
+  const handleColumnSortClick = useCallback(
     (columnId: string) => {
       if (!enableSort || !onSortChange) return;
-      if (transposed) {
-        if (!sort) return;
-        onSortChange(
-          sort.direction === "asc"
-            ? { column: sort.column, direction: "desc" }
-            : null,
-        );
-        return;
-      }
       let next: SortState | null;
       if (!sort || sort.column !== columnId) {
         next = { column: columnId, direction: "asc" };
@@ -827,7 +916,15 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       }
       onSortChange(next);
     },
-    [enableSort, onSortChange, sort, transposed],
+    [enableSort, onSortChange, sort],
+  );
+
+  const handleHeaderClick = useCallback(
+    (columnId: string) => {
+      if (transposed) return;
+      handleColumnSortClick(columnId);
+    },
+    [handleColumnSortClick, transposed],
   );
 
   const transposedData = useMemo(() => {
@@ -844,8 +941,6 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   const displayRows = transposed ? transposedData!.rows : rows;
   const displayDirtyRowKeys = transposed ? transposedDirty!.dirtyRowKeys : dirtyRowKeys;
   const displayCellOverrides = transposed ? transposedDirty!.cellOverrides : cellOverrides;
-  const effectiveOnCellEdit = transposed ? undefined : onCellEdit;
-  const transposeRowHeaders = transposedData?.rowHeaders ?? [];
 
   useLayoutEffect(() => {
     if (loading || !hoverResetPendingRef.current) return;
@@ -862,11 +957,41 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
   }, [columnMeta]);
 
   const handleCellEdit = useCallback(
-    (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
+    (
+      info: { rowIndex: number; column: string; row: Record<string, unknown> },
+      opts?: { displayColIndex?: number },
+    ) => {
       cellDragRef.current = null;
-      effectiveOnCellEdit?.(info);
+      if (!onCellEdit) return;
+
+      if (transposed) {
+        const mapped = resolveTransposedDataCellContext(info.column, info.row, rows);
+        if (!mapped) return;
+        const fieldMeta = columnMetaMap?.[mapped.fieldColumn];
+        if (!fieldMeta) return;
+
+        const displayColIndex = opts?.displayColIndex;
+        if (displayColIndex != null && displayColIndex >= 0) {
+          const maxRow = displayRows.length - 1;
+          if (maxRow >= 0) {
+            setCellRange({
+              start: { row: 0, col: displayColIndex },
+              end: { row: maxRow, col: displayColIndex },
+            });
+          }
+        }
+
+        onCellEdit({
+          rowIndex: mapped.originalRowIndex,
+          column: mapped.fieldColumn,
+          row: mapped.originalRow,
+        });
+        return;
+      }
+
+      onCellEdit(info);
     },
-    [effectiveOnCellEdit],
+    [transposed, rows, onCellEdit, columnMetaMap, displayRows.length],
   );
 
   const columnDefs = useMemo<ColumnDef<Record<string, unknown>>[]>(
@@ -874,30 +999,61 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       const defs: ColumnDef<Record<string, unknown>>[] = displayColumns.map((col) => {
         const isFieldCol = transposed && col === TRANSPOSE_FIELD_COL;
         const rowHeaderIndex = transposed ? parseInt(col.replace("__row__", ""), 10) : -1;
-        const headerLabel = isFieldCol
-          ? t("database.results.transposeField")
-          : transposed && !Number.isNaN(rowHeaderIndex)
-            ? transposeRowHeaders[rowHeaderIndex] ?? col
-            : col;
         const headerMeta = !isFieldCol && !transposed ? columnMetaMap?.[col] : undefined;
         return {
           id: col,
           accessorFn: (row) => row[col],
-          header: () => (
-            <ColumnHeaderLabel
-              label={headerLabel}
-              meta={headerMeta}
-              t={t}
-            />
-          ),
+          header: () => {
+            if (isFieldCol) {
+              return <span className="db-row-num-header">#</span>;
+            }
+            if (transposed && !Number.isNaN(rowHeaderIndex)) {
+              return (
+                <span className="db-row-num-header">
+                  {page * pageSize + rowHeaderIndex + 1}
+                </span>
+              );
+            }
+            return (
+              <ColumnHeaderLabel
+                label={col}
+                meta={headerMeta}
+                t={t}
+              />
+            );
+          },
           cell: ({ getValue, row, column }) => {
             const value = getValue();
             if (isFieldCol) {
               const fieldName = String(value ?? "");
               const fieldFiltered = canFilter && filterColumnNames.has(fieldName);
+              const fieldSortActive = enableSort && sort?.column === fieldName;
+              const fieldSortDirection = fieldSortActive ? sort!.direction : null;
+              const fieldMeta = columnMetaMap?.[fieldName];
               return (
                 <span className="db-data-table-field-inner">
-                  <span className="db-data-table-cell-text">{fieldName}</span>
+                  <span className="db-data-table-th-label-wrap">
+                    <span className="db-data-table-cell-text">{fieldName}</span>
+                    {fieldMeta?.nullable === false ? (
+                      <span
+                        className="db-data-table-th-nullability db-data-table-th-nullability--no"
+                        title={t("database.results.columnNotNullable")}
+                      >
+                        {t("database.results.columnNotNullableShort")}
+                      </span>
+                    ) : null}
+                  </span>
+                  {enableSort ? (
+                    <ColumnSortIndicator
+                      active={fieldSortActive}
+                      direction={fieldSortDirection}
+                      title={t("database.results.sortHint")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleColumnSortClick(fieldName);
+                      }}
+                    />
+                  ) : null}
                   {canFilter ? (
                     <ColumnFilterButton
                       columnName={fieldName}
@@ -913,9 +1069,10 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               isFieldCol || isRowNumCol
                 ? undefined
                 : transposed
-                  ? undefined
+                  ? columnMetaMap?.[String(row.original[TRANSPOSE_FIELD_COL] ?? "")]
                   : columnMetaMap?.[column.id];
-            const canEditCell = Boolean(effectiveOnCellEdit && colMetaForCell && !isFieldCol && !isRowNumCol);
+            const canEditCell = Boolean(onCellEdit && colMetaForCell && !isFieldCol && !isRowNumCol);
+            const displayColIndex = transposed ? displayColumns.indexOf(column.id) : -1;
             return (
               <span
                 className="db-data-table-cell-text"
@@ -924,11 +1081,16 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     ? (event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        handleCellEdit({
-                          rowIndex: row.index,
-                          column: column.id,
-                          row: row.original,
-                        });
+                        handleCellEdit(
+                          {
+                            rowIndex: row.index,
+                            column: column.id,
+                            row: row.original,
+                          },
+                          transposed && displayColIndex >= 0
+                            ? { displayColIndex }
+                            : undefined,
+                        );
                       }
                     : undefined
                 }
@@ -957,7 +1119,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       }
       return defs;
     },
-    [displayColumns, transposed, transposeRowHeaders, columnMetaMap, t, page, pageSize, effectiveOnCellEdit, handleCellEdit, canFilter, filterColumnNames, openFilterPopover],
+    [displayColumns, transposed, columnMetaMap, t, page, pageSize, onCellEdit, handleCellEdit, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick],
   );
 
   const table = useReactTable({
@@ -1285,14 +1447,28 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         {row.getVisibleCells().map((cell, cellIdx) => {
           const isRowNum = cell.column.id === ROW_NUM_COL_ID;
           const isFieldCol = transposed && cell.column.id === TRANSPOSE_FIELD_COL;
-          const fieldName = isFieldCol ? String(row.original[TRANSPOSE_FIELD_COL] ?? "") : "";
+          const transposedFieldName = transposed
+            ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
+            : "";
+          const fieldName = transposedFieldName;
           const fieldFiltered = isFieldCol && canFilter && filterColumnNames.has(fieldName);
           const isRowSelector = isRowNum || isFieldCol;
-          const colMeta = isRowNum || isFieldCol ? undefined : (transposed ? undefined : columnMetaMap?.[cell.column.id]);
-          const canEdit = !isRowSelector && effectiveOnCellEdit && colMeta;
+          const colMeta =
+            isRowNum || isFieldCol
+              ? undefined
+              : transposed
+                ? columnMetaMap?.[transposedFieldName]
+                : columnMetaMap?.[cell.column.id];
+          const canEdit = !isRowSelector && onCellEdit && colMeta;
           const overrideValue = isRowSelector ? undefined : overrideForRow?.[cell.column.id];
           const cellDirty = !isRowSelector && overrideValue !== undefined && rowDirty;
           const rawValue = isRowSelector ? undefined : (overrideValue !== undefined ? overrideValue : cell.getValue());
+          const fieldSortActive = isFieldCol && enableSort && sort?.column === fieldName;
+          const fieldSortClass = fieldSortActive
+            ? sort!.direction === "asc"
+              ? " db-data-table-cell--sort-asc"
+              : " db-data-table-cell--sort-desc"
+            : "";
           const baseSize = cell.column.getSize();
           const selected = isCellInRange(row.index, cellIdx, cellRange);
           return (
@@ -1301,7 +1477,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
               data-col-id={cell.column.id}
               data-col-index={cellIdx}
               style={buildColumnCellStyle(cell.column.id, baseSize, lastColumnId, fillDelta)}
-              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${selected ? " db-data-table-cell--selected" : ""}`}
+              className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSizing[cell.column.id] !== undefined ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${cellDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${selected ? " db-data-table-cell--selected" : ""}`}
               onMouseDown={
                 isRowSelector
                   ? (event) => {
@@ -1331,15 +1507,33 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 if (event.altKey) {
                   event.preventDefault();
                   event.stopPropagation();
-                  const previewColumn = transposed
-                    ? String(cell.row.original[TRANSPOSE_FIELD_COL] ?? cell.column.id)
-                    : cell.column.id;
+                  let previewColumn = cell.column.id;
+                  let previewRowIndex = row.index;
+                  let previewRow = cell.row.original;
+                  let previewValue = rawValue;
+                  if (transposed) {
+                    if (isFieldCol) {
+                      previewColumn = fieldName;
+                      previewValue = fieldName;
+                    } else {
+                      const mapped = resolveTransposedDataCellContext(
+                        cell.column.id,
+                        cell.row.original,
+                        rows,
+                      );
+                      if (mapped) {
+                        previewColumn = mapped.fieldColumn;
+                        previewRowIndex = mapped.originalRowIndex;
+                        previewRow = mapped.originalRow;
+                      }
+                    }
+                  }
                   openCellPreview({
                     column: previewColumn,
-                    rowIndex: row.index,
-                    row: cell.row.original,
-                    value: rawValue,
-                    columnType: colMeta?.type,
+                    rowIndex: previewRowIndex,
+                    row: previewRow,
+                    value: previewValue,
+                    columnType: columnMetaMap?.[previewColumn]?.type,
                   });
                   return;
                 }
@@ -1362,25 +1556,56 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                   ? (event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      handleCellEdit({
-                        rowIndex: cell.row.index,
-                        column: cell.column.id,
-                        row: cell.row.original,
-                      });
+                      handleCellEdit(
+                        {
+                          rowIndex: cell.row.index,
+                          column: cell.column.id,
+                          row: cell.row.original,
+                        },
+                        transposed ? { displayColIndex: cellIdx } : undefined,
+                      );
                     }
                   : undefined
               }
               onContextMenu={
-                !isRowSelector && onRowEdit && !transposed
+                !isRowNum
                   ? (event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      let previewColumn = cell.column.id;
+                      let menuRowIndex = cell.row.index;
+                      let menuRow = cell.row.original;
+                      let menuValue = rawValue;
+                      let rowActionsEnabled = true;
+
+                      if (transposed) {
+                        if (isFieldCol) {
+                          previewColumn = fieldName;
+                          menuValue = fieldName;
+                          rowActionsEnabled = false;
+                        } else {
+                          const mapped = resolveTransposedDataCellContext(
+                            cell.column.id,
+                            cell.row.original,
+                            rows,
+                          );
+                          if (mapped) {
+                            previewColumn = mapped.fieldColumn;
+                            menuRowIndex = mapped.originalRowIndex;
+                            menuRow = mapped.originalRow;
+                          }
+                        }
+                      }
+
                       cellMenuOpenRef.current({
                         x: event.clientX,
                         y: event.clientY,
-                        rowIndex: cell.row.index,
-                        column: cell.column.id,
-                        row: cell.row.original,
+                        rowIndex: menuRowIndex,
+                        column: previewColumn,
+                        row: menuRow,
+                        value: menuValue,
+                        columnType: columnMetaMap?.[previewColumn]?.type,
+                        rowActionsEnabled,
                       });
                     }
                   : undefined
@@ -1439,8 +1664,8 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                 const colId = header.column.id;
                 const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
                 const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
-                const canSort = enableSort && colId !== ROW_NUM_COL_ID && (!transposed || isFieldCol);
-                const sortActive = canSort && (transposed && isFieldCol ? !!sort : sort?.column === colId);
+                const canSort = enableSort && !transposed && colId !== ROW_NUM_COL_ID;
+                const sortActive = canSort && sort?.column === colId;
                 const sortDirection = sortActive ? sort!.direction : null;
                 const sortClass = sortActive
                   ? sortDirection === "asc"
@@ -1448,7 +1673,9 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                     : " db-data-table-th--sort-desc"
                   : "";
                 const filterClass =
-                  !transposed && canFilter && filterColumnNames.has(colId) ? " db-data-table-th--filtered" : "";
+                  canFilter && !transposed && filterColumnNames.has(colId)
+                    ? " db-data-table-th--filtered"
+                    : "";
                 const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
                 const colMeta = !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
                   ? columnMetaMap?.[colId]
@@ -1479,46 +1706,17 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </span>
                       {canSort && (
-                        <span
-                          className={`db-data-table-sort-indicator${sortActive ? " db-data-table-sort-indicator--active" : ""}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
+                        <ColumnSortIndicator
+                          active={sortActive}
+                          direction={sortActive ? sortDirection : null}
+                          title={t("database.results.sortHint")}
+                          onClick={(event) => {
+                            event.stopPropagation();
                             handleHeaderClick(colId);
                           }}
-                          title={t("database.results.sortHint")}
-                        >
-                          {transposed && isFieldCol && sort ? (
-                            <>
-                              <span className="db-data-table-sort-field-col">{sort.column}</span>
-                              {sortDirection === "asc" ? (
-                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                                  <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              ) : (
-                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                                  <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </>
-                          ) : (
-                            sortDirection === "asc" ? (
-                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                                <path d="M8 12V4M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : sortDirection === "desc" ? (
-                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
-                                <path d="M8 4v8M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10">
-                                <path d="M8 13V3M4.5 6.5L8 3l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M4.5 9.5L8 13l3.5-3.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
-                              </svg>
-                            )
-                          )}
-                        </span>
+                        />
                       )}
-                      {canFilter && colId !== ROW_NUM_COL_ID && !isFieldCol && !transposed && (
+                      {canFilter && colId !== ROW_NUM_COL_ID && !transposed && (
                         <ColumnFilterButton
                           columnName={colId}
                           active={filterColumnNames.has(colId)}
@@ -1571,13 +1769,14 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
       </table>
     </div>
     )}
-    {onRowEdit && !allColumnsHidden && (
+    {!allColumnsHidden && (
       <TableCellContextMenu
         menuOpenRef={cellMenuOpenRef}
-        onRowEdit={onRowEdit!}
+        onPreview={openCellPreview}
+        onRowEdit={onRowEdit}
         onCellSetNull={onCellSetNull}
         columnMeta={columnMeta}
-        cellOverrides={displayCellOverrides}
+        cellOverrides={cellOverrides}
       />
     )}
     </div>
@@ -1679,6 +1878,7 @@ export const TableDataGrid = memo(function TableDataGrid({ columns, rows, totalR
         )}
         </div>
       </div>
+      {footerExtra ? <div className="db-pagination-extra">{footerExtra}</div> : null}
       <div className="db-pagination-controls">
         <Button
           variant="ghost"

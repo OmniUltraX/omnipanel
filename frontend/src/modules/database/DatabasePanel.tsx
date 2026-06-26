@@ -100,6 +100,8 @@ import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import {
   createDefaultSqlTabState,
   createDefaultTablePreviewState,
+  createSqlResultSession,
+  type SqlResultSession,
   estimateTablePreviewTotalRows,
   buildOrderByClause,
   NEW_ROW_KEY_PREFIX,
@@ -209,10 +211,6 @@ function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabStat
     database: snap.database,
     connId: snap.connId ?? "",
     cursorOffset: snap.cursorOffset,
-    result: null,
-    error: null,
-    elapsed: null,
-    running: false,
   };
 }
 
@@ -741,6 +739,47 @@ export function DatabasePanel() {
       syncConnForTabId(tabId);
     }
   }, [persistSqlFileState, syncSqlFileTabHeaderMeta, syncConnForTabId]);
+
+  const updateSqlResultSession = useCallback(
+    (sqlTabId: string, sessionId: string, patch: Partial<SqlResultSession>) => {
+      setSqlTabStates((prev) => {
+        const tab = prev[sqlTabId] ?? createDefaultSqlTabState();
+        const sessions = tab.resultSessions ?? [];
+        return {
+          ...prev,
+          [sqlTabId]: {
+            ...tab,
+            resultSessions: sessions.map((session) =>
+              session.id === sessionId ? { ...session, ...patch } : session,
+            ),
+          },
+        };
+      });
+    },
+    [setSqlTabStates],
+  );
+
+  const closeSqlResultSession = useCallback(
+    (sqlTabId: string, sessionId: string) => {
+      setSqlTabStates((prev) => {
+        const tab = prev[sqlTabId] ?? createDefaultSqlTabState();
+        const sessions = (tab.resultSessions ?? []).filter((item) => item.id !== sessionId);
+        const activeResultSessionId =
+          tab.activeResultSessionId === sessionId
+            ? sessions[sessions.length - 1]?.id ?? null
+            : tab.activeResultSessionId;
+        return {
+          ...prev,
+          [sqlTabId]: {
+            ...tab,
+            resultSessions: sessions,
+            activeResultSessionId,
+          },
+        };
+      });
+    },
+    [setSqlTabStates],
+  );
 
   const setSqlTabConnection = useCallback(
     (tabId: string, connId: string | null) => {
@@ -2204,7 +2243,7 @@ export function DatabasePanel() {
   }, []);
 
   const resolveTabExportData = useCallback(
-    async (tabId: string) => {
+    async (tabId: string, sessionId?: string) => {
       const { sqlTabStates, tablePreviews } = useDbWorkspaceTabStore.getState();
       const tabState = sqlTabStates[tabId] ?? createDefaultSqlTabState();
       const preview = tablePreviews[tabId];
@@ -2213,42 +2252,51 @@ export function DatabasePanel() {
       if (!baseConn || !tabState.database.trim()) {
         return null;
       }
-      const conn = { ...baseConn, database: tabState.database };
 
-      let queryResult: QueryResult | null = null;
-      if (tabState.result && tabState.result.columns.length > 0) {
-        queryResult = tabState.result;
-      } else if (tabState.sql.trim()) {
+      const sessions = tabState.resultSessions ?? [];
+      const targetSession = sessionId
+        ? sessions.find((item) => item.id === sessionId)
+        : sessions.find((item) => item.id === tabState.activeResultSessionId) ??
+          sessions[sessions.length - 1];
+
+      if (targetSession?.result && targetSession.result.columns.length > 0) {
+        const rows = rowsToRecord(targetSession.result.columns, targetSession.result.rows);
+        const baseName = tabState.database.trim()
+          ? `${tabState.database}_query`
+          : "query";
+        return { columns: targetSession.result.columns, rows, baseName };
+      }
+
+      const conn = { ...baseConn, database: tabState.database };
+      if (tabState.sql.trim()) {
         try {
-          queryResult = await invoke<QueryResult>("db_execute_query", {
+          const queryResult = await invoke<QueryResult>("db_execute_query", {
             connection: conn,
             sql: tabState.sql.trim(),
           });
+          if (queryResult.columns.length > 0) {
+            const rows = rowsToRecord(queryResult.columns, queryResult.rows);
+            const baseName =
+              preview?.dbName && preview?.tableName
+                ? `${preview.dbName}_${preview.tableName}`
+                : tabState.database.trim()
+                  ? `${tabState.database}_query`
+                  : "query";
+            return { columns: queryResult.columns, rows, baseName };
+          }
         } catch {
           return null;
         }
       }
 
-      if (!queryResult || queryResult.columns.length === 0) {
-        return null;
-      }
-
-      const rows = rowsToRecord(queryResult.columns, queryResult.rows);
-      const baseName =
-        preview?.dbName && preview?.tableName
-          ? `${preview.dbName}_${preview.tableName}`
-          : tabState.database.trim()
-            ? `${tabState.database}_query`
-            : "query";
-
-      return { columns: queryResult.columns, rows, baseName };
+      return null;
     },
     [connections],
   );
 
   const exportTabResultToCsv = useCallback(
-    async (tabId: string) => {
-      const payload = await resolveTabExportData(tabId);
+    async (tabId: string, sessionId?: string) => {
+      const payload = await resolveTabExportData(tabId, sessionId);
       if (!payload) return;
       const csv = toCsv(payload.columns, payload.rows);
       const filePath = await save({
@@ -2263,8 +2311,8 @@ export function DatabasePanel() {
   );
 
   const copyTabResultToClipboard = useCallback(
-    async (tabId: string) => {
-      const payload = await resolveTabExportData(tabId);
+    async (tabId: string, sessionId?: string) => {
+      const payload = await resolveTabExportData(tabId, sessionId);
       if (!payload) return;
       await writeToClipboard(toCsv(payload.columns, payload.rows));
     },
@@ -2272,7 +2320,7 @@ export function DatabasePanel() {
   );
 
   const [exportMenu, setExportMenu] = useState<
-    { x: number; y: number; tabId: string } | null
+    { x: number; y: number; tabId: string; sessionId?: string } | null
   >(null);
   const buildExportMenuItems = useCallback(() => {
     const clipboardIcon = (
@@ -2295,7 +2343,7 @@ export function DatabasePanel() {
         onClick: () => {
           const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void copyTabResultToClipboard(tabId);
+          void copyTabResultToClipboard(tabId, exportMenu.sessionId);
         },
       },
       {
@@ -2305,11 +2353,11 @@ export function DatabasePanel() {
         onClick: () => {
           const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void exportTabResultToCsv(tabId);
+          void exportTabResultToCsv(tabId, exportMenu.sessionId);
         },
       },
     ];
-  }, [copyTabResultToClipboard, exportTabResultToCsv, exportMenu?.tabId, t]);
+  }, [copyTabResultToClipboard, exportTabResultToCsv, exportMenu, t]);
 
   const handleDesignTable = useCallback(
     (selection: SchemaTableSelection) => {
@@ -3107,23 +3155,63 @@ export function DatabasePanel() {
   const runQuery = useCallback(async (
     sqlOverride?: string,
     tabIdOverride?: string,
-    options?: { resultPage?: number },
+    options?: { resultPage?: number; sessionId?: string },
   ) => {
+    const tabStore = useDbWorkspaceTabStore.getState();
+    const pageSize = useSettingsStore.getState().databaseQueryPageSize;
+
     const tabId = tabIdOverride ?? activeWorkspaceTab?.id;
-    const tab = tabId ? workspaceTabs.find((t) => t.id === tabId) : null;
+    const tab = tabId ? workspaceTabsRef.current.find((item) => item.id === tabId) : null;
     if (!tab || tab.kind !== "sql") {
       return;
     }
     const resolvedTabId = tab.id;
-    const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId] ?? createDefaultSqlTabState();
+    const tabState = tabStore.sqlTabStates[resolvedTabId] ?? createDefaultSqlTabState();
     const conn = connectionForSqlTab(resolvedTabId);
-    const isPageNav = options?.resultPage !== undefined;
-    const resultPage = isPageNav ? Math.max(0, options!.resultPage!) : 0;
-    const sql = (isPageNav
-      ? (tabState.lastExecutedSql ?? tabState.sql)
-      : (sqlOverride ?? tabState.sql)
-    ).trim();
-    const pageSize = useSettingsStore.getState().databaseQueryPageSize;
+    const sessions = tabState.resultSessions ?? [];
+
+    if (options?.sessionId) {
+      const session = sessions.find((item) => item.id === options.sessionId);
+      if (!session) return;
+      if (!conn) {
+        updateSqlResultSession(resolvedTabId, session.id, {
+          error: t("database.results.noConnection"),
+        });
+        return;
+      }
+      const resultPage = Math.max(0, options.resultPage ?? 0);
+      const sql = session.sql.trim();
+      if (!sql) return;
+
+      updateSqlResultSession(resolvedTabId, session.id, { running: true, error: null });
+      const started = performance.now();
+      try {
+        const res = await invoke<QueryResult>("db_execute_query", {
+          connection: conn,
+          sql,
+          limit: pageSize,
+          offset: resultPage * pageSize,
+        });
+        const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
+        updateSqlResultSession(resolvedTabId, session.id, {
+          result: res,
+          resultPage,
+          resultHasMore: hasMore,
+          elapsed: Math.round(performance.now() - started),
+          running: false,
+        });
+      } catch (e) {
+        updateSqlResultSession(resolvedTabId, session.id, {
+          result: null,
+          error: typeof e === "string" ? e : JSON.stringify(e),
+          running: false,
+        });
+      }
+      return;
+    }
+
+    const sql = (sqlOverride ?? tabState.sql).trim();
+
     if (!conn) {
       updateSqlTabState(resolvedTabId, { error: t("database.results.noConnection") });
       return;
@@ -3136,54 +3224,66 @@ export function DatabasePanel() {
       updateSqlTabState(resolvedTabId, { error: t("database.results.emptySql") });
       return;
     }
-    updateSqlTabState(resolvedTabId, { running: true, error: null });
-    if (!isPageNav) {
-      enqueueAction({
-        type: "sql",
-        title: t("database.actions.runQuery"),
-        description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
-        command: sql,
-        resourceId: conn.id,
-        source: "用户",
-      });
-    }
+
+    const session = createSqlResultSession(sql);
+    updateSqlTabState(resolvedTabId, {
+      running: true,
+      error: null,
+      resultSessions: [...sessions, session],
+      activeResultSessionId: session.id,
+    });
+
+    enqueueAction({
+      type: "sql",
+      title: t("database.actions.runQuery"),
+      description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
+      command: sql,
+      resourceId: conn.id,
+      source: "用户",
+    });
+
     const started = performance.now();
     try {
       const res = await invoke<QueryResult>("db_execute_query", {
         connection: conn,
         sql,
         limit: pageSize,
-        offset: resultPage * pageSize,
+        offset: 0,
       });
       const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
-      updateSqlTabState(resolvedTabId, {
+      updateSqlResultSession(resolvedTabId, session.id, {
         result: res,
-        resultPage,
-        lastExecutedSql: sql,
+        resultPage: 0,
         resultHasMore: hasMore,
         elapsed: Math.round(performance.now() - started),
         running: false,
       });
+      updateSqlTabState(resolvedTabId, { running: false });
     } catch (e) {
-      updateSqlTabState(resolvedTabId, {
+      updateSqlResultSession(resolvedTabId, session.id, {
         result: null,
         error: typeof e === "string" ? e : JSON.stringify(e),
         running: false,
       });
+      updateSqlTabState(resolvedTabId, { running: false });
     }
   }, [
     connectionForSqlTab,
     activeWorkspaceTab,
-    workspaceTabs,
     enqueueAction,
     t,
     updateSqlTabState,
+    updateSqlResultSession,
   ]);
 
   const goToQueryResultPage = useCallback(
-    async (tabId: string, page: number) => {
+    async (tabId: string, page: number, sessionId?: string) => {
       if (page < 0) return;
-      await runQuery(undefined, tabId, { resultPage: page });
+      const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[tabId];
+      const resolvedSessionId =
+        sessionId ?? tabState?.activeResultSessionId ?? undefined;
+      if (!resolvedSessionId) return;
+      await runQuery(undefined, tabId, { sessionId: resolvedSessionId, resultPage: page });
     },
     [runQuery],
   );
@@ -3305,6 +3405,7 @@ export function DatabasePanel() {
         runQuery,
         goToQueryResultPage,
         updateSqlTabState,
+        closeSqlResultSession,
         refreshTablePreview,
         goToPage,
         requestTabAction,
@@ -3321,7 +3422,8 @@ export function DatabasePanel() {
         setTabMode: (id: string, mode: "data" | "sql") =>
           useDbWorkspaceTabStore.getState().setTabMode(id, mode),
         commitTabDirty,
-        openExportMenu: (x: number, y: number, tabId: string) => setExportMenu({ x, y, tabId }),
+        openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
+          setExportMenu({ x, y, tabId, sessionId }),
         sqlConnections,
         groupConnections,
         databasesByConnId,
@@ -3342,6 +3444,7 @@ export function DatabasePanel() {
     requestTabAction,
     runQuery,
     updateSqlTabState,
+    closeSqlResultSession,
     refreshTablePreview,
     goToPage,
     setTableFilter,

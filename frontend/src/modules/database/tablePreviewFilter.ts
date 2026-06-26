@@ -16,6 +16,9 @@ const EMPTY_TABLE_FILTER_BASE: RuleGroupType = {
 
 export const EMPTY_TABLE_FILTER: RuleGroupType = prepareRuleGroup(EMPTY_TABLE_FILTER_BASE);
 
+/** 转置视图第一列表头：编辑全表过滤（不限单列） */
+export const TABLE_FILTER_ALL_COLUMNS = "__all__";
+
 /** 确保过滤 query 中每条 rule / group 都有唯一 id，供 QueryBuilder 列表渲染使用 */
 export function ensureTableFilterQuery(filter: RuleGroupType | null | undefined): RuleGroupType {
   return prepareRuleGroup(filter ?? EMPTY_TABLE_FILTER_BASE);

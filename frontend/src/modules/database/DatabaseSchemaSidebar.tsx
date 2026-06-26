@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
+import {
+  usePersistedVerticalSplitSections,
+  VerticalSplitSidebar,
+} from "../../components/ui/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import { useDbSidebarLinkage } from "./DbSidebarLinkageContext";
 import { SchemaBrowser, type SchemaBrowserProps } from "./SchemaBrowser";
@@ -8,22 +12,6 @@ import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 const SECTION_STORAGE_KEY = "omnipanel-db-schema-sidebar-sections";
 
 type SectionKey = "connections" | "queries";
-
-function readSectionState(): Record<SectionKey, boolean> {
-  try {
-    const raw = localStorage.getItem(SECTION_STORAGE_KEY);
-    if (!raw) {
-      return { connections: true, queries: true };
-    }
-    const parsed = JSON.parse(raw) as Partial<Record<SectionKey, boolean>>;
-    return {
-      connections: parsed.connections ?? true,
-      queries: parsed.queries ?? true,
-    };
-  } catch {
-    return { connections: true, queries: true };
-  }
-}
 
 export interface DatabaseSchemaSidebarProps
   extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey"> {
@@ -36,25 +24,20 @@ export function DatabaseSchemaSidebar({
 }: DatabaseSchemaSidebarProps) {
   const { t } = useI18n();
   const { activeConnId, activeTableKey, activeDatabaseKey } = useDbSidebarLinkage();
-  const [sections, setSections] = useState(readSectionState);
-
-  useEffect(() => {
-    localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(sections));
-  }, [sections]);
+  const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
+    SECTION_STORAGE_KEY,
+    { connections: true, queries: true },
+  );
 
   useEffect(() => {
     if (!activeTableKey && !activeDatabaseKey && !activeConnId) {
       return;
     }
-    setSections((prev) => (prev.connections ? prev : { ...prev, connections: true }));
-  }, [activeTableKey, activeDatabaseKey, activeConnId]);
-
-  const toggleSection = useCallback((key: SectionKey) => {
-    setSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+    setSectionExpanded("connections", true);
+  }, [activeTableKey, activeDatabaseKey, activeConnId, setSectionExpanded]);
 
   return (
-    <div className="schema-sidebar">
+    <VerticalSplitSidebar className="schema-sidebar">
       <SchemaBrowser
         {...schemaProps}
         activeConnId={activeConnId}
@@ -74,6 +57,6 @@ export function DatabaseSchemaSidebar({
           onToggle: () => toggleSection("queries"),
         }}
       />
-    </div>
+    </VerticalSplitSidebar>
   );
 }

@@ -89,7 +89,7 @@ export function VirtualFileList({
           onDoubleClick={() => (isDir ? onActivate(entry) : onOpenFile(entry))}
         >
           <span className={`fm-file-icon${isDir ? " folder" : ""}`}>
-            <FileEntryIcon type={isDir ? "dir" : "file"} />
+            <FileEntryIcon type={isDir ? "dir" : "file"} fileName={isDir ? undefined : entry.name} />
           </span>
           <span className="fm-file-name">{entry.name}</span>
           <span className="fm-file-size">{isDir ? "—" : formatFileSize(entry.size)}</span>

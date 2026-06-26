@@ -32,6 +32,8 @@ type Props = {
   onSaved?: () => void;
   onTestSuccess?: (connectionId: string) => void;
   editConnection?: Connection;
+  /** 新建连接时预选的协议（编辑时忽略） */
+  initialProtocol?: FileProtocol;
 };
 
 const EMPTY = {
@@ -115,7 +117,20 @@ function buildConnection(form: typeof EMPTY, existing?: Connection): Connection 
   };
 }
 
-export function FileConnectionDialog({ open, onClose, onSaved, onTestSuccess, editConnection }: Props) {
+function defaultPortForProtocol(protocol: FileProtocol): string {
+  if (protocol === "sftp") return "22";
+  if (protocol === "s3") return "";
+  return "21";
+}
+
+export function FileConnectionDialog({
+  open,
+  onClose,
+  onSaved,
+  onTestSuccess,
+  editConnection,
+  initialProtocol,
+}: Props) {
   const { t } = useI18n();
   const connections = useConnectionStore((s) => s.connections);
   const [form, setForm] = useState(EMPTY);
@@ -134,12 +149,17 @@ export function FileConnectionDialog({ open, onClose, onSaved, onTestSuccess, ed
 
   useEffect(() => {
     if (!open) return;
-    setForm(parseConfig(editConnection));
+    if (editConnection) {
+      setForm(parseConfig(editConnection));
+    } else {
+      const protocol = initialProtocol ?? "ftp";
+      setForm({ ...EMPTY, protocol, port: defaultPortForProtocol(protocol) });
+    }
     setError(null);
     setSuccessMsg(null);
     setSaving(false);
     setTesting(false);
-  }, [open, editConnection]);
+  }, [open, editConnection, initialProtocol]);
 
   const update = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) => {
     setError(null);
