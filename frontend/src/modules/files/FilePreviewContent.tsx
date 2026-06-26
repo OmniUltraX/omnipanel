@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/CodeEditor";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
@@ -12,7 +11,6 @@ import {
   fmtError,
   formatFileSize,
   imageMimeType,
-  LOCAL_CONNECTION_ID,
   resolvePreviewReadMaxBytes,
 } from "./utils";
 
@@ -68,15 +66,6 @@ export function FilePreviewContent({ connectionId, entry }: FilePreviewContentPr
 
     void (async () => {
       try {
-        if (previewKind === "image" && connectionId === LOCAL_CONNECTION_ID) {
-          const src = convertFileSrc(entry.path);
-          if (!cancelled) {
-            setImageUrl(src);
-            setLoading(false);
-          }
-          return;
-        }
-
         const bytes = await readRemotePreview(connectionId, entry.path, readMaxBytes);
         if (cancelled) return;
 

@@ -254,7 +254,17 @@ fn local_delete(path: &str) -> Result<(), OmniError> {
 }
 
 pub(crate) fn local_read(path: &str, max_bytes: u64) -> Result<Vec<u8>, OmniError> {
-    let data = std::fs::read(path)
+    let p = resolve_local_path(path)?;
+    if p.is_dir() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "无法预览目录"));
+    }
+    if !p.exists() {
+        return Err(OmniError::new(
+            ErrorCode::NotFound,
+            format!("文件不存在: {}", p.display()),
+        ));
+    }
+    let data = std::fs::read(&p)
         .map_err(|e| OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string()))?;
     if data.len() as u64 > max_bytes {
         return Err(OmniError::new(
@@ -603,8 +613,90 @@ async fn list_s3_dir(
     Ok((entries, has_more, next_token))
 }
 
+/// 在 S3 存储桶内按文件名递归搜索（ListObjectsV2，无 delimiter）。
+async fn search_s3(
+    cfg: &FileConnConfig,
+    secret: &str,
+    query: &str,
+    start_token: Option<&str>,
+) -> Result<(Vec<FileEntry>, bool, Option<String>), OmniError> {
+    let bucket = s3_bucket(cfg, secret)?;
+    let prefix = normalize_s3_prefix("", cfg);
+    let search_q = query.trim().to_lowercase();
+    if search_q.is_empty() {
+        return Ok((Vec::new(), false, None));
+    }
+
+    const S3_LIST_PAGE_SIZE: usize = 1000;
+    const S3_SEARCH_RESULT_LIMIT: usize = 200;
+
+    let mut entries = Vec::new();
+    let mut token = start_token.map(str::to_string);
+
+    loop {
+        let (page, _status) = bucket
+            .list_page(prefix.clone(), None, token, None, Some(S3_LIST_PAGE_SIZE))
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    bucket = %cfg.bucket,
+                    region = %cfg.region,
+                    endpoint = %cfg.endpoint,
+                    prefix = %prefix,
+                    error = %e,
+                    "S3 搜索失败"
+                );
+                OmniError::new(ErrorCode::Io, "S3 搜索失败").with_cause(e.to_string())
+            })?;
+
+        for obj in page.contents {
+            if obj.key.ends_with('/') {
+                continue;
+            }
+            let name = obj
+                .key
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or(&obj.key)
+                .to_string();
+            if !name.to_lowercase().contains(&search_q) {
+                continue;
+            }
+            entries.push(FileEntry {
+                name: name.clone(),
+                path: obj.key,
+                kind: "file".into(),
+                size: obj.size,
+                modified: 0,
+                permissions: None,
+            });
+            if entries.len() >= S3_SEARCH_RESULT_LIMIT {
+                let truncated = page.is_truncated;
+                let next = if truncated {
+                    page.next_continuation_token
+                } else {
+                    None
+                };
+                return Ok((entries, truncated, next));
+            }
+        }
+
+        if !page.is_truncated {
+            break;
+        }
+        token = page.next_continuation_token;
+        if token.is_none() {
+            break;
+        }
+    }
+
+    Ok((entries, false, None))
+}
+
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
+#[derive(PartialEq)]
 pub(crate) enum FileProtocol {
     Local,
     Sftp,
@@ -612,13 +704,28 @@ pub(crate) enum FileProtocol {
     S3,
 }
 
+fn protocol_label(protocol: FileProtocol) -> &'static str {
+    match protocol {
+        FileProtocol::Local => "local",
+        FileProtocol::Sftp => "sftp",
+        FileProtocol::Ftp => "ftp",
+        FileProtocol::S3 => "s3",
+    }
+}
+
 pub(crate) fn protocol_of(cfg: &FileConnConfig) -> FileProtocol {
-    match cfg.protocol.as_str() {
+    match cfg.protocol.trim().to_ascii_lowercase().as_str() {
         "ftp" => FileProtocol::Ftp,
         "s3" => FileProtocol::S3,
         "sftp" => FileProtocol::Sftp,
+        "local" => FileProtocol::Local,
+        _ if !cfg.bucket.trim().is_empty() => FileProtocol::S3,
         _ => FileProtocol::Local,
     }
+}
+
+fn normalize_s3_object_key(path: &str) -> String {
+    path.trim_start_matches('/').to_string()
 }
 
 /// 列出文件管理器可用连接（含内置本机）。
@@ -641,7 +748,7 @@ pub async fn file_list_connections(
         out.push(FileManagerConnectionInfo {
             id: conn.id,
             name: conn.name,
-            protocol: cfg.protocol,
+            protocol: protocol_label(protocol_of(&cfg)).to_string(),
             status: if online {
                 "online".to_string()
             } else {
@@ -810,6 +917,36 @@ pub async fn file_list_dir(
     })
 }
 
+/// 在 S3 连接存储桶内按文件名搜索（递归 ListObjectsV2）。
+#[tauri::command]
+#[specta::specta]
+pub async fn file_s3_search(
+    state: State<'_, AppState>,
+    connection_id: String,
+    query: String,
+    continuation_token: Option<String>,
+) -> Result<FileListDirResult, OmniError> {
+    let conn = load_file_connection(&state, &connection_id)
+        .await?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+    let cfg = parse_file_config(&conn)?;
+    if protocol_of(&cfg) != FileProtocol::S3 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "仅 S3 连接支持此搜索"));
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let token = continuation_token
+        .as_deref()
+        .filter(|t| !t.is_empty());
+    let (entries, truncated, next_continuation_token) =
+        search_s3(&cfg, &secret, &query, token).await?;
+    mark_file_connection_online(&state, &connection_id);
+    Ok(FileListDirResult {
+        entries,
+        truncated,
+        next_continuation_token,
+    })
+}
+
 fn filter_file_entries(
     mut entries: Vec<FileEntry>,
     search: Option<&str>,
@@ -885,7 +1022,8 @@ pub async fn file_read_file(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            let response = bucket.get_object(&path).await.map_err(|e| {
+            let key = normalize_s3_object_key(&path);
+            let response = bucket.get_object(&key).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
             })?;
             let data: Vec<u8> = response.bytes().to_vec();
@@ -952,7 +1090,8 @@ pub async fn file_upload_file(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            bucket.put_object(&path, &data).await.map_err(|e| {
+            let key = normalize_s3_object_key(&path);
+            bucket.put_object(&key, &data).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
             })?;
             Ok(())
@@ -1020,11 +1159,10 @@ pub async fn file_mkdir(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            let key = if path.ends_with('/') {
-                path
-            } else {
-                format!("{path}/")
-            };
+            let mut key = normalize_s3_object_key(&path);
+            if !key.ends_with('/') {
+                key.push('/');
+            }
             bucket.put_object(&key, &[] as &[u8]).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string())
             })?;
@@ -1076,14 +1214,16 @@ pub async fn file_rename(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            let response = bucket.get_object(&old_path).await.map_err(|e| {
+            let old_key = normalize_s3_object_key(&old_path);
+            let new_key = normalize_s3_object_key(&new_path);
+            let response = bucket.get_object(&old_key).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 读取对象失败").with_cause(e.to_string())
             })?;
             let bytes = response.bytes();
-            bucket.put_object(&new_path, bytes).await.map_err(|e| {
+            bucket.put_object(&new_key, bytes).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string())
             })?;
-            bucket.delete_object(&old_path).await.map_err(|e| {
+            bucket.delete_object(&old_key).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string())
             })?;
             Ok(())
@@ -1138,7 +1278,8 @@ pub async fn file_delete(
         }
         FileProtocol::S3 => {
             let bucket = s3_bucket(&cfg, &secret)?;
-            bucket.delete_object(&path).await.map_err(|e| {
+            let key = normalize_s3_object_key(&path);
+            bucket.delete_object(&key).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 删除失败").with_cause(e.to_string())
             })?;
             Ok(())

@@ -1,4 +1,4 @@
-//! 文件模块 FTS5 索引：递归扫描本地 / SFTP / FTP / S3 并写入 SQLite。
+//! 文件模块 FTS5 索引：递归扫描本地文件并写入 SQLite。
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -7,20 +7,17 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{Connection, FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult, FileIndexStatus, FileIndexStorage, default_file_index_storage_dir};
-use s3::bucket::Bucket;
+use omnipanel_store::{
+    default_file_index_storage_dir, FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult,
+    FileIndexStatus, FileIndexStorage,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
-use super::file_manager::{
-    ftp_connect_sync, list_ftp_dir, local_home, local_read, mark_file_connection_online,
-    normalize_s3_prefix, parse_file_config, protocol_of, resolve_local_path, resolve_secret,
-    s3_bucket, sftp_entry_to_file, sftp_session_for, FileConnConfig, FileEntry, FileProtocol,
-    LOCAL_CONNECTION_ID,
-};
+use super::file_manager::{local_home, local_read, resolve_local_path, LOCAL_CONNECTION_ID};
 
 const MAX_INDEX_ENTRIES: usize = 200_000;
 const INDEX_BATCH_SIZE: usize = 400;
@@ -43,17 +40,6 @@ fn is_text_file(name: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.as_str())
 }
 
-fn entry_to_batch(entry: &FileEntry, content: String) -> FileIndexBatchItem {
-    FileIndexBatchItem {
-        path: entry.path.clone(),
-        name: entry.name.clone(),
-        kind: entry.kind.clone(),
-        size: entry.size,
-        modified: entry.modified,
-        content,
-    }
-}
-
 fn read_local_content(path: &str, size: u64) -> String {
     if size == 0 || size > MAX_CONTENT_BYTES || !is_text_file(path) {
         return String::new();
@@ -64,100 +50,9 @@ fn read_local_content(path: &str, size: u64) -> String {
         .unwrap_or_default()
 }
 
-async fn read_remote_content(
-    state: &AppState,
-    connection_id: &str,
-    conn: &Connection,
-    cfg: &FileConnConfig,
-    path: &str,
-    size: u64,
-) -> String {
-    if size == 0 || size > MAX_CONTENT_BYTES || !is_text_file(path) {
-        return String::new();
-    }
-    match protocol_of(cfg) {
-        FileProtocol::Sftp => {
-            let Ok(session) = sftp_session_for(state, connection_id, conn, cfg).await else {
-                return String::new();
-            };
-            let Ok(data) = session.sftp_download(path).await else {
-                return String::new();
-            };
-            if data.len() as u64 > MAX_CONTENT_BYTES {
-                return String::new();
-            }
-            String::from_utf8(data).unwrap_or_default()
-        }
-        FileProtocol::Ftp => {
-            let cfg = cfg.clone();
-            let secret = resolve_secret(conn).unwrap_or_default();
-            let path = path.to_string();
-            match tokio::task::spawn_blocking(move || {
-                use std::io::Read;
-                let mut ftp = ftp_connect_sync(&cfg, &secret)?;
-                let reader = ftp.retr_as_stream(&path).map_err(|e| {
-                    OmniError::new(ErrorCode::Io, "FTP 读取失败").with_cause(e.to_string())
-                })?;
-                let mut buf = Vec::new();
-                reader
-                    .take(MAX_CONTENT_BYTES + 1)
-                    .read_to_end(&mut buf)
-                    .map_err(|e| OmniError::new(ErrorCode::Io, "FTP 读取失败").with_cause(e.to_string()))?;
-                let _ = ftp.quit();
-                if buf.len() as u64 > MAX_CONTENT_BYTES {
-                    return Ok::<String, OmniError>(String::new());
-                }
-                Ok(String::from_utf8(buf).unwrap_or_default())
-            })
-            .await
-            {
-                Ok(Ok(text)) => text,
-                _ => String::new(),
-            }
-        }
-        FileProtocol::S3 => {
-            let secret = resolve_secret(conn).unwrap_or_default();
-            let Ok(bucket) = s3_bucket(cfg, &secret) else {
-                return String::new();
-            };
-            let Ok(response) = bucket.get_object(path).await else {
-                return String::new();
-            };
-            let bytes = response.bytes();
-            if bytes.len() as u64 > MAX_CONTENT_BYTES {
-                return String::new();
-            }
-            String::from_utf8(bytes.to_vec()).unwrap_or_default()
-        }
-        FileProtocol::Local => read_local_content(path, size),
-    }
-}
-
-async fn resolve_index_root(
-    connection_id: &str,
-    _conn: Option<&Connection>,
-    cfg: Option<&FileConnConfig>,
-) -> Result<String, OmniError> {
-    if connection_id == LOCAL_CONNECTION_ID {
-        return Ok(local_home()?.to_string_lossy().into_owned());
-    }
-    let cfg = cfg.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    if !cfg.root_path.is_empty() {
-        return Ok(cfg.root_path.clone());
-    }
-    match protocol_of(cfg) {
-        FileProtocol::S3 => Ok(normalize_s3_prefix("", cfg)),
-        FileProtocol::Local => Ok(String::new()),
-        FileProtocol::Sftp | FileProtocol::Ftp => Ok("/".to_string()),
-    }
-}
-
 struct IndexWalkContext<'a> {
     state: &'a AppState,
     connection_id: &'a str,
-    conn: Option<&'a Connection>,
-    cfg: Option<&'a FileConnConfig>,
-    secret: &'a str,
     cancel: Arc<AtomicBool>,
 }
 
@@ -166,8 +61,7 @@ async fn collect_local_dir(
     batch: &mut Vec<FileIndexBatchItem>,
     indexed: &mut usize,
 ) -> Result<(), OmniError> {
-    let root = resolve_index_root(ctx.connection_id, ctx.conn, ctx.cfg).await?;
-    let root_path = resolve_local_path(&root)?;
+    let root_path = resolve_local_path(&local_home()?.to_string_lossy())?;
     let mut queue: VecDeque<PathBuf> = VecDeque::new();
     queue.push_back(root_path);
 
@@ -229,207 +123,6 @@ async fn collect_local_dir(
     Ok(())
 }
 
-async fn collect_sftp_dir(
-    ctx: &IndexWalkContext<'_>,
-    batch: &mut Vec<FileIndexBatchItem>,
-    indexed: &mut usize,
-) -> Result<(), OmniError> {
-    let conn = ctx.conn.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let cfg = ctx.cfg.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let root = resolve_index_root(ctx.connection_id, Some(conn), Some(cfg)).await?;
-    let session = sftp_session_for(ctx.state, ctx.connection_id, conn, cfg).await?;
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(root);
-
-    while let Some(dir) = queue.pop_front() {
-        if ctx.cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        if *indexed >= MAX_INDEX_ENTRIES {
-            break;
-        }
-        let list = session.sftp_list(&dir).await?;
-        for entry in list {
-            if ctx.cancel.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-            if *indexed >= MAX_INDEX_ENTRIES {
-                break;
-            }
-            let file_entry = sftp_entry_to_file(&entry, &dir);
-            let content = if file_entry.kind == "file" {
-                read_remote_content(
-                    ctx.state,
-                    ctx.connection_id,
-                    conn,
-                    cfg,
-                    &file_entry.path,
-                    file_entry.size,
-                )
-                .await
-            } else {
-                String::new()
-            };
-            batch.push(entry_to_batch(&file_entry, content));
-            *indexed += 1;
-            if batch.len() >= INDEX_BATCH_SIZE {
-                flush_batch(ctx, batch, *indexed).await?;
-            }
-            if file_entry.kind == "dir" {
-                queue.push_back(file_entry.path);
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn collect_ftp_dir(
-    ctx: &IndexWalkContext<'_>,
-    batch: &mut Vec<FileIndexBatchItem>,
-    indexed: &mut usize,
-) -> Result<(), OmniError> {
-    let conn = ctx.conn.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let cfg = ctx.cfg.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let root = resolve_index_root(ctx.connection_id, Some(conn), Some(cfg)).await?;
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(root);
-
-    while let Some(dir) = queue.pop_front() {
-        if ctx.cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        if *indexed >= MAX_INDEX_ENTRIES {
-            break;
-        }
-        let entries = list_ftp_dir(cfg, ctx.secret, &dir).await?;
-        for file_entry in entries {
-            if ctx.cancel.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-            if *indexed >= MAX_INDEX_ENTRIES {
-                break;
-            }
-            let content = if file_entry.kind == "file" {
-                read_remote_content(
-                    ctx.state,
-                    ctx.connection_id,
-                    conn,
-                    cfg,
-                    &file_entry.path,
-                    file_entry.size,
-                )
-                .await
-            } else {
-                String::new()
-            };
-            batch.push(entry_to_batch(&file_entry, content));
-            *indexed += 1;
-            if batch.len() >= INDEX_BATCH_SIZE {
-                flush_batch(ctx, batch, *indexed).await?;
-            }
-            if file_entry.kind == "dir" {
-                queue.push_back(file_entry.path);
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn collect_s3_objects(
-    ctx: &IndexWalkContext<'_>,
-    batch: &mut Vec<FileIndexBatchItem>,
-    indexed: &mut usize,
-) -> Result<(), OmniError> {
-    let conn = ctx.conn.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let cfg = ctx.cfg.ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let prefix = resolve_index_root(ctx.connection_id, Some(conn), Some(cfg)).await?;
-    let bucket: Box<Bucket> = s3_bucket(cfg, ctx.secret)?;
-    let mut token: Option<String> = None;
-
-    loop {
-        if ctx.cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        if *indexed >= MAX_INDEX_ENTRIES {
-            break;
-        }
-        let (page, _status) = bucket
-            .list_page(prefix.clone(), None, token.clone(), None, Some(1000))
-            .await
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
-            })?;
-
-        if let Some(prefixes) = page.common_prefixes {
-            for cp in prefixes {
-                if *indexed >= MAX_INDEX_ENTRIES {
-                    break;
-                }
-                let key = cp.prefix.trim_end_matches('/');
-                let name = key.rsplit('/').next().unwrap_or(&key).to_string();
-                batch.push(FileIndexBatchItem {
-                    path: cp.prefix.clone(),
-                    name,
-                    kind: "dir".into(),
-                    size: 0,
-                    modified: 0,
-                    content: String::new(),
-                });
-                *indexed += 1;
-                if batch.len() >= INDEX_BATCH_SIZE {
-                    flush_batch(ctx, batch, *indexed).await?;
-                }
-            }
-        }
-
-        for obj in page.contents {
-            if obj.key.ends_with('/') {
-                continue;
-            }
-            if *indexed >= MAX_INDEX_ENTRIES {
-                break;
-            }
-            let name = obj
-                .key
-                .trim_end_matches('/')
-                .rsplit('/')
-                .next()
-                .unwrap_or(&obj.key)
-                .to_string();
-            let content = read_remote_content(
-                ctx.state,
-                ctx.connection_id,
-                conn,
-                cfg,
-                &obj.key,
-                obj.size,
-            )
-            .await;
-            batch.push(FileIndexBatchItem {
-                path: obj.key.clone(),
-                name,
-                kind: "file".into(),
-                size: obj.size,
-                modified: 0,
-                content,
-            });
-            *indexed += 1;
-            if batch.len() >= INDEX_BATCH_SIZE {
-                flush_batch(ctx, batch, *indexed).await?;
-            }
-        }
-
-        if !page.is_truncated {
-            break;
-        }
-        token = page.next_continuation_token;
-        if token.is_none() {
-            break;
-        }
-    }
-    Ok(())
-}
-
 async fn flush_batch(
     ctx: &IndexWalkContext<'_>,
     batch: &mut Vec<FileIndexBatchItem>,
@@ -473,86 +166,25 @@ async fn run_file_index_build(app: AppHandle, connection_id: String, cancel: Arc
     let started_at = now_secs();
     let mut indexed = 0usize;
     let mut batch: Vec<FileIndexBatchItem> = Vec::with_capacity(INDEX_BATCH_SIZE);
-    let mut root_path = String::new();
+    let root_path = local_home()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut build_error: Option<String> = None;
 
-    let conn_opt = if connection_id == LOCAL_CONNECTION_ID {
-        None
-    } else {
-        match super::file_manager::load_file_connection(state.inner(), &connection_id).await {
-            Ok(Some(c)) => Some(c),
-            Ok(None) => {
-                build_error = Some("连接不存在".into());
-                None
-            }
-            Err(e) => {
-                build_error = Some(e.to_string());
-                None
-            }
-        }
-    };
-
-    let cfg_opt = conn_opt.as_ref().map(|c| parse_file_config(c)).transpose();
-    let cfg_owned;
-    let cfg_ref = match cfg_opt {
-        Ok(Some(cfg)) => {
-            cfg_owned = cfg;
-            Some(&cfg_owned)
-        }
-        Ok(None) => None,
-        Err(e) => {
+    {
+        let storage = state.file_index_storage.lock().await;
+        if let Err(e) = storage.begin_file_index(&connection_id, &root_path, started_at) {
             build_error = Some(e.to_string());
-            None
-        }
-    };
-
-    if build_error.is_none() {
-        root_path = match resolve_index_root(&connection_id, conn_opt.as_ref(), cfg_ref).await {
-            Ok(p) => p,
-            Err(e) => {
-                build_error = Some(e.to_string());
-                String::new()
-            }
-        };
-    }
-
-    if build_error.is_none() {
-        {
-            let storage = state.file_index_storage.lock().await;
-            if let Err(e) = storage.begin_file_index(&connection_id, &root_path, started_at) {
-                build_error = Some(e.to_string());
-            }
         }
     }
-
-    let secret = conn_opt
-        .as_ref()
-        .and_then(|c| resolve_secret(c))
-        .unwrap_or_default();
 
     if build_error.is_none() {
         let ctx = IndexWalkContext {
             state: state.inner(),
             connection_id: &connection_id,
-            conn: conn_opt.as_ref(),
-            cfg: cfg_ref,
-            secret: &secret,
             cancel: cancel.clone(),
         };
-        let walk_result = if connection_id == LOCAL_CONNECTION_ID {
-            collect_local_dir(&ctx, &mut batch, &mut indexed).await
-        } else if let Some(cfg) = cfg_ref {
-            match protocol_of(cfg) {
-                FileProtocol::Local => collect_local_dir(&ctx, &mut batch, &mut indexed).await,
-                FileProtocol::Sftp => collect_sftp_dir(&ctx, &mut batch, &mut indexed).await,
-                FileProtocol::Ftp => collect_ftp_dir(&ctx, &mut batch, &mut indexed).await,
-                FileProtocol::S3 => collect_s3_objects(&ctx, &mut batch, &mut indexed).await,
-            }
-        } else {
-            Err(OmniError::new(ErrorCode::NotFound, "连接不存在"))
-        };
-
-        if let Err(e) = walk_result {
+        if let Err(e) = collect_local_dir(&ctx, &mut batch, &mut indexed).await {
             build_error = Some(e.to_string());
         }
         if !batch.is_empty() && build_error.is_none() {
@@ -560,7 +192,6 @@ async fn run_file_index_build(app: AppHandle, connection_id: String, cancel: Arc
                 build_error = Some(e.to_string());
             }
         }
-        mark_file_connection_online(state.inner(), &connection_id);
     }
 
     let finished_at = now_secs();
@@ -581,13 +212,20 @@ async fn run_file_index_build(app: AppHandle, connection_id: String, cancel: Arc
     }
 }
 
-/// 启动后台文件索引构建（本地与远程连接均支持）。
+/// 启动后台本地文件索引构建。
 #[tauri::command]
 #[specta::specta]
 pub async fn file_index_build(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<FileIndexStatus, OmniError> {
+    if connection_id != LOCAL_CONNECTION_ID {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "仅本地文件支持索引构建，远程文件请使用协议原生搜索",
+        ));
+    }
+
     {
         let storage = state.file_index_storage.lock().await;
         let status = storage.get_file_index_status(&connection_id)?;
@@ -685,7 +323,10 @@ pub struct FileIndexStorageInfo {
     pub is_custom: bool,
 }
 
-fn build_storage_info(configured_dir: &str, storage: &FileIndexStorage) -> Result<FileIndexStorageInfo, OmniError> {
+fn build_storage_info(
+    configured_dir: &str,
+    storage: &FileIndexStorage,
+) -> Result<FileIndexStorageInfo, OmniError> {
     let default_dir = default_file_index_storage_dir()
         .map_err(|e| OmniError::new(ErrorCode::Storage, "无法解析默认索引目录").with_cause(e.to_string()))?
         .to_string_lossy()

@@ -121,7 +121,7 @@ function FilesBrowserView() {
     try {
       const list = await listFileConnections();
       setConnections(list);
-      void loadIndexStatuses(list.map((c) => c.id));
+      void loadIndexStatuses([LOCAL_CONNECTION_ID]);
     } catch (e) {
       setConnBanner({ kind: "error", text: fmtError(e) });
     }
@@ -330,8 +330,6 @@ function FilesBrowserView() {
         onClick: () => void handleTestConnection(conn.id),
       },
       { id: "sep1", separator: true, label: "" },
-      ...indexItems,
-      { id: "sep2", separator: true, label: "" },
       {
         id: "delete",
         label: t("files.context.deleteConn"),

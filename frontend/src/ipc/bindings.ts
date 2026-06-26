@@ -284,6 +284,8 @@ export const commands = {
 	fileTestConnection: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_test_connection", { connectionId })),
 	/**  列出目录内容。 */
 	fileListDir: (connectionId: string, path: string, search: string | null, continuationToken: string | null) => typedError<FileListDirResult, OmniError_Serialize>(__TAURI_INVOKE("file_list_dir", { connectionId, path, search, continuationToken })),
+	/**  在 S3 连接存储桶内按文件名搜索（递归 ListObjectsV2）。 */
+	fileS3Search: (connectionId: string, query: string, continuationToken: string | null) => typedError<FileListDirResult, OmniError_Serialize>(__TAURI_INVOKE("file_s3_search", { connectionId, query, continuationToken })),
 	/**  读取文件内容（字节）。 */
 	fileReadFile: (connectionId: string, path: string, maxBytes: number | null) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("file_read_file", { connectionId, path, maxBytes })),
 	/**  上传文件（覆盖）。 */
@@ -298,7 +300,7 @@ export const commands = {
 	fileDelete: (connectionId: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_delete", { connectionId, path })),
 	/**  本机常用目录快捷路径。 */
 	fileLocalQuickPaths: () => typedError<FileQuickPaths, OmniError_Serialize>(__TAURI_INVOKE("file_local_quick_paths")),
-	/**  启动后台文件索引构建（本地与远程连接均支持）。 */
+	/**  启动后台本地文件索引构建。 */
 	fileIndexBuild: (connectionId: string) => typedError<FileIndexStatus, OmniError_Serialize>(__TAURI_INVOKE("file_index_build", { connectionId })),
 	/**  FTS5 搜索已索引文件。 */
 	fileIndexSearch: (connectionId: string, query: string, limit: number | null) => typedError<FileIndexSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("file_index_search", { connectionId, query, limit })),
@@ -1272,15 +1274,6 @@ export type FileIndexStorageInfo = {
 	defaultDir: string,
 	/**  是否为用户自定义目录。 */
 	isCustom: boolean,
-};
-
-/**  索引进度事件载荷。 */
-export type FileIndexProgress = {
-	connectionId: string,
-	/**  building | done | failed */
-	status: string,
-	indexedCount: number | null,
-	error: string,
 };
 
 /**  目录列表结果。 */

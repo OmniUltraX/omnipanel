@@ -83,6 +83,21 @@ export async function loadQuickPaths() {
   return unwrap(await commands.fileLocalQuickPaths());
 }
 
+export async function searchS3Files(
+  connectionId: string,
+  query: string,
+  continuationToken?: string | null,
+): Promise<FileListDirResult> {
+  const q = query.trim();
+  const token = continuationToken?.trim() ? continuationToken.trim() : null;
+  return unwrap(await commands.fileS3Search(connectionId, q, token), {
+    op: "fileS3Search",
+    connectionId,
+    query: q,
+    continuationToken: token,
+  });
+}
+
 export async function buildFileIndex(connectionId: string): Promise<FileIndexStatus> {
   return unwrap(await commands.fileIndexBuild(connectionId), { op: "fileIndexBuild", connectionId });
 }

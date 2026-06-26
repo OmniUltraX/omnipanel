@@ -623,6 +623,7 @@ export const enUS: TranslationDict = {
       refresh: "Refresh",
       search: "Filter current folder…",
       searchIndexed: "Search indexed files…",
+      searchS3: "Search bucket files…",
       searchIndexing: "Indexing ({count})…",
       listView: "List view",
       gridView: "Grid view",

@@ -33,6 +33,7 @@ import {
   readRemotePreview,
   renameRemote,
   searchFileIndex,
+  searchS3Files,
   uploadRemote,
 } from "./fileApi";
 import { mergeFileEntries } from "./mergeFileEntries";
@@ -206,13 +207,14 @@ export function FileConnectionPanel({
   const loadMoreEntries = useCallback(async () => {
     if (protocol !== "s3" || !hasMoreEntries || loadingMore || loading || !listNextToken) return;
     const q = search.trim();
-    const useSearch = Boolean(q);
     const seq = ++loadMoreSeq.current;
     setLoadingMore(true);
     try {
-      const result = await listDirectory(connId, currentPath, useSearch ? q : null, listNextToken);
+      const result = q
+        ? await searchS3Files(connId, q, listNextToken)
+        : await listDirectory(connId, currentPath, null, listNextToken);
       if (seq !== loadMoreSeq.current) return;
-      if (useSearch) {
+      if (q) {
         setSearchResults((prev) => mergeFileEntries(prev ?? [], result.entries));
       } else {
         setEntries((prev) => mergeFileEntries(prev, result.entries));
@@ -336,6 +338,10 @@ export function FileConnectionPanel({
   }, [isActive, navigateTo, onRegisterNavigate]);
 
   useEffect(() => {
+    if (connId !== LOCAL_CONNECTION_ID) {
+      setIndexStatus(null);
+      return;
+    }
     let cancelled = false;
     void getFileIndexStatus(connId)
       .then((status) => {
@@ -350,6 +356,7 @@ export function FileConnectionPanel({
   }, [connId]);
 
   useEffect(() => {
+    if (connId !== LOCAL_CONNECTION_ID) return;
     let unlisten: (() => void) | undefined;
     void listen<FileIndexProgress>("file-index-progress", (event) => {
       if (event.payload.connectionId !== connId) return;
@@ -386,10 +393,12 @@ export function FileConnectionPanel({
     }
     const seq = ++searchSeq.current;
     ++loadMoreSeq.current;
-    const useIndex = indexStatus?.status === "ready";
+    const isLocal = connId === LOCAL_CONNECTION_ID;
+    const useIndexSearch = isLocal && indexStatus?.status === "ready";
+    const useS3Search = protocol === "s3";
     const timer = window.setTimeout(() => {
       setSearchLoading(true);
-      const searchPromise = useIndex
+      const searchPromise = useIndexSearch
         ? searchFileIndex(connId, q).then((results) => ({
             entries: results.map((hit) => ({
               name: hit.entry.name,
@@ -402,7 +411,9 @@ export function FileConnectionPanel({
             truncated: false,
             nextContinuationToken: null as string | null,
           }))
-        : listDirectory(connId, currentPath, q, null);
+        : useS3Search
+          ? searchS3Files(connId, q, null)
+          : listDirectory(connId, currentPath, q, null);
       void searchPromise
         .then((result) => {
           if (seq !== searchSeq.current) return;
@@ -424,7 +435,7 @@ export function FileConnectionPanel({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [search, connId, currentPath, isActive, indexStatus?.status]);
+  }, [search, connId, currentPath, isActive, indexStatus?.status, protocol]);
 
   const s3InfiniteScroll = protocol === "s3" && hasMoreEntries;
   const listScrollProps = {
@@ -689,11 +700,13 @@ export function FileConnectionPanel({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
-                indexStatus?.status === "ready"
+                connId === LOCAL_CONNECTION_ID && indexStatus?.status === "ready"
                   ? t("files.toolbar.searchIndexed")
-                  : indexStatus?.status === "building"
+                  : connId === LOCAL_CONNECTION_ID && indexStatus?.status === "building"
                     ? t("files.toolbar.searchIndexing", { count: indexStatus.indexedCount ?? 0 })
-                    : t("files.toolbar.search")
+                    : protocol === "s3"
+                      ? t("files.toolbar.searchS3")
+                      : t("files.toolbar.search")
               }
             />
           </div>
@@ -753,7 +766,7 @@ export function FileConnectionPanel({
                 preset="folder"
                 title={
                   search.trim()
-                    ? indexStatus?.status === "ready"
+                    ? connId === LOCAL_CONNECTION_ID && indexStatus?.status === "ready"
                       ? t("files.searchNoIndexResults")
                       : t("files.searchNoResults")
                     : t("files.empty")

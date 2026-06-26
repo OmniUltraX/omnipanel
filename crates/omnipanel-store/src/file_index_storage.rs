@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use omnipanel_error::{ErrorCode, OmniError, OmniResult};
+use omnipanel_error::OmniResult;
 use rusqlite::Connection as SqliteConnection;
 
 use crate::file_index::{
@@ -359,7 +359,7 @@ impl FileIndexStorage {
             return Ok(false);
         }
         let path = resolve_file_index_db_path("")?;
-        let mut target = Self::open(&path)?;
+        let target = Self::open(&path)?;
         if !target.is_empty()? {
             return Ok(false);
         }

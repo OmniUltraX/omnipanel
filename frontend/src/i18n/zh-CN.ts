@@ -619,6 +619,7 @@ export const zhCN = {
       refresh: "刷新",
       search: "筛选当前目录…",
       searchIndexed: "搜索已索引文件…",
+      searchS3: "搜索存储桶内文件…",
       searchIndexing: "索引构建中（{count}）…",
       listView: "列表视图",
       gridView: "网格视图",
