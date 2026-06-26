@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appConfirm } from "../../lib/appConfirm";
+import { clearTerminalHistoryData, useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { FontFamilySelect } from "../../components/settings/FontFamilySelect";
 import {
   countEnabledModels,
@@ -1123,7 +1124,11 @@ export function SettingsPanel() {
   const terminalScrollback = useSettingsStore((s) => s.terminalScrollback);
   const terminalGpuAccel = useSettingsStore((s) => s.terminalGpuAccel);
   const terminalCopyOnSelect = useSettingsStore((s) => s.terminalCopyOnSelect);
+  const terminalHistoryPersist = useSettingsStore((s) => s.terminalHistoryPersist);
+  const terminalHistoryMaxBlocks = useSettingsStore((s) => s.terminalHistoryMaxBlocks);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
+  const terminalHistorySessions = useTerminalHistoryStore((s) => s.countSessions());
+  const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.countBlocks());
 
   const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
   const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
@@ -1807,6 +1812,59 @@ export function SettingsPanel() {
                   <p>{t("settings.terminal.copyOnSelectDesc")}</p>
                 </div>
                 <Toggle value={terminalCopyOnSelect} onChange={(v) => setTerminalSettings({ terminalCopyOnSelect: v })} />
+              </div>
+
+              <div className="settings-subsection">
+                <h3>{t("settings.terminal.historySection")}</h3>
+                <p className="section-desc">{t("settings.terminal.historySectionDesc")}</p>
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.historyPersist")}</h4>
+                  <p>{t("settings.terminal.historyPersistDesc")}</p>
+                </div>
+                <Toggle
+                  value={terminalHistoryPersist}
+                  onChange={(v) => setTerminalSettings({ terminalHistoryPersist: v })}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.historyMaxBlocks")}</h4>
+                  <p>{t("settings.terminal.historyMaxBlocksDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(terminalHistoryMaxBlocks)}
+                  onChange={(v) => setTerminalSettings({ terminalHistoryMaxBlocks: Number(v) })}
+                  options={["50", "100", "200", "500"]}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.historyManage")}</h4>
+                  <p>
+                    {t("settings.terminal.historyStats", {
+                      sessions: terminalHistorySessions,
+                      blocks: terminalHistoryBlocks,
+                    })}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--danger btn--sm"
+                  disabled={terminalHistoryBlocks === 0}
+                  onClick={() => {
+                    void appConfirm(
+                      t("settings.terminal.historyClearConfirm"),
+                      t("settings.terminal.historyClearTitle"),
+                    ).then((ok) => {
+                      if (!ok) return;
+                      clearTerminalHistoryData();
+                    });
+                  }}
+                >
+                  {t("settings.terminal.historyClear")}
+                </button>
               </div>
             </div>
           </div>

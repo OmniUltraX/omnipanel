@@ -17,10 +17,11 @@ import { normalizeTerminalCwdForSftp } from "@/modules/server/ssh/utils/parseCom
 import { useSshDetailNavigationStore } from "@/stores/sshDetailNavigationStore";
 import { TerminalTabPaneView } from "./TerminalPaneView";
 import { AdvanceTerminalMonitorStack } from "./AdvanceTerminalMonitorStack";
+import { TerminalHistoryPanel } from "./TerminalHistoryPanel";
 import { useTerminalTabDockPane } from "./useTerminalTabDockPane";
 
-type LocalSidePanelId = "files" | "monitor";
-type RemoteSidePanelId = "sftp" | "tunnel" | "processes";
+type LocalSidePanelId = "files" | "monitor" | "history";
+type RemoteSidePanelId = "sftp" | "tunnel" | "processes" | "history";
 type SidePanelId = LocalSidePanelId | RemoteSidePanelId;
 
 type SidePanelWorkspaceSpec = {
@@ -50,8 +51,15 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   const isLocal = tab?.session.type === "local";
 
   const sideTabs = useMemo((): DockableTab[] => {
+    const historyTab: DockableTab = {
+      id: "history",
+      label: t("terminal.sideTabs.history"),
+      panelType: "terminal-side",
+      closable: false,
+    };
     if (isLocal) {
       return [
+        historyTab,
         {
           id: "monitor",
           label: t("terminal.sideTabs.monitor"),
@@ -67,6 +75,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       ];
     }
     return [
+      historyTab,
       {
         id: "processes",
         label: t("ssh.detailTabs.processes"),
@@ -106,6 +115,13 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           snapshotId: "terminal.side.monitor-local",
         };
       }
+      if (sideTabId === "history") {
+        return {
+          componentType: "terminal.side.history",
+          label: sideTab?.label ?? t("terminal.sideTabs.history"),
+          snapshotId: `terminal.side.history:${tabId}`,
+        };
+      }
       if (!resource?.id) return null;
       if (sideTabId === "sftp") {
         return {
@@ -133,10 +149,10 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       }
       return null;
     },
-    [resource?.id, sideTabs, t],
+    [resource?.id, sideTabs, t, tabId],
   );
 
-  const defaultSideTab = isLocal ? "monitor" : "processes";
+  const defaultSideTab = "history";
   const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(defaultSideTab);
   const [sideContentCollapsed, setSideContentCollapsed] = useState(false);
   const sideContentCollapsedRef = useRef(false);
@@ -247,6 +263,16 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
 
   const renderSidePanel = useCallback(
     (panelId: string) => {
+      if (panelId === "history") {
+        return wrapSidePanel(
+          "history",
+          <TerminalHistoryPanel
+            sessionId={tabId}
+            sessionTitle={tab?.title}
+            onRunCommand={paneProps?.onSendCommand}
+          />,
+        );
+      }
       if (isLocal) {
         if (panelId === "files") {
           return wrapSidePanel("files", <LocalFilePanel />);
@@ -276,7 +302,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       }
       return null;
     },
-    [isLocal, openTunnelTab, resource, wrapSidePanel],
+    [isLocal, openTunnelTab, paneProps?.onSendCommand, resource, tab?.title, tabId, wrapSidePanel],
   );
 
   if (!paneProps) return null;

@@ -181,6 +181,8 @@ interface SettingsState {
   terminalScrollback: number;
   terminalGpuAccel: boolean;
   terminalCopyOnSelect: boolean;
+  terminalHistoryPersist: boolean;
+  terminalHistoryMaxBlocks: number;
   knowledgeChunkSize: number;
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;
@@ -213,7 +215,8 @@ interface SettingsState {
   setTerminalSettings: (patch: Partial<Pick<SettingsState,
     "terminalFontFamily" | "terminalFontSize" | "terminalLineHeight" |
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
-    "terminalGpuAccel" | "terminalCopyOnSelect"
+    "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
+    "terminalHistoryMaxBlocks"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" | "knowledgeEmbeddingModelSelectionId"
@@ -295,6 +298,8 @@ export const useSettingsStore = create<SettingsState>()(
       terminalScrollback: 10000,
       terminalGpuAccel: true,
       terminalCopyOnSelect: false,
+      terminalHistoryPersist: true,
+      terminalHistoryMaxBlocks: 200,
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
@@ -405,6 +410,8 @@ export const useSettingsStore = create<SettingsState>()(
         terminalScrollback: state.terminalScrollback,
         terminalGpuAccel: state.terminalGpuAccel,
         terminalCopyOnSelect: state.terminalCopyOnSelect,
+        terminalHistoryPersist: state.terminalHistoryPersist,
+        terminalHistoryMaxBlocks: state.terminalHistoryMaxBlocks,
         knowledgeChunkSize: state.knowledgeChunkSize,
         knowledgeChunkOverlap: state.knowledgeChunkOverlap,
         knowledgeTopN: state.knowledgeTopN,

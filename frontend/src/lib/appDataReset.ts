@@ -114,6 +114,9 @@ export async function clearAppUserData(): Promise<void> {
 
   await commands.httpClearHistory().catch(() => undefined);
 
+  const { clearTerminalHistoryData } = await import("../stores/terminalHistoryStore");
+  clearTerminalHistoryData();
+
   useServerGroupStore.setState({
     groups: BUILTIN_SERVER_GROUPS,
     activeGroupId: "default",

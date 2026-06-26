@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractCommandOutput, stripTerminalControlSequences } from "./terminalOutputText";
+import {
+  extractCommandOutput,
+  isEchoOnlyTerminalOutput,
+  isMeaningfulTerminalBlock,
+  stripTerminalControlSequences,
+} from "./terminalOutputText";
 
 describe("terminalOutputText", () => {
   it("strips command echo and a normal trailing shell prompt", () => {
@@ -34,5 +39,33 @@ describe("terminalOutputText", () => {
     expect(stripTerminalControlSequences("download 10%\rdownload 20%\r\nok")).toBe(
       "download 10%download 20%\nok",
     );
+  });
+
+  it("detects echo-only output before real command results arrive", () => {
+    const command = "docker logs warpgate 2>&1 | wc -l";
+    expect(isEchoOnlyTerminalOutput(command, command)).toBe(true);
+    expect(isEchoOnlyTerminalOutput(`${command}\n3543348`, command)).toBe(false);
+  });
+
+  it("treats running blocks with echo-only output as not meaningful", () => {
+    const command = "docker logs warpgate 2>&1 | tail -30";
+    expect(
+      isMeaningfulTerminalBlock(
+        {
+          id: "b1",
+          sessionId: "s1",
+          command,
+          output: command,
+          exitCode: null,
+          startLine: 0,
+          endLine: -1,
+          marker: null,
+          cwd: "",
+          timestamp: 0,
+          status: "running",
+        },
+        command,
+      ),
+    ).toBe(false);
   });
 });

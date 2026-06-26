@@ -1,7 +1,12 @@
 import { useActionStore, type WorkspaceAction } from "../../stores/actionStore";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { extractCommandOutput, isMeaningfulTerminalBlock, normalizeBlockCommand } from "./terminalOutputText";
+import {
+  extractCommandOutput,
+  isEchoOnlyTerminalOutput,
+  isMeaningfulTerminalBlock,
+  normalizeBlockCommand,
+} from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
@@ -36,6 +41,25 @@ interface OutputWatch {
 
 const outputWatches = new Map<string, OutputWatch>();
 
+/** 同一会话串行执行终端命令，避免上一条未完成时下一条被当作输入粘贴 */
+const sessionExecutionChains = new Map<string, Promise<void>>();
+
+function enqueueSessionExecution(
+  sessionId: string,
+  task: () => Promise<void>,
+): Promise<void> {
+  const previous = sessionExecutionChains.get(sessionId) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(task);
+  sessionExecutionChains.set(
+    sessionId,
+    current.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return current;
+}
+
 /** Command Bar 模式下预注册的 Feed 采集块（与 OSC 133 合并） */
 const feedCaptures = new Map<string, string>();
 
@@ -67,14 +91,20 @@ function ensureShellBlockInStore(sessionId: string, block: TerminalBlock): Termi
   const existing = store.findBlockById(block.id);
   if (existing) return existing;
 
+  const sentNorm = normalizeBlockCommand(block.command);
   const blocks = store.getBlocks(sessionId);
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const candidate = blocks[i];
     if (candidate.kind === "ai") continue;
-    if (candidate.status === "running" && candidate.command.trim() === block.command.trim()) {
+    if (normalizeBlockCommand(candidate.command) !== sentNorm) continue;
+    if (
+      candidate.status === "running" ||
+      (block.id.startsWith("syn-") &&
+        (candidate.status === "completed" || candidate.status === "failed"))
+    ) {
       store.updateBlock(candidate.id, {
         output: block.output || candidate.output,
-        exitCode: block.exitCode,
+        exitCode: block.exitCode ?? candidate.exitCode,
         status: block.status,
         cwd: block.cwd || candidate.cwd,
       });
@@ -177,12 +207,17 @@ function findLatestMeaningfulBlock(
 function finishOutputWatch(sessionId: string): void {
   const watch = outputWatches.get(sessionId);
   if (!watch) return;
+  const cleaned = extractCommandOutput(watch.output, watch.command);
+  if (!cleaned && isEchoOnlyTerminalOutput(watch.output, watch.command)) {
+    if (watch.idleTimer) clearTimeout(watch.idleTimer);
+    watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), OUTPUT_IDLE_MS);
+    return;
+  }
   if (watch.idleTimer) clearTimeout(watch.idleTimer);
   clearTimeout(watch.hardTimer);
   outputWatches.delete(sessionId);
-  const cleaned = extractCommandOutput(watch.output, watch.command);
   const output = cleaned || watch.output.trim();
-  if (output) {
+  if (output && !isEchoOnlyTerminalOutput(output, watch.command)) {
     watch.resolve(
       buildSyntheticBlock(sessionId, watch.command, watch.cwd, output),
     );
@@ -252,6 +287,17 @@ function mergeCommandResults(
     (oscBlock?.command ?? "").trim().replace(/^[^#$>]*[$#>]\s*/, "") || command;
   const exitCode = oscBlock?.exitCode ?? outputBlock.exitCode ?? 0;
   const status = oscBlock?.status ?? outputBlock.status;
+
+  if (oscBlock) {
+    return {
+      ...oscBlock,
+      command: blockCommand,
+      output,
+      exitCode,
+      status,
+      cwd,
+    };
+  }
 
   return buildSyntheticBlock(sessionId, blockCommand, cwd, output, exitCode, status);
 }
@@ -357,31 +403,39 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
   const sender = terminalPaneSenders[pending.tabId];
   if (!sender) return false;
 
-  if (pending.waitForBlock) {
-    const resultPromise = waitForCommandResult(pending.tabId, pending.command);
-    sender(pending.command);
-    void resultPromise
-      .then((block) => {
-        const stored = isWarpDisplay(pending.tabId)
-          ? ensureShellBlockInStore(pending.tabId, block)
-          : block;
-        pending.resolveBlock?.(stored);
-      })
-      .catch((err) => {
-        pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
-      })
-      .finally(() => {
-        clearOutputWatch(pending.tabId);
-        pendingExecutions.delete(action.id);
-      });
-  } else {
+  const run = () => {
+    if (pending.waitForBlock) {
+      if (isWarpDisplay(pending.tabId)) {
+        armFeedCapture(pending.tabId, pending.command);
+      }
+      const resultPromise = waitForCommandResult(pending.tabId, pending.command);
+      sender(pending.command);
+      return resultPromise
+        .then((block) => {
+          const stored = isWarpDisplay(pending.tabId)
+            ? ensureShellBlockInStore(pending.tabId, block)
+            : block;
+          pending.resolveBlock?.(stored);
+        })
+        .catch((err) => {
+          pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
+        })
+        .finally(() => {
+          clearOutputWatch(pending.tabId);
+          releaseFeedCapture(pending.tabId);
+          pendingExecutions.delete(action.id);
+        });
+    }
+
     if (isWarpDisplay(pending.tabId)) {
       armFeedCapture(pending.tabId, pending.command);
     }
     sender(pending.command);
     pendingExecutions.delete(action.id);
-  }
+    return Promise.resolve();
+  };
 
+  void enqueueSessionExecution(pending.tabId, () => run());
   return true;
 }
 
@@ -414,10 +468,25 @@ function waitForMeaningfulBlock(
 
     const unsub = useBlocksStore.subscribe((state) => {
       const blocks = state.blocks[sessionId] ?? [];
+      const captureBlockId = feedCaptures.get(sessionId);
+      if (captureBlockId) {
+        const captured = blocks.find((item) => item.id === captureBlockId);
+        if (
+          captured &&
+          captured.status !== "running" &&
+          isMeaningfulTerminalBlock(captured, command)
+        ) {
+          clearTimeout(timer);
+          unsub();
+          resolve(captured);
+          return;
+        }
+      }
+
       for (let i = blocks.length - 1; i >= 0; i -= 1) {
         const block = blocks[i];
         if (beforeIds.has(block.id)) continue;
-        if (block.status === "running" && block.output.trim().length === 0) return;
+        if (block.status === "running") return;
         if (!isMeaningfulTerminalBlock(block, command)) continue;
         clearTimeout(timer);
         unsub();

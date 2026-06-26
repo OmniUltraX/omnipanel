@@ -21,6 +21,10 @@ import { buildTerminalModuleContext } from "./ai/types";
 import { EMPTY_TERMINAL_BLOCKS, useBlocksStore } from "../../stores/blocksStore";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import {
+  bootstrapTerminalHistory,
+  startTerminalHistorySync,
+} from "./terminalHistorySync";
+import {
   copyTerminalTabToWorkspaceSnapshot,
   moveTerminalTabToWorkspaceSnapshot,
   addSnapshotToWorkspace,
@@ -114,6 +118,17 @@ export function TerminalPanel() {
       setActiveTab(originTerminalId);
     });
   }, [setActiveTab]);
+
+  useEffect(() => {
+    const stopSync = startTerminalHistorySync();
+    return stopSync;
+  }, []);
+
+  useEffect(() => {
+    const sessionIds = tabs.map((tab) => tab.id);
+    if (sessionIds.length === 0) return;
+    bootstrapTerminalHistory(sessionIds);
+  }, [tabs]);
 
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;

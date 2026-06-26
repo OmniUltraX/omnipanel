@@ -855,7 +855,7 @@
 }
 
 .advance-terminal-side-panel-root{
-    background: #201d1d;
+    background: var(--bg);
 }
 
 .workspace-component-panel {
@@ -1086,6 +1086,30 @@
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     padding: var(--sp-3) var(--sp-4);
+}
+
+.home-board-empty {
+    margin: 0;
+    padding: var(--sp-2) var(--sp-1);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--meta);
+}
+
+.home-board-task-row,
+.home-board-draft-row {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.home-board-task-row:hover,
+.home-board-draft-row:hover {
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .home-board-view .ws-card,
@@ -4183,7 +4207,173 @@
     color: var(--fg);
     border-bottom-color: transparent;
     border-left-color: var(--accent);
+}
+
+.term-history-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+    min-height: 0;
+    padding: 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.term-history-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.term-history-panel__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.term-history-panel__desc {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--fg-2);
+    line-height: 1.45;
+}
+
+.term-history-panel__toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.term-history-panel__search {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 13px;
+}
+
+.term-history-panel__filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.term-history-panel__filter {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--fg-2);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.term-history-panel__filter--active {
+    color: var(--fg);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.term-history-panel__meta {
+    font-size: 12px;
+    color: var(--fg-3);
+}
+
+.term-history-panel__list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.term-history-panel__empty {
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--fg-3);
+    font-size: 13px;
+}
+
+.term-history-panel__item {
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.term-history-panel__item-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.term-history-panel__badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 999px;
     background: var(--surface-hover);
+    color: var(--fg-2);
+}
+
+.term-history-panel__badge--ai {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.term-history-panel__time {
+    font-size: 11px;
+    color: var(--fg-3);
+}
+
+.term-history-panel__status {
+    font-size: 11px;
+}
+
+.term-history-panel__status--error {
+    color: var(--danger);
+}
+
+.term-history-panel__command {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--fg);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+    cursor: pointer;
+    word-break: break-word;
+}
+
+.term-history-panel__output {
+    margin: 8px 0 0;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--surface-2, var(--surface-hover));
+    color: var(--fg-2);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 180px;
+    overflow: auto;
+}
+
+.term-history-panel__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .advance-terminal-side-dock .dv-tabs-container-vertical .dv-default-tab .dv-default-tab-action {

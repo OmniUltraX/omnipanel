@@ -1,170 +1,11 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { navigateToFeature } from "../../lib/workspaceNavigation";
+import { navigateToFeature, switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
+import { MODULE_PATHS, WORKSPACE_PATHS } from "../../lib/paths";
 import { useI18n } from "../../i18n";
-
-const RECENT_WORKSPACES = [
-  {
-    path: "/module/terminal",
-    name: "prod-web-01 Terminal",
-    meta: ["2 tabs, 1 split", "10 min ago"],
-    iconBg: "color-mix(in oklch, var(--success) 15%, transparent)",
-    iconColor: "var(--success)",
-    icon: (
-      <>
-        <path d="M4 17l6-6-6-6" />
-        <path d="M12 19h8" />
-      </>
-    ),
-  },
-  {
-    path: "/module/database",
-    name: "prod-db-master Query",
-    meta: ["3 queries saved", "1h ago"],
-    iconBg: "color-mix(in oklch, var(--warn) 15%, transparent)",
-    iconColor: "var(--warn)",
-    icon: (
-      <>
-        <ellipse cx="12" cy="5" rx="9" ry="3" />
-        <path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" />
-        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-      </>
-    ),
-  },
-  {
-    path: "/module/ssh",
-    name: "staging-api SSH",
-    meta: ["SFTP active", "3h ago"],
-    iconBg: "color-mix(in oklch, var(--accent) 15%, transparent)",
-    iconColor: "var(--accent)",
-    icon: (
-      <>
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-      </>
-    ),
-  },
-] as const;
-
-const QUICK_CONNECT = [
-  {
-    path: "/module/terminal",
-    label: "Terminal",
-    hint: "Local",
-    icon: (
-      <>
-        <path d="M4 17l6-6-6-6" />
-        <path d="M12 19h8" />
-      </>
-    ),
-  },
-  {
-    path: "/module/ssh",
-    label: "prod-web-01",
-    hint: "SSH",
-    icon: (
-      <>
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-      </>
-    ),
-  },
-  {
-    path: "/module/database",
-    label: "prod-db",
-    hint: "PostgreSQL",
-    icon: (
-      <>
-        <ellipse cx="12" cy="5" rx="9" ry="3" />
-        <path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" />
-        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-      </>
-    ),
-  },
-  {
-    path: "/module/docker",
-    label: "Containers",
-    hint: "Docker",
-    icon: (
-      <>
-        <rect x="2" y="7" width="6" height="5" rx="1" />
-        <rect x="10" y="7" width="6" height="5" rx="1" />
-      </>
-    ),
-  },
-  {
-    path: "/module/files",
-    label: "文件管理",
-    hint: "FTP / S3",
-    icon: <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />,
-  },
-] as const;
-
-const ACTIVE_TASKS = [
-  {
-    dot: "var(--accent)",
-    name: "Upload backup to S3",
-    info: "67% · ETA 1m32s",
-    badge: "running" as const,
-  },
-  {
-    dot: "var(--warn)",
-    name: "Pull nginx:1.25-alpine",
-    info: "34% · Layer 3/7",
-    badge: "running" as const,
-  },
-  {
-    dot: "var(--meta)",
-    name: "Daily server patrol",
-    info: "08:00 daily",
-    badge: "queued" as const,
-  },
-] as const;
-
-const DRAFTS = [
-  {
-    dot: "var(--danger)",
-    title: "Block IP 45.33.32.0/24",
-    time: "nginx deny · prod-web-01",
-  },
-  {
-    dot: "var(--accent)",
-    title: "CREATE INDEX idx_orders_status",
-    time: "Composite index · prod-db",
-  },
-  {
-    dot: "var(--success)",
-    title: "docker system prune -af",
-    time: "Clean resources · staging-api",
-  },
-] as const;
-
-const RESOURCE_BARS = [
-  { label: "prod-web-01 — CPU", value: "23%", width: "23%", color: "var(--success)" },
-  { label: "prod-web-01 — Memory", value: "1.0 GB / 4 GB", width: "25%", color: "var(--success)" },
-  { label: "prod-db — CPU", value: "67%", width: "67%", color: "var(--warn)" },
-  { label: "prod-db — Memory", value: "3.2 GB / 4 GB", width: "80%", color: "var(--warn)" },
-  { label: "staging-worker — Disk", value: "92% · WAL logs", width: "92%", color: "var(--danger)" },
-  { label: "staging-api — CPU", value: "12%", width: "12%", color: "var(--success)" },
-] as const;
-
-const CONTAINERS = [
-  { dot: "var(--success)", name: "nginx-proxy", status: "Up 3d" },
-  { dot: "var(--success)", name: "app-backend", status: "Up 3d" },
-  { dot: "var(--success)", name: "redis-cache", status: "Up 3d" },
-  { dot: "var(--success)", name: "postgres-main", status: "Up 3d" },
-  { dot: "var(--warn)", name: "celery-worker", status: "Restart" },
-  { dot: "var(--meta)", name: "redis-staging", status: "Stopped" },
-] as const;
-
-const SERVERS = [
-  { dot: "var(--success)", name: "prod-web-01", type: "23%" },
-  { dot: "var(--success)", name: "prod-web-02", type: "18%" },
-  { dot: "var(--warn)", name: "prod-db", type: "67%" },
-  { dot: "var(--success)", name: "staging-api", type: "12%" },
-  { dot: "var(--danger)", name: "staging-wk", type: "Disk 92%" },
-  { dot: "var(--success)", name: "dev-local", type: "8%" },
-] as const;
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { DashboardIcon } from "./DashboardIcon";
+import { useDashboardData } from "./useDashboardData";
 
 function SectionChevron() {
   return (
@@ -182,13 +23,26 @@ function SectionPlus() {
   );
 }
 
+function DashboardEmpty({ children }: { children: string }) {
+  return <p className="home-board-empty">{children}</p>;
+}
+
 /**
  * 首页工作区「看板」：双列概览（最近工作区、快捷连接、任务、草稿 / 资源、容器、服务器）。
- * 布局与 design/index.html 首页 Dashboard 对齐；数据为演示占位，后续可接真实聚合 API。
  */
 export function HomeBoardView() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const {
+    recentWorkspaces,
+    quickConnect,
+    activeTasks,
+    drafts,
+    resourceBars,
+    containers,
+    servers,
+    containersLoading,
+  } = useDashboardData();
 
   const go = useCallback(
     (path: string) => {
@@ -197,9 +51,30 @@ export function HomeBoardView() {
     [navigate],
   );
 
-  const taskBadge = (kind: "running" | "queued") => {
+  const openWorkspace = useCallback(
+    (workspaceId: string) => {
+      switchEmbeddedWorkspace(workspaceId);
+      go(WORKSPACE_PATHS.detail(workspaceId));
+    },
+    [go],
+  );
+
+  const openConnection = useCallback(
+    (path: string, resourceId?: string) => {
+      if (resourceId) {
+        useWorkspaceStore.getState().selectResource(resourceId, path);
+      }
+      go(path);
+    },
+    [go],
+  );
+
+  const taskBadge = (kind: "running" | "queued" | "blocked") => {
     if (kind === "running") {
       return <span className="badge badge-accent">{t("dashboard.running")}</span>;
+    }
+    if (kind === "blocked") {
+      return <span className="badge badge-warn">{t("dashboard.blocked")}</span>;
     }
     return <span className="badge badge-warn">{t("dashboard.queued")}</span>;
   };
@@ -219,39 +94,43 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/module/terminal")}
+                  onClick={() => go(MODULE_PATHS.terminal)}
                 >
                   <SectionPlus />
                   {t("dashboard.new")}
                 </button>
               </div>
               <div className="home-board-stack">
-                {RECENT_WORKSPACES.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className="ws-card"
-                    onClick={() => go(item.path)}
-                  >
-                    <div
-                      className="ws-icon"
-                      style={{ background: item.iconBg, color: item.iconColor }}
+                {recentWorkspaces.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.workspaces")}</DashboardEmpty>
+                ) : (
+                  recentWorkspaces.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="ws-card"
+                      onClick={() => openWorkspace(item.id)}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                        {item.icon}
-                      </svg>
-                    </div>
-                    <div className="ws-body">
-                      <div className="ws-name">{item.name}</div>
-                      <div className="ws-meta">
-                        {item.meta.map((part) => (
-                          <span key={part}>{part}</span>
-                        ))}
+                      <div
+                        className="ws-icon"
+                        style={{ background: item.iconBg, color: item.iconColor }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                          <DashboardIcon kind={item.iconKind} />
+                        </svg>
                       </div>
-                    </div>
-                    <span className="btn btn-primary btn-sm">{t("dashboard.open")}</span>
-                  </button>
-                ))}
+                      <div className="ws-body">
+                        <div className="ws-name">{item.name}</div>
+                        <div className="ws-meta">
+                          {item.meta.map((part) => (
+                            <span key={part}>{part}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <span className="btn btn-primary btn-sm">{t("dashboard.open")}</span>
+                    </button>
+                  ))
+                )}
               </div>
             </section>
 
@@ -263,15 +142,15 @@ export function HomeBoardView() {
                 {t("dashboard.quickConnect")}
               </div>
               <div className="qc-grid">
-                {QUICK_CONNECT.map((item) => (
+                {quickConnect.map((item) => (
                   <button
-                    key={item.label}
+                    key={item.id}
                     type="button"
                     className="qc-btn"
-                    onClick={() => go(item.path)}
+                    onClick={() => openConnection(item.path, item.resourceId)}
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                      {item.icon}
+                      <DashboardIcon kind={item.iconKind} />
                     </svg>
                     <span className="qc-label">{item.label}</span>
                     <span className="qc-hint">{item.hint}</span>
@@ -290,21 +169,30 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/module/workflow")}
+                  onClick={() => go(MODULE_PATHS.workflow)}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
                 </button>
               </div>
               <div className="home-board-task-list">
-                {ACTIVE_TASKS.map((task) => (
-                  <div key={task.name} className="task-row">
-                    <span className="task-dot" style={{ background: task.dot }} />
-                    <span className="task-name">{task.name}</span>
-                    <span className="task-info">{task.info}</span>
-                    {taskBadge(task.badge)}
-                  </div>
-                ))}
+                {activeTasks.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.tasks")}</DashboardEmpty>
+                ) : (
+                  activeTasks.map((task) => (
+                    <button
+                      key={task.id}
+                      type="button"
+                      className="task-row home-board-task-row"
+                      onClick={() => go(task.path)}
+                    >
+                      <span className="task-dot" style={{ background: task.dot }} />
+                      <span className="task-name">{task.name}</span>
+                      <span className="task-info">{task.info}</span>
+                      {taskBadge(task.badge)}
+                    </button>
+                  ))
+                )}
               </div>
             </section>
 
@@ -315,18 +203,29 @@ export function HomeBoardView() {
                   <path d="M14 2v6h6" />
                 </svg>
                 {t("dashboard.draftBox")}
-                <span className="badge badge-warn home-board-qa-end">{DRAFTS.length}</span>
+                {drafts.length > 0 ? (
+                  <span className="badge badge-warn home-board-qa-end">{drafts.length}</span>
+                ) : null}
               </div>
               <div className="home-board-alert-stack">
-                {DRAFTS.map((draft) => (
-                  <div key={draft.title} className="alert-card">
-                    <span className="alert-dot" style={{ background: draft.dot }} />
-                    <div className="alert-body">
-                      <div className="alert-title">{draft.title}</div>
-                      <div className="alert-time">{draft.time}</div>
-                    </div>
-                  </div>
-                ))}
+                {drafts.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.drafts")}</DashboardEmpty>
+                ) : (
+                  drafts.map((draft) => (
+                    <button
+                      key={draft.id}
+                      type="button"
+                      className="alert-card home-board-draft-row"
+                      onClick={() => go(draft.path)}
+                    >
+                      <span className="alert-dot" style={{ background: draft.dot }} />
+                      <div className="alert-body">
+                        <div className="alert-title">{draft.title}</div>
+                        <div className="alert-time">{draft.time}</div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </section>
           </div>
@@ -340,20 +239,24 @@ export function HomeBoardView() {
                 {t("dashboard.systemResources")}
               </div>
               <div className="home-board-resource-panel">
-                {RESOURCE_BARS.map((bar) => (
-                  <div key={bar.label} className="res-bar-group">
-                    <div className="res-bar-label">
-                      <span>{bar.label}</span>
-                      <span>{bar.value}</span>
+                {resourceBars.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.resources")}</DashboardEmpty>
+                ) : (
+                  resourceBars.map((bar) => (
+                    <div key={bar.id} className="res-bar-group">
+                      <div className="res-bar-label">
+                        <span>{bar.label}</span>
+                        <span>{bar.value}</span>
+                      </div>
+                      <div className="res-bar">
+                        <div
+                          className="res-bar-fill"
+                          style={{ width: bar.width, background: bar.color }}
+                        />
+                      </div>
                     </div>
-                    <div className="res-bar">
-                      <div
-                        className="res-bar-fill"
-                        style={{ width: bar.width, background: bar.color }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </section>
 
@@ -370,25 +273,31 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/module/docker")}
+                  onClick={() => go(MODULE_PATHS.docker)}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
                 </button>
               </div>
               <div className="docker-mini-grid">
-                {CONTAINERS.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className="docker-mini-item"
-                    onClick={() => go("/module/docker")}
-                  >
-                    <span className="dm-dot" style={{ background: item.dot }} />
-                    <span className="dm-name">{item.name}</span>
-                    <span className="dm-status">{item.status}</span>
-                  </button>
-                ))}
+                {containersLoading ? (
+                  <DashboardEmpty>{t("dashboard.empty.loading")}</DashboardEmpty>
+                ) : containers.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.containers")}</DashboardEmpty>
+                ) : (
+                  containers.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="docker-mini-item"
+                      onClick={() => go(MODULE_PATHS.docker)}
+                    >
+                      <span className="dm-dot" style={{ background: item.dot }} />
+                      <span className="dm-name">{item.name}</span>
+                      <span className="dm-status">{item.status}</span>
+                    </button>
+                  ))
+                )}
               </div>
             </section>
 
@@ -404,25 +313,29 @@ export function HomeBoardView() {
                 <button
                   type="button"
                   className="qa-btn home-board-qa-end"
-                  onClick={() => go("/module/server")}
+                  onClick={() => go(MODULE_PATHS.server)}
                 >
                   <SectionChevron />
                   {t("dashboard.viewAll")}
                 </button>
               </div>
               <div className="conn-grid">
-                {SERVERS.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className="conn-item"
-                    onClick={() => go("/module/server")}
-                  >
-                    <span className="conn-dot" style={{ background: item.dot }} />
-                    <span className="conn-name">{item.name}</span>
-                    <span className="conn-type">{item.type}</span>
-                  </button>
-                ))}
+                {servers.length === 0 ? (
+                  <DashboardEmpty>{t("dashboard.empty.servers")}</DashboardEmpty>
+                ) : (
+                  servers.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="conn-item"
+                      onClick={() => openConnection(item.path, item.resourceId)}
+                    >
+                      <span className="conn-dot" style={{ background: item.dot }} />
+                      <span className="conn-name">{item.name}</span>
+                      <span className="conn-type">{item.type}</span>
+                    </button>
+                  ))
+                )}
               </div>
             </section>
           </div>

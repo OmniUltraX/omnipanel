@@ -267,7 +267,7 @@ export function SidebarBottom({
     applyTargetHeight();
   }, [expandSignal, syncOpenState, applyTargetHeight]);
 
-  // split-window 模式下窗口 resize 时按视口比例重算底栏高度并刷新 dockview
+  // split-window / task-bar：窗口尺寸变化时重算底栏高度，避免最大化后底栏被撑高
   useEffect(() => {
     let raf = 0;
     const onViewportResize = () => {
@@ -275,10 +275,18 @@ export function SidebarBottom({
       raf = requestAnimationFrame(() => {
         const state = useBottomPanelStore.getState();
         if (state.isFullscreen) return;
+        if (bottomResizeLocked) {
+          applyTargetHeight();
+          return;
+        }
         if (
           state.workspaceMode === "half" &&
           state.workspaceDisplayPreference === "split-window"
         ) {
+          applyTargetHeight();
+          return;
+        }
+        if (state.workspaceMode === "taskbar" || state.workspaceMode === "thumbnail") {
           applyTargetHeight();
           return;
         }
@@ -290,7 +298,7 @@ export function SidebarBottom({
       window.removeEventListener("resize", onViewportResize);
       cancelAnimationFrame(raf);
     };
-  }, [applyTargetHeight, scheduleWorkspaceDockRelayout]);
+  }, [applyTargetHeight, bottomResizeLocked, scheduleWorkspaceDockRelayout]);
 
   useEffect(() => {
     if (collapseSignal === 0) return;

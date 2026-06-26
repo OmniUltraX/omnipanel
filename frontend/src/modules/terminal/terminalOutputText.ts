@@ -176,15 +176,46 @@ export function extractCommandOutput(raw: string, command: string): string {
   return stripTrailingPromptLines(filtered).join("\n").trim();
 }
 
+/** 判断采集到的输出是否仅为 PTY 命令回显（尚未产生真实结果） */
+export function isEchoOnlyTerminalOutput(raw: string, command: string): boolean {
+  const sent = normalizeBlockCommand(command);
+  if (!sent || !raw.trim()) return true;
+
+  const cleaned = extractCommandOutput(raw, command);
+  if (cleaned.length > 0) return false;
+
+  const stripped = stripTerminalControlSequences(raw).trim();
+  if (!stripped) return true;
+
+  const strippedNorm = stripped.replace(/\s+/g, " ");
+  const sentNorm = sent.replace(/\s+/g, " ");
+  if (strippedNorm === sentNorm) return true;
+  if (strippedNorm.startsWith(sentNorm)) {
+    const tail = strippedNorm.slice(sentNorm.length).trim();
+    return tail.length === 0 || /^\d+$/.test(tail);
+  }
+  return false;
+}
+
 export function isMeaningfulTerminalBlock(
   block: TerminalBlock,
   command: string,
 ): boolean {
-  if (block.output.trim().length > 0) return true;
-  const blockCmd = block.command
-    .trim()
-    .replace(/^[^#$>]*[$#>]\s*/, "")
-    .replace(/\s+/g, " ");
-  const sent = command.trim().replace(/\s+/g, " ");
-  return blockCmd.length > 0 && (blockCmd === sent || blockCmd.includes(sent));
+  const blockCmd = normalizeBlockCommand(block.command);
+  const sent = normalizeBlockCommand(command);
+  const commandMatches =
+    blockCmd.length > 0 && (blockCmd === sent || blockCmd.includes(sent) || sent.includes(blockCmd));
+
+  if (block.output.trim().length > 0) {
+    if (isEchoOnlyTerminalOutput(block.output, block.command || command)) {
+      return block.status !== "running";
+    }
+    return true;
+  }
+
+  if (block.status === "completed" || block.status === "failed") {
+    return commandMatches;
+  }
+
+  return false;
 }

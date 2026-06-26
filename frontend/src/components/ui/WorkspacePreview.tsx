@@ -152,7 +152,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     <SidebarBottom
       className={rootClass}
       sidebar={bottomPanel}
-      bottomResizeLocked={false}
+      bottomResizeLocked={showTaskBar}
       sidebarMinPx={WS_HEIGHT_HIDDEN_MAX + 1}
     >
       <div className="workspace-preview__main">{children}</div>

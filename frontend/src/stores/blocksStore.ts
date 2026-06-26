@@ -108,6 +108,8 @@ interface BlocksState {
   getLastBlock: (sessionId: string) => TerminalBlock | null;
   getLastError: (sessionId: string) => TerminalBlock | null;
   clearBlocks: (sessionId: string) => void;
+  replaceSessionBlocks: (sessionId: string, blocks: TerminalBlock[]) => void;
+  removeBlock: (blockId: string) => void;
 }
 
 let blockCounter = 0;
@@ -301,6 +303,23 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
     set((state) => {
       const newBlocks = { ...state.blocks };
       delete newBlocks[sessionId];
+      return { blocks: newBlocks };
+    }),
+
+  replaceSessionBlocks: (sessionId, blocks) =>
+    set((state) => ({
+      blocks: {
+        ...state.blocks,
+        [sessionId]: blocks.map((block) => ({ ...block, marker: null })),
+      },
+    })),
+
+  removeBlock: (blockId) =>
+    set((state) => {
+      const newBlocks: Record<string, TerminalBlock[]> = {};
+      for (const [sid, blocks] of Object.entries(state.blocks)) {
+        newBlocks[sid] = blocks.filter((block) => block.id !== blockId);
+      }
       return { blocks: newBlocks };
     }),
 }));
