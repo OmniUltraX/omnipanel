@@ -23,7 +23,14 @@ export function fuzzyScore(query: string, text: string): number {
       continue;
     }
     score += 1;
-    if (i === 0 || t[i - 1] === " " || t[i - 1] === "/" || t[i - 1] === "-") {
+    if (
+      i === 0 ||
+      t[i - 1] === " " ||
+      t[i - 1] === "/" ||
+      t[i - 1] === "-" ||
+      t[i - 1] === "_" ||
+      t[i - 1] === "."
+    ) {
       score += 4;
     }
     if (i === lastMatch + 1) {
@@ -51,4 +58,28 @@ export function rankByFuzzy<T>(
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((row) => row.item);
+}
+
+/** 按模糊得分过滤并排序；保留原有 boost，并将模糊分叠加到 boost 供补全列表排序。 */
+export function filterAndRankByFuzzy<T extends { label: string; boost?: number }>(
+  items: T[],
+  query: string,
+  options?: { scoreMultiplier?: number },
+): T[] {
+  const q = query.trim();
+  if (!q) return items;
+  const mult = options?.scoreMultiplier ?? 10;
+  return items
+    .map((item) => ({ item, fuzzy: fuzzyScore(q, item.label) }))
+    .filter((row) => row.fuzzy > 0)
+    .sort((a, b) => {
+      const totalA = (a.item.boost ?? 0) + a.fuzzy * mult;
+      const totalB = (b.item.boost ?? 0) + b.fuzzy * mult;
+      if (totalB !== totalA) return totalB - totalA;
+      return a.item.label.localeCompare(b.item.label);
+    })
+    .map((row) => ({
+      ...row.item,
+      boost: (row.item.boost ?? 0) + row.fuzzy * mult,
+    }));
 }

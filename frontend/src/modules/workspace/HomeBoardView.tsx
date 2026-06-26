@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { isModuleNavVisible } from "../../lib/paths";
 import { navigateToFeature } from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 
@@ -287,14 +288,16 @@ export function HomeBoardView() {
                   <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
                 </svg>
                 {t("dashboard.activeTasks")}
-                <button
-                  type="button"
-                  className="qa-btn home-board-qa-end"
-                  onClick={() => go("/module/workflow")}
-                >
-                  <SectionChevron />
-                  {t("dashboard.viewAll")}
-                </button>
+                {isModuleNavVisible("workflow") && (
+                  <button
+                    type="button"
+                    className="qa-btn home-board-qa-end"
+                    onClick={() => go("/module/workflow")}
+                  >
+                    <SectionChevron />
+                    {t("dashboard.viewAll")}
+                  </button>
+                )}
               </div>
               <div className="home-board-task-list">
                 {ACTIVE_TASKS.map((task) => (

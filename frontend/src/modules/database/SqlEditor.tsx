@@ -30,7 +30,7 @@ import {
 import { sql } from "@codemirror/lang-sql";
 import { autocompletion, completionKeymap, closeBrackets } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "./types";
-import { createSqlCompletionSource } from "./lsp/codemirrorSqlCompletion";
+import { createSqlCompletionSource, sqlCompletionReopenOnDelete } from "./lsp/codemirrorSqlCompletion";
 import {
   positionToOffset,
   sqlAtOffset,
@@ -225,6 +225,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
           createSqlCompletionSource(() => schemasRef.current, () => dbTypeRef.current),
         ],
       }),
+      sqlCompletionReopenOnDelete(),
       keymap.of([
         {
           key: "Mod-Enter",

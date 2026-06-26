@@ -1,4 +1,5 @@
 import type { DatabaseSchema, TableSchema } from "../types";
+import { filterAndRankByFuzzy } from "../../../lib/fuzzyMatch";
 import { buildFunctionCompletionItems, type SqlFunctionCompletionContext } from "../sqlIntel/sqlFunctionCatalog";
 
 interface CompletionItem {
@@ -243,6 +244,7 @@ function includeColumns(context: SqlCompletionContext): boolean {
 
 function includeTables(context: SqlCompletionContext): boolean {
   return (
+    context === "statement_start" ||
     context === "from_clause" ||
     context === "insert_into" ||
     context === "update_table" ||
@@ -388,8 +390,7 @@ function buildIsNotTailCompletions(tail: Exclude<IsNotCompletionTail, null>): Co
 
 function filterItems(items: CompletionItem[], prefix: string): CompletionItem[] {
   if (!prefix) return items;
-  const normalized = prefix.toUpperCase();
-  return items.filter((item) => item.label.toUpperCase().includes(normalized));
+  return filterAndRankByFuzzy(items, prefix);
 }
 
 export function buildDatabaseSchema(databaseName: string, tables: TableSchema[]): DatabaseSchema {
@@ -519,17 +520,20 @@ export function getCompletionItems(
 
     for (const table of database.tables) {
       if (includeTables(context)) {
+        const tableBoost = context === "statement_start" ? 60 : undefined;
         tables.push({
           label: table.name,
           kind: TABLE_KIND,
           detail: `${table.kind === "view" ? "视图" : "表"} · ${database.name}`,
           insertText: table.name,
+          boost: tableBoost,
         });
         tables.push({
           label: `${database.name}.${table.name}`,
           kind: TABLE_KIND,
           detail: `${table.kind === "view" ? "视图" : "表"} · ${database.name}`,
           insertText: `${database.name}.${table.name}`,
+          boost: tableBoost,
         });
       }
 

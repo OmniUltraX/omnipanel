@@ -10,7 +10,7 @@ import {
   navigateToFeature,
   toggleWorkspaceFromChromeIcon,
 } from "../../lib/workspaceNavigation";
-import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
+import { isDashboardPath, isModulePathNavVisible, MODULE_PATHS } from "../../lib/paths";
 
 const navPaths = [
   {
@@ -165,9 +165,9 @@ export function Sidebar() {
         <AppLogo size={36} className="sidebar-logo__img" />
       </button>
 
-      {navPaths.map(renderItem)}
+      {navPaths.filter((item) => isModulePathNavVisible(item.path)).map(renderItem)}
       <div className="sidebar-divider" />
-      {utilPaths.map(renderItem)}
+      {utilPaths.filter((item) => isModulePathNavVisible(item.path)).map(renderItem)}
 
       <div className="sidebar-spacer" />
 

@@ -5,7 +5,7 @@ import { useActionStore } from "../../stores/actionStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { openLocalTerminalSession } from "../../lib/terminalSession";
 import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
-import { MODULE_PATHS } from "../../lib/paths";
+import { isModuleNavVisible, MODULE_PATHS } from "../../lib/paths";
 import { useI18n } from "../../i18n";
 import {
   formatShortcut,
@@ -70,7 +70,9 @@ export function CommandPalette() {
 
   const commands = useMemo(
     () =>
-      COMMAND_DEFS.map((cmd) => ({
+      COMMAND_DEFS.filter(
+        (cmd) => cmd.id !== "workflow" || isModuleNavVisible("workflow"),
+      ).map((cmd) => ({
         ...cmd,
         label: t(cmd.labelKey),
         category: t(cmd.categoryKey),

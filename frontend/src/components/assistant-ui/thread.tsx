@@ -42,7 +42,7 @@ import {
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { type ModuleKey } from "../../lib/paths";
+import { NAV_VISIBLE_MODULE_KEYS, type ModuleKey } from "../../lib/paths";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
 import {
   ActionBarMorePrimitive,
@@ -248,17 +248,7 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const MODULE_KEYS: ModuleKey[] = [
-  "terminal",
-  "database",
-  "docker",
-  "ssh",
-  "server",
-  "files",
-  "protocol",
-  "workflow",
-  "knowledge",
-];
+const MODULE_KEYS: ModuleKey[] = NAV_VISIBLE_MODULE_KEYS;
 
 const ContextBar: FC = () => {
   const { t } = useI18n();

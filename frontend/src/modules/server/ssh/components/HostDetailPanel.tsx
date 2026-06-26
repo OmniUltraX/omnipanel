@@ -57,6 +57,7 @@ export function HostDetailPanel(ctx: Props) {
   const [detailTab, setDetailTab] = usePersistedModuleTab("ssh-detail", "overview", DETAIL_TABS);
   const selectedSshId = useWorkspaceStore((s) => s.selectedResourceByPath[SSH_PATH]);
   const sshResources = useSshHostResources();
+  const connections = useConnectionStore((s) => s.connections);
   const activeResource = useMemo(() => {
     if (!selectedSshId) return null;
     return sshResources.find((resource) => resource.id === selectedSshId) ?? null;
@@ -70,7 +71,6 @@ export function HostDetailPanel(ctx: Props) {
   const hostAddress = activeResource.subtitle?.split("@").at(-1) ?? "10.0.1.10:22";
   const hostName = activeResource.name ?? "prod-web-01";
 
-  const connections = useConnectionStore((s) => s.connections);
   const connection = connections.find((c) => c.id === activeResource.id);
   const sshConfig = connection ? parseSshConfig(connection) : null;
   const username = sshConfig?.user ?? profile.username;
