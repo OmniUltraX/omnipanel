@@ -1,13 +1,11 @@
 import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
-import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
-import { HostListPanel } from "../../components/workspace/HostListPanel";
 import { ModuleSegmentDock } from "../../components/dock";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
-import { HostDetailPanel } from "./ssh/components/HostDetailPanel";
 import { KeysModuleView } from "./ssh/components/KeysModuleView";
 import { TunnelsModuleView } from "./ssh/components/TunnelsModuleView";
+import { SshHostsWorkspaceView } from "./ssh/SshHostsWorkspaceView";
 import { useSshManager } from "./ssh/hooks/useSshManager";
 import { useSshHostResources } from "../../stores/connectionStore";
 
@@ -45,11 +43,7 @@ export function SshPanel() {
         if (tabId === "keys") {
           return <KeysModuleView />;
         }
-        return (
-          <SidebarWorkspace preset="host" sidebar={<HostListPanel resources={sshResources} />}>
-            <HostDetailPanel {...ctx} />
-          </SidebarWorkspace>
-        );
+        return <SshHostsWorkspaceView resources={sshResources} />;
       }}
     />
   );

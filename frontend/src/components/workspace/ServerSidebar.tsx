@@ -1,40 +1,49 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Button } from "../ui/Button";
-import { Select } from "../ui/Select";
+import {
+  VerticalSplitSidebarSection,
+  type VerticalSplitSidebarSectionConfig,
+} from "../ui/VerticalSplitSidebar";
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
-import type { ServerConnectionGroup } from "../../stores/serverGroupStore";
+import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
+
+const SERVER_LABEL_CLICK_DELAY_MS = 200;
 
 interface ServerSidebarProps {
   servers: ServerEntry[];
-  groups: ServerConnectionGroup[];
-  activeGroupId: string;
   activeServerId: string | null;
-  onGroupChange: (groupId: string) => void;
-  onCreateGroup: () => void;
-  onSelectServer: (serverId: string) => void;
+  onSelectServer: (serverId: string, mode?: ServerPanelDockOpenMode) => void;
   onCreateServer?: () => void;
   onEditServer?: (server: ServerEntry) => void;
   onDeleteServer?: (serverId: string) => void;
+  section?: VerticalSplitSidebarSectionConfig;
 }
 
 export function ServerSidebar({
   servers,
-  groups,
-  activeGroupId,
   activeServerId,
-  onGroupChange,
-  onCreateGroup,
   onSelectServer,
   onCreateServer,
   onEditServer,
   onDeleteServer,
+  section,
 }: ServerSidebarProps) {
   const { t } = useI18n();
 
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
+  const labelClickTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (labelClickTimerRef.current !== null) {
+        window.clearTimeout(labelClickTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const sortedServers = useMemo(
     () => [...servers].sort((a, b) => a.name.localeCompare(b.name)),
@@ -45,6 +54,24 @@ export function ServerSidebar({
     e.preventDefault();
     setCtxPos({ x: e.clientX, y: e.clientY });
     setCtxServer(server);
+  };
+
+  const handleServerClick = (serverId: string) => {
+    if (labelClickTimerRef.current !== null) {
+      window.clearTimeout(labelClickTimerRef.current);
+    }
+    labelClickTimerRef.current = window.setTimeout(() => {
+      labelClickTimerRef.current = null;
+      onSelectServer(serverId, "preview");
+    }, SERVER_LABEL_CLICK_DELAY_MS);
+  };
+
+  const handleServerDoubleClick = (serverId: string) => {
+    if (labelClickTimerRef.current !== null) {
+      window.clearTimeout(labelClickTimerRef.current);
+      labelClickTimerRef.current = null;
+    }
+    onSelectServer(serverId, "permanent");
   };
 
   const ctxItems: ContextMenuItem[] = [
@@ -61,44 +88,22 @@ export function ServerSidebar({
     },
   ];
 
-  return (
-    <div className="server-sidebar">
-      <div className="server-sidebar-header">
-        <Select
-          className="server-sidebar-group-select"
-          value={activeGroupId}
-          onChange={onGroupChange}
-          aria-label={t("server.groups.nameLabel")}
-          searchable={groups.length >= 8}
-          options={groups.map((group) => ({ value: group.id, label: group.name }))}
-        />
-        <Button
-          type="button"
-          variant="icon"
-          className="server-sidebar-group-add"
-          title={t("server.groups.new")}
-          onClick={onCreateGroup}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </Button>
-        <Button
-          type="button"
-          variant="icon"
-          className="server-sidebar-add"
-          title={t("server.sidebar.addPanel")}
-          onClick={onCreateServer}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </Button>
-      </div>
-      <div className="server-sidebar-subheader">
-        <span>{t("server.sidebar.title")}</span>
-        <span className="badge badge-muted">{servers.length}</span>
-      </div>
+  const addServerButton = (
+    <Button
+      type="button"
+      variant="icon"
+      className="server-sidebar-add"
+      title={t("server.sidebar.addPanel")}
+      onClick={onCreateServer}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </Button>
+  );
+
+  const panelBody = (
+    <>
       <div className="server-sidebar-body">
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>
@@ -108,7 +113,8 @@ export function ServerSidebar({
               key={server.id}
               type="button"
               className={`server-item${activeServerId === server.id ? " active" : ""}`}
-              onClick={() => onSelectServer(server.id)}
+              onClick={() => handleServerClick(server.id)}
+              onDoubleClick={() => handleServerDoubleClick(server.id)}
               onContextMenu={(e) => handleContextMenu(e, server)}
             >
               <div className="server-item__main">
@@ -133,6 +139,35 @@ export function ServerSidebar({
           onClose={() => setCtxPos(null)}
         />
       )}
+    </>
+  );
+
+  if (section) {
+    return (
+      <div className="server-sidebar">
+        <VerticalSplitSidebarSection
+          {...section}
+          actions={
+            <>
+              <span className="badge badge-muted">{servers.length}</span>
+              {addServerButton}
+            </>
+          }
+        >
+          {panelBody}
+        </VerticalSplitSidebarSection>
+      </div>
+    );
+  }
+
+  return (
+    <div className="server-sidebar">
+      <div className="server-sidebar-subheader">
+        <span>{t("server.sidebar.title")}</span>
+        <span className="badge badge-muted">{servers.length}</span>
+        {addServerButton}
+      </div>
+      {panelBody}
     </div>
   );
 }

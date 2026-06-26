@@ -1723,6 +1723,7 @@ export const zhCN = {
     sidebar: {
       title: "Docker",
       connections: "连接",
+      selectConnection: "请选择一个 Docker 连接，或从左侧单击打开预览、双击打开常驻标签",
       addConnection: "添加 Docker 连接",
       scanSsh: "扫描 SSH Docker",
       loading: "加载连接…",
@@ -1869,7 +1870,7 @@ export const zhCN = {
     empty: {
       title: "暂无服务器",
       description: '点击"+"按钮或下方按钮添加服务器。',
-      selectServer: "在左侧选择一台服务器以查看已安装应用。",
+      selectServer: "请选择一个服务器，或从左侧单击打开预览、双击打开常驻标签",
       noPanelConfig: "该服务器尚未配置面板连接，请点击添加并填写面板信息。",
     },
     placeholder: "{name} 已就绪。服务器管理功能即将上线。",

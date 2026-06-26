@@ -23,6 +23,32 @@
         overflow: hidden;
     }
 
+    .ssh-hosts-workspace,
+    .ssh-host-sidebar {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .ssh-host-sidebar .host-list-panel {
+        background: transparent;
+    }
+
+    .ssh-host-sidebar .vsplit-sidebar-section__body .host-list {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .ssh-host-sidebar .vsplit-sidebar-section__body .host-list::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ssh-workspace {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
     .host-list-header {
         padding: var(--sp-3) var(--sp-4);
         border-bottom: 1px solid var(--border);

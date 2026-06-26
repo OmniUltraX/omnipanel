@@ -9940,6 +9940,39 @@
         overflow: hidden;
     }
 
+    .server-panels-workspace,
+    .server-panel-sidebar {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .server-panel-sidebar .server-sidebar {
+        background: transparent;
+    }
+
+    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body::-webkit-scrollbar {
+        display: none;
+    }
+
+    .server-workspace-dock,
+    .server-panel-tab-pane {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .server-module-dock {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
     .server-workspace {
         flex: 1;
         min-height: 0;

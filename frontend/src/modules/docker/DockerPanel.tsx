@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { useAiStore } from "../../stores/aiStore";
@@ -27,10 +27,11 @@ import { DockerComposeDrawer } from "./DockerComposeDrawer";
 import { DockerFileEditor } from "./DockerFileEditor";
 import { Button } from "../../components/ui/Button";
 import { LogViewer } from "../../components/ui/LogViewer";
-import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
 import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
-import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { DockerConnectionsWorkspaceView } from "./DockerConnectionsWorkspaceView";
+import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
+import { useDockerConnectionWorkspace } from "./hooks/useDockerConnectionWorkspace";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { IconAlertTriangle } from "../../components/ui/Icons";
 import type { DockerComposeAction } from "../../ipc/bindings";
@@ -149,6 +150,8 @@ export function DockerPanel() {
     scanning,
     scanSshDockerHosts,
   } = docker;
+
+  const connectionWorkspace = useDockerConnectionWorkspace(connections);
 
   usePoolConnectionRegistration("docker", isActiveRoute ? selectedConnectionId : null);
 
@@ -630,35 +633,42 @@ export function DockerPanel() {
     );
   };
 
-  return (
-    <>
-      <ModuleSegmentDock
-        className="docker-module-dock"
-        tabs={dockerSegmentTabs}
-        activeTabId={tab}
-        onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
-        enabled={isActiveRoute}
-        panelContentKey={dockerPanelContentKey}
-        renderPanel={(tabId) => (
-        <SidebarWorkspace
-          preset="server"
-          sidebar={
-            <DockerSidebar
-              connections={connections}
-              activeConnectionId={selectedConnectionId}
-              loading={connectionsLoading}
-              scanning={scanning}
-              onSelect={selectConnection}
-              onCreate={() => {
-                setEditDockerConnection(undefined);
-                setShowAddConn(true);
-              }}
-              onScan={() => void handleScanSshDocker()}
-              onEditConnection={handleEditDockerConnection}
-              onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
-            />
-          }
-        >
+  const handleSidebarSelectConnection = useCallback(
+    (connectionId: string, _mode?: DockerConnectionDockOpenMode) => {
+      selectConnection(connectionId);
+    },
+    [selectConnection],
+  );
+
+  useEffect(() => {
+    if (connectionsLoading || !selectedConnectionId) {
+      return;
+    }
+    const { workspaceTabs, activeTabId, activateTab, handleSelectConnection } = connectionWorkspace;
+    const existing = workspaceTabs.find((item) => item.connectionId === selectedConnectionId);
+    if (existing) {
+      if (activeTabId !== existing.id) {
+        activateTab(existing.id);
+      }
+      return;
+    }
+    handleSelectConnection(selectedConnectionId, "permanent");
+  }, [
+    selectedConnectionId,
+    connectionsLoading,
+    connectionWorkspace.workspaceTabs,
+    connectionWorkspace.activeTabId,
+    connectionWorkspace.activateTab,
+    connectionWorkspace.handleSelectConnection,
+  ]);
+
+  const renderDockerSegmentContent = useCallback(
+    (segmentTabId: DockerWorkspaceTab, connectionId: string, _dockTabId: string, isActive: boolean) => {
+      if (!isActive) {
+        return <div className="docker-connection-tab-pane" aria-hidden />;
+      }
+
+      return (
         <div className="docker-main">
           <div className="docker-layout">
         {connectionsLoading ? (
@@ -678,8 +688,8 @@ export function DockerPanel() {
               </Button>
             </div>
           </div>
-        ) : !selectedConnectionId ? (
-          <div className="docker-empty">请选择一个 Docker 连接</div>
+        ) : selectedConnectionId !== connectionId ? (
+          <div className="docker-empty">正在切换连接…</div>
         ) : (
           <>
             {isOffline && !showLocalEngineWelcome && (
@@ -723,8 +733,8 @@ export function DockerPanel() {
               </div>
             )}
 
-            <div key={tabId} className="docker-tab-content">
-            {tabId === "overview" && showLocalEngineWelcome && (
+            <div key={segmentTabId} className="docker-tab-content">
+            {segmentTabId === "overview" && showLocalEngineWelcome && (
               <WorkspaceEmptyPage
                 prompt={t("docker.empty.localEngine")}
                 actions={
@@ -746,7 +756,7 @@ export function DockerPanel() {
                 }
               />
             )}
-            {tabId === "overview" && !showLocalEngineWelcome && (
+            {segmentTabId === "overview" && !showLocalEngineWelcome && (
               <DockerOverviewTab
                 overview={overview}
                 systemDiskUsage={systemDiskUsage}
@@ -767,7 +777,7 @@ export function DockerPanel() {
               />
             )}
 
-            {tabId === "containers" && (
+            {segmentTabId === "containers" && (
               <>
                 {isOffline ? (
                   <ModuleEmptyState preset="container" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
@@ -901,7 +911,7 @@ export function DockerPanel() {
               </>
             )}
 
-            {tabId === "images" && (
+            {segmentTabId === "images" && (
               isOffline ? (
                 <ModuleEmptyState preset="image" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1011,7 +1021,7 @@ export function DockerPanel() {
               )
             )}
 
-            {tabId === "compose" && (
+            {segmentTabId === "compose" && (
               isOffline ? (
                 <ModuleEmptyState preset="compose" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1097,7 +1107,7 @@ export function DockerPanel() {
               )
             )}
 
-            {tabId === "networks" && (
+            {segmentTabId === "networks" && (
               isOffline ? (
                 <ModuleEmptyState preset="network" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1120,7 +1130,7 @@ export function DockerPanel() {
               )
             )}
 
-            {tabId === "volumes" && (
+            {segmentTabId === "volumes" && (
               isOffline ? (
                 <ModuleEmptyState preset="volume" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1148,7 +1158,7 @@ export function DockerPanel() {
               )
             )}
 
-            {tabId === "files" && (
+            {segmentTabId === "files" && (
               isOffline ? (
                 <ModuleEmptyState preset="file" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1174,7 +1184,7 @@ export function DockerPanel() {
               )
             )}
 
-            {tabId === "swarm" && selectedConnectionId && (
+            {segmentTabId === "swarm" && selectedConnectionId && (
               isOffline ? (
                 <ModuleEmptyState preset="container" title="Docker 未连接" desc={probe?.warningMessage ?? "请先启动 Docker Engine"} />
               ) : (
@@ -1186,7 +1196,110 @@ export function DockerPanel() {
         )}
           </div>
         </div>
-        </SidebarWorkspace>
+      );
+    },
+    [
+      connectionsLoading,
+      connections.length,
+      scanning,
+      selectedConnectionId,
+      isOffline,
+      showLocalEngineWelcome,
+      error,
+      errorDismissed,
+      partialLoadFailure,
+      partialLoadDismissed,
+      dataRefreshing,
+      dataLoading,
+      overview,
+      systemDiskUsage,
+      probe,
+      selectedConnection,
+      counts,
+      images,
+      composeProjects,
+      networks,
+      volumes,
+      filter,
+      filteredContainers,
+      selectedContainers,
+      searchInput,
+      containers,
+      files,
+      filePath,
+      fileContainerId,
+      localEngineStatus,
+      startingLocalEngine,
+      t,
+      handleScanSshDocker,
+      refresh,
+      handleStartLocalEngine,
+      handleEditDockerConnection,
+      confirmPrune,
+      confirmPruneVolumes,
+      confirmPruneBuildCache,
+      setFilter,
+      batchRemoveContainers,
+      setShowCreateContainer,
+      setSearchInput,
+      toggleContainerSelect,
+      setDrawerId,
+      runContainerAction,
+      confirmContainerRemove,
+      setStatsContainer,
+      selectedImages,
+      toggleImageSelect,
+      batchRemoveImages,
+      setImageDrawerId,
+      confirmImageRemove,
+      pullImage,
+      pushImage,
+      tagImage,
+      buildImage,
+      setComposeDrawerName,
+      composeAction,
+      setNetworkDrawerName,
+      createNetwork,
+      removeNetwork,
+      setVolumeDrawerName,
+      createVolume,
+      removeVolume,
+      listContainerDir,
+      readContainerFile,
+      setFileEditor,
+    ],
+  );
+
+  return (
+    <>
+      <ModuleSegmentDock
+        className="docker-module-dock"
+        tabs={dockerSegmentTabs}
+        activeTabId={tab}
+        onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}
+        enabled={isActiveRoute}
+        panelContentKey={dockerPanelContentKey}
+        renderPanel={(segmentTabId) => (
+          <DockerConnectionsWorkspaceView
+            connections={connections}
+            workspace={connectionWorkspace}
+            connectionsLoading={connectionsLoading}
+            scanning={scanning}
+            selectedConnectionId={selectedConnectionId}
+            onSelectConnection={selectConnection}
+            onSidebarSelectConnection={handleSidebarSelectConnection}
+            onCreateConnection={() => {
+              setEditDockerConnection(undefined);
+              setShowAddConn(true);
+            }}
+            onScan={() => void handleScanSshDocker()}
+            onEditConnection={handleEditDockerConnection}
+            onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
+            panelContentKey={dockerPanelContentKey}
+            renderConnectionPanel={(connectionId, dockTabId, isActive) =>
+              renderDockerSegmentContent(segmentTabId as DockerWorkspaceTab, connectionId, dockTabId, isActive)
+            }
+          />
         )}
       />
 

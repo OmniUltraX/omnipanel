@@ -1,9 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import {
+  VerticalSplitSidebarSection,
+  type VerticalSplitSidebarSectionConfig,
+} from "../ui/VerticalSplitSidebar";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
 import { isBuiltinLocalDockerConnection } from "../../modules/docker/constants";
+import type { DockerConnectionDockOpenMode } from "../../modules/docker/dockerConnectionWorkspaceTabs";
 
 const SOURCE_LABEL: Record<string, string> = {
   "local-engine": "本地 Engine",
@@ -12,6 +17,8 @@ const SOURCE_LABEL: Record<string, string> = {
   onepanel: "1Panel",
   "panel-adapter": "面板",
 };
+
+const CONNECTION_LABEL_CLICK_DELAY_MS = 200;
 
 function statusDotClass(status: DockerConnectionInfo["status"]): string {
   if (status === "online") return "online";
@@ -24,11 +31,14 @@ interface DockerSidebarProps {
   activeConnectionId: string | null;
   loading?: boolean;
   scanning?: boolean;
-  onSelect: (connectionId: string) => void;
+  onSelectConnection: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
+  /** @deprecated 请使用 onSelectConnection */
+  onSelect?: (connectionId: string) => void;
   onCreate: () => void;
   onScan?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
   onDeleteConnection?: (connectionId: string) => void;
+  section?: VerticalSplitSidebarSectionConfig;
 }
 
 export function DockerSidebar({
@@ -36,15 +46,27 @@ export function DockerSidebar({
   activeConnectionId,
   loading,
   scanning,
+  onSelectConnection,
   onSelect,
   onCreate,
   onScan,
   onEditConnection,
   onDeleteConnection,
+  section,
 }: DockerSidebarProps) {
   const { t } = useI18n();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxConnection, setCtxConnection] = useState<DockerConnectionInfo | null>(null);
+  const labelClickTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (labelClickTimerRef.current !== null) {
+        window.clearTimeout(labelClickTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const sorted = useMemo(
     () => [...connections].sort((a, b) => a.name.localeCompare(b.name)),
@@ -56,6 +78,34 @@ export function DockerSidebar({
     e.preventDefault();
     setCtxPos({ x: e.clientX, y: e.clientY });
     setCtxConnection(connection);
+  };
+
+  const handleConnectionClick = (connectionId: string) => {
+    const select = onSelectConnection ?? onSelect;
+    if (!select) return;
+    if (onSelectConnection) {
+      if (labelClickTimerRef.current !== null) {
+        window.clearTimeout(labelClickTimerRef.current);
+      }
+      labelClickTimerRef.current = window.setTimeout(() => {
+        labelClickTimerRef.current = null;
+        onSelectConnection(connectionId, "preview");
+      }, CONNECTION_LABEL_CLICK_DELAY_MS);
+      return;
+    }
+    onSelect?.(connectionId);
+  };
+
+  const handleConnectionDoubleClick = (connectionId: string) => {
+    if (labelClickTimerRef.current !== null) {
+      window.clearTimeout(labelClickTimerRef.current);
+      labelClickTimerRef.current = null;
+    }
+    if (onSelectConnection) {
+      onSelectConnection(connectionId, "permanent");
+      return;
+    }
+    onSelect?.(connectionId);
   };
 
   const ctxItems: ContextMenuItem[] = [
@@ -72,41 +122,51 @@ export function DockerSidebar({
     },
   ];
 
-  return (
-    <div className="server-sidebar docker-sidebar">
-      <div className="server-sidebar-header">
-        <span className="docker-sidebar-title">{t("docker.sidebar.title")}</span>
-        {onScan && (
-          <Button
-            type="button"
-            variant="icon"
-            className="server-sidebar-group-add"
-            title={t("docker.sidebar.scanSsh")}
-            disabled={scanning}
-            onClick={onScan}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M23 4v6h-6" />
-              <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-            </svg>
-          </Button>
-        )}
+  const toolbar = (
+    <>
+      {onScan && (
         <Button
           type="button"
           variant="icon"
-          className="server-sidebar-add"
-          title={t("docker.sidebar.addConnection")}
-          onClick={onCreate}
+          className="server-sidebar-group-add"
+          title={t("docker.sidebar.scanSsh")}
+          disabled={scanning}
+          onClick={onScan}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M23 4v6h-6" />
+            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
           </svg>
         </Button>
-      </div>
-      <div className="server-sidebar-subheader">
-        <span>{t("docker.sidebar.connections")}</span>
-        <span className="badge badge-muted">{connections.length}</span>
-      </div>
+      )}
+      <Button
+        type="button"
+        variant="icon"
+        className="server-sidebar-add"
+        title={t("docker.sidebar.addConnection")}
+        onClick={onCreate}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </Button>
+    </>
+  );
+
+  const panelBody = (
+    <div className="server-sidebar docker-sidebar">
+      {!section ? (
+        <>
+          <div className="server-sidebar-header">
+            <span className="docker-sidebar-title">{t("docker.sidebar.title")}</span>
+            {toolbar}
+          </div>
+          <div className="server-sidebar-subheader">
+            <span>{t("docker.sidebar.connections")}</span>
+            <span className="badge badge-muted">{connections.length}</span>
+          </div>
+        </>
+      ) : null}
       <div className="server-sidebar-body">
         {loading ? (
           <div className="empty-state compact">{t("docker.sidebar.loading")}</div>
@@ -118,7 +178,8 @@ export function DockerSidebar({
               key={conn.connectionId}
               type="button"
               className={`server-item${activeConnectionId === conn.connectionId ? " active" : ""}`}
-              onClick={() => onSelect(conn.connectionId)}
+              onClick={() => handleConnectionClick(conn.connectionId)}
+              onDoubleClick={() => handleConnectionDoubleClick(conn.connectionId)}
               onContextMenu={(e) => handleContextMenu(e, conn)}
             >
               <span className={`status-dot ${statusDotClass(conn.status)}`} />
@@ -147,4 +208,22 @@ export function DockerSidebar({
       )}
     </div>
   );
+
+  if (section) {
+    return (
+      <VerticalSplitSidebarSection
+        {...section}
+        actions={
+          <>
+            <span className="badge badge-muted">{connections.length}</span>
+            {toolbar}
+          </>
+        }
+      >
+        {panelBody}
+      </VerticalSplitSidebarSection>
+    );
+  }
+
+  return panelBody;
 }

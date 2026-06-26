@@ -1764,6 +1764,7 @@ export const enUS: TranslationDict = {
     sidebar: {
       title: "Docker",
       connections: "Connections",
+      selectConnection: "Select a Docker connection, or single-click for preview / double-click for a pinned tab",
       addConnection: "Add Docker connection",
       scanSsh: "Scan SSH Docker hosts",
       loading: "Loading connections…",
@@ -1910,7 +1911,7 @@ export const enUS: TranslationDict = {
     empty: {
       title: "No Servers",
       description: 'Click the "+" button or the button below to add a server.',
-      selectServer: "Select a server on the left to view installed apps.",
+      selectServer: "Select a server, or single-click for preview / double-click for a pinned tab",
       noPanelConfig: "This server has no panel connection. Add one and fill in panel settings.",
     },
     placeholder: "{name} is ready. Server management features coming soon.",
