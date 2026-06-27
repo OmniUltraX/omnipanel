@@ -18,10 +18,6 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import {
-  ModelSelector,
-  type ModelSelectorItem,
-} from "@/components/assistant-ui/model-selector";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
@@ -34,13 +30,6 @@ import {
   SelectValue,
 } from "@/components/assistant-ui/select";
 import { useI18n } from "../../i18n";
-import { useAssistantScenarioModelSelectionId } from "../../lib/aiScenarioModels";
-import { useAiStore } from "../../stores/aiStore";
-import {
-  listModelSelections,
-  parseModelSelectionId,
-  useAiModelsStore,
-} from "../../stores/aiModelsStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { NAV_VISIBLE_MODULE_KEYS, type ModuleKey } from "../../lib/paths";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
@@ -328,56 +317,12 @@ const Composer: FC = () => {
 
 const ComposerAction: FC = () => {
   const { t } = useI18n();
-  const providers = useAiModelsStore((s) => s.providers);
-  const currentModelSelectionId = useAiStore((s) => s.currentModelSelectionId);
-  const scenarioDefaultModelId = useAssistantScenarioModelSelectionId();
-  const setCurrentModelSelectionId = useAiStore(
-    (s) => s.setCurrentModelSelectionId,
-  );
-  const reasoningEffort = useAiStore((s) => s.reasoningEffort);
-  const setReasoningEffort = useAiStore((s) => s.setReasoningEffort);
-
-  const modelSelectorItems = useMemo((): ModelSelectorItem[] => {
-    return listModelSelections(providers).map(({ id }) => {
-      const parsed = parseModelSelectionId(id);
-      const provider = providers.find((p) => p.id === parsed?.providerId);
-      const modelName = parsed?.modelName ?? id;
-      const standard =
-        provider?.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
-      return {
-        id,
-        name: modelName,
-        description: provider
-          ? `${provider.providerName} · ${standard}`
-          : undefined,
-      };
-    });
-  }, [providers]);
-
-  const selectedValue =
-    currentModelSelectionId &&
-    modelSelectorItems.some((m) => m.id === currentModelSelectionId)
-      ? currentModelSelectionId
-      : scenarioDefaultModelId &&
-          modelSelectorItems.some((m) => m.id === scenarioDefaultModelId)
-        ? scenarioDefaultModelId
-        : modelSelectorItems[0]?.id;
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
         <ContextBar />
-        {modelSelectorItems.length > 0 && (
-          <ModelSelector
-            models={modelSelectorItems}
-            value={selectedValue}
-            onValueChange={setCurrentModelSelectionId}
-            effort={reasoningEffort}
-            onEffortChange={setReasoningEffort}
-            size="sm"
-          />
-        )}
       </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>

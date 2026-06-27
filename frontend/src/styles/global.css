@@ -11710,6 +11710,24 @@
         background: color-mix(in oklch, var(--accent) 6%, var(--surface));
     }
 
+    .ai-provider-agent-mcp {
+        border-top: 1px solid var(--border);
+        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    }
+
+    .ai-provider-agent-mcp .settings-section--embedded {
+        margin: 0;
+        padding: 0;
+    }
+
+    .ai-provider-agent-mcp .settings-section-header {
+        margin-bottom: var(--sp-2);
+    }
+
+    .ai-provider-agent-mcp .settings-subsection-title {
+        margin: 0 0 var(--sp-1);
+    }
+
     .ai-model-row-standard-active {
         background: color-mix(in oklch, var(--accent) 14%, transparent);
         color: var(--accent);

@@ -199,6 +199,19 @@
         margin-bottom: var(--sp-4);
     }
 
+    .http-panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        padding: var(--sp-3);
+    }
+
+    .http-panel--inactive {
+        display: none;
+    }
+
     .method-select {
         background: var(--bg-deeper);
         border: 1px solid var(--border);

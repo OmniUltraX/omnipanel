@@ -27,7 +27,6 @@ impl AcpManager {
         args: Vec<String>,
         spawn_env: HashMap<String, String>,
         spawn_cwd: Option<String>,
-        show_console: bool,
     ) -> Self {
         Self {
             client: Arc::new(AcpClient::new(
@@ -35,7 +34,6 @@ impl AcpManager {
                 args,
                 spawn_env,
                 spawn_cwd,
-                show_console,
             )),
             initialized: AtomicBool::new(false),
             agent_name: Mutex::new(None),

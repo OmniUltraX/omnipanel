@@ -2191,15 +2191,31 @@ export const zhCN = {
       title: "其他",
       desc: "不归属于模型或 MCP 服务的 AI 相关偏好设置。",
     },
-    agent: {
-      comingSoon: "配置项即将推出，用于对接 SDK。",
-      opencode: {
-        title: "OpenCode",
-        description: "配置 OpenCode Agent SDK 连接与运行参数。",
+    agents: {
+      title: "Agent",
+      description:
+        "选择本地 ACP Agent。默认使用内置 OmniAgent，需先在「AI」中配置模型；也可切换为 Cursor、OpenCode 或 Qwen CLI。",
+      detecting: "正在检测…",
+      redetect: "重新检测",
+      installed: "已安装",
+      notFound: "未检测到",
+      installHint: "未安装或未加入 PATH",
+      notInstalled: "{name} 未安装，请先安装对应 CLI",
+      omniagent: {
+        name: "OmniAgent",
+        desc: "OmniPanel 内置 Agent（DeepAgents + Skills + MCP），通过 acp-agent-config.json 使用「AI」中的模型与 MCP 服务。",
       },
       cursor: {
-        title: "Cursor",
-        description: "配置 Cursor Agent SDK 连接与运行参数。",
+        name: "Cursor",
+        desc: "使用 Cursor CLI（agent acp）作为本地 Agent，鉴权由 Cursor 账号管理。",
+      },
+      opencode: {
+        name: "OpenCode",
+        desc: "使用 OpenCode CLI（opencode acp）作为本地 Agent。",
+      },
+      qwen: {
+        name: "Qwen",
+        desc: "使用 Qwen Code CLI（qwen --acp）作为本地 Agent。",
       },
     },
     aiScenarios: {
@@ -2212,7 +2228,7 @@ export const zhCN = {
       },
       assistant: {
         label: "AI 助手",
-        desc: "AI 助手对话的默认模型；可在助手界面临时切换。",
+        desc: "AI 助手对话的默认模型；OmniAgent 连接时使用此模型（写入 acp-agent-config.json）。",
       },
     },
     acpServices: {
@@ -2280,11 +2296,9 @@ export const zhCN = {
         browserMode: "浏览器模式不可用",
         modelRequired: "请先在 ACP 服务中配置模型（编辑服务 → 选择 LLM 模型）",
       },
-      debugConsole: {
-        label: "Agent 调试控制台",
-        desc: "开启后显示 Agent 子进程的控制台窗口（Windows），便于查看 node / agent 日志。切换后会自动重新连接 Agent。",
-      },
       hintLabel: "示例命令：",
+      mcpEmbeddedDesc:
+        "管理 MCP 服务并同步到 OmniAgent 配置文件；已启用且运行的服务会在 Agent 会话中加载为工具。",
     },
     mcpServices: {
       title: "MCP",
@@ -2312,11 +2326,6 @@ export const zhCN = {
         stopped: "已停止",
         starting: "启动中",
         error: "异常",
-      },
-      empty: {
-        title: "还没有自定义 MCP 服务",
-        desc: "添加 stdio 命令或 SSE 端点，供 AI 模块连接外部 MCP 工具。",
-        cta: "添加 MCP 服务",
       },
       add: {
         title: "新建 MCP 服务",
@@ -2577,6 +2586,8 @@ common: {
       allRequests: "全部请求",
       savedRequests: "已保存请求",
       requestName: "请求名称…",
+      workspaceEmpty: "从左侧接口列表选择请求，或点击 + 新建请求",
+      recentClosed: "最近关闭",
       tabs: { params: "参数", headers: "请求头", body: "请求体", auth: "认证", scripts: "脚本" },
       requestBody: "请求体…",
       preRequestScript: "请求前脚本",

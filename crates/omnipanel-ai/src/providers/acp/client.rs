@@ -26,7 +26,6 @@ pub struct AcpClient {
     args: Vec<String>,
     spawn_env: HashMap<String, String>,
     spawn_cwd: Option<String>,
-    show_console: bool,
     inner: Mutex<AcpClientInner>,
     next_id: AtomicU64,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>,
@@ -40,14 +39,12 @@ impl AcpClient {
         args: Vec<String>,
         spawn_env: HashMap<String, String>,
         spawn_cwd: Option<String>,
-        show_console: bool,
     ) -> Self {
         Self {
             binary_path: binary_path.to_string(),
             args,
             spawn_env,
             spawn_cwd,
-            show_console,
             inner: Mutex::new(AcpClientInner {
                 child: None,
                 stdin_tx: None,
@@ -88,17 +85,14 @@ impl AcpClient {
         }
 
         let mut cmd = Command::new(&self.binary_path);
-        cmd.args(&self.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(&self.args);
         if let Some(ref cwd) = self.spawn_cwd {
             cmd.current_dir(cwd);
         }
         for (key, value) in &self.spawn_env {
             cmd.env(key, value);
         }
-        apply_console_visibility(&mut cmd, self.show_console);
+        configure_agent_stdio(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| {
             anyhow::anyhow!("Failed to spawn ACP agent '{}': {e}", self.binary_path)
@@ -302,15 +296,20 @@ impl AcpClient {
 }
 
 #[cfg(windows)]
-fn apply_console_visibility(cmd: &mut Command, show_console: bool) {
+fn configure_agent_stdio(cmd: &mut Command) {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    if !show_console {
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(not(windows))]
-fn apply_console_visibility(_cmd: &mut Command, _show_console: bool) {}
+fn configure_agent_stdio(cmd: &mut Command) {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+}
 
 fn extract_server_request_id(json_str: &str) -> Option<u64> {
     #[derive(Deserialize)]

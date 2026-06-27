@@ -132,9 +132,16 @@ export function ProtocolHttpSidebar() {
     [http, setSectionExpanded, t],
   );
 
+  const handleQuickCreateRequest = useCallback(() => {
+    if (!http) return;
+    void http.createRequest(t("protocol.sidebar.defaultRequestName"), null);
+    setSectionExpanded("apis", true);
+    setSectionExpanded("history", true);
+  }, [http, setSectionExpanded, t]);
+
   const handleSelectRequest = useCallback(
     (req: (typeof savedRequests)[number]) => {
-      http?.selectRequest(req);
+      http?.openRequestTab(req);
       setSectionExpanded("history", true);
     },
     [http, setSectionExpanded],
@@ -384,6 +391,22 @@ export function ProtocolHttpSidebar() {
           title={t("protocol.sidebar.apiList")}
           expanded={sections.apis}
           onToggle={() => toggleSection("apis")}
+          actions={
+            <button
+              type="button"
+              className="proto-sidebar-new"
+              title={t("protocol.sidebar.newRequest")}
+              aria-label={t("protocol.sidebar.newRequest")}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleQuickCreateRequest();
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          }
         >
           <div
             className={`proto-tree-root${dragOverTarget === "root" ? " proto-tree-node--drag-over" : ""}`}

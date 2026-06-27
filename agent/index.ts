@@ -14,7 +14,6 @@ import {
   PROTOCOL_VERSION,
   type AgentContext,
   type ContentBlock,
-  type McpServer,
   type SessionId,
   type ToolCallId,
 } from "@agentclientprotocol/sdk";
@@ -264,16 +263,15 @@ function startAcpServer(): void {
     .onRequest(methods.agent.session.new, async ({ params }) => {
       const sessionId = randomUUID();
       const cwd = params.cwd;
-      const mcpServers: McpServer[] = params.mcpServers ?? [];
 
-      const runtime = await createSessionRuntime(sessionId, cwd, mcpServers);
+      const runtime = await createSessionRuntime(sessionId, cwd);
       sessions.set(sessionId, {
         ...runtime,
         messages: [],
         activePrompt: null,
       });
 
-      log("session/new", sessionId, "cwd=", cwd, "mcp=", mcpServers.length);
+      log("session/new", sessionId, "cwd=", cwd);
 
       return { sessionId };
     })
@@ -325,10 +323,10 @@ function startAcpServer(): void {
       return {};
     });
 
-  const stream = ndJsonStream(
-    Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-    Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
-  );
+  const rawStdout = Writable.toWeb(process.stdout) as WritableStream<Uint8Array>;
+  const rawStdin = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
+
+  const stream = ndJsonStream(rawStdout, rawStdin);
 
   app.connect(stream);
   log("ACP stdio 服务已启动 (protocol", PROTOCOL_VERSION, ")");

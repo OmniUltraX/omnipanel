@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod agents;
 pub mod ai;
 pub mod mcp;
 pub mod ai_models;

@@ -63,7 +63,7 @@ export function Bootstrap() {
         initActionListener();
         await initAiModelsStore();
         await initDbSqlFilesStore();
-        initAcpServicesStore();
+        await initAcpServicesStore();
 
         advance(3);
         await import("@xterm/xterm/css/xterm.css");

@@ -4,11 +4,12 @@ import type { McpServer } from "@agentclientprotocol/sdk";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 import { MemorySaver } from "@langchain/langgraph";
 import { MultiServerMCPClient, type Connection } from "@langchain/mcp-adapters";
-import { createDeepAgent, FilesystemBackend, type DeepAgent } from "deepagents";
+import { createDeepAgent, type DeepAgent } from "deepagents";
 import {
   applyAgentConfigToEnv,
   loadAgentConfigFile,
   resolveLangChainModelId,
+  resolveMcpServersFromConfig,
 } from "./config.js";
 
 const agentRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -78,12 +79,12 @@ export function acpMcpServersToConnections(servers: McpServer[]): Record<string,
 export async function createSessionRuntime(
   sessionId: string,
   cwd: string,
-  mcpServers: McpServer[],
 ): Promise<SessionRuntime> {
   const skills = resolveSkillsDirs();
   let mcpClient: MultiServerMCPClient | null = null;
   let mcpTools: DynamicStructuredTool[] = [];
 
+  const mcpServers = resolveMcpServersFromConfig();
   const connections = acpMcpServersToConnections(mcpServers);
   if (Object.keys(connections).length > 0) {
     try {
@@ -114,12 +115,7 @@ export async function createSessionRuntime(
     checkpointer: new MemorySaver(),
     systemPrompt:
       process.env.OMNIAGENT_SYSTEM_PROMPT ??
-      "你是 OmniPanel 本地编码助手。按需读取 Skills、调用 MCP 工具与文件系统工具完成任务。回答简洁、可执行。",
-    backend: () =>
-      new FilesystemBackend({
-        rootDir: cwd,
-        virtualMode: false,
-      }),
+      "你是 OmniPanel 本地编码助手。按需读取 Skills、调用 MCP 工具完成任务。回答简洁、可执行。",
   });
 
   return { sessionId, cwd, graph, mcpClient };

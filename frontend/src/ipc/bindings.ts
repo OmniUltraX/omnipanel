@@ -448,6 +448,8 @@ export const commands = {
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
+	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
+	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
@@ -457,8 +459,8 @@ export const commands = {
 	mcpSetServiceRunning: (id: string, running: boolean) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_set_service_running", { id, running })),
 	mcpListServiceTools: (id: string) => typedError<McpToolInfo[], string>(__TAURI_INVOKE("mcp_list_service_tools", { id })),
 	mcpCallTool: (serviceId: string, toolName: string, toolArguments: string) => typedError<McpToolCallResult, string>(__TAURI_INVOKE("mcp_call_tool", { serviceId, toolName, toolArguments })),
-	acpConnect: (commandLine: string, showConsole: boolean) => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_connect", { commandLine, showConsole })),
-	acpConnectDefault: (showConsole: boolean) => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_connect_default", { showConsole })),
+	acpConnect: (commandLine: string) => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_connect", { commandLine })),
+	acpConnectDefault: () => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_connect_default")),
 	acpDisconnect: () => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_disconnect")),
 	acpGetStatus: () => typedError<AcpStatus, string>(__TAURI_INVOKE("acp_get_status")),
 	acpPrompt: (conversationId: string, userText: string, cwd: string | null, onEvent: Channel<AcpStreamEvent>) => typedError<null, string>(__TAURI_INVOKE("acp_prompt", { conversationId, userText, cwd, onEvent })),
@@ -501,6 +503,16 @@ export type ActionRequest = {
 	/**  工作目录（本地 shell 类执行可用）。 */
 	cwd?: string | null,
 };
+
+export type AgentInstallStatus = {
+	kind: AgentKind,
+	installed: boolean,
+	executablePath: string | null,
+	version: string | null,
+	launchArgs: string[],
+};
+
+export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
 
 /**
  *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
@@ -1335,15 +1347,6 @@ export type FileIndexSearchResult = {
 	entry: FileIndexEntry,
 	snippet: string,
 	score: number | null,
-};
-
-/**  索引进度事件载荷。 */
-export type FileIndexProgress = {
-	connectionId: string,
-	/**  building | done | failed */
-	status: string,
-	indexedCount: number,
-	error: string,
 };
 
 /**  文件索引元信息（按连接维度）。 */

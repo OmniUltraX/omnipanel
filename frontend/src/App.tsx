@@ -48,6 +48,7 @@ import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
+import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./lib/paths";
 import {
   LazyDashboardPage,
@@ -71,6 +72,7 @@ function TopbarPageActions() {
   const activeResource = getResourceById(activeResourceId);
   const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
   const requestDockerRefresh = useDockerTopbarStore((s) => s.requestRefresh);
+  const triggerNewRequest = useProtocolTopbarStore((state) => state.triggerNewRequest);
 
   if (path === MODULE_PATHS.terminal) {
     return null;
@@ -105,7 +107,7 @@ function TopbarPageActions() {
   if (path === MODULE_PATHS.protocol) {
     return (
       <>
-        <Button variant="icon" title={t("protocol.actions.newRequest")}>
+        <Button variant="icon" title={t("protocol.actions.newRequest")} onClick={triggerNewRequest}>
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -127,7 +129,7 @@ function TopbarPageActions() {
             <path d="M12 15V3" />
           </svg>
         </Button>
-        <Button variant="primary" size="sm">
+        <Button variant="primary" size="sm" onClick={triggerNewRequest}>
           {t("protocol.actions.newTab")}
         </Button>
       </>

@@ -258,6 +258,7 @@ fn export_ipc_bindings() {
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
         commands::opencode::detect_opencode_install,
+        commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
         // MCP 服务管理
@@ -686,6 +687,7 @@ pub fn run() {
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
             commands::opencode::detect_opencode_install,
+        commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
             // MCP 服务管理

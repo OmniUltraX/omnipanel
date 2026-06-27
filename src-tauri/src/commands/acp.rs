@@ -77,7 +77,7 @@ pub struct AcpAgentConfigInput {
     pub api_standard: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AcpAgentConfigFile {
     #[serde(default = "default_agent_config_version")]
@@ -86,10 +86,12 @@ pub struct AcpAgentConfigFile {
     pub api_key: String,
     pub base_url: String,
     pub api_standard: String,
+    #[serde(default)]
+    pub mcp_servers: Vec<serde_json::Value>,
 }
 
 fn default_agent_config_version() -> u32 {
-    1
+    2
 }
 
 pub const OMNIAGENT_CONFIG_ENV: &str = "OMNIAGENT_CONFIG";
@@ -248,10 +250,18 @@ async fn build_mcp_servers(state: &AppState) -> Vec<serde_json::Value> {
                 }));
             }
             McpTransport::Sse { config } => {
+                let url = service
+                    .endpoint
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(config.url.as_str());
+                if url.trim().is_empty() {
+                    continue;
+                }
                 servers.push(serde_json::json!({
                     "type": "sse",
                     "name": service.name,
-                    "url": config.url,
+                    "url": url,
                     "headers": [],
                 }));
             }
@@ -324,6 +334,7 @@ fn stop_reason_str(reason: StopReason) -> String {
 #[specta::specta]
 pub async fn acp_save_agent_config(
     app: AppHandle,
+    state: State<'_, AppState>,
     config: AcpAgentConfigInput,
 ) -> Result<String, String> {
     let model = config.model.trim();
@@ -344,12 +355,15 @@ pub async fn acp_save_agent_config(
         return Err("apiStandard 必须为 openai 或 anthropic".to_string());
     }
 
+    let mcp_servers = build_mcp_servers(&state).await;
+
     let file = AcpAgentConfigFile {
-        version: 1,
+        version: 2,
         model: model.to_string(),
         api_key: api_key.to_string(),
         base_url: base_url.to_string(),
         api_standard: api_standard.to_string(),
+        mcp_servers,
     };
 
     let path = write_agent_config_file(&app, &file)?;
@@ -360,14 +374,14 @@ async fn connect_agent(
     app: &AppHandle,
     state: &State<'_, AppState>,
     spec: AgentLaunchSpec,
-    show_console: bool,
 ) -> Result<AcpStatus, String> {
     let config_path = agent_config_path(app)?;
-    if !config_path.exists() {
-        return Err("请先配置 ACP Agent 的模型与 API（设置 → Agent）".to_string());
-    }
-
-    let spawn_env = build_spawn_env(&config_path);
+    // 外部 Agent（Cursor / OpenCode / Qwen）使用各自 CLI 鉴权，不依赖配置文件。
+    let spawn_env = if config_path.exists() {
+        build_spawn_env(&config_path)
+    } else {
+        HashMap::new()
+    };
     let spawn_cwd = spec.cwd.as_ref().map(|p| p.to_string_lossy().into_owned());
     let mut acp = state.acp_state.lock().await;
 
@@ -380,7 +394,6 @@ async fn connect_agent(
         spec.args.clone(),
         spawn_env,
         spawn_cwd,
-        show_console,
     ));
     tokio::time::timeout(std::time::Duration::from_secs(20), manager.connect())
         .await
@@ -406,7 +419,6 @@ pub async fn acp_connect(
     app: AppHandle,
     state: State<'_, AppState>,
     command_line: String,
-    show_console: bool,
 ) -> Result<AcpStatus, String> {
     let (binary, args) = parse_command_line(&command_line)?;
     let cwd = infer_spawn_cwd(&args);
@@ -419,7 +431,6 @@ pub async fn acp_connect(
             cwd,
             display_command: command_line,
         },
-        show_console,
     )
     .await
 }
@@ -429,11 +440,10 @@ pub async fn acp_connect(
 pub async fn acp_connect_default(
     app: AppHandle,
     state: State<'_, AppState>,
-    show_console: bool,
 ) -> Result<AcpStatus, String> {
     let spec = resolve_default_agent_launch(&app)
         .ok_or_else(|| "未找到默认 agent/index.ts，请在 agent 目录执行 npm install".to_string())?;
-    connect_agent(&app, &state, spec, show_console).await
+    connect_agent(&app, &state, spec).await
 }
 
 #[tauri::command]

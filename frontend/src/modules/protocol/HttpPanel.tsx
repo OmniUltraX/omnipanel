@@ -148,7 +148,7 @@ export function HttpPanel() {
   const tabs: ReqTab[] = ["params", "headers", "body", "auth", "scripts"];
 
   return (
-    <div className="http-panel" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto", padding: "var(--sp-3)" }}>
+    <div className="http-panel">
       <div className="http-builder">
         <Select
           className="method-select"

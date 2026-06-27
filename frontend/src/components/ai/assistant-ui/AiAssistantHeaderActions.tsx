@@ -1,7 +1,6 @@
 import { Button } from "../../ui/Button";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
-import { McpConfigDialog } from "./McpConfigDialog";
 
 function ConversationListIcon() {
   return (
@@ -25,7 +24,7 @@ function ConversationListIcon() {
   );
 }
 
-/** 标题栏左侧：MCP 配置、会话列表折叠 */
+/** 标题栏左侧：会话列表折叠 */
 export function AiAssistantHeaderLeft() {
   const { t } = useI18n();
   const conversationListOpen = useAiStore((s) => s.conversationListOpen);
@@ -33,7 +32,6 @@ export function AiAssistantHeaderLeft() {
 
   return (
     <div className="ai-panel-header-left">
-      <McpConfigDialog />
       <Button
         variant="outline"
         size="sm"

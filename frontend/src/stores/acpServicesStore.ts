@@ -1,474 +1,235 @@
 import { create } from "zustand";
-
 import { persist, createJSONStorage } from "zustand/middleware";
 
-
-
+import { detectAllAgents } from "../lib/agents/detect";
+import type { AgentInstallStatus, AgentKind } from "../lib/agents/types";
+import { agentKindToServiceId, DEFAULT_AGENT_KIND, isSupportedAgentKind, SUPPORTED_AGENT_KINDS } from "../lib/agents/types";
 import {
-
   firstModelSelectionId,
-
   resolveModelSelection,
-
   useAiModelsStore,
-
 } from "./aiModelsStore";
-
 import { useSettingsStore } from "./settingsStore";
 
-
-
-/** 内置 OmniPanel Agent（/agent）固定 ID，不可删除。 */
-
-export const OMNIPANEL_BUILTIN_ACP_SERVICE_ID = "omnipanel-builtin-agent";
-
-
-
-export interface AcpService {
-
-  id: string;
-
+/** @deprecated 使用 AgentKind */
+export type AcpService = {
+  id: AgentKind;
   name: string;
-
   executablePath: string;
-
-  /** aiModelsStore 中的 providerId::modelName */
-
   modelSelectionId: string | null;
-
   isActive: boolean;
-
-  /** 系统内置 Agent，executablePath 为空时使用 Rust 侧默认命令。 */
-
   builtin?: boolean;
-
   createdAt: number;
-
-}
-
-
+};
 
 interface AcpServicesState {
-
   services: AcpService[];
-
-  addService: (
-
-    input: Omit<AcpService, "id" | "createdAt" | "isActive" | "builtin"> & {
-
-      isActive?: boolean;
-
-      builtin?: boolean;
-
-    },
-
-  ) => AcpService;
-
-  removeService: (id: string) => void;
-
-  updateService: (
-
-    id: string,
-
-    patch: Partial<Omit<AcpService, "id" | "createdAt">>,
-
-  ) => void;
-
-  setActive: (id: string) => void;
-
+  installStatuses: AgentInstallStatus[];
+  detecting: boolean;
+  setActive: (kind: AgentKind) => void;
+  updateService: (id: AgentKind, patch: Partial<Pick<AcpService, "modelSelectionId">>) => void;
+  setInstallStatuses: (statuses: AgentInstallStatus[]) => void;
+  refreshDetection: () => Promise<void>;
   resetServices: () => void;
-
 }
 
-
-
-let idCounter = 0;
-
-
-
-function genId(): string {
-
-  return `acp_${Date.now()}_${++idCounter}`;
-
+function defaultModelId(): string | null {
+  return resolveAcpModelSelectionId(null);
 }
 
-
-
-function normalizeName(name: string): string {
-
-  return name.trim();
-
-}
-
-
-
-function normalizePath(path: string): string {
-
-  return path.trim();
-
-}
-
-
-
-function normalizeLoaded(s: AcpService): AcpService {
-
-  const isBuiltin = s.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID || Boolean(s.builtin);
-
+function createService(kind: AgentKind, isActive: boolean, status?: AgentInstallStatus): AcpService {
   return {
-
-    id: s.id,
-
-    name: normalizeName(s.name ?? ""),
-
-    executablePath: isBuiltin ? "" : normalizePath(s.executablePath ?? ""),
-
-    modelSelectionId:
-
-      typeof s.modelSelectionId === "string" && s.modelSelectionId.trim()
-
-        ? s.modelSelectionId.trim()
-
-        : null,
-
-    isActive: Boolean(s.isActive),
-
-    builtin: isBuiltin,
-
-    createdAt: typeof s.createdAt === "number" ? s.createdAt : Date.now(),
-
-  };
-
-}
-
-
-
-function enforceSingleActive(services: AcpService[], preferredId?: string): AcpService[] {
-
-  const activeCount = services.filter((s) => s.isActive).length;
-
-  if (activeCount <= 1) return services;
-
-  if (preferredId) {
-
-    return services.map((s) => ({ ...s, isActive: s.id === preferredId }));
-
-  }
-
-  const sortedActive = services
-
-    .filter((s) => s.isActive)
-
-    .slice()
-
-    .sort((a, b) => a.createdAt - b.createdAt);
-
-  const keepId = sortedActive[0]?.id;
-
-  return services.map((s) => ({ ...s, isActive: s.id === keepId }));
-
-}
-
-
-
-function createBuiltinService(modelSelectionId: string | null, isActive: boolean): AcpService {
-
-  return {
-
-    id: OMNIPANEL_BUILTIN_ACP_SERVICE_ID,
-
-    name: "OmniPanel Agent",
-
-    executablePath: "",
-
-    modelSelectionId,
-
+    id: kind,
+    name: kind,
+    executablePath: status?.executablePath ?? "",
+    modelSelectionId: defaultModelId(),
     isActive,
-
-    builtin: true,
-
     createdAt: 0,
-
+    builtin: kind === DEFAULT_AGENT_KIND,
   };
-
 }
 
+function buildDefaultServices(
+  activeKind: AgentKind,
+  statuses: AgentInstallStatus[],
+): AcpService[] {
+  return SUPPORTED_AGENT_KINDS.map((kind) => {
+    const status = statuses.find((item) => item.kind === kind);
+    return createService(kind, kind === activeKind, status);
+  });
+}
 
-
-/** 解析 Agent 应使用的模型：服务配置 → AI 助手场景 → 首个可用模型。 */
+function normalizeActiveKind(services: AcpService[]): AgentKind {
+  const active = services.find((s) => s.isActive);
+  if (active && isSupportedAgentKind(active.id)) {
+    return active.id;
+  }
+  if (services.some((s) => s.id === DEFAULT_AGENT_KIND)) {
+    return DEFAULT_AGENT_KIND;
+  }
+  const installed = services.find((s) => s.executablePath.trim());
+  if (installed && isSupportedAgentKind(installed.id)) {
+    return installed.id;
+  }
+  return DEFAULT_AGENT_KIND;
+}
 
 export function resolveAcpModelSelectionId(active: AcpService | null): string | null {
-
   const providers = useAiModelsStore.getState().providers;
-
   const fromService = active?.modelSelectionId?.trim();
-
   if (fromService && resolveModelSelection(providers, fromService)) {
-
     return fromService;
-
   }
-
-
 
   const assistantId = useSettingsStore.getState().aiScenarioAssistantModelSelectionId;
-
   if (assistantId && resolveModelSelection(providers, assistantId)) {
-
     return assistantId;
-
   }
 
-
-
   return firstModelSelectionId(providers);
-
 }
 
-
-
+/** 内置 Agent（OmniAgent）。 */
 export function isBuiltinAcpService(service: AcpService): boolean {
-
-  return service.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID || Boolean(service.builtin);
-
+  return service.id === "omniagent";
 }
-
-
 
 export const useAcpServicesStore = create<AcpServicesState>()(
-
   persist(
-
     (set, get) => ({
+      services: buildDefaultServices(DEFAULT_AGENT_KIND, []),
+      installStatuses: [],
+      detecting: false,
 
-      services: [],
-
-      addService: (input) => {
-
-        const isActive = Boolean(input.isActive);
-
-        const created: AcpService = {
-
-          id: genId(),
-
-          name: normalizeName(input.name),
-
-          executablePath: normalizePath(input.executablePath),
-
-          modelSelectionId: input.modelSelectionId ?? null,
-
-          isActive,
-
-          builtin: Boolean(input.builtin),
-
-          createdAt: Date.now(),
-
-        };
-
-        const merged = enforceSingleActive([...get().services, created], created.id);
-
-        set({ services: merged });
-
-        return merged.find((s) => s.id === created.id) ?? created;
-
-      },
-
-      removeService: (id) => {
-
-        if (id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID) return;
-
-        const next = get().services.filter((s) => s.id !== id);
-
-        const enforced = next.some((s) => s.isActive)
-
-          ? next
-
-          : next.map((s) =>
-
-              s.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID ? { ...s, isActive: true } : s,
-
-            );
-
-        set({ services: enforceSingleActive(enforced) });
-
+      setActive: (kind) => {
+        set({
+          services: get().services.map((s) => ({
+            ...s,
+            isActive: s.id === kind,
+          })),
+        });
       },
 
       updateService: (id, patch) => {
-
-        const next = get().services.map((s) => {
-
-          if (s.id !== id) return s;
-
-          const isBuiltin = isBuiltinAcpService(s);
-
-          return {
-
-            ...s,
-
-            ...patch,
-
-            ...(patch.name !== undefined ? { name: normalizeName(patch.name) } : {}),
-
-            ...(patch.executablePath !== undefined && !isBuiltin
-
-              ? { executablePath: normalizePath(patch.executablePath) }
-
-              : {}),
-
-            ...(patch.modelSelectionId !== undefined
-
+        set({
+          services: get().services.map((s) =>
+            s.id === id
               ? {
-
-                  modelSelectionId:
-
-                    patch.modelSelectionId && patch.modelSelectionId.trim()
-
-                      ? patch.modelSelectionId.trim()
-
-                      : null,
-
+                  ...s,
+                  ...(patch.modelSelectionId !== undefined
+                    ? {
+                        modelSelectionId:
+                          patch.modelSelectionId && patch.modelSelectionId.trim()
+                            ? patch.modelSelectionId.trim()
+                            : null,
+                      }
+                    : {}),
                 }
-
-              : {}),
-
-            ...(isBuiltin ? { executablePath: "", builtin: true } : {}),
-
-          };
-
+              : s,
+          ),
         });
-
-        const enforced = enforceSingleActive(next, id);
-
-        set({ services: enforced });
-
       },
 
-      setActive: (id) => {
+      setInstallStatuses: (statuses) => {
+        const activeKind = normalizeActiveKind(get().services);
+        set({
+          installStatuses: statuses,
+          services: buildDefaultServices(activeKind, statuses).map((service) => {
+            const prev = get().services.find((s) => s.id === service.id);
+            return {
+              ...service,
+              modelSelectionId: prev?.modelSelectionId ?? service.modelSelectionId,
+              isActive: service.id === activeKind,
+            };
+          }),
+        });
+      },
 
-        const target = get().services.find((s) => s.id === id);
-
-        if (!target) return;
-
-        const next = get().services.map((s) => ({ ...s, isActive: s.id === id }));
-
-        set({ services: next });
-
+      refreshDetection: async () => {
+        set({ detecting: true });
+        try {
+          const statuses = await detectAllAgents();
+          get().setInstallStatuses(statuses);
+        } finally {
+          set({ detecting: false });
+        }
       },
 
       resetServices: () => {
-
-        set({ services: [] });
-
+        set({
+          services: buildDefaultServices(DEFAULT_AGENT_KIND, []),
+          installStatuses: [],
+        });
       },
-
     }),
-
     {
-
       name: "omnipanel-acp-services",
-
       storage: createJSONStorage(() => localStorage),
-
+      partialize: (state) => ({
+        services: state.services.map((s) => ({
+          id: s.id,
+          modelSelectionId: s.modelSelectionId,
+          isActive: s.isActive,
+        })),
+      }),
       merge: (persisted, current) => {
-
-        const raw = persisted as { services?: unknown[] } | undefined;
-
-        if (!raw?.services) return current;
-
-        return {
-
-          ...current,
-
-          services: raw.services.map((service) => normalizeLoaded(service as AcpService)),
-
-        };
-
+        const raw = persisted as { services?: Array<{ id?: string; modelSelectionId?: string | null; isActive?: boolean }> } | undefined;
+        const savedActive =
+          raw?.services?.find((s) => s.isActive && isSupportedAgentKind(s.id ?? ""))?.id ??
+          DEFAULT_AGENT_KIND;
+        const activeKind = isSupportedAgentKind(savedActive) ? savedActive : DEFAULT_AGENT_KIND;
+        const services = buildDefaultServices(activeKind as AgentKind, current.installStatuses);
+        if (raw?.services) {
+          for (const saved of raw.services) {
+            if (!saved.id || !isSupportedAgentKind(saved.id)) continue;
+            const idx = services.findIndex((s) => s.id === saved.id);
+            if (idx >= 0) {
+              services[idx] = {
+                ...services[idx],
+                modelSelectionId: saved.modelSelectionId ?? services[idx].modelSelectionId,
+                isActive: saved.id === activeKind,
+              };
+            }
+          }
+        }
+        return { ...current, services };
       },
-
     },
-
   ),
-
 );
 
-
-
-/** 确保内置 OmniPanel Agent 存在且为默认激活项（首次启动或无激活服务时）。 */
-
-export function initAcpServicesStore(): void {
-
+export async function initAcpServicesStore(): Promise<void> {
   const defaultModelId = resolveAcpModelSelectionId(null);
+  let { services, installStatuses } = useAcpServicesStore.getState();
 
-  let services = useAcpServicesStore.getState().services.map(normalizeLoaded);
-
-
-
-  const builtinIndex = services.findIndex((s) => s.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID);
-
-  if (builtinIndex === -1) {
-
-    const hasActive = services.some((s) => s.isActive);
-
-    services = [
-
-      createBuiltinService(defaultModelId, !hasActive || services.length === 0),
-
-      ...services,
-
-    ];
-
-  } else {
-
-    services = services.map((s) => {
-
-      if (s.id !== OMNIPANEL_BUILTIN_ACP_SERVICE_ID) return s;
-
-      return {
-
-        ...createBuiltinService(s.modelSelectionId ?? defaultModelId, s.isActive),
-
-        modelSelectionId: s.modelSelectionId ?? defaultModelId,
-
-        isActive: s.isActive,
-
-      };
-
-    });
-
+  if (!services.some((s) => isSupportedAgentKind(s.id))) {
+    services = buildDefaultServices(DEFAULT_AGENT_KIND, installStatuses);
   }
 
-
-
-  if (!services.some((s) => s.isActive)) {
-
-    services = services.map((s) => ({
-
-      ...s,
-
-      isActive: s.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID,
-
+  services = services
+    .filter((s) => isSupportedAgentKind(s.id))
+    .map((s) => ({
+      ...createService(s.id, s.isActive, installStatuses.find((st) => st.kind === s.id)),
+      modelSelectionId: s.modelSelectionId ?? defaultModelId,
+      isActive: s.isActive,
     }));
 
+  if (!services.some((s) => s.isActive)) {
+    const fallback = normalizeActiveKind(services);
+    services = services.map((s) => ({ ...s, isActive: s.id === fallback }));
   }
 
-
-
-  useAcpServicesStore.setState({ services: enforceSingleActive(services) });
-
+  useAcpServicesStore.setState({ services });
+  await useAcpServicesStore.getState().refreshDetection();
 }
-
-
 
 export function getActiveAcpService(services: AcpService[]): AcpService | null {
-
-  return (
-
-    services.find((s) => s.isActive) ??
-
-    services.find((s) => s.id === OMNIPANEL_BUILTIN_ACP_SERVICE_ID) ??
-
-    null
-
-  );
-
+  return services.find((s) => s.isActive) ?? services[0] ?? null;
 }
 
+export function getActiveAgentKind(services: AcpService[]): AgentKind {
+  const active = getActiveAcpService(services);
+  return active && isSupportedAgentKind(active.id) ? active.id : DEFAULT_AGENT_KIND;
+}
+
+export { agentKindToServiceId, SUPPORTED_AGENT_KINDS };

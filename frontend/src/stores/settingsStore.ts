@@ -195,8 +195,6 @@ interface SettingsState {
   aiScenarioTerminalModelSelectionId: string | null;
   /** 终端命令审批档位：严格 / 查看 / 宽松 */
   terminalApprovalMode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode;
-  /** 为 true 时 Agent 子进程显示控制台窗口（Windows 调试用） */
-  agentDebugConsole: boolean;
   databaseQueryPageSize: DatabaseQueryPageSize;
   sqlEditorFontFamily: string;
   sqlEditorFontSize: SqlEditorFontSize;
@@ -229,7 +227,6 @@ interface SettingsState {
   setTerminalApprovalMode: (
     mode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode,
   ) => void;
-  setAgentDebugConsole: (enabled: boolean) => void;
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,
     "databaseQueryPageSize" | "sqlEditorFontFamily" | "sqlEditorFontSize" | "sqlEditorLineHeight"
   >>) => void;
@@ -311,7 +308,6 @@ export const useSettingsStore = create<SettingsState>()(
       aiScenarioAssistantModelSelectionId: null,
       aiScenarioTerminalModelSelectionId: null,
       terminalApprovalMode: "view",
-      agentDebugConsole: false,
       databaseQueryPageSize: DEFAULT_DATABASE_QUERY_PAGE_SIZE,
       sqlEditorFontFamily: DEFAULT_SQL_EDITOR_FONT_FAMILY,
       sqlEditorFontSize: DEFAULT_SQL_EDITOR_FONT_SIZE,
@@ -362,7 +358,6 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setAiScenarioSettings: (patch) => set(patch),
       setTerminalApprovalMode: (terminalApprovalMode) => set({ terminalApprovalMode }),
-      setAgentDebugConsole: (agentDebugConsole) => set({ agentDebugConsole }),
       setDatabaseSettings: (patch) =>
         set((state) => ({
           databaseQueryPageSize:
@@ -425,7 +420,6 @@ export const useSettingsStore = create<SettingsState>()(
         aiScenarioAssistantModelSelectionId: state.aiScenarioAssistantModelSelectionId,
         aiScenarioTerminalModelSelectionId: state.aiScenarioTerminalModelSelectionId,
         terminalApprovalMode: state.terminalApprovalMode,
-        agentDebugConsole: state.agentDebugConsole,
         databaseQueryPageSize: state.databaseQueryPageSize,
         sqlEditorFontFamily: state.sqlEditorFontFamily,
         sqlEditorFontSize: state.sqlEditorFontSize,

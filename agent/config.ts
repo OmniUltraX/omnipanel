@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { McpServer } from "@agentclientprotocol/sdk";
+
 /** OmniPanel 写入的 agent 配置文件结构（app_data_dir/acp-agent-config.json）。 */
 export type OmniAgentConfigFile = {
   version?: number;
@@ -8,6 +10,7 @@ export type OmniAgentConfigFile = {
   apiKey: string;
   baseUrl: string;
   apiStandard: "openai" | "anthropic";
+  mcpServers?: McpServer[];
 };
 
 let cachedConfig: OmniAgentConfigFile | null | undefined;
@@ -19,7 +22,10 @@ function resolveConfigPath(): string | null {
 }
 
 /** 读取 OmniPanel 写入的配置文件；未设置 OMNIAGENT_CONFIG 时返回 null。 */
-export function loadAgentConfigFile(): OmniAgentConfigFile | null {
+export function loadAgentConfigFile(forceReload = false): OmniAgentConfigFile | null {
+  if (forceReload) {
+    cachedConfig = undefined;
+  }
   if (cachedConfig !== undefined) {
     return cachedConfig;
   }
@@ -44,14 +50,27 @@ export function loadAgentConfigFile(): OmniAgentConfigFile | null {
       apiKey: parsed.apiKey.trim(),
       baseUrl: parsed.baseUrl.trim().replace(/\/+$/, ""),
       apiStandard: parsed.apiStandard === "anthropic" ? "anthropic" : "openai",
+      mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : [],
     };
-    log("已加载配置:", path.basename(configPath), cachedConfig.model);
+    log(
+      "已加载配置:",
+      path.basename(configPath),
+      cachedConfig.model,
+      "mcp=",
+      cachedConfig.mcpServers?.length ?? 0,
+    );
     return cachedConfig;
   } catch (error) {
     log("读取配置失败:", configPath, error);
     cachedConfig = null;
     return null;
   }
+}
+
+/** 从配置文件读取 OmniPanel 同步的 MCP 服务列表。 */
+export function resolveMcpServersFromConfig(): McpServer[] {
+  const config = loadAgentConfigFile(true);
+  return config?.mcpServers ?? [];
 }
 
 /** 将配置应用到进程环境变量，供 LangChain / DeepAgents 使用。 */

@@ -64,7 +64,7 @@ export async function clearAppUserData(): Promise<void> {
   useAiStore.setState({ conversations: [], activeConversationId: null });
   useAiModelsStore.getState().resetProviders();
   useAcpServicesStore.getState().resetServices();
-  initAcpServicesStore();
+  await initAcpServicesStore();
 
   const taskRes = await commands.taskList(null, 500);
   if (taskRes.status === "ok") {

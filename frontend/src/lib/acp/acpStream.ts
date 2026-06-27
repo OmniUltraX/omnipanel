@@ -1,7 +1,9 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { AcpStreamEvent } from "../../ipc/bindings";
 import { commands } from "../../ipc/bindings";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { connectAgentByKind } from "../agents/connect";
+import { getAgentAdapter } from "../agents/registry";
+import { statusByKind } from "../agents/detect";
 import { isTauriRuntime } from "../isTauriRuntime";
 
 export type { AcpStreamEvent };
@@ -12,11 +14,6 @@ export interface AcpPromptOptions {
   cwd?: string | null;
   signal?: AbortSignal;
   onEvent: (event: AcpStreamEvent) => void;
-}
-
-function resolveAgentShowConsole(override?: boolean): boolean {
-  if (override !== undefined) return override;
-  return useSettingsStore.getState().agentDebugConsole;
 }
 
 /** 通过 Tauri ACP 后端发起一轮 prompt，流式接收 ACP 事件。 */
@@ -60,21 +57,16 @@ export async function respondAcpPermission(
   }
 }
 
-export async function connectAcpAgent(
-  commandLine: string,
-  showConsole?: boolean,
-): Promise<void> {
-  const result = await commands.acpConnect(commandLine, resolveAgentShowConsole(showConsole));
+export async function connectAcpAgent(commandLine: string): Promise<void> {
+  const result = await commands.acpConnect(commandLine);
   if (result.status === "error") {
     throw new Error(result.error);
   }
 }
 
-export async function connectDefaultAcpAgent(showConsole?: boolean): Promise<void> {
-  const result = await commands.acpConnectDefault(resolveAgentShowConsole(showConsole));
-  if (result.status === "error") {
-    throw new Error(result.error);
-  }
+/** @deprecated 使用 connectActiveAcpAgent */
+export async function connectDefaultAcpAgent(): Promise<void> {
+  await connectActiveAcpAgent();
 }
 
 export async function getAcpDefaultCommand(): Promise<string | null> {
@@ -93,10 +85,10 @@ export async function getAcpStatus() {
   return result.data;
 }
 
-/** 启动时连接当前激活的 ACP agent（默认内置 /agent）。 */
+/** 启动时连接当前激活的 Agent。 */
 let connectInFlight: Promise<void> | null = null;
 
-export async function connectActiveAcpAgent(showConsole?: boolean): Promise<void> {
+export async function connectActiveAcpAgent(): Promise<void> {
   if (!isTauriRuntime()) return;
   if (connectInFlight) {
     return connectInFlight;
@@ -104,30 +96,31 @@ export async function connectActiveAcpAgent(showConsole?: boolean): Promise<void
 
   connectInFlight = (async () => {
     const {
-      getActiveAcpService,
-      isBuiltinAcpService,
+      getActiveAgentKind,
       resolveAcpModelSelectionId,
       useAcpServicesStore,
     } = await import("../../stores/acpServicesStore");
-    const { syncAcpAgentConfigFile } = await import("./syncAgentConfig");
 
-    const { services } = useAcpServicesStore.getState();
-    const active = getActiveAcpService(services);
-    const show = resolveAgentShowConsole(showConsole);
+    const state = useAcpServicesStore.getState();
+    const kind = getActiveAgentKind(state.services);
+    const installStatus = statusByKind(state.installStatuses, kind);
+    const adapter = getAgentAdapter(kind);
 
-    const modelSelectionId = resolveAcpModelSelectionId(active);
-    if (!modelSelectionId) {
+    if (!installStatus?.installed) {
+      console.warn(`[ACP] ${kind} 未安装，跳过 Agent 自动连接`);
+      return;
+    }
+
+    const modelSelectionId = adapter.requiresOmniPanelConfig()
+      ? resolveAcpModelSelectionId(state.services.find((s) => s.isActive) ?? null)
+      : null;
+
+    if (adapter.requiresOmniPanelConfig() && !modelSelectionId) {
       console.warn("[ACP] 未配置 AI 模型，跳过 Agent 自动启动");
       return;
     }
-    await syncAcpAgentConfigFile(modelSelectionId);
 
-    if (active && !isBuiltinAcpService(active) && active.executablePath.trim()) {
-      await connectAcpAgent(active.executablePath.trim(), show);
-      return;
-    }
-
-    await connectDefaultAcpAgent(show);
+    await connectAgentByKind(kind, installStatus, modelSelectionId);
   })().catch((error) => {
     console.warn("[ACP] 启动连接失败:", error);
   }).finally(() => {

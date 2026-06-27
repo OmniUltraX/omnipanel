@@ -2232,15 +2232,31 @@ export const enUS: TranslationDict = {
       title: "Other",
       desc: "AI-related preferences that don't belong to models or MCP services.",
     },
-    agent: {
-      comingSoon: "Configuration options coming soon for SDK integration.",
-      opencode: {
-        title: "OpenCode",
-        description: "Configure OpenCode Agent SDK connection and runtime options.",
+    agents: {
+      title: "Agent",
+      description:
+        "Choose a local ACP agent. OmniAgent is the built-in default and uses models from the AI section; you can switch to Cursor, OpenCode, or Qwen CLI.",
+      detecting: "Detecting…",
+      redetect: "Detect again",
+      installed: "Installed",
+      notFound: "Not found",
+      installHint: "Not installed or not on PATH",
+      notInstalled: "{name} is not installed. Install the CLI first.",
+      omniagent: {
+        name: "OmniAgent",
+        desc: "Built-in OmniPanel agent (DeepAgents + Skills + MCP). Uses AI models and MCP services via acp-agent-config.json.",
       },
       cursor: {
-        title: "Cursor",
-        description: "Configure Cursor Agent SDK connection and runtime options.",
+        name: "Cursor",
+        desc: "Use Cursor CLI (agent acp) as the local agent; auth is managed by your Cursor account.",
+      },
+      opencode: {
+        name: "OpenCode",
+        desc: "Use OpenCode CLI (opencode acp) as the local agent.",
+      },
+      qwen: {
+        name: "Qwen",
+        desc: "Use Qwen Code CLI (qwen --acp) as the local agent.",
       },
     },
     aiScenarios: {
@@ -2253,7 +2269,7 @@ export const enUS: TranslationDict = {
       },
       assistant: {
         label: "AI Assistant",
-        desc: "Default model for AI assistant chats; can be changed temporarily in the assistant UI.",
+        desc: "Default model for AI assistant chats; OmniAgent uses this model (written to acp-agent-config.json).",
       },
     },
     acpServices: {
@@ -2321,11 +2337,9 @@ export const enUS: TranslationDict = {
         browserMode: "Unavailable in browser mode",
         modelRequired: "Configure a model for the ACP service first (Edit service → select LLM model)",
       },
-      debugConsole: {
-        label: "Agent debug console",
-        desc: "When enabled, shows the Agent subprocess console window (Windows) for node / agent logs. Toggling reconnects the Agent automatically.",
-      },
       hintLabel: "Example command:",
+      mcpEmbeddedDesc:
+        "Manage MCP services and sync them into the OmniAgent config file; enabled running services are loaded as tools in Agent sessions.",
     },
     mcpServices: {
       title: "MCP",
@@ -2353,11 +2367,6 @@ export const enUS: TranslationDict = {
         stopped: "Stopped",
         starting: "Starting",
         error: "Error",
-      },
-      empty: {
-        title: "No custom MCP services yet",
-        desc: "Add a stdio command or SSE endpoint for AI modules to connect to external MCP tools.",
-        cta: "Add MCP Service",
       },
       add: {
         title: "New MCP Service",
@@ -2618,6 +2627,8 @@ export const enUS: TranslationDict = {
       allRequests: "All Requests",
       savedRequests: "Saved Requests",
       requestName: "Request name…",
+      workspaceEmpty: "Select a request from the API list, or click + to create one",
+      recentClosed: "Recently closed",
       tabs: { params: "Params", headers: "Headers", body: "Body", auth: "Auth", scripts: "Scripts" },
       requestBody: "Request body…",
       preRequestScript: "Pre-request Script",
