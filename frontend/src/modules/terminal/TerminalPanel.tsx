@@ -380,6 +380,7 @@ export function TerminalPanel() {
         className="terminal-module-dock"
         dockScope="terminal"
         acceptExternalDrops
+        moduleTitle={t("routes.terminal")}
         tabs={dockTabs}
         activeTabId={activeTabId ?? visibleTabs[0]?.id ?? ""}
         onActiveTabChange={setActiveTab}

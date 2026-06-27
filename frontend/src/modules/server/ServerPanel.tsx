@@ -136,6 +136,7 @@ export function ServerPanel() {
     <>
       <ModuleSegmentDock
         className="server-module-dock"
+        moduleTitle={t("routes.server")}
         tabs={segmentTabs}
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as ServerWorkspaceTab)}

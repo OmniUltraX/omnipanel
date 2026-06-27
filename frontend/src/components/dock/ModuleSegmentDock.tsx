@@ -8,6 +8,7 @@ import {
 import type { DockPanelRefreshProps } from "./dockPanelRefresh";
 import type { DockTabIconKind } from "./DockTabIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
+import { ModuleDockTitle } from "./ModuleDockTitle";
 
 export interface ModuleSegmentTab {
   id: string;
@@ -44,7 +45,9 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   dockScope?: string;
   /** 是否接受其他 dockview 拖入的 panel */
   acceptExternalDrops?: boolean;
-  /** Tab 栏前缀区域（tabs 左侧，如首页工作区切换） */
+  /** Tab 栏左侧模块标题（对齐设计稿 .topbar-title） */
+  moduleTitle?: ReactNode;
+  /** Tab 栏前缀区域（tabs 左侧，位于 moduleTitle 之后，如工作区切换） */
   preActions?: ReactNode;
 }
 
@@ -70,6 +73,7 @@ export function ModuleSegmentDock({
   emptyContent,
   dockScope,
   acceptExternalDrops,
+  moduleTitle,
   preActions,
   panelContentKey,
   softRefreshKey,
@@ -101,6 +105,17 @@ export function ModuleSegmentDock({
     .filter(Boolean)
     .join(" ");
 
+  const composedPreActions = useMemo(() => {
+    const hasTitle = moduleTitle != null && moduleTitle !== "";
+    if (!hasTitle && !preActions) return undefined;
+    return (
+      <>
+        {hasTitle ? <ModuleDockTitle>{moduleTitle}</ModuleDockTitle> : null}
+        {preActions}
+      </>
+    );
+  }, [moduleTitle, preActions]);
+
   return (
     <DockableWorkspace
       className={rootClassName}
@@ -118,7 +133,7 @@ export function ModuleSegmentDock({
       addTabConfig={enabled ? addTabConfig : undefined}
       onTabContextMenu={onTabContextMenu}
       emptyContent={emptyContent}
-      preActions={preActions}
+      preActions={composedPreActions}
       acceptExternalDrops={acceptExternalDrops}
       panelContentKey={panelContentKey}
       softRefreshKey={softRefreshKey}

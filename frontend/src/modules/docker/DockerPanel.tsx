@@ -1274,6 +1274,7 @@ export function DockerPanel() {
     <>
       <ModuleSegmentDock
         className="docker-module-dock"
+        moduleTitle={t("routes.docker")}
         tabs={dockerSegmentTabs}
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as DockerWorkspaceTab)}

@@ -32,6 +32,7 @@ export function SshPanel() {
   return (
     <ModuleSegmentDock
       className="ssh-module-dock"
+      moduleTitle={t("routes.ssh")}
       tabs={segmentTabs}
       activeTabId={workspaceTab}
       onActiveTabChange={(id) => setWorkspaceTab(id as SshWorkspaceTab)}

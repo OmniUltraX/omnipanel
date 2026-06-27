@@ -37,6 +37,7 @@ export function KnowledgePanel() {
   return (
     <ModuleSegmentDock
       className="knowledge-module-dock"
+      moduleTitle={t("routes.knowledge")}
       tabs={segmentTabs}
       activeTabId={tab}
       onActiveTabChange={(id) => setTab(id as KnowledgeModuleTab)}

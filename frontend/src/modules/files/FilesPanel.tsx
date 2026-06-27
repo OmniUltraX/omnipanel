@@ -463,6 +463,7 @@ export function FilesPanel() {
   return (
     <ModuleSegmentDock
       className="files-module-dock"
+      moduleTitle={t("routes.files")}
       tabs={segmentTabs}
       activeTabId={tab}
       onActiveTabChange={(id) => setTab(id as FilesModuleTab)}

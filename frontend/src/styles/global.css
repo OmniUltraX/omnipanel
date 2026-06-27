@@ -3191,12 +3191,27 @@
     align-self: stretch;
     height: 100%;
     flex-shrink: 0;
+    gap: var(--sp-3);
 }
 
 .dockable-workspace .dock-prefix-actions .workspace-switcher {
     display: flex;
     align-items: stretch;
     height: 100%;
+}
+
+/* 模块 dock 标题 — 对齐设计稿 .topbar-title + .topbar-tabs margin */
+.dockable-workspace .dock-prefix-actions .module-dock-title {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--sp-4);
+    flex-shrink: 0;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.dockable-workspace .dv-pre-actions-container:has(.module-dock-title) + .dv-tabs-container {
+    margin-left: var(--sp-4);
 }
 
 .dockable-workspace .workspace-switcher-trigger {

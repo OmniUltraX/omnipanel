@@ -58,6 +58,7 @@ export function ProtocolPanel() {
   return (
     <ModuleSegmentDock
       className="protocol-module-dock"
+      moduleTitle={t("routes.protocol")}
       tabs={segmentTabs}
       activeTabId={active}
       onActiveTabChange={(id) => setActive(id as ProtocolKind)}

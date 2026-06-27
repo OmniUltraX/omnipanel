@@ -3877,6 +3877,7 @@ export function DatabasePanel() {
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
     <ModuleSegmentDock
       className="db-module-dock"
+      moduleTitle={t("routes.database")}
       enabled={moduleLive}
       panelContentKey={modulePanelContentKey}
       softRefreshKey={moduleSoftRefreshKey}
