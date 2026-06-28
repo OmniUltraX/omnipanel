@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import { resolveResourceById } from "../../stores/connectionStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
@@ -20,15 +21,11 @@ import {
 } from "./terminalConnectionOrder";
 
 const EXPANDED_STORAGE_KEY = "omnipanel-terminal-session-tree-expanded";
-const CONNECTION_DRAG_MIME = "application/x-omnipanel-terminal-connection";
+const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
 
-function isConnectionDrag(event: DragEvent): boolean {
-  const types = event.dataTransfer.types;
-  return types.includes(CONNECTION_DRAG_MIME) || types.includes("text/plain");
-}
-
-function readDraggedConnectionId(event: DragEvent): string {
-  return event.dataTransfer.getData(CONNECTION_DRAG_MIME) || event.dataTransfer.getData("text/plain");
+function isConnectionPointerDragExcluded(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return true;
+  return Boolean(target.closest(".drag-ignore, button"));
 }
 
 type ConnectionGroup = {
@@ -107,19 +104,6 @@ function FolderIcon() {
   );
 }
 
-function GripIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10" aria-hidden>
-      <circle cx="9" cy="7" r="1.2" />
-      <circle cx="15" cy="7" r="1.2" />
-      <circle cx="9" cy="12" r="1.2" />
-      <circle cx="15" cy="12" r="1.2" />
-      <circle cx="9" cy="17" r="1.2" />
-      <circle cx="15" cy="17" r="1.2" />
-    </svg>
-  );
-}
-
 function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg
@@ -187,15 +171,12 @@ function ConnectionGroupBlock({
   activeSessionId,
   sessionStatusById,
   dropHint,
+  draggingSource,
   onToggle,
   onSelectSession,
   onCreateSession,
   onEndSession,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDragEnd,
+  onConnectionPointerDown,
 }: {
   group: ConnectionGroup;
   blocksBySession: Record<string, TerminalBlock[]>;
@@ -203,34 +184,25 @@ function ConnectionGroupBlock({
   activeSessionId: string | null;
   sessionStatusById: Map<string, TopbarTabDef["status"]>;
   dropHint: "before" | "after" | null;
+  draggingSource: boolean;
   onToggle: () => void;
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
   onEndSession: (sessionId: string) => void;
-  onDragStart: (event: DragEvent<HTMLSpanElement>, resourceId: string) => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>, resourceId: string) => void;
-  onDragLeave: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>, resourceId: string) => void;
-  onDragEnd: () => void;
+  onConnectionPointerDown: (
+    event: ReactPointerEvent<HTMLDivElement>,
+    resourceId: string,
+  ) => void;
 }) {
   const { t } = useI18n();
   return (
-    <div
-      className={`term-session-tree__group${dropHint === "before" ? " is-drop-before" : ""}${dropHint === "after" ? " is-drop-after" : ""}`}
-      onDragOver={(event) => onDragOver(event, group.resourceId)}
-      onDragLeave={onDragLeave}
-      onDrop={(event) => onDrop(event, group.resourceId)}
-    >
-      <div className="term-session-tree__connection">
-        <span
-          className="term-session-tree__drag-handle"
-          draggable
-          title={t("terminal.sessions.reorderConnection")}
-          onDragStart={(event) => onDragStart(event, group.resourceId)}
-          onDragEnd={onDragEnd}
-        >
-          <GripIcon />
-        </span>
+    <div className="term-session-tree__group">
+      <div
+        className={`term-session-tree__connection${dropHint === "before" ? " is-drop-before" : ""}${dropHint === "after" ? " is-drop-after" : ""}${draggingSource ? " is-dragging-source" : ""}`}
+        data-connection-id={group.resourceId}
+        title={t("terminal.sessions.reorderConnection")}
+        onPointerDown={(event) => onConnectionPointerDown(event, group.resourceId)}
+      >
         <button
           type="button"
           className="term-session-tree__connection-toggle drag-ignore"
@@ -239,12 +211,23 @@ function ConnectionGroupBlock({
         >
           <ChevronIcon expanded={expanded} />
         </button>
-        <button type="button" className="term-session-tree__connection-main drag-ignore" onClick={onToggle}>
+        <div
+          role="button"
+          tabIndex={0}
+          className="term-session-tree__connection-main"
+          onClick={onToggle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onToggle();
+            }
+          }}
+        >
           <span className="term-session-tree__folder" aria-hidden>
             <FolderIcon />
           </span>
           <span className="term-session-tree__connection-name">{group.name}</span>
-        </button>
+        </div>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -312,11 +295,25 @@ export function TerminalSessionSidebar({
 
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>(readExpandedMap);
   const [connectionOrder, setConnectionOrder] = useState<string[]>(readConnectionOrder);
-  const draggingResourceIdRef = useRef<string | null>(null);
+  const [draggingSourceId, setDraggingSourceId] = useState<string | null>(null);
+  const [isPointerDragging, setIsPointerDragging] = useState(false);
   const [dropTarget, setDropTarget] = useState<{
     resourceId: string;
     position: "before" | "after";
   } | null>(null);
+  const treeBodyRef = useRef<HTMLDivElement>(null);
+  const connectionGroupsRef = useRef<ConnectionGroup[]>([]);
+  const connectionOrderRef = useRef(connectionOrder);
+  const skipNextToggleRef = useRef(false);
+  const pointerDragRef = useRef<{
+    resourceId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
+
+  connectionOrderRef.current = connectionOrder;
 
   const connectionGroups = useMemo((): ConnectionGroup[] => {
     const map = new Map<string, TerminalSession[]>();
@@ -350,6 +347,8 @@ export function TerminalSessionSidebar({
     return sortConnectionGroups(groups, mergedOrder);
   }, [sessions, connectionOrder, blocksBySession]);
 
+  connectionGroupsRef.current = connectionGroups;
+
   useEffect(() => {
     const resourceIds = connectionGroups.map((group) => group.resourceId);
     if (resourceIds.length === 0) return;
@@ -370,11 +369,134 @@ export function TerminalSessionSidebar({
 
   const toggleExpanded = useCallback(
     (resourceId: string) => {
+      if (skipNextToggleRef.current) {
+        skipNextToggleRef.current = false;
+        return;
+      }
       const current = expandedMap[resourceId] ?? true;
       setExpanded(resourceId, !current);
     },
     [expandedMap, setExpanded],
   );
+
+  const cleanupPointerDrag = useCallback(() => {
+    pointerDragRef.current = null;
+    setDraggingSourceId(null);
+    setIsPointerDragging(false);
+    setDropTarget(null);
+    document.body.classList.remove("term-session-tree--dragging");
+    document.body.style.cursor = "";
+    document.documentElement.style.cursor = "";
+  }, []);
+
+  const resolveConnectionDropFromPointer = useCallback(
+    (clientX: number, clientY: number): { resourceId: string; position: "before" | "after" } | null => {
+      const treeBody = treeBodyRef.current;
+      if (!treeBody) return null;
+
+      const connections = [...treeBody.querySelectorAll<HTMLElement>("[data-connection-id]")];
+      for (const connectionEl of connections) {
+        const rect = connectionEl.getBoundingClientRect();
+        if (
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          continue;
+        }
+        const resourceId = connectionEl.dataset.connectionId;
+        if (!resourceId) continue;
+        const position = clientY < rect.top + rect.height / 2 ? "before" : "after";
+        return { resourceId, position };
+      }
+
+      const groups = connectionGroupsRef.current;
+      if (groups.length === 0) return null;
+
+      const lastConnection = connections[connections.length - 1];
+      const lastGroup = groups[groups.length - 1];
+      if (!lastConnection || !lastGroup) return null;
+
+      const rect = lastConnection.getBoundingClientRect();
+      if (clientY > rect.bottom + 4) {
+        return { resourceId: lastGroup.resourceId, position: "after" };
+      }
+      return null;
+    },
+    [],
+  );
+
+  const handleConnectionPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>, resourceId: string) => {
+      if (event.button !== 0) return;
+      if (isConnectionPointerDragExcluded(event.target)) return;
+      pointerDragRef.current = {
+        resourceId,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const session = pointerDragRef.current;
+      if (!session || event.pointerId !== session.pointerId) return;
+
+      const dx = event.clientX - session.startX;
+      const dy = event.clientY - session.startY;
+      if (!session.active) {
+        if (Math.hypot(dx, dy) < CONNECTION_POINTER_DRAG_THRESHOLD_PX) return;
+        session.active = true;
+        setDraggingSourceId(session.resourceId);
+        setIsPointerDragging(true);
+        document.body.classList.add("term-session-tree--dragging");
+        document.body.style.cursor = "grabbing";
+        document.documentElement.style.cursor = "grabbing";
+      }
+
+      event.preventDefault();
+      setDropTarget(resolveConnectionDropFromPointer(event.clientX, event.clientY));
+    };
+
+    const finishPointerDrag = (event: PointerEvent) => {
+      const session = pointerDragRef.current;
+      if (!session || event.pointerId !== session.pointerId) return;
+
+      if (session.active) {
+        const hint = resolveConnectionDropFromPointer(event.clientX, event.clientY);
+        if (hint && hint.resourceId !== session.resourceId) {
+          const resourceIds = connectionGroupsRef.current.map((group) => group.resourceId);
+          const currentOrder = mergeConnectionOrder(connectionOrderRef.current, resourceIds);
+          const next = moveConnectionInOrder(
+            currentOrder,
+            session.resourceId,
+            hint.resourceId,
+            hint.position,
+          );
+          setConnectionOrder(next);
+          writeConnectionOrder(next);
+        }
+        skipNextToggleRef.current = true;
+      }
+
+      cleanupPointerDrag();
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finishPointerDrag);
+    window.addEventListener("pointercancel", finishPointerDrag);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", finishPointerDrag);
+      window.removeEventListener("pointercancel", finishPointerDrag);
+      cleanupPointerDrag();
+    };
+  }, [cleanupPointerDrag, resolveConnectionDropFromPointer]);
 
   useEffect(() => {
     if (!resolvedActiveSessionId) return;
@@ -384,65 +506,15 @@ export function TerminalSessionSidebar({
     }
   }, [resolvedActiveSessionId, sessions, setExpanded]);
 
-  const handleDragStart = useCallback((event: DragEvent<HTMLSpanElement>, resourceId: string) => {
-    event.stopPropagation();
-    event.dataTransfer.setData(CONNECTION_DRAG_MIME, resourceId);
-    event.dataTransfer.setData("text/plain", resourceId);
-    event.dataTransfer.effectAllowed = "move";
-    draggingResourceIdRef.current = resourceId;
-  }, []);
-
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>, resourceId: string) => {
-    if (!draggingResourceIdRef.current && !isConnectionDrag(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    const rect = event.currentTarget.getBoundingClientRect();
-    const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-    setDropTarget({ resourceId, position });
-  }, []);
-
-  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    const related = event.relatedTarget as Node | null;
-    if (!related || !event.currentTarget.contains(related)) {
-      setDropTarget(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>, targetId: string) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const sourceId = readDraggedConnectionId(event) || draggingResourceIdRef.current;
-      if (!sourceId || sourceId === targetId) {
-        setDropTarget(null);
-        draggingResourceIdRef.current = null;
-        return;
-      }
-      const rect = event.currentTarget.getBoundingClientRect();
-      const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-      const resourceIds = connectionGroups.map((group) => group.resourceId);
-      const currentOrder = mergeConnectionOrder(connectionOrder, resourceIds);
-      const next = moveConnectionInOrder(currentOrder, sourceId, targetId, position);
-      setConnectionOrder(next);
-      writeConnectionOrder(next);
-      setDropTarget(null);
-      draggingResourceIdRef.current = null;
-    },
-    [connectionGroups, connectionOrder],
-  );
-
-  const handleDragEnd = useCallback(() => {
-    draggingResourceIdRef.current = null;
-    setDropTarget(null);
-  }, []);
-
   return (
     <div className="term-session-tree">
+      {isPointerDragging
+        ? createPortal(<div className="term-session-tree__drag-cursor-layer" aria-hidden />, document.body)
+        : null}
       <div className="term-session-tree__module-header">
         <ModuleDockTitle>{t("routes.terminal")}</ModuleDockTitle>
       </div>
-      <div className="term-session-tree__body">
+      <div className="term-session-tree__body" ref={treeBodyRef}>
         {connectionGroups.length === 0 ? (
           <div className="term-session-tree__empty">{t("terminal.sessions.empty")}</div>
         ) : (
@@ -457,15 +529,12 @@ export function TerminalSessionSidebar({
               dropHint={
                 dropTarget?.resourceId === group.resourceId ? dropTarget.position : null
               }
+              draggingSource={draggingSourceId === group.resourceId}
               onToggle={() => toggleExpanded(group.resourceId)}
               onSelectSession={onSelectSession}
               onCreateSession={onCreateSession}
               onEndSession={onEndSession}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
+              onConnectionPointerDown={handleConnectionPointerDown}
             />
           ))
         )}

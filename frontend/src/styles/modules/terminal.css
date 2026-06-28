@@ -2181,52 +2181,44 @@
 
     .term-session-tree__group.is-drop-before::before,
     .term-session-tree__group.is-drop-after::after {
+        content: none;
+    }
+
+    .term-session-tree__connection.is-drop-before::before,
+    .term-session-tree__connection.is-drop-after::after {
         content: "";
-        display: block;
+        position: absolute;
+        left: 8px;
+        right: 8px;
         height: 2px;
-        margin: 0 8px;
         border-radius: 1px;
         background: var(--accent);
+        pointer-events: none;
     }
 
-    .term-session-tree__group.is-drop-before::before {
-        margin-bottom: 2px;
+    .term-session-tree__connection.is-drop-before::before {
+        top: 0;
     }
 
-    .term-session-tree__group.is-drop-after::after {
-        margin-top: 2px;
+    .term-session-tree__connection.is-drop-after::after {
+        bottom: 0;
     }
 
     .term-session-tree__connection {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 2px;
         min-height: 28px;
         padding-right: 4px;
-    }
-
-    .term-session-tree__drag-handle {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 16px;
-        height: 28px;
-        color: var(--meta);
         cursor: grab;
-        opacity: 0.45;
-        transition: opacity 0.12s;
+        cursor: -webkit-grab;
         touch-action: none;
-        -webkit-user-drag: element;
         user-select: none;
     }
 
-    .term-session-tree__connection:hover .term-session-tree__drag-handle {
-        opacity: 1;
-    }
-
-    .term-session-tree__drag-handle:active {
-        cursor: grabbing;
+    .term-session-tree__connection.is-dragging-source {
+        opacity: 0.55;
     }
 
     .term-session-tree__connection:hover {
@@ -2269,7 +2261,20 @@
         font-size: 12px;
         font-weight: 600;
         text-align: left;
-        cursor: pointer;
+        cursor: grab;
+        cursor: -webkit-grab;
+    }
+
+    .term-session-tree__connection-main .term-session-tree__folder,
+    .term-session-tree__connection-main .term-session-tree__connection-name {
+        cursor: grab;
+        cursor: -webkit-grab;
+    }
+
+    .term-session-tree__connection-main:focus-visible {
+        outline: 2px solid color-mix(in oklch, var(--accent) 50%, transparent);
+        outline-offset: -2px;
+        border-radius: 4px;
     }
 
     .term-session-tree__folder {
@@ -2451,4 +2456,30 @@
 
 .dock-handle.term-sessions-sidebar-handle--collapsed .dock-handle-inner {
     height: 48px;
+}
+
+body.term-session-tree--dragging {
+    cursor: grabbing !important;
+    cursor: -webkit-grabbing !important;
+    user-select: none;
+}
+
+body.term-session-tree--dragging * {
+    cursor: grabbing !important;
+    cursor: -webkit-grabbing !important;
+}
+
+body.term-session-tree--dragging .term-session-tree__connection-toggle,
+body.term-session-tree--dragging .term-session-tree__connection-add {
+    cursor: grabbing !important;
+    cursor: -webkit-grabbing !important;
+}
+
+/* 拖拽时全屏透明层，强制系统 grabbing 手型光标（指针拖拽无原生 drag 光标） */
+.term-session-tree__drag-cursor-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    cursor: grabbing !important;
+    cursor: -webkit-grabbing !important;
 }
