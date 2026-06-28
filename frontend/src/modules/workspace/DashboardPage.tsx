@@ -34,7 +34,6 @@ export function DashboardPage() {
     <ModuleSegmentDock
       className="dashboard-module-dock"
       dockScope="dashboard"
-      moduleTitle={t("routes.dashboard")}
       tabs={segmentTabs}
       activeTabId={DASHBOARD_TAB_ID}
       onActiveTabChange={() => {}}
