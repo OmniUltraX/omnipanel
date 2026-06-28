@@ -5,6 +5,7 @@ import type { DynamicStructuredTool } from "@langchain/core/tools";
 import { MemorySaver } from "@langchain/langgraph";
 import { MultiServerMCPClient, type ClientConfig, type Connection } from "@langchain/mcp-adapters";
 import { createDeepAgent, type DeepAgent } from "deepagents";
+import { OmniBackend } from "./omniBackend.js";
 
 import {
   applyAgentConfigToEnv,
@@ -13,6 +14,7 @@ import {
   resolveLangChainModelId,
   resolveMcpServersFromConfig,
 } from "./config.js";
+import { resolveOmniAgentSystemPrompt } from "./systemPrompt.js";
 
 const coreRoot = path.dirname(fileURLToPath(import.meta.url));
 const agentRoot = path.join(coreRoot, "..");
@@ -146,9 +148,8 @@ export async function createSessionRuntime(
     tools: mcpTools,
     skills,
     checkpointer: new MemorySaver(),
-    systemPrompt:
-      process.env.OMNIAGENT_SYSTEM_PROMPT ??
-      "你是 OmniPanel 本地编码助手。按需读取 Skills、调用 MCP 工具完成任务。回答简洁、可执行。",
+    systemPrompt: resolveOmniAgentSystemPrompt(),
+    backend: new OmniBackend()
   });
 
   return { sessionId, cwd, graph, mcpClient };

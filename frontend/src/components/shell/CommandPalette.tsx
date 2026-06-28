@@ -5,7 +5,8 @@ import { useActionStore } from "../../stores/actionStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { openLocalTerminalSession } from "../../lib/terminalSession";
 import { goWorkspaceHome, navigateToFeature } from "../../lib/workspaceNavigation";
-import { isModuleNavVisible, MODULE_PATHS } from "../../lib/paths";
+import { MODULE_PATHS } from "../../lib/paths";
+import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useI18n } from "../../i18n";
 import {
   formatShortcut,
@@ -68,18 +69,21 @@ export function CommandPalette() {
     [shortcutsOverrides]
   );
 
+  const modules = useAppModuleStore((s) => s.modules);
+
   const commands = useMemo(
     () =>
-      COMMAND_DEFS.filter(
-        (cmd) => cmd.id !== "workflow" || isModuleNavVisible("workflow"),
-      ).map((cmd) => ({
+      COMMAND_DEFS.filter((cmd) => {
+        if (!(cmd.id in MODULE_PATHS)) return true;
+        return isModuleOpen(cmd.id as keyof typeof MODULE_PATHS);
+      }).map((cmd) => ({
         ...cmd,
         label: t(cmd.labelKey),
         category: t(cmd.categoryKey),
         shortcut:
           cmd.shortcut === "$mod+`" ? aiShortcutLabel : cmd.shortcut,
       })),
-    [t, aiShortcutLabel]
+    [t, aiShortcutLabel, modules]
   );
 
   const filtered = commands.filter((cmd) =>

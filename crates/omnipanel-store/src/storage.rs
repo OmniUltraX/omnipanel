@@ -259,6 +259,51 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE http_history ADD COLUMN response_headers TEXT NOT NULL DEFAULT '{}';
     ALTER TABLE http_history ADD COLUMN response_body TEXT NOT NULL DEFAULT '';
     "#,
+    // v12 — 应用模块启用配置
+    r#"
+    CREATE TABLE IF NOT EXISTS app_modules (
+        module_key TEXT PRIMARY KEY NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO app_modules (module_key, enabled, sort_order) VALUES
+        ('terminal', 1, 0),
+        ('database', 1, 1),
+        ('ssh', 1, 2),
+        ('docker', 1, 3),
+        ('server', 1, 4),
+        ('files', 1, 5),
+        ('protocol', 1, 6),
+        ('workflow', 0, 7),
+        ('knowledge', 1, 8);
+    "#,
+    // v13 — 模块三态：open / closed / disabled
+    r#"
+    ALTER TABLE app_modules ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+    UPDATE app_modules SET status = CASE
+        WHEN enabled = 1 THEN 'open'
+        WHEN module_key = 'workflow' THEN 'disabled'
+        ELSE 'closed'
+    END;
+    "#,
+    // v14 — MCP 工具注册表
+    r#"
+    CREATE TABLE IF NOT EXISTS mcp_tools (
+        tool_name TEXT PRIMARY KEY NOT NULL,
+        module_key TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled) VALUES
+        ('omni_terminal_run_terminal_command', 'terminal', '在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。', 1),
+        ('omni_database_get_databases_from_connection', 'database', '根据连接名获取该连接下的数据库列表，可选关键字过滤。', 1),
+        ('omni_database_get_tables_from_database', 'database', '根据连接名和数据库名获取表列表，可选关键字过滤。', 1),
+        ('omni_database_get_table_info', 'database', '根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。', 1),
+        ('omni_database_execute_sql', 'database', '在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。', 1),
+        ('omni_knowledge_create_document', 'knowledge', '在知识库中创建文档。', 1),
+        ('omni_knowledge_remove_document', 'knowledge', '按 ID 删除知识库文档。', 1),
+        ('omni_knowledge_list_documents', 'knowledge', '列出知识库文档，可按类型或标签过滤。', 1);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -344,6 +389,9 @@ impl Storage {
             }
         }
         self.repair_http_schema()?;
+        self.repair_app_modules()?;
+        self.repair_mcp_tools()?;
+        self.mcp_tool_sync_all_modules()?;
         Ok(())
     }
 

@@ -31,7 +31,7 @@ import {
 } from "@/components/assistant-ui/select";
 import { useI18n } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { NAV_VISIBLE_MODULE_KEYS, type ModuleKey } from "../../lib/paths";
+import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
 import {
   ActionBarMorePrimitive,
@@ -237,11 +237,11 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const MODULE_KEYS: ModuleKey[] = NAV_VISIBLE_MODULE_KEYS;
-
 const ContextBar: FC = () => {
   const { t } = useI18n();
   const location = useLocation();
+  const modules = useAppModuleStore((s) => s.modules);
+  const moduleKeys = useMemo(() => getNavVisibleModuleKeys(), [modules]);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const workspaceIds = useMemo(
     () => workspaces.map((ws) => ws.id),
@@ -270,7 +270,7 @@ const ContextBar: FC = () => {
       <SelectContent>
         <SelectGroup>
           <SelectLabel>{t("ai.context.modules")}</SelectLabel>
-          {MODULE_KEYS.map((key) => (
+          {moduleKeys.map((key) => (
             <SelectItem key={key} value={`module:${key}`}>
               {t(moduleNavI18nKey(key))}
             </SelectItem>

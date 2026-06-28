@@ -2039,6 +2039,29 @@ export const zhCN = {
       decrease: "缩小界面",
       increase: "放大界面",
     },
+    system: {
+      label: "系统",
+      desc: "模块启用与 MCP 工具管理等系统级配置",
+    },
+    modules: {
+      label: "模块配置",
+      desc: "控制侧边栏中显示的功能模块；关闭后隐藏入口，禁用表示功能尚在开发中",
+      devLockedHint: "该模块正在开发中，暂不可用",
+      lastOpenHint: "至少保留一个模块为打开状态",
+      status: {
+        open: "打开",
+        closed: "关闭",
+        disabled: "禁用",
+      },
+    },
+    mcpTools: {
+      label: "MCP 工具管理",
+      desc: "管理各模块向 AI 暴露的 MCP 工具，禁用后 AI 无法调用",
+      moduleDesc: "共 {count} 个工具",
+      moduleClosedDesc: "模块已关闭或禁用，其 MCP 工具已同步禁用",
+      moduleSyncHint: "模块未打开时，其下 MCP 工具不可用；打开模块后可单独启用各工具",
+      empty: "暂无 MCP 工具",
+    },
     appearance: {
       accent: {
         blue: "经典蓝",
@@ -2566,6 +2589,8 @@ export const zhCN = {
       renameRequest: "重命名请求",
       renameRequestTitle: "重命名请求",
       deleteCollection: "删除集合",
+      deleteCollectionTitle: "删除集合",
+      deleteCollectionConfirm: "删除此集合？其中的请求将保留但不再归属该集合。",
       deleteRequest: "删除请求",
       apiListEmpty: "右键可创建文件夹或请求",
       selectRequestForHistory: "请在接口列表中选择一个请求",

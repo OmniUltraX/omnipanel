@@ -211,6 +211,9 @@ fn export_ipc_bindings() {
         commands::workflow::workflow_run,
         commands::workflow::workflow_stop,
         commands::workflow::workflow_get_execution,
+        // App modules（模块启用配置）
+        commands::app_module::app_module_list,
+        commands::app_module::app_module_set_status,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -263,6 +266,9 @@ fn export_ipc_bindings() {
         commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
+        commands::mcp_tool::mcp_tool_list,
+        commands::mcp_tool::mcp_tool_set_enabled,
+        commands::mcp_tool::mcp_tool_sync_catalog,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -668,6 +674,9 @@ pub fn run() {
             commands::workflow::workflow_run,
             commands::workflow::workflow_stop,
             commands::workflow::workflow_get_execution,
+            // App modules（模块启用配置）
+            commands::app_module::app_module_list,
+            commands::app_module::app_module_set_status,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,
@@ -694,6 +703,10 @@ pub fn run() {
         commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
+            // MCP 工具配置
+            commands::mcp_tool::mcp_tool_list,
+            commands::mcp_tool::mcp_tool_set_enabled,
+            commands::mcp_tool::mcp_tool_sync_catalog,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

@@ -47,6 +47,8 @@ import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
+import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
+import { McpToolsSettingsSection } from "../../components/settings/McpToolsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { Button } from "../../components/ui/Button";
@@ -59,7 +61,7 @@ import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
 
-type Section = "general" | "appearance" | "keybindings" | "ai" | "agent" | "security" | "terminal" | "database" | "files" | "knowledge" | "data";
+type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "agent" | "security" | "terminal" | "database" | "files" | "knowledge" | "data";
 
 interface NavItem {
   id: Section;
@@ -75,6 +77,17 @@ const NAV_ITEMS: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3" />
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+      </svg>
+    ),
+  },
+  {
+    id: "system",
+    label: "系统",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
       </svg>
     ),
   },
@@ -1206,6 +1219,26 @@ export function SettingsPanel() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* System */}
+        {activeSection === "system" && (
+          <div className="settings-panel active">
+            <div className="settings-section">
+              <h2>{t("settings.system.label")}</h2>
+              <p className="section-desc">{t("settings.system.desc")}</p>
+
+              <div className="settings-subsection-title">{t("settings.modules.label")}</div>
+              <p className="setting-hint settings-subsection-desc">{t("settings.modules.desc")}</p>
+              <ModulesSettingsSection />
+
+              <div className="settings-section-divider" />
+
+              <div className="settings-subsection-title">{t("settings.mcpTools.label")}</div>
+              <p className="setting-hint settings-subsection-desc">{t("settings.mcpTools.desc")}</p>
+              <McpToolsSettingsSection />
             </div>
           </div>
         )}

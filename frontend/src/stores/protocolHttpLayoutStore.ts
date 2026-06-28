@@ -100,8 +100,15 @@ interface ProtocolHttpLayoutState {
     beforeKey?: ProtocolTreeNodeKey | null,
   ) => void;
   moveNode: (sourceKey: ProtocolTreeNodeKey, target: ProtocolDropTarget) => boolean;
+  placeNode: (
+    sourceKey: ProtocolTreeNodeKey,
+    target: ProtocolDropTarget,
+    beforeKey?: ProtocolTreeNodeKey | null,
+  ) => boolean;
   toggleFolderExpanded: (folderId: string) => void;
   toggleCollectionExpanded: (collectionId: string) => void;
+  ensureFolderExpanded: (folderId: string) => void;
+  ensureCollectionExpanded: (collectionId: string) => void;
   isFolderExpanded: (folderId: string) => boolean;
   isCollectionExpanded: (collectionId: string) => boolean;
 }
@@ -230,7 +237,9 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         });
       },
 
-      moveNode: (sourceKey, target) => {
+      moveNode: (sourceKey, target) => get().placeNode(sourceKey, target, null),
+
+      placeNode: (sourceKey, target, beforeKey = null) => {
         if (sourceKey.startsWith("folder:")) {
           const folderId = sourceKey.slice("folder:".length);
           if (target.kind === "collection") return false;
@@ -252,7 +261,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         } else {
           return false;
         }
-        get().reorderSibling(sourceKey, target);
+        get().reorderSibling(sourceKey, target, beforeKey);
         return true;
       },
 
@@ -271,6 +280,20 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           if (expanded.has(collectionId)) expanded.delete(collectionId);
           else expanded.add(collectionId);
           return { expandedCollectionIds: [...expanded] };
+        });
+      },
+
+      ensureFolderExpanded: (folderId) => {
+        set((state) => {
+          if (state.expandedFolderIds.includes(folderId)) return state;
+          return { expandedFolderIds: [...state.expandedFolderIds, folderId] };
+        });
+      },
+
+      ensureCollectionExpanded: (collectionId) => {
+        set((state) => {
+          if (state.expandedCollectionIds.includes(collectionId)) return state;
+          return { expandedCollectionIds: [...state.expandedCollectionIds, collectionId] };
         });
       },
 

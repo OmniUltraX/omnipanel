@@ -388,6 +388,10 @@ export const commands = {
 	workflowStop: (executionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("workflow_stop", { executionId })),
 	/**  Get execution detail with step results. */
 	workflowGetExecution: (executionId: string) => typedError<WorkflowExecutionDetail, OmniError_Serialize>(__TAURI_INVOKE("workflow_get_execution", { executionId })),
+	/**  列出全部应用模块及其状态。 */
+	appModuleList: () => typedError<AppModule[], OmniError_Serialize>(__TAURI_INVOKE("app_module_list")),
+	/**  设置单个模块状态（open / closed；disabled 模块不可修改）。 */
+	appModuleSetStatus: (moduleKey: string, status: AppModuleStatus) => typedError<AppModule, OmniError_Serialize>(__TAURI_INVOKE("app_module_set_status", { moduleKey, status })),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -454,6 +458,12 @@ export const commands = {
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
+	/**  列出全部 MCP 工具配置。 */
+	mcpToolList: () => typedError<McpToolRecord[], OmniError_Serialize>(__TAURI_INVOKE("mcp_tool_list")),
+	/**  设置 MCP 工具启用状态。 */
+	mcpToolSetEnabled: (toolName: string, enabled: boolean) => typedError<McpToolRecord, OmniError_Serialize>(__TAURI_INVOKE("mcp_tool_set_enabled", { toolName, enabled })),
+	/**  从前端目录同步 MCP 工具元数据（不覆盖 enabled）。 */
+	mcpToolSyncCatalog: (entries: McpToolCatalogEntry[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mcp_tool_sync_catalog", { entries })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -589,6 +599,16 @@ export type ApiModelMeta_Serialize = {
 	created?: number | null,
 	ownedBy?: string | null,
 };
+
+/**  持久化的模块配置条目。 */
+export type AppModule = {
+	module_key: string,
+	status: AppModuleStatus,
+	sort_order: number,
+};
+
+/**  模块运行状态。 */
+export type AppModuleStatus = "open" | "closed" | "disabled";
 
 /**  抓包统计信息。 */
 export type CaptureStats = {
@@ -1650,9 +1670,24 @@ export type McpToolCallResult = {
 	isError: boolean,
 };
 
+/**  从前端目录同步时的输入（不覆盖用户已设置的 enabled）。 */
+export type McpToolCatalogEntry = {
+	tool_name: string,
+	module_key: string,
+	description: string,
+};
+
 export type McpToolInfo = {
 	name: string,
 	description?: string | null,
+};
+
+/**  持久化的 MCP 工具条目。 */
+export type McpToolRecord = {
+	tool_name: string,
+	module_key: string,
+	description: string,
+	enabled: boolean,
 };
 
 export type McpTransport = { kind: "stdio"; config: McpStdioTransport } | { kind: "sse"; config: McpSseTransport };

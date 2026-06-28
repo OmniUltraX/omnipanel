@@ -8,6 +8,8 @@ import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
 import { initAcpServicesStore } from "./stores/acpServicesStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
+import { initAppModuleStore } from "./stores/appModuleStore";
+import { initMcpToolStore } from "./stores/mcpToolStore";
 import { initActionListener } from "./stores/actionStore";
 
 const MIN_SPLASH_MS = 1400;
@@ -58,6 +60,8 @@ export function Bootstrap() {
         commands.setFileIndexStorageDir(fileIndexStorageDir).catch(() => {});
 
         advance(2);
+        await initAppModuleStore();
+        await initMcpToolStore();
         initConnections();
         initConnectionPool();
         initActionListener();

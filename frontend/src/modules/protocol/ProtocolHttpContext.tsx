@@ -513,6 +513,9 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       if (res.status === "ok") {
         const layout = useProtocolHttpLayoutStore.getState();
         layout.setRequestParent(req.id, parentFolderId);
+        if (parentFolderId) {
+          layout.ensureFolderExpanded(parentFolderId);
+        }
         layout.reorderSibling(
           `request:${req.id}`,
           parentFolderId ? { kind: "folder", folderId: parentFolderId } : { kind: "root" },

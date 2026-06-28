@@ -136,6 +136,12 @@ impl McpManager {
         use crate::types::McpServiceRuntimeStatus;
 
         if id == BUILTIN_SERVICE_ID {
+            {
+                let storage = self.storage.lock().await;
+                if !storage.mcp_tool_is_available(tool_name).unwrap_or(false) {
+                    anyhow::bail!("MCP 工具不可用: {tool_name}");
+                }
+            }
             let endpoint = self
                 .builtin
                 .as_ref()
@@ -176,7 +182,10 @@ impl McpManager {
                 .as_ref()
                 .map(|b| b.endpoint.clone())
                 .context("OmniMCP 未运行")?;
-            return crate::client::list_tools_http(&endpoint).await;
+            let mut tools = crate::client::list_tools_http(&endpoint).await?;
+            let storage = self.storage.lock().await;
+            tools.retain(|tool| storage.mcp_tool_is_available(&tool.name).unwrap_or(false));
+            return Ok(tools);
         }
 
         let service = self

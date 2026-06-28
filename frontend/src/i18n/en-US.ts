@@ -2080,6 +2080,29 @@ export const enUS: TranslationDict = {
       decrease: "Decrease UI scale",
       increase: "Increase UI scale",
     },
+    system: {
+      label: "System",
+      desc: "System-level settings such as module availability and MCP tool management",
+    },
+    modules: {
+      label: "Modules",
+      desc: "Control feature modules in the sidebar; closed hides the entry, disabled means still in development",
+      devLockedHint: "This module is under development and not available yet",
+      lastOpenHint: "At least one module must stay open",
+      status: {
+        open: "Open",
+        closed: "Closed",
+        disabled: "Disabled",
+      },
+    },
+    mcpTools: {
+      label: "MCP tools",
+      desc: "Manage MCP tools exposed to AI per module; disabled tools cannot be invoked",
+      moduleDesc: "{count} tool(s)",
+      moduleClosedDesc: "Module is closed or disabled; its MCP tools are disabled",
+      moduleSyncHint: "Tools are unavailable while the module is closed; enable them individually after opening the module",
+      empty: "No MCP tools registered",
+    },
     appearance: {
       accent: {
         blue: "Classic Blue",
@@ -2607,6 +2630,8 @@ export const enUS: TranslationDict = {
       renameRequest: "Rename Request",
       renameRequestTitle: "Rename Request",
       deleteCollection: "Delete Collection",
+      deleteCollectionTitle: "Delete Collection",
+      deleteCollectionConfirm: "Delete this collection? Requests will be kept but unassigned from the collection.",
       deleteRequest: "Delete Request",
       apiListEmpty: "Right-click to create folders or requests",
       selectRequestForHistory: "Select a request in the API list",

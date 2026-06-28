@@ -28,16 +28,6 @@ pub struct AgentInstallStatus {
 }
 
 impl AgentInstallStatus {
-    fn missing(kind: AgentKind, launch_args: Vec<&str>) -> Self {
-        Self {
-            kind,
-            installed: false,
-            executable_path: None,
-            version: None,
-            launch_args: launch_args.into_iter().map(String::from).collect(),
-        }
-    }
-
     fn from_detection(kind: AgentKind, launch_args: Vec<&str>, installed: bool, path: Option<String>, version: Option<String>) -> Self {
         Self {
             kind,

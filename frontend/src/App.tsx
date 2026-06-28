@@ -49,7 +49,8 @@ import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
+import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import {
   LazyDashboardPage,
   LazyDatabasePanel,
@@ -204,6 +205,8 @@ function AppShell() {
     (state) => state.pendingRiskActionId,
   );
   const pendingRiskAction = getPendingRiskAction();
+  const appModules = useAppModuleStore((s) => s.modules);
+  const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
 
   useEffect(() => {
     if (!isTerminal) {
@@ -248,6 +251,16 @@ function AppShell() {
         : MODULE_PATHS.terminal;
     navigate(fallback, { replace: true });
   }, [location.pathname, navigate, openSettings, workspaceActivePath]);
+
+  useEffect(() => {
+    if (!appModulesHydrated) return;
+    const key = moduleKeyFromPath(location.pathname);
+    if (!key || isModuleOpen(key)) return;
+    const visible = getNavVisibleModuleKeys();
+    const fallback =
+      visible.length > 0 ? MODULE_PATHS[visible[0]] : DASHBOARD_PATH;
+    navigate(fallback, { replace: true });
+  }, [location.pathname, navigate, appModules, appModulesHydrated]);
 
   useEffect(() => {
     if (!isWorkspacePath(location.pathname)) {

@@ -6,6 +6,7 @@ import {
   getAllModuleMcpToolInfos,
   OMNIMCP_BUILTIN_SERVICE_ID,
 } from "../../lib/ai/context/moduleMcpCatalog";
+import { isMcpToolAvailable } from "../../stores/mcpToolStore";
 import { fuzzyMatchModelName } from "../../lib/fetchProviderModels";
 
 function mergeBuiltinModuleTools(serviceId: string, backendTools: McpToolInfo[]): McpToolInfo[] {
@@ -15,7 +16,7 @@ function mergeBuiltinModuleTools(serviceId: string, backendTools: McpToolInfo[])
   const existingNames = new Set(backendTools.map((tool) => tool.name));
   const merged = [...backendTools];
   for (const tool of getAllModuleMcpToolInfos()) {
-    if (!existingNames.has(tool.name)) {
+    if (!existingNames.has(tool.name) && isMcpToolAvailable(tool.name)) {
       merged.push(tool);
     }
   }
@@ -55,7 +56,9 @@ export function McpServiceToolList({
     try {
       const result = await commands.mcpListServiceTools(serviceId);
       if (result.status === "ok") {
-        const merged = mergeBuiltinModuleTools(serviceId, result.data);
+        const merged = mergeBuiltinModuleTools(serviceId, result.data).filter(
+          (tool) => serviceId !== OMNIMCP_BUILTIN_SERVICE_ID || isMcpToolAvailable(tool.name),
+        );
         setTools(merged);
         onToolsLoadedRef.current?.(serviceId, merged.length);
       } else {
