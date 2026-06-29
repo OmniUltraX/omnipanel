@@ -14,6 +14,7 @@ type EnrichedLsListingViewProps = {
   resourceId?: string | null;
   fallbackOutput: string;
   isError?: boolean;
+  rawOutput?: string | null;
   onRunCommand?: (command: string) => void;
 };
 
@@ -25,13 +26,14 @@ function EnrichedLsListingViewInner({
   sessionType = "remote",
   sessionUser,
   resourceId,
+  rawOutput,
   fallbackOutput,
   isError = false,
   onRunCommand,
 }: EnrichedLsListingViewProps) {
   const listingDirectory = useMemo(
-    () => resolveListingDirectoryForBlock(command, cwd, sessionUser),
-    [command, cwd, sessionUser],
+    () => resolveListingDirectoryForBlock(command, cwd, sessionUser, rawOutput),
+    [command, cwd, sessionUser, rawOutput],
   );
 
   const { listing: resolved, ready } = useSftpEnrichedLsListing(

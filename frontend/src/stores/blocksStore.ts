@@ -59,6 +59,10 @@ export interface TerminalBlock {
   timestamp: number;
   completedAt?: number;
   status: "running" | "completed" | "failed";
+  /** UI 拉取的目录列表（不经过 shell ls 输出） */
+  attachedListing?: import("../modules/terminal/lsListing/parseLsListing").LsListing;
+  /** 仅展示目录列表，无命令行 */
+  directoryPreview?: boolean;
 }
 
 const MAX_BLOCK_OUTPUT_CHARS = 64_000;

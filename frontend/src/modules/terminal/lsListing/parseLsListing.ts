@@ -1,4 +1,6 @@
 import { normalizeBlockCommand } from "../terminalOutputText";
+import { looksLikeShellCommandEcho } from "../terminalCommandEcho";
+import { extractListCommandFromCompound } from "../terminalAutoLsShell";
 export type LsEntryKind =
   | "directory"
   | "symlink"
@@ -361,7 +363,23 @@ function tokenizePlainLsOutput(output: string): string[] {
   return entries;
 }
 
-const LS_COMMAND_BASES = new Set(["ls", "dir", "ll", "la", "l"]);
+const LS_COMMAND_BASES = new Set(["ls", "dir", "ll", "la", "l", "get-childitem", "gci"]);
+
+/** 从 block 命令中解析用于列表渲染的 ls 子命令 */
+export function resolveListingCommandForBlock(command: string): string | null {
+  const cmd = normalizeBlockCommand(command).trim();
+  if (isDirectLsListingCommand(cmd)) return cmd;
+  const tail = extractListCommandFromCompound(cmd);
+  if (tail && isDirectLsListingCommand(tail)) return tail;
+  return null;
+}
+
+function isDirectLsListingCommand(command: string): boolean {
+  const base = lsListingCommandBase(command).toLowerCase();
+  if (!base) return false;
+  if (LS_COMMAND_BASES.has(base)) return true;
+  return base.endsWith("/ls") || base.endsWith("\\ls");
+}
 
 /** 取归一化后的列表命令主命令名（ls / ll / dir …） */
 export function lsListingCommandBase(command: string): string {
@@ -369,15 +387,13 @@ export function lsListingCommandBase(command: string): string {
 }
 
 export function isLsListingCommand(command: string): boolean {
-  const base = lsListingCommandBase(command);
-  if (!base) return false;
-  if (LS_COMMAND_BASES.has(base)) return true;
-  return base.endsWith("/ls") || base.endsWith("\\ls");
+  return resolveListingCommandForBlock(command) != null;
 }
 
 function isLongListing(command: string): boolean {
-  const cmd = normalizeBlockCommand(command);
-  const base = lsListingCommandBase(command);
+  const listingCommand = resolveListingCommandForBlock(command) ?? command;
+  const cmd = normalizeBlockCommand(listingCommand);
+  const base = lsListingCommandBase(listingCommand);
   if (base === "ll" || base === "l") return true;
   return /(^|\s)-[a-zA-Z]*l[a-zA-Z]*(\s|$)/.test(cmd);
 }
@@ -390,13 +406,10 @@ function shouldParseAsLongListing(command: string, lines: string[]): boolean {
   return longLines.length >= Math.max(2, Math.ceil(lines.length * 0.6));
 }
 
-function isLsCommand(command: string): boolean {
-  return isLsListingCommand(command);
-}
-
 /** 解析 ls / dir 输出为结构化列表；无法识别时返回 null */
 export function tryParseLsListing(command: string, output: string): LsListing | null {
-  if (!isLsCommand(command)) return null;
+  const listingCommand = resolveListingCommandForBlock(command);
+  if (!listingCommand) return null;
 
   const text = output.trim().replace(/\r/g, "\n");
   if (!text) return null;
@@ -408,7 +421,7 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
     return tryParseWindowsDirListing(lines);
   }
 
-  if (shouldParseAsLongListing(command, lines)) {
+  if (shouldParseAsLongListing(listingCommand, lines)) {
     const entries: LsEntry[] = [];
     for (const line of lines) {
       if (line.startsWith("total ")) continue;
@@ -426,6 +439,8 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
     .filter((line) => !/^[-dlbcps][rwx-]{9}\s/.test(line))
     .join(" ")
     .trim();
+  if (looksLikeShellCommandEcho(gridSource || text)) return null;
+
   const tokens = tokenizePlainLsOutput(gridSource || text).filter((token) => !isGridNoiseToken(token));
   if (tokens.length < 1) return null;
 

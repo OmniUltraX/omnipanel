@@ -31,6 +31,14 @@ export function syncSessionCounterFromIds(sessions: Array<{ id: string }>): void
   sessionCounter = max;
 }
 
+/** 本地终端曾误用 ~/workspace 占位，与 PowerShell 实际起始目录不一致 */
+function normalizePersistedSessionCwd(cwd: string, type: TerminalSessionType): string {
+  if (type === "local" && (cwd === "~/workspace" || cwd === "~/workspace/")) {
+    return "~";
+  }
+  return cwd;
+}
+
 export function createTerminalSessionId(): string {
   sessionCounter += 1;
   return `tsess-${sessionCounter}`;
@@ -45,7 +53,7 @@ export function defaultSessionInfo(
       type: "local",
       resourceId,
       shellLabel: "PowerShell",
-      cwd: "~/workspace",
+      cwd: "~",
       purpose: "Local Workspace",
       commandPack: [],
     };
@@ -103,7 +111,10 @@ export function normalizePersistedSession(raw: unknown): TerminalSession | null 
     type,
     resourceId: sessionSource.resourceId,
     shellLabel: typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
-    cwd: typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
+    cwd: normalizePersistedSessionCwd(
+      typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
+      type,
+    ),
     purpose:
       typeof sessionSource.purpose === "string"
         ? sessionSource.purpose
@@ -153,7 +164,10 @@ export function migrateLegacyTabsToSessions(
       type,
       resourceId,
       shellLabel: typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
-      cwd: typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
+      cwd: normalizePersistedSessionCwd(
+      typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
+      type,
+    ),
       purpose:
         typeof sessionSource.purpose === "string"
           ? sessionSource.purpose

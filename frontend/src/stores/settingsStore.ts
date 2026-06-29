@@ -189,6 +189,10 @@ interface SettingsState {
   terminalCopyOnSelect: boolean;
   terminalHistoryPersist: boolean;
   terminalHistoryMaxBlocks: number;
+  /** cd 成功后自动拼接 ls；初始化完成后也会执行一次 */
+  terminalAutoLsAfterCd: boolean;
+  /** 自动拼接的 ls 子命令，默认 ls，可填 ls -a */
+  terminalAutoLsCommand: string;
   knowledgeChunkSize: number;
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;
@@ -226,7 +230,7 @@ interface SettingsState {
     "terminalFontFamily" | "terminalFontSize" | "terminalLineHeight" |
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
     "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
-    "terminalHistoryMaxBlocks"
+    "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
@@ -314,6 +318,8 @@ export const useSettingsStore = create<SettingsState>()(
       terminalCopyOnSelect: false,
       terminalHistoryPersist: true,
       terminalHistoryMaxBlocks: 200,
+      terminalAutoLsAfterCd: true,
+      terminalAutoLsCommand: "ls",
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
@@ -438,6 +444,8 @@ export const useSettingsStore = create<SettingsState>()(
         terminalCopyOnSelect: state.terminalCopyOnSelect,
         terminalHistoryPersist: state.terminalHistoryPersist,
         terminalHistoryMaxBlocks: state.terminalHistoryMaxBlocks,
+        terminalAutoLsAfterCd: state.terminalAutoLsAfterCd,
+        terminalAutoLsCommand: state.terminalAutoLsCommand,
         knowledgeChunkSize: state.knowledgeChunkSize,
         knowledgeChunkOverlap: state.knowledgeChunkOverlap,
         knowledgeTopN: state.knowledgeTopN,

@@ -5,7 +5,8 @@ import {
   type TerminalBlock,
   isAiThreadToolCall,
 } from "../../stores/blocksStore";
-import { extractCommandOutput, normalizeBlockCommand } from "./terminalOutputText";
+import { extractCommandOutput, isEchoOnlyTerminalOutput, normalizeBlockCommand, stripTerminalControlSequences } from "./terminalOutputText";
+import { isResidualShellNoise } from "./terminalCommandEcho";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { TerminalAiThreadView } from "./TerminalAiThreadView";
 import { getResolvedAiThread } from "./aiThreadBridge";
@@ -15,8 +16,11 @@ import { useStickyAiBlockId } from "./useStickyAiBlockId";
 import { useStickyActive } from "./useStickyActive";
 import { cancelInlineAiBlock } from "./warpInlineAi";
 import { useI18n } from "../../i18n";
-import { tryParseLsListing } from "./lsListing/parseLsListing";
+import { stripAutoLsSuffix } from "./terminalAutoLs";
+import { shouldUseDirectoryPreview } from "./terminalDirectoryPreview";
 import { EnrichedLsListingView } from "./lsListing/EnrichedLsListingView";
+import { tryParseLsListing } from "./lsListing/parseLsListing";
+import { resolveShellOutputCwd, resolveCdDestination } from "./lsListing/resolveLsListingDirectory";
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
 import type { TerminalSessionType } from "../../stores/terminalStore";
 import { groupFeedBlocksIntoSegments, type FeedAiRunSegment } from "./terminalFeedSegments";
@@ -43,7 +47,13 @@ function blockTitle(block: TerminalBlock): string {
 
 function shellOutput(block: TerminalBlock): string {
   const cleaned = extractCommandOutput(block.output, block.command);
-  return cleaned || block.output.trim();
+  if (cleaned) {
+    if (shouldUseDirectoryPreview(block) && isResidualShellNoise(cleaned)) return "";
+    return cleaned;
+  }
+  if (isEchoOnlyTerminalOutput(block.output, block.command)) return "";
+  if (isResidualShellNoise(stripTerminalControlSequences(block.output))) return "";
+  return block.output.trim();
 }
 
 function formatDuration(block: TerminalBlock): string | null {
@@ -55,6 +65,8 @@ function formatDuration(block: TerminalBlock): string | null {
 
 function shouldRenderBlock(block: TerminalBlock): boolean {
   if (block.kind === "ai") return true;
+  if (block.directoryPreview || block.attachedListing) return true;
+  if (shouldUseDirectoryPreview(block)) return true;
   const cmd = block.command.trim();
   if (!cmd) return false;
   const out = shellOutput(block);
@@ -80,7 +92,7 @@ function buildFeedActivitySignature(blocks: TerminalBlock[]): string {
           .join("|");
         return `ai:${block.id}:${block.status}:${threadSig}`;
       }
-      return `sh:${block.id}:${block.status}:${block.output.length}:${shellOutput(block).length}`;
+      return `sh:${block.id}:${block.status}:${block.output.length}:${shellOutput(block).length}:${block.attachedListing?.entries.length ?? 0}`;
     })
     .join(";");
 }
@@ -92,7 +104,7 @@ function buildFeedShellSignature(blocks: TerminalBlock[]): string {
       if (block.kind === "ai") {
         return `ai:${block.id}:${block.status}`;
       }
-      return `sh:${block.id}:${block.status}:${block.output.length}:${shellOutput(block).length}`;
+      return `sh:${block.id}:${block.status}:${block.output.length}:${shellOutput(block).length}:${block.attachedListing?.entries.length ?? 0}`;
     })
     .join(";");
 }
@@ -381,53 +393,72 @@ function ShellBlockCard({
   const output = shellOutput(block);
   const duration = formatDuration(block);
   const running = block.status === "running";
-  const cmd = normalizeBlockCommand(block.command);
+  const cmd = stripAutoLsSuffix(normalizeBlockCommand(block.command));
   const isError =
     block.status === "failed" || (block.exitCode !== null && block.exitCode !== 0);
 
   const lsListing = useMemo(() => {
+    if (block.attachedListing) return block.attachedListing;
     if (!output || isError) return null;
-    return tryParseLsListing(cmd, output);
-  }, [output, isError, cmd]);
+    return tryParseLsListing(block.command, output);
+  }, [block.attachedListing, block.command, output, isError]);
+
+  const listingCwd =
+    resolveShellOutputCwd(block.output) ||
+    resolveCdDestination(cmd, block.cwd, sessionUser) ||
+    block.cwd;
+  const directoryPreview = shouldUseDirectoryPreview(block);
+  const showCommandLine = !directoryPreview && cmd.length > 0;
 
   return (
     <article className="term-warp-block term-warp-block--shell" data-block-id={block.id}>
-      <div className="term-warp-prompt-line">
-        <TerminalPathBreadcrumb
-          cwd={block.cwd}
-          user={sessionUser}
-          sessionType={sessionType}
-          onRunCommand={onRunCommand}
-          variant="block"
-        />
-        <span className="term-warp-prompt-line__symbol">{promptSymbol}</span>
-        <span className="term-warp-prompt-line__cmd">{cmd}</span>
-        {duration ? <span className="term-warp-prompt-line__dur">{duration}</span> : null}
-        {running && !output ? (
-          <span className="term-warp-prompt-line__spinner" aria-label="执行中" />
-        ) : null}
-      </div>
-      {output ? (
-        lsListing ? (
-          <EnrichedLsListingView
-            listing={lsListing}
-            command={cmd}
-            cwd={block.cwd}
-            sessionId={sessionId}
+      {showCommandLine ? (
+        <div className="term-warp-prompt-line">
+          <TerminalPathBreadcrumb
+            cwd={listingCwd}
+            user={sessionUser}
             sessionType={sessionType}
-            sessionUser={sessionUser}
-            resourceId={resourceId}
-            fallbackOutput={output}
-            isError={isError}
             onRunCommand={onRunCommand}
+            variant="block"
           />
-        ) : (
-          <pre
-            className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}
-          >
-            {output}
-          </pre>
-        )
+          <span className="term-warp-prompt-line__symbol">{promptSymbol}</span>
+          <span className="term-warp-prompt-line__cmd">{cmd}</span>
+          {duration ? <span className="term-warp-prompt-line__dur">{duration}</span> : null}
+          {running && !directoryPreview && !output && !block.attachedListing ? (
+            <span className="term-warp-prompt-line__spinner" aria-label="执行中" />
+          ) : null}
+        </div>
+      ) : directoryPreview ? (
+        <div className="term-warp-prompt-line">
+          <TerminalPathBreadcrumb
+            cwd={listingCwd}
+            user={sessionUser}
+            sessionType={sessionType}
+            onRunCommand={onRunCommand}
+            variant="block"
+          />
+        </div>
+      ) : null}
+      {lsListing ? (
+        <EnrichedLsListingView
+          listing={lsListing}
+          command={block.attachedListing ? "ls" : block.command}
+          cwd={listingCwd}
+          sessionId={sessionId}
+          sessionType={sessionType}
+          sessionUser={sessionUser}
+          resourceId={resourceId}
+          rawOutput={block.output}
+          fallbackOutput={output}
+          isError={isError}
+          onRunCommand={onRunCommand}
+        />
+      ) : output && !directoryPreview ? (
+        <pre
+          className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}
+        >
+          {output}
+        </pre>
       ) : null}
     </article>
   );

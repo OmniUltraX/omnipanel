@@ -9,6 +9,8 @@ import {
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
+import { isCdOnlyCommand } from "./terminalAutoLsPolicy";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, isCdNavigationCommand } from "./terminalAutoLs";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 
@@ -145,6 +147,17 @@ function armFeedCapture(sessionId: string, command: string): string {
   return blockId;
 }
 
+/** Block Feed 内静默执行命令（不经审批 action，走 feed capture） */
+export function runSilentFeedCommand(sessionId: string, command: string): void {
+  void enqueueSessionExecution(sessionId, async () => {
+    const sender = terminalPaneSenders[sessionId];
+    if (!sender || !isWarpDisplay(sessionId)) return;
+    await waitForConcreteSessionCwd(sessionId);
+    armFeedCapture(sessionId, command);
+    sender(command);
+  });
+}
+
 export interface TerminalExecutionRequest {
   tabId: string;
   command: string;
@@ -160,9 +173,36 @@ export interface TerminalExecutionResult {
   block?: TerminalBlock;
 }
 
+function isStaleDefaultCwd(cwd: string): boolean {
+  const trimmed = cwd.trim();
+  return trimmed === "~/workspace" || trimmed === "~/workspace/";
+}
+
+function isConcreteSessionCwd(cwd: string): boolean {
+  const trimmed = cwd.trim();
+  if (!trimmed) return false;
+  if (/^[A-Za-z]:[\\/]/.test(trimmed)) return true;
+  if (trimmed.startsWith("/") && trimmed !== "/") return true;
+  return false;
+}
+
+async function waitForConcreteSessionCwd(sessionId: string, maxWaitMs = 3000): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const cwd = resolveSessionCwd(sessionId);
+    if (isConcreteSessionCwd(cwd)) return cwd;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return resolveSessionCwd(sessionId);
+}
+
 function resolveSessionCwd(tabId: string): string {
-  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
-  return tab?.session.cwd ?? "";
+  const state = useTerminalStore.getState();
+  const tab = state.tabs.find((item) => item.id === tabId);
+  const pane = state.embeddedPanes[tabId];
+  const cwd = (pane?.cwd || tab?.session.cwd || "").trim();
+  if (isStaleDefaultCwd(cwd)) return "~";
+  return cwd;
 }
 
 function buildSyntheticBlock(
@@ -404,12 +444,14 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
   if (!sender) return false;
 
   const run = () => {
+    const command = maybeAppendAutoLsToCommand(pending.command, pending.tabId);
+
     if (pending.waitForBlock) {
       if (isWarpDisplay(pending.tabId)) {
-        armFeedCapture(pending.tabId, pending.command);
+        armFeedCapture(pending.tabId, command);
       }
-      const resultPromise = waitForCommandResult(pending.tabId, pending.command);
-      sender(pending.command);
+      const resultPromise = waitForCommandResult(pending.tabId, command);
+      sender(command);
       return resultPromise
         .then((block) => {
           const stored = isWarpDisplay(pending.tabId)
@@ -428,9 +470,12 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
     }
 
     if (isWarpDisplay(pending.tabId)) {
-      armFeedCapture(pending.tabId, pending.command);
+      const blockId = armFeedCapture(pending.tabId, command);
+      if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(command)) {
+        scheduleCdBlockFallbackComplete(pending.tabId, blockId);
+      }
     }
-    sender(pending.command);
+    sender(command);
     pendingExecutions.delete(action.id);
     return Promise.resolve();
   };

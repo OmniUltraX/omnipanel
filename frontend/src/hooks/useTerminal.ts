@@ -28,12 +28,15 @@ import {
   resolveBlockStatus,
   stripTerminalControlSequences,
 } from "../modules/terminal/terminalOutputText";
+import { mergeCapturedBlockCommand } from "../modules/terminal/terminalCommandEcho";
+import { resolveShellOutputCwd } from "../modules/terminal/lsListing/resolveLsListingDirectory";
 import {
   claimFeedCaptureBlockId,
   clearOutputWatch,
   feedTerminalOutputForWatch,
   hasActiveFeedCapture,
   releaseFeedCapture,
+  runSilentFeedCommand,
 } from "../modules/terminal/executeTerminalCommand";
 import {
   isSilentHistorySync,
@@ -49,6 +52,17 @@ import {
   tryAutoReturnAfterBlockEnd,
 } from "../modules/terminal/terminalAutoReturn";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
+import {
+  unregisterTerminalAutoLsSession,
+  isCdNavigationCommand,
+  getAdaptedAutoLsCommandForSession,
+  isTerminalAutoLsEnabled,
+} from "../modules/terminal/terminalAutoLs";
+import {
+  buildSessionResumeCdCommand,
+  isReturningTerminalSession,
+  resolveSavedSessionCwd,
+} from "../modules/terminal/terminalSessionResume";
 import { isWarpDisplay } from "../modules/terminal/terminalDisplayMode";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { useModuleVisibility } from "../lib/moduleVisibility";
@@ -487,6 +501,7 @@ export function useTerminal(
       blockId?: string;
     } | null = null;
     let currentCwd = "";
+    let shellBootstrapReattached = false;
 
     function flushPendingInput() {
       if (!backendSid) return;
@@ -536,6 +551,23 @@ export function useTerminal(
 
     sendCommandRef.current = sendCommand;
     registerShellHistoryPtySender(sessionId, sendCommand);
+
+    function tryShellSessionBootstrapOnReady(): void {
+      if (isSilentHistorySync(sessionId) || !isWarpDisplay(sessionId)) return;
+      if (shellBootstrapReattached) return;
+
+      if (isReturningTerminalSession(sessionId)) {
+        const cdCommand = buildSessionResumeCdCommand(sessionId);
+        if (cdCommand) {
+          runSilentFeedCommand(sessionId, cdCommand);
+        }
+        return;
+      }
+
+      if (isTerminalAutoLsEnabled()) {
+        runSilentFeedCommand(sessionId, getAdaptedAutoLsCommandForSession(sessionId));
+      }
+    }
 
     function setupShellIntegration(t: Terminal) {
       const addBlock = useBlocksStore.getState().addBlock;
@@ -589,7 +621,9 @@ export function useTerminal(
               if (existingBlockId) {
                 const cmd = normalizeBlockCommand(commandText);
                 if (cmd) {
-                  useBlocksStore.getState().updateBlock(existingBlockId, { command: cmd });
+                  const existing = useBlocksStore.getState().findBlockById(existingBlockId);
+                  const merged = mergeCapturedBlockCommand(existing?.command ?? "", cmd);
+                  useBlocksStore.getState().updateBlock(existingBlockId, { command: merged });
                 }
                 break;
               }
@@ -598,7 +632,9 @@ export function useTerminal(
               if (captureBlockId) {
                 const cmd = normalizeBlockCommand(commandText);
                 if (cmd) {
-                  useBlocksStore.getState().updateBlock(captureBlockId, { command: cmd });
+                  const existing = useBlocksStore.getState().findBlockById(captureBlockId);
+                  const merged = mergeCapturedBlockCommand(existing?.command ?? "", cmd);
+                  useBlocksStore.getState().updateBlock(captureBlockId, { command: merged });
                 }
                 pendingBlock = { ...pendingBlock, blockId: captureBlockId };
                 break;
@@ -649,6 +685,11 @@ export function useTerminal(
                   exitCode,
                   endLine,
                   status: resolveBlockStatus(exitCode),
+                  cwd:
+                    currentCwd ||
+                    resolveShellOutputCwd(existing?.output ?? "") ||
+                    existing?.cwd ||
+                    pendingBlock.cwd,
                   ...(cleaned ? { output: cleaned } : {}),
                 });
                 const finishedBlock = useBlocksStore.getState().findBlockById(blockId);
@@ -699,13 +740,19 @@ export function useTerminal(
           feedBlockIdleTimers.delete(blockId);
           const block = useBlocksStore.getState().findBlockById(blockId);
           if (!block || block.kind === "ai" || block.status !== "running") return;
-          if (!block.output.trim()) return;
           const cmd = normalizeBlockCommand(block.command);
-          if (cmd && isEchoOnlyTerminalOutput(block.output, cmd)) return;
+          const isCdNav = Boolean(cmd && isCdNavigationCommand(cmd));
+          if (!block.output.trim() && !isCdNav) return;
+          if (cmd && isEchoOnlyTerminalOutput(block.output, cmd) && !isCdNav) return;
           const cleaned = cmd ? extractCommandOutput(block.output, cmd) : block.output.trim();
+          const resolvedCwd =
+            currentCwd ||
+            resolveShellOutputCwd(block.output) ||
+            block.cwd;
           useBlocksStore.getState().updateBlock(blockId, {
             status: resolveBlockStatus(block.exitCode ?? 0),
             exitCode: block.exitCode ?? 0,
+            cwd: resolvedCwd,
             ...(cleaned ? { output: cleaned } : {}),
           });
         }, FEED_BLOCK_IDLE_MS),
@@ -778,6 +825,7 @@ export function useTerminal(
                   clearTimeout(remoteInitEchoFilterTimer);
                   remoteInitEchoFilterTimer = null;
                 }
+                tryShellSessionBootstrapOnReady();
               }
               return;
             }
@@ -836,9 +884,15 @@ export function useTerminal(
       const existingSid = findPaneById(sessionId)?.backendSessionId;
 
       if (existingSid) {
+        shellBootstrapReattached = true;
         backendSid = existingSid;
         registerRuntimeBackendSession(sessionId, existingSid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
+        const savedCwd = resolveSavedSessionCwd(sessionId);
+        if (savedCwd) {
+          currentCwd = savedCwd;
+          useTerminalStore.getState().setSessionCwd(sessionId, savedCwd);
+        }
         void restoreSnapshot();
         flushPendingInput();
         if (remote) {
@@ -863,11 +917,16 @@ export function useTerminal(
             remoteInitEchoFilter = null;
           }
         } else {
-          window.setTimeout(() => requestShellHistorySync(sessionId), 800);
+          window.setTimeout(() => {
+            if (destroyed) return;
+            requestShellHistorySync(sessionId);
+            tryShellSessionBootstrapOnReady();
+          }, 800);
         }
         return;
       }
 
+      shellBootstrapReattached = false;
       useTerminalStore.getState().setStatus(sessionId, "connecting");
       try {
         const sid = await acquireBackendSession(sessionId, cols, rows);
@@ -898,7 +957,11 @@ export function useTerminal(
             remoteInitEchoFilter = null;
           }
         } else {
-          window.setTimeout(() => requestShellHistorySync(sessionId), 800);
+          window.setTimeout(() => {
+            if (destroyed) return;
+            requestShellHistorySync(sessionId);
+            tryShellSessionBootstrapOnReady();
+          }, 800);
         }
       } catch (err) {
         if (destroyed) return;
@@ -1086,6 +1149,7 @@ export function useTerminal(
       }
       sendCommandRef.current = null;
       registerShellHistoryPtySender(sessionId, null);
+      unregisterTerminalAutoLsSession(sessionId);
       registerRuntimeBackendSession(sessionId, null);
       inputBindingRef.current?.dispose();
       inputBindingRef.current = null;

@@ -1,5 +1,13 @@
 /** 剥离 ANSI/OSC 等控制序列，用于 Block 纯文本采集 */
 import type { TerminalBlock } from "../../stores/blocksStore";
+import {
+  collectEchoCommandVariants,
+  isResidualEchoTail,
+  isResidualShellNoise,
+  looksLikeShellCommandEchoLine,
+  stripAutoLsEchoArtifacts,
+  stripBestLeadingCommandEcho,
+} from "./terminalCommandEcho";
 
 export function stripTerminalControlSequences(text: string): string {
   return text
@@ -134,11 +142,14 @@ export function stripLeadingCommandEcho(raw: string, command: string): string {
 
 /** 从终端原始输出中剥离命令回显与提示符，保留命令结果 */
 export function extractCommandOutput(raw: string, command: string): string {
-  const sent = normalizeBlockCommand(command);
+  const variants = collectEchoCommandVariants(command);
+  const sent = variants[0] ?? normalizeBlockCommand(command);
   if (!sent) return raw.trim();
 
-  let text = stripLeadingCommandEcho(stripTerminalControlSequences(raw), sent);
+  let text = stripBestLeadingCommandEcho(stripTerminalControlSequences(raw), command);
+  text = stripAutoLsEchoArtifacts(text);
   const sentNorm = sent.replace(/\s+/g, " ");
+  const variantNorms = variants.map((variant) => variant.replace(/\s+/g, " "));
 
   const lines = stripLeadingEchoLines(
     text
@@ -157,9 +168,25 @@ export function extractCommandOutput(raw: string, command: string): string {
     const withoutPrompt = line.replace(PROMPT_WITH_CMD_RE, "").trim();
     const lineNorm = withoutPrompt.replace(/\s+/g, " ");
 
-    if (lineNorm === sentNorm || line.replace(/\s+/g, " ") === sentNorm) continue;
+    if (looksLikeShellCommandEchoLine(withoutPrompt || line)) continue;
+
+    if (variantNorms.some((variant) => variant === lineNorm) || line.replace(/\s+/g, " ") === sentNorm) {
+      continue;
+    }
 
     if (skippingPrefix) {
+      const matchedVariant = variants.find(
+        (variant) => lineNorm.startsWith(variant.replace(/\s+/g, " ")) && lineNorm.length > variant.length,
+      );
+      if (matchedVariant) {
+        const rest = lineNorm.slice(matchedVariant.replace(/\s+/g, " ").length).trim();
+        if (rest) filtered.push(rest);
+        skippingPrefix = false;
+        continue;
+      }
+      if (variants.some((variant) => variant.startsWith(lineNorm) && lineNorm.length < variant.length)) {
+        continue;
+      }
       if (sent.startsWith(lineNorm) && lineNorm.length < sent.length) continue;
       if (lineNorm.startsWith(sentNorm)) {
         const rest = lineNorm.slice(sentNorm.length).trim();
@@ -173,7 +200,20 @@ export function extractCommandOutput(raw: string, command: string): string {
     filtered.push(withoutPrompt || line);
   }
 
-  return stripTrailingPromptLines(filtered).join("\n").trim();
+  const result = stripTrailingPromptLines(filtered).join("\n").trim();
+  const withoutHeader = stripPsDirectoryHeaderOnly(result);
+  if (!withoutHeader || isResidualShellNoise(withoutHeader)) return "";
+  return withoutHeader;
+}
+
+function stripPsDirectoryHeaderOnly(text: string): string {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const withoutHeaders = lines.filter((line) => !/^(?:目录|Directory):\s*[A-Za-z]:/i.test(line));
+  if (withoutHeaders.length === 0) return "";
+  return withoutHeaders.join("\n");
 }
 
 /** 判断采集到的输出是否仅为 PTY 命令回显（尚未产生真实结果） */
@@ -192,8 +232,10 @@ export function isEchoOnlyTerminalOutput(raw: string, command: string): boolean 
   if (strippedNorm === sentNorm) return true;
   if (strippedNorm.startsWith(sentNorm)) {
     const tail = strippedNorm.slice(sentNorm.length).trim();
+    if (isResidualEchoTail(tail)) return true;
     return tail.length === 0 || /^\d+$/.test(tail);
   }
+  if (isResidualShellNoise(stripped)) return true;
   return false;
 }
 

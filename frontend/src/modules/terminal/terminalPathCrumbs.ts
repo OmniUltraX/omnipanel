@@ -5,6 +5,42 @@ export type TerminalPathCrumb = {
   path: string;
 };
 
+/** 从已知 Windows 绝对路径或用户名推断用户主目录 */
+export function resolveWindowsHomeDirectory(
+  sessionUser?: string | null,
+  ...hints: Array<string | null | undefined>
+): string | null {
+  for (const hint of hints) {
+    if (!hint) continue;
+    const normalized = hint.replace(/\//g, "\\");
+    const match = /^([A-Za-z]:\\Users\\[^\\]+)/i.exec(normalized);
+    if (match) return match[1]!;
+  }
+  if (sessionUser) return `C:\\Users\\${sessionUser}`;
+  return null;
+}
+
+/** 将 ~/path 展开为绝对路径（Windows 本地终端优先） */
+export function expandTildePath(
+  path: string,
+  sessionUser?: string | null,
+  ...hints: Array<string | null | undefined>
+): string {
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("~")) return trimmed;
+
+  const windowsHome = resolveWindowsHomeDirectory(sessionUser, ...hints);
+  if (windowsHome) {
+    if (trimmed === "~" || trimmed === "~/" || trimmed === "~\\") return windowsHome;
+    if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+      const rest = trimmed.slice(2).replace(/\//g, "\\").replace(/^\\+/, "");
+      return rest ? `${windowsHome}\\${rest}` : windowsHome;
+    }
+  }
+
+  return resolveAbsoluteTerminalCwd(trimmed, sessionUser);
+}
+
 /** 将终端 cwd 解析为可用于 cd 的绝对路径（Unix 远程为主） */
 export function resolveAbsoluteTerminalCwd(
   cwd: string | undefined | null,

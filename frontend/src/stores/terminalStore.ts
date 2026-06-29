@@ -133,34 +133,37 @@ export function findTerminalPane(id: string): TerminalPane | undefined {
   if (found?.kind === "pane") return found.pane;
   if (found?.kind === "tab") {
     const tab = found.tab;
+    const session = tab.session;
+    if (!session) return undefined;
     return {
       id: tab.sessionId,
       backendSessionId: tab.backendSessionId,
       title: tab.title,
-      type: tab.session.type,
-      resourceId: tab.session.resourceId,
-      shellLabel: tab.session.shellLabel,
-      cwd: tab.session.cwd,
-      purpose: tab.session.purpose,
-      commandPack: tab.session.commandPack,
+      type: session.type,
+      resourceId: session.resourceId,
+      shellLabel: session.shellLabel,
+      cwd: session.cwd,
+      purpose: session.purpose,
+      commandPack: session.commandPack,
       terminal: tab.terminal,
       status: tab.status,
     };
   }
   const state = useTerminalStore.getState();
   const entity = state.sessions.find((s) => s.id === id);
-  if (!entity) return undefined;
+  if (!entity?.session) return undefined;
   const runtime = state.detachedRuntime[id];
+  const session = entity.session;
   return {
     id: entity.id,
     backendSessionId: runtime?.backendSessionId ?? null,
     title: entity.title,
-    type: entity.session.type,
-    resourceId: entity.session.resourceId,
-    shellLabel: entity.session.shellLabel,
-    cwd: entity.session.cwd,
-    purpose: entity.session.purpose,
-    commandPack: entity.session.commandPack,
+    type: session.type,
+    resourceId: session.resourceId,
+    shellLabel: session.shellLabel,
+    cwd: session.cwd,
+    purpose: session.purpose,
+    commandPack: session.commandPack,
     terminal: null,
     status: runtime?.status ?? "disconnected",
   };

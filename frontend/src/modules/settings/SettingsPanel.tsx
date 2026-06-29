@@ -808,6 +808,8 @@ export function SettingsPanel() {
   const terminalCopyOnSelect = useSettingsStore((s) => s.terminalCopyOnSelect);
   const terminalHistoryPersist = useSettingsStore((s) => s.terminalHistoryPersist);
   const terminalHistoryMaxBlocks = useSettingsStore((s) => s.terminalHistoryMaxBlocks);
+  const terminalAutoLsAfterCd = useSettingsStore((s) => s.terminalAutoLsAfterCd);
+  const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
   const terminalHistorySessions = useTerminalHistoryStore((s) => s.countSessions());
   const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.countBlocks());
@@ -1515,6 +1517,34 @@ export function SettingsPanel() {
                 </div>
                 <Toggle value={terminalCopyOnSelect} onChange={(v) => setTerminalSettings({ terminalCopyOnSelect: v })} />
               </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.autoLsAfterCd")}</h4>
+                  <p>{t("settings.terminal.autoLsAfterCdDesc")}</p>
+                </div>
+                <Toggle
+                  value={terminalAutoLsAfterCd}
+                  onChange={(v) => setTerminalSettings({ terminalAutoLsAfterCd: v })}
+                />
+              </div>
+              {terminalAutoLsAfterCd ? (
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <h4>{t("settings.terminal.autoLsCommand")}</h4>
+                    <p>{t("settings.terminal.autoLsCommandDesc")}</p>
+                  </div>
+                  <input
+                    className="setting-input"
+                    type="text"
+                    value={terminalAutoLsCommand}
+                    placeholder="ls"
+                    spellCheck={false}
+                    onChange={(e) =>
+                      setTerminalSettings({ terminalAutoLsCommand: e.target.value })
+                    }
+                  />
+                </div>
+              ) : null}
 
               <div className="settings-subsection">
                 <h3>{t("settings.terminal.historySection")}</h3>

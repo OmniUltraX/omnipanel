@@ -217,14 +217,14 @@ function LsGridColumnView({
       className="term-ls-grid-column"
       style={{ width: `${column.width + LS_GRID_COLUMN_GAP}ch` }}
     >
-      {column.entries.map((entry) => {
+      {column.entries.map((entry, rowIndex) => {
         const navigable = isLsEntryNavigable(entry);
         const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}`;
         const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
         const cdCommand = terminalCdCommand(absolutePath);
 
         return (
-          <div className="term-ls-grid-row" key={entry.name} role="listitem">
+          <div className="term-ls-grid-row" key={`${entry.name}-${rowIndex}`} role="listitem">
             <LsEntryName
               entry={entry}
               className={className}
@@ -302,9 +302,9 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand }: LsListi
       role="list"
       aria-label="目录列表"
     >
-      {listing.entries.map((entry) => (
+      {listing.entries.map((entry, index) => (
         <LsLongRow
-          key={entry.name}
+          key={`${entry.name}-${index}`}
           entry={entry}
           listingDirectory={listingDirectory}
           fieldWidths={longFieldWidths}

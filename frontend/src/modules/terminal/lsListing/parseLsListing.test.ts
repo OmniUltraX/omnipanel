@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { lsEntryDisplayName, normalizeLsEntryName, tryParseLsListing } from "./parseLsListing";
+import { looksLikeShellCommandEcho } from "../terminalCommandEcho";
 
 describe("tryParseLsListing", () => {
+  it("解析 cd 拼接 ls 的输出", () => {
+    const output = "bin  etc  home  lib  root  tmp  usr  var";
+    expect(tryParseLsListing("cd / && ls", output)).not.toBeNull();
+    expect(tryParseLsListing("cd / && ls -a", output)).not.toBeNull();
+    expect(tryParseLsListing("cd ~; if ($?) { ls }", output)).not.toBeNull();
+  });
+
   it("解析 plain ls 多列输出", () => {
     const output = "docker  demo.py  a.sh  anaconda3  README.zip";
     const result = tryParseLsListing("ls", output);
@@ -135,5 +143,12 @@ describe("tryParseLsListing", () => {
     expect(kinds.link).toBe("symlink");
     expect(result!.entries.find((e) => e.name === "link")?.navigable).toBe(true);
     expect(result!.entries.find((e) => e.name === "projects")?.navigable).toBe(true);
+  });
+
+  it("不把 PowerShell 命令回显误解析为目录列表", () => {
+    const echo =
+      "cd 'C:\\Users\\chaoj\\华为云盘'; if ($?) { ls } PS C:\\Users\\chaoj\\华为云盘>";
+    expect(looksLikeShellCommandEcho(echo)).toBe(true);
+    expect(tryParseLsListing("cd 'C:\\Users\\chaoj\\华为云盘'; if ($?) { ls }", echo)).toBeNull();
   });
 });
