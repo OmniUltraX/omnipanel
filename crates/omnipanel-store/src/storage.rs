@@ -4,6 +4,44 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::Connection as SqliteConnection;
 use serde::{Deserialize, Serialize};
 
+/// HTTP 请求/历史/集合表结构。用于 v9+ 迁移及启动后 repair，兼容旧库缺表。
+const HTTP_SCHEMA_BOOTSTRAP: &str = r#"
+CREATE TABLE IF NOT EXISTS http_requests (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'GET',
+    url TEXT NOT NULL,
+    headers TEXT NOT NULL DEFAULT '{}',
+    body TEXT NOT NULL DEFAULT '',
+    auth_type TEXT NOT NULL DEFAULT 'none',
+    auth_value TEXT NOT NULL DEFAULT '',
+    collection_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_http_requests_collection ON http_requests(collection_id);
+
+CREATE TABLE IF NOT EXISTS http_history (
+    id TEXT PRIMARY KEY,
+    method TEXT NOT NULL,
+    url TEXT NOT NULL,
+    status_code INTEGER,
+    response_time_ms INTEGER,
+    request_size INTEGER,
+    response_size INTEGER,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_http_history_created ON http_history(created_at);
+
+CREATE TABLE IF NOT EXISTS http_collections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"#;
+
 /// 顺序迁移脚本。**只能在末尾追加**，数组下标 +1 即 schema 版本号。
 const MIGRATIONS: &[&str] = &[
     // v1 — 初始 schema
@@ -210,10 +248,61 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_entry ON knowledge_chunks(entry_id);
     "#,
-    // v9 — HTTP 历史关联已保存请求
+    // v9 — HTTP 持久化表（补全早期 v4 未包含 http_* 的旧库；含 request_id）
+    HTTP_SCHEMA_BOOTSTRAP,
+    // v10 — 再次确保 HTTP 表存在（兼容已执行旧版 v9 仅 ALTER 的库）
+    HTTP_SCHEMA_BOOTSTRAP,
+    // v11 — HTTP 历史保存完整响应
     r#"
-    ALTER TABLE http_history ADD COLUMN request_id TEXT;
-    CREATE INDEX IF NOT EXISTS idx_http_history_request ON http_history(request_id, created_at);
+    ALTER TABLE http_history ADD COLUMN response_status_text TEXT NOT NULL DEFAULT '';
+    ALTER TABLE http_history ADD COLUMN response_content_type TEXT NOT NULL DEFAULT 'text/plain';
+    ALTER TABLE http_history ADD COLUMN response_headers TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE http_history ADD COLUMN response_body TEXT NOT NULL DEFAULT '';
+    "#,
+    // v12 — 应用模块启用配置
+    r#"
+    CREATE TABLE IF NOT EXISTS app_modules (
+        module_key TEXT PRIMARY KEY NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO app_modules (module_key, enabled, sort_order) VALUES
+        ('terminal', 1, 0),
+        ('database', 1, 1),
+        ('ssh', 1, 2),
+        ('docker', 1, 3),
+        ('server', 1, 4),
+        ('files', 1, 5),
+        ('protocol', 1, 6),
+        ('workflow', 0, 7),
+        ('knowledge', 1, 8);
+    "#,
+    // v13 — 模块三态：open / closed / disabled
+    r#"
+    ALTER TABLE app_modules ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+    UPDATE app_modules SET status = CASE
+        WHEN enabled = 1 THEN 'open'
+        WHEN module_key = 'workflow' THEN 'disabled'
+        ELSE 'closed'
+    END;
+    "#,
+    // v14 — MCP 工具注册表
+    r#"
+    CREATE TABLE IF NOT EXISTS mcp_tools (
+        tool_name TEXT PRIMARY KEY NOT NULL,
+        module_key TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled) VALUES
+        ('omni_terminal_run_terminal_command', 'terminal', '在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。', 1),
+        ('omni_database_get_databases_from_connection', 'database', '根据连接名获取该连接下的数据库列表，可选关键字过滤。', 1),
+        ('omni_database_get_tables_from_database', 'database', '根据连接名和数据库名获取表列表，可选关键字过滤。', 1),
+        ('omni_database_get_table_info', 'database', '根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。', 1),
+        ('omni_database_execute_sql', 'database', '在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。', 1),
+        ('omni_knowledge_create_document', 'knowledge', '在知识库中创建文档。', 1),
+        ('omni_knowledge_remove_document', 'knowledge', '按 ID 删除知识库文档。', 1),
+        ('omni_knowledge_list_documents', 'knowledge', '列出知识库文档，可按类型或标签过滤。', 1);
     "#,
 ];
 
@@ -299,6 +388,32 @@ impl Storage {
                 tracing::info!(version, "applied storage migration");
             }
         }
+        self.repair_http_schema()?;
+        self.repair_app_modules()?;
+        self.repair_mcp_tools()?;
+        self.mcp_tool_sync_all_modules()?;
+        Ok(())
+    }
+
+    /// 兼容旧库：v4 曾不含 http_* 表，或 http_history 缺 request_id 列。
+    fn repair_http_schema(&self) -> OmniResult<()> {
+        self.conn
+            .execute_batch(HTTP_SCHEMA_BOOTSTRAP)
+            .map_err(map_sqlite)?;
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_history ADD COLUMN request_id TEXT",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_http_history_request ON http_history(request_id, created_at);",
+            )
+            .map_err(map_sqlite)?;
         Ok(())
     }
 
@@ -443,5 +558,105 @@ mod tests {
         let storage = Storage::open(&path, None).unwrap();
         assert_eq!(storage.schema_version().unwrap(), MIGRATIONS.len() as i64);
         assert_eq!(storage.recent_audit(10).unwrap().len(), 1);
+    }
+
+    /// 早期 v4 仅含 tasks/workflow_execution_steps，不含 http_* 表。
+    const LEGACY_V4_TASKS_ONLY: &str = r#"
+    CREATE TABLE IF NOT EXISTS workflow_execution_steps (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        step_order INTEGER NOT NULL DEFAULT 0,
+        name TEXT NOT NULL,
+        step_type TEXT NOT NULL DEFAULT 'shell',
+        command TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        started_at INTEGER,
+        finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_exec_steps_exec ON workflow_execution_steps(execution_id);
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        task_type TEXT NOT NULL DEFAULT 'terminal',
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        resource_id TEXT NOT NULL DEFAULT '',
+        resource_name TEXT NOT NULL DEFAULT '',
+        env_tag TEXT NOT NULL DEFAULT 'dev',
+        command TEXT NOT NULL DEFAULT '',
+        risk TEXT NOT NULL DEFAULT 'low',
+        status TEXT NOT NULL DEFAULT 'draft',
+        source TEXT NOT NULL DEFAULT 'user',
+        output TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_updated ON tasks(updated_at);
+    "#;
+
+    #[test]
+    fn legacy_v4_without_http_tables_gets_repaired() {
+        use crate::http::SavedHttpRequest;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+        {
+            let conn = SqliteConnection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+                .unwrap();
+            for (idx, script) in MIGRATIONS.iter().take(3).enumerate() {
+                let version = (idx + 1) as i64;
+                conn.execute_batch(script).unwrap();
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    [version],
+                )
+                .unwrap();
+            }
+            conn.execute_batch(LEGACY_V4_TASKS_ONLY).unwrap();
+            conn.execute("INSERT INTO schema_version (version) VALUES (4)", [])
+                .unwrap();
+            for version in 5..=8 {
+                conn.execute_batch(MIGRATIONS[version as usize - 1])
+                    .unwrap();
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    [version],
+                )
+                .unwrap();
+            }
+            let has_http: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='http_requests'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(has_http, 0);
+        }
+
+        let storage = Storage::open(&path, None).unwrap();
+        assert_eq!(storage.schema_version().unwrap(), MIGRATIONS.len() as i64);
+
+        let req = SavedHttpRequest {
+            id: "req-1".into(),
+            name: "Test".into(),
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: "{}".into(),
+            body: String::new(),
+            auth_type: "none".into(),
+            auth_value: String::new(),
+            collection_id: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        storage.http_save_request(&req).unwrap();
+        assert_eq!(storage.http_list_requests(None).unwrap().len(), 1);
     }
 }

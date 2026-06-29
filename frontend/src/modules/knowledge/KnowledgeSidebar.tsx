@@ -603,7 +603,6 @@ export function KnowledgeSidebar() {
 
   const renderSectionTree = (section: KnowledgeLibrarySection) => {
     const visibleTree = visibleSectionTrees[section];
-    const sectionEntries = section === "imported" ? importedEntries : selfBuiltEntries;
 
     return (
       <div

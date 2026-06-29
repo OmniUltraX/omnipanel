@@ -124,7 +124,9 @@ export function aiThreadToAiMessages(
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         isStreaming: item.id === streamingAssistantId,
         isReasoningStreaming:
-          item.id === streamingAssistantId && Boolean(item.reasoning?.trim()),
+          item.id === streamingAssistantId &&
+          !item.content.trim() &&
+          (Boolean(item.reasoning?.trim()) || Boolean(options?.isStreaming)),
       });
       continue;
     }

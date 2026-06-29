@@ -33,6 +33,10 @@ interface DockWorkspaceProps {
   onLeftResize?: (sizePx: number) => void;
   /** 左侧面板拖拽结束或布局稳定后触发（用于持久化，避免拖拽过程中频繁写入） */
   onLeftLayoutChanged?: () => void;
+  /** 左侧面板命令式 API（读取折叠后宽度等） */
+  leftPanelRef?: React.Ref<PanelImperativeHandle | null>;
+  /** 左侧分隔条附加 class（如终端侧栏顶栏对齐） */
+  leftHandleClassName?: string;
   rightPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;
@@ -71,6 +75,8 @@ export function DockWorkspace({
   leftMaxPx,
   onLeftResize,
   onLeftLayoutChanged,
+  leftPanelRef,
+  leftHandleClassName,
   rightPreset = "default",
   rightSizePx,
   rightMinPx,
@@ -167,12 +173,13 @@ export function DockWorkspace({
               maxSize={leftMax}
               collapsible
               collapsedSize={0}
+              panelRef={leftPanelRef}
               onResize={onLeftResize ? handleLeftResize : undefined}
               className="dock-panel-left"
             >
               <div className="dock-rail-shell">{left}</div>
             </DockPanel>
-            <DockHandle />
+            <DockHandle className={leftHandleClassName} />
           </>
         )}
         <DockPanel className="dock-panel-main">

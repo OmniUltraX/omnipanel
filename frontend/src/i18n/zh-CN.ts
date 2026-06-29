@@ -1351,6 +1351,18 @@ export const zhCN = {
       manageHosts: "管理主机…",
       manageHostsDesc: "跳转到主机模块添加连接",
     },
+    sessions: {
+      title: "会话",
+      localSection: "本地",
+      sshSection: "SSH 主机",
+      empty: "暂无会话",
+      noHosts: "暂无 SSH 主机",
+      end: "结束会话",
+      newUnderConnection: "在此连接下新建会话",
+      reorderConnection: "拖拽调整连接顺序",
+      workspaceEmpty: "暂无打开的终端视图",
+      workspaceEmptyHint: "从左侧会话列表打开会话，或点击 + 新建",
+    },
     pane: {
       server: "目标服务器",
     },
@@ -1723,6 +1735,7 @@ export const zhCN = {
     sidebar: {
       title: "Docker",
       connections: "连接",
+      selectConnection: "请选择一个 Docker 连接，或从左侧单击打开预览、双击打开常驻标签",
       addConnection: "添加 Docker 连接",
       scanSsh: "扫描 SSH Docker",
       loading: "加载连接…",
@@ -1869,7 +1882,7 @@ export const zhCN = {
     empty: {
       title: "暂无服务器",
       description: '点击"+"按钮或下方按钮添加服务器。',
-      selectServer: "在左侧选择一台服务器以查看已安装应用。",
+      selectServer: "请选择一个服务器，或从左侧单击打开预览、双击打开常驻标签",
       noPanelConfig: "该服务器尚未配置面板连接，请点击添加并填写面板信息。",
     },
     placeholder: "{name} 已就绪。服务器管理功能即将上线。",
@@ -2025,6 +2038,29 @@ export const zhCN = {
       reset: "恢复默认",
       decrease: "缩小界面",
       increase: "放大界面",
+    },
+    system: {
+      label: "系统",
+      desc: "模块启用与 MCP 工具管理等系统级配置",
+    },
+    modules: {
+      label: "模块配置",
+      desc: "控制侧边栏中显示的功能模块；关闭后隐藏入口，禁用表示功能尚在开发中",
+      devLockedHint: "该模块正在开发中，暂不可用",
+      lastOpenHint: "至少保留一个模块为打开状态",
+      status: {
+        open: "打开",
+        closed: "关闭",
+        disabled: "禁用",
+      },
+    },
+    mcpTools: {
+      label: "MCP 工具管理",
+      desc: "管理各模块向 AI 暴露的 MCP 工具，禁用后 AI 无法调用",
+      moduleDesc: "共 {count} 个工具",
+      moduleClosedDesc: "模块已关闭或禁用，其 MCP 工具已同步禁用",
+      moduleSyncHint: "模块未打开时，其下 MCP 工具不可用；打开模块后可单独启用各工具",
+      empty: "暂无 MCP 工具",
     },
     appearance: {
       accent: {
@@ -2190,15 +2226,31 @@ export const zhCN = {
       title: "其他",
       desc: "不归属于模型或 MCP 服务的 AI 相关偏好设置。",
     },
-    agent: {
-      comingSoon: "配置项即将推出，用于对接 SDK。",
-      opencode: {
-        title: "OpenCode",
-        description: "配置 OpenCode Agent SDK 连接与运行参数。",
+    agents: {
+      title: "Agent",
+      description:
+        "选择本地 ACP Agent。默认使用内置 OmniAgent，需先在「AI」中配置模型；也可切换为 Cursor、OpenCode 或 Qwen CLI。",
+      detecting: "正在检测…",
+      redetect: "重新检测",
+      installed: "已安装",
+      notFound: "未检测到",
+      installHint: "未安装或未加入 PATH",
+      notInstalled: "{name} 未安装，请先安装对应 CLI",
+      omniagent: {
+        name: "OmniAgent",
+        desc: "OmniPanel 内置 Agent（DeepAgents + Skills + MCP），通过 acp-agent-config.json 使用「AI」中的模型与 MCP 服务。",
       },
       cursor: {
-        title: "Cursor",
-        description: "配置 Cursor Agent SDK 连接与运行参数。",
+        name: "Cursor",
+        desc: "使用 Cursor CLI（agent acp）作为本地 Agent，鉴权由 Cursor 账号管理。",
+      },
+      opencode: {
+        name: "OpenCode",
+        desc: "使用 OpenCode CLI（opencode acp）作为本地 Agent。",
+      },
+      qwen: {
+        name: "Qwen",
+        desc: "使用 Qwen Code CLI（qwen --acp）作为本地 Agent。",
       },
     },
     aiScenarios: {
@@ -2211,12 +2263,16 @@ export const zhCN = {
       },
       assistant: {
         label: "AI 助手",
-        desc: "AI 助手对话的默认模型；可在助手界面临时切换。",
+        desc: "AI 助手对话的默认模型；OmniAgent 连接时使用此模型（写入 acp-agent-config.json）。",
       },
     },
     acpServices: {
       title: "ACP 服务",
-      description: "维护 ACP（Agent Communication Protocol）服务器应用列表。同一时刻只能有一个被标记为「当前使用」。",
+      description:
+        "内置 OmniPanel Agent（/agent）会在应用启动时自动连接；也可添加其他 ACP 服务器。同一时刻只能有一个被标记为「当前使用」。",
+      builtinBadge: "内置",
+      builtinName: "OmniPanel Agent",
+      builtinPath: "内置 /agent（应用启动时自动解析路径）",
       activeBadge: "当前使用",
       activateTitle: "设为当前使用",
       activeTitle: "已是当前使用",
@@ -2243,20 +2299,41 @@ export const zhCN = {
         subtitle: "修改名称、可执行文件路径或是否处于当前使用状态。",
         confirm: "保存修改",
       },
+      editBuiltin: {
+        title: "编辑内置 Agent",
+        subtitle: "选择 LLM 模型；应用启动时会自动连接此 Agent。",
+      },
       fields: {
         name: "名称",
         namePlaceholder: "如 Claude Code、本地 Agent…",
         executablePath: "可执行文件路径",
         executablePathPlaceholder: "C:\\Program Files\\Agent\\agent.exe",
         executablePathHint: "点击右侧「浏览」使用系统文件选择器，或直接粘贴绝对路径。",
+        model: "LLM 模型",
+        modelPlaceholder: "选择模型…",
+        modelHint: "模型、API Key 与 Base URL 来自「设置 → AI 模型」，保存时会写入 agent 配置文件。",
+        modelEmpty: "请先在「设置 → AI 模型」中添加至少一个模型。",
         isActive: "设为当前使用的 ACP 服务",
         isActiveHint: "勾选后会自动取消其他服务的「当前使用」状态。",
       },
       errors: {
         nameRequired: "请填写名称",
         pathRequired: "请填写可执行文件路径",
+        modelRequired: "请选择 LLM 模型",
         pickFailed: "文件选择失败，请手动粘贴路径",
       },
+      connection: {
+        connect: "连接 Agent",
+        connecting: "连接中…",
+        connected: "已连接 ACP Agent",
+        connectedWithName: "已连接：{name}",
+        disconnected: "未连接",
+        browserMode: "浏览器模式不可用",
+        modelRequired: "请先在 ACP 服务中配置模型（编辑服务 → 选择 LLM 模型）",
+      },
+      hintLabel: "示例命令：",
+      mcpEmbeddedDesc:
+        "管理 MCP 服务并同步到 OmniAgent 配置文件；已启用且运行的服务会在 Agent 会话中加载为工具。",
     },
     mcpServices: {
       title: "MCP",
@@ -2284,11 +2361,6 @@ export const zhCN = {
         stopped: "已停止",
         starting: "启动中",
         error: "异常",
-      },
-      empty: {
-        title: "还没有自定义 MCP 服务",
-        desc: "添加 stdio 命令或 SSE 端点，供 AI 模块连接外部 MCP 工具。",
-        cta: "添加 MCP 服务",
       },
       add: {
         title: "新建 MCP 服务",
@@ -2492,7 +2564,7 @@ export const zhCN = {
     },
   },
   protocol: {
-    tabs: { http: "HTTP / REST", ws: "WebSocket", mqtt: "MQTT", serial: "串口", grpc: "gRPC", sniffer: "抓包", modbus: "Modbus" },
+    tabs: { http: "HTTP", mqtt: "MQTT", serial: "串口", grpc: "gRPC", sniffer: "抓包", modbus: "Modbus" },
     sidebar: {
       apiList: "接口列表",
       history: "请求历史",
@@ -2514,11 +2586,19 @@ export const zhCN = {
       deleteFolder: "删除文件夹",
       deleteFolderTitle: "删除文件夹",
       deleteFolderConfirm: "删除此文件夹？其中的子文件夹将一并删除，接口将移至根级。",
+      renameRequest: "重命名请求",
+      renameRequestTitle: "重命名请求",
       deleteCollection: "删除集合",
+      deleteCollectionTitle: "删除集合",
+      deleteCollectionConfirm: "删除此集合？其中的请求将保留但不再归属该集合。",
       deleteRequest: "删除请求",
       apiListEmpty: "右键可创建文件夹或请求",
       selectRequestForHistory: "请在接口列表中选择一个请求",
       noRequestHistory: "该请求暂无历史记录",
+      deleteHistory: "删除记录",
+      clearRequestHistory: "清空该请求历史",
+      clearRequestHistoryTitle: "清空请求历史",
+      clearRequestHistoryConfirm: "确定清空该请求的全部历史记录？",
     },
     actions: { newRequest: "新建请求", importCurl: "导入 cURL", newTab: "新建标签" },
 common: {
@@ -2539,6 +2619,7 @@ common: {
       retain: "保留",
     },
     http: {
+      modes: { rest: "REST", websocket: "WebSocket" },
       urlPlaceholder: "https://api.example.com/v1/users",
       history: "历史",
       collections: "集合",
@@ -2549,7 +2630,12 @@ common: {
       allRequests: "全部请求",
       savedRequests: "已保存请求",
       requestName: "请求名称…",
+      saveShortcut: "保存 (Ctrl+S / Cmd+S)",
+      workspaceEmpty: "从左侧接口列表选择请求，或点击 + 新建请求",
+      recentClosed: "最近关闭",
       tabs: { params: "参数", headers: "请求头", body: "请求体", auth: "认证", scripts: "脚本" },
+      responseTabs: { headers: "响应头", body: "响应体" },
+      noResponseHeaders: "无响应头",
       requestBody: "请求体…",
       preRequestScript: "请求前脚本",
       testScript: "测试脚本",
@@ -2568,7 +2654,9 @@ common: {
         basicAuth: "Basic Auth",
         apiKey: "API Key",
         oauth2: "OAuth 2.0",
+        authorization: "Authorization",
       },
+      authAuthorizationPlaceholder: "Bearer <token> 或完整 Authorization 值",
     },
     ws: {
       urlPlaceholder: "wss://echo.websocket.org",

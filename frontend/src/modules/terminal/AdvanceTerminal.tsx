@@ -33,6 +33,16 @@ type SidePanelWorkspaceSpec = {
 
 /** 侧栏竖排 tab 轨宽度，与 global.css 中 dv-tabs-and-actions-container 一致 */
 const SIDE_TAB_RAIL_PX = 38;
+/** 右侧工具栏首次展开时的默认宽度（偏窄，给终端留更多空间） */
+const SIDE_DEFAULT_EXPANDED_PX = 280;
+const SIDE_EXPANDED_MAX_RATIO = 0.36;
+
+function resolveDefaultExpandedSideWidth(): number {
+  return Math.min(
+    Math.max(SIDE_DEFAULT_EXPANDED_PX, Math.floor(window.innerWidth * 0.26)),
+    Math.floor(window.innerWidth * SIDE_EXPANDED_MAX_RATIO),
+  );
+}
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -59,7 +69,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     };
     if (isLocal) {
       return [
-        historyTab,
         {
           id: "monitor",
           label: t("terminal.sideTabs.monitor"),
@@ -72,10 +81,10 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           panelType: "terminal-side",
           closable: false,
         },
+        historyTab,
       ];
     }
     return [
-      historyTab,
       {
         id: "processes",
         label: t("ssh.detailTabs.processes"),
@@ -94,6 +103,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
         panelType: "terminal-side",
         closable: false,
       },
+      historyTab,
     ];
   }, [isLocal, t]);
 
@@ -152,10 +162,13 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     [resource?.id, sideTabs, t, tabId],
   );
 
-  const defaultSideTab = "history";
-  const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(defaultSideTab);
-  const [sideContentCollapsed, setSideContentCollapsed] = useState(false);
-  const sideContentCollapsedRef = useRef(false);
+  const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(() =>
+    isLocal ? "monitor" : "processes",
+  );
+  const activeSideTabRef = useRef(activeSideTab);
+  activeSideTabRef.current = activeSideTab;
+  const [sideContentCollapsed, setSideContentCollapsed] = useState(true);
+  const sideContentCollapsedRef = useRef(true);
   const sidePanelRef = useRef<PanelImperativeHandle | null>(null);
   const expandedSideSizeRef = useRef<number>(0);
   const sideLayoutRef = useRef<SerializedDockview | null>(null);
@@ -167,15 +180,15 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     const handle = sidePanelRef.current;
     if (!handle) return;
     if (collapsed) {
-      handle.resize(SIDE_TAB_RAIL_PX);
+      handle.resize(`${SIDE_TAB_RAIL_PX}px`);
       return;
     }
 
     const restored =
       expandedSideSizeRef.current > SIDE_TAB_RAIL_PX + 8
         ? expandedSideSizeRef.current
-        : Math.floor(window.innerWidth * 0.5);
-    handle.resize(restored);
+        : resolveDefaultExpandedSideWidth();
+    handle.resize(`${restored}px`);
   }, []);
 
   const applySidePanelCollapsed = useCallback((collapsed: boolean) => {
@@ -191,15 +204,21 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   }, []);
 
   useLayoutEffect(() => {
-    resizeSidePanel(sideContentCollapsed);
-    const raf = requestAnimationFrame(() => resizeSidePanel(sideContentCollapsed));
-    return () => cancelAnimationFrame(raf);
+    const run = () => resizeSidePanel(sideContentCollapsed);
+    run();
+    const raf1 = requestAnimationFrame(() => {
+      run();
+      requestAnimationFrame(run);
+    });
+    return () => cancelAnimationFrame(raf1);
   }, [resizeSidePanel, sideContentCollapsed]);
 
   const handleSideTabChange = useCallback(
     (id: string) => {
+      const switchingTab = id !== activeSideTabRef.current;
       setActiveSideTab(id as SidePanelId);
-      if (sideContentCollapsedRef.current) {
+      // dockview 初始化时会同步当前激活 tab，不应因此展开侧栏内容区
+      if (sideContentCollapsedRef.current && switchingTab) {
         applySidePanelCollapsed(false);
       }
     },
@@ -210,6 +229,10 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     (_tabId: string, wasActive: boolean) => {
       if (wasActive) {
         applySidePanelCollapsed(!sideContentCollapsedRef.current);
+        return;
+      }
+      if (sideContentCollapsedRef.current) {
+        applySidePanelCollapsed(false);
       }
     },
     [applySidePanelCollapsed],
@@ -217,9 +240,9 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
 
   useEffect(() => {
     if (!sideTabs.some((item) => item.id === activeSideTab)) {
-      setActiveSideTab((sideTabs[0]?.id ?? defaultSideTab) as SidePanelId);
+      setActiveSideTab((sideTabs[0]?.id ?? "history") as SidePanelId);
     }
-  }, [activeSideTab, defaultSideTab, sideTabs]);
+  }, [activeSideTab, sideTabs]);
 
   const openTunnelTab = useCallback(() => {
     setActiveSideTab("tunnel");
@@ -321,7 +344,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     <div className="advance-terminal">
       <DockLayout direction="horizontal" className="advance-terminal-split">
         <DockPanel
-          defaultSize="50%"
           minSize={sideContentCollapsed ? "0%" : "40%"}
           className="advance-terminal-main"
         >
@@ -329,11 +351,16 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
         </DockPanel>
         {!sideContentCollapsed ? <DockHandle direction="horizontal" /> : null}
         <DockPanel
-          defaultSize="50%"
-          minSize={SIDE_TAB_RAIL_PX}
-          maxSize={sideContentCollapsed ? SIDE_TAB_RAIL_PX : "60%"}
+          defaultSize={`${SIDE_TAB_RAIL_PX}px`}
+          minSize={`${SIDE_TAB_RAIL_PX}px`}
+          maxSize={
+            sideContentCollapsed
+              ? `${SIDE_TAB_RAIL_PX}px`
+              : `${Math.round(SIDE_EXPANDED_MAX_RATIO * 100)}%`
+          }
           collapsible
-          collapsedSize={SIDE_TAB_RAIL_PX}
+          collapsedSize={`${SIDE_TAB_RAIL_PX}px`}
+          groupResizeBehavior="preserve-pixel-size"
           panelRef={sidePanelRef}
           className={`advance-terminal-side${sideContentCollapsed ? " advance-terminal-side--collapsed" : ""}`}
         >

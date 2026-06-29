@@ -1,4 +1,8 @@
+pub mod acp;
+pub mod agents;
 pub mod ai;
+pub mod app_module;
+pub mod mcp_tool;
 pub mod mcp;
 pub mod ai_models;
 pub mod db_sql_files;

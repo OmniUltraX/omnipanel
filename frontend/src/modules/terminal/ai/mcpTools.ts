@@ -1,19 +1,10 @@
 import type { McpToolRegistration } from "../../../lib/ai/context";
-import { useTerminalStore } from "../../../stores/terminalStore";
-import { resolveResourceById } from "../../../stores/connectionStore";
+import { requireString } from "../../../lib/ai/mcpToolArgs";
+import { useTerminalStore } from "../../../stores/terminalStore";import { resolveResourceById } from "../../../stores/connectionStore";
 import { requestTerminalExecution, type TerminalExecutionResult } from "../executeTerminalCommand";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../paneResource";
 
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`缺少必填参数：${key}`);
-  }
-  return value.trim();
-}
-
-export interface TerminalCommandCoreArgs {
-  command: string;
+export interface TerminalCommandCoreArgs {  command: string;
   session_id?: string;
 }
 
@@ -77,9 +68,12 @@ async function runTerminalCommand(args: Record<string, unknown>): Promise<string
   return outputJson;
 }
 
+/** 终端模块 MCP 工具名（omni_{module}_{function_name}） */
+export const OMNI_TERMINAL_RUN_TERMINAL_COMMAND = "omni_terminal_run_terminal_command";
+
 export const TERMINAL_MODULE_MCP_TOOLS: McpToolRegistration[] = [
   {
-    name: "run_terminal_command",
+    name: OMNI_TERMINAL_RUN_TERMINAL_COMMAND,
     description:
       "在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
     inputSchema: {

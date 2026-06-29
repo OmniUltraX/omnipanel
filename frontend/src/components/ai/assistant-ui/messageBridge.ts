@@ -130,7 +130,7 @@ export function threadMessageToAiMessage(msg: ThreadMessage): AiMessage | null {
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       isStreaming: msg.status?.type === "running",
       isReasoningStreaming:
-        msg.status?.type === "running" && extractThreadReasoning(msg).length > 0,
+        msg.status?.type === "running" && !extractThreadText(msg).trim(),
     };
   }
 

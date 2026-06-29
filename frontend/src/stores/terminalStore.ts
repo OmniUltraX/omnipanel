@@ -1,103 +1,80 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Terminal } from "@xterm/xterm";
+import type {
+  TerminalConnectionStatus,
+  TerminalPane,
+  TerminalSessionInfo,
+  TerminalSessionType,
+  TerminalTab,
+  TerminalTabInput,
+} from "./terminalTypes";
+import {
+  createSessionEntity,
+  defaultSessionInfo,
+  migrateLegacyTabsToSessions,
+  normalizePersistedSession,
+  syncSessionCounterFromIds,
+  tabFromSession,
+  type TerminalDetachedRuntime,
+  type TerminalSession,
+} from "./terminalSessionModel";
+
+export type {
+  TerminalConnectionStatus,
+  TerminalPane,
+  TerminalSessionInfo,
+  TerminalSessionType,
+  TerminalTab,
+  TerminalTabInput,
+} from "./terminalTypes";
+export type { TerminalSession } from "./terminalSessionModel";
+export { createTerminalSessionId, createTerminalSessionId as createTerminalTabId } from "./terminalSessionModel";
 
 let tabCounter = 0;
 
-/** 从已持久化的 tab id 恢复计数器，避免刷新后重复生成 tab-1 */
 function syncTabCounterFromTabs(tabs: Array<{ id: string }>): void {
   let max = 0;
   for (const tab of tabs) {
     const match = /^tab-(\d+)$/.exec(tab.id);
-    if (match) {
-      max = Math.max(max, Number(match[1]));
-    }
+    if (match) max = Math.max(max, Number(match[1]));
   }
   tabCounter = max;
 }
 
-export function createTerminalTabId() {
+/** @deprecated 工作区快照等仍可能生成 tab-N；新会话请用 createTerminalSessionId */
+export function createLegacyTabId() {
   tabCounter += 1;
   return `tab-${tabCounter}`;
 }
 
-export type TerminalSessionType = "local" | "remote";
-
-/**
- * 终端会话连接字段（本地 / SSH 通用）。
- * 每个 TerminalTab 直接持有一份；与 rc-dock 的 1 tab = 1 终端 会话模型对齐。
- */
-export type TerminalSessionInfo = {
-  type: TerminalSessionType;
-  resourceId: string;
-  shellLabel: string;
-  cwd: string;
-  purpose: string;
-  commandPack: string[];
-};
-
-/**
- * 终端 Tab（= 一个 rc-dock tab = 一条 PTY/SSH 会话）。
- * 历史数据模型中 Tab 内嵌 `panes[]`，实践中始终只有一个 pane，造成与
- * rc-dock 概念重叠、UI 难以拆分多面板。本次重构把会话字段直接平铺到 Tab。
- */
-export interface TerminalTab {
-  id: string;
-  title: string;
-  session: TerminalSessionInfo;
-  workspaceId?: string;
-  /** 仅由底部工作区 payload 使用，不在终端模块 Dock 中展示 */
-  workspaceOnly?: boolean;
-  backendSessionId: string | null;
-  status: "connecting" | "connected" | "disconnected";
-  terminal: Terminal | null;
-  createdAt: number;
-}
-
-/** SSH 模块内嵌终端窗格（与 `TerminalTab` 并存，允许多 pane）。 */
-export interface TerminalPane {
-  id: string;
-  backendSessionId: string | null;
-  title: string;
-  type: TerminalSessionType;
-  resourceId: string;
-  shellLabel: string;
-  cwd: string;
-  purpose: string;
-  commandPack: string[];
-  terminal: Terminal | null;
-  status: "connecting" | "connected" | "disconnected";
-}
-
-export type TerminalTabInput = Omit<
-  TerminalTab,
-  "backendSessionId" | "status" | "terminal" | "createdAt"
->;
-
-export type { TerminalSessionInfo as TerminalTabSession };
-
 interface TerminalState {
+  sessions: TerminalSession[];
   tabs: TerminalTab[];
   activeTabId: string | null;
-  /** SSH 等模块内嵌终端（不占用顶部终端 Tab） */
+  activeSessionId: string | null;
+  /** Tab 关闭后保留的后端连接，供再次打开时 attach */
+  detachedRuntime: Record<string, TerminalDetachedRuntime>;
   embeddedPanes: Record<string, TerminalPane>;
+
+  getSession: (sessionId: string) => TerminalSession | undefined;
+  listSessionsForResource: (resourceId: string) => TerminalSession[];
+  createSession: (title: string, session: TerminalSessionInfo, id?: string) => string;
+  openSessionTab: (sessionId: string) => string;
+  closeTabOnly: (sessionId: string) => void;
+  endSession: (sessionId: string) => void;
+  renameSession: (sessionId: string, title: string) => void;
+  touchSession: (sessionId: string, at?: number) => void;
 
   addTab: (tab: TerminalTabInput) => string;
   removeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
-  setTerminal: (tabId: string, terminal: Terminal) => void;
-  setStatus: (tabId: string, status: TerminalTab["status"]) => void;
-  setBackendSessionId: (tabId: string, backendSessionId: string | null) => void;
-  /** 更新会话当前工作目录（shell integration / 远程 cwd 钩子） */
+  setActiveSession: (sessionId: string) => void;
+  setTerminal: (tabId: string, terminal: TerminalTab["terminal"]) => void;
+  setStatus: (sessionId: string, status: TerminalConnectionStatus) => void;
+  setBackendSessionId: (sessionId: string, backendSessionId: string | null) => void;
   setSessionCwd: (sessionId: string, cwd: string) => void;
-  /**
-   * 切换 Tab 目标服务器（调用方需先 dispose 旧后端会话）。
-   * Tab 的 id 保持不变；旧后端会话 dispose 后 store 内部的 id 计数器维持。
-   */
   setTabResource: (tabId: string, session: TerminalSessionInfo) => void;
-  /** 调整 Tab 标题（如资源改名） */
   renameTab: (tabId: string, title: string) => void;
-  /** 设置 tab 是否仅在工作区中显示 */
   setTabWorkspaceOnly: (tabId: string, workspaceOnly: boolean) => void;
   upsertEmbeddedPane: (
     pane: Omit<TerminalPane, "terminal" | "status" | "backendSessionId">,
@@ -109,11 +86,10 @@ interface TerminalState {
   ) => TerminalTab | undefined;
   openOrFocusSshTab: (hostId: string, title: string) => string;
   openOrFocusLocalTab: (title?: string) => string;
-  addLocalTerminalTab: (title?: string) => string;
-  addSshTerminalTab: (hostId: string, title: string) => string;
+  addLocalTerminalTab: (title?: string, workspaceId?: string) => string;
+  addSshTerminalTab: (hostId: string, title: string, workspaceId?: string) => string;
 }
 
-/** 在 Tab 中按 id 查找并应用更新（找不到则原样返回） */
 function updateTabById(
   tabs: TerminalTab[],
   tabId: string,
@@ -122,36 +98,71 @@ function updateTabById(
   return tabs.map((tab) => (tab.id === tabId ? updater(tab) : tab));
 }
 
-/** 在所有终端位置（Tab + embeddedPane）中查找（供 useTerminal 使用） */
+function updateSessionById(
+  sessions: TerminalSession[],
+  sessionId: string,
+  updater: (session: TerminalSession) => TerminalSession,
+): TerminalSession[] {
+  return sessions.map((s) => (s.id === sessionId ? updater(s) : s));
+}
+
+function getRuntimeForSession(
+  state: TerminalState,
+  sessionId: string,
+): TerminalDetachedRuntime | undefined {
+  const tab = state.tabs.find((t) => t.sessionId === sessionId);
+  if (tab) {
+    return { backendSessionId: tab.backendSessionId, status: tab.status };
+  }
+  return state.detachedRuntime[sessionId];
+}
+
 export function findTerminalSession(
   id: string,
 ): { kind: "tab"; tab: TerminalTab } | { kind: "pane"; pane: TerminalPane } | undefined {
   const state = useTerminalStore.getState();
-  const tab = state.tabs.find((item) => item.id === id);
+  const tab = state.tabs.find((item) => item.id === id || item.sessionId === id);
   if (tab) return { kind: "tab", tab };
   const pane = state.embeddedPanes[id];
   if (pane) return { kind: "pane", pane };
   return undefined;
 }
 
-/** 向后兼容旧调用方：仅返回 pane 形态（embedded pane 或 tab 转 p 形态） */
 export function findTerminalPane(id: string): TerminalPane | undefined {
-  const session = findTerminalSession(id);
-  if (!session) return undefined;
-  if (session.kind === "pane") return session.pane;
-  const tab = session.tab;
+  const found = findTerminalSession(id);
+  if (found?.kind === "pane") return found.pane;
+  if (found?.kind === "tab") {
+    const tab = found.tab;
+    return {
+      id: tab.sessionId,
+      backendSessionId: tab.backendSessionId,
+      title: tab.title,
+      type: tab.session.type,
+      resourceId: tab.session.resourceId,
+      shellLabel: tab.session.shellLabel,
+      cwd: tab.session.cwd,
+      purpose: tab.session.purpose,
+      commandPack: tab.session.commandPack,
+      terminal: tab.terminal,
+      status: tab.status,
+    };
+  }
+  const state = useTerminalStore.getState();
+  const entity = state.sessions.find((s) => s.id === id);
+  if (!entity) return undefined;
+  const runtime = state.detachedRuntime[id];
   return {
-    id: tab.id,
-    backendSessionId: tab.backendSessionId,
-    title: tab.title,
-    type: tab.session.type,
-    resourceId: tab.session.resourceId,
-    shellLabel: tab.session.shellLabel,
-    cwd: tab.session.cwd,
-    purpose: tab.session.purpose,
-    commandPack: tab.session.commandPack,
-    terminal: tab.terminal,
-    status: tab.status,
+    id: entity.id,
+    backendSessionId: runtime?.backendSessionId ?? null,
+    title: entity.title,
+    type: entity.session.type,
+    resourceId: entity.session.resourceId,
+    shellLabel: entity.session.shellLabel,
+    cwd: entity.session.cwd,
+    purpose: entity.session.purpose,
+    commandPack: entity.session.commandPack,
+    terminal: null,
+    status: runtime?.status ?? "disconnected",
   };
 }
 
@@ -168,17 +179,15 @@ function createPane(
 
 export const SSH_EMBEDDED_PANE_PREFIX = "ssh-embed:";
 
-/** SSH 模块内嵌终端工作区 id（首个窗格可能与此 id 相同） */
 export function sshEmbeddedWorkspaceId(resourceId: string) {
   return `${SSH_EMBEDDED_PANE_PREFIX}${resourceId}`;
 }
 
-/** @deprecated 请使用 sshEmbeddedWorkspaceId */
 export function sshEmbeddedPaneId(resourceId: string) {
   return sshEmbeddedWorkspaceId(resourceId);
 }
 
-function normalizePersistedTab(tab: unknown): TerminalTab | null {
+function normalizeLegacyPersistedTab(tab: unknown): TerminalTab | null {
   if (!tab || typeof tab !== "object") return null;
   const raw = tab as Record<string, unknown>;
   if (typeof raw.id !== "string" || typeof raw.title !== "string") return null;
@@ -210,8 +219,10 @@ function normalizePersistedTab(tab: unknown): TerminalTab | null {
       : [],
   };
   const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : Date.now();
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : raw.id;
   return {
     id: raw.id,
+    sessionId,
     title: raw.title,
     session,
     workspaceId: raw.workspaceId as string | undefined,
@@ -223,56 +234,224 @@ function normalizePersistedTab(tab: unknown): TerminalTab | null {
 }
 
 const TABS_STORAGE_KEY = "omnipanel.terminalTabs.v2";
-const TABS_STORAGE_VERSION = 2;
+const TABS_STORAGE_VERSION = 3;
 
 export const useTerminalStore = create<TerminalState>()(
   persist(
     (set, get) => ({
+      sessions: [],
       tabs: [],
       activeTabId: null,
+      activeSessionId: null,
+      detachedRuntime: {},
       embeddedPanes: {},
 
-      addTab: (tab) => {
-        const newTab: TerminalTab = {
-          ...tab,
-          backendSessionId: null,
-          status: "connecting",
-          terminal: null,
-          createdAt: Date.now(),
-        };
+      getSession: (sessionId) => get().sessions.find((s) => s.id === sessionId),
+
+      listSessionsForResource: (resourceId) =>
+        get().sessions.filter(
+          (s) => s.session.resourceId === resourceId && s.lifecycle !== "ended",
+        ),
+
+      createSession: (title, session, id) => {
+        const entity = createSessionEntity(title, session, id);
         set((state) => ({
-          tabs: [...state.tabs, newTab],
-          activeTabId: tab.workspaceOnly
-            ? state.activeTabId
-            : (state.activeTabId ?? newTab.id),
+          sessions: [...state.sessions, entity],
         }));
-        return newTab.id;
+        return entity.id;
       },
 
-      removeTab: (tabId) =>
+      openSessionTab: (sessionId) => {
+        const state = get();
+        const entity = state.sessions.find((s) => s.id === sessionId);
+        if (!entity || entity.lifecycle === "ended") return sessionId;
+
+        const existing = state.tabs.find((t) => t.sessionId === sessionId);
+        if (existing) {
+          set({
+            activeTabId: existing.id,
+            activeSessionId: sessionId,
+            sessions: updateSessionById(state.sessions, sessionId, (s) => ({
+              ...s,
+              lifecycle: "active",
+            })),
+          });
+          return existing.id;
+        }
+
+        const runtime = state.detachedRuntime[sessionId];
+        const tab = tabFromSession(entity, runtime);
+        const { [sessionId]: _removed, ...restDetached } = state.detachedRuntime;
+
+        set({
+          sessions: updateSessionById(state.sessions, sessionId, (s) => ({
+            ...s,
+            lifecycle: "active",
+          })),
+          tabs: [...state.tabs, tab],
+          detachedRuntime: restDetached,
+          activeTabId: tab.id,
+          activeSessionId: sessionId,
+        });
+        return tab.id;
+      },
+
+      closeTabOnly: (sessionIdOrTabId) => {
         set((state) => {
-          const remaining = state.tabs.filter((tab) => tab.id !== tabId);
-          const nextActiveTabId =
-            state.activeTabId === tabId
+          const tab = state.tabs.find(
+            (t) => t.sessionId === sessionIdOrTabId || t.id === sessionIdOrTabId,
+          );
+          if (!tab) return state;
+          const sessionId = tab.sessionId;
+
+          const detachedRuntime: Record<string, TerminalDetachedRuntime> = {
+            ...state.detachedRuntime,
+            [sessionId]: {
+              backendSessionId: tab.backendSessionId,
+              status: tab.status,
+            },
+          };
+
+          const remaining = state.tabs.filter((t) => t.id !== tab.id);
+          const nextActive =
+            state.activeTabId === tab.id
               ? remaining.length > 0
                 ? remaining[Math.max(remaining.length - 1, 0)].id
                 : null
               : state.activeTabId;
-          return { tabs: remaining, activeTabId: nextActiveTabId };
-        }),
+          const nextSessionId = nextActive
+            ? remaining.find((t) => t.id === nextActive)?.sessionId ?? null
+            : null;
 
-      setActiveTab: (tabId) => set({ activeTabId: tabId }),
+          return {
+            tabs: remaining,
+            activeTabId: nextActive,
+            activeSessionId: nextSessionId,
+            detachedRuntime,
+            sessions: updateSessionById(state.sessions, sessionId, (s) => ({
+              ...s,
+              lifecycle: "suspended",
+            })),
+          };
+        });
+      },
+
+      endSession: (sessionId) => {
+        set((state) => {
+          const { [sessionId]: _d, ...restDetached } = state.detachedRuntime;
+          const remainingTabs = state.tabs.filter((t) => t.sessionId !== sessionId);
+          const nextActive =
+            state.activeSessionId === sessionId
+              ? remainingTabs.length > 0
+                ? remainingTabs[Math.max(remainingTabs.length - 1, 0)].id
+                : null
+              : state.activeTabId;
+          return {
+            sessions: state.sessions.map((s) =>
+              s.id === sessionId ? { ...s, lifecycle: "ended" as const } : s,
+            ),
+            tabs: remainingTabs,
+            detachedRuntime: restDetached,
+            activeTabId: nextActive,
+            activeSessionId:
+              state.activeSessionId === sessionId
+                ? (remainingTabs.find((t) => t.id === nextActive)?.sessionId ?? null)
+                : state.activeSessionId,
+          };
+        });
+      },
+
+      renameSession: (sessionId, title) => {
+        set((state) => ({
+          sessions: updateSessionById(state.sessions, sessionId, (s) => ({ ...s, title })),
+          tabs: state.tabs.map((tab) =>
+            tab.sessionId === sessionId ? { ...tab, title } : tab,
+          ),
+        }));
+      },
+
+      touchSession: (sessionId, at = Date.now()) => {
+        set((state) => ({
+          sessions: updateSessionById(state.sessions, sessionId, (s) => ({
+            ...s,
+            lastActiveAt: Math.max(s.lastActiveAt, at),
+          })),
+        }));
+      },
+
+      addTab: (tab) => {
+        const sessionId = tab.sessionId ?? tab.id;
+        const state = get();
+        let sessions = state.sessions;
+        if (!sessions.some((s) => s.id === sessionId)) {
+          sessions = [
+            ...sessions,
+            createSessionEntity(tab.title, tab.session, sessionId),
+          ];
+        }
+        const runtime = state.detachedRuntime[sessionId];
+        const newTab: TerminalTab = {
+          ...tab,
+          id: tab.id,
+          sessionId,
+          backendSessionId: runtime?.backendSessionId ?? null,
+          status: runtime?.status ?? "connecting",
+          terminal: null,
+          createdAt: Date.now(),
+        };
+        const { [sessionId]: _removed, ...restDetached } = state.detachedRuntime;
+        const becomesActive = !tab.workspaceOnly;
+        set({
+          sessions: updateSessionById(sessions, sessionId, (s) => ({
+            ...s,
+            lifecycle: becomesActive ? "active" : s.lifecycle,
+          })),
+          tabs: [...state.tabs.filter((t) => t.sessionId !== sessionId), newTab],
+          detachedRuntime: restDetached,
+          activeTabId: tab.workspaceOnly ? state.activeTabId : (state.activeTabId ?? newTab.id),
+          activeSessionId: tab.workspaceOnly ? state.activeSessionId : sessionId,
+        });
+        return newTab.id;
+      },
+
+      removeTab: (tabId) => {
+        get().closeTabOnly(tabId);
+      },
+
+      setActiveTab: (tabId) => {
+        const tab = get().tabs.find((t) => t.id === tabId || t.sessionId === tabId);
+        if (!tab) {
+          set({ activeTabId: tabId, activeSessionId: null });
+          return;
+        }
+        set({
+          activeTabId: tab.id,
+          activeSessionId: tab.sessionId,
+        });
+      },
+
+      setActiveSession: (sessionId) => {
+        get().openSessionTab(sessionId);
+      },
 
       setTerminal: (tabId, terminal) =>
         set((state) => ({ tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, terminal })) })),
 
       setStatus: (sessionId, status) =>
         set((state) => {
-          const tabs = updateTabById(state.tabs, sessionId, (tab) => ({ ...tab, status }));
+          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+            tab.sessionId === sessionId || tab.id === sessionId ? { ...tab, status } : tab,
+          );
           const pane = state.embeddedPanes[sessionId];
-          if (!pane) return { tabs };
+          const detached = state.detachedRuntime[sessionId];
+          if (!pane && !detached && tabs === state.tabs) return { tabs };
+          const nextDetached = detached
+            ? { ...state.detachedRuntime, [sessionId]: { ...detached, status } }
+            : state.detachedRuntime;
+          if (!pane) return { tabs, detachedRuntime: nextDetached };
           return {
             tabs,
+            detachedRuntime: nextDetached,
             embeddedPanes: {
               ...state.embeddedPanes,
               [sessionId]: { ...pane, status },
@@ -282,11 +461,20 @@ export const useTerminalStore = create<TerminalState>()(
 
       setBackendSessionId: (sessionId, backendSessionId) =>
         set((state) => {
-          const tabs = updateTabById(state.tabs, sessionId, (tab) => ({ ...tab, backendSessionId }));
+          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+            tab.sessionId === sessionId || tab.id === sessionId
+              ? { ...tab, backendSessionId }
+              : tab,
+          );
           const pane = state.embeddedPanes[sessionId];
-          if (!pane) return { tabs };
+          const detached = state.detachedRuntime[sessionId];
+          const nextDetached = detached
+            ? { ...state.detachedRuntime, [sessionId]: { ...detached, backendSessionId } }
+            : state.detachedRuntime;
+          if (!pane) return { tabs, detachedRuntime: nextDetached };
           return {
             tabs,
+            detachedRuntime: nextDetached,
             embeddedPanes: {
               ...state.embeddedPanes,
               [sessionId]: { ...pane, backendSessionId },
@@ -296,14 +484,20 @@ export const useTerminalStore = create<TerminalState>()(
 
       setSessionCwd: (sessionId, cwd) =>
         set((state) => {
-          const tabs = updateTabById(state.tabs, sessionId, (tab) => ({
-            ...tab,
-            session: { ...tab.session, cwd },
+          const sessions = updateSessionById(state.sessions, sessionId, (s) => ({
+            ...s,
+            session: { ...s.session, cwd },
           }));
+          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+            tab.sessionId === sessionId || tab.id === sessionId
+              ? { ...tab, session: { ...tab.session, cwd } }
+              : tab,
+          );
           const pane = state.embeddedPanes[sessionId];
-          if (!pane) return { tabs };
+          if (!pane) return { tabs, sessions };
           return {
             tabs,
+            sessions,
             embeddedPanes: {
               ...state.embeddedPanes,
               [sessionId]: { ...pane, cwd },
@@ -320,12 +514,21 @@ export const useTerminalStore = create<TerminalState>()(
             backendSessionId: null,
             status: "connecting",
           })),
+          sessions: updateSessionById(
+            state.sessions,
+            state.tabs.find((t) => t.id === tabId)?.sessionId ?? tabId,
+            (s) => ({ ...s, session }),
+          ),
         })),
 
       renameTab: (tabId, title) => {
-        set((state) => ({
-          tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, title })),
-        }));
+        const tab = get().tabs.find((t) => t.id === tabId);
+        if (tab?.sessionId) get().renameSession(tab.sessionId, title);
+        else {
+          set((state) => ({
+            tabs: updateTabById(state.tabs, tabId, (t) => ({ ...t, title })),
+          }));
+        }
       },
 
       setTabWorkspaceOnly: (tabId, workspaceOnly) => {
@@ -366,56 +569,66 @@ export const useTerminalStore = create<TerminalState>()(
       findTabByResourceId: (resourceId, type) =>
         get().tabs.find(
           (tab) =>
-            tab.session.resourceId === resourceId && (type ? tab.session.type === type : true) && !tab.workspaceOnly,
+            tab.session.resourceId === resourceId &&
+            (type ? tab.session.type === type : true) &&
+            !tab.workspaceOnly,
         ),
 
       openOrFocusSshTab: (hostId, title) => {
-        const existing = get().findTabByResourceId(hostId, "remote");
+        const existing = get().tabs.find(
+          (t) => t.session.resourceId === hostId && t.session.type === "remote" && !t.workspaceOnly,
+        );
         if (existing) {
-          set({ activeTabId: existing.id });
+          get().setActiveTab(existing.id);
           return existing.id;
         }
+        const suspended = get().sessions.find(
+          (s) =>
+            s.session.resourceId === hostId &&
+            s.session.type === "remote" &&
+            s.lifecycle === "suspended",
+        );
+        if (suspended) return get().openSessionTab(suspended.id);
         return get().addSshTerminalTab(hostId, title);
       },
 
       openOrFocusLocalTab: (title = "本地终端") => {
-        const existing = get().findTabByResourceId("local-terminal", "local");
+        const existing = get().tabs.find(
+          (t) => t.session.resourceId === "local-terminal" && !t.workspaceOnly,
+        );
         if (existing) {
-          set({ activeTabId: existing.id });
+          get().setActiveTab(existing.id);
           return existing.id;
         }
+        const suspended = get().sessions.find(
+          (s) => s.session.resourceId === "local-terminal" && s.lifecycle === "suspended",
+        );
+        if (suspended) return get().openSessionTab(suspended.id);
         return get().addLocalTerminalTab(title);
       },
 
       addLocalTerminalTab: (title = "本地终端", workspaceId?: string) => {
+        const sessionId = get().createSession(
+          title,
+          defaultSessionInfo("local-terminal", "local"),
+        );
         return get().addTab({
-          id: createTerminalTabId(),
+          id: sessionId,
+          sessionId,
           title,
           workspaceId,
-          session: {
-            type: "local",
-            resourceId: "local-terminal",
-            shellLabel: "PowerShell",
-            cwd: "~/workspace",
-            purpose: "Local Workspace",
-            commandPack: [],
-          },
+          session: defaultSessionInfo("local-terminal", "local"),
         });
       },
 
       addSshTerminalTab: (hostId, title, workspaceId?: string) => {
+        const sessionId = get().createSession(title, defaultSessionInfo(hostId, "remote"));
         return get().addTab({
-          id: createTerminalTabId(),
+          id: sessionId,
+          sessionId,
           title,
           workspaceId,
-          session: {
-            type: "remote",
-            resourceId: hostId,
-            shellLabel: "SSH",
-            cwd: "~/",
-            purpose: "SSH Workbench",
-            commandPack: [],
-          },
+          session: defaultSessionInfo(hostId, "remote"),
         });
       },
     }),
@@ -424,35 +637,114 @@ export const useTerminalStore = create<TerminalState>()(
       version: TABS_STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        sessions: state.sessions
+          .filter((s) => s.lifecycle !== "ended")
+          .map((s) => ({
+            id: s.id,
+            title: s.title,
+            session: s.session,
+            createdAt: s.createdAt,
+            lastActiveAt: s.lastActiveAt,
+            lifecycle: s.lifecycle,
+          })),
         tabs: state.tabs
           .filter((tab) => !tab.workspaceOnly)
           .map((tab) => ({
             id: tab.id,
+            sessionId: tab.sessionId,
             title: tab.title,
             session: tab.session,
             createdAt: tab.createdAt,
           })),
         activeTabId: state.activeTabId,
+        activeSessionId: state.activeSessionId,
       }),
+      migrate: (persistedState, version) => {
+        const persisted = persistedState as Record<string, unknown> | undefined;
+        if (!persisted) return persistedState as TerminalState;
+
+        if (version < 3) {
+          const legacyTabs = (persisted.tabs as Array<Record<string, unknown>>) ?? [];
+          const migrated = migrateLegacyTabsToSessions(legacyTabs);
+          const activeTabId =
+            typeof persisted.activeTabId === "string" ? persisted.activeTabId : migrated.activeTabId;
+          const sessions = migrated.sessions;
+          const openIds = new Set(migrated.openSessionIds);
+          const tabs = sessions
+            .filter((s) => openIds.has(s.id))
+            .map((s) => tabFromSession(s));
+          syncSessionCounterFromIds(sessions);
+          syncTabCounterFromTabs(tabs);
+          return {
+            ...persisted,
+            sessions,
+            tabs,
+            activeTabId:
+              activeTabId && tabs.some((t) => t.id === activeTabId)
+                ? activeTabId
+                : tabs[0]?.id ?? null,
+            activeSessionId:
+              activeTabId && tabs.some((t) => t.id === activeTabId)
+                ? activeTabId
+                : tabs[0]?.sessionId ?? null,
+            detachedRuntime: {},
+          } as unknown as TerminalState;
+        }
+        return persistedState as TerminalState;
+      },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as
-          | { tabs?: Array<Record<string, unknown>>; activeTabId?: string | null }
+          | {
+              sessions?: Array<Record<string, unknown>>;
+              tabs?: Array<Record<string, unknown>>;
+              activeTabId?: string | null;
+              activeSessionId?: string | null;
+            }
           | undefined;
         if (!persisted) return currentState;
+
+        const sessions = (persisted.sessions ?? [])
+          .map((item) => normalizePersistedSession(item))
+          .filter((item): item is TerminalSession => item !== null);
+
         const tabs = (persisted.tabs ?? [])
-          .map((item) => normalizePersistedTab(item))
-          .filter((item): item is TerminalTab => item !== null);
+          .map((item) => normalizeLegacyPersistedTab(item))
+          .filter((item): item is TerminalTab => item !== null)
+          .map((tab) => ({
+            ...tab,
+            backendSessionId: null,
+            status: "connecting" as const,
+            terminal: null,
+          }));
+
+        syncSessionCounterFromIds(sessions);
         syncTabCounterFromTabs(tabs);
+
+        const activeTabId =
+          typeof persisted.activeTabId === "string" &&
+          tabs.some((t) => t.id === persisted.activeTabId)
+            ? persisted.activeTabId
+            : tabs[0]?.id ?? null;
+
+        const activeSessionId =
+          typeof persisted.activeSessionId === "string" &&
+          sessions.some((s) => s.id === persisted.activeSessionId)
+            ? persisted.activeSessionId
+            : tabs.find((t) => t.id === activeTabId)?.sessionId ?? null;
+
         return {
           ...currentState,
+          sessions,
           tabs,
-          activeTabId:
-            typeof persisted.activeTabId === "string" &&
-            tabs.some((t) => t.id === persisted.activeTabId)
-              ? persisted.activeTabId
-              : tabs[0]?.id ?? null,
+          activeTabId,
+          activeSessionId,
+          detachedRuntime: {},
         };
       },
     },
   ),
 );
+
+export function getDetachedRuntime(sessionId: string): TerminalDetachedRuntime | undefined {
+  return getRuntimeForSession(useTerminalStore.getState(), sessionId);
+}

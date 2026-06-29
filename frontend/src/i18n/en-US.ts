@@ -1355,6 +1355,18 @@ export const enUS: TranslationDict = {
       manageHosts: "Manage Hosts…",
       manageHostsDesc: "Go to Host module to add connections",
     },
+    sessions: {
+      title: "Sessions",
+      localSection: "Local",
+      sshSection: "SSH Hosts",
+      empty: "No sessions",
+      noHosts: "No SSH hosts",
+      end: "End session",
+      newUnderConnection: "New session under this connection",
+      reorderConnection: "Drag to reorder connection",
+      workspaceEmpty: "No terminal view open",
+      workspaceEmptyHint: "Open a session from the sidebar or click + to create one",
+    },
     pane: {
       server: "Target server",
     },
@@ -1764,6 +1776,7 @@ export const enUS: TranslationDict = {
     sidebar: {
       title: "Docker",
       connections: "Connections",
+      selectConnection: "Select a Docker connection, or single-click for preview / double-click for a pinned tab",
       addConnection: "Add Docker connection",
       scanSsh: "Scan SSH Docker hosts",
       loading: "Loading connections…",
@@ -1910,7 +1923,7 @@ export const enUS: TranslationDict = {
     empty: {
       title: "No Servers",
       description: 'Click the "+" button or the button below to add a server.',
-      selectServer: "Select a server on the left to view installed apps.",
+      selectServer: "Select a server, or single-click for preview / double-click for a pinned tab",
       noPanelConfig: "This server has no panel connection. Add one and fill in panel settings.",
     },
     placeholder: "{name} is ready. Server management features coming soon.",
@@ -2066,6 +2079,29 @@ export const enUS: TranslationDict = {
       reset: "Reset to default",
       decrease: "Decrease UI scale",
       increase: "Increase UI scale",
+    },
+    system: {
+      label: "System",
+      desc: "System-level settings such as module availability and MCP tool management",
+    },
+    modules: {
+      label: "Modules",
+      desc: "Control feature modules in the sidebar; closed hides the entry, disabled means still in development",
+      devLockedHint: "This module is under development and not available yet",
+      lastOpenHint: "At least one module must stay open",
+      status: {
+        open: "Open",
+        closed: "Closed",
+        disabled: "Disabled",
+      },
+    },
+    mcpTools: {
+      label: "MCP tools",
+      desc: "Manage MCP tools exposed to AI per module; disabled tools cannot be invoked",
+      moduleDesc: "{count} tool(s)",
+      moduleClosedDesc: "Module is closed or disabled; its MCP tools are disabled",
+      moduleSyncHint: "Tools are unavailable while the module is closed; enable them individually after opening the module",
+      empty: "No MCP tools registered",
     },
     appearance: {
       accent: {
@@ -2231,15 +2267,31 @@ export const enUS: TranslationDict = {
       title: "Other",
       desc: "AI-related preferences that don't belong to models or MCP services.",
     },
-    agent: {
-      comingSoon: "Configuration options coming soon for SDK integration.",
-      opencode: {
-        title: "OpenCode",
-        description: "Configure OpenCode Agent SDK connection and runtime options.",
+    agents: {
+      title: "Agent",
+      description:
+        "Choose a local ACP agent. OmniAgent is the built-in default and uses models from the AI section; you can switch to Cursor, OpenCode, or Qwen CLI.",
+      detecting: "Detecting…",
+      redetect: "Detect again",
+      installed: "Installed",
+      notFound: "Not found",
+      installHint: "Not installed or not on PATH",
+      notInstalled: "{name} is not installed. Install the CLI first.",
+      omniagent: {
+        name: "OmniAgent",
+        desc: "Built-in OmniPanel agent (DeepAgents + Skills + MCP). Uses AI models and MCP services via acp-agent-config.json.",
       },
       cursor: {
-        title: "Cursor",
-        description: "Configure Cursor Agent SDK connection and runtime options.",
+        name: "Cursor",
+        desc: "Use Cursor CLI (agent acp) as the local agent; auth is managed by your Cursor account.",
+      },
+      opencode: {
+        name: "OpenCode",
+        desc: "Use OpenCode CLI (opencode acp) as the local agent.",
+      },
+      qwen: {
+        name: "Qwen",
+        desc: "Use Qwen Code CLI (qwen --acp) as the local agent.",
       },
     },
     aiScenarios: {
@@ -2252,12 +2304,16 @@ export const enUS: TranslationDict = {
       },
       assistant: {
         label: "AI Assistant",
-        desc: "Default model for AI assistant chats; can be changed temporarily in the assistant UI.",
+        desc: "Default model for AI assistant chats; OmniAgent uses this model (written to acp-agent-config.json).",
       },
     },
     acpServices: {
       title: "ACP Services",
-      description: "Maintain a list of ACP (Agent Communication Protocol) server applications. Only one can be marked as the active service at a time.",
+      description:
+        "The built-in OmniPanel Agent (/agent) connects automatically on startup. You can also add other ACP servers. Only one service can be active at a time.",
+      builtinBadge: "Built-in",
+      builtinName: "OmniPanel Agent",
+      builtinPath: "Built-in /agent (path resolved automatically on startup)",
       activeBadge: "Active",
       activateTitle: "Set as active",
       activeTitle: "Currently active",
@@ -2284,20 +2340,41 @@ export const enUS: TranslationDict = {
         subtitle: "Update the name, executable path, or active state.",
         confirm: "Save Changes",
       },
+      editBuiltin: {
+        title: "Edit Built-in Agent",
+        subtitle: "Select the LLM model. This agent connects automatically on app startup.",
+      },
       fields: {
         name: "Name",
         namePlaceholder: "e.g. Claude Code, Local Agent…",
         executablePath: "Executable Path",
         executablePathPlaceholder: "/usr/local/bin/agent or C:\\Program Files\\Agent\\agent.exe",
         executablePathHint: "Click \"Browse\" to use the system file picker, or paste an absolute path directly.",
+        model: "LLM Model",
+        modelPlaceholder: "Select a model…",
+        modelHint: "Model, API Key, and Base URL come from Settings → AI Models and are written to the agent config file on save.",
+        modelEmpty: "Add at least one model under Settings → AI Models first.",
         isActive: "Set as the active ACP service",
         isActiveHint: "When enabled, all other services will automatically be deactivated.",
       },
       errors: {
         nameRequired: "Please enter a name",
         pathRequired: "Please enter an executable path",
+        modelRequired: "Please select an LLM model",
         pickFailed: "File picker failed; please paste the path manually",
       },
+      connection: {
+        connect: "Connect Agent",
+        connecting: "Connecting…",
+        connected: "ACP Agent connected",
+        connectedWithName: "Connected: {name}",
+        disconnected: "Not connected",
+        browserMode: "Unavailable in browser mode",
+        modelRequired: "Configure a model for the ACP service first (Edit service → select LLM model)",
+      },
+      hintLabel: "Example command:",
+      mcpEmbeddedDesc:
+        "Manage MCP services and sync them into the OmniAgent config file; enabled running services are loaded as tools in Agent sessions.",
     },
     mcpServices: {
       title: "MCP",
@@ -2325,11 +2402,6 @@ export const enUS: TranslationDict = {
         stopped: "Stopped",
         starting: "Starting",
         error: "Error",
-      },
-      empty: {
-        title: "No custom MCP services yet",
-        desc: "Add a stdio command or SSE endpoint for AI modules to connect to external MCP tools.",
-        cta: "Add MCP Service",
       },
       add: {
         title: "New MCP Service",
@@ -2533,7 +2605,7 @@ export const enUS: TranslationDict = {
     },
   },
   protocol: {
-    tabs: { http: "HTTP / REST", ws: "WebSocket", mqtt: "MQTT", serial: "Serial", grpc: "gRPC", sniffer: "Sniffer", modbus: "Modbus" },
+    tabs: { http: "HTTP", mqtt: "MQTT", serial: "Serial", grpc: "gRPC", sniffer: "Sniffer", modbus: "Modbus" },
     sidebar: {
       apiList: "API List",
       history: "Request History",
@@ -2555,11 +2627,19 @@ export const enUS: TranslationDict = {
       deleteFolder: "Delete Folder",
       deleteFolderTitle: "Delete Folder",
       deleteFolderConfirm: "Delete this folder? Subfolders are removed; requests move to root.",
+      renameRequest: "Rename Request",
+      renameRequestTitle: "Rename Request",
       deleteCollection: "Delete Collection",
+      deleteCollectionTitle: "Delete Collection",
+      deleteCollectionConfirm: "Delete this collection? Requests will be kept but unassigned from the collection.",
       deleteRequest: "Delete Request",
       apiListEmpty: "Right-click to create folders or requests",
       selectRequestForHistory: "Select a request in the API list",
       noRequestHistory: "No history for this request yet",
+      deleteHistory: "Delete Record",
+      clearRequestHistory: "Clear Request History",
+      clearRequestHistoryTitle: "Clear Request History",
+      clearRequestHistoryConfirm: "Clear all history records for this request?",
     },
     actions: { newRequest: "New Request", importCurl: "Import cURL", newTab: "New Tab" },
     common: {
@@ -2580,6 +2660,7 @@ export const enUS: TranslationDict = {
       retain: "Retain",
     },
     http: {
+      modes: { rest: "REST", websocket: "WebSocket" },
       urlPlaceholder: "https://api.example.com/v1/users",
       history: "History",
       collections: "Collections",
@@ -2590,7 +2671,12 @@ export const enUS: TranslationDict = {
       allRequests: "All Requests",
       savedRequests: "Saved Requests",
       requestName: "Request name…",
+      saveShortcut: "Save (Ctrl+S / Cmd+S)",
+      workspaceEmpty: "Select a request from the API list, or click + to create one",
+      recentClosed: "Recently closed",
       tabs: { params: "Params", headers: "Headers", body: "Body", auth: "Auth", scripts: "Scripts" },
+      responseTabs: { headers: "Headers", body: "Body" },
+      noResponseHeaders: "No response headers",
       requestBody: "Request body…",
       preRequestScript: "Pre-request Script",
       testScript: "Test Script",
@@ -2609,7 +2695,9 @@ export const enUS: TranslationDict = {
         basicAuth: "Basic Auth",
         apiKey: "API Key",
         oauth2: "OAuth 2.0",
+        authorization: "Authorization",
       },
+      authAuthorizationPlaceholder: "Bearer <token> or full Authorization value",
     },
     ws: {
       urlPlaceholder: "wss://echo.websocket.org",

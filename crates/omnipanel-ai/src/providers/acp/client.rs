@@ -4,89 +4,134 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::providers::acp::types::*;
 
-/// Handler callback for ACP notifications (session/update, etc.)
 pub type NotificationHandler = Arc<dyn Fn(&str, &serde_json::Value) + Send + Sync + 'static>;
 
-/// Handler callback for server-initiated requests (session/request_permission, etc.)
 pub type ServerRequestHandler =
     Arc<dyn Fn(u64, &str, &serde_json::Value) -> Option<serde_json::Value> + Send + Sync + 'static>;
 
-/// Long-lived ACP subprocess client.
-///
-/// Manages the lifecycle of a CLI agent (e.g. `claude-code`, `cursor-agent`)
-/// communicating via JSON-RPC 2.0 over stdio.
+struct AcpClientInner {
+    child: Option<Child>,
+    stdin_tx: Option<mpsc::Sender<String>>,
+}
+
+/// Long-lived ACP subprocess client (JSON-RPC 2.0 over stdio, ACP v1).
 pub struct AcpClient {
     binary_path: String,
     args: Vec<String>,
-    child: Option<Child>,
+    spawn_env: HashMap<String, String>,
+    spawn_cwd: Option<String>,
+    inner: Mutex<AcpClientInner>,
     next_id: AtomicU64,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>,
     notification_handler: Arc<Mutex<Option<NotificationHandler>>>,
     server_request_handler: Arc<Mutex<Option<ServerRequestHandler>>>,
-    stdin_tx: Option<mpsc::Sender<String>>,
 }
 
 impl AcpClient {
-    pub fn new(binary_path: &str, args: Vec<String>) -> Self {
+    pub fn new(
+        binary_path: &str,
+        args: Vec<String>,
+        spawn_env: HashMap<String, String>,
+        spawn_cwd: Option<String>,
+    ) -> Self {
         Self {
             binary_path: binary_path.to_string(),
             args,
-            child: None,
+            spawn_env,
+            spawn_cwd,
+            inner: Mutex::new(AcpClientInner {
+                child: None,
+                stdin_tx: None,
+            }),
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             notification_handler: Arc::new(Mutex::new(None)),
             server_request_handler: Arc::new(Mutex::new(None)),
-            stdin_tx: None,
         }
     }
 
-    /// Set handler for notifications (session/update, etc.)
     pub async fn set_notification_handler(&self, handler: NotificationHandler) {
         *self.notification_handler.lock().await = Some(handler);
     }
 
-    /// Set handler for server-initiated requests (session/request_permission, etc.)
     pub async fn set_server_request_handler(&self, handler: ServerRequestHandler) {
         *self.server_request_handler.lock().await = Some(handler);
     }
 
-    /// Ensure the subprocess is running. Lazy-init: spawns on first call.
-    pub async fn ensure_running(&mut self) -> Result<()> {
-        if self.child.is_some() {
-            // Check if still alive
-            if let Some(ref mut child) = self.child {
+    pub async fn clear_handlers(&self) {
+        *self.notification_handler.lock().await = None;
+        *self.server_request_handler.lock().await = None;
+    }
+
+    pub async fn ensure_running(&self) -> Result<()> {
+        let mut inner = self.inner.lock().await;
+        if inner.child.is_some() {
+            if let Some(ref mut child) = inner.child {
                 match child.try_wait() {
                     Ok(Some(_)) => {
-                        // Process exited, respawn
-                        self.child = None;
+                        inner.child = None;
+                        inner.stdin_tx = None;
                     }
                     Ok(None) => return Ok(()),
-                    Err(e) => bail!("Failed to check process status: {}", e),
+                    Err(e) => bail!("Failed to check process status: {e}"),
                 }
             }
         }
 
         let mut cmd = Command::new(&self.binary_path);
-        cmd.args(&self.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(&self.args);
+        if let Some(ref cwd) = self.spawn_cwd {
+            cmd.current_dir(cwd);
+        }
+        for (key, value) in &self.spawn_env {
+            cmd.env(key, value);
+        }
+        configure_agent_stdio(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| {
-            anyhow::anyhow!("Failed to spawn ACP agent '{}': {}", self.binary_path, e)
+            anyhow::anyhow!("Failed to spawn ACP agent '{}': {e}", self.binary_path)
         })?;
+
+        let stderr = child.stderr.take();
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        if let Ok(Some(status)) = child.try_wait() {
+            let mut err_text = String::new();
+            if let Some(mut stderr) = stderr {
+                let mut buf = Vec::new();
+                let _ = stderr.read_to_end(&mut buf).await;
+                err_text = String::from_utf8_lossy(&buf).trim().to_string();
+            }
+            if err_text.is_empty() {
+                bail!(
+                    "ACP agent process exited before initialize (code {:?})",
+                    status.code()
+                );
+            }
+            bail!("ACP agent process exited before initialize: {err_text}");
+        }
+
+        if let Some(stderr) = stderr {
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::warn!(target: "acp_agent_stderr", "{line}");
+                }
+            });
+        }
 
         let stdin = child.stdin.take().expect("stdin should be piped");
         let stdout = child.stdout.take().expect("stdout should be piped");
 
-        // Stdin writer task
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(64);
+        let writer = Arc::new(Mutex::new(Some(stdin_tx.clone())));
+
         tokio::spawn(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -99,7 +144,6 @@ impl AcpClient {
             }
         });
 
-        // Stdout reader task
         let pending = self.pending.clone();
         let notif_handler = self.notification_handler.clone();
         let req_handler = self.server_request_handler.clone();
@@ -114,7 +158,6 @@ impl AcpClient {
                     continue;
                 }
 
-                // Try parsing as response (has "id" field)
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&line) {
                     let mut pending_map = pending.lock().await;
                     if let Some(tx) = pending_map.remove(&resp.id) {
@@ -123,29 +166,29 @@ impl AcpClient {
                     continue;
                 }
 
-                // Try parsing as notification or server request (has "method" field)
                 if let Ok(notif) = serde_json::from_str::<JsonRpcNotification>(&line) {
                     if let Some(id) = extract_server_request_id(&line) {
-                        // Server-initiated request — needs a response
                         let handler = req_handler.lock().await;
-                        if let Some(ref h) = *handler
-                            && let Some(result) = h(
-                                id,
-                                &notif.method,
-                                notif.params.as_ref().unwrap_or(&serde_json::Value::Null),
-                            )
-                        {
-                            let _response = JsonRpcResponse {
-                                jsonrpc: "2.0".to_string(),
-                                id,
-                                result: Some(result),
-                                error: None,
-                            };
-                            // We need to send this back via stdin, but we don't have direct access
-                            // This is handled by the caller through the server request handler
+                        if let Some(ref h) = *handler {
+                            let params = notif
+                                .params
+                                .as_ref()
+                                .unwrap_or(&serde_json::Value::Null);
+                            if let Some(result) = h(id, &notif.method, params) {
+                                let response = JsonRpcResponse {
+                                    jsonrpc: "2.0".to_string(),
+                                    id,
+                                    result: Some(result),
+                                    error: None,
+                                };
+                                if let Ok(encoded) = serde_json::to_string(&response) {
+                                    if let Some(ref tx) = *writer.lock().await {
+                                        let _ = tx.send(encoded).await;
+                                    }
+                                }
+                            }
                         }
                     } else {
-                        // Regular notification
                         let handler = notif_handler.lock().await;
                         if let Some(ref h) = *handler {
                             h(
@@ -158,13 +201,11 @@ impl AcpClient {
             }
         });
 
-        self.stdin_tx = Some(stdin_tx);
-        self.child = Some(child);
-
+        inner.stdin_tx = Some(stdin_tx);
+        inner.child = Some(child);
         Ok(())
     }
 
-    /// Send a JSON-RPC request and wait for the response.
     pub async fn request(
         &self,
         method: &str,
@@ -185,69 +226,91 @@ impl AcpClient {
         }
 
         let line = serde_json::to_string(&request)?;
-        if let Some(ref stdin_tx) = self.stdin_tx {
-            stdin_tx
-                .send(line)
-                .await
-                .map_err(|_| anyhow::anyhow!("Failed to send request: stdin channel closed"))?;
-        } else {
-            bail!("ACP client not started");
-        }
+        self.send_line(line).await?;
 
         let response = rx
             .await
             .map_err(|_| anyhow::anyhow!("Response channel dropped"))?;
 
         if let Some(error) = response.error {
-            bail!("ACP error {}: {}", error.code, error.message);
+            let detail = error
+                .data
+                .as_ref()
+                .and_then(|data| {
+                    data.get("details")
+                        .and_then(|value| value.as_str())
+                        .or_else(|| data.as_str())
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            if detail.is_empty() {
+                bail!("ACP error {}: {}", error.code, error.message);
+            } else {
+                bail!("ACP error {}: {} — {}", error.code, error.message, detail);
+            }
         }
 
         Ok(response.result.unwrap_or(serde_json::Value::Null))
     }
 
-    /// Send a notification (no response expected).
     pub async fn notify(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
         let notification = JsonRpcNotification {
             jsonrpc: "2.0".to_string(),
             method: method.to_string(),
             params,
         };
-
         let line = serde_json::to_string(&notification)?;
-        if let Some(ref stdin_tx) = self.stdin_tx {
+        self.send_line(line).await
+    }
+
+    pub async fn write_response(&self, response: JsonRpcResponse) -> Result<()> {
+        let line = serde_json::to_string(&response)?;
+        self.send_line(line).await
+    }
+
+    async fn send_line(&self, line: String) -> Result<()> {
+        let inner = self.inner.lock().await;
+        if let Some(ref stdin_tx) = inner.stdin_tx {
             stdin_tx
                 .send(line)
                 .await
-                .map_err(|_| anyhow::anyhow!("Failed to send notification"))?;
+                .map_err(|_| anyhow::anyhow!("Failed to send to ACP stdin"))?;
+        } else {
+            bail!("ACP client not started");
         }
         Ok(())
     }
 
-    /// Write a response back to the agent (for server-initiated requests).
-    pub async fn write_response(&self, response: JsonRpcResponse) -> Result<()> {
-        let line = serde_json::to_string(&response)?;
-        if let Some(ref stdin_tx) = self.stdin_tx {
-            stdin_tx.send(line).await?;
-        }
-        Ok(())
-    }
-
-    /// Kill the subprocess.
-    pub async fn kill(&mut self) {
-        if let Some(ref mut child) = self.child {
+    pub async fn kill(&self) {
+        let mut inner = self.inner.lock().await;
+        if let Some(ref mut child) = inner.child {
             let _ = child.kill().await;
         }
-        self.child = None;
-        self.stdin_tx = None;
+        inner.child = None;
+        inner.stdin_tx = None;
     }
 
-    /// Check if the subprocess is still running.
-    pub fn is_running(&self) -> bool {
-        self.child.is_some()
+    pub async fn is_running(&self) -> bool {
+        self.inner.lock().await.child.is_some()
     }
 }
 
-/// Extract the "id" field from a JSON string to detect server-initiated requests.
+#[cfg(windows)]
+fn configure_agent_stdio(cmd: &mut Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_agent_stdio(cmd: &mut Command) {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+}
+
 fn extract_server_request_id(json_str: &str) -> Option<u64> {
     #[derive(Deserialize)]
     struct HasId {
@@ -256,13 +319,4 @@ fn extract_server_request_id(json_str: &str) -> Option<u64> {
     serde_json::from_str::<HasId>(json_str)
         .ok()
         .and_then(|h| h.id)
-}
-
-impl Drop for AcpClient {
-    fn drop(&mut self) {
-        // Best-effort kill — can't async in Drop
-        if let Some(ref mut child) = self.child {
-            let _ = child.start_kill();
-        }
-    }
 }

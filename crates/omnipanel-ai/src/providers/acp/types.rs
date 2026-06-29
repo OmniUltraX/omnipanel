@@ -37,7 +37,7 @@ pub struct JsonRpcNotification {
     pub params: Option<serde_json::Value>,
 }
 
-// ─── ACP Protocol Messages ───
+// ─── ACP Protocol v1 ───
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeParams {
@@ -45,6 +45,7 @@ pub struct InitializeParams {
     pub protocol_version: u32,
     #[serde(rename = "clientInfo")]
     pub client_info: ClientInfo,
+    #[serde(rename = "clientCapabilities")]
     pub capabilities: ClientCapabilities,
 }
 
@@ -54,7 +55,7 @@ pub struct ClientInfo {
     pub version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientCapabilities {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,10 +64,10 @@ pub struct InitializeResult {
     pub protocol_version: u32,
     #[serde(rename = "agentInfo")]
     pub agent_info: AgentInfo,
-    #[serde(rename = "authMethods")]
-    pub auth_methods: Option<Vec<AuthMethod>>,
-    #[serde(rename = "agentCapabilities")]
-    pub agent_capabilities: AgentCapabilities,
+    #[serde(rename = "authMethods", default)]
+    pub auth_methods: Vec<AuthMethod>,
+    #[serde(rename = "agentCapabilities", default)]
+    pub agent_capabilities: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,157 +80,120 @@ pub struct AgentInfo {
 pub struct AuthMethod {
     pub id: String,
     pub name: String,
-    #[serde(rename = "type")]
+    /// ACP 规范：`type` 可省略，缺省为 `agent`。
+    #[serde(rename = "type", default = "default_auth_method_type")]
     pub auth_type: String,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentCapabilities {
-    #[serde(default)]
-    pub models: Option<Vec<String>>,
-    #[serde(default)]
-    pub tools: Option<bool>,
+fn default_auth_method_type() -> String {
+    "agent".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthenticateParams {
-    #[serde(rename = "methodId")]
-    pub method_id: String,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_result_accepts_auth_methods_without_type() {
+        let json = serde_json::json!({
+            "protocolVersion": 1,
+            "agentInfo": { "name": "opencode", "version": "1.0.0" },
+            "authMethods": [
+                {
+                    "id": "login",
+                    "name": "Sign in",
+                    "description": "Use agent login flow"
+                }
+            ],
+            "agentCapabilities": {}
+        });
+
+        let result: InitializeResult = serde_json::from_value(json).expect("deserialize initialize");
+        assert_eq!(result.agent_info.name, "opencode");
+        assert_eq!(result.auth_methods.len(), 1);
+        assert_eq!(result.auth_methods[0].auth_type, "agent");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionNewParams {
-    pub cwd: Option<String>,
+    pub cwd: String,
+    #[serde(rename = "mcpServers", default)]
+    pub mcp_servers: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionNewResult {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    #[serde(rename = "configOptions")]
-    pub config_options: Option<Vec<ConfigOption>>,
-    pub models: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigOption {
-    pub id: String,
-    pub name: String,
+pub struct ContentBlock {
     #[serde(rename = "type")]
-    pub option_type: String,
+    pub block_type: String,
     #[serde(default)]
-    pub default: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionSetConfigOptionParams {
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    #[serde(rename = "optionId")]
-    pub option_id: String,
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionSetModelParams {
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    pub model: String,
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionPromptParams {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub prompt: String,
+    pub prompt: Vec<ContentBlock>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptResult {
-    #[serde(rename = "stopReason")]
+    #[serde(rename = "stopReason", default)]
     pub stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionLoadParams {
+pub struct SessionCancelParams {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub prompt: String,
-}
-
-// ─── session/update notification ───
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionUpdateParams {
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    #[serde(rename = "sessionUpdate")]
-    pub session_update: SessionUpdate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SessionUpdate {
-    UserMessageChunk { content: serde_json::Value },
-    AgentMessageChunk { content: serde_json::Value },
-    AgentThoughtChunk { content: serde_json::Value },
-    ToolCall { content: serde_json::Value },
-    ToolCallUpdate { content: serde_json::Value },
-    Plan { content: serde_json::Value },
-    AvailableCommandsUpdate { content: serde_json::Value },
-    CurrentModeUpdate { content: serde_json::Value },
+pub struct SessionUpdateNotification {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    pub update: serde_json::Value,
 }
-
-// ─── session/request_permission ───
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestPermissionParams {
     #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub permission: PermissionRequest,
+    #[serde(rename = "toolCall")]
+    pub tool_call: serde_json::Value,
+    #[serde(default)]
+    pub options: Vec<PermissionOption>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermissionRequest {
-    pub id: String,
-    pub tool: String,
-    pub description: String,
-    pub arguments: serde_json::Value,
+pub struct PermissionOption {
+    #[serde(rename = "optionId")]
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermissionResponse {
-    pub outcome: PermissionOutcome,
+pub struct RequestPermissionResponse {
+    pub outcome: RequestPermissionOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PermissionOutcome {
-    AllowOnce,
-    DenyOnce,
-    AllowAlways,
-    DenyAlways,
-}
-
-// ─── ACP Profile (controls permission behavior) ───
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AcpProfile {
-    /// Auto-approve all tool calls; agent executes tools itself
-    Agentic,
-    /// Reject native tools, translate to client tool_calls
-    ClientTools,
-    /// Reject all tools, read-only / planning mode
-    Plan,
-}
-
-impl AcpProfile {
-    /// Determine the permission response for this profile
-    pub fn decide_permission(&self) -> (PermissionOutcome, bool) {
-        match self {
-            AcpProfile::Agentic => (PermissionOutcome::AllowOnce, false),
-            AcpProfile::ClientTools => (PermissionOutcome::DenyOnce, true),
-            AcpProfile::Plan => (PermissionOutcome::DenyOnce, false),
-        }
-    }
+#[serde(untagged)]
+pub enum RequestPermissionOutcome {
+    Cancelled { outcome: String },
+    Selected {
+        outcome: String,
+        #[serde(rename = "optionId")]
+        option_id: String,
+    },
 }

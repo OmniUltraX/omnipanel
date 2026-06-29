@@ -4,6 +4,8 @@ import type { ModuleKey } from "../../paths";
 import { parseToolArguments } from "../parseToolArguments";
 import type { ContextProvider } from "./ContextProvider";
 import { getModuleMcpToolsFromCatalog } from "./moduleMcpCatalog";
+import { isMcpToolAvailable } from "../../../stores/mcpToolStore";
+import { isModuleOpen } from "../../../stores/appModuleStore";
 import type { AiContextScope, McpToolRegistration } from "./types";
 
 const providers = new Map<AiContextScope, ContextProvider>();
@@ -56,11 +58,12 @@ export function getModuleAiContextText(moduleKey: ModuleKey): string | null {
 }
 
 export function getModuleMcpTools(moduleKey: ModuleKey): McpToolRegistration[] {
-  const fromProvider = getModuleContextProvider(moduleKey)?.getMcpTools();
-  if (fromProvider && fromProvider.length > 0) {
-    return fromProvider;
+  if (!isModuleOpen(moduleKey)) {
+    return [];
   }
-  return getModuleMcpToolsFromCatalog(moduleKey);
+  return getModuleMcpToolsFromCatalog(moduleKey).filter((tool) =>
+    isMcpToolAvailable(tool.name),
+  );
 }
 
 export async function executeModuleMcpTool(
@@ -68,7 +71,10 @@ export async function executeModuleMcpTool(
   toolName: string,
   toolArguments: string,
 ): Promise<{ result: string; success: boolean }> {
-  const tool = getModuleMcpTools(moduleKey).find((item) => item.name === toolName);
+  if (!isMcpToolAvailable(toolName)) {
+    return { result: `MCP 工具不可用：${toolName}`, success: false };
+  }
+  const tool = getModuleMcpToolsFromCatalog(moduleKey).find((item) => item.name === toolName);
   if (!tool) {
     return { result: `未找到模块工具：${toolName}`, success: false };
   }

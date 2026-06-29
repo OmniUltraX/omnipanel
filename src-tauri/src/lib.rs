@@ -211,6 +211,9 @@ fn export_ipc_bindings() {
         commands::workflow::workflow_run,
         commands::workflow::workflow_stop,
         commands::workflow::workflow_get_execution,
+        // App modules（模块启用配置）
+        commands::app_module::app_module_list,
+        commands::app_module::app_module_set_status,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -232,6 +235,8 @@ fn export_ipc_bindings() {
         commands::protocol::http_add_history,
         commands::protocol::http_list_history,
         commands::protocol::http_clear_history,
+        commands::protocol::http_delete_history,
+        commands::protocol::http_clear_history_for_request,
         commands::protocol::http_save_collection,
         commands::protocol::http_list_collections,
         commands::protocol::http_delete_collection,
@@ -258,8 +263,12 @@ fn export_ipc_bindings() {
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
         commands::opencode::detect_opencode_install,
+        commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
+        commands::mcp_tool::mcp_tool_list,
+        commands::mcp_tool::mcp_tool_set_enabled,
+        commands::mcp_tool::mcp_tool_sync_catalog,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -268,6 +277,16 @@ fn export_ipc_bindings() {
         commands::mcp::mcp_set_service_running,
         commands::mcp::mcp_list_service_tools,
         commands::mcp::mcp_call_tool,
+        // ACP agent
+        commands::acp::acp_connect,
+        commands::acp::acp_connect_default,
+        commands::acp::acp_disconnect,
+        commands::acp::acp_get_status,
+        commands::acp::acp_prompt,
+        commands::acp::acp_cancel,
+        commands::acp::acp_respond_permission,
+        commands::acp::acp_save_agent_config,
+        commands::acp::acp_get_default_command,
         
     ]);
 
@@ -391,10 +410,19 @@ pub fn run() {
             commands::ai::ai_list_models,
             commands::ai::ai_set_provider,
             commands::ai::ai_list_providers,
-            commands::ai::ai_add_acp_agent,
             commands::ai::ai_get_active,
             commands::ai::ai_add_custom_provider,
             commands::ai::ai_http_stream_post,
+            // ACP agent
+            commands::acp::acp_connect,
+            commands::acp::acp_connect_default,
+            commands::acp::acp_disconnect,
+            commands::acp::acp_get_status,
+            commands::acp::acp_prompt,
+            commands::acp::acp_cancel,
+            commands::acp::acp_respond_permission,
+            commands::acp::acp_save_agent_config,
+            commands::acp::acp_get_default_command,
             // Protocol Lab — Serial
             commands::protocol::serial_scan_ports,
             commands::protocol::serial_open,
@@ -410,6 +438,8 @@ pub fn run() {
             commands::protocol::http_add_history,
             commands::protocol::http_list_history,
             commands::protocol::http_clear_history,
+        commands::protocol::http_delete_history,
+        commands::protocol::http_clear_history_for_request,
             commands::protocol::http_save_collection,
             commands::protocol::http_list_collections,
             commands::protocol::http_delete_collection,
@@ -644,6 +674,9 @@ pub fn run() {
             commands::workflow::workflow_run,
             commands::workflow::workflow_stop,
             commands::workflow::workflow_get_execution,
+            // App modules（模块启用配置）
+            commands::app_module::app_module_list,
+            commands::app_module::app_module_set_status,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,
@@ -667,8 +700,13 @@ pub fn run() {
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
             commands::opencode::detect_opencode_install,
+        commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
+            // MCP 工具配置
+            commands::mcp_tool::mcp_tool_list,
+            commands::mcp_tool::mcp_tool_set_enabled,
+            commands::mcp_tool::mcp_tool_sync_catalog,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,
@@ -676,7 +714,17 @@ pub fn run() {
             commands::mcp::mcp_set_service_enabled,
             commands::mcp::mcp_set_service_running,
             commands::mcp::mcp_list_service_tools,
-        commands::mcp::mcp_call_tool,
+            commands::mcp::mcp_call_tool,
+            // ACP agent
+            commands::acp::acp_connect,
+            commands::acp::acp_connect_default,
+            commands::acp::acp_disconnect,
+            commands::acp::acp_get_status,
+            commands::acp::acp_prompt,
+            commands::acp::acp_cancel,
+            commands::acp::acp_respond_permission,
+            commands::acp::acp_save_agent_config,
+            commands::acp::acp_get_default_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

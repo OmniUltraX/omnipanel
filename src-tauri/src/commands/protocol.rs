@@ -377,6 +377,25 @@ pub async fn http_clear_history(state: State<'_, AppState>) -> Result<(), String
 
 #[tauri::command]
 #[specta::specta]
+pub async fn http_delete_history(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage.http_delete_history(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn http_clear_history_for_request(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage
+        .http_clear_history_for_request(&request_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn http_save_collection(
     state: State<'_, AppState>,
     col: HttpCollection,

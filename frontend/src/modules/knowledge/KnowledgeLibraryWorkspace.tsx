@@ -91,7 +91,7 @@ export function KnowledgeLibraryWorkspace() {
           id: tab.id,
           label: tab.label,
           panelType: "knowledge",
-          icon: "file" as const,
+          icon: "file-local" as const,
           tooltip: tab.label,
           closable: true,
           preview: Boolean(tab.preview),

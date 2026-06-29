@@ -1,0 +1,366 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --debug-bg: #0f1117;
+  --debug-panel: #171a22;
+  --debug-border: #2a3140;
+  --debug-text: #e8ecf4;
+  --debug-muted: #8b95a8;
+  --debug-accent: #5b8cff;
+  --debug-user: #1e293b;
+  --debug-assistant: #151922;
+  --debug-tool: #12151c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--debug-bg);
+  color: var(--debug-text);
+}
+
+.debug-app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "header header"
+    "status main";
+  height: 100%;
+}
+
+.debug-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--debug-border);
+  background: var(--debug-panel);
+}
+
+.debug-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.debug-header__subtitle {
+  margin: 4px 0 0;
+  color: var(--debug-muted);
+  font-size: 12px;
+}
+
+.debug-header__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.debug-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--debug-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--debug-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.debug-btn:hover {
+  border-color: var(--debug-accent);
+}
+
+.debug-status {
+  grid-area: status;
+  padding: 16px;
+  border-right: 1px solid var(--debug-border);
+  background: var(--debug-panel);
+  font-size: 12px;
+  overflow: auto;
+}
+
+.debug-status__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--debug-border);
+}
+
+.debug-status__row span {
+  color: var(--debug-muted);
+}
+
+.debug-status__row code,
+.debug-status__skills code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.debug-status__skills ul {
+  margin: 8px 0 0;
+  padding-left: 16px;
+}
+
+.debug-status__error {
+  color: #ff8a8a;
+}
+
+.debug-status .ok {
+  color: #7ddea6;
+}
+
+.debug-status .warn {
+  color: #ffcc66;
+}
+
+.debug-main {
+  grid-area: main;
+  min-width: 0;
+  min-height: 0;
+}
+
+.debug-thread {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.debug-thread__viewport {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+.debug-thread__empty {
+  max-width: 560px;
+  margin: 40px auto;
+  color: var(--debug-muted);
+}
+
+.debug-thread__empty h2 {
+  color: var(--debug-text);
+}
+
+.debug-thread__empty code {
+  background: #0003;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.debug-msg {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.debug-msg--user {
+  justify-content: flex-end;
+}
+
+.debug-msg--assistant {
+  justify-content: flex-start;
+}
+
+.debug-msg__bubble {
+  max-width: min(760px, 92%);
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--debug-border);
+  line-height: 1.55;
+  font-size: 14px;
+}
+
+.debug-msg--user .debug-msg__bubble {
+  background: var(--debug-user);
+}
+
+.debug-msg--assistant .debug-msg__bubble {
+  background: var(--debug-assistant);
+}
+
+.debug-tool {
+  margin-top: 10px;
+  border: 1px solid var(--debug-border);
+  border-radius: 10px;
+  background: var(--debug-tool);
+  overflow: hidden;
+}
+
+.debug-tool__summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-tool__name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.debug-tool__badge {
+  color: #ff8a8a;
+  font-size: 11px;
+}
+
+.debug-tool__block {
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid var(--debug-border);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.debug-composer-wrap {
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--debug-border);
+  background: var(--debug-panel);
+}
+
+.debug-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--debug-border);
+  border-radius: 14px;
+  background: #0c0e14;
+}
+
+.debug-composer__input {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--debug-text);
+  font: inherit;
+  line-height: 1.5;
+  max-height: 180px;
+}
+
+.debug-composer__send,
+.debug-composer__cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: var(--debug-accent);
+  color: white;
+  cursor: pointer;
+}
+
+.debug-composer__cancel {
+  background: #ef4444;
+}
+
+.debug-msg__bubble p {
+  margin: 0 0 0.75em;
+}
+
+.debug-msg__bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.debug-msg__bubble pre {
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: #0005;
+}
+
+.debug-msg__bubble code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+.debug-reasoning {
+  margin: 0 0 10px;
+  border: 1px solid var(--debug-border);
+  border-radius: 10px;
+  background: #12151c;
+  overflow: hidden;
+}
+
+.debug-reasoning--streaming {
+  border-color: color-mix(in srgb, var(--debug-accent) 45%, var(--debug-border));
+}
+
+.debug-reasoning__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--debug-muted);
+  font-size: 12px;
+}
+
+.debug-reasoning__summary::-webkit-details-marker {
+  display: none;
+}
+
+.debug-reasoning__icon {
+  color: var(--debug-accent);
+}
+
+.debug-reasoning__chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.debug-reasoning[open] .debug-reasoning__chevron {
+  transform: rotate(180deg);
+}
+
+.debug-reasoning__body {
+  padding: 0 12px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #b8c0d0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.debug-reasoning__cursor {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--debug-accent);
+  animation: debug-reasoning-blink 0.9s step-end infinite;
+}
+
+@keyframes debug-reasoning-blink {
+  50% {
+    opacity: 0;
+  }
+}

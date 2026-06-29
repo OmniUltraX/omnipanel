@@ -1,8 +1,8 @@
-import type { AiContextScope, McpToolRegistration } from "./types";
+import type { AiContextScope } from "./types";
 
 /**
  * 模块与工作区向 AI 助手暴露上下文的基类。
- * 子类负责格式化上下文文本，并可在后续扩展 MCP 工具注册。
+ * 子类负责格式化上下文文本；MCP 工具在 moduleMcpCatalog 中统一注册。
  */
 export abstract class ContextProvider<TContext = unknown> {
   abstract readonly scope: AiContextScope;
@@ -26,11 +26,6 @@ export abstract class ContextProvider<TContext = unknown> {
     }
     const text = this.formatContextForAi(this.context).trim();
     return text.length > 0 ? text : null;
-  }
-
-  /** 注册该 scope 的 MCP 工具（预留） */
-  getMcpTools(): McpToolRegistration[] {
-    return [];
   }
 
   dispose(): void {

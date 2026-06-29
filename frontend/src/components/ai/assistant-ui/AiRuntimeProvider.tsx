@@ -7,50 +7,24 @@ import type {
 } from "@assistant-ui/react";
 import { useExternalStoreRuntime } from "@assistant-ui/react";
 
-import { commands } from "../../../ipc/bindings";
-import {
-  resolveModelSelection,
-  useAiModelsStore,
-} from "../../../stores/aiModelsStore";
-import { useSettingsStore } from "../../../stores/settingsStore";
-import { resolveScenarioModelSelectionId } from "../../../lib/aiScenarioModels";
-import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
-import { useAiStore } from "../../../stores/aiStore";
-import { getModuleAiContextText, getModuleMcpTools, executeModuleMcpTool } from "../../../lib/ai/context";
+import { runAcpPrompt, type AcpStreamEvent } from "../../../lib/acp/acpStream";
+import { isTauriRuntime } from "../../../lib/isTauriRuntime";
 import { registerAiPromptSubmit, type InlineTerminalAiTarget } from "../../../lib/ai/submitAiPrompt";
 import { registerAiGenerationCancel } from "../../../lib/ai/cancelAiGeneration";
 import { useBlocksStore, isAiThreadMessage } from "../../../stores/blocksStore";
 import { useTerminalUiStore } from "../../../modules/terminal/terminalUiStore";
 import {
-  aiThreadToModelMessages,
   getResolvedAiThread,
   pushAssistantErrorMessage,
 } from "../../../modules/terminal/aiThreadBridge";
-import {
-  cancelPendingInlineTools,
-  createInlineTerminalToolCall,
-  newInlineToolCallId,
-  rejectInlineTerminalTool,
-  waitForInlineToolDecision,
-} from "../../../modules/terminal/inlineToolBridge";
-import type { ModuleKey } from "../../../lib/paths";
-import { moduleKeyFromPath } from "../../../lib/workspaceModuleRoutes";
+import { cancelPendingInlineTools } from "../../../modules/terminal/inlineToolBridge";
+import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
 
-import {
-  buildModelMessages,
-  mergeToolCallDeltas,
-  streamModelChat,
-  type AiToolDef,
-  type ModelConfig,
-} from "./chatModel";
 import {
   aiMessagesToThreadMessages,
   threadMessagesToAiMessages,
 } from "./messageBridge";
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
+import { AcpPermissionDialog } from "./AcpPermissionDialog";
 
 function extractUserContent(message: ThreadMessage | AppendMessage): string {
   for (const part of message.content) {
@@ -59,97 +33,9 @@ function extractUserContent(message: ThreadMessage | AppendMessage): string {
   return "";
 }
 
-async function loadExternalMcpToolDefs(): Promise<AiToolDef[]> {
-  if (!isTauriRuntime()) return [];
-  const listResult = await commands.mcpListServices();
-  if (listResult.status !== "ok") return [];
-
-  const running = listResult.data.filter((s) => s.status === "running");
-  const defs: AiToolDef[] = [];
-
-  for (const service of running) {
-    const toolsResult = await commands.mcpListServiceTools(service.id);
-    if (toolsResult.status !== "ok") continue;
-    for (const tool of toolsResult.data) {
-      defs.push({
-        serviceId: service.id,
-        originalName: tool.name,
-        description: tool.description ?? tool.name,
-        kind: "external",
-      });
-    }
-  }
-
-  return defs;
-}
-
-function loadModuleToolDefs(moduleKey: ModuleKey | null): AiToolDef[] {
-  if (!moduleKey) return [];
-  return getModuleMcpTools(moduleKey).map((tool) => ({
-    serviceId: `module:${moduleKey}`,
-    originalName: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    kind: "module" as const,
-    moduleKey,
-  }));
-}
-
-async function loadAiToolDefs(moduleKey: ModuleKey | null): Promise<AiToolDef[]> {
-  const [moduleTools, externalTools] = await Promise.all([
-    Promise.resolve(loadModuleToolDefs(moduleKey)),
-    loadExternalMcpToolDefs(),
-  ]);
-  return [...moduleTools, ...externalTools];
-}
-
-async function executeToolCall(
-  toolDef: AiToolDef,
-  args: string,
-): Promise<{ result: string; success: boolean }> {
-  if (toolDef.kind === "module" && toolDef.moduleKey) {
-    return executeModuleMcpTool(toolDef.moduleKey, toolDef.originalName, args);
-  }
-  return executeMcpTool(toolDef.serviceId, toolDef.originalName, args);
-}
-
-async function executeMcpTool(
-  serviceId: string,
-  toolName: string,
-  args: string,
-): Promise<{ result: string; success: boolean }> {
-  const result = await commands.mcpCallTool(serviceId, toolName, args);
-  if (result.status !== "ok") {
-    return { result: result.error ?? "MCP tool call failed", success: false };
-  }
-  if (result.data.isError) {
-    return { result: result.data.content || "MCP tool returned error", success: false };
-  }
-  return { result: result.data.content, success: true };
-}
-
 const EMPTY_MESSAGE_LIST: ThreadMessage[] = [];
-const GENERATION_STALL_MS = 120_000;
-const INLINE_TOOL_DECISION_TIMEOUT_MS = 120_000;
-const AI_TOOL_LOAD_TIMEOUT_MS = 20_000;
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      reject(new Error(message));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
+type PermissionEvent = Extract<AcpStreamEvent, { type: "permission_request" }>;
 
 function inlineHasAssistantContent(blockId: string): boolean {
   const block = useBlocksStore.getState().findBlockById(blockId);
@@ -179,41 +65,32 @@ function finalizeInlineBlock(
   useTerminalUiStore.getState().setExpandedAiBlock(inline.sessionId, inline.blockId);
 }
 
+function mapToolStatus(status: string): ToolCallState["status"] {
+  if (status === "completed") return "completed";
+  if (status === "failed") return "failed";
+  if (status === "pending") return "pending";
+  return "running";
+}
+
 export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const conversations = useAiStore((s) => s.conversations);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const isGenerating = useAiStore((s) => s.isGenerating);
-  const currentModelSelectionId = useAiStore((s) => s.currentModelSelectionId);
-  const reasoningEffort = useAiStore((s) => s.reasoningEffort);
   const addMessage = useAiStore((s) => s.addMessage);
   const updateMessage = useAiStore((s) => s.updateMessage);
   const appendStreamContent = useAiStore((s) => s.appendStreamContent);
   const appendStreamReasoning = useAiStore((s) => s.appendStreamReasoning);
   const setIsGenerating = useAiStore((s) => s.setIsGenerating);
-  const setConnectedMcpServices = useAiStore((s) => s.setConnectedMcpServices);
-  const setCurrentModelSelectionId = useAiStore((s) => s.setCurrentModelSelectionId);
   const createConversation = useAiStore((s) => s.createConversation);
   const replaceConversationMessages = useAiStore((s) => s.replaceConversationMessages);
 
-  const providers = useAiModelsStore((s) => s.providers);
-
   const abortRef = useRef<AbortController | null>(null);
-  const currentInlineRef = useRef<InlineTerminalAiTarget | null>(null);
+  const permissionQueueRef = useRef<PermissionEvent[]>([]);
+  const [permissionRequest, setPermissionRequest] = useState<PermissionEvent | null>(null);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
-  const threadMessagesRef = useRef<ThreadMessage[]>([]);
-  threadMessagesRef.current = threadMessages;
-
-  useEffect(() => {
-    if (currentModelSelectionId && resolveModelSelection(providers, currentModelSelectionId)) {
-      return;
-    }
-    const configured = useSettingsStore.getState().aiScenarioAssistantModelSelectionId;
-    const resolved = resolveScenarioModelSelectionId(providers, configured);
-    if (resolved) setCurrentModelSelectionId(resolved);
-  }, [currentModelSelectionId, providers, setCurrentModelSelectionId]);
 
   useEffect(() => {
     if (!activeConversation) {
@@ -223,52 +100,25 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     setThreadMessages(aiMessagesToThreadMessages(activeConversation.messages));
   }, [activeConversation]);
 
-  const getModelConfig = useCallback((): ModelConfig | null => {
-    const inlineSessionId = currentInlineRef.current?.sessionId;
-    let selectionId = currentModelSelectionId;
+  const showNextPermission = useCallback(() => {
+    const next = permissionQueueRef.current.shift() ?? null;
+    setPermissionRequest(next);
+  }, []);
 
-    if (inlineSessionId) {
-      const terminalSelection = resolveTerminalModelSelectionId(providers, inlineSessionId);
-      if (terminalSelection) {
-        selectionId = terminalSelection;
+  const enqueuePermission = useCallback(
+    (event: PermissionEvent) => {
+      if (!permissionRequest) {
+        setPermissionRequest(event);
+        return;
       }
-    }
-
-    if (!selectionId || !resolveModelSelection(providers, selectionId)) {
-      const configured = inlineSessionId
-        ? resolveTerminalModelSelectionId(providers, inlineSessionId)
-        : useSettingsStore.getState().aiScenarioAssistantModelSelectionId;
-      const fallback = resolveScenarioModelSelectionId(providers, configured);
-      if (!fallback) return null;
-      if (!inlineSessionId) {
-        setCurrentModelSelectionId(fallback);
-      }
-      const resolved = resolveModelSelection(providers, fallback);
-      if (!resolved) return null;
-      return resolved;
-    }
-    const resolved = resolveModelSelection(providers, selectionId);
-    if (!resolved) return null;
-    return resolved;
-  }, [currentModelSelectionId, providers, setCurrentModelSelectionId]);
-
-  const getPriorMessages = useCallback(
-    (convId: string) => {
-      const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
-      if (!conv) return [];
-      return conv.messages.slice(-20).map((m) => ({
-        role: m.role,
-        content: m.content,
-        toolCalls: m.toolCalls?.map((tc) => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.arguments,
-          result: tc.result,
-        })),
-      }));
+      permissionQueueRef.current.push(event);
     },
-    [],
+    [permissionRequest],
   );
+
+  const handlePermissionClose = useCallback(() => {
+    showNextPermission();
+  }, [showNextPermission]);
 
   const handleSetMessages = useCallback(
     (messages: readonly ThreadMessage[]) => {
@@ -284,79 +134,107 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const runGenerationRef =
     useRef<
       (
-        convId: string | null,
+        convId: string,
         assistantMsgId: string | null,
-        priorMessages: ReturnType<typeof getPriorMessages>,
-        modelConfig: ModelConfig,
+        userText: string,
         inline?: InlineTerminalAiTarget,
       ) => Promise<void>
     >(undefined);
 
-  runGenerationRef.current = async (
-    convId,
-    assistantMsgId,
-    priorMessages,
-    modelConfig,
-    inline,
-  ) => {
+  runGenerationRef.current = async (convId, assistantMsgId, userText, inline) => {
     const appendText = (chunk: string) => {
       if (inline?.assistantTurnId) {
         useBlocksStore
           .getState()
-          .appendAiThreadMessageField(
-            inline.blockId,
-            inline.assistantTurnId,
-            "content",
-            chunk,
-          );
-      } else if (convId && assistantMsgId) {
+          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "content", chunk);
+      } else if (assistantMsgId) {
         appendStreamContent(convId, assistantMsgId, chunk);
       }
     };
+
     const appendReasoning = (chunk: string) => {
       if (inline?.assistantTurnId) {
         useBlocksStore
           .getState()
-          .appendAiThreadMessageField(
-            inline.blockId,
-            inline.assistantTurnId,
-            "reasoning",
-            chunk,
-          );
-      } else if (convId && assistantMsgId) {
+          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
+      } else if (assistantMsgId) {
         appendStreamReasoning(convId, assistantMsgId, chunk);
       }
     };
+
+    const upsertToolCall = (id: string, name: string, args: string) => {
+      if (inline) {
+        useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
+          kind: "tool_call",
+          id,
+          toolName: name,
+          args,
+          status: "running",
+        });
+        return;
+      }
+      if (!assistantMsgId) return;
+      const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
+      const msg = conv?.messages.find((m) => m.id === assistantMsgId);
+      const existing = msg?.toolCalls ?? [];
+      if (existing.some((tc) => tc.id === id)) return;
+      updateMessage(convId, assistantMsgId, {
+        toolCalls: [...existing, { id, name, arguments: args, status: "running" }],
+      });
+    };
+
+    const updateToolCall = (id: string, status: string, result?: string) => {
+      if (inline) {
+        useBlocksStore.getState().updateAiThreadItem(inline.blockId, id, {
+          status: mapToolStatus(status),
+          result,
+        });
+        return;
+      }
+      if (!assistantMsgId) return;
+      updateMessage(convId, assistantMsgId, {
+        toolCalls: useAiStore
+          .getState()
+          .conversations.find((c) => c.id === convId)
+          ?.messages.find((m) => m.id === assistantMsgId)
+          ?.toolCalls?.map((tc) =>
+            tc.id === id
+              ? {
+                  ...tc,
+                  status: mapToolStatus(status),
+                  result,
+                }
+              : tc,
+          ),
+      });
+    };
+
     setIsGenerating(true);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
-    currentInlineRef.current = inline ?? null;
 
-    let lastActivityAt = Date.now();
-    const stallTimer = window.setInterval(() => {
-      if (signal.aborted) return;
-      if (Date.now() - lastActivityAt > GENERATION_STALL_MS) {
-        abortRef.current?.abort();
+    // 清理历史轮次遗留的 streaming 状态（此前 panic/中断时可能未复位）
+    if (!inline && assistantMsgId) {
+      const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
+      for (const msg of conv?.messages ?? []) {
+        if (msg.role === "assistant" && msg.id !== assistantMsgId && msg.isStreaming) {
+          updateMessage(convId, msg.id, {
+            isStreaming: false,
+            isReasoningStreaming: false,
+          });
+        }
       }
-    }, 3_000);
-
-    const touchActivity = () => {
-      lastActivityAt = Date.now();
-    };
+    }
 
     const finishGeneration = (failed = false, aborted = false) => {
       if (inline) {
         if (aborted) {
-          finalizeInlineBlock(inline, {
-            failed: true,
-            aborted: true,
-            reason: "已停止",
-          });
+          finalizeInlineBlock(inline, { failed: true, aborted: true, reason: "已停止" });
         } else {
           finalizeInlineBlock(inline, { failed });
         }
-      } else if (convId && assistantMsgId) {
+      } else if (assistantMsgId) {
         updateMessage(convId, assistantMsgId, {
           isStreaming: false,
           isReasoningStreaming: false,
@@ -364,206 +242,39 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const moduleKey =
-      typeof window !== "undefined"
-        ? moduleKeyFromPath(window.location.pathname)
-        : null;
-
-    const toolDefs = await withTimeout(
-      loadAiToolDefs(moduleKey),
-      AI_TOOL_LOAD_TIMEOUT_MS,
-      "加载 AI 工具超时",
-    );
-    setConnectedMcpServices(
-      toolDefs.map((t) => ({
-        serviceId: t.serviceId,
-        serviceName: t.kind === "module" ? `模块:${t.moduleKey}` : t.serviceId,
-        builtin: t.kind === "module",
-        toolCount: 1,
-      })),
-    );
-
     try {
-      const toolCallAcc = new Map<number, { id?: string; name?: string; args: string }>();
-      const moduleContextText = moduleKey
-        ? getModuleAiContextText(moduleKey)
-        : null;
-
-      while (true) {
-        toolCallAcc.clear();
-
-        const { apiMessages } = buildModelMessages(priorMessages, toolDefs, {
-          moduleContextText,
-        });
-
-        const stream = streamModelChat(apiMessages, modelConfig, toolDefs, {
-          signal,
-          reasoningEffort:
-            reasoningEffort !== "default" ? reasoningEffort : undefined,
-        });
-
-        for await (const chunk of stream) {
-          if (signal.aborted) break;
-
-          touchActivity();
-
-          if (chunk.type === "text") {
-            appendText(chunk.delta);
+      await runAcpPrompt({
+        conversationId: convId,
+        userText,
+        signal,
+        onEvent: (event) => {
+          if (signal.aborted) return;
+          switch (event.type) {
+            case "content_delta":
+              appendText(event.text);
+              break;
+            case "reasoning_delta":
+              appendReasoning(event.text);
+              break;
+            case "tool_call":
+              upsertToolCall(event.id, event.name, event.arguments);
+              break;
+            case "tool_call_update":
+              updateToolCall(event.id, event.status, event.result ?? undefined);
+              break;
+            case "permission_request":
+              enqueuePermission(event);
+              break;
+            case "error":
+              appendText(`\n\nError: ${event.message}`);
+              break;
+            case "done":
+              finishGeneration();
+              setIsGenerating(false);
+              break;
           }
-
-          if (chunk.type === "reasoning") {
-            appendReasoning(chunk.delta);
-          }
-
-          if (chunk.type === "tool-call-delta") {
-            mergeToolCallDeltas(toolCallAcc, [chunk]);
-          }
-        }
-
-        if (signal.aborted) break;
-
-        const resolvedCalls = mergeToolCallDeltas(toolCallAcc, []);
-        if (resolvedCalls.length === 0) break;
-
-        for (const tc of resolvedCalls) {
-          if (!inline) {
-            const currentConv = useAiStore
-              .getState()
-              .conversations.find((c) => c.id === convId);
-            const currentMsg = currentConv?.messages.find(
-              (m) => m.id === assistantMsgId,
-            );
-            const existing = currentMsg?.toolCalls ?? [];
-
-            if (!existing.some((e) => e.id === tc.id)) {
-              appendText("");
-              updateMessage(convId!, assistantMsgId!, {
-                toolCalls: [
-                  ...existing,
-                  {
-                    id: tc.id,
-                    name: tc.name,
-                    arguments: tc.args,
-                    status: "running",
-                  },
-                ],
-              });
-            }
-          }
-        }
-
-        for (const tc of resolvedCalls) {
-          const toolDef = toolDefs.find(
-            (t) =>
-              t.originalName === tc.name ||
-              `${t.serviceId}/${t.originalName}` === tc.name ||
-              tc.name.includes(t.originalName),
-          );
-
-          const toolCallId = tc.id ?? newInlineToolCallId();
-          let result: string;
-          let success: boolean;
-
-          if (!toolDef) {
-            result = `Unknown tool: ${tc.name}`;
-            success = false;
-            if (inline) {
-              useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
-                kind: "tool_call",
-                id: toolCallId,
-                toolName: tc.name,
-                args: tc.args,
-                status: "failed",
-                result,
-              });
-            } else {
-              appendText(`\n\n*${result}*`);
-            }
-          } else if (
-            inline &&
-            toolDef.kind === "module" &&
-            toolDef.originalName === "run_terminal_command"
-          ) {
-            const created = createInlineTerminalToolCall(
-              inline.blockId,
-              inline.sessionId,
-              toolCallId,
-              tc.name,
-              tc.args,
-            );
-            const decision = await new Promise<
-              Awaited<ReturnType<typeof waitForInlineToolDecision>>
-            >((resolve) => {
-              const timer = window.setTimeout(() => {
-                rejectInlineTerminalTool(inline.blockId, toolCallId);
-                resolve({
-                  approved: false,
-                  result: "等待命令确认超时",
-                  exitCode: 1,
-                });
-              }, INLINE_TOOL_DECISION_TIMEOUT_MS);
-
-              void waitForInlineToolDecision(
-                inline.blockId,
-                toolCallId,
-                inline.sessionId,
-                created.command,
-              ).then((result) => {
-                window.clearTimeout(timer);
-                resolve(result);
-              });
-            });
-            result = decision.result;
-            success =
-              decision.approved &&
-              (decision.exitCode === 0 || decision.exitCode === null);
-          } else if (inline) {
-            useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
-              kind: "tool_call",
-              id: toolCallId,
-              toolName: tc.name,
-              args: tc.args,
-              status: "running",
-            });
-            const executed = await executeToolCall(toolDef, tc.args);
-            result = executed.result;
-            success = executed.success;
-            useBlocksStore.getState().updateAiThreadItem(inline.blockId, toolCallId, {
-              status: success ? "completed" : "failed",
-              result,
-            });
-          } else {
-            const executed = await executeToolCall(toolDef, tc.args);
-            result = executed.result;
-            success = executed.success;
-            if (convId && assistantMsgId) {
-              updateMessage(convId, assistantMsgId, {
-                toolCalls: useAiStore
-                  .getState()
-                  .conversations.find((c) => c.id === convId)
-                  ?.messages.find((m) => m.id === assistantMsgId)
-                  ?.toolCalls?.map((t) =>
-                    t.id === tc.id
-                      ? { ...t, status: success ? "completed" : "failed", result }
-                      : t,
-                  ),
-              });
-            }
-          }
-
-          priorMessages.push({
-            role: "assistant",
-            content: "",
-            toolCalls: [{ id: toolCallId, name: tc.name, arguments: tc.args, result: undefined }],
-          });
-          priorMessages.push({
-            role: "tool",
-            content: result,
-            toolCalls: [{ id: toolCallId, name: tc.name, arguments: tc.args, result: undefined }],
-          });
-        }
-      }
-
+        },
+      });
       finishGeneration();
     } catch (err) {
       if (signal.aborted) {
@@ -577,15 +288,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         finishGeneration(true);
       }
     } finally {
-      window.clearInterval(stallTimer);
       setIsGenerating(false);
       abortRef.current = null;
-      currentInlineRef.current = null;
     }
   };
 
-  const onNewRef = useRef<(message: AppendMessage) => Promise<void>>(undefined);
-  const onReloadRef = useRef<(parentId: string | null) => Promise<void>>(undefined);
   const runUserPromptRef =
     useRef<
       (
@@ -610,22 +317,17 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const modelConfig = getModelConfig();
-
     if (options?.inline) {
       const { blockId, sessionId, continueThread } = options.inline;
-      if (!modelConfig) {
-        pushAssistantErrorMessage(
-          blockId,
-          "请先在 **设置 → AI 模型** 中添加并启用至少一个模型。",
-        );
-        useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
-        return;
-      }
       if (!isTauriRuntime()) {
         pushAssistantErrorMessage(blockId, "AI 助手需要在 Tauri 桌面环境中运行。");
         useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
         return;
+      }
+
+      let convId = useAiStore.getState().activeConversationId ?? createConversation();
+      if (!useAiStore.getState().activeConversationId) {
+        useAiStore.getState().setActiveConversation(convId);
       }
 
       const assistantTurnId = useBlocksStore.getState().pushAiThreadItem(blockId, {
@@ -637,15 +339,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
       useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
 
-      const block = useBlocksStore.getState().findBlockById(blockId);
-      let priorMessages: ReturnType<typeof getPriorMessages>;
-
-      if (continueThread && block?.aiThread) {
-        priorMessages = aiThreadToModelMessages(block.aiThread, {
-          excludeIds: new Set([assistantTurnId]),
-        }) as ReturnType<typeof getPriorMessages>;
-      } else {
-        priorMessages = [{ role: "user" as const, content: userText, toolCalls: undefined }];
+      if (!continueThread) {
+        addMessage(convId, { role: "user", content: userText });
       }
 
       const inlineTarget: InlineTerminalAiTarget = {
@@ -655,19 +350,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         assistantTurnId,
       };
 
-      await runGenerationRef.current!(
-        null,
-        null,
-        priorMessages,
-        modelConfig,
-        inlineTarget,
-      );
+      await runGenerationRef.current!(convId, null, userText, inlineTarget);
       return;
     }
 
-    let convId = options?.newConversation
-      ? null
-      : useAiStore.getState().activeConversationId;
+    let convId = options?.newConversation ? null : useAiStore.getState().activeConversationId;
     if (!convId) {
       convId = createConversation();
     }
@@ -678,21 +365,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    if (!modelConfig) {
-      addMessage(convId, { role: "user", content: userText });
-      addMessage(convId, {
-        role: "assistant",
-        content: "请先在 **设置 → AI 模型** 中添加并启用至少一个模型。",
-      });
-      return;
-    }
-
     if (!isTauriRuntime()) {
       addMessage(convId, { role: "user", content: userText });
       addMessage(convId, {
         role: "assistant",
-        content:
-          "AI 助手需要在 Tauri 桌面环境中运行，并先在设置中配置 AI 模型。",
+        content: "AI 助手需要在 Tauri 桌面环境中运行，并先在设置中连接 ACP Agent。",
       });
       return;
     }
@@ -706,42 +383,28 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       isReasoningStreaming: true,
     });
 
-    const priorMessages = getPriorMessages(convId);
-    await runGenerationRef.current!(convId, assistantMsgId, priorMessages, modelConfig);
+    await runGenerationRef.current!(convId, assistantMsgId, userText);
   };
 
-  onNewRef.current = async (msg: AppendMessage) => {
+  const onNewRef = useRef<(message: AppendMessage) => Promise<void>>(undefined);
+  const onReloadRef = useRef<(parentId: string | null) => Promise<void>>(undefined);
+
+  onNewRef.current = async (msg) => {
     await runUserPromptRef.current!(extractUserContent(msg));
   };
 
   onReloadRef.current = async (parentId) => {
     if (!parentId || isGenerating) return;
-
-    let convId = activeConversationId;
-    if (!convId) return;
-
-    const modelConfig = getModelConfig();
-    if (!modelConfig || !isTauriRuntime()) return;
+    const convId = activeConversationId;
+    if (!convId || !isTauriRuntime()) return;
 
     const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
     if (!conv) return;
 
     const parentIndex = conv.messages.findIndex((m) => m.id === parentId);
     if (parentIndex < 0) return;
-
     const parentMsg = conv.messages[parentIndex];
     if (parentMsg.role !== "user") return;
-
-    const priorMessages = conv.messages.slice(0, parentIndex + 1).slice(-20).map((m) => ({
-      role: m.role,
-      content: m.content,
-      toolCalls: m.toolCalls?.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-        result: tc.result,
-      })),
-    }));
 
     const assistantMsgId = addMessage(convId, {
       role: "assistant",
@@ -750,18 +413,16 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       isReasoningStreaming: true,
     });
 
-    await runGenerationRef.current!(convId, assistantMsgId, priorMessages, modelConfig);
+    await runGenerationRef.current!(convId, assistantMsgId, parentMsg.content);
   };
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
     abortRef.current?.abort();
     setIsGenerating(false);
-  }, []);
+  }, [setIsGenerating]);
 
   useEffect(() => {
-    return registerAiPromptSubmit((prompt, options) =>
-      runUserPromptRef.current!(prompt, options),
-    );
+    return registerAiPromptSubmit((prompt, options) => runUserPromptRef.current!(prompt, options));
   }, []);
 
   useEffect(() => {
@@ -785,6 +446,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       {children}
+      <AcpPermissionDialog request={permissionRequest} onClose={handlePermissionClose} />
     </AssistantRuntimeProvider>
   );
 }

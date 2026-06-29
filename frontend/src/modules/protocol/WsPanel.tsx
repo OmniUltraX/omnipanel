@@ -109,7 +109,6 @@ export function WsPanel() {
 
   return (
     <div className="ws-panel">
-      {/* Connection bar */}
       <div style={{ display: "flex", gap: "var(--sp-2)", marginBottom: "var(--sp-4)" }}>
         <input
           className="url-input"

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/debugreasoning.tsx","./src/debugruntimeprovider.tsx","./src/debugthread.tsx","./src/markdowntext.tsx","./src/api.ts","./src/main.tsx","./src/messagebridge.ts","./src/vite-env.d.ts"],"version":"6.0.3"}

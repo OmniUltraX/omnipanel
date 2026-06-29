@@ -1,11 +1,8 @@
 import { ModuleContextProvider } from "../../../lib/ai/context";
-import type { McpToolRegistration } from "../../../lib/ai/context";
 import type { DatabaseModuleContext } from "./types";
 import { isDatabaseModuleContextEmpty } from "./types";
-import { DATABASE_MODULE_MCP_TOOLS } from "./mcpTools";
 
-export class DatabaseModuleContextProvider extends ModuleContextProvider<DatabaseModuleContext> {
-  constructor() {
+export class DatabaseModuleContextProvider extends ModuleContextProvider<DatabaseModuleContext> {  constructor() {
     super("database");
   }
 
@@ -38,11 +35,6 @@ export class DatabaseModuleContextProvider extends ModuleContextProvider<Databas
 
     return lines.join("\n");
   }
-
-  override getMcpTools(): McpToolRegistration[] {
-    return DATABASE_MODULE_MCP_TOOLS;
-  }
 }
-
 /** 数据库模块全局单例，由 DatabaseModuleContextBridge 维护生命周期 */
 export const databaseModuleContextProvider = new DatabaseModuleContextProvider();

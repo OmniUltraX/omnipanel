@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { IMarker } from "@xterm/xterm";
 import type { DangerLevel } from "../lib/commandGuard";
+import { recordTerminalSessionActivity } from "./terminalSessionActivity";
 
 export type TerminalBlockKind = "shell" | "ai";
 
@@ -114,8 +115,29 @@ interface BlocksState {
 
 let blockCounter = 0;
 
+export function syncBlockCounterFromIds(blocks: Array<{ id: string }>): void {
+  let max = blockCounter;
+  for (const block of blocks) {
+    const match = /^blk-(\d+)$/.exec(block.id);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  blockCounter = max;
+}
+
 export function createBlockId(): string {
   return `blk-${++blockCounter}`;
+}
+
+function dedupeBlocksById(blocks: TerminalBlock[]): TerminalBlock[] {
+  const seen = new Set<string>();
+  const result: TerminalBlock[] = [];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (seen.has(block.id)) continue;
+    seen.add(block.id);
+    result.unshift(block);
+  }
+  return result;
 }
 
 function mapBlockThread(
@@ -131,13 +153,24 @@ function mapBlockThread(
 export const useBlocksStore = create<BlocksState>((set, get) => ({
   blocks: {},
 
-  addBlock: (sessionId, block) =>
-    set((state) => ({
-      blocks: {
-        ...state.blocks,
-        [sessionId]: [...(state.blocks[sessionId] || []), block],
-      },
-    })),
+  addBlock: (sessionId, block) => {
+    recordTerminalSessionActivity(sessionId, block.timestamp, { command: block.command });
+    syncBlockCounterFromIds([block]);
+    return set((state) => {
+      const sessionBlocks = state.blocks[sessionId] || [];
+      const existingIndex = sessionBlocks.findIndex((item) => item.id === block.id);
+      const nextBlocks =
+        existingIndex >= 0
+          ? sessionBlocks.map((item, index) => (index === existingIndex ? block : item))
+          : [...sessionBlocks, block];
+      return {
+        blocks: {
+          ...state.blocks,
+          [sessionId]: nextBlocks,
+        },
+      };
+    });
+  },
 
   updateBlock: (blockId, update) =>
     set((state) => {
@@ -153,9 +186,16 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
         }
       }
       for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = blocks.map((b) =>
-          b.id === blockId ? { ...b, ...patch } : b,
-        );
+        newBlocks[sid] = blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          const next = { ...b, ...patch };
+          if (patch.status === "completed" || patch.status === "failed" || patch.completedAt != null) {
+            recordTerminalSessionActivity(sid, next.completedAt ?? Date.now(), {
+              command: next.command,
+            });
+          }
+          return next;
+        });
       }
       return { blocks: newBlocks };
     }),
@@ -167,6 +207,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
       for (const [sid, blocks] of Object.entries(state.blocks)) {
         newBlocks[sid] = blocks.map((b) => {
           if (b.id !== blockId) return b;
+          recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
           let output = b.output + chunk;
           if (output.length > MAX_BLOCK_OUTPUT_CHARS) {
             output = `…[输出已截断]\n${output.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
@@ -306,13 +347,16 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
       return { blocks: newBlocks };
     }),
 
-  replaceSessionBlocks: (sessionId, blocks) =>
-    set((state) => ({
+  replaceSessionBlocks: (sessionId, blocks) => {
+    const normalized = dedupeBlocksById(blocks).map((block) => ({ ...block, marker: null }));
+    syncBlockCounterFromIds(normalized);
+    return set((state) => ({
       blocks: {
         ...state.blocks,
-        [sessionId]: blocks.map((block) => ({ ...block, marker: null })),
+        [sessionId]: normalized,
       },
-    })),
+    }));
+  },
 
   removeBlock: (blockId) =>
     set((state) => {

@@ -1,82 +1,98 @@
 use crate::ir::{StreamEvent, ToolStatus};
-use crate::providers::acp::types::SessionUpdate;
+use crate::providers::acp::types::SessionUpdateNotification;
 
-/// Translate an ACP `session/update` notification into one or more IR StreamEvents.
-///
-/// This is the core of the ACP → standard chat translation layer,
-/// mirroring cli-agent-gateway's `TranslateSessionUpdate`.
-pub fn translate_session_update(update: &SessionUpdate) -> Vec<StreamEvent> {
-    match update {
-        SessionUpdate::AgentMessageChunk { content } => {
-            let text = extract_text(content);
+/// Translate an ACP `session/update` notification into IR StreamEvents (SDK v1).
+pub fn translate_session_update(params: &SessionUpdateNotification) -> Vec<StreamEvent> {
+    translate_update_value(&params.update)
+}
+
+pub fn translate_update_value(update: &serde_json::Value) -> Vec<StreamEvent> {
+    let kind = update
+        .get("sessionUpdate")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    match kind {
+        "agent_message_chunk" | "user_message_chunk" => {
+            let text = extract_content_text(update.get("content"));
             if text.is_empty() {
                 vec![]
             } else {
                 vec![StreamEvent::ContentDelta { text }]
             }
         }
-        SessionUpdate::AgentThoughtChunk { content } => {
-            let text = extract_text(content);
+        "agent_thought_chunk" => {
+            let text = extract_content_text(update.get("content"));
             if text.is_empty() {
                 vec![]
             } else {
                 vec![StreamEvent::ReasoningDelta { text }]
             }
         }
-        SessionUpdate::ToolCall { content } => {
-            let (name, arguments) = extract_tool_call(content);
-            vec![StreamEvent::ToolCall {
-                id: format!("acp_call_{}", uuid_simple()),
-                name,
-                arguments,
-            }]
-        }
-        SessionUpdate::ToolCallUpdate { content } => {
-            let id = content
+        "tool_call" => {
+            let tool_call_id = update
                 .get("toolCallId")
-                .or_else(|| content.get("id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let status = content
+            let title = update
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("tool")
+                .to_string();
+            let raw_input = update.get("rawInput").cloned().unwrap_or(serde_json::Value::Null);
+            let arguments = serde_json::to_string(&raw_input).unwrap_or_else(|_| "{}".to_string());
+            vec![StreamEvent::ToolCall {
+                id: tool_call_id,
+                name: title,
+                arguments,
+            }]
+        }
+        "tool_call_update" => {
+            let id = update
+                .get("toolCallId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let status = update
                 .get("status")
                 .and_then(|v| v.as_str())
                 .map(parse_tool_status)
                 .unwrap_or(ToolStatus::Running);
+            let result = update.get("rawOutput").map(|v| {
+                if v.is_string() {
+                    v.as_str().unwrap_or("").to_string()
+                } else {
+                    serde_json::to_string(v).unwrap_or_default()
+                }
+            });
             vec![StreamEvent::ToolCallUpdate {
                 id,
                 status,
-                result: None,
+                result,
             }]
         }
-        SessionUpdate::Plan { content } => {
-            let text = extract_text(content);
+        "plan" => {
+            let text = extract_plan_text(update);
             if text.is_empty() {
                 vec![]
             } else {
                 vec![StreamEvent::ContentDelta {
-                    text: format!("📝 **Plan:**\n{}\n", text),
+                    text: format!("📝 **Plan:**\n{text}\n"),
                 }]
             }
         }
-        // User message chunks and other updates are trace-only
-        SessionUpdate::UserMessageChunk { .. }
-        | SessionUpdate::AvailableCommandsUpdate { .. }
-        | SessionUpdate::CurrentModeUpdate { .. } => vec![],
+        _ => vec![],
     }
 }
 
-/// Extract text from an ACP content field.
-/// The content can be a string or an object with a "text" field,
-/// or an array of content blocks.
-fn extract_text(content: &serde_json::Value) -> String {
+fn extract_content_text(content: Option<&serde_json::Value>) -> String {
     match content {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Object(obj) => {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Object(obj)) => {
             if let Some(serde_json::Value::String(text)) = obj.get("text") {
                 return text.clone();
             }
-            // Try to extract from content array
             if let Some(serde_json::Value::Array(blocks)) = obj.get("content") {
                 return blocks
                     .iter()
@@ -86,7 +102,7 @@ fn extract_text(content: &serde_json::Value) -> String {
             }
             String::new()
         }
-        serde_json::Value::Array(blocks) => blocks
+        Some(serde_json::Value::Array(blocks)) => blocks
             .iter()
             .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
             .collect::<Vec<_>>()
@@ -95,44 +111,23 @@ fn extract_text(content: &serde_json::Value) -> String {
     }
 }
 
-/// Extract tool name and arguments from an ACP tool_call content.
-fn extract_tool_call(content: &serde_json::Value) -> (String, String) {
-    let name = content
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let arguments = content
-        .get("arguments")
-        .map(|v| {
-            if v.is_string() {
-                v.as_str().unwrap_or("{}").to_string()
-            } else {
-                serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
-            }
-        })
-        .unwrap_or_else(|| "{}".to_string());
-
-    (name, arguments)
+fn extract_plan_text(update: &serde_json::Value) -> String {
+    if let Some(entries) = update.get("entries").and_then(|v| v.as_array()) {
+        return entries
+            .iter()
+            .filter_map(|e| e.get("content").and_then(|c| c.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    extract_content_text(update.get("content"))
 }
 
 fn parse_tool_status(s: &str) -> ToolStatus {
     match s {
         "pending" => ToolStatus::Pending,
-        "running" => ToolStatus::Running,
+        "in_progress" | "running" => ToolStatus::Running,
         "completed" | "done" | "success" => ToolStatus::Completed,
         "failed" | "error" => ToolStatus::Failed,
         _ => ToolStatus::Running,
     }
-}
-
-/// Simple UUID-like random ID (no external dependency)
-fn uuid_simple() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", t)
 }

@@ -43,6 +43,10 @@ pub struct HttpHistoryEntry {
     #[specta(type = f64)]
     pub created_at: i64,
     pub request_id: Option<String>,
+    pub response_status_text: String,
+    pub response_content_type: String,
+    pub response_headers: String,
+    pub response_body: String,
 }
 
 /// HTTP 集合。
@@ -96,8 +100,22 @@ impl Storage {
 
     pub fn http_add_history(&self, entry: &HttpHistoryEntry) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT INTO http_history (id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![entry.id, entry.method, entry.url, entry.status_code, entry.response_time_ms, entry.request_size, entry.response_size, entry.created_at, entry.request_id],
+            "INSERT INTO http_history (id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, response_status_text, response_content_type, response_headers, response_body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                entry.id,
+                entry.method,
+                entry.url,
+                entry.status_code,
+                entry.response_time_ms,
+                entry.request_size,
+                entry.response_size,
+                entry.created_at,
+                entry.request_id,
+                entry.response_status_text,
+                entry.response_content_type,
+                entry.response_headers,
+                entry.response_body,
+            ],
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         Ok(())
     }
@@ -105,7 +123,7 @@ impl Storage {
     pub fn http_list_history(&self, limit: i64) -> OmniResult<Vec<HttpHistoryEntry>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id FROM http_history ORDER BY created_at DESC LIMIT ?1"
+            "SELECT id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, response_status_text, response_content_type, response_headers, response_body FROM http_history ORDER BY created_at DESC LIMIT ?1"
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map(params![limit], |row| {
@@ -119,6 +137,10 @@ impl Storage {
                     response_size: row.get(6)?,
                     created_at: row.get(7)?,
                     request_id: row.get(8)?,
+                    response_status_text: row.get(9)?,
+                    response_content_type: row.get(10)?,
+                    response_headers: row.get(11)?,
+                    response_body: row.get(12)?,
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
@@ -129,6 +151,23 @@ impl Storage {
     pub fn http_clear_history(&self) -> OmniResult<()> {
         self.conn()
             .execute("DELETE FROM http_history", [])
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn http_delete_history(&self, id: &str) -> OmniResult<()> {
+        self.conn()
+            .execute("DELETE FROM http_history WHERE id = ?1", params![id])
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn http_clear_history_for_request(&self, request_id: &str) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "DELETE FROM http_history WHERE request_id = ?1",
+                params![request_id],
+            )
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         Ok(())
     }

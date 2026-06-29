@@ -675,7 +675,7 @@ export async function initAiModelsStore(force = false): Promise<void> {
       }
       clearLegacyLocalStorage();
     } else {
-      const providers = toStrictProviders(file.providers);
+      const providers = toStrictProviders(file.providers as unknown as LooseProvider[]);
       useAiModelsStore.setState({ providers });
     }
   } catch (e) {

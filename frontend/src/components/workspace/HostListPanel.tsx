@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
 import { Button } from "../ui/Button";
+import {
+  VerticalSplitSidebarSection,
+  type VerticalSplitSidebarSectionConfig,
+} from "../ui/VerticalSplitSidebar";
+import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import {
   collectSshGroupSuggestions,
   normalizeSshGroup,
@@ -43,8 +48,16 @@ const HOST_ICON = (
 
 interface HostListPanelProps {
   resources: WorkspaceResource[];
+  /** 当前高亮主机（Dock 活跃 Tab 对应的主机） */
+  activeHostId?: string | null;
+  /** 单击 preview / 双击 permanent 打开 Dock Tab */
+  onSelectHost?: (hostId: string, mode?: HostDockOpenMode) => void;
+  /** @deprecated 双击回调，请使用 onSelectHost */
   onConnect?: (hostId: string) => void;
+  section?: VerticalSplitSidebarSectionConfig;
 }
+
+const HOST_LABEL_CLICK_DELAY_MS = 200;
 
 function HostPanelBadge({ sshId }: { sshId: string }) {
   const { t } = useI18n();
@@ -121,7 +134,13 @@ function HostGroupSection({
   );
 }
 
-export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
+export function HostListPanel({
+  resources,
+  activeHostId: activeHostIdProp,
+  onSelectHost,
+  onConnect,
+  section,
+}: HostListPanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -132,7 +151,17 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
   const saveConn = useConnectionStore((s) => s.save);
   const moveSshConnectionsToGroup = useConnectionStore((s) => s.moveSshConnectionsToGroup);
   const removeConn = useConnectionStore((s) => s.remove);
-  const activeHostId = selectedResourceByPath[SSH_PATH];
+  const activeHostId = activeHostIdProp ?? selectedResourceByPath[SSH_PATH];
+  const labelClickTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (labelClickTimerRef.current !== null) {
+        window.clearTimeout(labelClickTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void loadSshPoolStatuses();
@@ -207,6 +236,32 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
     selectResource(resource.id, SSH_PATH);
     setActivePath(SSH_PATH);
     navigate(SSH_PATH);
+  };
+
+  const handleHostClick = (host: WorkspaceResource) => {
+    if (onSelectHost) {
+      if (labelClickTimerRef.current !== null) {
+        window.clearTimeout(labelClickTimerRef.current);
+      }
+      labelClickTimerRef.current = window.setTimeout(() => {
+        labelClickTimerRef.current = null;
+        onSelectHost(host.id, "preview");
+      }, HOST_LABEL_CLICK_DELAY_MS);
+      return;
+    }
+    selectHost(host);
+  };
+
+  const handleHostDoubleClick = (host: WorkspaceResource) => {
+    if (labelClickTimerRef.current !== null) {
+      window.clearTimeout(labelClickTimerRef.current);
+      labelClickTimerRef.current = null;
+    }
+    if (onSelectHost) {
+      onSelectHost(host.id, "permanent");
+      return;
+    }
+    onConnect?.(host.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent, host: WorkspaceResource) => {
@@ -393,36 +448,42 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
     return buildHostCtxItems(listCtxMenu.host);
   };
 
-  return (
+  const toolbar = (
+    <div className="host-list-actions">
+      <Button
+        variant="icon"
+        title={t("ssh.sidebar.syncConfig")}
+        disabled={syncing}
+        onClick={() => setSyncWarnOpen(true)}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          width="14"
+          height="14"
+          className={syncing ? "icon-spin" : undefined}
+        >
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
+        </svg>
+      </Button>
+      <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+      </Button>
+    </div>
+  );
+
+  const panelBody = (
     <div className="host-list-panel">
-      <div className="host-list-header">
-        <h3>{t("ssh.sidebar.title")}</h3>
-        <span className="badge badge-muted">{resources.length}</span>
-        <div className="host-list-actions">
-          <Button
-            variant="icon"
-            title={t("ssh.sidebar.syncConfig")}
-            disabled={syncing}
-            onClick={() => setSyncWarnOpen(true)}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              width="14"
-              height="14"
-              className={syncing ? "icon-spin" : undefined}
-            >
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </Button>
-          <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-          </Button>
+      {!section ? (
+        <div className="host-list-header">
+          <h3>{t("ssh.sidebar.title")}</h3>
+          <span className="badge badge-muted">{resources.length}</span>
+          {toolbar}
         </div>
-      </div>
+      ) : null}
       <ScopedSearch value={query} onChange={setQuery} placeholder={t("ssh.sidebar.search")}>
         <div className="host-list">
           {grouped.length === 0 ? (
@@ -447,8 +508,8 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
                     <button
                       type="button"
                       className="host-item"
-                      onClick={() => selectHost(host)}
-                      onDoubleClick={() => onConnect?.(host.id)}
+                      onClick={() => handleHostClick(host)}
+                      onDoubleClick={() => handleHostDoubleClick(host)}
                     >
                       <HostStatusIndicator resourceId={host.id} />
                       <div className="host-icon">{HOST_ICON}</div>
@@ -495,5 +556,27 @@ export function HostListPanel({ resources, onConnect }: HostListPanelProps) {
         editConnection={editConnection}
       />
     </div>
+  );
+
+  if (section) {
+    return (
+      <VerticalSplitSidebarSection
+        {...section}
+        actions={
+          <>
+            <span className="badge badge-muted">{resources.length}</span>
+            {toolbar}
+          </>
+        }
+      >
+        {panelBody}
+      </VerticalSplitSidebarSection>
+    );
+  }
+
+  return (
+    <>
+      {panelBody}
+    </>
   );
 }

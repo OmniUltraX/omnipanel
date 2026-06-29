@@ -97,6 +97,8 @@ pub struct AppState {
     pub proxy_config: Arc<Mutex<ProxyConfig>>,
     /// MCP 服务管理器（内置 OmniMCP + 用户自定义服务）。
     pub mcp_manager: SharedMcpManager,
+    /// ACP agent 连接与会话管理。
+    pub acp_state: Arc<Mutex<crate::commands::acp::AcpState>>,
 }
 
 impl AppState {
@@ -152,6 +154,7 @@ impl AppState {
             file_connection_online: Arc::new(StdMutex::new(HashSet::new())),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
             mcp_manager,
+            acp_state: Arc::new(Mutex::new(crate::commands::acp::AcpState::default())),
         }
     }
 }

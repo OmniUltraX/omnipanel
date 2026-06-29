@@ -1,13 +1,9 @@
-import { useBlocksStore } from "../../../stores/blocksStore";
 import type { CommandHistoryKind } from "./commandHistoryIndex";
 import {
-  HISTORY_PANEL_DISPLAY_LIMIT,
-  HISTORY_SEARCH_DISPLAY_LIMIT,
   buildHistoryIndex,
   filterHistoryIndex,
 } from "./commandHistoryIndex";
 import { listSessionCommandHistoryFast } from "./useSessionCommandHistory";
-import { useSessionShellHistoryStore } from "./sessionShellHistoryStore";
 
 export type { CommandHistoryKind };
 export type CommandHistoryEntry = {

@@ -98,19 +98,30 @@ function TerminalSessionHeader({
     </Button>
   );
 
+  const rightMetaLine = [hostAddress, meta].filter(Boolean).join(" · ") || null;
+
+  const headerRight = (
+    <div className="term-session-header__right">
+      {modeToggle}
+      {rightMetaLine ? (
+        <span className="term-session-meta">{rightMetaLine}</span>
+      ) : null}
+    </div>
+  );
+
   if (session.type === "local") {
     const hostLabel = stats?.hostName?.trim() || resource?.name || "本地终端";
     return (
       <div className="term-session-header">
-        <span className="term-session-env term-session-env--local">
-          {ENV_BADGE_LABELS.local}
-        </span>
-        <span className="term-session-host">{hostLabel}</span>
-        <span className="term-session-muted">:</span>
-        {pathNav}
-        <span className="term-session-spacer" />
-        {modeToggle}
-        {meta ? <span className="term-session-meta">{meta}</span> : null}
+        <div className="term-session-header__left">
+          <span className="term-session-env term-session-env--local">
+            {ENV_BADGE_LABELS.local}
+          </span>
+          <span className="term-session-host">{hostLabel}</span>
+          <span className="term-session-muted">:</span>
+          {pathNav}
+        </div>
+        {headerRight}
       </div>
     );
   }
@@ -119,20 +130,17 @@ function TerminalSessionHeader({
 
   return (
     <div className="term-session-header">
-      <span className={`term-session-env term-session-env--${resource.environment}`}>
-        {ENV_BADGE_LABELS[resource.environment] ?? "SSH"}
-      </span>
-      <span className="term-session-host">
-        {user ?? "root"}@{resource.name}
-      </span>
-      <span className="term-session-muted">:</span>
-      {pathNav}
-      {hostAddress ? (
-        <span className="term-session-muted">· {hostAddress}</span>
-      ) : null}
-      <span className="term-session-spacer" />
-      {modeToggle}
-      {meta ? <span className="term-session-meta">{meta}</span> : null}
+      <div className="term-session-header__left">
+        <span className={`term-session-env term-session-env--${resource.environment}`}>
+          {ENV_BADGE_LABELS[resource.environment] ?? "SSH"}
+        </span>
+        <span className="term-session-host">
+          {user ?? "root"}@{resource.name}
+        </span>
+        <span className="term-session-muted">:</span>
+        {pathNav}
+      </div>
+      {headerRight}
     </div>
   );
 }

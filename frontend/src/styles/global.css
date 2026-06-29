@@ -3191,12 +3191,27 @@
     align-self: stretch;
     height: 100%;
     flex-shrink: 0;
+    gap: var(--sp-3);
 }
 
 .dockable-workspace .dock-prefix-actions .workspace-switcher {
     display: flex;
     align-items: stretch;
     height: 100%;
+}
+
+/* 模块 dock 标题 — 对齐设计稿 .topbar-title + .topbar-tabs margin */
+.dockable-workspace .dock-prefix-actions .module-dock-title {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--sp-4);
+    flex-shrink: 0;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.dockable-workspace .dv-pre-actions-container:has(.module-dock-title) + .dv-tabs-container {
+    margin-left: var(--sp-4);
 }
 
 .dockable-workspace .workspace-switcher-trigger {
@@ -7193,6 +7208,12 @@
         transform: translateX(16px);
     }
 
+    .toggle--disabled,
+    .toggle:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
     /* Setting rows */
     .settings-section {
         margin-bottom: var(--sp-6);
@@ -7380,6 +7401,98 @@
         height: 1px;
         background: var(--border);
         margin: var(--sp-4) 0;
+    }
+
+    .module-status-select {
+        min-width: 7rem;
+    }
+
+    .module-status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 var(--sp-2);
+        height: 28px;
+        border-radius: var(--r-sm);
+        font-size: 12px;
+        font-weight: 500;
+        flex-shrink: 0;
+    }
+
+    .module-status-badge--disabled {
+        background: var(--bg-deeper);
+        color: var(--muted);
+        border: 1px solid var(--border);
+    }
+
+    .setting-hint {
+        margin: var(--sp-1) 0 0;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .setting-hint.settings-subsection-desc {
+        margin: calc(var(--sp-1) * -1) 0 var(--sp-3);
+    }
+
+    .mcp-tool-name {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 13px;
+        font-weight: 500;
+        word-break: break-all;
+    }
+
+    .settings-collapsible {
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        margin-bottom: var(--sp-3);
+        background: var(--surface);
+        overflow: hidden;
+    }
+
+    .settings-collapsible-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        cursor: pointer;
+        list-style: none;
+        user-select: none;
+    }
+
+    .settings-collapsible-summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .settings-collapsible-summary .setting-label h4 {
+        margin: 0;
+    }
+
+    .settings-collapsible-summary .setting-label p {
+        margin: var(--sp-1) 0 0;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .settings-collapsible-chevron {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        color: var(--muted);
+        transition: transform 0.2s ease;
+    }
+
+    .settings-collapsible[open] .settings-collapsible-chevron {
+        transform: rotate(180deg);
+    }
+
+    .settings-collapsible-body {
+        padding: 0 var(--sp-4) var(--sp-3);
+        border-top: 1px solid var(--border);
+    }
+
+    .settings-collapsible-body > .setting-row:first-child {
+        margin-top: var(--sp-2);
     }
 
     .setting-scale {
@@ -9940,6 +10053,39 @@
         overflow: hidden;
     }
 
+    .server-panels-workspace,
+    .server-panel-sidebar {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .server-panel-sidebar .server-sidebar {
+        background: transparent;
+    }
+
+    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body::-webkit-scrollbar {
+        display: none;
+    }
+
+    .server-workspace-dock,
+    .server-panel-tab-pane {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .server-module-dock {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
     .server-workspace {
         flex: 1;
         min-height: 0;
@@ -11677,6 +11823,24 @@
         background: color-mix(in oklch, var(--accent) 6%, var(--surface));
     }
 
+    .ai-provider-agent-mcp {
+        border-top: 1px solid var(--border);
+        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    }
+
+    .ai-provider-agent-mcp .settings-section--embedded {
+        margin: 0;
+        padding: 0;
+    }
+
+    .ai-provider-agent-mcp .settings-section-header {
+        margin-bottom: var(--sp-2);
+    }
+
+    .ai-provider-agent-mcp .settings-subsection-title {
+        margin: 0 0 var(--sp-1);
+    }
+
     .ai-model-row-standard-active {
         background: color-mix(in oklch, var(--accent) 14%, transparent);
         color: var(--accent);
@@ -11686,6 +11850,25 @@
         color: var(--muted);
         font-style: italic;
         font-family: inherit;
+    }
+
+    .acp-service-hint {
+        margin-top: var(--sp-4);
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    .acp-service-hint code {
+        font-family: var(--font-mono, monospace);
+        font-size: 11px;
+    }
+
+    .settings-section .ai-models-list {
+        margin-top: var(--sp-3);
+    }
+
+    .settings-section .ai-models-empty {
+        margin-top: var(--sp-3);
     }
 
     .ai-model-row-activate {

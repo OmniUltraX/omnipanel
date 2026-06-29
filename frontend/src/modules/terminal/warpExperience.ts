@@ -21,7 +21,7 @@ export function buildFixErrorPrompt(block: TerminalBlock): string {
 
 export function buildNaturalLanguagePrompt(query: string, cwd?: string): string {
   const cwdLine = cwd ? `\n当前目录：${cwd}` : "";
-  return `${query}${cwdLine}\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 run_terminal_command 工具。`;
+  return `${query}${cwdLine}\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_terminal_run_terminal_command 工具。`;
 }
 
 export interface CommandPlanStep {

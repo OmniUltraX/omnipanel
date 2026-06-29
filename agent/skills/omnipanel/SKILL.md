@@ -22,4 +22,22 @@ description: OmniPanel 工程工作站项目概览与模块说明
 ## 开发
 
 - 桌面开发：`npm run tauri dev`（仓库根目录）
-- 本 Agent：`cd agent && npm start`
+- **OmniAgent 两种启动模式**（`cd agent`）：
+
+```
+agent/
+├── core/           # 核心：config、runtime、turn、sessions
+├── adapters/
+│   ├── acp/        # ACP stdio 适配器（OmniPanel 集成）
+│   └── web/        # HTTP 适配器（assistant-ui 客户端）
+├── dev-ui/         # Web 模式 UI
+└── skills/
+```
+
+| 模式 | 命令 | 说明 |
+|------|------|------|
+| **acp**（默认） | `npm start` | ACP stdio，供 OmniPanel「设置 → Agent」连接 |
+| **web** | `npm run start:web` | 一键启动 API + assistant-ui，浏览器打开 `http://127.0.0.1:9478` |
+
+web 模式配置：复制 `agent/debug-config.example.json` → `debug-config.json`，或设置 `OMNIAGENT_CONFIG`。
+也可通过 `OMNIAGENT_MODE=web` / `--mode web` 切换模式。

@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
-import { ServerSidebar } from "../../components/workspace/ServerSidebar";
-import { Button } from "../../components/ui/Button";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { ModuleSegmentDock } from "../../components/dock";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useServerGroupStore } from "../../stores/serverGroupStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
@@ -17,11 +12,11 @@ import {
   type ServerWorkspaceTab,
 } from "./panel/ServerWorkspace";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
+import { ServerPanelsWorkspaceView } from "./panel/ServerPanelsWorkspaceView";
+import { useServerPanelWorkspace } from "./panel/hooks/useServerPanelWorkspace";
+import type { ServerPanelDockOpenMode } from "./panel/serverPanelWorkspaceTabs";
 import { SERVER_PATH } from "./panel/constants";
-import {
-  connectionMatchesServerGroup,
-  connectionToServerEntry,
-} from "./panel/panelConnection";
+import { connectionToServerEntry } from "./panel/panelConnection";
 import type { ServerEntry } from "./panel/serverConnection";
 import type { Connection } from "../../ipc/bindings";
 
@@ -31,31 +26,17 @@ export function ServerPanel() {
   const isActiveRoute = location.pathname === "/module/server";
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
-  const groups = useServerGroupStore((s) => s.groups);
-  const activeGroupId = useServerGroupStore((s) => s.activeGroupId);
-  const setActiveGroupId = useServerGroupStore((s) => s.setActiveGroupId);
-  const addGroup = useServerGroupStore((s) => s.addGroup);
-  const getGroupName = useServerGroupStore((s) => s.getGroupName);
   const selectedResourceByPath = useWorkspaceStore((s) => s.selectedResourceByPath);
   const selectResource = useWorkspaceStore((s) => s.selectResource);
 
-  const activeGroupName = getGroupName(activeGroupId);
-
   const panelServers = useMemo(
-    () =>
-      connections
-        .filter(
-          (c) => c.kind === "panel" && connectionMatchesServerGroup(c, activeGroupName),
-        )
-        .map(connectionToServerEntry),
-    [connections, activeGroupName],
+    () => connections.filter((c) => c.kind === "panel").map(connectionToServerEntry),
+    [connections],
   );
 
   const activeServerId = selectedResourceByPath[SERVER_PATH] ?? panelServers[0]?.id ?? null;
-  const activeServer = useMemo(
-    () => panelServers.find((s) => s.id === activeServerId) ?? null,
-    [panelServers, activeServerId],
-  );
+
+  const serverWorkspace = useServerPanelWorkspace(panelServers);
 
   const [showDialog, setShowDialog] = useState(false);
   const [editPanelConnection, setEditPanelConnection] = useState<Connection | undefined>();
@@ -67,21 +48,11 @@ export function ServerPanel() {
     [topbarTabs],
   );
 
-
   useEffect(() => {
     if (!selectedResourceByPath[SERVER_PATH] && panelServers[0]) {
       selectResource(panelServers[0].id, SERVER_PATH);
     }
   }, [panelServers, selectedResourceByPath, selectResource]);
-
-  const handleCreateGroup = useCallback(() => {
-    const name = window.prompt(t("server.groups.namePlaceholder"));
-    if (!name?.trim()) return;
-    const result = addGroup(name);
-    if (!result.ok && result.reason === "duplicate") {
-      window.alert(t("server.groups.duplicate"));
-    }
-  }, [addGroup, t]);
 
   const handleSelectServer = useCallback(
     (serverId: string) => {
@@ -89,6 +60,35 @@ export function ServerPanel() {
     },
     [selectResource],
   );
+
+  const handleSidebarSelectServer = useCallback(
+    (serverId: string, _mode?: ServerPanelDockOpenMode) => {
+      selectResource(serverId, SERVER_PATH);
+    },
+    [selectResource],
+  );
+
+  useEffect(() => {
+    if (!activeServerId) {
+      return;
+    }
+    const { workspaceTabs, activeTabId, activateTab, handleSelectServer: openServerTab } =
+      serverWorkspace;
+    const existing = workspaceTabs.find((item) => item.serverId === activeServerId);
+    if (existing) {
+      if (activeTabId !== existing.id) {
+        activateTab(existing.id);
+      }
+      return;
+    }
+    openServerTab(activeServerId, "permanent");
+  }, [
+    activeServerId,
+    serverWorkspace.workspaceTabs,
+    serverWorkspace.activeTabId,
+    serverWorkspace.activateTab,
+    serverWorkspace.handleSelectServer,
+  ]);
 
   const handleCreateServer = useCallback(() => {
     setEditPanelConnection(undefined);
@@ -112,73 +112,56 @@ export function ServerPanel() {
     [removeConn, t],
   );
 
-  const renderPanel = useCallback(
-    (tabId: string) => (
-      <SidebarWorkspace
-        preset="server"
-        sidebar={
-          <ServerSidebar
-            servers={panelServers}
-            groups={groups}
-            activeGroupId={activeGroupId}
-            activeServerId={activeServerId}
-            onGroupChange={setActiveGroupId}
-            onCreateGroup={handleCreateGroup}
-            onSelectServer={handleSelectServer}
-            onCreateServer={handleCreateServer}
-            onEditServer={handleEditServer}
-            onDeleteServer={handleDeleteServer}
-          />
-        }
-      >
+  const renderServerSegmentContent = useCallback(
+    (segmentTabId: ServerWorkspaceTab, serverId: string, _dockTabId: string, isActive: boolean) => {
+      if (!isActive) {
+        return <div className="server-panel-tab-pane" aria-hidden />;
+      }
+
+      const server = panelServers.find((item) => item.id === serverId);
+      if (!server) {
+        return <div className="server-panel-tab-pane" aria-hidden />;
+      }
+
+      return (
         <div className="server-main">
-          {activeServer ? (
-            <ServerWorkspace server={activeServer} tab={tabId as ServerWorkspaceTab} />
-          ) : (
-            <WorkspaceEmptyPage
-              prompt={t("server.empty.description")}
-              actions={
-                <Button variant="primary" size="sm" onClick={handleCreateServer}>
-                  {t("server.sidebar.addPanel")}
-                </Button>
-              }
-            />
-          )}
+          <ServerWorkspace server={server} tab={segmentTabId} />
         </div>
-      </SidebarWorkspace>
-    ),
-    [
-      activeGroupId,
-      activeServer,
-      activeServerId,
-      groups,
-      handleCreateGroup,
-      handleCreateServer,
-      handleDeleteServer,
-      handleEditServer,
-      handleSelectServer,
-      panelServers,
-      setActiveGroupId,
-      t,
-    ],
+      );
+    },
+    [panelServers],
   );
 
   return (
     <>
       <ModuleSegmentDock
         className="server-module-dock"
+        moduleTitle={t("routes.server")}
         tabs={segmentTabs}
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as ServerWorkspaceTab)}
         enabled={isActiveRoute}
-        renderPanel={renderPanel}
+        renderPanel={(segmentTabId) => (
+          <ServerPanelsWorkspaceView
+            servers={panelServers}
+            workspace={serverWorkspace}
+            selectedServerId={activeServerId}
+            onSelectServer={handleSelectServer}
+            onSidebarSelectServer={handleSidebarSelectServer}
+            onCreateServer={handleCreateServer}
+            onEditServer={handleEditServer}
+            onDeleteServer={handleDeleteServer}
+            renderServerPanel={(serverId, dockTabId, isActive) =>
+              renderServerSegmentContent(segmentTabId as ServerWorkspaceTab, serverId, dockTabId, isActive)
+            }
+          />
+        )}
       />
       <ServerConnectionDialog
         open={showDialog}
         onClose={() => setShowDialog(false)}
         onSaved={() => setShowDialog(false)}
         editPanelConnection={editPanelConnection}
-        defaultGroup={activeGroupName}
       />
     </>
   );

@@ -5,6 +5,9 @@ use specta::Type;
 
 pub const BUILTIN_SERVICE_ID: &str = "omnimcp-builtin";
 pub const BUILTIN_SERVICE_NAME: &str = "OmniMCP";
+/// 内置 OmniMCP HTTP 服务固定端口（127.0.0.1）。
+pub const BUILTIN_MCP_PORT: u16 = 12756;
+pub const BUILTIN_MCP_ENDPOINT: &str = "http://127.0.0.1:12756/mcp";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

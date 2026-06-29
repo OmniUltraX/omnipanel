@@ -455,6 +455,7 @@ export function WorkflowPanel() {
     <>
       <ModuleSegmentDock
         className="workflow-module-dock"
+        moduleTitle={t("routes.workflow")}
         tabs={segmentTabs}
         activeTabId={tab}
         onActiveTabChange={(id) => setTab(id as WfTab)}

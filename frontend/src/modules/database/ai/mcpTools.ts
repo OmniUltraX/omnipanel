@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { McpToolRegistration } from "../../../lib/ai/context";
+import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
 import {
   introspectTable,
   isConnectionEnabled,
@@ -13,24 +14,6 @@ import {
 import { connectionWithDatabase } from "../toolbox/types";
 import { makeQueryRunId } from "../queryRun";
 import type { QueryResult } from "../dbWorkspaceState";
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`缺少必填参数：${key}`);
-  }
-  return value.trim();
-}
-
-function optionalString(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key];
-  if (value == null || value === "") return undefined;
-  if (typeof value !== "string") {
-    throw new Error(`参数 ${key} 必须是字符串`);
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();
@@ -163,10 +146,10 @@ const keywordSchema = {
   description: "可选，用于过滤结果的关键字（模糊匹配，忽略大小写）",
 };
 
-/** 数据库模块向 AI 注册的 MCP 工具 */
+/** 数据库模块向 AI 注册的 MCP 工具（omni_{module}_{function_name}） */
 export const DATABASE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
   {
-    name: "get_databases_from_connection",
+    name: "omni_database_get_databases_from_connection",
     description: "根据连接名获取该连接下的数据库列表，可选关键字过滤。",
     inputSchema: {
       type: "object",
@@ -179,7 +162,7 @@ export const DATABASE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
     handler: getDatabasesFromConnection,
   },
   {
-    name: "get_tables_from_database",
+    name: "omni_database_get_tables_from_database",
     description: "根据连接名和数据库名获取表列表，可选关键字过滤。",
     inputSchema: {
       type: "object",
@@ -193,7 +176,7 @@ export const DATABASE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
     handler: getTablesFromDatabase,
   },
   {
-    name: "get_table_info",
+    name: "omni_database_get_table_info",
     description:
       "根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。",
     inputSchema: {
@@ -211,7 +194,7 @@ export const DATABASE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
     handler: getTableInfo,
   },
   {
-    name: "execute_sql",
+    name: "omni_database_execute_sql",
     description:
       "在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。",
     inputSchema: {

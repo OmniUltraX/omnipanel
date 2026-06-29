@@ -19,6 +19,41 @@
         overflow: hidden;
     }
 
+    .docker-connections-workspace,
+    .docker-connection-sidebar {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .docker-connection-sidebar .server-sidebar {
+        background: transparent;
+    }
+
+    .docker-connection-sidebar .vsplit-sidebar-section__body .server-sidebar-body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .docker-connection-sidebar .vsplit-sidebar-section__body .server-sidebar-body::-webkit-scrollbar {
+        display: none;
+    }
+
+    .docker-workspace-dock,
+    .docker-connection-tab-pane {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .docker-module-dock {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
     .docker-sidebar-title {
         flex: 1;
         min-width: 0;

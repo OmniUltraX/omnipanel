@@ -8,18 +8,19 @@ use rmcp::transport::{
         StreamableHttpServerConfig,
     },
 };
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::Mutex;
 
 use omnipanel_store::Storage;
 
 use crate::builtin::OmniMcpHandler;
+use crate::process::stdio_command;
 use crate::store::{
     delete_custom_service, load_services_file, set_service_enabled, upsert_custom_service,
 };
 use crate::types::{
     McpServiceConfig, McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpTransport,
-    BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
+    BUILTIN_MCP_ENDPOINT, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
 };
 
 struct BuiltinServerRuntime {
@@ -135,6 +136,12 @@ impl McpManager {
         use crate::types::McpServiceRuntimeStatus;
 
         if id == BUILTIN_SERVICE_ID {
+            {
+                let storage = self.storage.lock().await;
+                if !storage.mcp_tool_is_available(tool_name).unwrap_or(false) {
+                    anyhow::bail!("MCP 工具不可用: {tool_name}");
+                }
+            }
             let endpoint = self
                 .builtin
                 .as_ref()
@@ -175,7 +182,10 @@ impl McpManager {
                 .as_ref()
                 .map(|b| b.endpoint.clone())
                 .context("OmniMCP 未运行")?;
-            return crate::client::list_tools_http(&endpoint).await;
+            let mut tools = crate::client::list_tools_http(&endpoint).await?;
+            let storage = self.storage.lock().await;
+            tools.retain(|tool| storage.mcp_tool_is_available(&tool.name).unwrap_or(false));
+            return Ok(tools);
         }
 
         let service = self
@@ -208,11 +218,11 @@ impl McpManager {
     }
 
     async fn start_builtin(&mut self) -> anyhow::Result<()> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let bind_addr = format!("127.0.0.1:{BUILTIN_MCP_PORT}");
+        let listener = tokio::net::TcpListener::bind(&bind_addr)
             .await
-            .context("绑定 OmniMCP 端口失败")?;
-        let port = listener.local_addr()?.port();
-        let endpoint = format!("http://127.0.0.1:{port}/mcp");
+            .with_context(|| format!("绑定 OmniMCP 端口 {bind_addr} 失败"))?;
+        let endpoint = BUILTIN_MCP_ENDPOINT.to_string();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let storage = self.storage.clone();
@@ -286,16 +296,7 @@ impl McpManager {
             return Ok(());
         };
 
-        let mut command = Command::new(&config.command);
-        command.args(&config.args);
-        if let Some(cwd) = &config.cwd {
-            if !cwd.trim().is_empty() {
-                command.current_dir(cwd);
-            }
-        }
-        for (key, value) in &config.env {
-            command.env(key, value);
-        }
+        let mut command = stdio_command(config);
         command.stdin(std::process::Stdio::piped());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());

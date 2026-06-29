@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildPostShellAiQuery,
   hasShellErrorSignals,
-  looksLikeEnglishQuestionInput,
   looksLikeNaturalLanguageCommand,
   shouldRouteInputToAi,
   shouldTriggerAiAfterShell,

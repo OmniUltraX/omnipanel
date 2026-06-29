@@ -8,13 +8,7 @@ import {
 } from "../../components/ui/VerticalSplitSidebar";
 import { ProtocolHttpSidebar } from "./ProtocolHttpSidebar";
 
-export type ProtocolKind = "http" | "ws" | "mqtt" | "serial" | "grpc" | "sniffer" | "modbus";
-
-const WS_SESSIONS = [
-  { name: "dev-local", url: "ws://localhost:8080/ws", status: "online" },
-  { name: "staging", url: "wss://staging-api/ws", status: "online" },
-  { name: "mqtt-bridge", url: "ws://broker.local:9001", status: "offline" },
-];
+export type ProtocolKind = "http" | "mqtt" | "serial" | "grpc" | "sniffer" | "modbus";
 
 const MQTT_TOPICS = [
   { topic: "/devices/+/telemetry", qos: "1" },
@@ -78,29 +72,6 @@ export function ProtocolContextSidebar({ protocol }: Props) {
 
   if (protocol === "http") {
     return <ProtocolHttpSidebar />;
-  }
-
-  if (protocol === "ws") {
-    return (
-      <ProtocolGenericSidebar
-        storageKey="omnipanel-protocol-ws-sidebar.v1"
-        sections={{
-          endpoints: {
-            title: t("protocol.sidebar.endpoints"),
-            defaultExpanded: true,
-            content: WS_SESSIONS.map((session) => (
-              <button key={session.name} type="button" className="proto-context-item">
-                <span className={`status-dot ${session.status === "online" ? "online" : "offline"}`} />
-                <span className="proto-context-body">
-                  <span className="proto-context-title">{session.name}</span>
-                  <span className="proto-context-meta">{session.url}</span>
-                </span>
-              </button>
-            )),
-          },
-        }}
-      />
-    );
   }
 
   if (protocol === "mqtt") {

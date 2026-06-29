@@ -600,29 +600,6 @@ pub async fn ai_list_providers(state: State<'_, AppState>) -> Result<Vec<Provide
     Ok(providers)
 }
 
-/// Add an ACP CLI agent as a provider.
-#[tauri::command]
-pub async fn ai_add_acp_agent(
-    state: State<'_, AppState>,
-    binary_path: String,
-    name: String,
-) -> Result<(), String> {
-    use omnipanel_ai::providers::acp::AcpProvider;
-    use omnipanel_ai::providers::acp::types::AcpProfile;
-
-    let mut provider = AcpProvider::new(&name, &binary_path, vec![], AcpProfile::ClientTools, None);
-
-    provider
-        .initialize()
-        .await
-        .map_err(|e| format!("Failed to initialize ACP agent: {}", e))?;
-
-    let mut registry = state.ai_registry.lock().await;
-    registry.register(Box::new(provider));
-
-    Ok(())
-}
-
 /// Get the current active provider and model.
 #[tauri::command]
 pub async fn ai_get_active(state: State<'_, AppState>) -> Result<Option<(String, String)>, String> {

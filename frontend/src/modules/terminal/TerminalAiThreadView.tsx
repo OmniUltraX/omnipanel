@@ -4,7 +4,7 @@ import {
   type ToolCallMessagePartComponent,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
-import { useMemo, useRef, useCallback } from "react";
+import { useMemo, useRef } from "react";
 import { ToolFallback } from "../../components/assistant-ui/tool-fallback";
 import { ThreadMessagesOnly } from "../../components/assistant-ui/thread";
 import {

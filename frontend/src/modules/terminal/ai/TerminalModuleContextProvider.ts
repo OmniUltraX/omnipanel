@@ -1,9 +1,7 @@
 import { ModuleContextProvider } from "../../../lib/ai/context";
-import type { McpToolRegistration } from "../../../lib/ai/context";
 import { collectTerminalContext, formatContextForAI } from "../../../lib/terminalContext";
 import type { TerminalModuleContext } from "./types";
 import { isTerminalModuleContextEmpty } from "./types";
-import { TERMINAL_MODULE_MCP_TOOLS } from "./mcpTools";
 
 export class TerminalModuleContextProvider extends ModuleContextProvider<TerminalModuleContext> {
   constructor() {
@@ -11,7 +9,7 @@ export class TerminalModuleContextProvider extends ModuleContextProvider<Termina
   }
 
   formatContextForAi(context: TerminalModuleContext): string {
-    if (isTerminalModuleContextEmpty(context) || !context.activeTabId) {
+    if (isTerminalModuleContextEmpty(context) || !context.activeSessionId) {
       return "";
     }
 
@@ -27,7 +25,7 @@ export class TerminalModuleContextProvider extends ModuleContextProvider<Termina
     }
 
     const terminalCtx = collectTerminalContext(
-      context.activeTabId,
+      context.activeSessionId,
       context.recentBlocks,
       8,
     );
@@ -35,10 +33,6 @@ export class TerminalModuleContextProvider extends ModuleContextProvider<Termina
     if (formatted) lines.push("", formatted);
 
     return lines.join("\n");
-  }
-
-  override getMcpTools(): McpToolRegistration[] {
-    return TERMINAL_MODULE_MCP_TOOLS;
   }
 }
 

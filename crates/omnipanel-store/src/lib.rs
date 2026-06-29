@@ -1,6 +1,8 @@
 //! 本地存储与凭据库：rusqlite 元数据存储（密钥注入式，可选 SQLCipher）+ keyring 凭据保管。
 //! 应用数据根目录为 `~/.omnipd`，各模块使用独立子目录。
 
+mod mcp_tool;
+mod app_module;
 mod connection;
 mod database;
 mod file_index;
@@ -18,6 +20,8 @@ mod task;
 mod vault;
 mod workflow;
 
+pub use mcp_tool::{McpToolCatalogEntry, McpToolRecord, DEFAULT_MCP_TOOLS};
+pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES};
 pub use connection::{Connection, ConnectionKind};
 pub use file_index::{
     FileIndexBatchItem, FileIndexEntry, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,

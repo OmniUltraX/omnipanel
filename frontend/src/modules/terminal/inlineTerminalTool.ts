@@ -3,6 +3,7 @@ import {
   type AiThreadToolCall,
   type TerminalBlock,
 } from "../../stores/blocksStore";
+import { OMNI_TERMINAL_RUN_TERMINAL_COMMAND } from "./ai/mcpTools";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
@@ -23,7 +24,8 @@ function resolveToolCallCommand(item: AiThreadToolCall): string {
 
 export function isInlineTerminalToolName(toolName: string): boolean {
   return (
-    toolName === "run_terminal_command" || toolName.endsWith("/run_terminal_command")
+    toolName === OMNI_TERMINAL_RUN_TERMINAL_COMMAND ||
+    toolName.endsWith(`/${OMNI_TERMINAL_RUN_TERMINAL_COMMAND}`)
   );
 }
 

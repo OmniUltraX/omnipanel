@@ -33,6 +33,14 @@ pub enum StreamEvent {
     Error {
         message: String,
     },
+    /// Agent requests user approval before running a tool (ACP session/request_permission).
+    PermissionRequest {
+        request_id: u64,
+        tool_call_id: String,
+        title: String,
+        raw_input: String,
+        options: Vec<(String, String)>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -42,6 +50,8 @@ pub enum StopReason {
     ToolUse,
     MaxTokens,
     Error,
+    Cancelled,
+    Refusal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

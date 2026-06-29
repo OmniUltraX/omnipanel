@@ -267,20 +267,29 @@ async fn resolve_adapter(
 pub async fn docker_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DockerConnectionInfo>, OmniError> {
-    let mut out = vec![DockerConnectionInfo {
-        connection_id: LOCAL_CONNECTION_ID.to_string(),
-        name: "?? Docker".to_string(),
-        source: DockerConnectionSource::LocalEngine,
-        status: DockerConnectionStatus::Offline,
-        host_label: "?? Engine".to_string(),
-        environment: "local".to_string(),
-        engine_version: None,
-        api_version: None,
-        containers_running: 0,
-        containers_total: 0,
-        warning_message: None,
-        bound_ssh_connection_id: None,
-    }];
+    let mut out = Vec::new();
+
+    let local_status = local_engine_status().await;
+    if local_status.installed {
+        out.push(DockerConnectionInfo {
+            connection_id: LOCAL_CONNECTION_ID.to_string(),
+            name: "本地 Docker".to_string(),
+            source: DockerConnectionSource::LocalEngine,
+            status: if local_status.running {
+                DockerConnectionStatus::Online
+            } else {
+                DockerConnectionStatus::Offline
+            },
+            host_label: "本地 Engine".to_string(),
+            environment: "local".to_string(),
+            engine_version: None,
+            api_version: None,
+            containers_running: 0,
+            containers_total: 0,
+            warning_message: None,
+            bound_ssh_connection_id: None,
+        });
+    }
 
     let stored = {
         let storage = state.storage.lock().await;

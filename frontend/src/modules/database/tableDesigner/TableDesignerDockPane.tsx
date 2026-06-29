@@ -5,6 +5,7 @@ import { useActionStore } from "../../../stores/actionStore";
 import { introspectTable, type DbConnectionConfig } from "../api";
 import type { TableDesignerTabState } from "../dbWorkspaceState";
 import { makeQueryRunId } from "../queryRun";
+import { resolveTableDesignerDriver } from "./resolveTableDesignerDriver";
 import { TableDesignerPanel } from "./TableDesignerPanel";
 import type { TableDesignerModel } from "./types";
 

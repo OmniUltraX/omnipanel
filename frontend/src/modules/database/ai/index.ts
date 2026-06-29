@@ -11,7 +11,6 @@ export {
   DatabaseModuleContextProvider,
   databaseModuleContextProvider,
 } from "./DatabaseModuleContextProvider";
-export { DATABASE_MODULE_MCP_TOOLS } from "./mcpTools";
 export {
   DatabaseModuleContextBridge,
   type DatabaseModuleContextBridgeProps,

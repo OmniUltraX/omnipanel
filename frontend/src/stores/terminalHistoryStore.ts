@@ -157,9 +157,17 @@ export const useTerminalHistoryStore = create<TerminalHistoryState>()(
     }),
     {
       name: TERMINAL_HISTORY_STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ bySession: state.bySession }),
+      migrate: (persistedState, version) => {
+        const persisted = persistedState as { bySession?: Record<string, PersistedTerminalBlock[]> };
+        if (!persisted?.bySession || version >= 2) {
+          return persistedState as TerminalHistoryState;
+        }
+        // v1 历史键即为 tab/session id，v2 起统一按 sessionId 存储，结构不变
+        return { bySession: persisted.bySession } as TerminalHistoryState;
+      },
     },
   ),
 );

@@ -7,9 +7,8 @@ use rmcp::{
     },
     ClientHandler, RoleClient, ServiceExt,
 };
-use tokio::process::Command;
-
 use crate::types::{McpStdioTransport, McpToolCallResult, McpToolInfo};
+use crate::process::stdio_command;
 
 #[derive(Clone, Default)]
 struct ToolListClient;
@@ -26,16 +25,7 @@ pub async fn list_tools_http(url: &str) -> anyhow::Result<Vec<McpToolInfo>> {
 }
 
 pub async fn list_tools_stdio(config: &McpStdioTransport) -> anyhow::Result<Vec<McpToolInfo>> {
-    let mut command = Command::new(&config.command);
-    command.args(&config.args);
-    if let Some(cwd) = &config.cwd {
-        if !cwd.trim().is_empty() {
-            command.current_dir(cwd);
-        }
-    }
-    for (key, value) in &config.env {
-        command.env(key, value);
-    }
+    let command = stdio_command(config);
     let transport = TokioChildProcess::new(command).context("spawn MCP stdio 客户端失败")?;
     let mut client = ToolListClient
         .serve(transport)
@@ -79,16 +69,7 @@ pub async fn call_tool_stdio(
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> anyhow::Result<McpToolCallResult> {
-    let mut command = Command::new(&config.command);
-    command.args(&config.args);
-    if let Some(cwd) = &config.cwd {
-        if !cwd.trim().is_empty() {
-            command.current_dir(cwd);
-        }
-    }
-    for (key, value) in &config.env {
-        command.env(key, value);
-    }
+    let command = stdio_command(config);
     let transport = TokioChildProcess::new(command).context("spawn MCP stdio 客户端失败")?;
     let mut client = ToolListClient
         .serve(transport)

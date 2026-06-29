@@ -32,9 +32,15 @@ function fetchSftpDirectory(resourceId: string, directory: string): Promise<Sftp
       if (result.status !== "ok") return null;
       useSshDetailNavigationStore.getState().setSftpCache(resourceId, {
         path: directory,
-        entries: result.data,
+        entries: result.data.map((entry) => ({
+          ...entry,
+          size: entry.size ?? 0,
+        })),
       });
-      return result.data;
+      return result.data.map((entry) => ({
+        ...entry,
+        size: entry.size ?? 0,
+      }));
     })
     .finally(() => {
       inflightSftpLists.delete(key);

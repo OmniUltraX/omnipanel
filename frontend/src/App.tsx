@@ -48,7 +48,9 @@ import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./lib/paths";
+import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
+import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
+import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import {
   LazyDashboardPage,
   LazyDatabasePanel,
@@ -71,6 +73,7 @@ function TopbarPageActions() {
   const activeResource = getResourceById(activeResourceId);
   const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
   const requestDockerRefresh = useDockerTopbarStore((s) => s.requestRefresh);
+  const triggerNewRequest = useProtocolTopbarStore((state) => state.triggerNewRequest);
 
   if (path === MODULE_PATHS.terminal) {
     return null;
@@ -105,7 +108,7 @@ function TopbarPageActions() {
   if (path === MODULE_PATHS.protocol) {
     return (
       <>
-        <Button variant="icon" title={t("protocol.actions.newRequest")}>
+        <Button variant="icon" title={t("protocol.actions.newRequest")} onClick={triggerNewRequest}>
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -127,7 +130,7 @@ function TopbarPageActions() {
             <path d="M12 15V3" />
           </svg>
         </Button>
-        <Button variant="primary" size="sm">
+        <Button variant="primary" size="sm" onClick={triggerNewRequest}>
           {t("protocol.actions.newTab")}
         </Button>
       </>
@@ -180,6 +183,7 @@ function AppShell() {
   useAiDrawerShortcut();
   useBottomWorkspaceShortcut();
   useSettingsShortcut();
+
   const location = useLocation();
   const navigate = useNavigate();
   const title = getRouteTitle(location.pathname);
@@ -201,6 +205,8 @@ function AppShell() {
     (state) => state.pendingRiskActionId,
   );
   const pendingRiskAction = getPendingRiskAction();
+  const appModules = useAppModuleStore((s) => s.modules);
+  const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
 
   useEffect(() => {
     if (!isTerminal) {
@@ -245,6 +251,16 @@ function AppShell() {
         : MODULE_PATHS.terminal;
     navigate(fallback, { replace: true });
   }, [location.pathname, navigate, openSettings, workspaceActivePath]);
+
+  useEffect(() => {
+    if (!appModulesHydrated) return;
+    const key = moduleKeyFromPath(location.pathname);
+    if (!key || isModuleOpen(key)) return;
+    const visible = getNavVisibleModuleKeys();
+    const fallback =
+      visible.length > 0 ? MODULE_PATHS[visible[0]] : DASHBOARD_PATH;
+    navigate(fallback, { replace: true });
+  }, [location.pathname, navigate, appModules, appModulesHydrated]);
 
   useEffect(() => {
     if (!isWorkspacePath(location.pathname)) {

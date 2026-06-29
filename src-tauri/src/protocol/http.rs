@@ -76,6 +76,9 @@ pub async fn execute_request(config: HttpRequestConfig) -> Result<HttpResponse, 
             "API Key" => {
                 req = req.header("X-API-Key", auth_value.as_str());
             }
+            "Authorization" => {
+                req = req.header("Authorization", auth_value.as_str());
+            }
             _ => {}
         }
     }

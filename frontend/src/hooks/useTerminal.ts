@@ -14,6 +14,7 @@ import {
   findTerminalPane,
   useTerminalStore,
 } from "../stores/terminalStore";
+import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
@@ -39,6 +40,7 @@ import {
   registerShellHistoryPtySender,
   requestShellHistorySync,
 } from "../modules/terminal/commandBar/shellHistorySync";
+import { isInternalHistoryCommand } from "../modules/terminal/commandBar/internalHistoryCommands";
 import { ingestTerminalHistoryOutput } from "../modules/terminal/commandBar/shellHistoryIngest";
 import { registerRuntimeBackendSession } from "../modules/terminal/commandBar/shellHistoryFetch";
 import {
@@ -378,14 +380,22 @@ export function disposePaneBackendSession(paneId: string) {
   useTerminalStore.getState().setBackendSessionId(paneId, null);
 }
 
-/** 关闭 Tab 对应的后端 PTY/SSH（仅在用户关闭标签时调用） */
+/** 关闭 Tab 对应的后端 PTY/SSH（仅在用户结束会话时调用） */
 export function disposeTabBackendSessions(tabId: string) {
-  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
-  if (!tab) return;
-  if (!tab.backendSessionId) return;
-  disposeBackendSession(tabId, tab.backendSessionId);
-  injectedBackendSessions.delete(tab.backendSessionId);
-  useTerminalStore.getState().setBackendSessionId(tabId, null);
+  const state = useTerminalStore.getState();
+  const tab = state.tabs.find((item) => item.id === tabId || item.sessionId === tabId);
+  const sessionId = tab?.sessionId ?? tabId;
+  const detached = state.detachedRuntime[sessionId] ?? state.detachedRuntime[tabId];
+  const backendSessionId = tab?.backendSessionId ?? detached?.backendSessionId;
+  if (!backendSessionId) return;
+  disposeBackendSession(sessionId, backendSessionId);
+  injectedBackendSessions.delete(backendSessionId);
+  useTerminalStore.getState().setBackendSessionId(sessionId, null);
+}
+
+/** 结束长期会话：释放后端并清理 detached 状态 */
+export function disposeSessionBackend(sessionId: string) {
+  disposeTabBackendSessions(sessionId);
 }
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
@@ -519,6 +529,7 @@ export function useTerminal(
     writeToBackendRef.current = writeToBackend;
 
     function sendCommand(cmd: string) {
+      recordTerminalSessionActivity(sessionId, Date.now(), { command: cmd });
       writeToBackend(`${cmd}\r`);
     }
 
@@ -555,7 +566,10 @@ export function useTerminal(
               const y = t.buffer.active.cursorY + t.buffer.active.baseY;
               const commandText = readLine(y);
               const normalizedCmd = normalizeBlockCommand(commandText);
-              if (isSilentHistorySyncCommand(normalizedCmd || commandText)) {
+              if (
+                isSilentHistorySyncCommand(normalizedCmd || commandText) ||
+                isInternalHistoryCommand(normalizedCmd || commandText)
+              ) {
                 pendingBlock = null;
                 break;
               }
@@ -589,7 +603,11 @@ export function useTerminal(
                 break;
               }
               const effectiveCmd = (pendingBlock.command || commandText).trim();
-              if (!effectiveCmd || isSilentHistorySyncCommand(effectiveCmd)) {
+              if (
+                !effectiveCmd ||
+                isSilentHistorySyncCommand(effectiveCmd) ||
+                isInternalHistoryCommand(effectiveCmd)
+              ) {
                 pendingBlock = null;
                 break;
               }

@@ -5,7 +5,7 @@ import { LOCAL_CONNECTION_ID } from "../modules/files/utils";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useAiStore } from "../stores/aiStore";
 import { useAiModelsStore } from "../stores/aiModelsStore";
-import { useAcpServicesStore } from "../stores/acpServicesStore";
+import { useAcpServicesStore, initAcpServicesStore } from "../stores/acpServicesStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
@@ -56,14 +56,27 @@ export async function clearAppUserData(): Promise<void> {
   await useConnectionStore.getState().refresh();
 
   const tabs = useTerminalStore.getState().tabs;
+  const sessions = useTerminalStore.getState().sessions;
   for (const tab of tabs) {
-    disposeTabBackendSessions(tab.id);
+    disposeTabBackendSessions(tab.sessionId);
   }
-  useTerminalStore.setState({ tabs: [], activeTabId: null });
+  for (const session of sessions) {
+    if (session.lifecycle !== "ended") {
+      disposeTabBackendSessions(session.id);
+    }
+  }
+  useTerminalStore.setState({
+    sessions: [],
+    tabs: [],
+    activeTabId: null,
+    activeSessionId: null,
+    detachedRuntime: {},
+  });
 
   useAiStore.setState({ conversations: [], activeConversationId: null });
   useAiModelsStore.getState().resetProviders();
   useAcpServicesStore.getState().resetServices();
+  await initAcpServicesStore();
 
   const taskRes = await commands.taskList(null, 500);
   if (taskRes.status === "ok") {

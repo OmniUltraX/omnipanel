@@ -1,4 +1,4 @@
-import { useBlocksStore } from "../../stores/blocksStore";
+import { syncBlockCounterFromIds, useBlocksStore } from "../../stores/blocksStore";
 import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { computeBlocksHistoryKey } from "./commandBar/commandHistoryIndex";
 
@@ -54,6 +54,10 @@ export function startTerminalHistorySync(): () => void {
 export function bootstrapTerminalHistory(sessionIds: string[]): void {
   const run = () => {
     useTerminalHistoryStore.getState().restoreAllKnownSessions(sessionIds);
+    const restoredBlocks = sessionIds.flatMap((sessionId) =>
+      useBlocksStore.getState().getBlocks(sessionId),
+    );
+    syncBlockCounterFromIds(restoredBlocks);
     for (const sessionId of sessionIds) {
       const blocks = useBlocksStore.getState().getBlocks(sessionId);
       sessionHistoryKeys.set(sessionId, computeBlocksHistoryKey(blocks));

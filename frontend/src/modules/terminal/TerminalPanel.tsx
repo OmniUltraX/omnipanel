@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
   type TerminalTab,
 } from "../../stores/terminalStore";
-import { disposeTabBackendSessions } from "../../hooks/useTerminal";
-import { clearPaneBackendPending } from "../../hooks/useTerminal";
+import {
+  clearPaneBackendPending,
+  disposeSessionBackend,
+} from "../../hooks/useTerminal";
 import {
   resolveResourceById,
   useSshHostResources,
@@ -40,6 +42,14 @@ import {
   buildTabCloseMenuItems,
   type TabContextMenuAction,
 } from "../../components/ui/contextMenuItems";
+import { TerminalSessionsWorkspaceView } from "./TerminalSessionsWorkspaceView";
+import { useTerminalSessionsChrome } from "./TerminalSessionsChromeContext";
+import {
+  clearTerminalBackendSessionTouch,
+  startTerminalBackendLifecycle,
+  touchTerminalBackendSession,
+} from "./terminalBackendLifecycle";
+import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   const resource = resolveResourceById(tab.session.resourceId);
@@ -55,6 +65,27 @@ function topbarTabStatus(
   return "idle";
 }
 
+function resolveSessionIdFromTabId(tabId: string): string | null {
+  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
+  return tab?.sessionId ?? tabId;
+}
+
+function TerminalModuleDock({
+  moduleDockProps,
+}: {
+  moduleDockProps: Omit<ComponentProps<typeof ModuleSegmentDock>, "moduleTitle">;
+}) {
+  const { t } = useI18n();
+  const { sidebarCollapsed } = useTerminalSessionsChrome();
+
+  return (
+    <ModuleSegmentDock
+      {...moduleDockProps}
+      moduleTitle={sidebarCollapsed ? t("routes.terminal") : undefined}
+    />
+  );
+}
+
 export function TerminalPanel() {
   const { t } = useI18n();
   const location = useLocation();
@@ -62,12 +93,15 @@ export function TerminalPanel() {
   const allTabs = useTerminalStore((state) => state.tabs);
   const tabs = useMemo(
     () => allTabs.filter((tab) => !tab.workspaceOnly),
-    [allTabs]
+    [allTabs],
   );
+  const sessions = useTerminalStore((state) => state.sessions);
   const activeTabId = useTerminalStore((state) => state.activeTabId);
-  const removeTab = useTerminalStore((state) => state.removeTab);
+  const activeSessionId = useTerminalStore((state) => state.activeSessionId);
+  const closeTabOnly = useTerminalStore((state) => state.closeTabOnly);
+  const endSession = useTerminalStore((state) => state.endSession);
+  const openSessionTab = useTerminalStore((state) => state.openSessionTab);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
-  const openOrFocusLocalTab = useTerminalStore((state) => state.openOrFocusLocalTab);
   const addLocalTerminalTab = useTerminalStore((state) => state.addLocalTerminalTab);
   const addSshTerminalTab = useTerminalStore((state) => state.addSshTerminalTab);
   const sshHosts = useSshHostResources();
@@ -94,17 +128,17 @@ export function TerminalPanel() {
     [activeTerminalTab?.session.resourceId],
   );
   const sessionBlocks = useBlocksStore((state) =>
-    activeTabId ? state.blocks[activeTabId] ?? EMPTY_TERMINAL_BLOCKS : EMPTY_TERMINAL_BLOCKS,
+    activeSessionId ? state.blocks[activeSessionId] ?? EMPTY_TERMINAL_BLOCKS : EMPTY_TERMINAL_BLOCKS,
   );
   const terminalAiContext = useMemo(
     () =>
       buildTerminalModuleContext({
-        activeTabId,
+        activeSessionId,
         session: activeTerminalTab?.session ?? null,
         resource: activeTerminalResource,
         blocks: sessionBlocks,
       }),
-    [activeTerminalResource, activeTerminalTab?.session, activeTabId, sessionBlocks],
+    [activeTerminalResource, activeTerminalTab?.session, activeSessionId, sessionBlocks],
   );
 
   useEffect(() => {
@@ -125,10 +159,22 @@ export function TerminalPanel() {
   }, []);
 
   useEffect(() => {
-    const sessionIds = tabs.map((tab) => tab.id);
+    const stopLifecycle = startTerminalBackendLifecycle();
+    return stopLifecycle;
+  }, []);
+
+  useEffect(() => {
+    const sessionIds = sessions
+      .filter((session) => session.lifecycle !== "ended")
+      .map((session) => session.id);
     if (sessionIds.length === 0) return;
     bootstrapTerminalHistory(sessionIds);
-  }, [tabs]);
+  }, [sessions]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    useTerminalHistoryStore.getState().restoreSession(activeSessionId);
+  }, [activeSessionId]);
 
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -139,22 +185,11 @@ export function TerminalPanel() {
 
   useEffect(() => {
     if (!isActiveRoute) return;
-    if (tabs.length === 0) {
-      const id = openOrFocusLocalTab(workspaceActiveResource?.name ?? "本地终端");
-      setActiveTab(id);
-      return;
-    }
+    if (tabs.length === 0) return;
     if (!activeTabId || !tabs.some((tab) => tab.id === activeTabId)) {
       setActiveTab(tabs[0].id);
     }
-  }, [
-    isActiveRoute,
-    tabs,
-    activeTabId,
-    openOrFocusLocalTab,
-    setActiveTab,
-    workspaceActiveResource?.name,
-  ]);
+  }, [isActiveRoute, tabs, activeTabId, setActiveTab]);
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
@@ -173,20 +208,53 @@ export function TerminalPanel() {
     workspaceActiveResourceId,
   ]);
 
+  const detachTabView = useCallback((tabId: string) => {
+    const sessionId = resolveSessionIdFromTabId(tabId);
+    if (!sessionId) return;
+    clearTerminalPaneSender(sessionId);
+    clearPaneBackendPending(sessionId);
+    touchTerminalBackendSession(sessionId);
+    closeTabOnly(sessionId);
+    setDockLayout(
+      removeTabFromTerminalLayout(useTerminalDockLayoutStore.getState().savedLayout, tabId),
+    );
+  }, [closeTabOnly, setDockLayout]);
+
+  const handleEndSession = useCallback((sessionId: string) => {
+    const openTab = useTerminalStore.getState().tabs.find((tab) => tab.sessionId === sessionId);
+    clearTerminalPaneSender(sessionId);
+    clearPaneBackendPending(sessionId);
+    disposeSessionBackend(sessionId);
+    clearTerminalBackendSessionTouch(sessionId);
+    endSession(sessionId);
+    if (openTab) {
+      setDockLayout(
+        removeTabFromTerminalLayout(useTerminalDockLayoutStore.getState().savedLayout, openTab.id),
+      );
+    }
+  }, [endSession, setDockLayout]);
+
+  useEffect(() => {
+    const validIds = new Set(sshHosts.map((host) => host.id));
+    const orphans = sessions.filter(
+      (session) =>
+        session.lifecycle !== "ended" &&
+        session.session.type === "remote" &&
+        !validIds.has(session.session.resourceId),
+    );
+    for (const orphan of orphans) {
+      handleEndSession(orphan.id);
+    }
+  }, [handleEndSession, sessions, sshHosts]);
+
   const handleCloseTabs = useCallback(
     (ids: string[]) => {
       const uniqueIds = [...new Set(ids.filter(Boolean))];
-      if (uniqueIds.length === 0) return;
       for (const id of uniqueIds) {
-        clearTerminalPaneSender(id);
-        clearPaneBackendPending(id);
-        disposeTabBackendSessions(id);
-      }
-      for (const id of uniqueIds) {
-        removeTab(id);
+        detachTabView(id);
       }
     },
-    [removeTab],
+    [detachTabView],
   );
 
   const handleCloseTab = useCallback(
@@ -194,6 +262,29 @@ export function TerminalPanel() {
       handleCloseTabs([id]);
     },
     [handleCloseTabs],
+  );
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      const tabId = openSessionTab(sessionId);
+      setActiveTab(tabId);
+      useTerminalHistoryStore.getState().restoreSession(sessionId);
+    },
+    [openSessionTab, setActiveTab],
+  );
+
+  const handleCreateSession = useCallback(
+    (resourceId: string, title: string) => {
+      let tabId: string;
+      if (resourceId === LOCAL_TERMINAL_RESOURCE_ID) {
+        tabId = addLocalTerminalTab(title);
+      } else {
+        tabId = addSshTerminalTab(resourceId, title);
+      }
+      selectResource(resourceId);
+      setActiveTab(tabId);
+    },
+    [addLocalTerminalTab, addSshTerminalTab, selectResource, setActiveTab],
   );
 
   const visibleTabs = useMemo(
@@ -282,7 +373,7 @@ export function TerminalPanel() {
   );
 
   const handleContextAction = useCallback(
-    (action: TabContextMenuAction) => {
+    (action: TabContextMenuAction | "endSession") => {
       if (!ctxMenu) return;
       const dockVisibleTabs = useTerminalStore
         .getState()
@@ -290,6 +381,12 @@ export function TerminalPanel() {
       const idx = dockVisibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
 
       if (action === "rename") {
+        setCtxMenu(null);
+        return;
+      }
+      if (action === "endSession") {
+        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
+        if (sessionId) handleEndSession(sessionId);
         setCtxMenu(null);
         return;
       }
@@ -342,7 +439,7 @@ export function TerminalPanel() {
       }
       setCtxMenu(null);
     },
-    [ctxMenu, handleCloseTab, handleCloseTabs, activeWorkspaceId, setActiveTab, setDockLayout],
+    [ctxMenu, handleCloseTab, handleCloseTabs, handleEndSession, activeWorkspaceId, setActiveTab, setDockLayout],
   );
 
   const renderDockPanel = useCallback(
@@ -376,24 +473,35 @@ export function TerminalPanel() {
   return (
     <>
       <TerminalModuleContextBridge active={isActiveRoute} context={terminalAiContext} />
-      <ModuleSegmentDock
-        className="terminal-module-dock"
-        dockScope="terminal"
-        acceptExternalDrops
-        tabs={dockTabs}
-        activeTabId={activeTabId ?? visibleTabs[0]?.id ?? ""}
-        onActiveTabChange={setActiveTab}
-        onCloseTab={handleCloseTab}
-        savedLayout={dockLayout}
-        onSavedLayoutChange={setDockLayout}
-        renderPanel={renderDockPanel}
-        onTabContextMenu={handleDockTabContextMenu}
-        addTabConfig={addTabConfig}
-        enabled={isActiveRoute}
-        emptyContent={
-          <div className="term-workspace__empty">{t("terminal.newSession.local")}</div>
-        }
-      />
+      <TerminalSessionsWorkspaceView
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleCreateSession}
+        onEndSession={handleEndSession}
+      >
+        <TerminalModuleDock
+          moduleDockProps={{
+            className: "terminal-module-dock",
+            dockScope: "terminal",
+            acceptExternalDrops: true,
+            tabs: dockTabs,
+            activeTabId: activeTabId ?? visibleTabs[0]?.id ?? "",
+            onActiveTabChange: setActiveTab,
+            onCloseTab: handleCloseTab,
+            savedLayout: visibleTabs.length === 0 ? null : dockLayout,
+            onSavedLayoutChange: setDockLayout,
+            renderPanel: renderDockPanel,
+            onTabContextMenu: handleDockTabContextMenu,
+            addTabConfig,
+            enabled: isActiveRoute,
+            emptyContent: (
+              <div className="term-workspace__empty">
+                <p className="term-workspace__empty-title">{t("terminal.sessions.workspaceEmpty")}</p>
+                <p className="term-workspace__empty-hint">{t("terminal.sessions.workspaceEmptyHint")}</p>
+              </div>
+            ),
+          }}
+        />
+      </TerminalSessionsWorkspaceView>
       {ctxMenu && (() => {
         const menuTabIndex = visibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
         const closeItems = buildTabCloseMenuItems(
@@ -403,9 +511,19 @@ export function TerminalPanel() {
           handleContextAction,
           { showWorkspaceActions: true },
         );
+        const endSessionItem = {
+          id: "tab-end-session",
+          label: t("terminal.sessions.end"),
+          onClick: () => handleContextAction("endSession"),
+        };
+        const items = [
+          endSessionItem,
+          { id: "tab-sep-end", separator: true, label: "" },
+          ...closeItems,
+        ];
         return (
           <ContextMenu
-            items={closeItems}
+            items={items}
             position={{ x: ctxMenu.x, y: ctxMenu.y }}
             onClose={() => setCtxMenu(null)}
           />

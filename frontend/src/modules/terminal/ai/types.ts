@@ -3,7 +3,7 @@ import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import type { TerminalBlock } from "../../../stores/blocksStore";
 
 export interface TerminalModuleContext {
-  activeTabId: string | null;
+  activeSessionId: string | null;
   session: TerminalSessionInfo | null;
   resource: WorkspaceResource | null;
   recentBlocks: TerminalBlock[];
@@ -11,17 +11,17 @@ export interface TerminalModuleContext {
 }
 
 export function isTerminalModuleContextEmpty(ctx: TerminalModuleContext): boolean {
-  return !ctx.activeTabId || !ctx.session;
+  return !ctx.activeSessionId || !ctx.session;
 }
 
 export function buildTerminalModuleContext(input: {
-  activeTabId: string | null;
+  activeSessionId: string | null;
   session: TerminalSessionInfo | null;
   resource: WorkspaceResource | null;
   blocks: TerminalBlock[];
 }): TerminalModuleContext {
-  const sessionBlocks = input.activeTabId
-    ? input.blocks.filter((b) => b.sessionId === input.activeTabId)
+  const sessionBlocks = input.activeSessionId
+    ? input.blocks.filter((b) => b.sessionId === input.activeSessionId)
     : [];
   let lastError: TerminalBlock | null = null;
   for (let i = sessionBlocks.length - 1; i >= 0; i -= 1) {
@@ -32,7 +32,7 @@ export function buildTerminalModuleContext(input: {
     }
   }
   return {
-    activeTabId: input.activeTabId,
+    activeSessionId: input.activeSessionId,
     session: input.session,
     resource: input.resource,
     recentBlocks: sessionBlocks.slice(-8),

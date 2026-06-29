@@ -16,27 +16,16 @@ export const MODULE_PATHS = {
 
 export type ModuleKey = keyof typeof MODULE_PATHS;
 
-/** 暂不在导航中展示的模块（路由保留，便于直接 URL 或后续启用） */
-export const HIDDEN_MODULE_NAV_KEYS: readonly ModuleKey[] = ["workflow"];
+export const ALL_MODULE_KEYS = Object.keys(MODULE_PATHS) as ModuleKey[];
 
-const HIDDEN_MODULE_NAV_KEY_SET = new Set<ModuleKey>(HIDDEN_MODULE_NAV_KEYS);
-
-export function isModuleNavVisible(moduleKey: ModuleKey): boolean {
-  return !HIDDEN_MODULE_NAV_KEY_SET.has(moduleKey);
-}
-
-export function isModulePathNavVisible(path: string): boolean {
+export function moduleKeyFromPath(path: string): ModuleKey | null {
   for (const [key, modulePath] of Object.entries(MODULE_PATHS) as [ModuleKey, string][]) {
-    if (path === modulePath) {
-      return isModuleNavVisible(key);
+    if (path === modulePath || path.startsWith(`${modulePath}/`)) {
+      return key;
     }
   }
-  return true;
+  return null;
 }
-
-export const NAV_VISIBLE_MODULE_KEYS = (Object.keys(MODULE_PATHS) as ModuleKey[]).filter(
-  isModuleNavVisible,
-);
 
 export const WORKSPACE_PATHS = {
   list: WORKSPACE_PREFIX,

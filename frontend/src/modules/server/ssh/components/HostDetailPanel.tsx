@@ -1,12 +1,10 @@
 import { useMemo } from "react";
-import { DETAIL_TABS, SSH_PATH } from "../constants";
-import type { SshManagerContext } from "../hooks/useSshManager";
+import { DETAIL_TABS } from "../constants";
 import { getProfile } from "../data/hostProfiles";
 import { normalizeSshGroup, sshGroupLabel } from "../../../../lib/sshGroups";
 import { useI18n } from "../../../../i18n";
 import { ResourceTags } from "../../../../components/ui/ResourceTags";
 import { useConnectionStore, useSshHostResources } from "../../../../stores/connectionStore";
-import { useWorkspaceStore } from "../../../../stores/workspaceStore";
 import { usePersistedModuleTab } from "../../../../hooks/usePersistedModuleTab";
 import { parseSshConfig } from "../../panel/serverConnection";
 import { WorkspaceEmptyPage } from "../../../../components/ui/WorkspaceEmptyPage";
@@ -18,7 +16,9 @@ import { OverviewDetailTab } from "./detail/OverviewDetailTab";
 import { SftpDetailTab } from "./detail/SftpDetailTab";
 import { TerminalDetailTab } from "./detail/TerminalDetailTab";
 
-type Props = SshManagerContext;
+type Props = {
+  hostId: string;
+};
 
 function HostDetailTags({ resourceId }: { resourceId: string | undefined }) {
   const tags = useConnectionStore(
@@ -51,17 +51,18 @@ function MonitoringTabSwitch({ resourceId }: { resourceId: string | null }) {
   );
 }
 
-export function HostDetailPanel(ctx: Props) {
-  const { t } = ctx;
-  /** dockview 面板内容不随父级重绘；Tab / 选中主机须在组件内订阅 store */
-  const [detailTab, setDetailTab] = usePersistedModuleTab("ssh-detail", "overview", DETAIL_TABS);
-  const selectedSshId = useWorkspaceStore((s) => s.selectedResourceByPath[SSH_PATH]);
+export function HostDetailPanel({ hostId }: Props) {
+  const { t } = useI18n();
+  const [detailTab, setDetailTab] = usePersistedModuleTab(
+    `ssh-detail-${hostId}`,
+    "overview",
+    DETAIL_TABS,
+  );
   const sshResources = useSshHostResources();
   const connections = useConnectionStore((s) => s.connections);
   const activeResource = useMemo(() => {
-    if (!selectedSshId) return null;
-    return sshResources.find((resource) => resource.id === selectedSshId) ?? null;
-  }, [selectedSshId, sshResources]);
+    return sshResources.find((resource) => resource.id === hostId) ?? null;
+  }, [hostId, sshResources]);
 
   if (!activeResource) {
     return <WorkspaceEmptyPage prompt={t("ssh.empty.selectHost")} />;

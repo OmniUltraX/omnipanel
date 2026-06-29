@@ -1,12 +1,13 @@
 {
   "name": "omniagent",
   "version": "1.0.0",
-  "description": "OmniPanel ACP agent powered by DeepAgents (Skills + MCP + stdio)",
+  "description": "OmniPanel Agent — DeepAgents + Skills + MCP (acp / web modes)",
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "start": "node --import tsx index.ts",
-    "dev": "node --import tsx index.ts",
+    "start": "node --import tsx index.ts --mode acp",
+    "start:acp": "node --import tsx index.ts --mode acp",
+    "start:web": "node --import tsx scripts/launch-web.ts",
     "typecheck": "tsc --noEmit"
   },
   "repository": {

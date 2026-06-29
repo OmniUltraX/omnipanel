@@ -57,7 +57,10 @@ impl OmniMcpHandler {
         }
     }
 
-    #[tool(description = "Create a knowledge document in the knowledge base")]
+    #[tool(
+        name = "omni_knowledge_create_document",
+        description = "Create a knowledge document in the knowledge base"
+    )]
     async fn create_document(
         &self,
         Parameters(CreateDocumentParams {
@@ -107,7 +110,10 @@ impl OmniMcpHandler {
         )]))
     }
 
-    #[tool(description = "Remove a knowledge document by its ID")]
+    #[tool(
+        name = "omni_knowledge_remove_document",
+        description = "Remove a knowledge document by its ID"
+    )]
     async fn remove_document(
         &self,
         Parameters(RemoveDocumentParams { id }): Parameters<RemoveDocumentParams>,
@@ -122,7 +128,10 @@ impl OmniMcpHandler {
         )]))
     }
 
-    #[tool(description = "List knowledge documents, optionally filtered by kind or tag")]
+    #[tool(
+        name = "omni_knowledge_list_documents",
+        description = "List knowledge documents, optionally filtered by kind or tag"
+    )]
     async fn list_documents(
         &self,
         Parameters(ListDocumentsParams { kind, tag }): Parameters<ListDocumentsParams>,
@@ -144,7 +153,7 @@ impl ServerHandler for OmniMcpHandler {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
                 "OmniMCP is the built-in MCP server of OmniPanel. \
-                 It provides knowledge-base operations (create/remove/list documents).",
+                 Tool names follow omni_{module}_{function_name} (e.g. omni_knowledge_create_document).",
             )
     }
 }

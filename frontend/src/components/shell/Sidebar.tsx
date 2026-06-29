@@ -10,7 +10,8 @@ import {
   navigateToFeature,
   toggleWorkspaceFromChromeIcon,
 } from "../../lib/workspaceNavigation";
-import { isDashboardPath, isModulePathNavVisible, MODULE_PATHS } from "../../lib/paths";
+import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
+import { isModulePathEnabled, useAppModuleStore } from "../../stores/appModuleStore";
 
 const navPaths = [
   {
@@ -126,6 +127,7 @@ export function Sidebar() {
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const settingsOpen = useSettingsUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
+  useAppModuleStore((s) => s.modules);
 
   const isActive = (path: string) => {
     if (isWorkspaceHome) return false;
@@ -165,9 +167,9 @@ export function Sidebar() {
         <AppLogo size={36} className="sidebar-logo__img" />
       </button>
 
-      {navPaths.filter((item) => isModulePathNavVisible(item.path)).map(renderItem)}
+      {navPaths.filter((item) => isModulePathEnabled(item.path)).map(renderItem)}
       <div className="sidebar-divider" />
-      {utilPaths.filter((item) => isModulePathNavVisible(item.path)).map(renderItem)}
+      {utilPaths.filter((item) => isModulePathEnabled(item.path)).map(renderItem)}
 
       <div className="sidebar-spacer" />
 

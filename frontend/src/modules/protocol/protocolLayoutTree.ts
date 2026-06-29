@@ -1,20 +1,20 @@
 import type { HttpCollection, HttpHistoryEntry, SavedHttpRequest } from "../../ipc/bindings";
 import type {
+  ProtocolDropTarget,
   ProtocolHttpFolder,
   ProtocolTreeNodeKey,
 } from "../../stores/protocolHttpLayoutStore";
 
 export type ProtocolTreeEntry =
   | { kind: "folder"; folder: ProtocolHttpFolder; key: ProtocolTreeNodeKey }
-  | { kind: "collection"; collection: HttpCollection; key: ProtocolTreeNodeKey }
   | { kind: "request"; request: SavedHttpRequest; key: ProtocolTreeNodeKey };
 
 export function listProtocolTreeChildren(
   parentId: string | null,
   folders: ProtocolHttpFolder[],
-  _collections: HttpCollection[],
+  collections: HttpCollection[],
   requests: SavedHttpRequest[],
-  _collectionParents: Record<string, string | null>,
+  collectionParents: Record<string, string | null>,
   requestParents: Record<string, string | null>,
   siblingOrder: Record<string, ProtocolTreeNodeKey[]>,
 ): ProtocolTreeEntry[] {
@@ -28,8 +28,19 @@ export function listProtocolTreeChildren(
       key: `folder:${folder.id}`,
     }));
 
+  const collectionIdsInFolder = new Set(
+    collections
+      .filter((col) => (collectionParents[col.id] ?? null) === parentId)
+      .map((col) => col.id),
+  );
+
   const requestEntries: ProtocolTreeEntry[] = requests
-    .filter((req) => (requestParents[req.id] ?? null) === parentId)
+    .filter((req) => {
+      if (req.collectionId) {
+        return collectionIdsInFolder.has(req.collectionId);
+      }
+      return (requestParents[req.id] ?? null) === parentId;
+    })
     .map((request) => ({
       kind: "request" as const,
       request,
@@ -61,17 +72,11 @@ export function listProtocolTreeChildren(
 }
 
 function compareEntries(a: ProtocolTreeEntry, b: ProtocolTreeEntry): number {
-  const rank = (entry: ProtocolTreeEntry) => {
-    if (entry.kind === "folder") return 0;
-    if (entry.kind === "collection") return 1;
-    return 2;
-  };
-  const rankDiff = rank(a) - rank(b);
-  if (rankDiff !== 0) return rankDiff;
-  const nameA =
-    a.kind === "folder" ? a.folder.name : a.kind === "collection" ? a.collection.name : a.request.name;
-  const nameB =
-    b.kind === "folder" ? b.folder.name : b.kind === "collection" ? b.collection.name : b.request.name;
+  if (a.kind !== b.kind) {
+    return a.kind === "folder" ? -1 : 1;
+  }
+  const nameA = a.kind === "folder" ? a.folder.name : a.request.name;
+  const nameB = b.kind === "folder" ? b.folder.name : b.request.name;
   return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
 }
 
@@ -110,6 +115,74 @@ export function listCollectionRequests(
   return result;
 }
 
+export function resolveEntryParent(
+  entry: ProtocolTreeEntry,
+  requestParents: Record<string, string | null>,
+  collectionParents: Record<string, string | null>,
+): ProtocolDropTarget {
+  if (entry.kind === "folder") {
+    return entry.folder.parentId
+      ? { kind: "folder", folderId: entry.folder.parentId }
+      : { kind: "root" };
+  }
+  if (entry.request.collectionId) {
+    const folderId = collectionParents[entry.request.collectionId] ?? null;
+    return folderId ? { kind: "folder", folderId } : { kind: "root" };
+  }
+  const parentId = requestParents[entry.request.id] ?? null;
+  return parentId ? { kind: "folder", folderId: parentId } : { kind: "root" };
+}
+
+export function listSiblingKeys(
+  target: ProtocolDropTarget,
+  folders: ProtocolHttpFolder[],
+  collections: HttpCollection[],
+  requests: SavedHttpRequest[],
+  collectionParents: Record<string, string | null>,
+  requestParents: Record<string, string | null>,
+  siblingOrder: Record<string, ProtocolTreeNodeKey[]>,
+): ProtocolTreeNodeKey[] {
+  if (target.kind === "collection") {
+    return listCollectionRequests(target.collectionId, requests, siblingOrder).map(
+      (entry) => entry.key,
+    );
+  }
+  const parentId = target.kind === "root" ? null : target.folderId;
+  return listProtocolTreeChildren(
+    parentId,
+    folders,
+    collections,
+    requests,
+    collectionParents,
+    requestParents,
+    siblingOrder,
+  ).map((entry) => entry.key);
+}
+
+export function resolveDropPosition(
+  event: { clientY: number },
+  rowEl: HTMLElement,
+  entryKind: ProtocolTreeEntry["kind"],
+): "before" | "after" | "inside" {
+  const rect = rowEl.getBoundingClientRect();
+  const y = event.clientY - rect.top;
+  if (entryKind === "request") {
+    return y < rect.height * 0.5 ? "before" : "after";
+  }
+  if (y < rect.height * 0.25) return "before";
+  if (y > rect.height * 0.75) return "after";
+  return "inside";
+}
+
+export function beforeKeyForAfterPosition(
+  targetKey: ProtocolTreeNodeKey,
+  siblingKeys: ProtocolTreeNodeKey[],
+): ProtocolTreeNodeKey | null {
+  const index = siblingKeys.indexOf(targetKey);
+  if (index < 0) return null;
+  return siblingKeys[index + 1] ?? null;
+}
+
 export function filterHistoryForRequest(
   history: HttpHistoryEntry[],
   request: SavedHttpRequest | null | undefined,
@@ -133,5 +206,29 @@ export function methodColor(method: string): string {
   if (m === "PUT") return "var(--info, #2196f3)";
   if (m === "PATCH") return "var(--info, #9c27b0)";
   if (m === "DELETE") return "var(--danger, #f44336)";
+  if (m === "WEBSOCKET") return "var(--accent)";
   return "var(--text-dim)";
+}
+
+export function formatMethodBadge(method: string): string {
+  const m = method.toUpperCase();
+  if (m === "DELETE") return "DEL";
+  if (m === "WEBSOCKET") return "WS";
+  return m;
+}
+
+export function resolveTreeEntryByKey(
+  key: ProtocolTreeNodeKey,
+  folders: ProtocolHttpFolder[],
+  requests: SavedHttpRequest[],
+): ProtocolTreeEntry | null {
+  if (key.startsWith("folder:")) {
+    const folder = folders.find((item) => item.id === key.slice("folder:".length));
+    return folder ? { kind: "folder", folder, key } : null;
+  }
+  if (key.startsWith("request:")) {
+    const request = requests.find((item) => item.id === key.slice("request:".length));
+    return request ? { kind: "request", request, key } : null;
+  }
+  return null;
 }
