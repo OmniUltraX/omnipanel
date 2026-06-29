@@ -1,13 +1,17 @@
 use anyhow::Context;
+use http::{HeaderName, HeaderValue};
 use rmcp::{
     model::CallToolRequestParams,
     service::RunningService,
     transport::{
-        streamable_http_client::StreamableHttpClientTransport, TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
+        TokioChildProcess,
     },
     ClientHandler, RoleClient, ServiceExt,
 };
-use crate::types::{McpStdioTransport, McpToolCallResult, McpToolInfo};
+use std::collections::HashMap;
+
+use crate::types::{McpStdioTransport, McpToolCallResult, McpToolInfo, X_OMNI_MODULE_HEADER};
 use crate::process::stdio_command;
 
 #[derive(Clone, Default)]
@@ -15,8 +19,31 @@ struct ToolListClient;
 
 impl ClientHandler for ToolListClient {}
 
+fn http_transport_config(
+    url: &str,
+    module_key: Option<&str>,
+) -> anyhow::Result<StreamableHttpClientTransportConfig> {
+    let mut config = StreamableHttpClientTransportConfig::with_uri(url);
+    if let Some(module) = module_key.map(str::trim).filter(|m| !m.is_empty()) {
+        let value = HeaderValue::from_str(module)
+            .with_context(|| format!("无效的 X-Omni-Module 值: {module}"))?;
+        let mut headers = HashMap::new();
+        headers.insert(HeaderName::from_static(X_OMNI_MODULE_HEADER), value);
+        config = config.custom_headers(headers);
+    }
+    Ok(config)
+}
+
 pub async fn list_tools_http(url: &str) -> anyhow::Result<Vec<McpToolInfo>> {
-    let transport = StreamableHttpClientTransport::from_uri(url);
+    list_tools_http_for_module(url, None).await
+}
+
+pub async fn list_tools_http_for_module(
+    url: &str,
+    module_key: Option<&str>,
+) -> anyhow::Result<Vec<McpToolInfo>> {
+    let transport =
+        StreamableHttpClientTransport::from_config(http_transport_config(url, module_key)?);
     let mut client = ToolListClient
         .serve(transport)
         .await
@@ -54,7 +81,17 @@ pub async fn call_tool_http(
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> anyhow::Result<McpToolCallResult> {
-    let transport = StreamableHttpClientTransport::from_uri(url);
+    call_tool_http_for_module(url, None, tool_name, arguments).await
+}
+
+pub async fn call_tool_http_for_module(
+    url: &str,
+    module_key: Option<&str>,
+    tool_name: &str,
+    arguments: serde_json::Value,
+) -> anyhow::Result<McpToolCallResult> {
+    let transport =
+        StreamableHttpClientTransport::from_config(http_transport_config(url, module_key)?);
     let mut client = ToolListClient
         .serve(transport)
         .await

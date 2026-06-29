@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use omnipanel_store::Storage;
 
 use crate::builtin::OmniMcpHandler;
+use crate::omni_module::omni_tool_module_key;
 use crate::process::stdio_command;
 use crate::store::{
     delete_custom_service, load_services_file, set_service_enabled, upsert_custom_service,
@@ -147,7 +148,13 @@ impl McpManager {
                 .as_ref()
                 .map(|b| b.endpoint.clone())
                 .context("OmniMCP 未运行")?;
-            return crate::client::call_tool_http(&endpoint, tool_name, arguments).await;
+            return crate::client::call_tool_http_for_module(
+                &endpoint,
+                omni_tool_module_key(tool_name),
+                tool_name,
+                arguments,
+            )
+            .await;
         }
 
         let service = self

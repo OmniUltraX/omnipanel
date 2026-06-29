@@ -3776,6 +3776,7 @@ version = "0.0.5"
 dependencies = [
  "anyhow",
  "axum",
+ "http 1.4.1",
  "omnipanel-error",
  "omnipanel-store",
  "rmcp",

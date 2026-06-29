@@ -8,6 +8,10 @@ pub const BUILTIN_SERVICE_NAME: &str = "OmniMCP";
 /// 内置 OmniMCP HTTP 服务固定端口（127.0.0.1）。
 pub const BUILTIN_MCP_PORT: u16 = 12756;
 pub const BUILTIN_MCP_ENDPOINT: &str = "http://127.0.0.1:12756/mcp";
+/// 客户端请求头：指定当前 OmniPanel 模块，服务端据此过滤 MCP 工具列表。
+pub const X_OMNI_MODULE_HEADER: &str = "x-omni-module";
+/// 请求头值为 `master`（或不带头）时返回全部可用工具。
+pub const OMNI_MODULE_MASTER: &str = "master";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

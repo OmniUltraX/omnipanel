@@ -22,3 +22,4 @@ rmcp = { version = "1.7.0", features = [
     "transport-child-process",
 ] }
 axum = "0.8"
+http = "1"

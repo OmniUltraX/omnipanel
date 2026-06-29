@@ -2,13 +2,20 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rmcp::{
-    handler::server::wrapper::Parameters,
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
-    schemars, tool, tool_handler, tool_router, ServerHandler,
+    handler::server::{
+        tool::ToolCallContext,
+        wrapper::Parameters,
+    },
+    model::{CallToolResult, Content, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo},
+    schemars, tool, tool_handler, tool_router, ErrorData, ServerHandler,
 };
 use tokio::sync::Mutex;
 
 use omnipanel_store::{KnowledgeEntry, Storage};
+
+use crate::omni_module::{
+    ensure_tool_allowed_for_module, filter_tools_for_request, request_omni_module,
+};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct CreateDocumentParams {
@@ -149,11 +156,55 @@ impl OmniMcpHandler {
 
 #[tool_handler]
 impl ServerHandler for OmniMcpHandler {
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let requested_module = request_omni_module(&context);
+        let storage = self.storage.lock().await;
+        let tools = filter_tools_for_request(
+            self.tool_router.list_all(),
+            requested_module.as_deref(),
+            |name| storage.mcp_tool_is_available(name).unwrap_or(false),
+        );
+        Ok(ListToolsResult {
+            tools,
+            ..Default::default()
+        })
+    }
+
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let requested_module = request_omni_module(&context);
+        let tool_name = request.name.as_ref();
+        ensure_tool_allowed_for_module(tool_name, requested_module.as_deref())
+            .map_err(|message| ErrorData::invalid_params(message, None))?;
+
+        {
+            let storage = self.storage.lock().await;
+            if !storage.mcp_tool_is_available(tool_name).unwrap_or(false) {
+                return Err(ErrorData::invalid_params(
+                    format!("MCP 工具不可用: {tool_name}"),
+                    None,
+                ));
+            }
+        }
+
+        let tcc = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
                 "OmniMCP is the built-in MCP server of OmniPanel. \
-                 Tool names follow omni_{module}_{function_name} (e.g. omni_knowledge_create_document).",
+                 Tool names follow omni_{module}_{function_name} (e.g. omni_knowledge_create_document). \
+                 Send HTTP header X-Omni-Module (e.g. knowledge, database, terminal) to list only tools for that module; \
+                 omit the header or set X-Omni-Module=master to receive all enabled tools for open modules.",
             )
     }
 }
