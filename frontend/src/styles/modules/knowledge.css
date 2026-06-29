@@ -1122,14 +1122,22 @@
         flex-wrap: wrap;
     }
 
-    .knowledge-embedding-custom-form {
+    .knowledge-embedding-ollama-form {
         display: flex;
         flex-direction: column;
         gap: var(--sp-2);
     }
 
-    .knowledge-embedding-custom-form .form-field {
+    .knowledge-embedding-ollama-form .form-field {
         margin: 0;
+    }
+
+    .knowledge-embedding-ollama-model-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-1);
     }
 
     .knowledge-embedding-model-select {

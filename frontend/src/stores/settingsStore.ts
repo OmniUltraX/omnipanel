@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_KNOWLEDGE_EMBEDDING_CUSTOM_MODEL } from "../lib/knowledgeEmbeddingModel";
+import { DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL, migrateLegacyEmbeddingSettings } from "../lib/knowledgeEmbeddingModel";
 import {
   DEFAULT_CONTROLLABLE_PROTOCOL_STATUS,
   normalizeControllableProtocolStatus,
@@ -198,7 +198,7 @@ interface SettingsState {
   knowledgeTopN: number;
   knowledgeEmbeddingModelMode: import("../lib/knowledgeEmbeddingModel").KnowledgeEmbeddingModelMode;
   knowledgeEmbeddingModelSelectionId: string | null;
-  knowledgeEmbeddingCustomModel: import("../lib/knowledgeEmbeddingModel").KnowledgeEmbeddingCustomModel;
+  knowledgeEmbeddingOllamaModel: import("../lib/knowledgeEmbeddingModel").KnowledgeEmbeddingOllamaModel;
   /** 表单填充场景默认模型（aiModelsStore selection id） */
   aiScenarioFormFillModelSelectionId: string | null;
   /** AI 助手场景默认模型（aiModelsStore selection id） */
@@ -234,7 +234,7 @@ interface SettingsState {
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
-    "knowledgeEmbeddingModelMode" | "knowledgeEmbeddingModelSelectionId" | "knowledgeEmbeddingCustomModel"
+    "knowledgeEmbeddingModelMode" | "knowledgeEmbeddingModelSelectionId" | "knowledgeEmbeddingOllamaModel"
   >>) => void;
   setAiScenarioSettings: (patch: Partial<Pick<SettingsState,
     "aiScenarioFormFillModelSelectionId" | "aiScenarioAssistantModelSelectionId" | "aiScenarioTerminalModelSelectionId"
@@ -325,7 +325,7 @@ export const useSettingsStore = create<SettingsState>()(
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
       knowledgeEmbeddingModelMode: "configured",
       knowledgeEmbeddingModelSelectionId: null,
-      knowledgeEmbeddingCustomModel: { ...DEFAULT_KNOWLEDGE_EMBEDDING_CUSTOM_MODEL },
+      knowledgeEmbeddingOllamaModel: { ...DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL },
       aiScenarioFormFillModelSelectionId: null,
       aiScenarioAssistantModelSelectionId: null,
       aiScenarioTerminalModelSelectionId: null,
@@ -423,6 +423,22 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "omnipanel-settings",
+      version: 1,
+      migrate: (persistedState) => {
+        const state = { ...(persistedState as Record<string, unknown>) };
+        const migrated = migrateLegacyEmbeddingSettings(state);
+        if (migrated) {
+          Object.assign(state, migrated);
+        }
+        if (state.knowledgeEmbeddingModelMode === "custom") {
+          state.knowledgeEmbeddingModelMode = "ollama";
+        }
+        delete state.knowledgeEmbeddingCustomModel;
+        if (!state.knowledgeEmbeddingOllamaModel) {
+          state.knowledgeEmbeddingOllamaModel = { ...DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL };
+        }
+        return state;
+      },
       // resolved 为派生态（依赖系统主题），不持久化
       partialize: (state) => ({
         locale: state.locale,
@@ -451,7 +467,7 @@ export const useSettingsStore = create<SettingsState>()(
         knowledgeTopN: state.knowledgeTopN,
         knowledgeEmbeddingModelMode: state.knowledgeEmbeddingModelMode,
         knowledgeEmbeddingModelSelectionId: state.knowledgeEmbeddingModelSelectionId,
-        knowledgeEmbeddingCustomModel: state.knowledgeEmbeddingCustomModel,
+        knowledgeEmbeddingOllamaModel: state.knowledgeEmbeddingOllamaModel,
         aiScenarioFormFillModelSelectionId: state.aiScenarioFormFillModelSelectionId,
         aiScenarioAssistantModelSelectionId: state.aiScenarioAssistantModelSelectionId,
         aiScenarioTerminalModelSelectionId: state.aiScenarioTerminalModelSelectionId,
