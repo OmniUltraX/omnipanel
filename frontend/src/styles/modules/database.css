@@ -163,6 +163,76 @@
         cursor: pointer;
     }
 
+    .db-sync-task-panel {
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .db-sync-task-empty {
+        padding: var(--sp-3) var(--sp-4);
+        font-size: 12px;
+        color: var(--text-secondary, #8e8e93);
+    }
+
+    .db-sync-task-list {
+        list-style: none;
+        margin: 0;
+        padding: var(--sp-1) 0;
+    }
+
+    .db-sync-task-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 100%;
+        padding: var(--sp-2) var(--sp-3);
+        border: none;
+        background: transparent;
+        font: inherit;
+        text-align: left;
+        color: var(--fg-2);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+    }
+
+    .db-sync-task-item:hover {
+        background: var(--hover, rgba(127, 127, 127, 0.08));
+    }
+
+    .db-sync-task-item--active {
+        background: var(--accent-muted, rgba(0, 122, 255, 0.12));
+        color: var(--accent, #007aff);
+    }
+
+    .db-sync-task-item__name {
+        font-size: 12px;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    .db-sync-task-item__meta {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    .db-sync-task-item--active .db-sync-task-item__meta {
+        color: color-mix(in srgb, var(--accent, #007aff) 70%, var(--muted));
+    }
+
+    .db-sync-task-item__kind {
+        padding: 0 4px;
+        border-radius: var(--r-xs, 3px);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+
     .schema-search {
         padding: var(--sp-2) var(--sp-3);
         border-bottom: 1px solid var(--border);
@@ -2256,6 +2326,13 @@
 
     .db-toolbox-footer__notice {
         color: var(--success);
+    }
+
+    .db-toolbox-footer__actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-shrink: 0;
     }
 
     .db-toolbox-analysis-tag {

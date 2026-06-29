@@ -138,7 +138,6 @@ export function ServerPanel() {
           className="server-panels-workspace"
           leftColumnTitle={t("routes.server")}
           leftPreset="server"
-          leftMinPx={200}
           leftSidebar={
             <ServerPanelSidebar
               servers={panelServers}

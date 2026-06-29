@@ -259,6 +259,9 @@ export function sanitizeWorkspaceSession(
     if (tab.kind === "redis-query") {
       return Boolean(tab.connId);
     }
+    if (tab.kind === "toolbox") {
+      return tab.toolboxTab === "dataSync" || tab.toolboxTab === "schemaSync";
+    }
     return false;
   });
   if (tabs.length === 0) {

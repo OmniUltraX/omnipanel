@@ -396,7 +396,6 @@ function FilesBrowserView() {
         className="files-workspace"
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"
-        leftMinPx={280}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}

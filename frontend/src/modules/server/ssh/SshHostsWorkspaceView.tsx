@@ -31,7 +31,6 @@ export function SshHostsWorkspaceView({ resources }: SshHostsWorkspaceViewProps)
         className="ssh-hosts-workspace"
         leftColumnTitle={t("routes.ssh")}
         leftPreset="host"
-        leftMinPx={240}
         leftSidebar={
           <SshHostSidebar resources={resources} onSelectHost={handleSelectHost} />
         }

@@ -1,6 +1,13 @@
 import type { DatabaseSchema, TableSchema } from "../../types";
 import { filterAndRankByFuzzy } from "../../../../lib/fuzzyMatch";
 import { buildFunctionCompletionItems, type SqlFunctionCompletionContext } from "../../sqlIntel/sqlFunctionCatalog";
+import { Catalog } from "../catalog";
+import {
+  analyzeStatement,
+  qualifiersForTableRef,
+  type StatementAnalysis,
+} from "../parser/analyzer";
+import { sliceStatementAtOffset } from "../parser/ast";
 import {
   resolveSqlCompletionContext,
   resolveFromTableInStatement,
@@ -406,6 +413,89 @@ function tableMatchesFromContext(
   return table.name.toLowerCase() === fromTable.table.name.toLowerCase();
 }
 
+function tableInAnalysis(
+  database: DatabaseSchema,
+  table: TableSchema,
+  analysis: StatementAnalysis,
+): boolean {
+  return analysis.tables.some((ref) => {
+    if (ref.schemaName && ref.schemaName.toLowerCase() !== database.name.toLowerCase()) {
+      return false;
+    }
+    return ref.tableName.toLowerCase() === table.name.toLowerCase();
+  });
+}
+
+function buildColumnsFromAnalysis(
+  analysis: StatementAnalysis,
+  catalog: Catalog,
+  context: SqlCompletionContext,
+  includeBareColumns: boolean,
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const multiTable = analysis.tables.length > 1;
+
+  for (const ref of analysis.tables) {
+    const resolved = catalog.findTable(ref.tableName, ref.schemaName);
+    if (!resolved) continue;
+    const { table } = resolved;
+    const qualifiers = qualifiersForTableRef(ref);
+
+    for (const column of table.columns) {
+      if (includeBareColumns && !multiTable) {
+        items.push({
+          label: column.name,
+          kind: COLUMN_KIND,
+          detail: `${column.type} · ${ref.alias ? `${ref.tableName} (${ref.alias})` : ref.tableName}`,
+          insertText: column.name,
+        });
+      }
+
+      for (const qualifier of qualifiers) {
+        items.push({
+          label: `${qualifier}.${column.name}`,
+          kind: COLUMN_KIND,
+          detail: `${column.type} · ${ref.tableName}${ref.alias && ref.alias !== ref.tableName ? ` (${ref.alias})` : ""}`,
+          insertText: `${qualifier}.${column.name}`,
+        });
+      }
+
+      if (context !== "select_list") {
+        items.push({
+          label: `${resolved.database.name}.${table.name}.${column.name}`,
+          kind: COLUMN_KIND,
+          detail: `${column.type} · ${resolved.database.name}.${table.name}`,
+          insertText: `${resolved.database.name}.${table.name}.${column.name}`,
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function buildAllColumnsFromAnalysis(
+  analysis: StatementAnalysis,
+  catalog: Catalog,
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  for (const ref of analysis.tables) {
+    const resolved = catalog.findTable(ref.tableName, ref.schemaName);
+    if (!resolved || resolved.table.columns.length === 0) continue;
+    const qualifier = ref.alias ?? ref.tableName;
+    const insertText = resolved.table.columns.map((column) => `${qualifier}.${column.name}`).join(", ");
+    const label = insertText.length > 96 ? `${insertText.slice(0, 93)}...` : insertText;
+    items.push({
+      label,
+      kind: COLUMN_KIND,
+      insertText,
+      detail: `全部字段 · ${qualifier}${ref.alias ? ` → ${ref.tableName}` : ""}`,
+      boost: 100,
+    });
+  }
+  return items;
+}
+
 export function getCompletionItems(
   text: string,
   offset: number,
@@ -419,12 +509,24 @@ export function getCompletionItems(
   }
 
   const context = resolveSqlCompletionContext(text, offset);
+  const statement = sliceStatementAtOffset(text, offset).trim();
+  const analysis = statement ? analyzeStatement(statement, dbType) : null;
+  const catalog = Catalog.fromSchemas(schemas);
   const fromTable = FROM_TABLE_COLUMN_CONTEXTS.has(context)
     ? resolveFromTableInStatement(text, offset, schemas, dbType)
     : null;
   const databases: CompletionItem[] = [];
   const tables: CompletionItem[] = [];
-  const columns: CompletionItem[] = [];
+  let columns: CompletionItem[] = [];
+
+  if (includeColumns(context) && analysis && analysis.tables.length > 0) {
+    columns = buildColumnsFromAnalysis(
+      analysis,
+      catalog,
+      context,
+      context === "select_list" || context === "general",
+    );
+  }
 
   for (const database of schemas) {
     if (includeDatabases(context)) {
@@ -451,11 +553,18 @@ export function getCompletionItems(
         });
       }
 
-      if (includeColumns(context)) {
+      if (includeColumns(context) && (!analysis || analysis.tables.length === 0)) {
         if (
           fromTable &&
           shouldFilterColumnsByFromTable(context) &&
           !tableMatchesFromContext(database, table, fromTable)
+        ) {
+          continue;
+        }
+        if (
+          analysis &&
+          shouldFilterColumnsByFromTable(context) &&
+          !tableInAnalysis(database, table, analysis)
         ) {
           continue;
         }
@@ -491,8 +600,12 @@ export function getCompletionItems(
     ? buildFunctionCompletionItems(dbType, context as SqlFunctionCompletionContext)
     : [];
   const allColumnsItem =
-    fromTable && !prefix && context !== "select_list"
-      ? buildAllColumnsCompletionItem(fromTable.table, fromTable.qualifiedTable)
+    !prefix && context !== "select_list"
+      ? analysis && analysis.tables.length > 0
+        ? buildAllColumnsFromAnalysis(analysis, catalog)[0] ?? null
+        : fromTable
+          ? buildAllColumnsCompletionItem(fromTable.table, fromTable.qualifiedTable)
+          : null
       : null;
   const merged = [
     ...(allColumnsItem ? [allColumnsItem] : []),

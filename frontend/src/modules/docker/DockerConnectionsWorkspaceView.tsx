@@ -70,7 +70,6 @@ export function DockerConnectionsWorkspaceView({
         className="docker-connections-workspace"
         leftColumnTitle={t("routes.docker")}
         leftPreset="server"
-        leftMinPx={200}
         leftSidebar={
           <DockerConnectionSidebar
             connections={connections}

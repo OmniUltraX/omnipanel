@@ -1,15 +1,20 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace, type DockRailPreset } from "../dock";
-import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import {
+  getModuleLeftSidebarSize,
+  MODULE_LEFT_SIDEBAR_MAX_PX,
+  MODULE_LEFT_SIDEBAR_MIN_PX,
+  usePanelLayoutStore,
+} from "../../stores/panelLayoutStore";
 import { ModuleLeftColumn } from "./ModuleLeftColumn";
 import "./moduleWorkspaceLayout.css";
 
 const LEFT_COLLAPSED_PX = 12;
 
 export interface ModuleWorkspaceLayoutProps {
-  /** 侧栏宽度持久化 key */
-  layoutKey: string;
+  /** @deprecated 侧栏宽度已全局共用，此字段保留兼容、不再参与持久化 */
+  layoutKey?: string;
   className?: string;
   /** 左栏顶栏标题（与模式图标两端对齐） */
   leftColumnTitle?: ReactNode;
@@ -33,26 +38,24 @@ export interface ModuleWorkspaceLayoutProps {
  * 对齐终端 TerminalSessionsWorkspaceView 结构。
  */
 export function ModuleWorkspaceLayout({
-  layoutKey,
+  layoutKey: _layoutKey,
   className,
   leftColumnTitle,
   leftIconRail,
   leftSidebar,
   leftPreset = "default",
   leftSizePx: propLeftSizePx,
-  leftMinPx = 200,
-  leftMaxPx = 420,
+  leftMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
+  leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
   leftPanelRef: externalLeftPanelRef,
   leftHandleClassName,
   onSidebarCollapsedChange,
   children,
   footer,
 }: ModuleWorkspaceLayoutProps) {
-  const savedSize = usePanelLayoutStore((s) => s.leftSizes[layoutKey]);
-  const setLeftSize = usePanelLayoutStore((s) => s.setLeftSize);
-  const leftSizePx =
-    propLeftSizePx ??
-    (typeof savedSize === "number" && savedSize >= leftMinPx ? savedSize : undefined);
+  const savedSize = usePanelLayoutStore((s) => getModuleLeftSidebarSize(s.leftSizes));
+  const setModuleLeftSidebarSize = usePanelLayoutStore((s) => s.setModuleLeftSidebarSize);
+  const leftSizePx = propLeftSizePx ?? savedSize;
   const pendingLeftSizeRef = useRef<number | null>(null);
   const internalLeftPanelRef = useRef<PanelImperativeHandle | null>(null);
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
@@ -74,13 +77,13 @@ export function ModuleWorkspaceLayout({
   const handleLeftLayoutChanged = useCallback(() => {
     const size = pendingLeftSizeRef.current ?? leftPanelRef.current?.getSize().inPixels;
     pendingLeftSizeRef.current = null;
-    if (size == null || size < leftMinPx) {
+    if (size == null || size < MODULE_LEFT_SIDEBAR_MIN_PX) {
       updateSidebarCollapsed(size != null && size < LEFT_COLLAPSED_PX);
       return;
     }
-    setLeftSize(layoutKey, size);
+    setModuleLeftSidebarSize(size);
     updateSidebarCollapsed(false);
-  }, [layoutKey, leftMinPx, setLeftSize, updateSidebarCollapsed, leftPanelRef]);
+  }, [setModuleLeftSidebarSize, updateSidebarCollapsed, leftPanelRef]);
 
   const hasSidebarHeader = Boolean(leftColumnTitle || leftIconRail);
   const hasLeft = Boolean(hasSidebarHeader || leftSidebar);

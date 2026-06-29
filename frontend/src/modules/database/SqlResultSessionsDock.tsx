@@ -1,5 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from "react";
-import type { SerializedDockview } from "dockview-core";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { DockableWorkspace, type DockableTab } from "../../components/dock";
 import {
   makeSqlResultSessionLabel,
@@ -22,7 +21,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   onActiveSessionChange,
   onCloseSession,
 }: SqlResultSessionsDockProps) {
-  const layoutRef = useRef<SerializedDockview | null>(null);
+  const pendingActiveSessionIdRef = useRef<string | null>(null);
 
   const dockTabs = useMemo<DockableTab[]>(
     () =>
@@ -40,6 +39,21 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     activeSessionId && sessions.some((item) => item.id === activeSessionId)
       ? activeSessionId
       : sessions[sessions.length - 1]?.id ?? "";
+
+  useEffect(() => {
+    pendingActiveSessionIdRef.current = resolvedActiveId || null;
+  }, [resolvedActiveId]);
+
+  const handleActiveSessionChange = useCallback(
+    (sessionId: string) => {
+      if (sessionId === pendingActiveSessionIdRef.current) {
+        return;
+      }
+      pendingActiveSessionIdRef.current = sessionId;
+      onActiveSessionChange(sessionId);
+    },
+    [onActiveSessionChange],
+  );
 
   const panelContentKeysByTab = useMemo(() => {
     const keys: Record<string, string> = {};
@@ -65,19 +79,15 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     [sqlTabId, sessions],
   );
 
-  const handleLayoutChange = useCallback((layout: SerializedDockview | null) => {
-    layoutRef.current = layout;
-  }, []);
-
   return (
     <DockableWorkspace
       className="db-sql-results-dock"
       tabs={dockTabs}
       activeTabId={resolvedActiveId}
-      onActiveTabChange={onActiveSessionChange}
+      onActiveTabChange={handleActiveSessionChange}
       onCloseTab={onCloseSession}
-      savedLayout={layoutRef.current}
-      onSavedLayoutChange={handleLayoutChange}
+      savedLayout={null}
+      onSavedLayoutChange={() => {}}
       renderPanel={renderPanel}
       panelContentKeysByTab={panelContentKeysByTab}
       enableTabGroups={false}

@@ -151,8 +151,6 @@ export function KnowledgePanel() {
         className="knowledge-workspace"
         leftColumnTitle={t("routes.knowledge")}
         leftPreset="schema"
-        leftMinPx={240}
-        leftMaxPx={420}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}

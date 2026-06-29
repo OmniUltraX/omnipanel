@@ -86,3 +86,23 @@ export function connectionWithDatabase(
 ): DbConnectionConfig {
   return { ...conn, database: database.trim() };
 }
+
+/** 可持久化的同步任务配置快照 */
+export interface SyncTaskConfig {
+  sourceConnId: string;
+  sourceDb: string;
+  targetConnId: string;
+  targetDb: string;
+  selectedTables: string[];
+  expandedTables?: string[];
+  tableSyncStrategies?: Record<string, DataSyncStrategy>;
+}
+
+export interface SyncTask {
+  id: string;
+  name: string;
+  kind: ToolboxTabId;
+  config: SyncTaskConfig;
+  createdAt: number;
+  updatedAt: number;
+}

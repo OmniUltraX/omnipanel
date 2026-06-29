@@ -65,13 +65,24 @@ export type RedisQueryWorkspaceTab = {
   preview?: boolean;
 };
 
+export type ToolboxWorkspaceTab = {
+  id: string;
+  kind: "toolbox";
+  /** 数据同步 / 结构同步 */
+  toolboxTab: "dataSync" | "schemaSync";
+  label: string;
+  workspaceOnly?: boolean;
+  preview?: boolean;
+};
+
 export type DbWorkspaceTab =
   | SqlWorkspaceTab
   | TablePreviewWorkspaceTab
   | DatabaseListWorkspaceTab
   | TableDesignerWorkspaceTab
   | ConnectionInfoWorkspaceTab
-  | RedisQueryWorkspaceTab;
+  | RedisQueryWorkspaceTab
+  | ToolboxWorkspaceTab;
 
 export function isSqlWorkspaceTab(tab: DbWorkspaceTab): tab is SqlWorkspaceTab {
   return tab.kind === "sql";
@@ -95,6 +106,42 @@ export function isConnectionInfoTab(tab: DbWorkspaceTab): tab is ConnectionInfoW
 
 export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspaceTab {
   return tab.kind === "redis-query";
+}
+
+export function isToolboxTab(tab: DbWorkspaceTab): tab is ToolboxWorkspaceTab {
+  return tab.kind === "toolbox";
+}
+
+export const DATA_SYNC_DOCK_TAB_ID = "toolbox:dataSync";
+export const SCHEMA_SYNC_DOCK_TAB_ID = "toolbox:schemaSync";
+
+export function toolboxDockTabId(toolboxTab: ToolboxWorkspaceTab["toolboxTab"]): string {
+  return toolboxTab === "dataSync" ? DATA_SYNC_DOCK_TAB_ID : SCHEMA_SYNC_DOCK_TAB_ID;
+}
+
+export function makeToolboxWorkspaceTab(
+  toolboxTab: ToolboxWorkspaceTab["toolboxTab"],
+  label: string,
+): ToolboxWorkspaceTab {
+  return {
+    id: toolboxDockTabId(toolboxTab),
+    kind: "toolbox",
+    toolboxTab,
+    label,
+  };
+}
+
+/** 查找已打开的数据/结构同步 Dock Tab */
+export function findTabIdForToolbox(
+  tabs: DbWorkspaceTab[],
+  toolboxTab: ToolboxWorkspaceTab["toolboxTab"],
+): string | undefined {
+  return tabs.find(
+    (tab) =>
+      isModuleDockTab(tab) &&
+      tab.kind === "toolbox" &&
+      tab.toolboxTab === toolboxTab,
+  )?.id;
 }
 
 /** 模块功能区 Dock 中可见的 Tab（排除已移入工程工作区的 Tab） */

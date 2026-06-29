@@ -4,9 +4,6 @@ import { TerminalSessionSidebar } from "./TerminalSessionSidebar";
 import { TerminalSessionsChromeProvider } from "./TerminalSessionsChromeContext";
 import { useI18n } from "../../i18n";
 
-const LEFT_MIN_PX = 180;
-const LEFT_DEFAULT_PX = 220;
-
 export interface TerminalSessionsWorkspaceViewProps {
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
@@ -49,13 +46,9 @@ export function TerminalSessionsWorkspaceView({
   return (
     <TerminalSessionsChromeProvider value={{ sidebarCollapsed }}>
       <ModuleWorkspaceLayout
-        layoutKey="terminal-sessions"
         className={rootClass}
         leftColumnTitle={t("routes.terminal")}
         leftPreset="settings"
-        leftSizePx={LEFT_DEFAULT_PX}
-        leftMinPx={LEFT_MIN_PX}
-        leftMaxPx={320}
         onSidebarCollapsedChange={handleSidebarCollapsedChange}
         leftSidebar={sidebar}
       >

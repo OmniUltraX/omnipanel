@@ -1,18 +1,21 @@
-import { useCallback, useMemo, useRef, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
-import { DockWorkspace, type DockRailPreset } from "../dock";
-import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import { useCallback, useRef, type ReactNode } from "react";import { DockWorkspace, type DockRailPreset } from "../dock";
+import {
+  getModuleLeftSidebarSize,
+  MODULE_LEFT_SIDEBAR_MAX_PX,
+  MODULE_LEFT_SIDEBAR_MIN_PX,
+  usePanelLayoutStore,
+} from "../../stores/panelLayoutStore";
 
 /** 侧栏宽度预设（像素级默认值见 DockWorkspace） */
 export type SidebarWorkspacePreset = DockRailPreset;
 
 const SIDEBAR_MIN_BY_PRESET: Record<SidebarWorkspacePreset, number> = {
-  default: 220,
-  schema: 280,
-  host: 240,
-  server: 200,
-  settings: 180,
-  ai: 200,
+  default: MODULE_LEFT_SIDEBAR_MIN_PX,
+  schema: MODULE_LEFT_SIDEBAR_MIN_PX,
+  host: MODULE_LEFT_SIDEBAR_MIN_PX,
+  server: MODULE_LEFT_SIDEBAR_MIN_PX,
+  settings: MODULE_LEFT_SIDEBAR_MIN_PX,
+  ai: MODULE_LEFT_SIDEBAR_MIN_PX,
 };
 
 export interface SidebarWorkspaceProps {
@@ -28,21 +31,16 @@ export interface SidebarWorkspaceProps {
   sidebarMinPx?: number;
   /** 侧栏最大宽度（px 或百分比字符串） */
   sidebarMaxPx?: number | string;
-  /** 覆盖默认路由级 key，避免与同路由下其他布局共用宽度 */
+  /** @deprecated 侧栏宽度已全局共用，此字段保留兼容、不再参与持久化 */
   layoutPersistKey?: string;
   className?: string;
-}
-
-function useSidebarPersistKey(): string {
-  const pn = useLocation().pathname;
-  return useMemo(() => pn.split("/").filter(Boolean)[0] || "default", [pn]);
 }
 
 /**
  * 模块工作区布局：左侧可调整/可折叠边栏 + 主内容。
  * 基于 DockWorkspace，供 SSH、服务器、数据库等模块复用。
  *
- * 左侧面板的展开/折叠状态将自动按当前路由持久化。
+ * 左侧面板宽度在所有模块间共用并持久化。
  */
 export function SidebarWorkspace({
   sidebar,
@@ -50,21 +48,14 @@ export function SidebarWorkspace({
   preset = "default",
   sidebarSizePx: propSidebarSizePx,
   sidebarMinPx,
-  sidebarMaxPx,
-  layoutPersistKey,
+  sidebarMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
+  layoutPersistKey: _layoutPersistKey,
   className,
 }: SidebarWorkspaceProps) {
-  const routePersistKey = useSidebarPersistKey();
-  const persistKey = layoutPersistKey ?? routePersistKey;
-  const savedSize = usePanelLayoutStore((s) => s.leftSizes[persistKey]);
-  const setLeftSize = usePanelLayoutStore((s) => s.setLeftSize);
+  const savedSize = usePanelLayoutStore((s) => getModuleLeftSidebarSize(s.leftSizes));
+  const setModuleLeftSidebarSize = usePanelLayoutStore((s) => s.setModuleLeftSidebarSize);
 
-  const effectiveMinSize = sidebarMinPx ?? SIDEBAR_MIN_BY_PRESET[preset];
-  const usableSavedSize =
-    typeof savedSize === "number" && savedSize >= effectiveMinSize
-      ? savedSize
-      : undefined;
-  const sidebarSizePx = propSidebarSizePx ?? usableSavedSize;
+  const sidebarSizePx = propSidebarSizePx ?? savedSize;
   const pendingLeftSizeRef = useRef<number | null>(null);
 
   const handleLeftResize = useCallback((sizePx: number) => {
@@ -74,13 +65,13 @@ export function SidebarWorkspace({
   const handleLeftLayoutChanged = useCallback(() => {
     const size = pendingLeftSizeRef.current;
     if (size == null) return;
-    if (size < effectiveMinSize) {
+    if (size < MODULE_LEFT_SIDEBAR_MIN_PX) {
       pendingLeftSizeRef.current = null;
       return;
     }
-    setLeftSize(persistKey, size);
+    setModuleLeftSidebarSize(size);
     pendingLeftSizeRef.current = null;
-  }, [effectiveMinSize, persistKey, setLeftSize]);
+  }, [setModuleLeftSidebarSize]);
 
   return (
     <DockWorkspace
@@ -88,7 +79,7 @@ export function SidebarWorkspace({
       main={children}
       leftPreset={preset}
       leftSizePx={sidebarSizePx}
-      leftMinPx={sidebarMinPx}
+      leftMinPx={sidebarMinPx ?? SIDEBAR_MIN_BY_PRESET[preset]}
       leftMaxPx={sidebarMaxPx}
       onLeftResize={handleLeftResize}
       onLeftLayoutChanged={handleLeftLayoutChanged}

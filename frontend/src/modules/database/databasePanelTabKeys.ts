@@ -9,24 +9,11 @@ function connectionConfigFingerprint(configs: { id: string }[]): string {
   return configs.map((c) => c.id).join(",");
 }
 
-function sqlTabSessionsFingerprint(state: SqlTabState | undefined): string {
-  if (!state?.resultSessions?.length) {
-    return "0";
-  }
-  return state.resultSessions
-    .map((session) =>
-      [
-        session.id,
-        session.running ? "1" : "0",
-        session.error ? "1" : "0",
-        session.result ? `${session.result.columns.length}:${session.result.rows.length}` : "0",
-        String(session.resultPage ?? 0),
-      ].join(":"),
-    )
-    .join(",");
+function sqlTabStableFingerprint(state: SqlTabState | undefined): string {
+  return [state?.connId ?? "", state?.database ?? ""].join(":");
 }
 
-/** 非表预览 SQL Tab 的 volatile 指纹，用于 panel content key 增量失效。 */
+/** 非表预览 SQL Tab 的稳定指纹，用于 schema 预载等；不含结果会话 volatile 状态。 */
 export function buildSqlTabPanelKeySeed(
   workspaceTabs: DbWorkspaceTab[],
   state: {
@@ -37,19 +24,7 @@ export function buildSqlTabPanelKeySeed(
   for (const tab of workspaceTabs) {
     if (tab.kind !== "sql") continue;
     const s = state.sqlTabStates[tab.id];
-    parts.push(
-      [
-        tab.id,
-        tab.label,
-        tab.sqlFileId ?? "",
-        s?.connId ?? "",
-        s?.database ?? "",
-        s?.running ? "1" : "0",
-        s?.error ? "1" : "0",
-        sqlTabSessionsFingerprint(s),
-        s?.activeResultSessionId ?? "",
-      ].join("|"),
-    );
+    parts.push([tab.id, tab.sqlFileId ?? "", sqlTabStableFingerprint(s)].join("|"));
   }
   return parts.join(";");
 }
@@ -87,16 +62,13 @@ export function buildDatabasePanelContentKeysByTab(params: {
     }
     if (tab.kind === "sql") {
       const state = params.sqlTabStates[tab.id];
+      // 结果会话由 DbPanelSurface 内 SqlResultSessionsDock 自行增量刷新；
+      // 此处 key 仅含稳定元数据，避免每次执行/切换结果 Tab 时 remount 整个 SQL 面板。
       keys[tab.id] = [
         tab.id,
         tab.label,
         tab.sqlFileId ?? "",
-        state?.connId ?? "",
-        state?.database ?? "",
-        state?.running ? "1" : "0",
-        state?.error ? "1" : "0",
-        sqlTabSessionsFingerprint(state),
-        state?.activeResultSessionId ?? "",
+        sqlTabStableFingerprint(state),
       ].join("|");
       continue;
     }
@@ -119,6 +91,14 @@ export function buildDatabasePanelContentKeysByTab(params: {
         tab.dbName,
         tab.tableName,
         params.tableDesignerStates[tab.id] ? "1" : "0",
+      ].join(":");
+      continue;
+    }
+    if (tab.kind === "toolbox") {
+      keys[tab.id] = [
+        connectionsFingerprint,
+        tab.toolboxTab,
+        tab.label,
       ].join(":");
       continue;
     }

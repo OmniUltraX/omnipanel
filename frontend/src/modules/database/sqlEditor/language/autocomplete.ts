@@ -23,6 +23,13 @@ import {
   resolveAliasTableInStatement,
   resolveSqlCompletionContext,
 } from "../parser/context";
+import { analyzeStatement } from "../parser/analyzer";
+import { sliceStatementAtOffset } from "../parser/ast";
+import {
+  buildSuggestedTableAlias,
+  resolveTableBeforeTrailingSpace,
+} from "./tableAlias";
+import type { SqlCompletionContext } from "../parser/context";
 
 const SQL_NOISE_TOKENS = new Set([
   "SELECT", "FROM", "WHERE", "JOIN", "ON", "AND", "OR", "AS", "INTO", "SET",
@@ -224,7 +231,10 @@ function withWhereClause(ctx: TableDotContext, linePrefix: string): TableDotCont
 
 function resolveTableConditionDotContext(
   linePrefix: string,
+  docText: string,
+  docOffset: number,
   schemas: DatabaseSchema[],
+  dbType?: string,
 ): TableDotContext | null {
   const dbTableColMatch = linePrefix.match(
     new RegExp(
@@ -256,6 +266,19 @@ function resolveTableConditionDotContext(
   }
 
   const [, tableName, columnName] = tableColMatch;
+
+  const aliasResolved = resolveAliasTableInStatement(docText, docOffset, tableName, schemas, dbType);
+  if (aliasResolved && columnBelongsToTable(aliasResolved.table, columnName)) {
+    return withWhereClause(
+      {
+        table: aliasResolved.table,
+        qualifiedTable: aliasResolved.qualifiedTable,
+        tableTokenInLine: tableName,
+      },
+      linePrefix,
+    );
+  }
+
   const trailingDotMatch = linePrefix.match(/(\w+)\.(\w*)$/);
   if (trailingDotMatch) {
     const trailingQualifier = trailingDotMatch[1];
@@ -299,7 +322,7 @@ function resolveTableDotContext(
   // 避免 `tcn.id = tcfv.node` 被误判为「条件表达式后的点号」上下文。
   return (
     resolveDirectTableDotContext(linePrefix, docText, docOffset, schemas, dbType) ??
-    resolveTableConditionDotContext(linePrefix, schemas)
+    resolveTableConditionDotContext(linePrefix, docText, docOffset, schemas, dbType)
   );
 }
 
@@ -314,13 +337,14 @@ function completionKindToType(kind: number): string {
 
 function columnSuggestions(
   tableName: string,
+  tableTokenInLine: string,
   columns: DatabaseSchema["tables"][number]["columns"],
 ): Completion[] {
   return columns.map((col) => ({
     label: col.name,
     type: "property",
     detail: `${col.type}${col.isPK ? " (PK)" : ""}${col.isFK ? " (FK)" : ""} · ${tableName}`,
-    apply: col.name,
+    apply: `${tableTokenInLine}.${col.name}`,
   }));
 }
 
@@ -372,9 +396,9 @@ function tableDotSuggestions(
   ctx: TableDotContext,
 ): CompletionResult | null {
   const line = context.state.doc.lineAt(context.pos);
-  const dotIndex = linePrefix.lastIndexOf(".");
-  const tableStartOffset = line.from + linePrefix.indexOf(ctx.tableTokenInLine);
-  const afterDotOffset = line.from + dotIndex + 1;
+  const tokenOffset = linePrefix.lastIndexOf(ctx.tableTokenInLine);
+  if (tokenOffset < 0) return null;
+  const tableStartOffset = line.from + tokenOffset;
   const replaceTo = context.pos;
   const prefix = prefixAfterLastDot(linePrefix);
 
@@ -406,7 +430,7 @@ function tableDotSuggestions(
     };
   });
 
-  const allColumns = columnSuggestions(ctx.table.name, ctx.table.columns);
+  const allColumns = columnSuggestions(ctx.table.name, ctx.tableTokenInLine, ctx.table.columns);
   const columns = prefix ? filterByFuzzy(allColumns, prefix) : allColumns;
 
   const options = [
@@ -419,7 +443,7 @@ function tableDotSuggestions(
   if (options.length === 0) return null;
 
   return {
-    from: afterDotOffset,
+    from: tableStartOffset,
     to: replaceTo,
     options,
   };
@@ -443,10 +467,10 @@ function withLiveCompletionUpdate(
   const result = build(context);
   if (!result || result.options.length === 0) return null;
 
-  const update: NonNullable<CompletionResult["update"]> = (_current, from, to, ctx) => {
+  const update: NonNullable<CompletionResult["update"]> = (_current, _from, _to, ctx) => {
     const next = build(ctx);
     if (!next || next.options.length === 0) return null;
-    return { ...next, from, to, filter: false, update };
+    return { ...next, from: next.from, to: ctx.pos, filter: false, update };
   };
 
   return { ...result, filter: false, update };
@@ -486,14 +510,90 @@ export function sqlCompletionTriggerAfterClause(
     const schemas = getSchemas();
     const dbType = getDbType?.();
     const fromTable = resolveFromTableInStatement(docText, to, schemas, dbType);
+    const statement = sliceStatementAtOffset(docText, to).trim();
+    const analysis = statement ? analyzeStatement(statement, dbType) : null;
+    const hasScopedTables = fromTable !== null || (analysis?.tables.length ?? 0) > 0;
+    const line = view.state.doc.lineAt(to);
+    const linePrefix = line.text.slice(0, to - line.from);
     if (
       shouldOfferTableCompletionsWithoutPrefix(context) ||
-      shouldOfferColumnCompletionsWithoutPrefix(context, fromTable !== null)
+      shouldOfferColumnCompletionsWithoutPrefix(context, hasScopedTables) ||
+      shouldOfferTableAliasAfterSpace(context, linePrefix, schemas)
     ) {
       requestAnimationFrame(() => startCompletion(view));
     }
     return false;
   });
+}
+
+function shouldOfferTableAliasAfterSpace(
+  completionContext: SqlCompletionContext,
+  linePrefix: string,
+  schemas: DatabaseSchema[],
+): boolean {
+  if (completionContext !== "from_clause") {
+    return false;
+  }
+  return resolveTableBeforeTrailingSpace(linePrefix, schemas) !== null;
+}
+
+function buildTableAliasCompletionResult(
+  context: CompletionContext,
+  linePrefix: string,
+  docText: string,
+  schemas: DatabaseSchema[],
+  dbType?: string,
+): CompletionResult | null {
+  const completionContext = resolveSqlCompletionContext(docText, context.pos);
+  if (!shouldOfferTableAliasAfterSpace(completionContext, linePrefix, schemas)) {
+    return null;
+  }
+  const resolved = resolveTableBeforeTrailingSpace(linePrefix, schemas);
+  if (!resolved) {
+    return null;
+  }
+  const alias = buildSuggestedTableAlias(resolved.table);
+  if (!alias) {
+    return null;
+  }
+
+  const aliasOption: Completion = {
+    label: alias,
+    type: "variable",
+    detail: `建议别名 · ${resolved.tableName}`,
+    apply: alias,
+    boost: tierBoostForKind(22) + 500,
+  };
+
+  const otherItems = getCompletionItems(docText, context.pos, schemas, dbType);
+  const otherOptions: Completion[] = otherItems.map((item) => {
+    const insertText = item.insertText ?? item.label;
+    const boost = (item.boost ?? 0) - 200;
+    if (item.snippet) {
+      return snippetCompletion(insertText, {
+        label: item.label,
+        detail: item.detail,
+        type: completionKindToType(item.kind),
+        boost,
+        info: item.info,
+      });
+    }
+    return {
+      label: item.label,
+      type: completionKindToType(item.kind),
+      detail: item.detail,
+      apply: insertText,
+      boost,
+      info: item.info,
+    };
+  });
+
+  return {
+    from: context.pos,
+    to: context.pos,
+    options: dedupeCompletions([aliasOption, ...otherOptions]),
+    filter: false,
+  };
 }
 
 function computeSqlCompletionResult(
@@ -533,8 +633,23 @@ function computeSqlCompletionResult(
     }
   }
 
+  const aliasResult = buildTableAliasCompletionResult(
+    context,
+    linePrefix,
+    docText,
+    schemas,
+    dbType,
+  );
+  if (aliasResult) {
+    return aliasResult;
+  }
+
   const completionContext = resolveSqlCompletionContext(docText, context.pos);
+  const statement = sliceStatementAtOffset(docText, context.pos).trim();
+  const statementAnalysis = statement ? analyzeStatement(statement, dbType) : null;
   const fromTableInStmt = resolveFromTableInStatement(docText, context.pos, schemas, dbType);
+  const hasScopedTables =
+    fromTableInStmt !== null || (statementAnalysis?.tables.length ?? 0) > 0;
   const atLineContentStart = /^\s*$/.test(linePrefix);
   const hasSchemaTables = schemas.some((db) => db.tables.length > 0);
   const wantsStatementStartTables =
@@ -543,10 +658,13 @@ function computeSqlCompletionResult(
     hasSchemaTables && shouldOfferTableCompletionsWithoutPrefix(completionContext);
   const wantsClauseColumns = shouldOfferColumnCompletionsWithoutPrefix(
     completionContext,
-    fromTableInStmt !== null,
+    hasScopedTables,
   );
+  const wantsTableAlias = shouldOfferTableAliasAfterSpace(completionContext, linePrefix, schemas);
 
   const qualCol = resolveQualifierColumnRange(line, linePrefix, context.pos);
+  const qualStart =
+    qualCol != null ? line.from + linePrefix.lastIndexOf(qualCol.qualifier) : null;
 
   const word = context.matchBefore(/\w*/);
   if (
@@ -555,17 +673,19 @@ function computeSqlCompletionResult(
     !wantsStatementStartTables &&
     !wantsTableNameContext &&
     !wantsClauseColumns &&
+    !wantsTableAlias &&
     !qualCol
   ) {
     return null;
   }
 
-  const from = qualCol?.from ?? (word ? word.from : context.pos);
+  const from = qualStart ?? qualCol?.from ?? (word ? word.from : context.pos);
   const items = getCompletionItems(docText, context.pos, schemas, dbType);
   const options: Completion[] = items.map((item) => {
     let insertText = item.insertText ?? item.label;
     if (qualCol && item.kind === COLUMN_KIND) {
-      insertText = bareColumnInsertText(insertText);
+      const columnName = bareColumnInsertText(insertText);
+      insertText = `${qualCol.qualifier}.${columnName}`;
     }
     const boost = item.boost;
     const info = item.info;

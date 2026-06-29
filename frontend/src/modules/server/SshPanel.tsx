@@ -63,7 +63,6 @@ export function SshPanel() {
         className="ssh-module-layout"
         leftColumnTitle={t("routes.ssh")}
         leftPreset="host"
-        leftMinPx={240}
         leftSidebar={
           isHostsTab ? (
             <SshHostSidebar

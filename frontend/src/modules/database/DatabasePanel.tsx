@@ -86,6 +86,9 @@ import {
   makeConnectionInfoTabId,
   makeRedisQueryTabId,
   isModuleDockTab,
+  isToolboxTab,
+  makeToolboxWorkspaceTab,
+  findTabIdForToolbox,
   makeTableDesignerTabLabel,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
@@ -99,6 +102,8 @@ import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./DatabaseTableEditorHost";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
+import type { SyncTask, ToolboxTabId } from "./toolbox/types";
+import { useDbSyncTaskStore } from "../../stores/dbSyncTaskStore";
 import {
   createDefaultSqlTabState,
   createDefaultTablePreviewState,
@@ -120,7 +125,6 @@ import {
 } from "./dbWorkspaceState";
 import { DatabaseWorkspaceDock } from "./DatabaseWorkspaceDock";
 import {
-  buildDatabaseModulePanelContentKey,
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
   selectTablePreviewTabIdKey,
@@ -130,7 +134,6 @@ import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./DbSidebarLinkageContext";
 import { formatFilterWhere } from "./tablePreviewFilter";
 import type { RuleGroupType } from "react-querybuilder";
-import { ModuleSegmentDock } from "../../components/dock";
 import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
 import type {
@@ -550,6 +553,57 @@ export function DatabasePanel() {
     [syncConnForTabId],
   );
 
+  const openOrActivateToolboxTab = useCallback(
+    (toolboxTab: ToolboxTabId) => {
+      const tabId = findTabIdForToolbox(workspaceTabsRef.current, toolboxTab);
+      const label = t(`database.tabs.${toolboxTab}`);
+      if (tabId) {
+        activateWorkspaceTab(tabId);
+        return;
+      }
+      const tab = makeToolboxWorkspaceTab(toolboxTab, label);
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tab.id);
+    },
+    [activateWorkspaceTab, setWorkspaceTabs, t],
+  );
+
+  const handleOpenSyncTask = useCallback(
+    (task: SyncTask) => {
+      openOrActivateToolboxTab(task.kind);
+      useDbSyncTaskStore.getState().requestLoad(task.id, false);
+    },
+    [openOrActivateToolboxTab],
+  );
+
+  const handleRunSyncTask = useCallback(
+    (task: SyncTask) => {
+      openOrActivateToolboxTab(task.kind);
+      useDbSyncTaskStore.getState().requestLoad(task.id, true);
+    },
+    [openOrActivateToolboxTab],
+  );
+
+  const handleModuleModeChange = useCallback(
+    (id: string) => {
+      const mode = id as DbModuleTab;
+      setModuleTab(mode);
+      if (mode === "dataSync" || mode === "schemaSync") {
+        openOrActivateToolboxTab(mode);
+        return;
+      }
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const nonToolboxTabs = moduleTabs.filter((tab) => tab.kind !== "toolbox");
+      const target =
+        nonToolboxTabs.find((tab) => tab.id === activeWorkspaceTabIdRef.current) ??
+        nonToolboxTabs[nonToolboxTabs.length - 1];
+      if (target) {
+        activateWorkspaceTab(target.id);
+      }
+    },
+    [activateWorkspaceTab, openOrActivateToolboxTab, setModuleTab],
+  );
+
   const clearPreviewTabSlotData = useCallback(
     (tabId: string) => {
       removeTabWorkspaceData(tabId);
@@ -669,7 +723,6 @@ export function DatabasePanel() {
 
   const moduleModeIconItems = useMemo(
     () => [
-      { id: "query", label: t("database.tabs.query"), icon: "sql" as const },
       { id: "dataSync", label: t("database.tabs.dataSync"), icon: "table" as const },
       { id: "schemaSync", label: t("database.tabs.schemaSync"), icon: "database" as const },
     ],
@@ -941,6 +994,31 @@ export function DatabasePanel() {
     persist();
     return useDbWorkspaceTabStore.subscribe(persist);
   }, [workspaceInitialized, workspaceTabs]);
+
+  useEffect(() => {
+    if (!workspaceInitialized) {
+      return;
+    }
+    if (moduleTab === "dataSync" || moduleTab === "schemaSync") {
+      openOrActivateToolboxTab(moduleTab);
+    }
+  }, [workspaceInitialized, moduleTab, openOrActivateToolboxTab]);
+
+  useEffect(() => {
+    if (!workspaceInitialized || !activeWorkspaceTabId) {
+      return;
+    }
+    const tab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
+    if (isToolboxTab(tab)) {
+      if (moduleTab !== tab.toolboxTab) {
+        setModuleTab(tab.toolboxTab);
+      }
+      return;
+    }
+    if (moduleTab !== "query") {
+      setModuleTab("query");
+    }
+  }, [workspaceInitialized, workspaceTabs, activeWorkspaceTabId, moduleTab, setModuleTab]);
 
   useEffect(() => {
     const flush = () => flushPersistWorkspaceSession();
@@ -3631,6 +3709,17 @@ export function DatabasePanel() {
               preview,
             };
           }
+          if (tab.kind === "toolbox") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database",
+              icon: tab.toolboxTab === "dataSync" ? ("table" as const) : ("database" as const),
+              tooltip: tab.label,
+              closable: true,
+              preview,
+            };
+          }
           if (tab.kind === "designer") {
             const dirty = isDesignerTabDirty(tab.id);
             return {
@@ -3778,9 +3867,38 @@ export function DatabasePanel() {
         );
       }
 
+      if (tab.kind === "toolbox") {
+        return (
+          <div className="db-workspace-pane db-dock-pane db-module-transfer">
+            <DatabaseToolbox
+              active={tab.id === activeWorkspaceTabId}
+              tab={tab.toolboxTab}
+              connections={toolboxConnections}
+              initialSourceConnectionId={
+                toolboxSeed.connId ??
+                (activeConn && isToolboxCapableConnection(activeConn) ? activeConn.id : null)
+              }
+              initialSourceDatabase={toolboxSeed.database}
+            />
+          </div>
+        );
+      }
+
       return null;
     },
-    [workspaceTabs, activeWorkspaceTabId, handleSelectTable, handleDesignTable, tableDesignerStates, updateTableDesignerState, tablePreviewTabIdKey, t],
+    [
+      workspaceTabs,
+      activeWorkspaceTabId,
+      handleSelectTable,
+      handleDesignTable,
+      tableDesignerStates,
+      updateTableDesignerState,
+      tablePreviewTabIdKey,
+      toolboxConnections,
+      toolboxSeed,
+      activeConn,
+      t,
+    ],
   );
 
   const handleDockTabContextMenu = useCallback(
@@ -3800,18 +3918,15 @@ export function DatabasePanel() {
     setExportMenu(null);
   }, [isActiveRoute]);
 
-  const modulePanelContentKey = useMemo(() => buildDatabaseModulePanelContentKey(), []);
-
   const moduleSoftRefreshKey = useMemo(
     () =>
       [
-        moduleTab,
         connections.map((c) => c.id).join(","),
         connectionsLoading ? "1" : "0",
         workspaceTabs.map((t) => `${t.id}:${t.workspaceOnly ? "1" : "0"}`).join(","),
         activeWorkspaceTabId,
       ].join("|"),
-    [moduleTab, connections, connectionsLoading, workspaceTabs, activeWorkspaceTabId],
+    [connections, connectionsLoading, workspaceTabs, activeWorkspaceTabId],
   );
 
   const sidebarLinkageConnId = useMemo(() => {
@@ -3900,88 +4015,57 @@ export function DatabasePanel() {
       className="db-module-layout"
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
-      leftMinPx={280}
       leftIconRail={
         <ModuleModeIconRail
           items={moduleModeIconItems}
           activeId={moduleTab}
-          onChange={(id) => setModuleTab(id as DbModuleTab)}
+          onChange={handleModuleModeChange}
         />
       }
       leftSidebar={
-        moduleTab === "query" ? (
-          <DbSchemaProvider value={schemaContextValue}>
-            <DatabaseSchemaSidebar
-              onCreateConnection={() => {
-                setEditingConnection(null);
-                setDialogOpen(true);
-              }}
-              onSelectConnection={handleSelectConnection}
-              onOpenSqlFile={openSqlFile}
-              onSelectTable={handleSelectTable}
-              onSelectDatabase={handleSelectDatabase}
-              buildSchemaContextMenuItems={buildSchemaContextMenuItems}
-              onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
-              refreshToken={schemaRefreshToken}
-              connectionConfigs={connections}
-              connectionsReady={!connectionsLoading || connections.length > 0}
-            />
-          </DbSchemaProvider>
-        ) : undefined
+        <DbSchemaProvider value={schemaContextValue}>
+          <DatabaseSchemaSidebar
+            onCreateConnection={() => {
+              setEditingConnection(null);
+              setDialogOpen(true);
+            }}
+            onSelectConnection={handleSelectConnection}
+            onOpenSqlFile={openSqlFile}
+            onOpenSyncTask={handleOpenSyncTask}
+            onRunSyncTask={handleRunSyncTask}
+            onSelectTable={handleSelectTable}
+            onSelectDatabase={handleSelectDatabase}
+            buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+            onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
+            refreshToken={schemaRefreshToken}
+            connectionConfigs={connections}
+            connectionsReady={!connectionsLoading || connections.length > 0}
+          />
+        </DbSchemaProvider>
       }
     >
-      {moduleTab === "dataSync" || moduleTab === "schemaSync" ? (
-        <ModuleSegmentDock
-          className="db-module-dock"
-          variant="function"
-          moduleTitle={t("routes.database")}
-          enabled={moduleLive}
-          windowControl
-          showTabBar={false}
-          panelContentKey={modulePanelContentKey}
-          softRefreshKey={moduleSoftRefreshKey}
-          tabs={[{ id: moduleTab, label: t(`database.tabs.${moduleTab}`) }]}
-          activeTabId={moduleTab}
-          onActiveTabChange={() => {}}
-          renderPanel={(panelId) => (
-            <div className="db-module-transfer">
-              <DatabaseToolbox
-                active={moduleTab === panelId}
-                tab={panelId as "dataSync" | "schemaSync"}
-                connections={toolboxConnections}
-                initialSourceConnectionId={
-                  toolboxSeed.connId ??
-                  (activeConn && isToolboxCapableConnection(activeConn) ? activeConn.id : null)
-                }
-                initialSourceDatabase={toolboxSeed.database}
-              />
-            </div>
-          )}
-        />
-      ) : (
-        <div className="db-workspace-drop-zone">
-          {!workspaceInitialized ? null : (
-            <DatabaseWorkspaceDock
-              workspaceInitialized={workspaceInitialized}
-              dockTabs={dockTabs}
-              moduleTitle={t("routes.database")}
-              enabled={moduleLive}
-              windowControl
-              onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
-              dockLayout={dockLayout}
-              onDockLayoutChange={setDockLayout}
-              renderDockPanel={renderDockPanel}
-              softRefreshKey={activeWorkspaceTabId}
-              panelContentKeysByTab={panelContentKeysByTab}
-              onTabContextMenu={handleDockTabContextMenu}
-              onTabDoubleClick={handleDockTabDoubleClick}
-              recentClosedActionItems={recentClosedActionItems}
-              emptyPrompt={t("database.workspace.emptyTabs")}
-              recentClosedTitle={t("database.workspace.recentClosed")}
-            />
-          )}
-        </div>
-      )}
+      <div className="db-workspace-drop-zone">
+        {!workspaceInitialized ? null : (
+          <DatabaseWorkspaceDock
+            workspaceInitialized={workspaceInitialized}
+            dockTabs={dockTabs}
+            moduleTitle={t("routes.database")}
+            enabled={moduleLive}
+            windowControl
+            onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+            dockLayout={dockLayout}
+            onDockLayoutChange={setDockLayout}
+            renderDockPanel={renderDockPanel}
+            softRefreshKey={moduleSoftRefreshKey}
+            panelContentKeysByTab={panelContentKeysByTab}
+            onTabContextMenu={handleDockTabContextMenu}
+            onTabDoubleClick={handleDockTabDoubleClick}
+            recentClosedActionItems={recentClosedActionItems}
+            emptyPrompt={t("database.workspace.emptyTabs")}
+            recentClosedTitle={t("database.workspace.recentClosed")}
+          />
+        )}
+      </div>
     </ModuleWorkspaceLayout>
     <CreateDatabaseDialog
       open={createDbDialog !== null}

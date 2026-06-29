@@ -4,7 +4,9 @@ import { Button } from "../../../components/ui/Button";
 import { useDataLoading } from "../../../components/ui/DataLoading";
 import { WarnAlert } from "../../../components/ui/WarnAlert";
 import { SubWindow } from "../../../components/ui/SubWindow";
+import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
+import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import {
   countTable,
   countTables,
@@ -32,6 +34,7 @@ import {
   type DataSyncStrategy,
   type SyncSideSnapshot,
   type SyncTableInfo,
+  type SyncTaskConfig,
   type TableTargetStatus,
   type ToolboxTabId,
 } from "./types";
@@ -112,6 +115,17 @@ export function DatabaseToolbox({
   schemaTableDiffsRef.current = schemaTableDiffs;
   const lastAnalyzedSelectionRef = useRef<Set<string>>(new Set());
 
+  const pendingLoad = useDbSyncTaskStore((s) => s.pendingLoad);
+  const syncTasks = useDbSyncTaskStore((s) => s.tasks);
+  const clearPendingLoad = useDbSyncTaskStore((s) => s.clearPendingLoad);
+  const setActiveTaskId = useDbSyncTaskStore((s) => s.setActiveTaskId);
+  const addSyncTask = useDbSyncTaskStore((s) => s.addTask);
+
+  /** 从侧栏加载任务时的分阶段配置 */
+  const taskLoadRef = useRef<{ config: SyncTaskConfig; runAfterLoad: boolean } | null>(null);
+  const runAfterLoadRef = useRef(false);
+  const taskLoadAppliedRef = useRef(false);
+
   const targetConfigured = Boolean(targetConnId && targetDb.trim());
 
   const pickDefaultConnId = useCallback(
@@ -125,7 +139,7 @@ export function DatabaseToolbox({
   );
 
   useEffect(() => {
-    if (!active) {
+    if (!active || taskLoadRef.current) {
       return;
     }
     const defaultConn = pickDefaultConnId(initialSourceConnectionId);
@@ -134,7 +148,7 @@ export function DatabaseToolbox({
   }, [active, initialSourceConnectionId, pickDefaultConnId, connections]);
 
   useEffect(() => {
-    if (!active) {
+    if (!active || taskLoadRef.current) {
       return;
     }
     const db = initialSourceDatabase.trim();
@@ -147,7 +161,7 @@ export function DatabaseToolbox({
   }, [active, initialSourceDatabase, sourceDbs]);
 
   useEffect(() => {
-    if (!active) {
+    if (!active || taskLoadRef.current) {
       return;
     }
     const db = initialSourceDatabase.trim();
@@ -915,6 +929,152 @@ export function DatabaseToolbox({
     t,
   ]);
 
+  const beginTaskLoad = useCallback((config: SyncTaskConfig, runAfterLoad: boolean) => {
+    syncRunIdRef.current += 1;
+    taskLoadAppliedRef.current = false;
+    runAfterLoadRef.current = false;
+    setSubmitNotice(null);
+    setTableTargetStatus({});
+    setTableAnalysis({});
+    setSchemaTableDiffs({});
+    setConflictDetailTable(null);
+    setLargeTableWarn(null);
+    lastAnalyzedSelectionRef.current = new Set();
+    analyzingRef.current.clear();
+    countingRef.current.clear();
+    targetCountingRef.current.clear();
+    schemaFetchingRef.current.clear();
+    setCountingTables(new Set());
+    setTargetCountingTables(new Set());
+    setTargetRowCounts({});
+    setSourceSelected(new Set());
+    setSourceExpanded(new Set());
+    setTableSyncStrategies({});
+    taskLoadRef.current = { config, runAfterLoad };
+    setSourceConnId(config.sourceConnId);
+    setTargetConnId(config.targetConnId);
+    setSourceDb("");
+    setTargetDb("");
+  }, []);
+
+  useEffect(() => {
+    if (!active || !pendingLoad) {
+      return;
+    }
+    const task = syncTasks.find((item) => item.id === pendingLoad.taskId);
+    if (!task || task.kind !== tab) {
+      return;
+    }
+    clearPendingLoad();
+    setActiveTaskId(task.id);
+    beginTaskLoad(task.config, pendingLoad.runAfterLoad);
+  }, [active, pendingLoad, syncTasks, tab, clearPendingLoad, setActiveTaskId, beginTaskLoad]);
+
+  useEffect(() => {
+    const load = taskLoadRef.current;
+    if (!load || !active || taskLoadAppliedRef.current) {
+      return;
+    }
+    const { config } = load;
+    if (sourceConnId !== config.sourceConnId || targetConnId !== config.targetConnId) {
+      return;
+    }
+    if (sourceDbsLoading || targetDbsLoading) {
+      return;
+    }
+    if (!sourceDb && config.sourceDb && sourceDbs.includes(config.sourceDb)) {
+      setSourceDb(config.sourceDb);
+      return;
+    }
+    if (!targetDb && config.targetDb && targetDbs.includes(config.targetDb)) {
+      setTargetDb(config.targetDb);
+      return;
+    }
+    if (sourceDb !== config.sourceDb || targetDb !== config.targetDb) {
+      if (
+        !sourceDbsLoading &&
+        !targetDbsLoading &&
+        sourceConnId === config.sourceConnId &&
+        targetConnId === config.targetConnId &&
+        (!config.sourceDb || !sourceDbs.includes(config.sourceDb) || !config.targetDb || !targetDbs.includes(config.targetDb))
+      ) {
+        taskLoadRef.current = null;
+      }
+      return;
+    }
+
+    taskLoadAppliedRef.current = true;
+    setSourceSelected(new Set(config.selectedTables));
+    setSourceExpanded(new Set(config.expandedTables ?? config.selectedTables));
+    setTableSyncStrategies({ ...(config.tableSyncStrategies ?? {}) });
+    const runAfter = load.runAfterLoad;
+    taskLoadRef.current = null;
+    if (runAfter) {
+      runAfterLoadRef.current = true;
+    }
+  }, [
+    active,
+    sourceConnId,
+    targetConnId,
+    sourceDb,
+    targetDb,
+    sourceDbs,
+    targetDbs,
+    sourceDbsLoading,
+    targetDbsLoading,
+  ]);
+
+  const buildTaskConfig = useCallback((): SyncTaskConfig => {
+    return {
+      sourceConnId,
+      sourceDb,
+      targetConnId,
+      targetDb,
+      selectedTables: Array.from(sourceSelected),
+      expandedTables: Array.from(sourceExpanded),
+      tableSyncStrategies: { ...tableSyncStrategies },
+    };
+  }, [
+    sourceConnId,
+    sourceDb,
+    targetConnId,
+    targetDb,
+    sourceSelected,
+    sourceExpanded,
+    tableSyncStrategies,
+  ]);
+
+  const canSaveTask = useMemo(() => {
+    return Boolean(sourceConnId && sourceDb.trim() && targetConnId && targetDb.trim());
+  }, [sourceConnId, sourceDb, targetConnId, targetDb]);
+
+  const handleSaveTask = useCallback(async () => {
+    if (!canSaveTask) {
+      return;
+    }
+    const sourceConn = connections.find((c) => c.id === sourceConnId);
+    const targetConn = connections.find((c) => c.id === targetConnId);
+    const defaultName =
+      sourceConn && targetConn
+        ? `${sourceConn.name}/${sourceDb} → ${targetConn.name}/${targetDb}`
+        : t("database.syncTasks.defaultName");
+    const name = await quickInput({
+      title: t("database.syncTasks.saveTitle"),
+      placeholder: t("database.syncTasks.namePlaceholder"),
+      defaultValue: defaultName,
+      validate: (value) => (value.trim() ? null : t("database.syncTasks.nameRequired")),
+    });
+    if (!name) {
+      return;
+    }
+    addSyncTask({
+      name: name.trim(),
+      kind: tab,
+      config: buildTaskConfig(),
+    });
+    setSubmitNotice(t("database.syncTasks.saveSuccess"));
+  }, [canSaveTask, connections, sourceConnId, sourceDb, targetConnId, targetDb, tab, buildTaskConfig, addSyncTask, t]);
+
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || submitting) return;
 
@@ -989,6 +1149,14 @@ export function DatabaseToolbox({
     completeAction,
     t,
   ]);
+
+  useEffect(() => {
+    if (!runAfterLoadRef.current || !canSubmit || submitting) {
+      return;
+    }
+    runAfterLoadRef.current = false;
+    void handleSubmit();
+  }, [canSubmit, submitting, handleSubmit]);
 
   const handleSourceConnectionChange = useCallback((connId: string) => {
     setSourceConnId(connId);
@@ -1096,14 +1264,24 @@ export function DatabaseToolbox({
             </span>
           )}
         </div>
-        <Button
-          type="button"
-          variant="default"
-          disabled={!canSubmit || submitting}
-          onClick={() => void handleSubmit()}
-        >
-          {tab === "dataSync" ? t("database.toolbox.submitData") : t("database.toolbox.submitSchema")}
-        </Button>
+        <div className="db-toolbox-footer__actions">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canSaveTask}
+            onClick={() => void handleSaveTask()}
+          >
+            {t("database.syncTasks.save")}
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            disabled={!canSubmit || submitting}
+            onClick={() => void handleSubmit()}
+          >
+            {tab === "dataSync" ? t("database.toolbox.submitData") : t("database.toolbox.submitSchema")}
+          </Button>
+        </div>
       </footer>
 
       <SubWindow
