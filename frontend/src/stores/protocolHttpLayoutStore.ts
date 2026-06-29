@@ -10,7 +10,8 @@ export type ProtocolHttpFolder = {
 export type ProtocolTreeNodeKey =
   | `folder:${string}`
   | `collection:${string}`
-  | `request:${string}`;
+  | `request:${string}`
+  | `entry:${string}`;
 
 export type ProtocolDropTarget =
   | { kind: "root" }
@@ -84,6 +85,8 @@ interface ProtocolHttpLayoutState {
   collectionParents: Record<string, string | null>;
   /** requestId → 父文件夹 id；缺省为根级或所属 collection 下 */
   requestParents: Record<string, string | null>;
+  /** 非 HTTP 协议条目 id → 父文件夹 id */
+  entryParents: Record<string, string | null>;
   /** 同级节点顺序 */
   siblingOrder: Record<string, ProtocolTreeNodeKey[]>;
   expandedFolderIds: string[];
@@ -94,6 +97,7 @@ interface ProtocolHttpLayoutState {
   moveFolder: (folderId: string, newParentId: string | null) => boolean;
   setCollectionParent: (collectionId: string, parentId: string | null) => void;
   setRequestParent: (requestId: string, parentId: string | null) => void;
+  setEntryParent: (entryId: string, parentId: string | null) => void;
   reorderSibling: (
     sourceKey: ProtocolTreeNodeKey,
     target: ProtocolDropTarget,
@@ -121,6 +125,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
       folders: [],
       collectionParents: {},
       requestParents: {},
+      entryParents: {},
       siblingOrder: {},
       expandedFolderIds: [],
       expandedCollectionIds: [],
@@ -162,6 +167,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           const folders = state.folders.filter((f) => !descendantIds.has(f.id));
           const collectionParents = { ...state.collectionParents };
           const requestParents = { ...state.requestParents };
+          const entryParents = { ...state.entryParents };
           for (const [id, parentId] of Object.entries(collectionParents)) {
             if (parentId && descendantIds.has(parentId)) {
               collectionParents[id] = null;
@@ -170,6 +176,11 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           for (const [id, parentId] of Object.entries(requestParents)) {
             if (parentId && descendantIds.has(parentId)) {
               requestParents[id] = null;
+            }
+          }
+          for (const [id, parentId] of Object.entries(entryParents)) {
+            if (parentId && descendantIds.has(parentId)) {
+              entryParents[id] = null;
             }
           }
           const siblingOrder = { ...state.siblingOrder };
@@ -182,6 +193,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             folders,
             collectionParents,
             requestParents,
+            entryParents,
             siblingOrder,
             expandedFolderIds: state.expandedFolderIds.filter((id) => !descendantIds.has(id)),
           };
@@ -211,6 +223,12 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
       setRequestParent: (requestId, parentId) => {
         set((state) => ({
           requestParents: { ...state.requestParents, [requestId]: parentId },
+        }));
+      },
+
+      setEntryParent: (entryId, parentId) => {
+        set((state) => ({
+          entryParents: { ...state.entryParents, [entryId]: parentId },
         }));
       },
 
@@ -258,6 +276,11 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             const parentId = target.kind === "root" ? null : target.folderId;
             get().setRequestParent(requestId, parentId);
           }
+        } else if (sourceKey.startsWith("entry:")) {
+          const entryId = sourceKey.slice("entry:".length);
+          if (target.kind === "collection") return false;
+          const parentId = target.kind === "root" ? null : target.folderId;
+          get().setEntryParent(entryId, parentId);
         } else {
           return false;
         }
@@ -307,6 +330,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         folders: state.folders,
         collectionParents: state.collectionParents,
         requestParents: state.requestParents,
+        entryParents: state.entryParents,
         siblingOrder: state.siblingOrder,
         expandedFolderIds: state.expandedFolderIds,
         expandedCollectionIds: state.expandedCollectionIds,
@@ -316,7 +340,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
 );
 
 export function protocolNodeKey(
-  kind: "folder" | "collection" | "request",
+  kind: "folder" | "collection" | "request" | "entry",
   id: string,
 ): ProtocolTreeNodeKey {
   return `${kind}:${id}`;

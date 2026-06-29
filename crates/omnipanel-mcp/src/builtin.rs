@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use omnipanel_store::{KnowledgeEntry, Storage};
 
 use crate::omni_module::{
-    ensure_tool_allowed_for_module, filter_tools_for_request, request_omni_module,
+    ensure_tool_allowed_for_module, filter_tools_for_request, request_omni_module_scope,
 };
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -161,11 +161,11 @@ impl ServerHandler for OmniMcpHandler {
         _request: Option<PaginatedRequestParams>,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let requested_module = request_omni_module(&context);
+        let scope = request_omni_module_scope(&context);
         let storage = self.storage.lock().await;
         let tools = filter_tools_for_request(
             self.tool_router.list_all(),
-            requested_module.as_deref(),
+            &scope,
             |name| storage.mcp_tool_is_available(name).unwrap_or(false),
         );
         Ok(ListToolsResult {
@@ -179,9 +179,9 @@ impl ServerHandler for OmniMcpHandler {
         request: rmcp::model::CallToolRequestParams,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        let requested_module = request_omni_module(&context);
+        let scope = request_omni_module_scope(&context);
         let tool_name = request.name.as_ref();
-        ensure_tool_allowed_for_module(tool_name, requested_module.as_deref())
+        ensure_tool_allowed_for_module(tool_name, &scope)
             .map_err(|message| ErrorData::invalid_params(message, None))?;
 
         {
@@ -204,7 +204,8 @@ impl ServerHandler for OmniMcpHandler {
                 "OmniMCP is the built-in MCP server of OmniPanel. \
                  Tool names follow omni_{module}_{function_name} (e.g. omni_knowledge_create_document). \
                  Send HTTP header X-Omni-Module (e.g. knowledge, database, terminal) to list only tools for that module; \
-                 omit the header or set X-Omni-Module=master to receive all enabled tools for open modules.",
+                 set X-Omni-Module=master to receive all enabled tools. \
+                 Requests without the header or with an empty value receive no tools.",
             )
     }
 }

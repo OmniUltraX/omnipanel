@@ -6808,6 +6808,50 @@
         color: var(--fg);
     }
 
+    .statusbar-agent {
+        max-width: 280px;
+        gap: var(--sp-1);
+    }
+
+    .statusbar-agent--disabled {
+        opacity: 0.65;
+        cursor: default;
+    }
+
+    .statusbar-agent--connected {
+        color: var(--fg);
+    }
+
+    .statusbar-agent--busy {
+        cursor: wait;
+    }
+
+    .statusbar-agent--error {
+        color: var(--danger);
+    }
+
+    .statusbar-agent__name {
+        font-weight: 600;
+        color: var(--fg);
+        flex-shrink: 0;
+    }
+
+    .statusbar-agent__status {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--meta);
+    }
+
+    .statusbar-agent--connected .statusbar-agent__status {
+        color: var(--fg-2);
+    }
+
+    .statusbar-agent--error .statusbar-agent__status {
+        color: var(--danger);
+    }
+
     /* ─── 工作区弹层 (WorkspacePopover) ────────────────────────────── */
     .workspace-popover-backdrop {
         position: fixed;

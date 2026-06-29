@@ -17,6 +17,7 @@ import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
 import { useI18n } from "../../i18n";
 import { IconFolder } from "../../components/ui/Icons";
+import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
 import {
   useProtocolHttpLayoutStore,
   type ProtocolDropTarget,
@@ -26,15 +27,20 @@ import {
   beforeKeyForAfterPosition,
   filterHistoryForRequest,
   formatMethodBadge,
+  formatProtocolBadge,
   listProtocolTreeChildren,
   listSiblingKeys,
   methodColor,
+  protocolColor,
   resolveEntryParent,
   resolveTreeEntryByKey,
   type ProtocolTreeEntry,
 } from "./protocolLayoutTree";
 import { ProtocolTreeNode } from "./ProtocolTreeNode";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
+import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
+import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
+import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
 import {
   PROTO_TREE_POINTER_DRAG_THRESHOLD_PX,
   isProtocolTreePointerDragExcluded,
@@ -49,6 +55,7 @@ type ContextTarget =
   | { kind: "root" }
   | { kind: "folder"; folderId: string }
   | { kind: "request"; requestId: string }
+  | { kind: "entry"; entryId: string }
   | { kind: "history"; historyId: string; requestId: string | null }
   | { kind: "history-section"; requestId: string };
 
@@ -72,6 +79,14 @@ function dropHintClass(entryKey: ProtocolTreeNodeKey, dropHint: DropHint | null)
 export function ProtocolHttpSidebar() {
   const { t } = useI18n();
   const http = useProtocolHttpOptional();
+  const openSessionTab = useProtocolWorkspaceStore((s) => s.openSessionTab);
+  const activeWorkspaceTabId = useProtocolWorkspaceStore((s) => s.activeTabId);
+  const labEntries = useProtocolLabEntryStore((s) => s.entries);
+  const renameLabEntry = useProtocolLabEntryStore((s) => s.renameEntry);
+  const deleteLabEntry = useProtocolLabEntryStore((s) => s.deleteEntry);
+  const closeWorkspaceTab = useProtocolWorkspaceStore((s) => s.closeTab);
+  const workspaceTabsForClose = useProtocolWorkspaceStore((s) => s.tabs);
+  const requestNewRequestPicker = useProtocolTopbarStore((s) => s.requestNewRequestPicker);
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections(
     SECTION_STORAGE_KEY,
     { apis: true, history: true },
@@ -80,6 +95,7 @@ export function ProtocolHttpSidebar() {
   const folders = useProtocolHttpLayoutStore((s) => s.folders);
   const collectionParents = useProtocolHttpLayoutStore((s) => s.collectionParents);
   const requestParents = useProtocolHttpLayoutStore((s) => s.requestParents);
+  const entryParents = useProtocolHttpLayoutStore((s) => s.entryParents);
   const siblingOrder = useProtocolHttpLayoutStore((s) => s.siblingOrder);
   const addFolder = useProtocolHttpLayoutStore((s) => s.addFolder);
   const renameFolder = useProtocolHttpLayoutStore((s) => s.renameFolder);
@@ -113,10 +129,24 @@ export function ProtocolHttpSidebar() {
     });
   }, []);
 
+  const workspaceTabs = workspaceTabsForClose;
+
   const collections = http?.collections ?? [];
   const savedRequests = http?.savedRequests ?? [];
   const history = http?.history ?? [];
-  const selectedRequestId = http?.selectedRequestId ?? null;
+  const activeWorkspaceTab = useMemo(
+    () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
+    [activeWorkspaceTabId, workspaceTabs],
+  );
+
+  const selectedResourceId = activeWorkspaceTab?.resourceId ?? null;
+
+  const selectedRequestId = useMemo(() => {
+    if (activeWorkspaceTab?.protocol === "http" && activeWorkspaceTab.resourceId) {
+      return activeWorkspaceTab.resourceId;
+    }
+    return null;
+  }, [activeWorkspaceTab]);
 
   const selectedRequest = useMemo(
     () => savedRequests.find((req) => req.id === selectedRequestId) ?? null,
@@ -133,11 +163,22 @@ export function ProtocolHttpSidebar() {
       folders,
       collections,
       savedRequests,
+      labEntries,
       collectionParents,
       requestParents,
+      entryParents,
       siblingOrder,
     }),
-    [folders, collections, savedRequests, collectionParents, requestParents, siblingOrder],
+    [
+      folders,
+      collections,
+      savedRequests,
+      labEntries,
+      collectionParents,
+      requestParents,
+      entryParents,
+      siblingOrder,
+    ],
   );
 
   const rootChildren = useMemo(
@@ -149,9 +190,20 @@ export function ProtocolHttpSidebar() {
         savedRequests,
         collectionParents,
         requestParents,
+        entryParents,
+        labEntries,
         siblingOrder,
       ),
-    [folders, collections, savedRequests, collectionParents, requestParents, siblingOrder],
+    [
+      folders,
+      collections,
+      savedRequests,
+      collectionParents,
+      requestParents,
+      entryParents,
+      labEntries,
+      siblingOrder,
+    ],
   );
 
   const handleCreateFolder = useCallback(
@@ -169,34 +221,40 @@ export function ProtocolHttpSidebar() {
   );
 
   const handleCreateRequest = useCallback(
-    async (parentFolderId: string | null) => {
-      if (!http) return;
-      const name = await quickInput({
-        title: t("protocol.sidebar.newRequestTitle"),
-        placeholder: t("protocol.http.requestName"),
-        defaultValue: t("protocol.sidebar.defaultRequestName"),
-        validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
-      });
-      if (!name) return;
-      await http.createRequest(name.trim(), parentFolderId);
-      setSectionExpanded("history", true);
+    (parentFolderId: string | null) => {
+      requestNewRequestPicker(parentFolderId);
     },
-    [http, setSectionExpanded, t],
+    [requestNewRequestPicker],
   );
 
   const handleQuickCreateRequest = useCallback(() => {
-    if (!http) return;
-    void http.createRequest(t("protocol.sidebar.defaultRequestName"), null);
-    setSectionExpanded("apis", true);
-    setSectionExpanded("history", true);
-  }, [http, setSectionExpanded, t]);
+    requestNewRequestPicker(null);
+  }, [requestNewRequestPicker]);
+
+  const handleSelectEntry = useCallback(
+    (entry: (typeof labEntries)[number]) => {
+      openSessionTab({
+        protocol: entry.protocol,
+        resourceId: entry.id,
+        label: entry.name,
+      });
+      if (entry.protocol === "http") {
+        setSectionExpanded("history", true);
+      }
+    },
+    [openSessionTab, setSectionExpanded],
+  );
 
   const handleSelectRequest = useCallback(
     (req: (typeof savedRequests)[number]) => {
-      http?.openRequestTab(req);
+      openSessionTab({
+        protocol: "http",
+        resourceId: req.id,
+        label: req.name,
+      });
       setSectionExpanded("history", true);
     },
-    [http, setSectionExpanded],
+    [openSessionTab, setSectionExpanded],
   );
 
   const applyMove = useCallback(
@@ -234,7 +292,12 @@ export function ProtocolHttpSidebar() {
         return;
       }
 
-      const parent = resolveEntryParent(targetEntry, requestParents, collectionParents);
+      const parent = resolveEntryParent(
+        targetEntry,
+        requestParents,
+        collectionParents,
+        entryParents,
+      );
       const siblingKeys = listSiblingKeys(
         parent,
         folders,
@@ -242,6 +305,8 @@ export function ProtocolHttpSidebar() {
         savedRequests,
         collectionParents,
         requestParents,
+        entryParents,
+        labEntries,
         siblingOrder,
       );
       const beforeKey =
@@ -254,7 +319,9 @@ export function ProtocolHttpSidebar() {
       applyMove,
       collectionParents,
       collections,
+      entryParents,
       folders,
+      labEntries,
       requestParents,
       savedRequests,
       siblingOrder,
@@ -281,6 +348,7 @@ export function ProtocolHttpSidebar() {
         target.targetKey,
         folders,
         savedRequests,
+        labEntries,
       );
       if (!entry) {
         dndLog("pointer-drop:reject", { reason: "entry-not-found", targetKey: target.targetKey });
@@ -403,7 +471,7 @@ export function ProtocolHttpSidebar() {
         {
           id: "new-request",
           label: t("protocol.sidebar.newRequest"),
-          onClick: () => void handleCreateRequest(parentFolderId),
+          onClick: () => handleCreateRequest(parentFolderId),
         },
       );
     }
@@ -465,6 +533,44 @@ export function ProtocolHttpSidebar() {
       });
     }
 
+    if (target.kind === "entry") {
+      items.push({
+        id: "rename-entry",
+        label: t("protocol.sidebar.renameRequest"),
+        onClick: () => {
+          const labEntry = labEntries.find((item) => item.id === target.entryId);
+          if (!labEntry) return;
+          void quickInput({
+            title: t("protocol.sidebar.renameRequestTitle"),
+            defaultValue: labEntry.name,
+            validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
+          }).then((name) => {
+            if (!name) return;
+            renameLabEntry(target.entryId, name.trim());
+            const tab = workspaceTabsForClose.find(
+              (item) => item.resourceId === target.entryId && item.protocol === labEntry.protocol,
+            );
+            if (tab) {
+              useProtocolWorkspaceStore.getState().updateTabLabel(tab.id, name.trim());
+            }
+          });
+        },
+      });
+      items.push({
+        id: "delete-entry",
+        label: t("protocol.sidebar.deleteRequest"),
+        danger: true,
+        onClick: () => {
+          deleteLabEntry(target.entryId);
+          for (const tab of workspaceTabsForClose) {
+            if (tab.resourceId === target.entryId) {
+              closeWorkspaceTab(tab.id);
+            }
+          }
+        },
+      });
+    }
+
     if (target.kind === "history" && http) {
       items.push({
         id: "delete-history",
@@ -501,6 +607,11 @@ export function ProtocolHttpSidebar() {
     deleteFolder,
     http,
     savedRequests,
+    labEntries,
+    renameLabEntry,
+    deleteLabEntry,
+    closeWorkspaceTab,
+    workspaceTabsForClose,
   ]);
 
   const renderTree = useCallback(
@@ -520,6 +631,8 @@ export function ProtocolHttpSidebar() {
             treeContext.savedRequests,
             treeContext.collectionParents,
             treeContext.requestParents,
+            treeContext.entryParents,
+            treeContext.labEntries,
             treeContext.siblingOrder,
           );
           const hasChildren = childEntries.length > 0;
@@ -546,20 +659,50 @@ export function ProtocolHttpSidebar() {
           );
         }
 
-        const req = entry.request;
-        const selected = selectedRequestId === req.id;
+        if (entry.kind === "request") {
+          const req = entry.request;
+          const selected = selectedResourceId === req.id;
+          return (
+            <ProtocolTreeNode
+              key={entry.key}
+              depth={depth}
+              kind="request"
+              expanded={false}
+              hasChildren={false}
+              active={selected}
+              label={req.name}
+              prefix={
+                <span className="h-method" style={{ color: methodColor(req.method) }}>
+                  {formatMethodBadge(req.method)}
+                </span>
+              }
+              dataTreeKey={entry.key}
+              className={`${hintClass}${draggingClass}`}
+              onToggle={() => {}}
+              onClick={() => {
+                if (consumeSkipClick()) return;
+                handleSelectRequest(req);
+              }}
+              onPointerDown={(e) => onNodePointerDown(e, entry.key)}
+              onContextMenu={(e) => openContextMenu(e, { kind: "request", requestId: req.id })}
+            />
+          );
+        }
+
+        const labEntry = entry.entry;
+        const selected = selectedResourceId === labEntry.id;
         return (
           <ProtocolTreeNode
             key={entry.key}
             depth={depth}
-            kind="request"
+            kind="entry"
             expanded={false}
             hasChildren={false}
             active={selected}
-            label={req.name}
+            label={labEntry.name}
             prefix={
-              <span className="h-method" style={{ color: methodColor(req.method) }}>
-                {formatMethodBadge(req.method)}
+              <span className="h-method" style={{ color: protocolColor(labEntry.protocol) }}>
+                {formatProtocolBadge(labEntry.protocol)}
               </span>
             }
             dataTreeKey={entry.key}
@@ -567,10 +710,10 @@ export function ProtocolHttpSidebar() {
             onToggle={() => {}}
             onClick={() => {
               if (consumeSkipClick()) return;
-              handleSelectRequest(req);
+              handleSelectEntry(labEntry);
             }}
             onPointerDown={(e) => onNodePointerDown(e, entry.key)}
-            onContextMenu={(e) => openContextMenu(e, { kind: "request", requestId: req.id })}
+            onContextMenu={(e) => openContextMenu(e, { kind: "entry", entryId: labEntry.id })}
           />
         );
       });
@@ -579,13 +722,14 @@ export function ProtocolHttpSidebar() {
       treeContext,
       dropHint,
       draggingKey,
-      selectedRequestId,
+      selectedResourceId,
       expandedFolderIds,
       onNodePointerDown,
       openContextMenu,
       consumeSkipClick,
       toggleFolderExpanded,
       handleSelectRequest,
+      handleSelectEntry,
     ],
   );
 
@@ -601,25 +745,10 @@ export function ProtocolHttpSidebar() {
     >
       <VerticalSplitSidebar className="proto-sidebar-sections">
         <VerticalSplitSidebarSection
-          title={t("protocol.sidebar.apiList")}
+          title={t("protocol.sidebar.protocolList")}
           expanded={sections.apis}
           onToggle={() => toggleSection("apis")}
-          actions={
-            <button
-              type="button"
-              className="proto-sidebar-new"
-              title={t("protocol.sidebar.newRequest")}
-              aria-label={t("protocol.sidebar.newRequest")}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleQuickCreateRequest();
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-          }
+          actions={<ProtocolSidebarNewButton />}
         >
           <div
             ref={treeRootRef}
@@ -627,7 +756,7 @@ export function ProtocolHttpSidebar() {
             onContextMenu={(e) => openContextMenu(e, { kind: "root" })}
           >
             {rootChildren.length === 0 ? (
-              <div className="proto-empty">{t("protocol.sidebar.apiListEmpty")}</div>
+              <div className="proto-empty">{t("protocol.sidebar.protocolListEmpty")}</div>
             ) : (
               renderTree(rootChildren, 0)
             )}

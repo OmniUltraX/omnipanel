@@ -1,6 +1,6 @@
 import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 
-export type ProtocolTreeNodeKind = "folder" | "request";
+export type ProtocolTreeNodeKind = "folder" | "request" | "entry";
 
 interface ProtocolTreeNodeProps {
   depth: number;

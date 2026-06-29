@@ -1,10 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
-use omnipanel_store::{KnowledgeChunkRecord, KnowledgeVectorStatus, chunk_text};
+use omnipanel_store::{
+    KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
+    KnowledgeVectorStatus, chunk_text,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::state::AppState;
 
@@ -35,6 +38,38 @@ pub struct KnowledgeVectorizeResult {
     pub chunk_count: u32,
     #[specta(type = f64)]
     pub embedded_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDeleteChunksResult {
+    pub entry_id: String,
+    #[specta(type = f64)]
+    pub deleted: i64,
+    #[specta(type = f64)]
+    pub remaining: i64,
+}
+
+/// 向量化进度（经 `knowledge-vectorize-progress` 事件推送至前端状态栏）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeVectorizeProgress {
+    pub entry_id: String,
+    pub title: String,
+    /// chunking | embedding | saving
+    pub phase: String,
+    #[serde(rename = "chunkTotal")]
+    pub chunk_total: u32,
+    #[serde(rename = "batchIndex")]
+    pub batch_index: u32,
+    #[serde(rename = "batchTotal")]
+    pub batch_total: u32,
+    #[serde(rename = "chunksDone")]
+    pub chunks_done: u32,
+}
+
+fn emit_vectorize_progress(state: &AppState, payload: KnowledgeVectorizeProgress) {
+    let _ = state.app_handle.emit("knowledge-vectorize-progress", payload);
 }
 
 fn now_millis() -> i64 {
@@ -130,15 +165,44 @@ pub async fn knowledge_vectorize(
     }
 
     let source = format!("{}\n\n{}", entry.title.trim(), entry.content.trim());
+    let entry_title = entry.title.clone();
     let pieces = chunk_text(&source, chunk_size, chunk_overlap);
     if pieces.is_empty() {
         return Err(OmniError::invalid_input("文档内容为空，无法向量化"));
     }
 
+    let chunk_total = pieces.len() as u32;
+    emit_vectorize_progress(
+        &state,
+        KnowledgeVectorizeProgress {
+            entry_id: args.entry_id.clone(),
+            title: entry_title.clone(),
+            phase: "chunking".into(),
+            chunk_total,
+            batch_index: 0,
+            batch_total: 0,
+            chunks_done: 0,
+        },
+    );
+
     let client = Client::new();
     let mut embeddings: Vec<Vec<f32>> = Vec::with_capacity(pieces.len());
     const BATCH: usize = 32;
-    for batch in pieces.chunks(BATCH) {
+    let batch_total = ((pieces.len() + BATCH - 1) / BATCH) as u32;
+    for (batch_idx, batch) in pieces.chunks(BATCH).enumerate() {
+        let batch_index = (batch_idx + 1) as u32;
+        emit_vectorize_progress(
+            &state,
+            KnowledgeVectorizeProgress {
+                entry_id: args.entry_id.clone(),
+                title: entry_title.clone(),
+                phase: "embedding".into(),
+                chunk_total,
+                batch_index,
+                batch_total,
+                chunks_done: embeddings.len() as u32,
+            },
+        );
         let batch_inputs: Vec<String> = batch.to_vec();
         let batch_vectors = fetch_openai_embeddings(
             &client,
@@ -155,7 +219,32 @@ pub async fn knowledge_vectorize(
             ))
         })?;
         embeddings.extend(batch_vectors);
+        emit_vectorize_progress(
+            &state,
+            KnowledgeVectorizeProgress {
+                entry_id: args.entry_id.clone(),
+                title: entry_title.clone(),
+                phase: "embedding".into(),
+                chunk_total,
+                batch_index,
+                batch_total,
+                chunks_done: embeddings.len() as u32,
+            },
+        );
     }
+
+    emit_vectorize_progress(
+        &state,
+        KnowledgeVectorizeProgress {
+            entry_id: args.entry_id.clone(),
+            title: entry_title.clone(),
+            phase: "saving".into(),
+            chunk_total,
+            batch_index: batch_total,
+            batch_total,
+            chunks_done: chunk_total,
+        },
+    );
 
     let embedded_at = now_millis();
     let records: Vec<KnowledgeChunkRecord> = pieces
@@ -194,4 +283,97 @@ pub async fn knowledge_vector_status(
 ) -> Result<Option<KnowledgeVectorStatus>, OmniError> {
     let storage = state.storage.lock().await;
     storage.knowledge_vector_status(&entry_id)
+}
+
+/// 分页列出条目的向量化文本块（不含 embedding）。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_list_chunks(
+    state: State<'_, AppState>,
+    entry_id: String,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> Result<KnowledgeChunkListResult, OmniError> {
+    const DEFAULT_LIMIT: i64 = 12;
+    let storage = state.storage.lock().await;
+    storage.list_knowledge_chunks_page(
+        &entry_id,
+        offset.unwrap_or(0) as i64,
+        limit.map(|n| n as i64).unwrap_or(DEFAULT_LIMIT),
+    )
+}
+
+/// 删除条目的指定文本块。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_delete_chunks(
+    state: State<'_, AppState>,
+    entry_id: String,
+    chunk_ids: Vec<String>,
+) -> Result<KnowledgeDeleteChunksResult, OmniError> {
+    let storage = state.storage.lock().await;
+    let (deleted, remaining) = storage.delete_knowledge_chunks(&entry_id, &chunk_ids)?;
+    Ok(KnowledgeDeleteChunksResult {
+        entry_id,
+        deleted,
+        remaining,
+    })
+}
+
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeRecallTestArgs {
+    pub entry_id: String,
+    pub query: String,
+    pub provider: EmbeddingProviderConfig,
+}
+
+/// 对单篇文档执行向量召回测试，返回全部文本块及其匹配度。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_recall_test(
+    state: State<'_, AppState>,
+    args: KnowledgeRecallTestArgs,
+) -> Result<Vec<KnowledgeRecallHit>, OmniError> {
+    if args.provider.api_standard.to_lowercase() == "anthropic" {
+        return Err(OmniError::invalid_input(
+            "Anthropic 提供商暂不支持 embedding，请在设置中选用 OpenAI 兼容模型",
+        ));
+    }
+    let query = args.query.trim();
+    if query.is_empty() {
+        return Err(OmniError::invalid_input("请输入召回测试查询"));
+    }
+
+    {
+        let storage = state.storage.lock().await;
+        let status = storage.knowledge_vector_status(&args.entry_id)?;
+        if status.map(|s| s.chunk_count).unwrap_or(0) <= 0 {
+            return Err(OmniError::invalid_input("文档尚未向量化，请先执行解析"));
+        }
+    }
+
+    let client = Client::new();
+    let query_vectors = fetch_openai_embeddings(
+        &client,
+        &args.provider.base_url,
+        &args.provider.api_key,
+        &args.provider.model_name,
+        &[query.to_string()],
+    )
+    .await
+    .map_err(|e| {
+        OmniError::connection(format!(
+            "provider {} / {}: {e}",
+            args.provider.provider_id, args.provider.model_name
+        ))
+    })?;
+    let query_embedding = query_vectors
+        .into_iter()
+        .next()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| OmniError::connection("query embedding 为空"))?;
+
+    let storage = state.storage.lock().await;
+    storage.recall_knowledge_entry_vectors(&args.entry_id, &query_embedding)
 }

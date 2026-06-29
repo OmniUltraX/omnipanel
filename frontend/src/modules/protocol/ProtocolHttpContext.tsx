@@ -92,7 +92,7 @@ interface ProtocolHttpContextValue {
   selectRequest: (req: SavedHttpRequest) => void;
   openRequestTab: (req: SavedHttpRequest) => void;
   clearSelectedRequest: () => void;
-  createRequest: (name: string, parentFolderId: string | null) => Promise<void>;
+  createRequest: (name: string, parentFolderId: string | null) => Promise<SavedHttpRequest | null>;
   saveCurrentRequest: (name: string, collectionId: string | null) => Promise<void>;
   persistCurrentRequest: () => Promise<boolean>;
   renameSavedRequest: (requestId: string, name: string) => Promise<void>;
@@ -521,12 +521,12 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
           parentFolderId ? { kind: "folder", folderId: parentFolderId } : { kind: "root" },
         );
         await loadSavedRequests();
-        openRequestTab(req);
-      } else {
-        console.error("[protocol] create request failed:", res.error);
+        return req;
       }
+      console.error("[protocol] create request failed:", res.error);
+      return null;
     },
-    [loadSavedRequests, openRequestTab],
+    [loadSavedRequests],
   );
 
   const saveCurrentRequest = useCallback(

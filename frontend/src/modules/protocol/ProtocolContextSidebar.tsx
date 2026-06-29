@@ -6,6 +6,7 @@ import {
   usePersistedVerticalSplitSections,
 } from "../../components/ui/VerticalSplitSidebar";
 import { ProtocolHttpSidebar } from "./ProtocolHttpSidebar";
+import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
 import { MQTT_TOPIC_PRESETS, useMqtt } from "./MqttContext";
 import { REDIS_CHANNEL_PRESETS } from "./RedisPubSubPanel";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
@@ -43,16 +44,18 @@ function ProtocolGenericSidebar({
     Object.entries(sections).map(([key, value]) => [key, value.defaultExpanded]),
   ) as Record<string, boolean>;
   const { sections: expanded, toggleSection } = usePersistedVerticalSplitSections(storageKey, defaults);
+  const sectionEntries = Object.entries(sections);
 
   return (
     <aside className="proto-sidebar proto-sidebar--tree">
       <VerticalSplitSidebar className="proto-sidebar-sections">
-        {Object.entries(sections).map(([key, section]) => (
+        {sectionEntries.map(([key, section], index) => (
           <VerticalSplitSidebarSection
             key={key}
             title={section.title}
             expanded={expanded[key]}
             onToggle={() => toggleSection(key)}
+            actions={index === 0 ? <ProtocolSidebarNewButton /> : undefined}
           >
             {section.content}
           </VerticalSplitSidebarSection>

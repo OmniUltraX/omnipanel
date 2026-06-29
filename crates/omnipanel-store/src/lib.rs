@@ -36,7 +36,9 @@ pub use http::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
 pub use knowledge_vector::{
-    KnowledgeChunkRecord, KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text,
+    KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
+    KnowledgeVectorHit,
+    KnowledgeVectorStatus, chunk_text,
 };
 pub use paths::{
     database_connections_path, database_schema_cache_path, database_schema_filters_path,

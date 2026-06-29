@@ -1403,4 +1403,89 @@
             grid-template-columns: 1fr;
         }
     }
+
+    .protocol-module-dock {
+        min-height: 0;
+        flex: 1;
+    }
+
+    .protocol-create-session-body .form-choice-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        max-height: 260px;
+        overflow-y: auto;
+        padding-top: 2px;
+    }
+
+    .protocol-create-session-body .form-choice-item {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-3);
+        margin: 0;
+        padding: var(--sp-2) var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        cursor: pointer;
+        user-select: none;
+        transition: border-color 0.12s ease, background 0.12s ease;
+    }
+
+    .protocol-create-session-body .form-choice-item:hover {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: var(--surface-hover, var(--bg-deeper));
+    }
+
+    .protocol-create-session-body .form-choice-item--selected,
+    .protocol-create-session-body .form-choice-item:has(input:checked) {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg-deeper));
+    }
+
+    .protocol-create-session-body .form-choice-item input[type="radio"] {
+        flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+        margin: 2px 0 0;
+        accent-color: var(--accent);
+        cursor: pointer;
+    }
+
+    .protocol-create-session-body .form-choice-item__body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .protocol-create-session-body .form-choice-item__label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--fg);
+        line-height: 1.35;
+    }
+
+    .protocol-create-session-body .form-choice-item__hint {
+        font-size: 11px;
+        color: var(--meta);
+        line-height: 1.4;
+    }
+
+    .protocol-create-session-body .form-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--meta);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .protocol-workspace-tab-panel--empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--meta);
+        font-size: 13px;
+    }
 }

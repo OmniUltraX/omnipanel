@@ -49,6 +49,7 @@ import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
+import { ProtocolNewTabDialog } from "./modules/protocol/ProtocolNewTabDialog";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import {
@@ -74,6 +75,7 @@ function TopbarPageActions() {
   const dockerRefreshing = useDockerTopbarStore((s) => s.refreshing);
   const requestDockerRefresh = useDockerTopbarStore((s) => s.requestRefresh);
   const triggerNewRequest = useProtocolTopbarStore((state) => state.triggerNewRequest);
+  const requestNewTabPicker = useProtocolTopbarStore((state) => state.requestNewTabPicker);
 
   if (path === MODULE_PATHS.terminal) {
     return null;
@@ -130,7 +132,7 @@ function TopbarPageActions() {
             <path d="M12 15V3" />
           </svg>
         </Button>
-        <Button variant="primary" size="sm" onClick={triggerNewRequest}>
+        <Button variant="primary" size="sm" onClick={requestNewTabPicker}>
           {t("protocol.actions.newTab")}
         </Button>
       </>
@@ -293,6 +295,16 @@ function AppShell() {
     if (location.pathname !== "/") return;
     navigate(DASHBOARD_PATH, { replace: true });
   }, [location.pathname, navigate]);
+
+  const isProtocol = location.pathname === MODULE_PATHS.protocol;
+  const protocolNewTabPickerOpen = useProtocolTopbarStore((s) => s.newTabPickerOpen);
+  const setProtocolNewTabPickerOpen = useProtocolTopbarStore((s) => s.setNewTabPickerOpen);
+
+  useEffect(() => {
+    if (!isProtocol && protocolNewTabPickerOpen) {
+      setProtocolNewTabPickerOpen(false);
+    }
+  }, [isProtocol, protocolNewTabPickerOpen, setProtocolNewTabPickerOpen]);
 
   useEffect(() => {
     if (!TOPBAR_TAB_ROUTES.includes(location.pathname)) {
@@ -536,6 +548,10 @@ function AppShell() {
           onCancel={() => cancelAction(pendingRiskAction.id)}
         />
       )}
+      <ProtocolNewTabDialog
+        open={protocolNewTabPickerOpen}
+        onOpenChange={setProtocolNewTabPickerOpen}
+      />
       </div>
     </AiRuntimeProvider>
   );

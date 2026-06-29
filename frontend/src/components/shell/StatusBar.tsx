@@ -10,6 +10,7 @@ import { useStatusBarLogStore } from "../../stores/statusBarLogStore";
 import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { StatusBarAgentIndicator } from "./StatusBarAgentIndicator";
 
 /** 订阅当前激活模块的运行日志并展示在状态栏 */
 function StatusBarModuleLog() {
@@ -192,6 +193,7 @@ export function StatusBar() {
         <span className="statusbar-item">GPU: wgpu</span>
         <span className="statusbar-item">UTF-8</span>
         <span className="statusbar-item">LF</span>
+        <StatusBarAgentIndicator />
         {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
       </div>
     );
@@ -202,6 +204,7 @@ export function StatusBar() {
       <ConnectionPoolIndicator />
       <StatusBarModuleLog />
       <span className="statusbar-spacer" />
+      <StatusBarAgentIndicator />
       {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
     </div>
   );

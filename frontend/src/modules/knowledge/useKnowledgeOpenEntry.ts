@@ -1,12 +1,15 @@
 import { useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
 import { patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
+import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
 import { isKnowledgeFolder } from "./knowledgeTree";
 import {
   findPreviewDockTab,
   findTabIdForEntry,
+  findTabIdForEntryChunks,
+  makeChunksTabLabel,
   makeKnowledgeTabId,
   tabMatchesEntry,
   type KnowledgeDockOpenMode,
@@ -14,6 +17,7 @@ import {
 
 /** 知识库文档 Tab 打开/切换（侧栏与工作区共用）。 */
 export function useKnowledgeOpenEntry() {
+  const { t } = useI18n();
   const entries = useKnowledgeStore((s) => s.entries);
   const setSelectedEntry = useKnowledgeStore((s) => s.setSelectedEntry);
 
@@ -127,8 +131,35 @@ export function useKnowledgeOpenEntry() {
     ],
   );
 
+  const openEntryChunks = useCallback(
+    (entryId: string) => {
+      const entry = entries.find((item) => item.id === entryId);
+      if (!entry || isKnowledgeFolder(entry)) {
+        return;
+      }
+
+      setSelectedEntry(entryId);
+      const moduleTabs = workspaceTabsRef.current;
+      const existingTabId = findTabIdForEntryChunks(moduleTabs, entryId);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+
+      const tabId = makeKnowledgeTabId();
+      const label = makeChunksTabLabel(entry.title, t("knowledge.chunks.tabSuffix"));
+      setWorkspaceTabs((prev) => [
+        ...prev,
+        { id: tabId, entryId, label, kind: "chunks" },
+      ]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, entries, setSelectedEntry, setWorkspaceTabs, t],
+  );
+
   return {
     openEntry,
+    openEntryChunks,
     activateWorkspaceTab,
     promotePreviewTab,
     workspaceTabs,

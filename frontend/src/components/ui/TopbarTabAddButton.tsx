@@ -94,6 +94,7 @@ export function TopbarTabAddButton({
                 top: addMenuPosition.top,
                 left: addMenuPosition.left,
                 minWidth: addMenuPosition.minWidth,
+                zIndex: "var(--z-subwindow-popover)",
               }}
             >
               {menuItems!.map((item) => (

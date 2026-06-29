@@ -9,10 +9,12 @@ import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
 import { KnowledgeDocumentPanel } from "./KnowledgeDocumentPanel";
+import { KnowledgeChunksPanel } from "./KnowledgeChunksPanel";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
 import { KnowledgeTodosView } from "./KnowledgeTodosView";
 import { isKnowledgeImported } from "./knowledgeTree";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
+import { initKnowledgeVectorizeProgressListener } from "./knowledgeVectorizeStatusLog";
 
 type KnowledgeModuleTab = "library" | "todos";
 const KNOWLEDGE_TABS: KnowledgeModuleTab[] = ["library", "todos"];
@@ -41,6 +43,16 @@ export function KnowledgePanel() {
       void loadEntries();
     }
   }, [loadEntries, mode]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void initKnowledgeVectorizeProgressListener(t).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [t]);
 
   const modeIconItems = useMemo(
     () => [
@@ -78,6 +90,17 @@ export function KnowledgePanel() {
     setWorkspaceTabs((prev) => {
       let changed = false;
       const next = prev.map((tab) => {
+        if (tab.kind === "chunks") {
+          const entry = entries.find((item) => item.id === tab.entryId);
+          if (entry) {
+            const label = `${entry.title} · ${t("knowledge.chunks.tabSuffix")}`;
+            if (label !== tab.label) {
+              changed = true;
+              return { ...tab, label };
+            }
+          }
+          return tab;
+        }
         const entry = entries.find((item) => item.id === tab.entryId);
         if (entry && entry.title !== tab.label) {
           changed = true;
@@ -87,7 +110,7 @@ export function KnowledgePanel() {
       });
       return changed ? next : prev;
     });
-  }, [entries, mode, setWorkspaceTabs]);
+  }, [entries, mode, setWorkspaceTabs, t]);
 
   const dockTabs = useMemo(() => {
     if (mode !== "library") {
@@ -96,15 +119,16 @@ export function KnowledgePanel() {
     return workspaceTabs.map((tab) => {
       const entry = entries.find((item) => item.id === tab.entryId);
       const imported = entry ? isKnowledgeImported(entry) : false;
+      const isChunks = tab.kind === "chunks";
       return {
         id: tab.id,
         label: tab.label,
         panelType: "knowledge",
-        icon: "file-local" as const,
+        icon: (isChunks ? "table" : "file-local") as const,
         tooltip: tab.label,
         closable: true,
         preview: Boolean(tab.preview),
-        ...(!imported ? { type: "file" as const } : {}),
+        ...(!imported && !isChunks ? { type: "file" as const } : {}),
       };
     });
   }, [entries, mode, t, workspaceTabs]);
@@ -133,6 +157,9 @@ export function KnowledgePanel() {
       }
       const tab = workspaceTabs.find((item) => item.id === tabId);
       if (!tab) return null;
+      if (tab.kind === "chunks") {
+        return <KnowledgeChunksPanel entryId={tab.entryId} />;
+      }
       return <KnowledgeDocumentPanel entryId={tab.entryId} />;
     },
     [mode, workspaceTabs],

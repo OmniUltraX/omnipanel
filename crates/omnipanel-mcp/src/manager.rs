@@ -22,6 +22,7 @@ use crate::store::{
 use crate::types::{
     McpServiceConfig, McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpTransport,
     BUILTIN_MCP_ENDPOINT, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
+    OMNI_MODULE_MASTER,
 };
 
 struct BuiltinServerRuntime {
@@ -189,7 +190,9 @@ impl McpManager {
                 .as_ref()
                 .map(|b| b.endpoint.clone())
                 .context("OmniMCP 未运行")?;
-            let mut tools = crate::client::list_tools_http(&endpoint).await?;
+            let mut tools =
+                crate::client::list_tools_http_for_module(&endpoint, Some(OMNI_MODULE_MASTER))
+                    .await?;
             let storage = self.storage.lock().await;
             tools.retain(|tool| storage.mcp_tool_is_available(&tool.name).unwrap_or(false));
             return Ok(tools);

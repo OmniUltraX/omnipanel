@@ -36,7 +36,7 @@ import {
   type KnowledgeLibrarySection,
   type KnowledgeTreeNode,
 } from "./knowledgeTree";
-import { dispatchKnowledgeVectorized, vectorizeKnowledgeEntry } from "./knowledgeVectorize";
+import { dispatchKnowledgeVectorized, loadKnowledgeVectorStatus, vectorizeKnowledgeEntry, KNOWLEDGE_VECTORIZED_EVENT, KNOWLEDGE_CHUNKS_CHANGED_EVENT } from "./knowledgeVectorize";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
@@ -273,7 +273,7 @@ function renderTreeNodes(
 
 export function KnowledgeSidebar() {
   const { t } = useI18n();
-  const { openEntry } = useKnowledgeOpenEntry();
+  const { openEntry, openEntryChunks } = useKnowledgeOpenEntry();
 
   const entries = useKnowledgeStore((s) => s.entries);
   const expandedIds = useKnowledgeStore((s) => s.expandedIds);
@@ -296,6 +296,7 @@ export function KnowledgeSidebar() {
   const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
 
   const [ctxMenu, setCtxMenu] = useState<TreeCtx | null>(null);
+  const [ctxVectorized, setCtxVectorized] = useState(false);
   const [blankCtx, setBlankCtx] = useState<{ x: number; y: number; section: KnowledgeLibrarySection } | null>(
     null,
   );
@@ -336,6 +337,50 @@ export function KnowledgeSidebar() {
   );
 
   const ctxEntry = ctxMenu?.entry ?? null;
+
+  useEffect(() => {
+    if (!ctxEntry || isKnowledgeFolder(ctxEntry)) {
+      setCtxVectorized(false);
+      return;
+    }
+    let cancelled = false;
+    void loadKnowledgeVectorStatus(ctxEntry.id)
+      .then((status) => {
+        if (!cancelled) {
+          setCtxVectorized(Boolean(status?.chunkCount && status.chunkCount > 0));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCtxVectorized(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctxEntry?.id]);
+
+  useEffect(() => {
+    const onVectorized = (event: Event) => {
+      const detail = (event as CustomEvent<{ entryId: string }>).detail;
+      if (ctxEntry && detail?.entryId === ctxEntry.id) {
+        setCtxVectorized(true);
+      }
+    };
+    const onChunksChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ entryId: string }>).detail;
+      if (!ctxEntry || detail?.entryId !== ctxEntry.id) return;
+      void loadKnowledgeVectorStatus(ctxEntry.id)
+        .then((status) => {
+          setCtxVectorized(Boolean(status?.chunkCount && status.chunkCount > 0));
+        })
+        .catch(() => setCtxVectorized(false));
+    };
+    window.addEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
+    window.addEventListener(KNOWLEDGE_CHUNKS_CHANGED_EVENT, onChunksChanged);
+    return () => {
+      window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
+      window.removeEventListener(KNOWLEDGE_CHUNKS_CHANGED_EVENT, onChunksChanged);
+    };
+  }, [ctxEntry?.id]);
 
   const parentForNew = useCallback(
     (section: KnowledgeLibrarySection) => {
@@ -403,7 +448,11 @@ export function KnowledgeSidebar() {
         publishModuleStatusLog("knowledge", t("knowledge.vectorize.noModel"), "error");
         return;
       }
-      publishModuleStatusLog("knowledge", t("knowledge.vectorize.parsing"), "progress");
+      publishModuleStatusLog(
+        "knowledge",
+        t("knowledge.vectorize.parsing", { title: entry.title }),
+        "progress",
+      );
       const result = await vectorizeKnowledgeEntry(entry.id, embeddingProvider, {
         knowledgeChunkSize,
         knowledgeChunkOverlap,
@@ -454,8 +503,15 @@ export function KnowledgeSidebar() {
             {
               id: "vectorize",
               label: t("knowledge.vectorize.parse"),
+              shortcut: ctxVectorized ? t("knowledge.vectorize.reparse") : undefined,
               disabled: !embeddingProvider,
               onClick: () => void handleVectorize(ctxEntry),
+            },
+            {
+              id: "text-chunks",
+              label: t("knowledge.chunks.open"),
+              disabled: !ctxVectorized,
+              onClick: () => openEntryChunks(ctxEntry.id),
             },
           ]
         : []),
@@ -496,6 +552,8 @@ export function KnowledgeSidebar() {
     handleRename,
     handleVectorize,
     embeddingProvider,
+    ctxVectorized,
+    openEntryChunks,
     parentForNew,
     t,
   ]);
