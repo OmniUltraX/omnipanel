@@ -31,8 +31,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Database
-# SQLite 统一由 rusqlite 承担（本地库 + 用户 SQLite 连接）；sqlx 仅负责远程网络数据库
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "mysql", "postgres"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "mysql", "postgres", "json"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # Error handling

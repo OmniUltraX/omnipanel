@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow, MySqlSslMode};
+use sqlx::types::Json;
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
@@ -175,6 +176,17 @@ async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
     Ok(result)
 }
 
+fn decode_json_column(row: &MySqlRow, index: usize) -> Option<Value> {
+    row.try_get::<Json<Value>, _>(index)
+        .ok()
+        .map(|Json(v)| v)
+}
+
+fn decode_bytes_as_json_or_text(bytes: Vec<u8>) -> Value {
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    serde_json::from_str(&text).unwrap_or(Value::String(text))
+}
+
 fn extract(row: &MySqlRow, index: usize) -> Value {
     let Ok(raw) = row.try_get_raw(index) else {
         return Value::Null;
@@ -202,12 +214,20 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     if type_name.contains("blob") || type_name.contains("binary") {
         return Value::String("[BLOB]".to_string());
     }
+    // sqlx 0.8+：MySQL JSON 列无法直接 decode 为 String，需 Json<Value> 或字节再解析。
+    if type_name.contains("json") {
+        if let Some(v) = decode_json_column(row, index) {
+            return v;
+        }
+    }
     match row.try_get::<String, _>(index) {
         Ok(v) => Value::String(v),
-        Err(_) => row
-            .try_get::<Vec<u8>, _>(index)
-            .ok()
-            .map(|bytes| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+        Err(_) => decode_json_column(row, index)
+            .or_else(|| {
+                row.try_get::<Vec<u8>, _>(index)
+                    .ok()
+                    .map(decode_bytes_as_json_or_text)
+            })
             .unwrap_or(Value::Null),
     }
 }

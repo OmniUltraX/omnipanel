@@ -1,0 +1,8 @@
+[submodule "miniapp"]
+	path = miniapp
+	url = git@github.com:OmniUltraX/OmniMiniapp.git
+
+[submodule "agent"]
+	path = agent
+	url = git@github.com:OmniUltraX/omniagent.git
+	branch = main

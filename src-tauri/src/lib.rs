@@ -1,3 +1,4 @@
+mod agent_paths;
 mod background;
 mod commands;
 mod log_store;

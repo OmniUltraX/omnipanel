@@ -12,6 +12,7 @@ import type { DatabaseSchema } from "../../types";
 import {
   positionToOffset,
   sqlAtOffset,
+  resolveSqlToRun,
   isSqlEditorFocused,
   findStatementRangeAtOffset,
 } from "../language/selection";
@@ -28,6 +29,8 @@ export type SqlEditorOpenMode = "query" | "table";
 export interface SqlEditorHandle {
   formatAll: () => void;
   formatCurrentStatement: () => void;
+  getSqlAtCursor: () => string;
+  getSelectedSql: () => string;
 }
 
 interface SqlEditorProps {
@@ -57,8 +60,8 @@ function runStatementAtCursor(
   onRun: (sqlAtCursor: string) => void,
 ): void {
   const text = view.state.doc.toString();
-  const offset = view.state.selection.main.head;
-  onRun(sqlAtOffset(text, offset));
+  const { from, to, head } = view.state.selection.main;
+  onRun(resolveSqlToRun(text, { from, to, head }));
 }
 
 function applyFormatToView(
@@ -157,13 +160,30 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     applyFormatToView(view, dbTypeRef.current, findStatementRangeAtOffset(text, head));
   }, []);
 
+  const getSqlAtCursorFromView = useCallback((): string => {
+    const view = viewRef.current;
+    const text = view?.state.doc.toString() ?? valueRef.current;
+    const head = view?.state.selection.main.head ?? text.length;
+    return sqlAtOffset(text, head);
+  }, []);
+
+  const getSelectedSqlFromView = useCallback((): string => {
+    const view = viewRef.current;
+    if (!view) return "";
+    const { from, to } = view.state.selection.main;
+    if (from === to) return "";
+    return view.state.doc.sliceString(from, to).trim();
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
       formatAll: formatAllInView,
       formatCurrentStatement: formatCurrentStatementInView,
+      getSqlAtCursor: getSqlAtCursorFromView,
+      getSelectedSql: getSelectedSqlFromView,
     }),
-    [formatAllInView, formatCurrentStatementInView],
+    [formatAllInView, formatCurrentStatementInView, getSqlAtCursorFromView, getSelectedSqlFromView],
   );
 
   useEffect(() => {

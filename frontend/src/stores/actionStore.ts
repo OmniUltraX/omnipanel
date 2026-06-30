@@ -76,9 +76,11 @@ export const useActionStore = create<ActionState>((set, get) => ({
     const envRisk: DangerLevel = environment === "prod" ? "high" : environment === "staging" ? "medium" : "low";
     const risk = maxDangerLevel(riskCheck?.level ?? "low", envRisk);
     const blocked =
-      options?.requireApproval !== undefined
-        ? options.requireApproval
-        : risk !== "low";
+      input.type === "sql"
+        ? false
+        : options?.requireApproval !== undefined
+          ? options.requireApproval
+          : risk !== "low";
 
     const action: WorkspaceAction = {
       ...input,

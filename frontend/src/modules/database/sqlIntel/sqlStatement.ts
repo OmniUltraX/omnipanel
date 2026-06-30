@@ -15,6 +15,19 @@ export function sqlAtOffset(sql: string, offset: number): string {
   return statement || sql.trim();
 }
 
+/** Ctrl+Enter：有选区时执行选中文本，否则执行光标所在语句。 */
+export function resolveSqlToRun(
+  text: string,
+  selection: { from: number; to: number; head: number },
+): string {
+  const { from, to, head } = selection;
+  if (from !== to) {
+    const selected = text.slice(from, to).trim();
+    if (selected) return selected;
+  }
+  return sqlAtOffset(text, head);
+}
+
 /** 将行列转为字符串 offset。 */
 export function positionToOffset(text: string, lineNumber: number, column: number): number {
   const lines = text.split("\n");

@@ -6,6 +6,7 @@ export {
 export {
   extractStatementAtOffset,
   sqlAtOffset,
+  resolveSqlToRun,
   positionToOffset,
   isSqlEditorFocused,
   isSqlMonacoEditorFocused,

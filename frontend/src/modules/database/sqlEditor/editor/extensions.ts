@@ -37,7 +37,7 @@ import { createSqlLinter } from "../language/lint";
 import { createSqlHoverTooltip } from "../language/hover";
 import { activeStatementPlugin } from "../language/activeStatement";
 import { createFunctionSignaturePlugin } from "../language/signature";
-import { sqlAtOffset } from "../language/selection";
+import { resolveSqlToRun } from "../language/selection";
 
 export interface SqlEditorExtensionOptions {
   getSchemas: () => DatabaseSchema[];
@@ -108,8 +108,8 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
           const onRun = getOnRun?.();
           if (!onRun) return false;
           const text = view.state.doc.toString();
-          const offset = view.state.selection.main.head;
-          onRun(sqlAtOffset(text, offset));
+          const { from, to, head } = view.state.selection.main;
+          onRun(resolveSqlToRun(text, { from, to, head }));
           return true;
         },
       },

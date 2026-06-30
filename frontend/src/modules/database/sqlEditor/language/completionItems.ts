@@ -238,6 +238,11 @@ function shouldFilterColumnsByFromTable(context: SqlCompletionContext): boolean 
   return context === "where_clause" || context === "group_by" || context === "order_by";
 }
 
+/** WHERE / GROUP BY / ORDER BY 且仅单表：只补裸字段名，不补 表.字段 / 库.表.字段。 */
+function preferBareColumnsOnly(context: SqlCompletionContext, tableCount: number): boolean {
+  return shouldFilterColumnsByFromTable(context) && tableCount === 1;
+}
+
 function buildAllColumnsCompletionItem(
   table: TableSchema,
   qualifiedTable: string,
@@ -434,6 +439,7 @@ function buildColumnsFromAnalysis(
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
   const multiTable = analysis.tables.length > 1;
+  const bareOnly = preferBareColumnsOnly(context, analysis.tables.length);
 
   for (const ref of analysis.tables) {
     const resolved = catalog.findTable(ref.tableName, ref.schemaName);
@@ -451,22 +457,24 @@ function buildColumnsFromAnalysis(
         });
       }
 
-      for (const qualifier of qualifiers) {
-        items.push({
-          label: `${qualifier}.${column.name}`,
-          kind: COLUMN_KIND,
-          detail: `${column.type} · ${ref.tableName}${ref.alias && ref.alias !== ref.tableName ? ` (${ref.alias})` : ""}`,
-          insertText: `${qualifier}.${column.name}`,
-        });
-      }
+      if (!bareOnly) {
+        for (const qualifier of qualifiers) {
+          items.push({
+            label: `${qualifier}.${column.name}`,
+            kind: COLUMN_KIND,
+            detail: `${column.type} · ${ref.tableName}${ref.alias && ref.alias !== ref.tableName ? ` (${ref.alias})` : ""}`,
+            insertText: `${qualifier}.${column.name}`,
+          });
+        }
 
-      if (context !== "select_list") {
-        items.push({
-          label: `${resolved.database.name}.${table.name}.${column.name}`,
-          kind: COLUMN_KIND,
-          detail: `${column.type} · ${resolved.database.name}.${table.name}`,
-          insertText: `${resolved.database.name}.${table.name}.${column.name}`,
-        });
+        if (context !== "select_list") {
+          items.push({
+            label: `${resolved.database.name}.${table.name}.${column.name}`,
+            kind: COLUMN_KIND,
+            detail: `${column.type} · ${resolved.database.name}.${table.name}`,
+            insertText: `${resolved.database.name}.${table.name}.${column.name}`,
+          });
+        }
       }
     }
   }
@@ -477,13 +485,17 @@ function buildColumnsFromAnalysis(
 function buildAllColumnsFromAnalysis(
   analysis: StatementAnalysis,
   catalog: Catalog,
+  context: SqlCompletionContext,
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
+  const bareOnly = preferBareColumnsOnly(context, analysis.tables.length);
   for (const ref of analysis.tables) {
     const resolved = catalog.findTable(ref.tableName, ref.schemaName);
     if (!resolved || resolved.table.columns.length === 0) continue;
     const qualifier = ref.alias ?? ref.tableName;
-    const insertText = resolved.table.columns.map((column) => `${qualifier}.${column.name}`).join(", ");
+    const insertText = resolved.table.columns
+      .map((column) => (bareOnly ? column.name : `${qualifier}.${column.name}`))
+      .join(", ");
     const label = insertText.length > 96 ? `${insertText.slice(0, 93)}...` : insertText;
     items.push({
       label,
@@ -524,7 +536,9 @@ export function getCompletionItems(
       analysis,
       catalog,
       context,
-      context === "select_list" || context === "general",
+      context === "select_list" ||
+        context === "general" ||
+        shouldFilterColumnsByFromTable(context),
     );
   }
 
@@ -569,6 +583,14 @@ export function getCompletionItems(
           continue;
         }
 
+        const fallbackTableCount =
+          analysis && analysis.tables.length > 0
+            ? analysis.tables.length
+            : fromTable
+              ? 1
+              : 0;
+        const bareOnly = preferBareColumnsOnly(context, fallbackTableCount);
+
         for (const column of table.columns) {
           columns.push({
             label: column.name,
@@ -576,19 +598,21 @@ export function getCompletionItems(
             detail: `${column.type} · ${table.name}`,
             insertText: column.name,
           });
-          columns.push({
-            label: `${table.name}.${column.name}`,
-            kind: COLUMN_KIND,
-            detail: `${column.type} · ${table.name}`,
-            insertText: `${table.name}.${column.name}`,
-          });
-          if (context !== "select_list") {
+          if (!bareOnly) {
             columns.push({
-              label: `${database.name}.${table.name}.${column.name}`,
+              label: `${table.name}.${column.name}`,
               kind: COLUMN_KIND,
-              detail: `${column.type} · ${database.name}.${table.name}`,
-              insertText: `${database.name}.${table.name}.${column.name}`,
+              detail: `${column.type} · ${table.name}`,
+              insertText: `${table.name}.${column.name}`,
             });
+            if (context !== "select_list") {
+              columns.push({
+                label: `${database.name}.${table.name}.${column.name}`,
+                kind: COLUMN_KIND,
+                detail: `${column.type} · ${database.name}.${table.name}`,
+                insertText: `${database.name}.${table.name}.${column.name}`,
+              });
+            }
           }
         }
       }
@@ -602,7 +626,7 @@ export function getCompletionItems(
   const allColumnsItem =
     !prefix && context !== "select_list"
       ? analysis && analysis.tables.length > 0
-        ? buildAllColumnsFromAnalysis(analysis, catalog)[0] ?? null
+        ? buildAllColumnsFromAnalysis(analysis, catalog, context)[0] ?? null
         : fromTable
           ? buildAllColumnsCompletionItem(fromTable.table, fromTable.qualifiedTable)
           : null

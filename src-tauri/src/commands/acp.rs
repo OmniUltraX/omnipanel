@@ -14,6 +14,7 @@ use specta::Type;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
+use crate::agent_paths::{resolve_bundled_agent_dir, resolve_repo_agent_dir};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -165,15 +166,6 @@ fn default_cwd() -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-fn resolve_repo_agent_dir() -> Option<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let agent_dir = manifest.join("../agent");
-    if agent_dir.join("index.ts").exists() {
-        return agent_dir.canonicalize().ok();
-    }
-    None
-}
-
 struct AgentLaunchSpec {
     binary: String,
     args: Vec<String>,
@@ -183,14 +175,10 @@ struct AgentLaunchSpec {
 
 fn resolve_default_agent_launch(app: &AppHandle) -> Option<AgentLaunchSpec> {
     let agent_dir = resolve_repo_agent_dir().or_else(|| {
-        app.path().resource_dir().ok().and_then(|resource_dir| {
-            let bundled = resource_dir.join("agent");
-            if bundled.join("index.ts").exists() {
-                Some(bundled)
-            } else {
-                None
-            }
-        })
+        app.path()
+            .resource_dir()
+            .ok()
+            .and_then(|resource_dir| resolve_bundled_agent_dir(&resource_dir))
     })?;
     let agent_dir = agent_dir.canonicalize().ok()?;
     Some(AgentLaunchSpec {

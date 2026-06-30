@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import {
   useDbWorkspace,
@@ -14,6 +14,7 @@ import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "./SqlEd
 import { SqlResultSessionsDock } from "./SqlResultSessionsDock";
 import { useI18n } from "../../i18n";
 import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
+import { sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { isConnectionEnabled } from "./api";
 import type { DatabaseSchema } from "./types";
 
@@ -117,6 +118,53 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
   const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(_mode);
   const sqlEditorRef = useRef<SqlEditorHandle>(null);
 
+  const canRunSql = Boolean(connectionForRun && tabState.database.trim());
+
+  const runCurrentSql = useCallback(() => {
+    const sql =
+      sqlEditorRef.current?.getSqlAtCursor() ??
+      sqlAtOffset(tabState.sql, tabState.cursorOffset);
+    if (!sql.trim()) {
+      ws.updateSqlTabState(tab.id, { error: t("database.results.emptySql") });
+      return;
+    }
+    void ws.runQuery(sql, tab.id);
+  }, [ws, tab.id, tabState.sql, tabState.cursorOffset, t]);
+
+  const runSelectedSql = useCallback(() => {
+    const sql = sqlEditorRef.current?.getSelectedSql() ?? "";
+    if (!sql.trim()) {
+      ws.updateSqlTabState(tab.id, { error: t("database.results.emptySelection") });
+      return;
+    }
+    void ws.runQuery(sql, tab.id);
+  }, [ws, tab.id, t]);
+
+  const runAllSql = useCallback(() => {
+    void ws.runQuery(undefined, tab.id);
+  }, [ws.runQuery, tab.id]);
+
+  const runSqlMenuItems = useMemo(
+    () => [
+      {
+        id: "run-current",
+        label: t("database.runSqlCurrent"),
+        onSelect: runCurrentSql,
+      },
+      {
+        id: "run-selected",
+        label: t("database.runSqlSelected"),
+        onSelect: runSelectedSql,
+      },
+      {
+        id: "run-all",
+        label: t("database.runSqlAll"),
+        onSelect: runAllSql,
+      },
+    ],
+    [t, runCurrentSql, runSelectedSql, runAllSql],
+  );
+
   const handleActiveSessionChange = useCallback(
     (sessionId: string) => {
       ws.updateSqlTabState(tab.id, { activeResultSessionId: sessionId });
@@ -171,40 +219,47 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
         {schemaLoading && (
           <span className="sql-toolbar-meta">{t("common.loading")}</span>
         )}
-        <ToolbarMenuButton
-          label={t("database.formatSql")}
-          title={t("database.formatSql")}
-          disabled={tabState.running}
-          items={[
-            {
-              id: "format-current",
-              label: t("database.formatSqlCurrent"),
-              onSelect: () => sqlEditorRef.current?.formatCurrentStatement(),
-            },
-            {
-              id: "format-all",
-              label: t("database.formatSqlAll"),
-              onSelect: () => sqlEditorRef.current?.formatAll(),
-            },
-          ]}
-        />
         <Button
-          variant={tabState.running ? "destructive" : "primary"}
-          size="sm"
-          style={{ marginLeft: "auto" }}
-          onClick={() =>
-            tabState.running
-              ? void ws.cancelQuery(tab.id)
-              : void ws.runQuery(undefined, tab.id)
-          }
-          disabled={
-            tabState.running
-              ? false
-              : !connectionForRun || !tabState.database.trim()
-          }
+          variant="icon"
+          title={t("database.formatSqlFile")}
+          aria-label={t("database.formatSqlFile")}
+          disabled={tabState.running}
+          onClick={() => sqlEditorRef.current?.formatAll()}
         >
-          {tabState.running ? t("database.cancelSql") : t("database.runSql")}
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            width="14"
+            height="14"
+            aria-hidden
+          >
+            <path d="M2 3.5h12" strokeLinecap="round" />
+            <path d="M2 7h8" strokeLinecap="round" />
+            <path d="M2 10.5h10" strokeLinecap="round" />
+            <path d="M2 14h6" strokeLinecap="round" />
+          </svg>
         </Button>
+        {tabState.running ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            style={{ marginLeft: "auto" }}
+            onClick={() => void ws.cancelQuery(tab.id)}
+          >
+            {t("database.cancelSql")}
+          </Button>
+        ) : (
+          <ToolbarMenuButton
+            label={t("database.runSql")}
+            title={t("database.runSql")}
+            variant="primary"
+            disabled={!canRunSql}
+            className="sql-toolbar-run"
+            items={runSqlMenuItems}
+          />
+        )}
       </div>
       {tabState.error && !tabState.running ? (
         <div className="sql-toolbar-error text-danger">{tabState.error}</div>

@@ -4470,6 +4470,10 @@
         background: var(--bg);
     }
 
+    .sql-toolbar-run {
+        margin-left: auto;
+    }
+
     .sql-toolbar .db-select {
         background: var(--surface);
         border: 1px solid var(--border);

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow};
+use sqlx::types::Json;
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
@@ -171,9 +172,17 @@ fn extract(row: &PgRow, index: usize) -> Value {
                     .unwrap_or(Value::Null)
             }),
         "bytea" => Value::String("[BYTEA]".to_string()),
+        "json" | "jsonb" => row
+            .try_get::<Json<Value>, _>(index)
+            .map(|Json(v)| v)
+            .unwrap_or(Value::Null),
         _ => row
             .try_get::<String, _>(index)
             .map(Value::String)
+            .or_else(|_| {
+                row.try_get::<Json<Value>, _>(index)
+                    .map(|Json(v)| v)
+            })
             .unwrap_or(Value::Null),
     }
 }
