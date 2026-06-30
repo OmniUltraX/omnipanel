@@ -2,7 +2,7 @@ import { setTerminalPaneSender, terminalPaneSenders } from "../terminalPaneSende
 import { findTerminalPane } from "../../../stores/terminalStore";
 import { resolveTerminalShellFamily } from "../terminalAutoLsShell";
 import { useSessionShellHistoryStore } from "./sessionShellHistoryStore";
-import { fetchShellHistoryFromBackend } from "./shellHistoryFetch";
+import { fetchShellHistoryForSession, ptyHistorySyncedBackendIds, resolveBackendSessionId } from "./shellHistoryFetch";
 
 /** 文本同步标记（PTY 回显解析备用） */
 export const SHELL_HISTORY_SYNC_BEGIN = "__OMNIPANEL_HIST_BEGIN__";
@@ -89,18 +89,28 @@ function requestShellHistorySyncViaPty(sessionId: string): void {
   const sender = terminalPaneSenders[sessionId];
   if (!sender || syncingSessions.has(sessionId)) return;
 
+  const backendId = resolveBackendSessionId(sessionId);
+  if (backendId && ptyHistorySyncedBackendIds.has(backendId)) return;
+
   const command = resolveShellHistorySyncCommand(sessionId);
   if (!command) return;
 
   beginSilentHistorySync(sessionId);
   sender(command);
+  if (backendId) ptyHistorySyncedBackendIds.add(backendId);
 }
 
-/** 拉取 shell 历史：远端优先 SFTP 直读，本地/失败再走 PTY 静默同步 */
-export function requestShellHistorySync(sessionId: string): void {
+/** 拉取 shell 历史：本地/远端优先直读历史文件，失败再走 PTY 静默同步 */
+export function requestShellHistorySync(sessionId: string, options?: { force?: boolean }): void {
+  if (!options?.force) {
+    const backendId = resolveBackendSessionId(sessionId);
+    if (backendId && ptyHistorySyncedBackendIds.has(backendId)) return;
+  }
+
   const syncedAt = useSessionShellHistoryStore.getState().getSyncedAt(sessionId);
   const existingCount = useSessionShellHistoryStore.getState().getCommands(sessionId).length;
   if (
+    !options?.force &&
     syncedAt > 0 &&
     Date.now() - syncedAt < SYNC_THROTTLE_MS &&
     existingCount >= 20
@@ -108,7 +118,7 @@ export function requestShellHistorySync(sessionId: string): void {
     return;
   }
 
-  void fetchShellHistoryFromBackend(sessionId).then((ok) => {
+  void fetchShellHistoryForSession(sessionId).then((ok) => {
     if (!ok) {
       if (!resolveShellHistorySyncCommand(sessionId)) return;
       requestShellHistorySyncViaPty(sessionId);
@@ -130,7 +140,7 @@ export function requestShellHistorySyncWithRetry(
     attempt += 1;
 
     const prev = useSessionShellHistoryStore.getState().getCommands(sessionId).length;
-    requestShellHistorySync(sessionId);
+    requestShellHistorySync(sessionId, { force: true });
 
     window.setTimeout(() => {
       const next = useSessionShellHistoryStore.getState().getCommands(sessionId).length;

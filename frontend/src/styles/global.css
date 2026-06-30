@@ -42,6 +42,21 @@
     --spacing-sidebar: var(--sidebar-w);
 }
 
+html,
+body,
+#root {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+    touch-action: manipulation;
+}
+
+img,
+svg,
+a {
+    -webkit-user-drag: none;
+    user-drag: none;
+}
+
 /* 全局禁止文本选中，需要选择的元素自行添加 user-select: auto 或 text */
 * {
     -webkit-user-select: none;

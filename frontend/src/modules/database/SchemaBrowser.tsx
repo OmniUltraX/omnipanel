@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { appAlert } from "../../lib/appAlert";
 import { quickInput } from "../../lib/quickInput";
 import { useActionStore } from "../../stores/actionStore";
 import { Button } from "../../components/ui/Button";
@@ -734,7 +735,7 @@ export function SchemaBrowser({
         return;
       }
       if (!isSchemaDropSqlSupported(connection.db_type)) {
-        window.alert(t("database.schemaTree.dropUnsupported"));
+        void appAlert(t("database.schemaTree.dropUnsupported"));
         return;
       }
       const sql =
@@ -742,7 +743,7 @@ export function SchemaBrowser({
           ? buildDropColumnSql(connection.db_type, dbName, tableName, objectName)
           : buildDropIndexSql(connection.db_type, dbName, tableName, objectName);
       if (!sql) {
-        window.alert(t("database.schemaTree.dropUnsupported"));
+        void appAlert(t("database.schemaTree.dropUnsupported"));
         return;
       }
       setDeletingNodeIds((prev) => ({ ...prev, [item.id]: true }));
@@ -771,7 +772,7 @@ export function SchemaBrowser({
           schemaRefreshHooks,
         );
       } catch (err) {
-        window.alert(t("database.schemaTree.dropFailed", { message: String(err) }));
+        void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
       } finally {
         setDeletingNodeIds((prev) => {
           const next = { ...prev };

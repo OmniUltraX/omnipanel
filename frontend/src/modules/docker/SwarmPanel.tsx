@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { appConfirm } from "../../lib/appConfirm";
 
 interface SwarmNode {
   id: string;
@@ -84,7 +85,7 @@ export function SwarmPanel({ connectionId }: { connectionId: string }) {
   };
 
   const handleLeaveSwarm = async () => {
-    if (!confirm("确定要离开 Swarm 集群？")) return;
+    if (!(await appConfirm("确定要离开 Swarm 集群？"))) return;
     setLoading(true);
     try {
       await invoke("docker_swarm_leave", { connectionId, force: true });
@@ -204,7 +205,7 @@ export function SwarmPanel({ connectionId }: { connectionId: string }) {
                   <td style={{ padding: "6px 8px" }}>{s.running_replicas}/{s.replicas}</td>
                   <td style={{ padding: "6px 8px" }}>
                     <button className="btn btn-sm btn-danger" onClick={async () => {
-                      if (confirm(`删除服务 ${s.name}？`)) {
+                      if (await appConfirm(`删除服务 ${s.name}？`)) {
                         await invoke("docker_service_remove", { connectionId, serviceId: s.id });
                         loadSwarmData();
                       }
@@ -233,7 +234,7 @@ export function SwarmPanel({ connectionId }: { connectionId: string }) {
                   <td style={{ padding: "6px 8px" }}>{st.services}</td>
                   <td style={{ padding: "6px 8px" }}>
                     <button className="btn btn-sm btn-danger" onClick={async () => {
-                      if (confirm(`删除 Stack ${st.name}？`)) {
+                      if (await appConfirm(`删除 Stack ${st.name}？`)) {
                         await invoke("docker_stack_remove", { connectionId, name: st.name });
                         loadSwarmData();
                       }

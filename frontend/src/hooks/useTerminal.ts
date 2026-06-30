@@ -45,6 +45,7 @@ import {
 } from "../modules/terminal/commandBar/shellHistorySync";
 import { isInternalHistoryCommand } from "../modules/terminal/commandBar/internalHistoryCommands";
 import { ingestTerminalHistoryOutput } from "../modules/terminal/commandBar/shellHistoryIngest";
+import { stripShellHistorySyncNoise } from "../modules/terminal/commandBar/shellHistoryOutputFilter";
 import { registerRuntimeBackendSession } from "../modules/terminal/commandBar/shellHistoryFetch";
 import {
   trackTerminalOutputForAutoReturn,
@@ -833,7 +834,11 @@ export function useTerminal(
         if (destroyed || !term) return;
         const bytes = decodeOutput(b64);
         term.reset();
-        if (bytes && bytes.length > 0) term.write(bytes);
+        if (bytes && bytes.length > 0) {
+          const raw = new TextDecoder().decode(bytes);
+          const cleaned = stripShellHistorySyncNoise(raw);
+          term.write(cleaned === raw ? bytes : new TextEncoder().encode(cleaned));
+        }
         if (isWarpDisplay(sessionId)) {
           term.clear();
         }

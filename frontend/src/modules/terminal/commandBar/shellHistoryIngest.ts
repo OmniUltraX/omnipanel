@@ -10,6 +10,7 @@ import {
   finishSilentHistorySync,
   isSilentHistorySync,
 } from "./shellHistorySync";
+import { stripShellHistorySyncNoise } from "./shellHistoryOutputFilter";
 
 const textBuffers = new Map<string, string>();
 
@@ -78,7 +79,8 @@ export function ingestTerminalHistoryOutput(sessionId: string, rawText: string):
     return "";
   }
 
-  return processShellHistoryOsc(sessionId, rawText);
+  const oscCleaned = processShellHistoryOsc(sessionId, rawText);
+  return stripShellHistorySyncNoise(oscCleaned);
 }
 
 export function resetTerminalHistoryIngest(sessionId: string): void {
