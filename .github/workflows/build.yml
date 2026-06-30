@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -57,6 +59,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
+
+      - name: Install agent dependencies
+        run: npm ci
+        working-directory: agent
 
       - name: Extract version from tag
         id: version

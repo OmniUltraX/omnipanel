@@ -8,6 +8,8 @@ use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;
 
+use crate::agent_paths::resolve_repo_agent_dir;
+
 #[derive(Debug, Clone, Copy, Serialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentKind {
@@ -181,15 +183,6 @@ fn collect_qwen_candidates() -> Vec<PathBuf> {
     }
 
     candidates
-}
-
-fn resolve_repo_agent_dir() -> Option<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let agent_dir = manifest.join("../agent");
-    if agent_dir.join("index.ts").exists() {
-        return agent_dir.canonicalize().ok();
-    }
-    None
 }
 
 fn detect_node_version() -> Option<String> {
