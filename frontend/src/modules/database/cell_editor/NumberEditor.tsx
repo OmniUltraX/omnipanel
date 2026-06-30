@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { TextInput } from "../../../components/ui/TextInput";
 
 interface NumberEditorProps {
   value: string;
@@ -15,13 +16,14 @@ export function NumberEditor({ value, onChange, autoFocus = true }: NumberEditor
     }
   }, [autoFocus]);
   return (
-    <input
+    <TextInput
       ref={ref}
-      type="text"
+      clearable={false}
+      copyable={false}
       inputMode="decimal"
       className="cell-editor-input"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
     />
   );
 }

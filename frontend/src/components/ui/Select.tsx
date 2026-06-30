@@ -143,11 +143,16 @@ export function Select({
   const selectOption = useCallback(
     (opt: SelectOption) => {
       if (opt.disabled) return;
+      if (opt.value === value) {
+        close();
+        requestAnimationFrame(() => triggerRef.current?.focus());
+        return;
+      }
       onChange(opt.value);
       close();
       requestAnimationFrame(() => triggerRef.current?.focus());
     },
-    [close, onChange],
+    [close, onChange, value],
   );
 
   const updatePanelPosition = useCallback(() => {

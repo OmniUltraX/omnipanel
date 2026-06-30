@@ -54,7 +54,7 @@ import {
   nextSchemaChildLimit,
 } from "./schemaTreePagination";
 import { mergeConnectionsWithCache, type CachedConnection } from "./schemaCacheMerge";
-import { refreshAllSchemaCache } from "./schemaCacheRefresh";
+import { submitSchemaCacheRefresh, SCHEMA_CACHE_REFRESH_COMPLETE_EVENT } from "./schemaCacheBackgroundTasks";
 import {
   createSchemaCacheRefreshReporter,
   publishSchemaNodeRefreshDone,
@@ -644,7 +644,6 @@ export function SchemaBrowser({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const schemaTreeRef = useRef<HTMLDivElement>(null);
   const scopedSearchRef = useRef<ScopedSearchHandle>(null);
-  const replaceSchemaSnapshot = useDbSchemaCacheStore((s) => s.replaceSnapshot);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const refreshingConnectionIds = useDbSchemaCacheStore((s) => s.refreshingConnectionIds);
   const refreshingNodeIds = useDbSchemaCacheStore((s) => s.refreshingNodeIds);
@@ -1196,29 +1195,46 @@ export function SchemaBrowser({
 
   const refreshSchemaCache = useCallback(async () => {
     setLoadError(null);
-    let enabledConnIds: string[] = [];
-    const { setConnectionRefreshing } = useDbSchemaCacheStore.getState();
     try {
-      const list = await listConnections();
-      enabledConnIds = list.filter(isConnectionEnabled).map((conn) => conn.id);
-      for (const connId of enabledConnIds) {
-        setConnectionRefreshing(connId, true);
-      }
-      const snapshot = await refreshAllSchemaCache(schemaCacheReporter);
-      await replaceSchemaSnapshot(snapshot);
-      const merged = mergeConnectionsWithCache(list, snapshot, connectionsRef.current);
-      connectionsRef.current = merged;
-      setInternalConnections(merged);
-      syncFiltersFromSnapshot(snapshot, syncDatabaseFilter, syncTableFilter);
+      await submitSchemaCacheRefresh(undefined, schemaCacheReporter);
     } catch (error) {
       schemaCacheReporter.onError?.(String(error));
       setLoadError(String(error));
-    } finally {
-      for (const connId of enabledConnIds) {
-        setConnectionRefreshing(connId, false);
-      }
     }
-  }, [replaceSchemaSnapshot, schemaCacheReporter, syncDatabaseFilter, syncTableFilter]);
+  }, [schemaCacheReporter]);
+
+  useEffect(() => {
+    if (useExternalConnections) {
+      return;
+    }
+    const onComplete = (event: Event) => {
+      const detail = (event as CustomEvent<{ snapshot: import("./schemaCache").SchemaCacheSnapshot }>)
+        .detail;
+      if (!detail?.snapshot) {
+        return;
+      }
+      void (async () => {
+        try {
+          const list = await listConnections();
+          const merged = mergeConnectionsWithCache(list, detail.snapshot, connectionsRef.current);
+          connectionsRef.current = merged;
+          setInternalConnections(merged);
+          syncFiltersFromSnapshot(detail.snapshot, syncDatabaseFilter, syncTableFilter);
+        } catch (error) {
+          schemaCacheReporter.onError?.(String(error));
+        }
+      })();
+    };
+    window.addEventListener(SCHEMA_CACHE_REFRESH_COMPLETE_EVENT, onComplete);
+    return () => {
+      window.removeEventListener(SCHEMA_CACHE_REFRESH_COMPLETE_EVENT, onComplete);
+    };
+  }, [
+    useExternalConnections,
+    schemaCacheReporter,
+    syncDatabaseFilter,
+    syncTableFilter,
+  ]);
 
   useEffect(() => {
     if (useExternalConnections) {

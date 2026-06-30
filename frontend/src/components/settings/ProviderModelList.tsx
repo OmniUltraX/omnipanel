@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button";
+import { TextInput } from "../ui/TextInput";
 import { useI18n } from "../../i18n";
 import {
   countEnabledModels,
@@ -92,11 +93,13 @@ function ModelListItem({
   if (isEditing) {
     return (
       <li className="ai-provider-model-item ai-provider-model-item--editing">
-        <input
+        <TextInput
           ref={editInputRef}
+          clearable={false}
+          copyable={false}
           className="input ai-provider-model-edit-input"
           value={editDraft}
-          onChange={(e) => onEditDraftChange(e.target.value)}
+          onChange={onEditDraftChange}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -313,17 +316,18 @@ export function ProviderModelList({ provider }: ProviderModelListProps) {
   return (
     <div className="ai-provider-models-panel">
       <div className="ai-provider-models-toolbar">
-        <input
+        <TextInput
           className="input input-search ai-provider-models-search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
+          copyable={false}
           placeholder={t("settings.aiModels.modelList.searchPlaceholder")}
         />
-        <input
+        <TextInput
           className="input ai-provider-models-add-input"
           value={manualInput}
-          onChange={(e) => {
-            setManualInput(e.target.value);
+          onChange={(value) => {
+            setManualInput(value);
             setAddError(null);
           }}
           placeholder={t("settings.aiModels.modelList.addPlaceholder")}

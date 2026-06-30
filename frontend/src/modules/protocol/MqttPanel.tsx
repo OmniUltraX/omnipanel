@@ -1,6 +1,8 @@
 import { useRef, useEffect } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { PasswordInput } from "../../components/ui/PasswordInput";
+import { TextInput } from "../../components/ui/TextInput";
 import { Select } from "../../components/ui/Select";
 import { useMqtt, type MqttQos } from "./MqttContext";
 
@@ -25,33 +27,31 @@ export function MqttPanel() {
   return (
     <div className="mqtt-panel proto-pub-panel">
       <div className="proto-pub-toolbar">
-        <input
+        <TextInput
           className="url-input"
           placeholder={t("protocol.mqtt.brokerPlaceholder")}
           value={mqtt.brokerUrl}
-          onChange={(e) => mqtt.setBrokerUrl(e.target.value)}
+          onChange={mqtt.setBrokerUrl}
           disabled={locked}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.mqtt.clientId")}
           value={mqtt.clientId}
-          onChange={(e) => mqtt.setClientId(e.target.value)}
+          onChange={mqtt.setClientId}
           disabled={locked}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.mqtt.username")}
           value={mqtt.username}
-          onChange={(e) => mqtt.setUsername(e.target.value)}
+          onChange={mqtt.setUsername}
           disabled={locked}
         />
-        <input
-          className="input"
-          type="password"
+        <PasswordInput
           placeholder={t("protocol.mqtt.password")}
           value={mqtt.password}
-          onChange={(e) => mqtt.setPassword(e.target.value)}
+          onChange={(value) => mqtt.setPassword(value)}
           disabled={locked}
         />
         <Button
@@ -98,25 +98,25 @@ export function MqttPanel() {
             />
             {t("protocol.mqtt.enableTls")}
           </label>
-          <input
+          <TextInput
             className="input"
             placeholder={t("protocol.mqtt.tlsCaPath")}
             value={mqtt.tlsCaPath}
-            onChange={(e) => mqtt.setTlsCaPath(e.target.value)}
+            onChange={mqtt.setTlsCaPath}
             disabled={locked}
           />
-          <input
+          <TextInput
             className="input"
             placeholder={t("protocol.mqtt.tlsClientCert")}
             value={mqtt.tlsClientCert}
-            onChange={(e) => mqtt.setTlsClientCert(e.target.value)}
+            onChange={mqtt.setTlsClientCert}
             disabled={locked}
           />
-          <input
+          <TextInput
             className="input"
             placeholder={t("protocol.mqtt.tlsClientKey")}
             value={mqtt.tlsClientKey}
-            onChange={(e) => mqtt.setTlsClientKey(e.target.value)}
+            onChange={mqtt.setTlsClientKey}
             disabled={locked}
           />
         </div>
@@ -124,18 +124,18 @@ export function MqttPanel() {
 
       {mqtt.showWill && (
         <div className="proto-pub-advanced">
-          <input
+          <TextInput
             className="input"
             placeholder={t("protocol.mqtt.willTopicPlaceholder")}
             value={mqtt.willTopic}
-            onChange={(e) => mqtt.setWillTopic(e.target.value)}
+            onChange={mqtt.setWillTopic}
             disabled={locked}
           />
-          <input
+          <TextInput
             className="input"
             placeholder={t("protocol.mqtt.willPayloadPlaceholder")}
             value={mqtt.willPayload}
-            onChange={(e) => mqtt.setWillPayload(e.target.value)}
+            onChange={mqtt.setWillPayload}
             disabled={locked}
           />
           <Select
@@ -185,11 +185,11 @@ export function MqttPanel() {
 
       <div className="proto-pub-subscribe">
         <span className="proto-pub-section-label">{t("protocol.mqtt.subscriptions")}</span>
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.mqtt.subscribeTopic")}
           value={mqtt.newTopic}
-          onChange={(e) => mqtt.setNewTopic(e.target.value)}
+          onChange={mqtt.setNewTopic}
           onKeyDown={(e) => {
             if (e.key === "Enter") void mqtt.subscribe();
           }}
@@ -246,11 +246,11 @@ export function MqttPanel() {
       </div>
 
       <div className="proto-pub-publish">
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.mqtt.topic")}
           value={mqtt.pubTopic}
-          onChange={(e) => mqtt.setPubTopic(e.target.value)}
+          onChange={mqtt.setPubTopic}
           disabled={!connected}
         />
         <Select
@@ -271,11 +271,11 @@ export function MqttPanel() {
           />
           {t("protocol.common.retain")}
         </label>
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.mqtt.publishPayload")}
           value={mqtt.pubPayload}
-          onChange={(e) => mqtt.setPubPayload(e.target.value)}
+          onChange={mqtt.setPubPayload}
           onKeyDown={(e) => {
             if (e.key === "Enter") void mqtt.publish();
           }}

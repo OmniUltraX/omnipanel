@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../../i18n";
+import { TextInput } from "./TextInput";
 import {
   applyScopedSearchHighlights,
   clearScopedSearchHighlights,
@@ -247,13 +248,14 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
                 <path d="m21 21-4.3-4.3" />
               </svg>
             </label>
-            <input
+            <TextInput
               id={inputId}
               ref={inputRef}
-              type="search"
+              clearable={false}
+              copyable={false}
               className="scoped-search-bar__input"
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={onChange}
               placeholder={placeholder}
               spellCheck={false}
               autoComplete="off"

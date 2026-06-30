@@ -20,6 +20,7 @@ import {
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
+import { TextInput } from "../ui/TextInput";
 
 export interface KnowledgeEmbeddingModelSelectProps {
   disabled?: boolean;
@@ -152,13 +153,13 @@ export function KnowledgeEmbeddingModelSelect({
             <label htmlFor="knowledge-embedding-ollama-base-url">
               {t("settings.knowledge.embeddingOllamaBaseUrl")}
             </label>
-            <input
+            <TextInput
               id="knowledge-embedding-ollama-base-url"
               className="input"
               value={ollamaModel.baseUrl}
               disabled={disabled}
               placeholder={OLLAMA_DEFAULT_BASE_URL}
-              onChange={(e) => updateOllamaModel({ baseUrl: e.target.value })}
+              onChange={(baseUrl) => updateOllamaModel({ baseUrl })}
               onBlur={() => {
                 const normalized = normalizeOllamaBaseUrl(ollamaModel.baseUrl);
                 if (normalized !== ollamaModel.baseUrl.trim()) {
@@ -196,13 +197,13 @@ export function KnowledgeEmbeddingModelSelect({
                 className="knowledge-embedding-model-select"
               />
             ) : (
-              <input
+              <TextInput
                 id="knowledge-embedding-ollama-model-name"
                 className="input"
                 value={ollamaModel.modelName}
                 disabled={disabled}
                 placeholder={t("settings.knowledge.embeddingOllamaModelNamePlaceholder")}
-                onChange={(e) => updateOllamaModel({ modelName: e.target.value })}
+                onChange={(modelName) => updateOllamaModel({ modelName })}
               />
             )}
           </div>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { CodeEditor } from "../../components/ui/CodeEditor";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { quickInput } from "../../lib/quickInput";
 import {
@@ -277,10 +278,10 @@ export function HttpPanel() {
       <div className="http-panel__chrome">
         {selectedRequest ? (
           <div className="http-request-name-row">
-            <input
+            <TextInput
               className="http-request-name-input"
               value={requestNameDraft}
-              onChange={(e) => setRequestNameDraft(e.target.value)}
+              onChange={setRequestNameDraft}
               onBlur={() => void commitRequestName()}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -305,13 +306,13 @@ export function HttpPanel() {
             searchable={false}
             options={HTTP_METHOD_OPTIONS}
           />
-          <input
+          <TextInput
             className="url-input"
             placeholder={
               isWebSocket ? t("protocol.ws.urlPlaceholder") : t("protocol.http.urlPlaceholder")
             }
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={setUrl}
             disabled={isWebSocket && wsStatus === "connected"}
           />
           {isWebSocket ? (
@@ -359,9 +360,9 @@ export function HttpPanel() {
 
         {showSaveDialog ? (
           <div className="http-save-dialog">
-            <input
+            <TextInput
               value={saveRequestName}
-              onChange={(e) => setSaveRequestName(e.target.value)}
+              onChange={setSaveRequestName}
               onKeyDown={(e) => e.key === "Enter" && void handleSaveRequest()}
               placeholder={t("protocol.http.requestName")}
               autoFocus
@@ -444,15 +445,15 @@ export function HttpPanel() {
                     checked={p.enabled}
                     onChange={(e) => updateKv(params, setParams, i, "enabled", e.target.checked)}
                   />
-                  <input
+                  <TextInput
                     placeholder={t("protocol.common.key")}
                     value={p.key}
-                    onChange={(e) => updateKv(params, setParams, i, "key", e.target.value)}
+                    onChange={(value) => updateKv(params, setParams, i, "key", value)}
                   />
-                  <input
+                  <TextInput
                     placeholder={t("protocol.common.value")}
                     value={p.value}
-                    onChange={(e) => updateKv(params, setParams, i, "value", e.target.value)}
+                    onChange={(value) => updateKv(params, setParams, i, "value", value)}
                   />
                   <div className="kv-del" onClick={() => removeKv(params, setParams, i)}>
                     {"×"}
@@ -555,14 +556,14 @@ export function HttpPanel() {
               </div>
               <div className="kv-editor">
                 <div className="kv-row">
-                  <input
+                  <TextInput
                     placeholder={
                       authType === "Authorization"
                         ? t("protocol.http.authAuthorizationPlaceholder")
                         : t("protocol.http.token")
                     }
                     value={authValue}
-                    onChange={(e) => setAuthValue(e.target.value)}
+                    onChange={setAuthValue}
                     style={{ flex: 3 }}
                   />
                 </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 
 /* ── Types ── */
 
@@ -253,11 +254,11 @@ export function SnifferPanel() {
         </button>
 
         {/* BPF filter */}
-        <input
+        <TextInput
           className="input"
           placeholder="BPF filter (e.g. tcp port 80)"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={setFilter}
           disabled={capturing}
           style={{
             flex: 1,

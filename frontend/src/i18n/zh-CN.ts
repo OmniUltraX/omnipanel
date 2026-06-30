@@ -1056,6 +1056,7 @@ export const zhCN = {
       charsetDescription: "留空则使用 MySQL 服务器默认字符集",
       collationLabel: "排序规则",
       charsetServerDefault: "使用服务器默认",
+      charsetLoading: "正在加载字符集列表…",
       create: "创建",
       creating: "创建中…",
       success: "已创建数据库 `{name}`",

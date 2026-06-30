@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { TextInput } from "../../components/ui/TextInput";
 import type { AiThreadToolCall } from "../../stores/blocksStore";
 import {
   approveInlineTerminalTool,
@@ -112,10 +113,10 @@ export function ToolCallBar({
           </span>
         )}
         {editing ? (
-          <input
+          <TextInput
             className="term-warp-toolcall__edit"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={setDraft}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

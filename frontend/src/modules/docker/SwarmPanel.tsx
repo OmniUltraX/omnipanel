@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { TextInput } from "../../components/ui/TextInput";
 import { appConfirm } from "../../lib/appConfirm";
 
 interface SwarmNode {
@@ -307,12 +308,12 @@ function CreateServiceDialog({ connectionId, onClose, onCreated }: { connectionI
       <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ width: 480 }}>
         <h3>创建 Swarm 服务</h3>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-          <input className="input" placeholder="服务名称" value={name} onChange={(e) => setName(e.target.value)} required />
-          <input className="input" placeholder="镜像 (如 nginx:latest)" value={image} onChange={(e) => setImage(e.target.value)} required />
+          <TextInput placeholder="服务名称" value={name} onChange={setName} required />
+          <TextInput placeholder="镜像 (如 nginx:latest)" value={image} onChange={setImage} required />
           <input className="input" type="number" placeholder="副本数" value={replicas} onChange={(e) => setReplicas(Number(e.target.value))} min={0} />
-          <input className="input" placeholder="端口映射 (8080:80,9090:90)" value={ports} onChange={(e) => setPorts(e.target.value)} />
-          <input className="input" placeholder="环境变量 (KEY=val,FOO=bar)" value={env} onChange={(e) => setEnv(e.target.value)} />
-          <input className="input" placeholder="启动命令 (可选)" value={command} onChange={(e) => setCommand(e.target.value)} />
+          <TextInput placeholder="端口映射 (8080:80,9090:90)" value={ports} onChange={setPorts} />
+          <TextInput placeholder="环境变量 (KEY=val,FOO=bar)" value={env} onChange={setEnv} />
+          <TextInput placeholder="启动命令 (可选)" value={command} onChange={setCommand} />
           {error && <div style={{ color: "var(--danger)", fontSize: 12 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" className="btn btn-ghost" onClick={onClose}>取消</button>
@@ -346,7 +347,7 @@ function DeployStackDialog({ connectionId, onClose, onDeployed }: { connectionId
       <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
         <h3>部署 Stack</h3>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-          <input className="input" placeholder="Stack 名称" value={name} onChange={(e) => setName(e.target.value)} required />
+          <TextInput placeholder="Stack 名称" value={name} onChange={setName} required />
           <textarea className="input" placeholder="Compose YAML" value={compose} onChange={(e) => setCompose(e.target.value)}
             rows={12} style={{ fontFamily: "monospace", fontSize: 12, resize: "vertical" }} />
           {error && <div style={{ color: "var(--danger)", fontSize: 12 }}>{error}</div>}

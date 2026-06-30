@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { TextInput } from "../../components/ui/TextInput";
 import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { useI18n } from "../../i18n";
@@ -67,6 +68,16 @@ import type { FileConnectionPanelSnapshot } from "./filesWorkspaceSession";
 
 type ViewMode = FileConnectionPanelSnapshot["viewMode"];
 type FileCtxState = { x: number; y: number; entry: FileEntry } | null;
+
+const PATH_INPUT_ID = "fm-breadcrumb-path-input";
+
+function focusPathInput() {
+  const el = document.getElementById(PATH_INPUT_ID);
+  if (el instanceof HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
+}
 
 export type QuickPaths = {
   home: string;
@@ -186,7 +197,6 @@ export function FileConnectionPanel({
   const restoredStateRef = useRef(savedState);
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
-  const pathInputRef = useRef<HTMLInputElement>(null);
   const pathEditSkipCommitRef = useRef(false);
 
   const displayEntries = useMemo(() => {
@@ -743,8 +753,7 @@ export function FileConnectionPanel({
     setPathInput(pathForInput);
     setPathEditing(true);
     requestAnimationFrame(() => {
-      pathInputRef.current?.focus();
-      pathInputRef.current?.select();
+      focusPathInput();
     });
   }, [pathForInput]);
 
@@ -771,8 +780,7 @@ export function FileConnectionPanel({
 
   useEffect(() => {
     if (!pathEditing) return;
-    pathInputRef.current?.focus();
-    pathInputRef.current?.select();
+    focusPathInput();
   }, [pathEditing]);
 
   return (
@@ -844,11 +852,13 @@ export function FileConnectionPanel({
           </button>
           <div className={`fm-breadcrumb${pathEditing ? " fm-breadcrumb--editing" : ""}`}>
             {pathEditing ? (
-              <input
-                ref={pathInputRef}
+              <TextInput
+                id={PATH_INPUT_ID}
                 className="fm-breadcrumb-input"
+                copyable
+                clearable={false}
                 value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
+                onChange={setPathInput}
                 placeholder={t("ssh.sftp.pathEditPlaceholder")}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -890,9 +900,12 @@ export function FileConnectionPanel({
             <span className="search-icon">
               <IconSearch />
             </span>
-            <input
+            <TextInput
+              copyable={false}
+              size="sm"
+              className="input"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
               placeholder={
                 connId === LOCAL_CONNECTION_ID && indexStatus?.status === "ready"
                   ? t("files.toolbar.searchIndexed")

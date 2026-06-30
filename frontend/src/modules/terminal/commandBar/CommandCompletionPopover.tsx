@@ -1,4 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { TextInput } from "../../../components/ui/TextInput";
 import { useI18n } from "../../../i18n";
 import type { CompletionCandidate } from "./types";
 
@@ -44,12 +45,12 @@ export function CommandCompletionPopover({
   return (
     <div className="term-cmd-completion" role="listbox">
       <div className="term-cmd-completion__toolbar">
-        <input
-          type="search"
+        <TextInput
+          copyable={false}
           className="term-cmd-completion__search"
           value={filter}
           placeholder={t("terminal.command.completionSearch")}
-          onChange={(event) => onFilterChange(event.target.value)}
+          onChange={onFilterChange}
           onKeyDown={(event) => {
             if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(event.key)) {
               onNavigateKeyDown(event);

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { TextInput } from "../../components/ui/TextInput";
 import type { DockerVolumeSummary, DockerCreateVolumeRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import { TrashIcon } from "./icons";
@@ -144,11 +145,11 @@ export function DockerVolumesTab({ volumes, canManage, onRefresh, onCreate, onRe
       >
         <div className="form-field">
           <label className="form-label">名称</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+          <TextInput value={name} onChange={setName} style={{ width: "100%" }} />
         </div>
         <div className="form-field">
           <label className="form-label">驱动</label>
-          <input className="input" value={driver} onChange={(e) => setDriver(e.target.value)} style={{ width: "100%" }} />
+          <TextInput value={driver} onChange={setDriver} style={{ width: "100%" }} />
         </div>
       </FormDialog>
       {confirm && (

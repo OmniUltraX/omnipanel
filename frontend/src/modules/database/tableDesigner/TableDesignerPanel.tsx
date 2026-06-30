@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "../../../components/ui/Button";
+import { TextInput } from "../../../components/ui/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { useI18n } from "../../../i18n";
 import { TableDdlViewer } from "../TableDdlViewer";
@@ -108,10 +109,10 @@ export function TableDesignerPanel({
           <span className="db-table-designer-title">
             {dbName}.{model.tableName}
           </span>
-          <input
+          <TextInput
             className="db-table-designer-comment"
             value={model.comment}
-            onChange={(event) => updateModel({ comment: event.target.value })}
+            onChange={(comment) => updateModel({ comment })}
             placeholder={t("database.tableDesigner.commentPlaceholder")}
           />
         </div>
@@ -199,9 +200,13 @@ export function TableDesignerPanel({
                       {model.fields.map((field) => (
                         <tr key={field.id}>
                           <td>
-                            <input
+                            <TextInput
+                              clearable={false}
+                              copyable={false}
+                              size="sm"
+                              className=""
                               value={field.name}
-                              onChange={(event) => updateField(field.id, { name: event.target.value })}
+                              onChange={(name) => updateField(field.id, { name })}
                             />
                           </td>
                           <td>
@@ -220,9 +225,13 @@ export function TableDesignerPanel({
                             </select>
                           </td>
                           <td>
-                            <input
+                            <TextInput
+                              clearable={false}
+                              copyable={false}
+                              size="sm"
+                              className=""
                               value={field.length}
-                              onChange={(event) => updateField(field.id, { length: event.target.value })}
+                              onChange={(length) => updateField(field.id, { length })}
                             />
                           </td>
                           <td className="db-table-designer-cell-center">
@@ -249,15 +258,23 @@ export function TableDesignerPanel({
                             />
                           </td>
                           <td>
-                            <input
+                            <TextInput
+                              clearable={false}
+                              copyable={false}
+                              size="sm"
+                              className=""
                               value={field.defaultValue}
-                              onChange={(event) => updateField(field.id, { defaultValue: event.target.value })}
+                              onChange={(defaultValue) => updateField(field.id, { defaultValue })}
                             />
                           </td>
                           <td>
-                            <input
+                            <TextInput
+                              clearable={false}
+                              copyable={false}
+                              size="sm"
+                              className=""
                               value={field.comment}
-                              onChange={(event) => updateField(field.id, { comment: event.target.value })}
+                              onChange={(comment) => updateField(field.id, { comment })}
                             />
                           </td>
                           <td>
@@ -317,17 +334,25 @@ export function TableDesignerPanel({
                         model.indexes.map((index) => (
                           <tr key={index.id}>
                             <td>
-                              <input
+                              <TextInput
+                                clearable={false}
+                                copyable={false}
+                                size="sm"
+                                className=""
                                 value={index.name}
-                                onChange={(event) => updateIndex(index.id, { name: event.target.value })}
+                                onChange={(name) => updateIndex(index.id, { name })}
                               />
                             </td>
                             <td>
-                              <input
+                              <TextInput
+                                clearable={false}
+                                copyable={false}
+                                size="sm"
+                                className=""
                                 value={index.columns.join(", ")}
                                 placeholder={t("database.tableDesigner.index.columnsPlaceholder")}
-                                onChange={(event) =>
-                                  updateIndex(index.id, { columns: parseIndexColumns(event.target.value) })
+                                onChange={(value) =>
+                                  updateIndex(index.id, { columns: parseIndexColumns(value) })
                                 }
                               />
                             </td>

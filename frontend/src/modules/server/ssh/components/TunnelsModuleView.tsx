@@ -5,6 +5,7 @@ import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/Button";
 import { Select } from "../../../../components/ui/Select";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { TunnelFlowList } from "./TunnelFlowList";
 
 type Props = {
@@ -155,25 +156,22 @@ export function TunnelsModuleView({ sshResources }: Props) {
               />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <input
-                className="input"
+              <TextInput
                 placeholder={t("ssh.tunnels.localPort")}
                 value={localPort}
-                onChange={(e) => setLocalPort(e.target.value)}
+                onChange={setLocalPort}
                 style={{ width: 120 }}
               />
-              <input
-                className="input"
+              <TextInput
                 placeholder={t("ssh.tunnels.remoteHost")}
                 value={remoteHost}
-                onChange={(e) => setRemoteHost(e.target.value)}
+                onChange={setRemoteHost}
                 style={{ flex: 1 }}
               />
-              <input
-                className="input"
+              <TextInput
                 placeholder={t("ssh.tunnels.remotePort")}
                 value={remotePort}
-                onChange={(e) => setRemotePort(e.target.value)}
+                onChange={setRemotePort}
                 style={{ width: 120 }}
               />
             </div>

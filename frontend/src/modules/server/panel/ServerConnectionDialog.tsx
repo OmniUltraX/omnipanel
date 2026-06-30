@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { FormDialog } from "../../../components/ui/FormDialog";
-import { SecretInput } from "../../../components/ui/SecretInput";
+import { PasswordInput } from "../../../components/ui/PasswordInput";
 import { Select } from "../../../components/ui/Select";
+import { TextInput } from "../../../components/ui/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { collectSshGroupSuggestions, sanitizeSshGroupInput } from "../../../lib/sshGroups";
 import { createBtPanelClient } from "../../../lib/btpanel";
@@ -183,29 +184,26 @@ export function ServerConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("server.create.name")}</label>
-        <input
-          className="input"
+        <TextInput
           placeholder={t("server.create.namePlaceholder")}
           value={form.name}
-          onChange={(e) => update("name", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("name", value)}
         />
       </div>
 
       <div className="form-field">
         <label className="form-label">{t("server.create.address")}</label>
-        <input
-          className="input"
+        <TextInput
           placeholder="192.168.1.100:8888"
           value={form.panelAddress}
-          onChange={(e) => update("panelAddress", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("panelAddress", value)}
         />
       </div>
 
       <div className="form-field">
         <label className="form-label">{t("server.create.key")}</label>
-        <SecretInput
+        <PasswordInput
+          copyable
           value={form.panelKey}
           onChange={(value) => update("panelKey", value)}
           placeholder="••••••••"
@@ -246,13 +244,11 @@ export function ServerConnectionDialog({
         </div>
         <div className="form-field" style={{ flex: 1 }}>
           <label className="form-label">{t("ssh.dialog.group")}</label>
-          <input
-            className="input"
+          <TextInput
             list="server-panel-group-suggestions"
             placeholder={t("ssh.dialog.groupPlaceholder")}
             value={form.group}
-            onChange={(e) => update("group", e.target.value)}
-            style={{ width: "100%" }}
+            onChange={(value) => update("group", value)}
           />
           <datalist id="server-panel-group-suggestions">
             {groupSuggestions.map((g) => (
@@ -264,12 +260,10 @@ export function ServerConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("server.create.remark")}</label>
-        <input
-          className="input"
+        <TextInput
           placeholder={t("server.create.remarkPlaceholder")}
           value={form.remark}
-          onChange={(e) => update("remark", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("remark", value)}
         />
       </div>
     </FormDialog>

@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use omnipanel_db::{DbParams, QueryResult, RedisKeyEntry, mysql_connect_options};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
-    DbConnectionConfig, SchemaCacheSnapshot, SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot,
-    load_schema_cache, load_schema_filters, load_schema_tree_expanded, prune_connection_cache,
-    prune_connection_expanded, prune_connection_filters, save_schema_cache, save_schema_filters,
-    save_schema_tree_expanded,
+    DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
+    SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
+    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_cache, load_schema_filters,
+    load_schema_tree_expanded, prune_connection_cache, prune_connection_expanded,
+    prune_connection_filters, save_schema_cache, save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -564,6 +565,45 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
         }
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbCharsetMeta {
+    pub charset: String,
+    pub description: String,
+    pub default_collation: String,
+}
+
+async fn mysql_list_character_sets(
+    connection: &DbConnectionConfig,
+) -> Result<Vec<DbCharsetMeta>, String> {
+    let pool = mysql_pool(connection).await?;
+    let rows = sqlx::query("SHOW CHARACTER SET")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("Query failed: {e}"))?;
+    let charsets: Vec<DbCharsetMeta> = rows
+        .iter()
+        .map(|row| DbCharsetMeta {
+            charset: mysql_row_string(row, 0),
+            description: mysql_row_string(row, 1),
+            default_collation: mysql_row_string(row, 2),
+        })
+        .collect();
+    pool.close().await;
+    Ok(charsets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn db_list_character_sets(
+    connection: DbConnectionConfig,
+) -> Result<Vec<DbCharsetMeta>, String> {
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => mysql_list_character_sets(&connection).await,
+        _ => Ok(Vec::new()),
     }
 }
 
@@ -1405,6 +1445,96 @@ async fn refresh_connection_payload(
         .await
         .unwrap_or_default();
     Ok(SchemaConnectionRefreshPayload { databases, users })
+}
+
+fn schema_cache_now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn db_table_to_cache_table(table: DbTableSchema) -> SchemaCacheTable {
+    SchemaCacheTable {
+        name: table.name,
+        columns: table
+            .columns
+            .into_iter()
+            .map(|c| SchemaCacheColumn {
+                name: c.name,
+                column_type: c.column_type,
+                is_pk: c.is_pk,
+                is_fk: c.is_fk,
+            })
+            .collect(),
+        indexes: table
+            .indexes
+            .into_iter()
+            .map(|i| SchemaCacheIndex {
+                name: i.name,
+                columns: i.columns,
+                unique: i.unique,
+            })
+            .collect(),
+        comment: table.comment,
+    }
+}
+
+fn connection_payload_to_cache(
+    payload: SchemaConnectionRefreshPayload,
+    error: Option<String>,
+) -> SchemaCacheConnection {
+    SchemaCacheConnection {
+        databases: payload
+            .databases
+            .into_iter()
+            .map(|db| SchemaCacheDatabase {
+                name: db.name,
+                tables: db.tables.into_iter().map(db_table_to_cache_table).collect(),
+                views: db.views.into_iter().map(db_table_to_cache_table).collect(),
+                routines: db
+                    .routines
+                    .into_iter()
+                    .map(|r| SchemaCacheRoutine {
+                        name: r.name,
+                        routine_type: r.routine_type,
+                    })
+                    .collect(),
+                load_error: db.load_error,
+            })
+            .collect(),
+        users: payload
+            .users
+            .into_iter()
+            .map(|u| SchemaCacheUser {
+                name: u.name,
+                host: u.host,
+            })
+            .collect(),
+        refreshed_at: Some(schema_cache_now_ms()),
+        error,
+    }
+}
+
+/// 是否启用数据库连接（与前端 `isConnectionEnabled` 一致）。
+pub fn is_db_connection_enabled(connection: &DbConnectionConfig) -> bool {
+    connection.enabled
+}
+
+/// 拉取单连接的 Schema 缓存条目（供后台任务与命令复用）。
+pub async fn build_schema_cache_connection(
+    connection: &DbConnectionConfig,
+) -> SchemaCacheConnection {
+    match refresh_connection_payload(connection).await {
+        Ok(payload) => connection_payload_to_cache(payload, None),
+        Err(err) => SchemaCacheConnection {
+            databases: Vec::new(),
+            users: Vec::new(),
+            refreshed_at: Some(schema_cache_now_ms()),
+            error: Some(err),
+        },
+    }
 }
 
 async fn refresh_table_payload(

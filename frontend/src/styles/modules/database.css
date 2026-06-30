@@ -1703,36 +1703,6 @@
         margin: var(--sp-4) 0;
     }
 
-    .secret-input {
-        position: relative;
-        display: flex;
-        align-items: stretch;
-        width: 100%;
-    }
-
-    .secret-input .input {
-        padding-right: 72px;
-    }
-
-    .secret-input__actions {
-        position: absolute;
-        right: 4px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        align-items: center;
-        gap: 2px;
-    }
-
-    .secret-input textarea+.secret-input__actions {
-        top: var(--sp-2);
-        transform: none;
-    }
-
-    .secret-input__field--masked {
-        -webkit-text-security: disc;
-    }
-
     .form-row {
         display: flex;
         gap: var(--sp-3);

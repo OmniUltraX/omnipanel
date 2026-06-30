@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TextInput } from "../../components/ui/TextInput";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { KnowledgeTodoList } from "../../ipc/bindings";
@@ -161,13 +162,15 @@ export function KnowledgeTodoEditor({ open, list, onClose, onSave, onDelete }: K
           </button>
         </div>
 
-        <input
+        <TextInput
           ref={titleRef}
+          clearable={false}
+          copyable={false}
           className="knowledge-todo-note__title"
           value={draft.title}
           placeholder={t("knowledge.todos.listTitlePlaceholder")}
-          onChange={(e) => {
-            const next = { ...draft, title: e.target.value };
+          onChange={(title) => {
+            const next = { ...draft, title };
             setDraft(next);
             scheduleSave(next);
           }}
@@ -177,11 +180,13 @@ export function KnowledgeTodoEditor({ open, list, onClose, onSave, onDelete }: K
           {draft.items.map((item, index) => (
             <div key={item.id} className="knowledge-todo-note__row">
               <span className="knowledge-todo-note__bullet" aria-hidden />
-              <input
+              <TextInput
+                clearable={false}
+                copyable={false}
                 className="knowledge-todo-note__text"
                 value={item.text}
                 placeholder={index === draft.items.length - 1 ? t("knowledge.todos.itemPlaceholder") : ""}
-                onChange={(e) => updateItemText(item.id, e.target.value)}
+                onChange={(text) => updateItemText(item.id, text)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();

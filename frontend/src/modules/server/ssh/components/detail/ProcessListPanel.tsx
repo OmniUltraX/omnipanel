@@ -10,6 +10,7 @@ import {
 import type { DetailTab } from "@/modules/server/ssh/types";
 import { ProcessDetailDrawer } from "./ProcessDetailDrawer";
 import { TunnelCreateDialog, type TunnelDraft } from "./TunnelCreateDialog";
+import { TextInput } from "@/components/ui/TextInput";
 
 import { metricBarColor } from "@/modules/server/ssh/components/monitoring/monitoringUtils";
 
@@ -393,12 +394,14 @@ export function ProcessListPanel({
           </span>
         )}
         <div className={variant === "monitor" ? "mon-process-tools proc-header-actions" : "proc-header-actions"}>
-          <input
+          <TextInput
+            copyable={false}
+            size="sm"
             className={`input input-sm proc-search${variant === "monitor" ? " mon-process-search" : ""}`}
             placeholder={t("ssh.processList.search")}
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
+            onChange={(value) => {
+              setQuery(value);
               setPage(0);
             }}
           />

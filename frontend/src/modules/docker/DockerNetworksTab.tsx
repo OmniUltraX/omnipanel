@@ -3,6 +3,7 @@ import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import type { DockerNetworkSummary, DockerCreateNetworkRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import { formatDockerTime } from "./format";
@@ -123,7 +124,7 @@ export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, on
       >
         <div className="form-field">
           <label className="form-label">名称</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+          <TextInput value={name} onChange={setName} style={{ width: "100%" }} />
         </div>
         <div className="form-field">
           <label className="form-label">驱动</label>
@@ -138,7 +139,7 @@ export function DockerNetworksTab({ networks, canManage, onRefresh, onCreate, on
         </div>
         <div className="form-field">
           <label className="form-label">子网（CIDR，可选）</label>
-          <input className="input" value={subnet} onChange={(e) => setSubnet(e.target.value)} placeholder="172.20.0.0/16" style={{ width: "100%" }} />
+          <TextInput value={subnet} onChange={setSubnet} placeholder="172.20.0.0/16" style={{ width: "100%" }} />
         </div>
         <div className="form-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <input id="net-internal" type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />

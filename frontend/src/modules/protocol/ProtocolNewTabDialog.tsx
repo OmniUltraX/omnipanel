@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
+import { TextInput } from "../../components/ui/TextInput";
 import { useI18n } from "../../i18n";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";
@@ -86,17 +87,16 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
       }}
     >
       <FormField label={t("protocol.newTab.sessionNameLabel")} htmlFor="protocol-session-name">
-        <input
+        <TextInput
           id="protocol-session-name"
-          type="text"
           className="input"
           autoFocus
           value={sessionName}
           placeholder={t("protocol.newTab.sessionNamePlaceholder")}
-          onChange={(event) => {
+          onChange={(value) => {
             nameTouchedRef.current = true;
-            setSessionName(event.target.value);
-            if (nameError && event.target.value.trim()) {
+            setSessionName(value);
+            if (nameError && value.trim()) {
               setNameError(null);
             }
           }}

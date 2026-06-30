@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { TextInput } from "@/components/ui/TextInput";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
 
@@ -47,10 +48,12 @@ export function AiConversationTitle({
   if (editing) {
     return (
       <Tag id={id} className={cn("ai-conversation-title", className)}>
-        <input
+        <TextInput
           ref={inputRef}
+          clearable={false}
+          copyable={false}
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={setEditValue}
           onBlur={commitRename}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitRename();

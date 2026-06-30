@@ -1213,16 +1213,22 @@ export function DatabaseToolbox({
   }, [canSubmit, submitting, handleSubmit]);
 
   const handleSourceConnectionChange = useCallback((connId: string) => {
+    if (connId === sourceConnId) {
+      return;
+    }
     setSourceConnId(connId);
     setSourceDb("");
     setSourceDbs([]);
-  }, []);
+  }, [sourceConnId]);
 
   const handleTargetConnectionChange = useCallback((connId: string) => {
+    if (connId === targetConnId) {
+      return;
+    }
     setTargetConnId(connId);
     setTargetDb("");
     setTargetDbs([]);
-  }, []);
+  }, [targetConnId]);
 
   if (connections.length === 0) {
     return (

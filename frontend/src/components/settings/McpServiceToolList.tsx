@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 import { useI18n } from "../../i18n";
+import { TextInput } from "../ui/TextInput";
 import { commands, type McpToolInfo } from "../../ipc/bindings";
 import {
   getAllModuleMcpToolInfos,
@@ -125,10 +126,11 @@ export function McpServiceToolList({
   return (
     <div className="ai-provider-models-panel">
       <div className="ai-provider-models-toolbar">
-        <input
+        <TextInput
           className="input input-search ai-provider-models-search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
+          copyable={false}
           placeholder={t("settings.mcpServices.toolList.searchPlaceholder")}
         />
       </div>

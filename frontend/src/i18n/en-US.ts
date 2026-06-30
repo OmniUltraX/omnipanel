@@ -1060,6 +1060,7 @@ export const enUS: TranslationDict = {
       charsetDescription: "Leave empty to use the MySQL server default",
       collationLabel: "Collation",
       charsetServerDefault: "Server default",
+      charsetLoading: "Loading character sets…",
       create: "Create",
       creating: "Creating…",
       success: "Database `{name}` created",

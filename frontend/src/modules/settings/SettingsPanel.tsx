@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { appConfirm } from "../../lib/appConfirm";
 import { clearTerminalHistoryData, useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { FontFamilySelect } from "../../components/settings/FontFamilySelect";
+import { PasswordInput } from "../../components/ui/PasswordInput";
+import { TextInput } from "../../components/ui/TextInput";
 import {
   countEnabledModels,
   useAiModelsStore,
@@ -1176,12 +1178,11 @@ export function SettingsPanel() {
                       <div className="setting-label">
                         <h4>{t("settings.proxy.host")}</h4>
                       </div>
-                      <input
+                      <TextInput
                         className="setting-input"
-                        type="text"
                         placeholder={t("settings.proxy.hostPlaceholder")}
                         value={proxy.host}
-                        onChange={(e) => setProxy({ ...proxy, host: e.target.value })}
+                        onChange={(host) => setProxy({ ...proxy, host })}
                       />
                     </div>
                     <div>
@@ -1208,24 +1209,22 @@ export function SettingsPanel() {
                       <div className="setting-label">
                         <h4>{t("settings.proxy.username")}</h4>
                       </div>
-                      <input
+                      <TextInput
                         className="setting-input"
-                        type="text"
                         placeholder={t("settings.proxy.usernamePlaceholder")}
                         value={proxy.username}
-                        onChange={(e) => setProxy({ ...proxy, username: e.target.value })}
+                        onChange={(username) => setProxy({ ...proxy, username })}
                       />
                     </div>
                     <div>
                       <div className="setting-label">
                         <h4>{t("settings.proxy.password")}</h4>
                       </div>
-                      <input
+                      <PasswordInput
                         className="setting-input"
-                        type="password"
                         placeholder={t("settings.proxy.passwordPlaceholder")}
                         value={proxy.password}
-                        onChange={(e) => setProxy({ ...proxy, password: e.target.value })}
+                        onChange={(value) => setProxy({ ...proxy, password: value })}
                       />
                     </div>
                   </div>
@@ -1533,14 +1532,13 @@ export function SettingsPanel() {
                     <h4>{t("settings.terminal.autoLsCommand")}</h4>
                     <p>{t("settings.terminal.autoLsCommandDesc")}</p>
                   </div>
-                  <input
+                  <TextInput
                     className="setting-input"
-                    type="text"
                     value={terminalAutoLsCommand}
                     placeholder="ls"
                     spellCheck={false}
-                    onChange={(e) =>
-                      setTerminalSettings({ terminalAutoLsCommand: e.target.value })
+                    onChange={(terminalAutoLsCommand) =>
+                      setTerminalSettings({ terminalAutoLsCommand })
                     }
                   />
                 </div>
@@ -1716,14 +1714,13 @@ export function SettingsPanel() {
                   <p>{t("settings.files.indexStorageDesc")}</p>
                 </div>
                 <div style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
-                  <input
+                  <TextInput
                     className="setting-input"
-                    type="text"
                     style={{ flex: 1 }}
                     placeholder={t("settings.files.indexStoragePlaceholder")}
                     value={fileIndexStorageDraft}
                     disabled={applyingIndexStorageDir}
-                    onChange={(e) => setFileIndexStorageDraft(e.target.value)}
+                    onChange={setFileIndexStorageDraft}
                     onBlur={() => void applyFileIndexStorageDir(fileIndexStorageDraft)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {

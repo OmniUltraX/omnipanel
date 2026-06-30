@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import type { WsMessage } from "./useWebSocketSession";
 
 type WsMsgFormat = "JSON" | "Text" | "Binary";
@@ -54,10 +55,10 @@ export function HttpWebSocketPanel({
             { value: "Binary", label: t("protocol.ws.formats.Binary") },
           ]}
         />
-        <input
+        <TextInput
           placeholder={t("protocol.ws.inputPlaceholder")}
           value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
+          onChange={onInputChange}
           onKeyDown={(e) => e.key === "Enter" && void onSend()}
           disabled={!connected}
         />

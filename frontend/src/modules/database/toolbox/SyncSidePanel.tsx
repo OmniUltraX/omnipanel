@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObjec
 import { useI18n } from "../../../i18n";
 import { DataLoading, type DataLoadingProps } from "../../../components/ui/DataLoading";
 import { Select } from "../../../components/ui/Select";
+import { TextInput } from "../../../components/ui/TextInput";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type {
   DataAnalysisResult,
@@ -171,11 +172,11 @@ function ConnectionDatabaseFilters({
         }
       />
       {search !== undefined && onSearchChange && (
-        <input
-          type="search"
+        <TextInput
+          copyable={false}
           className="input db-toolbox-search"
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={onSearchChange}
           onKeyDown={onSearchKeyDown}
           placeholder={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
           aria-label={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
