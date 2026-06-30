@@ -15017,6 +15017,14 @@
     color: var(--fg-2);
 }
 
+textarea.content-preview-text--editable {
+    width: 100%;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+}
+
 .content-preview-code {
     flex: 1;
     min-height: 0;
@@ -15212,6 +15220,18 @@
     white-space: nowrap;
 }
 
+.file-preview-subwindow-dirty {
+    margin-left: 2px;
+    color: var(--accent);
+}
+
+.file-preview-subwindow-save-notice {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--meta);
+}
+
 .file-preview-subwindow-meta {
     flex-shrink: 0;
     font-size: 11px;
@@ -15226,20 +15246,19 @@
     flex-shrink: 0;
 }
 
-.file-preview-subwindow-download {
+.file-preview-subwindow-save {
     height: 28px;
     padding: 0 var(--sp-3);
-    border: 1px solid var(--border);
+    border: 1px solid var(--accent);
     border-radius: var(--r-sm);
-    background: var(--surface);
-    color: var(--fg-2);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--accent);
     font-size: 12px;
     cursor: pointer;
 }
 
-.file-preview-subwindow-download:hover {
-    background: var(--surface-hover);
-    color: var(--fg);
+.file-preview-subwindow-save:hover {
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface));
 }
 
 .file-preview-subwindow .subwindow-body .content-preview-view {

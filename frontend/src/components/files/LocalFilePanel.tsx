@@ -16,6 +16,7 @@ import {
   joinRemotePath,
   LOCAL_CONNECTION_ID,
   parentPath,
+  sortFileEntries,
 } from "../../modules/files/utils";
 
 function splitLocalBreadcrumb(path: string): { label: string; path: string }[] {
@@ -73,14 +74,8 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     setError(null);
     try {
       const list = await listDirectory(LOCAL_CONNECTION_ID, dir);
-      list.entries.sort((a, b) => {
-        const aDir = a.kind === "dir";
-        const bDir = b.kind === "dir";
-        if (aDir !== bDir) return aDir ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
       if (currentSeq !== loadSeqRef.current) return;
-      setEntries(list.entries);
+      setEntries(sortFileEntries(list.entries));
       setPath(dir);
       setSelectedName(null);
     } catch (e) {

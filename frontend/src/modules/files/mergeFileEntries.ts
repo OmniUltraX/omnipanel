@@ -1,4 +1,5 @@
 import type { FileEntry } from "../../ipc/bindings";
+import { sortFileEntries } from "./utils";
 
 /** 按 path 合并目录项，用于 S3 分页追加。 */
 export function mergeFileEntries(existing: FileEntry[], incoming: FileEntry[]): FileEntry[] {
@@ -10,5 +11,5 @@ export function mergeFileEntries(existing: FileEntry[], incoming: FileEntry[]): 
     seen.add(entry.path);
     next.push(entry);
   }
-  return next;
+  return sortFileEntries(next);
 }

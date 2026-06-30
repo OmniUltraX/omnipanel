@@ -409,6 +409,21 @@ pub fn run() {
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
 
             if let Some(window) = app.get_webview_window("main") {
+                let title = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|w| w.label == "main")
+                    .or_else(|| app.config().app.windows.first())
+                    .map(|w| w.title.clone())
+                    .unwrap_or_else(|| {
+                        app.config()
+                            .product_name
+                            .clone()
+                            .unwrap_or_else(|| "OmniPanel".to_string())
+                    });
+                window.set_title(&title).ok();
                 window.center().ok();
                 #[cfg(any(debug_assertions, feature = "debug-inspector"))]
                 if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {

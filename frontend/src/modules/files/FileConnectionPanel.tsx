@@ -49,6 +49,8 @@ import {
   parentPath,
   resolvePreviewReadMaxBytes,
   exceedsPreviewThreshold,
+  isPathNotFoundError,
+  sortFileEntries,
 } from "./utils";
 import { useFilesWorkspaceSessionStore } from "../../stores/filesWorkspaceSessionStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -60,7 +62,7 @@ import {
   splitLocalBreadcrumb,
 } from "./localFilesystem";
 import { buildS3PublicUrl, parseFileConfigJson } from "./s3PublicUrl";
-import { formatPathForInput, parseFileNavigationPath } from "./fileNavigationPath";
+import { formatPathForInput, parseFileNavigationPath, splitPathForPrefixFallback } from "./fileNavigationPath";
 import type { FileConnectionPanelSnapshot } from "./filesWorkspaceSession";
 
 type ViewMode = FileConnectionPanelSnapshot["viewMode"];
@@ -189,8 +191,8 @@ export function FileConnectionPanel({
 
   const displayEntries = useMemo(() => {
     const q = search.trim();
-    if (!q) return entries;
-    return searchResults ?? [];
+    const list = !q ? entries : (searchResults ?? []);
+    return sortFileEntries(list);
   }, [entries, search, searchResults]);
 
   const clearSearchState = useCallback(() => {
@@ -207,20 +209,70 @@ export function FileConnectionPanel({
     setError(null);
     setListNextToken(null);
     setHasMoreEntries(false);
-    try {
-      const result = await listDirectory(connId, path, null, null);
-      if (seq !== loadSeq.current) return;
-      setEntries(result.entries);
+
+    const applyDirResult = (
+      result: Awaited<ReturnType<typeof listDirectory>>,
+      resolvedPath: string,
+      entriesOverride?: FileEntry[],
+    ) => {
+      setEntries(entriesOverride ?? result.entries);
       setListNextToken(result.nextContinuationToken);
       setHasMoreEntries(result.truncated);
-      setCurrentPath(path);
+      setCurrentPath(resolvedPath);
       setSelected(null);
       setPreviewText(null);
       if (connId !== LOCAL_CONNECTION_ID) {
         onPatchStatus(connId, "online");
       }
+    };
+
+    const filterByPrefix = (list: FileEntry[], prefix: string) => {
+      const q = prefix.toLowerCase();
+      return sortFileEntries(list.filter((entry) => entry.name.toLowerCase().startsWith(q)));
+    };
+
+    const prefixFallbackCandidate = splitPathForPrefixFallback(path, protocol);
+
+    try {
+      const result = await listDirectory(connId, path, null, null, {
+        quiet: prefixFallbackCandidate !== null,
+      });
+      if (seq !== loadSeq.current) return;
+      applyDirResult(result, path);
     } catch (e) {
       if (seq !== loadSeq.current) return;
+
+      let resolved = false;
+      if (isPathNotFoundError(e)) {
+        let current = path;
+        while (true) {
+          const split = splitPathForPrefixFallback(current, protocol);
+          if (!split) break;
+          try {
+            const parentResult = await listDirectory(
+              connId,
+              split.parentPath,
+              null,
+              null,
+              { quiet: true },
+            );
+            if (seq !== loadSeq.current) return;
+            applyDirResult(
+              parentResult,
+              split.parentPath,
+              filterByPrefix(parentResult.entries, split.prefix),
+            );
+            resolved = true;
+            break;
+          } catch (parentErr) {
+            if (!isPathNotFoundError(parentErr)) break;
+            current = split.parentPath;
+          }
+        }
+      }
+
+      if (resolved) return;
+
       console.error("[files] loadDir failed:", { connectionId: connId, path, error: e });
       setError(fmtError(e));
       setEntries([]);
@@ -232,7 +284,7 @@ export function FileConnectionPanel({
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [connId, onPatchStatus]);
+  }, [connId, onPatchStatus, protocol]);
 
   const loadMoreEntries = useCallback(async () => {
     if (protocol !== "s3" || !hasMoreEntries || loadingMore || loading || !listNextToken) return;
@@ -1027,6 +1079,7 @@ export function FileConnectionPanel({
         entry={previewEntry}
         connectionId={connId}
         onClose={() => setPreviewEntry(null)}
+        onSaved={() => void loadDir(currentPath)}
         onDownload={
           connId === LOCAL_CONNECTION_ID
             ? undefined

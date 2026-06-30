@@ -1,4 +1,5 @@
-import { isComputerRoot, LOCAL_COMPUTER_ROOT } from "./localFilesystem";
+import { isComputerRoot, isWindowsLocalPath, LOCAL_COMPUTER_ROOT } from "./localFilesystem";
+import { parentPath } from "./utils";
 
 export type ParseNavigationPathOptions = {
   platform?: string;
@@ -76,4 +77,54 @@ export function parseFileNavigationPath(
   }
   if (posix === "/") return "/";
   return posix.replace(/\/+$/, "") || "/";
+}
+
+function navigationBasename(path: string, protocol: string): string {
+  if (protocol === "local") {
+    if (!path || isComputerRoot(path)) return "";
+    if (isWindowsLocalPath(path)) {
+      const normalized = path.replace(/\//g, "\\").replace(/\\+$/, "");
+      const match = normalized.match(/^([A-Za-z]:)(?:\\(.*))?$/);
+      if (!match) {
+        const parts = normalized.split("\\").filter(Boolean);
+        return parts[parts.length - 1] ?? "";
+      }
+      const rest = match[2];
+      if (!rest) return "";
+      const parts = rest.split("\\").filter(Boolean);
+      return parts[parts.length - 1] ?? "";
+    }
+    const parts = path.split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? "";
+  }
+  if (protocol === "s3") {
+    const trimmed = path.replace(/\/+$/, "");
+    const idx = trimmed.lastIndexOf("/");
+    return idx < 0 ? trimmed : trimmed.slice(idx + 1);
+  }
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+/** 将不存在或无法访问的路径拆成「存在的父目录 + 末段前缀」，供地址栏前缀回退。 */
+export function splitPathForPrefixFallback(
+  path: string,
+  protocol: string,
+): { parentPath: string; prefix: string } | null {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  if (protocol === "local" && isComputerRoot(trimmed)) return null;
+  if (protocol === "s3") {
+    if (!trimmed.replace(/\/+$/, "")) return null;
+  } else if (protocol !== "local" && trimmed === "/") {
+    return null;
+  }
+
+  const prefix = navigationBasename(trimmed, protocol);
+  if (!prefix) return null;
+
+  const parent = parentPath(trimmed, protocol);
+  if (parent === trimmed) return null;
+
+  return { parentPath: parent, prefix };
 }

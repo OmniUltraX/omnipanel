@@ -23,6 +23,16 @@ export function groupFileConnectionsByProtocol(
   return grouped;
 }
 
+/** 目录项排序：文件夹在前，同类型按名称（不区分大小写）。 */
+export function sortFileEntries(entries: FileEntry[]): FileEntry[] {
+  return [...entries].sort((a, b) => {
+    const ad = a.kind === "dir";
+    const bd = b.kind === "dir";
+    if (ad !== bd) return ad ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
+
 const GRID_IMAGE_EXTENSIONS = new Set(["svg", "png", "jpg", "jpeg", "webp"]);
 
 export function isGridImageFile(name: string): boolean {
@@ -112,6 +122,18 @@ export function parentPath(path: string, protocol: string): string {
   if (path === "/") return "/";
   const parent = path.split("/").slice(0, -1).join("/");
   return parent || "/";
+}
+
+export function isPathNotFoundError(e: unknown): boolean {
+  const msg = fmtError(e).toLowerCase();
+  return (
+    msg.includes("no such file") ||
+    msg.includes("no such directory") ||
+    msg.includes("enoent") ||
+    msg.includes("找不到") ||
+    (msg.includes("不存在") &&
+      (msg.includes("目录") || msg.includes("路径") || msg.includes("file")))
+  );
 }
 
 export function fmtError(e: unknown): string {

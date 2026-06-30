@@ -201,6 +201,15 @@ pub(crate) async fn load_file_connection(
 
 // ─── Local backend ───────────────────────────────────────────────────────────
 
+fn sort_file_entries(entries: &mut [FileEntry]) {
+    entries.sort_by(|a, b| {
+        let ad = a.kind == "dir";
+        let bd = b.kind == "dir";
+        ad.cmp(&bd)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+}
+
 pub(crate) fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
     #[cfg(windows)]
     if is_local_computer_root(path) {
@@ -252,12 +261,7 @@ pub(crate) fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
             permissions,
         });
     }
-    entries.sort_by(|a, b| {
-        let ad = a.kind == "dir";
-        let bd = b.kind == "dir";
-        ad.cmp(&bd)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
+    sort_file_entries(&mut entries);
     Ok(entries)
 }
 
@@ -468,10 +472,12 @@ pub(crate) async fn list_sftp_dir(
         path.to_string()
     };
     let list = session.sftp_list(&remote).await?;
-    Ok(list
+    let mut entries: Vec<FileEntry> = list
         .iter()
         .map(|e| sftp_entry_to_file(e, &remote))
-        .collect())
+        .collect();
+    sort_file_entries(&mut entries);
+    Ok(entries)
 }
 
 // ─── FTP backend（同步客户端 + spawn_blocking）────────────────────────────────
@@ -541,6 +547,7 @@ pub(crate) async fn list_ftp_dir(
                 permissions: parts.first().map(|s| s.to_string()),
             });
         }
+        sort_file_entries(&mut entries);
         Ok(entries)
     })
     .await
@@ -685,11 +692,7 @@ async fn list_s3_dir(
             permissions: None,
         });
     }
-    entries.sort_by(|a, b| {
-        let ad = a.kind == "dir";
-        let bd = b.kind == "dir";
-        ad.cmp(&bd).then_with(|| a.name.cmp(&b.name))
-    });
+    sort_file_entries(&mut entries);
     let has_more = page.is_truncated;
     let next_token = if has_more {
         page.next_continuation_token
@@ -745,11 +748,7 @@ fn push_s3_list_page_entries(
 }
 
 fn sort_s3_entries(entries: &mut [FileEntry]) {
-    entries.sort_by(|a, b| {
-        let ad = a.kind == "dir";
-        let bd = b.kind == "dir";
-        ad.cmp(&bd).then_with(|| a.name.cmp(&b.name))
-    });
+    sort_file_entries(entries);
 }
 
 /// 搜索词含 `/` 时按 S3 对象 key 前缀查询（如 `foo/`）。
@@ -1307,11 +1306,7 @@ fn filter_file_entries(
         return Ok(entries);
     };
     entries.retain(|e| e.name.to_lowercase().contains(&q));
-    entries.sort_by(|a, b| {
-        let ad = a.kind == "dir";
-        let bd = b.kind == "dir";
-        ad.cmp(&bd).then_with(|| a.name.cmp(&b.name))
-    });
+    sort_file_entries(&mut entries);
     Ok(entries)
 }
 
