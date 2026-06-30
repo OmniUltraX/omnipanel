@@ -68,6 +68,11 @@
         display: flex;
         align-items: center;
         gap: var(--sp-2);
+        -webkit-app-region: drag;
+    }
+
+    .host-list-header :is(button, input, select, a, .badge) {
+        -webkit-app-region: no-drag;
     }
 
     .host-list-header h3 {

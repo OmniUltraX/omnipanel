@@ -33,16 +33,9 @@ type SidePanelWorkspaceSpec = {
 
 /** 侧栏竖排 tab 轨宽度，与 global.css 中 dv-tabs-and-actions-container 一致 */
 const SIDE_TAB_RAIL_PX = 38;
-/** 右侧工具栏首次展开时的默认宽度（偏窄，给终端留更多空间） */
+/** 右侧工具栏展开时的默认 / 最大宽度（固定像素，不随窗口缩放） */
 const SIDE_DEFAULT_EXPANDED_PX = 280;
-const SIDE_EXPANDED_MAX_RATIO = 0.36;
-
-function resolveDefaultExpandedSideWidth(): number {
-  return Math.min(
-    Math.max(SIDE_DEFAULT_EXPANDED_PX, Math.floor(window.innerWidth * 0.26)),
-    Math.floor(window.innerWidth * SIDE_EXPANDED_MAX_RATIO),
-  );
-}
+const SIDE_EXPANDED_MAX_PX = 480;
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -187,7 +180,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     const restored =
       expandedSideSizeRef.current > SIDE_TAB_RAIL_PX + 8
         ? expandedSideSizeRef.current
-        : resolveDefaultExpandedSideWidth();
+        : SIDE_DEFAULT_EXPANDED_PX;
     handle.resize(`${restored}px`);
   }, []);
 
@@ -343,10 +336,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   return (
     <div className="advance-terminal">
       <DockLayout direction="horizontal" className="advance-terminal-split">
-        <DockPanel
-          minSize={sideContentCollapsed ? "0%" : "40%"}
-          className="advance-terminal-main"
-        >
+        <DockPanel className="advance-terminal-main" groupResizeBehavior="preserve-relative-size">
           {terminalPane}
         </DockPanel>
         {!sideContentCollapsed ? <DockHandle direction="horizontal" /> : null}
@@ -356,7 +346,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           maxSize={
             sideContentCollapsed
               ? `${SIDE_TAB_RAIL_PX}px`
-              : `${Math.round(SIDE_EXPANDED_MAX_RATIO * 100)}%`
+              : `${SIDE_EXPANDED_MAX_PX}px`
           }
           collapsible
           collapsedSize={`${SIDE_TAB_RAIL_PX}px`}

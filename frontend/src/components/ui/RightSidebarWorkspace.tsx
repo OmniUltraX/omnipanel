@@ -1,7 +1,10 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { DockWorkspace, type DockRailPreset } from "../dock";
-import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import {
+  MODULE_LEFT_SIDEBAR_MAX_PX,
+  usePanelLayoutStore,
+} from "../../stores/panelLayoutStore";
 
 /** 侧栏宽度预设（像素级默认值见 DockWorkspace） */
 export type RightSidebarWorkspacePreset = DockRailPreset;
@@ -26,8 +29,8 @@ export interface RightSidebarWorkspaceProps {
   sidebarSizePx?: number;
   /** 侧栏最小宽度（px 或百分比字符串） */
   sidebarMinPx?: number;
-  /** 侧栏最大宽度（px 或百分比字符串） */
-  sidebarMaxPx?: number | string;
+  /** 侧栏最大宽度（px） */
+  sidebarMaxPx?: number;
   className?: string;
 }
 
@@ -88,9 +91,7 @@ export function RightSidebarWorkspace({
       rightPreset={preset}
       rightSizePx={sidebarSizePx}
       rightMinPx={sidebarMinPx}
-      // 右侧边栏最大宽度默认限制为窗口宽度的 60%，避免在大窗口下被拉得过宽。
-      // 调用方仍可通过 sidebarMaxPx 或 preset 显式覆盖。
-      rightMaxPx={sidebarMaxPx ?? "60%"}
+      rightMaxPx={sidebarMaxPx ?? MODULE_LEFT_SIDEBAR_MAX_PX}
       onRightResize={handleRightResize}
       onRightLayoutChanged={handleRightLayoutChanged}
       className={className}

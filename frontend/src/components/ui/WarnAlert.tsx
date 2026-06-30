@@ -19,6 +19,8 @@ export interface WarnAlertProps {
   cancelLabel?: string;
   /** 仅展示确认按钮（关闭/知道了） */
   alertOnly?: boolean;
+  /** 确认后是否自动触发 onClose；全局对话框设为 false 以区分确认/取消 */
+  closeOnConfirm?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -34,12 +36,15 @@ export function WarnAlert({
   confirmLabel = "确认",
   cancelLabel = "取消",
   alertOnly = false,
+  closeOnConfirm = true,
   onConfirm,
   onClose,
 }: WarnAlertProps) {
   const handleConfirm = () => {
     onConfirm();
-    onClose();
+    if (closeOnConfirm) {
+      onClose();
+    }
   };
 
   return (

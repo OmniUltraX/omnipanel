@@ -162,7 +162,7 @@ export function ServerSidebar({
 
   return (
     <div className="server-sidebar">
-      <div className="server-sidebar-subheader">
+      <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("server.sidebar.title")}</span>
         <span className="badge badge-muted">{servers.length}</span>
         {addServerButton}

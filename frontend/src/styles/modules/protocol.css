@@ -85,6 +85,11 @@
         padding: var(--sp-2) var(--sp-3);
         border-bottom: 1px solid var(--border-soft);
         flex-shrink: 0;
+        -webkit-app-region: drag;
+    }
+
+    .proto-sidebar-header :is(button, input, select, a, .proto-sidebar-new) {
+        -webkit-app-region: no-drag;
     }
 
     .proto-sidebar-title {

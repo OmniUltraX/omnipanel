@@ -8,9 +8,14 @@ export type DockRailPreset = "default" | "schema" | "host" | "server" | "setting
 
 type RailSize = PanelProps["minSize"];
 
-const RAIL_PRESETS: Record<DockRailPreset, { defaultSize: RailSize; minSize: RailSize; maxSize: RailSize }> = {
+/** 数字按像素传给 react-resizable-panels，避免无单位字符串被当成百分比 */
+function toPanelPx(value: number | string): RailSize {
+  return typeof value === "number" ? `${value}px` : value;
+}
+
+const RAIL_PRESETS: Record<DockRailPreset, { defaultSize: number; minSize: number; maxSize: number }> = {
   default: { defaultSize: 260, minSize: 220, maxSize: 420 },
-  schema: { defaultSize: 280, minSize: 280, maxSize: "100%" },
+  schema: { defaultSize: 280, minSize: 280, maxSize: 420 },
   host: { defaultSize: 280, minSize: 240, maxSize: 420 },
   server: { defaultSize: 220, minSize: 200, maxSize: 360 },
   settings: { defaultSize: 200, minSize: 180, maxSize: 280 },
@@ -26,8 +31,8 @@ interface DockWorkspaceProps {
   leftSize?: number;
   leftSizePx?: number;
   leftMinPx?: number;
-  /** 像素；传字符串（如 `"100%"`）时原样交给 Panel */
-  leftMaxPx?: number | string;
+  /** 侧栏最大宽度（px） */
+  leftMaxPx?: number;
   leftPreset?: DockRailPreset;
   /** 左侧面板尺寸变化回调 */
   onLeftResize?: (sizePx: number) => void;
@@ -40,8 +45,8 @@ interface DockWorkspaceProps {
   rightPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;
-  /** 像素；传字符串（如 `"100%"`）时原样交给 Panel */
-  rightMaxPx?: number | string;
+  /** 侧栏最大宽度（px） */
+  rightMaxPx?: number;
   /** 右侧面板尺寸变化回调 */
   onRightResize?: (sizePx: number) => void;
   /** 右侧面板拖拽结束或布局稳定后触发 */
@@ -168,11 +173,12 @@ export function DockWorkspace({
         {left && (
           <>
             <DockPanel
-              defaultSize={leftDefault}
-              minSize={leftMin}
-              maxSize={leftMax}
+              defaultSize={toPanelPx(leftDefault)}
+              minSize={toPanelPx(leftMin)}
+              maxSize={toPanelPx(leftMax)}
               collapsible
               collapsedSize={0}
+              groupResizeBehavior="preserve-pixel-size"
               panelRef={leftPanelRef}
               onResize={onLeftResize ? handleLeftResize : undefined}
               className="dock-panel-left"
@@ -182,18 +188,19 @@ export function DockWorkspace({
             <DockHandle className={leftHandleClassName} />
           </>
         )}
-        <DockPanel className="dock-panel-main">
+        <DockPanel className="dock-panel-main" groupResizeBehavior="preserve-relative-size">
           {mainContent}
         </DockPanel>
         {right && (
           <>
             <DockHandle />
             <DockPanel
-              defaultSize={rightDefault}
-              minSize={rightMin}
-              maxSize={rightMax}
+              defaultSize={toPanelPx(rightDefault)}
+              minSize={toPanelPx(rightMin)}
+              maxSize={toPanelPx(rightMax)}
               collapsible
               collapsedSize={0}
+              groupResizeBehavior="preserve-pixel-size"
               onResize={onRightResize ? handleRightResize : undefined}
               className="dock-panel-right"
             >

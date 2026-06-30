@@ -157,11 +157,11 @@ export function DockerSidebar({
     <div className="server-sidebar docker-sidebar">
       {!section ? (
         <>
-          <div className="server-sidebar-header">
+          <div className="server-sidebar-header window-drag-surface" data-tauri-drag-region>
             <span className="docker-sidebar-title">{t("docker.sidebar.title")}</span>
             {toolbar}
           </div>
-          <div className="server-sidebar-subheader">
+          <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
             <span>{t("docker.sidebar.connections")}</span>
             <span className="badge badge-muted">{connections.length}</span>
           </div>

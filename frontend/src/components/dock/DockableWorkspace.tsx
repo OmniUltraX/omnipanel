@@ -589,6 +589,23 @@ export function DockableWorkspace({
     return () => observer.disconnect();
   }, [tabs.length]);
 
+  // windowControl：tab 与窗口按钮之间的 void 区域用于拖拽移动窗口
+  useEffect(() => {
+    if (!windowControl) return;
+    const root = wrapperRef.current;
+    if (!root) return;
+    const apply = () => {
+      root.querySelectorAll<HTMLElement>(".dv-void-container").forEach((el) => {
+        el.setAttribute("data-tauri-drag-region", "");
+        el.classList.add("dock-window-void-drag");
+      });
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [windowControl, tabs.length, layoutReady]);
+
   // 再次点击已激活 tab：以 pointerdown 时的激活态为准。
   // dockview 会在 click 前完成切换，若只看 click 时的 dv-active-tab，
   // 点击其它 tab 也会被误判为“当前激活 tab”。

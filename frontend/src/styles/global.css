@@ -42,6 +42,21 @@
     --spacing-sidebar: var(--sidebar-w);
 }
 
+html,
+body,
+#root {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+    touch-action: manipulation;
+}
+
+img,
+svg,
+a {
+    -webkit-user-drag: none;
+    user-drag: none;
+}
+
 /* 全局禁止文本选中，需要选择的元素自行添加 user-select: auto 或 text */
 * {
     -webkit-user-select: none;
@@ -2884,6 +2899,8 @@
     width: 100vw;
     /* 与 dockview .dv-tabs-and-actions-container 共用高度 */
     --shell-dv-tab-bar-h: var(--topbar-h);
+    /* 窗口控制三键（minimize / maximize / close）占位宽度 */
+    --shell-win-controls-width: 138px;
 }
 
 /* 须在 @layer 外，避免 Tailwind layer 级联导致 hidden 顶栏仍可见 */
@@ -3517,26 +3534,56 @@
 
 .dockable-workspace.dock-window-control .dv-right-actions-container {
     display: flex;
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    min-width: var(--shell-win-controls-width);
     height: 100%;
     align-items: stretch;
     align-self: stretch;
 }
 
+.dockable-workspace.dock-window-control .dv-tabs-and-actions-container {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.dockable-workspace.dock-window-control .dv-tabs-and-actions-container .dv-void-container {
+    flex: 1 1 0;
+    min-width: 24px;
+    height: 100%;
+    cursor: default;
+}
+
+.dockable-workspace.dock-window-control .dock-window-void-drag {
+    -webkit-app-region: drag;
+}
+
+.dockable-workspace.dock-window-control .dv-tabs-container {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+
+.dockable-workspace.dock-window-control .dv-tabs-container::-webkit-scrollbar {
+    display: none;
+}
+
 .dockable-workspace.dock-window-control .dock-window-title-actions {
     display: flex;
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    min-width: var(--shell-win-controls-width);
     height: 100%;
     align-items: stretch;
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
-    flex: 1;
-    min-width: 32px;
-    height: 100%;
-    cursor: default;
+    flex: 0 0 0;
+    min-width: 0;
+    width: 0;
+    overflow: hidden;
 }
 
 .dockable-workspace.dock-window-control .dock-window-title-actions .win-controls {
@@ -3579,8 +3626,9 @@
 }
 
 .dockable-workspace.dock-window-control .dock-window-title-actions--controls-only {
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    min-width: var(--shell-win-controls-width);
     justify-content: flex-end;
     margin-left: 0;
 }
@@ -5178,6 +5226,7 @@
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+        -webkit-app-region: no-drag;
     }
 
     .scoped-search-bar__label {
@@ -10238,6 +10287,11 @@
         display: flex;
         align-items: center;
         gap: var(--sp-1);
+        -webkit-app-region: drag;
+    }
+
+    .server-sidebar-header :is(button, input, select, a, .btn-icon) {
+        -webkit-app-region: no-drag;
     }
 
     .server-sidebar-group-select {
@@ -10279,6 +10333,11 @@
         color: var(--meta);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+        -webkit-app-region: drag;
+    }
+
+    .server-sidebar-subheader :is(button, input, select, a, .badge) {
+        -webkit-app-region: no-drag;
     }
 
     .server-sidebar-subheader .badge {
@@ -14069,6 +14128,30 @@
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     min-height: 28px;
+    -webkit-app-region: drag;
+}
+
+.vsplit-sidebar-section__header-row :is(
+    .vsplit-sidebar-section__header,
+    .schema-sidebar-section__header,
+    .vsplit-sidebar-section__actions,
+    .schema-sidebar-section__actions,
+    button,
+    input,
+    select,
+    a
+),
+.schema-sidebar-section__header-row :is(
+    .vsplit-sidebar-section__header,
+    .schema-sidebar-section__header,
+    .vsplit-sidebar-section__actions,
+    .schema-sidebar-section__actions,
+    button,
+    input,
+    select,
+    a
+) {
+    -webkit-app-region: no-drag;
 }
 
 .vsplit-sidebar-section__header,

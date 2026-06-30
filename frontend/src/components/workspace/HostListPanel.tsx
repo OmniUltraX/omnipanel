@@ -14,6 +14,7 @@ import {
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { quickInput } from "../../lib/quickInput";
 import { ScopedSearch } from "../ui/ScopedSearch";
 import { ResourceTags } from "../ui/ResourceTags";
 import {
@@ -362,18 +363,16 @@ export function HostListPanel({
     if (listCtxMenu?.kind !== "group") return;
     const { groupKey } = listCtxMenu;
     setListCtxMenu(null);
-    const input = window.prompt(
-      t("ssh.context.renameGroupPrompt", { name: sshGroupLabel(groupKey, t) }),
-      groupKey,
-    );
-    if (input == null) return;
-    if (!input.trim()) {
-      window.alert(t("ssh.context.renameGroupEmpty"));
-      return;
-    }
-    const newKey = sanitizeSshGroupInput(input);
-    if (newKey === groupKey) return;
     void (async () => {
+      const input = await quickInput({
+        title: t("ssh.context.editGroup"),
+        subtitle: t("ssh.context.renameGroupPrompt", { name: sshGroupLabel(groupKey, t) }),
+        defaultValue: groupKey,
+        validate: (value) => (value.trim() ? null : t("ssh.context.renameGroupEmpty")),
+      });
+      if (input == null) return;
+      const newKey = sanitizeSshGroupInput(input);
+      if (newKey === groupKey) return;
       const conns = sshConnectionsInGroup(groupKey);
       for (const conn of conns) {
         await saveConn({ ...conn, group: newKey });
@@ -499,7 +498,7 @@ export function HostListPanel({
   const panelBody = (
     <div className="host-list-panel">
       {!embedded ? (
-        <div className="host-list-header">
+        <div className="host-list-header window-drag-surface" data-tauri-drag-region>
           <h3>{t("ssh.sidebar.title")}</h3>
           <span className="badge badge-muted">{resources.length}</span>
           {toolbar}

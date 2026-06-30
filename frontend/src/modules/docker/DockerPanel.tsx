@@ -9,6 +9,7 @@ import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { quickInput } from "../../lib/quickInput";
 import { navigateToSshManagement } from "../../lib/workspaceNavigation";
 import {
   useContainerLogStream,
@@ -1014,7 +1015,11 @@ export function DockerPanel() {
                           title="打 tag"
                           disabled={!probe?.capabilities?.canManageImages}
                           onClick={async () => {
-                            const newTag = window.prompt(`为 ${img.repository}:${img.tag} 设置新 tag`, `${img.repository}:latest`);
+                            const newTag = await quickInput({
+                              title: "打 tag",
+                              subtitle: `为 ${img.repository}:${img.tag} 设置新 tag`,
+                              defaultValue: `${img.repository}:latest`,
+                            });
                             if (!newTag) return;
                             const r = await tagImage(`${img.repository}:${img.tag}`, newTag);
                             showToast(r.message ?? (r.ok ? "已打 tag" : "打 tag 失败"));

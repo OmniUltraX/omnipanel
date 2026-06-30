@@ -48,9 +48,15 @@
   box-sizing: border-box;
 }
 
+.module-sidebar-module-header__spacer {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
 .module-left-column__header--with-modes {
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .module-sidebar-module-header .module-dock-title {
@@ -207,4 +213,31 @@
 .dock-workspace.module-workspace-layout .dock-panel-left .dock-rail-shell {
   height: 100%;
   min-height: 0;
+}
+
+/* 无边框窗口：侧栏/面板顶栏空白区可拖拽，交互控件除外 */
+.window-drag-surface {
+  -webkit-app-region: drag;
+}
+
+.window-drag-surface--interactive,
+.window-drag-surface :is(
+  button,
+  input,
+  textarea,
+  select,
+  option,
+  a[href],
+  label,
+  summary,
+  .scoped-search-bar,
+  .win-controls,
+  .module-mode-icon-rail,
+  .module-sidebar-module-header__actions
+) {
+  -webkit-app-region: no-drag;
+}
+
+.module-left-column .scoped-search-bar {
+  -webkit-app-region: no-drag;
 }
