@@ -34,8 +34,8 @@ type SidePanelWorkspaceSpec = {
 /** 侧栏竖排 tab 轨宽度，与 global.css 中 dv-tabs-and-actions-container 一致 */
 const SIDE_TAB_RAIL_PX = 38;
 /** 右侧工具栏展开时的默认 / 最大宽度（固定像素，不随窗口缩放） */
-const SIDE_DEFAULT_EXPANDED_PX = 280;
-const SIDE_EXPANDED_MAX_PX = 480;
+const SIDE_DEFAULT_EXPANDED_PX = 380;
+const SIDE_EXPANDED_MAX_PX = 580;
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -162,7 +162,11 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
   activeSideTabRef.current = activeSideTab;
   const [sideContentCollapsed, setSideContentCollapsed] = useState(true);
   const sideContentCollapsedRef = useRef(true);
+  // 展开过程中先遮住内容区，待 dockview 重排到全宽后再显示，规避「面板已变宽但
+  // dockview 内部仍是 38px 窄柱、tab 轨被挤到左侧、右侧留白」的中间帧。
+  const [sideContentRevealed, setSideContentRevealed] = useState(false);
   const sidePanelRef = useRef<PanelImperativeHandle | null>(null);
+  const sideDockRelayoutRef = useRef<(() => void) | null>(null);
   const expandedSideSizeRef = useRef<number>(0);
   const sideLayoutRef = useRef<SerializedDockview | null>(null);
   const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
@@ -184,6 +188,16 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
     handle.resize(`${restored}px`);
   }, []);
 
+  // 面板宽度变化时同步让 dockview 重排；当面板已达展开宽度时揭开内容区遮罩。
+  const handleSidePanelResize = useCallback(() => {
+    sideDockRelayoutRef.current?.();
+    if (sideContentCollapsedRef.current) return;
+    const size = sidePanelRef.current?.getSize();
+    if (size && size.inPixels > SIDE_TAB_RAIL_PX + 8) {
+      setSideContentRevealed(true);
+    }
+  }, []);
+
   const applySidePanelCollapsed = useCallback((collapsed: boolean) => {
     const handle = sidePanelRef.current;
     if (collapsed && handle) {
@@ -193,17 +207,30 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
       }
     }
     sideContentCollapsedRef.current = collapsed;
+    setSideContentRevealed(false);
     setSideContentCollapsed(collapsed);
   }, []);
 
   useLayoutEffect(() => {
-    const run = () => resizeSidePanel(sideContentCollapsed);
+    let raf1 = 0;
+    let raf2 = 0;
+    const run = () => {
+      resizeSidePanel(sideContentCollapsed);
+      sideDockRelayoutRef.current?.();
+    };
     run();
-    const raf1 = requestAnimationFrame(() => {
+    raf1 = requestAnimationFrame(() => {
       run();
-      requestAnimationFrame(run);
+      raf2 = requestAnimationFrame(() => {
+        run();
+        // 兜底揭开遮罩：即便面板宽度未变化（onResize 不触发）也能正常显示内容。
+        if (!sideContentCollapsedRef.current) setSideContentRevealed(true);
+      });
     });
-    return () => cancelAnimationFrame(raf1);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [resizeSidePanel, sideContentCollapsed]);
 
   const handleSideTabChange = useCallback(
@@ -352,7 +379,8 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           collapsedSize={`${SIDE_TAB_RAIL_PX}px`}
           groupResizeBehavior="preserve-pixel-size"
           panelRef={sidePanelRef}
-          className={`advance-terminal-side${sideContentCollapsed ? " advance-terminal-side--collapsed" : ""}`}
+          onResize={handleSidePanelResize}
+          className={`advance-terminal-side${sideContentCollapsed ? " advance-terminal-side--collapsed" : ""}${!sideContentCollapsed && !sideContentRevealed ? " advance-terminal-side--masking" : ""}`}
         >
           <DockableWorkspace
             key={`${tabId}-${isLocal ? "local" : "remote"}`}
@@ -365,6 +393,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
             onCloseTab={() => {}}
             savedLayout={sideLayoutRef.current}
             onSavedLayoutChange={handleSideLayoutChange}
+            relayoutRef={sideDockRelayoutRef}
             renderPanel={renderSidePanel}
             enableTabGroups={false}
             defaultHeaderPosition="right"

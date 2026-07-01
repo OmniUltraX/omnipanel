@@ -352,7 +352,9 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
                       <span className={`sftp-icon ${isDir ? "sftp-icon-dir" : "sftp-icon-file"}`}>
                         <FileEntryIcon type={isDir ? "dir" : "file"} size={14} />
                       </span>
-                      <span className={isDir ? "sftp-name-dir" : "sftp-name-file"}>{entry.name}</span>
+                      <span className={isDir ? "sftp-name-dir" : "sftp-name-file"} title={entry.name}>
+                        {entry.name}
+                      </span>
                     </td>
                     <td className="sftp-col-size text-muted">
                       {isDir ? "—" : formatFileSize(entry.size)}

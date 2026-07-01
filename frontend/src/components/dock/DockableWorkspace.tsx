@@ -107,6 +107,12 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   ) => Partial<{ label: string; color: string }> | undefined;
   /** dockview group Tab 栏默认方位；`right` / `left` 为竖排侧栏 */
   defaultHeaderPosition?: DockHeaderPosition;
+  /**
+   * 同步重排入口：外层改变 dock 宽度后（如终端右侧栏展开），在 paint 前调用
+   * `current()` 让 dockview 立即按真实尺寸重排，避免其自带 ResizeObserver
+   * 异步重排导致竖排 tab 轨与内容停留在折叠态窄宽的一帧。
+   */
+  relayoutRef?: React.MutableRefObject<(() => void) | null>;
   /** 为 false 时不按 panelType 折叠为 tab group（数据库等同类型多 Tab 需直接展示） */
   enableTabGroups?: boolean;
   /** topbar 风格 tab 栏（终端 session tab） */
@@ -190,6 +196,7 @@ export function DockableWorkspace({
   onExternalDrop,
   resolveTabGroupMeta,
   defaultHeaderPosition = "top",
+  relayoutRef,
   enableTabGroups = true,
   tabStyle = "default",
   addTabConfig,
@@ -991,6 +998,30 @@ export function DockableWorkspace({
       relayout();
     });
   }, [layoutReady, defaultHeaderPosition]);
+
+  // 同步重排入口：外层在改变 dock 宽度后、paint 前手动触发，消除异步重排的错位帧。
+  useEffect(() => {
+    if (!relayoutRef) return;
+    const fn = () => {
+      const api = apiRef.current;
+      if (!api || !layoutLoadedRef.current) return;
+      const dockRoot = wrapperRef.current?.querySelector<HTMLElement>(
+        ".dockable-workspace__dockview",
+      );
+      if (!dockRoot) return;
+      const w = dockRoot.clientWidth;
+      const h = dockRoot.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      if (defaultHeaderPositionRef.current !== "top") {
+        syncGroupHeaderPosition(api, defaultHeaderPositionRef.current);
+      }
+      api.layout(w, h);
+    };
+    relayoutRef.current = fn;
+    return () => {
+      if (relayoutRef.current === fn) relayoutRef.current = null;
+    };
+  }, [relayoutRef]);
 
   // 侧栏 header：容器尺寸变化时（如底部半屏工作区展开/收起）重新 layout，
   // 仅作用于 defaultHeaderPosition !== top 的 dock（如 advance-terminal-side-dock）。

@@ -1587,6 +1587,7 @@
         width: 100%;
         border-collapse: collapse;
         font-size: 12px;
+        table-layout: fixed;
     }
 
     .sftp-table th {
@@ -1617,11 +1618,10 @@
     }
 
     .sftp-col-name {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
+        max-width: 0;
+        overflow: hidden;
+        vertical-align: middle;
         cursor: default;
-        min-width: 0;
     }
 
     .sftp-row-dir .sftp-col-name {
@@ -1652,10 +1652,22 @@
     .sftp-name-dir {
         font-weight: 600;
         color: var(--fg);
+        display: inline-block;
+        max-width: calc(100% - 22px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
     }
 
     .sftp-name-file {
         color: var(--fg-2);
+        display: inline-block;
+        max-width: calc(100% - 22px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
     }
 
     .sftp-icon {
@@ -1663,6 +1675,8 @@
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        margin-right: var(--sp-2);
+        vertical-align: middle;
         color: var(--muted);
     }
 
@@ -1724,7 +1738,8 @@
     .sftp-table-wrap {
         flex: 1;
         min-height: 0;
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
         background: var(--bg-deeper);

@@ -4165,6 +4165,22 @@ a {
     width: 38px !important;
 }
 
+/* 展开过渡遮罩：面板已变宽但 dockview 尚未重排到全宽的瞬间，先隐藏内容区，
+   只保留竖排 tab 轨，等 relayout 完成（sideContentRevealed=true）后再显示，
+   避免内容被挤成窄柱的中间帧。 */
+.advance-terminal-side--masking .advance-terminal-side-dock .dv-content-container {
+    visibility: hidden !important;
+}
+
+/* 过渡期强制 dockview 单 group 的 .dv-view 填满面板，使 row-reverse 的竖排
+   tab 轨立即贴右缘（面板右缘恒贴窗口右侧，因此轨道在面板向左变宽时纹丝不动），
+   消除 dockview 异步重排前 tab 轨临时偏左的一帧。仅在内容隐藏的遮罩期生效，
+   故不会触发此前内容可见时强制宽度导致的溢出/滚动条问题；重排完成即撤销。 */
+.advance-terminal-side--masking .advance-terminal-side-dock .dv-split-view-container > .dv-view-container > .dv-view {
+    width: 100% !important;
+    transform: none !important;
+}
+
 /* 终端右侧工具面板：dockview 原生 right header（保留拖拽分屏），
    保持 dockview 默认竖排文字（writing-mode: vertical-rl）的窄栏样式。
    选择器锚点用 DOM 确定存在的 dv-groupview-header-vertical /
@@ -4182,7 +4198,6 @@ a {
     max-width: 100%;
     overflow: hidden;
 }
-
 /* dockview 的 right header 是 row-reverse flex。默认 content-container
    没有 min-width:0，内部表格 min-width 会把整个 groupview 撑大，
    导致所有 width:100% 都基于错误父宽计算。 */
@@ -4796,7 +4811,8 @@ a {
 .advance-terminal-side .sftp-table-wrap {
     flex: 1;
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     background: var(--bg-deeper);
@@ -4806,6 +4822,7 @@ a {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
+    table-layout: fixed;
 }
 
 .advance-terminal-side .sftp-table th {
@@ -4822,10 +4839,29 @@ a {
 }
 
 .advance-terminal-side .sftp-col-name {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+    vertical-align: middle;
+}
+
+.advance-terminal-side .sftp-col-size {
+    width: 72px;
+    white-space: nowrap;
+}
+
+.advance-terminal-side .sftp-col-actions {
+    width: 32px;
+    white-space: nowrap;
+}
+
+.advance-terminal-side .sftp-name-file,
+.advance-terminal-side .sftp-name-dir {
+    display: inline-block;
+    max-width: calc(100% - 22px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .advance-terminal-side .sftp-empty,
