@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 
 type WsStatus = "disconnected" | "connecting" | "connected";
 type WsMsgFormat = "JSON" | "Text" | "Binary";
@@ -110,11 +111,11 @@ export function WsPanel() {
   return (
     <div className="ws-panel">
       <div style={{ display: "flex", gap: "var(--sp-2)", marginBottom: "var(--sp-4)" }}>
-        <input
+        <TextInput
           className="url-input"
           placeholder={t("protocol.ws.urlPlaceholder")}
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={setUrl}
           style={{ flex: 1 }}
           disabled={status === "connected"}
         />
@@ -186,10 +187,10 @@ export function WsPanel() {
             { value: "Binary", label: t("protocol.ws.formats.Binary") },
           ]}
         />
-        <input
+        <TextInput
           placeholder={t("protocol.ws.inputPlaceholder")}
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={setInputValue}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           disabled={status !== "connected"}
         />

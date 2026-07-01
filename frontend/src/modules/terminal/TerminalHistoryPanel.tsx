@@ -6,6 +6,7 @@ import { useI18n } from "../../i18n";
 import { extractCommandOutput } from "./terminalOutputText";
 import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../../components/ui/Button";
+import { TextInput } from "../../components/ui/TextInput";
 
 type HistoryFilter = "all" | "shell" | "ai";
 
@@ -90,10 +91,11 @@ export function TerminalHistoryPanel({
       </header>
 
       <div className="term-history-panel__toolbar">
-        <input
+        <TextInput
           className="term-history-panel__search"
+          copyable={false}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={setQuery}
           placeholder={t("terminal.historyPanel.search")}
         />
         <div className="term-history-panel__filters" role="tablist" aria-label={t("terminal.historyPanel.filterLabel")}>

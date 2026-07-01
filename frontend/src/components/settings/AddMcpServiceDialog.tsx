@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { FormDialog, FormField } from "../ui/FormDialog";
+import { TextInput } from "../ui/TextInput";
 import { useI18n } from "../../i18n";
 import type { McpServiceView, UpsertMcpServiceInput } from "../../stores/mcpServicesStore";
 import type { McpTransportKind } from "../../ipc/bindings";
@@ -181,12 +182,12 @@ export function AddMcpServiceDialog({
       }}
     >
       <FormField label={t("settings.mcpServices.fields.name")} htmlFor="add-mcp-name">
-        <input
+        <TextInput
           id="add-mcp-name"
           className="input"
           autoFocus
           value={form.name}
-          onChange={(e) => updateField("name", e.target.value)}
+          onChange={(value) => updateField("name", value)}
           placeholder={t("settings.mcpServices.fields.namePlaceholder")}
         />
       </FormField>
@@ -218,11 +219,11 @@ export function AddMcpServiceDialog({
         <>
           <FormField label={t("settings.mcpServices.fields.command")} htmlFor="add-mcp-command">
             <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-              <input
+              <TextInput
                 id="add-mcp-command"
                 className="input"
                 value={form.command}
-                onChange={(e) => updateField("command", e.target.value)}
+                onChange={(value) => updateField("command", value)}
                 placeholder={t("settings.mcpServices.fields.commandPlaceholder")}
                 style={{ flex: 1, fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
               />
@@ -254,11 +255,11 @@ export function AddMcpServiceDialog({
           </FormField>
 
           <FormField label={t("settings.mcpServices.fields.cwd")} htmlFor="add-mcp-cwd">
-            <input
+            <TextInput
               id="add-mcp-cwd"
               className="input"
               value={form.cwd}
-              onChange={(e) => updateField("cwd", e.target.value)}
+              onChange={(value) => updateField("cwd", value)}
               placeholder={t("settings.mcpServices.fields.cwdPlaceholder")}
               style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
             />
@@ -270,11 +271,11 @@ export function AddMcpServiceDialog({
           htmlFor="add-mcp-url"
           description={t("settings.mcpServices.fields.urlHint")}
         >
-          <input
+          <TextInput
             id="add-mcp-url"
             className="input"
             value={form.url}
-            onChange={(e) => updateField("url", e.target.value)}
+            onChange={(value) => updateField("url", value)}
             placeholder={t("settings.mcpServices.fields.urlPlaceholder")}
             style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
           />

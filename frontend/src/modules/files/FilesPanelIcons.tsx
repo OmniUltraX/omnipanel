@@ -76,6 +76,15 @@ export function IconUpload({ className }: IconProps) {
   );
 }
 
+export function IconDownload({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M8 2v8M5 7l3 3 3-3" />
+      <path d="M3 12h10" />
+    </svg>
+  );
+}
+
 export function IconDetailPanel({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

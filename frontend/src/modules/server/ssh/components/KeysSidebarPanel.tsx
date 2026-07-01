@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { commands } from "../../../../ipc/bindings";
 import type { SshKeyInfo } from "../../../../ipc/bindings";
 import { Select } from "../../../../components/ui/Select";
+import { PasswordInput } from "../../../../components/ui/PasswordInput";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { useI18n } from "../../../../i18n";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
@@ -371,24 +373,23 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
               onChange={(e) => setGenBits(e.target.value)}
             />
           ) : null}
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.keys.nameOptional")}
             value={genKeyName}
-            onChange={(e) => setGenKeyName(e.target.value)}
+            onChange={setGenKeyName}
           />
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.keys.comment")}
             value={genComment}
-            onChange={(e) => setGenComment(e.target.value)}
+            onChange={setGenComment}
           />
-          <input
+          <PasswordInput
             className="input input-sm"
-            type="password"
             placeholder={t("ssh.keys.passphrasePlaceholder")}
             value={genPassphrase}
-            onChange={(e) => setGenPassphrase(e.target.value)}
+            onChange={setGenPassphrase}
           />
           <div className="ssh-sidebar-form__actions">
             <button
@@ -408,11 +409,11 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
       {form === "import" ? (
         <div className="ssh-sidebar-form">
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.keys.namePlaceholder")}
             value={importName}
-            onChange={(e) => setImportName(e.target.value)}
+            onChange={setImportName}
           />
           <textarea
             className="input input-sm ssh-sidebar-form__textarea"

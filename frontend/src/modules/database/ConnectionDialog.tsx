@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
+import { PasswordInput } from "../../components/ui/PasswordInput";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { FormFillFieldDef, FormFillValue } from "../../components/ai/simple/formFill";
 import type { DbConnectionGroup } from "../../stores/dbGroupStore";
@@ -14,7 +16,7 @@ import {
   saveConnection,
   testConnection,
 } from "./api";
-import { refreshAndPatchConnectionSchemaCache } from "./schemaCacheRefresh";
+import { submitSchemaCacheRefresh } from "./schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
 
@@ -152,7 +154,7 @@ export function ConnectionDialog({
     setStatus(null);
     try {
       const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
-      void refreshAndPatchConnectionSchemaCache(saved, schemaCacheReporter);
+      void submitSchemaCacheRefresh([saved.id], schemaCacheReporter);
       onSaved?.();
       onClose();
     } catch (error) {
@@ -306,13 +308,12 @@ export function ConnectionDialog({
             htmlFor="db-conn-name"
             description={t("database.dialog.nameDescription")}
           >
-            <input
+            <TextInput
               id="db-conn-name"
               className="input"
               placeholder={t("database.dialog.namePlaceholder")}
               value={form.name}
-              onChange={(e) => update("name", e.target.value)}
-              style={{ width: "100%" }}
+              onChange={(value) => update("name", value)}
             />
           </FormField>
 
@@ -339,13 +340,12 @@ export function ConnectionDialog({
                   htmlFor="db-conn-host"
                   description={t("database.dialog.hostDescription")}
                 >
-                  <input
+                  <TextInput
                     id="db-conn-host"
                     className="input"
                     placeholder="localhost"
                     value={form.host}
-                    onChange={(e) => update("host", e.target.value)}
-                    style={{ width: "100%" }}
+                    onChange={(value) => update("host", value)}
                   />
                 </FormField>
               </div>
@@ -355,13 +355,12 @@ export function ConnectionDialog({
                   htmlFor="db-conn-port"
                   description={t("database.dialog.portDescription")}
                 >
-                  <input
+                  <TextInput
                     id="db-conn-port"
                     className="input"
                     placeholder={ENGINE_DEFAULTS[form.engine].port}
                     value={form.port}
-                    onChange={(e) => update("port", e.target.value)}
-                    style={{ width: "100%" }}
+                    onChange={(value) => update("port", value)}
                   />
                 </FormField>
               </div>
@@ -382,7 +381,7 @@ export function ConnectionDialog({
             htmlFor="db-conn-database"
             description={t("database.dialog.databaseDescription")}
           >
-            <input
+            <TextInput
               id="db-conn-database"
               className="input"
               placeholder={
@@ -393,8 +392,7 @@ export function ConnectionDialog({
                     : t("database.dialog.databasePlaceholder")
               }
               value={form.database}
-              onChange={(e) => update("database", e.target.value)}
-              style={{ width: "100%" }}
+              onChange={(value) => update("database", value)}
             />
           </FormField>
 
@@ -406,13 +404,12 @@ export function ConnectionDialog({
                   htmlFor="db-conn-username"
                   description={t("database.dialog.usernameDescription")}
                 >
-                  <input
+                  <TextInput
                     id="db-conn-username"
                     className="input"
                     placeholder={form.engine === "redis" ? "default" : "postgres"}
                     value={form.username}
-                    onChange={(e) => update("username", e.target.value)}
-                    style={{ width: "100%" }}
+                    onChange={(value) => update("username", value)}
                   />
                 </FormField>
               </div>
@@ -422,14 +419,11 @@ export function ConnectionDialog({
                   htmlFor="db-conn-password"
                   description={t("database.dialog.passwordDescription")}
                 >
-                  <input
-                    id="db-conn-password"
-                    className="input"
-                    type="password"
-                    placeholder="••••••"
+                  <PasswordInput
+                    copyable
                     value={form.password}
-                    onChange={(e) => update("password", e.target.value)}
-                    style={{ width: "100%" }}
+                    onChange={(value) => update("password", value)}
+                    placeholder="••••••"
                   />
                 </FormField>
               </div>

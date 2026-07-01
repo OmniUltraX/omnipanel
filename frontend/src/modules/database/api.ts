@@ -212,14 +212,17 @@ export async function createDatabase(args: CreateDatabaseArgs): Promise<string> 
   return invoke<string>("db_create_database", { args });
 }
 
-/** 常用 MySQL 字符集 + 默认排序规则，按推荐度排序。 */
-export const MYSQL_CHARSET_PRESETS: { value: string; label: string; collation: string }[] = [
-  { value: "utf8mb4", label: "utf8mb4 (推荐)", collation: "utf8mb4_unicode_ci" },
-  { value: "utf8", label: "utf8", collation: "utf8_general_ci" },
-  { value: "utf8mb4_0900_ai_ci", label: "utf8mb4_0900_ai_ci (MySQL 8 默认排序)", collation: "utf8mb4_0900_ai_ci" },
-  { value: "gbk", label: "gbk", collation: "gbk_chinese_ci" },
-  { value: "latin1", label: "latin1", collation: "latin1_swedish_ci" },
-];
+export interface DbCharsetMeta {
+  charset: string;
+  description: string;
+  defaultCollation: string;
+}
+
+export async function listCharacterSets(
+  connection: DbConnectionConfig,
+): Promise<DbCharsetMeta[]> {
+  return invoke<DbCharsetMeta[]>("db_list_character_sets", { connection });
+}
 
 export interface DbColumnMeta {
   name: string;

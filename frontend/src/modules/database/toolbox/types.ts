@@ -1,4 +1,4 @@
-import type { DbColumnMeta, DbConnectionConfig } from "../api";
+import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 
 export type ToolboxTabId = "dataSync" | "schemaSync";
 
@@ -71,6 +71,7 @@ export interface SyncSideSelection {
 export interface SyncTableInfo {
   name: string;
   columns: DbColumnMeta[];
+  indexes: DbIndexMeta[];
   rowCount: number | null;
 }
 

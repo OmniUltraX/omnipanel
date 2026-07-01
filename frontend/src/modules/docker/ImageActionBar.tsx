@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { TextInput } from "../../components/ui/TextInput";
 import type { DockerImageProgress } from "./useDockerWorkspace";
 
 interface ImageActionBarProps {
@@ -82,10 +83,9 @@ export function ImageActionBar({ canManage, onPull, onBuild, onMessage }: ImageA
             {dlg === "pull" && (
               <div className="form-field">
                 <label className="form-label">镜像名</label>
-                <input
-                  className="input"
+                <TextInput
                   value={pullImage}
-                  onChange={(e) => setPullImage(e.target.value)}
+                  onChange={setPullImage}
                   placeholder="nginx:latest"
                   style={{ width: "100%" }}
                 />
@@ -95,30 +95,27 @@ export function ImageActionBar({ canManage, onPull, onBuild, onMessage }: ImageA
               <>
                 <div className="form-field">
                   <label className="form-label">构建上下文目录（绝对路径）</label>
-                  <input
-                    className="input"
+                  <TextInput
                     value={ctxDir}
-                    onChange={(e) => setCtxDir(e.target.value)}
+                    onChange={setCtxDir}
                     placeholder="C:\Users\you\myapp"
                     style={{ width: "100%" }}
                   />
                 </div>
                 <div className="form-field">
                   <label className="form-label">目标 tag</label>
-                  <input
-                    className="input"
+                  <TextInput
                     value={tag}
-                    onChange={(e) => setTag(e.target.value)}
+                    onChange={setTag}
                     placeholder="myapp:v1"
                     style={{ width: "100%" }}
                   />
                 </div>
                 <div className="form-field">
                   <label className="form-label">Dockerfile（相对 context_dir）</label>
-                  <input
-                    className="input"
+                  <TextInput
                     value={dockerfile}
-                    onChange={(e) => setDockerfile(e.target.value)}
+                    onChange={setDockerfile}
                     placeholder="Dockerfile"
                     style={{ width: "100%" }}
                   />

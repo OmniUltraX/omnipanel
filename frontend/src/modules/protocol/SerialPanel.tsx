@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 
 type SerialStatus = "disconnected" | "connecting" | "connected";
 type Encoding = "UTF-8" | "ASCII" | "HEX";
@@ -366,10 +367,10 @@ export function SerialPanel() {
             )}
           </div>
           <div className="serial-panel-input">
-            <input
+            <TextInput
               placeholder={t("protocol.serial.sendPlaceholder")}
               value={sendValue}
-              onChange={(e) => setSendValue(e.target.value)}
+              onChange={setSendValue}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               disabled={status !== "connected"}
             />
@@ -434,18 +435,18 @@ export function SerialPanel() {
           />{" "}
           {t("protocol.serial.periodicSend")}
         </label>
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.serial.intervalMs")}
           value={periodicInterval}
-          onChange={(e) => setPeriodicInterval(e.target.value)}
+          onChange={setPeriodicInterval}
           style={{ width: "80px", fontSize: "11px" }}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.serial.periodicPayload")}
           value={periodicCmd}
-          onChange={(e) => setPeriodicCmd(e.target.value)}
+          onChange={setPeriodicCmd}
           style={{ flex: 1, fontSize: "11px" }}
         />
         <Button variant="ghost" size="sm" onClick={togglePeriodic}>

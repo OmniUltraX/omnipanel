@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObjec
 import { useI18n } from "../../../i18n";
 import { DataLoading, type DataLoadingProps } from "../../../components/ui/DataLoading";
 import { Select } from "../../../components/ui/Select";
-import type { DbConnectionConfig } from "../api";
+import { TextInput } from "../../../components/ui/TextInput";
+import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type {
   DataAnalysisResult,
   DataSyncStrategy,
@@ -11,7 +12,7 @@ import type {
   TableTargetStatus,
   ToolboxTabId,
 } from "./types";
-import type { SchemaColumnDiff, SchemaTableDiff } from "./schemaDiff";
+import type { SchemaColumnDiff, SchemaIndexDiff, SchemaTableDiff } from "./schemaDiff";
 
 /** 源侧完整表列表；目标侧仅展示源库已选表的同步状态 */
 export type SyncTableListMode = "source" | "targetSync";
@@ -52,6 +53,13 @@ interface SyncSidePanelProps {
   conflictDetailTable?: string | null;
   /** 点击冲突 / 差异 tag 时打开详情 */
   onViewConflictDetail?: (tableName: string) => void;
+  /** 结构同步目标侧：是否显示字段一致的表 */
+  showMatchingTables?: boolean;
+  onShowMatchingTablesChange?: (value: boolean) => void;
+  /** 结构同步目标侧：源表字段（用于展开展示） */
+  sourceTableColumns?: Record<string, DbColumnMeta[]>;
+  /** 结构同步目标侧：源表索引（用于展开展示） */
+  sourceTableIndexes?: Record<string, DbIndexMeta[]>;
 }
 
 function TableSelectCheckbox({
@@ -100,6 +108,8 @@ function ConnectionDatabaseFilters({
   onSearchKeyDown,
   searchPlaceholder,
   toolbarLayout = "default",
+  showMatchingTables,
+  onShowMatchingTablesChange,
 }: {
   connections: DbConnectionConfig[];
   connectionId: string;
@@ -117,7 +127,9 @@ function ConnectionDatabaseFilters({
   onSearchChange?: (value: string) => void;
   onSearchKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
   searchPlaceholder?: string;
-  toolbarLayout?: "default" | "sourceRow";
+  toolbarLayout?: "default" | "sourceRow" | "targetRow";
+  showMatchingTables?: boolean;
+  onShowMatchingTablesChange?: (value: boolean) => void;
 }) {
   const { t } = useI18n();
   const conn = useMemo(
@@ -127,7 +139,9 @@ function ConnectionDatabaseFilters({
   const filtersClassName =
     toolbarLayout === "sourceRow"
       ? "db-toolbox-side__filters db-toolbox-side__filters--source-row"
-      : "db-toolbox-side__filters";
+      : toolbarLayout === "targetRow"
+        ? "db-toolbox-side__filters db-toolbox-side__filters--target-row"
+        : "db-toolbox-side__filters";
 
   return (
     <div className={filtersClassName}>
@@ -158,11 +172,11 @@ function ConnectionDatabaseFilters({
         }
       />
       {search !== undefined && onSearchChange && (
-        <input
-          type="search"
+        <TextInput
+          copyable={false}
           className="input db-toolbox-search"
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={onSearchChange}
           onKeyDown={onSearchKeyDown}
           placeholder={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
           aria-label={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
@@ -179,6 +193,23 @@ function ConnectionDatabaseFilters({
             aria-label={t("database.toolbox.side.selectAll")}
           />
           <span>{t("database.toolbox.side.selectAll")}</span>
+        </label>
+      )}
+      {showMatchingTables !== undefined && onShowMatchingTablesChange && (
+        <label
+          className="db-toolbox-show-matching"
+          onClick={(e) => {
+            e.preventDefault();
+            onShowMatchingTablesChange(!showMatchingTables);
+          }}
+        >
+          <span>{t("database.toolbox.side.showMatchingTables")}</span>
+          <div
+            className={`toggle${showMatchingTables ? " on" : ""}`}
+            role="switch"
+            aria-checked={showMatchingTables}
+            aria-label={t("database.toolbox.side.showMatchingTables")}
+          />
         </label>
       )}
     </div>
@@ -402,15 +433,122 @@ function SchemaColumnDiffRow({ diff }: { diff: SchemaColumnDiff }) {
   );
 }
 
+function SchemaIndexDiffRow({ diff }: { diff: SchemaIndexDiff }) {
+  const detailLabel =
+    diff.kind === "added"
+      ? diff.sourceDetail
+      : diff.kind === "removed"
+        ? diff.targetDetail
+        : `${diff.targetDetail} → ${diff.sourceDetail}`;
+
+  return (
+    <li className={`db-toolbox-schema-diff-row db-toolbox-schema-diff-row--${diff.kind}`}>
+      <SchemaDiffKindTag kind={diff.kind} />
+      <span className="db-toolbox-schema-diff-row__name">{diff.name}</span>
+      {detailLabel ? <span className="db-toolbox-schema-diff-row__type">{detailLabel}</span> : null}
+    </li>
+  );
+}
+
+function SchemaColumnList({ columns }: { columns: DbColumnMeta[] }) {
+  if (columns.length === 0) return null;
+
+  return (
+    <ul className="db-toolbox-column-list">
+      {columns.map((col) => (
+        <li key={col.name} className="db-toolbox-column-row">
+          <span className="db-toolbox-column-row__name">{col.name}</span>
+          <span className="db-toolbox-column-row__type">{col.type}</span>
+          {(col.isPk || col.isFk) && (
+            <span className="db-toolbox-column-row__flags">
+              {col.isPk ? "PK" : null}
+              {col.isPk && col.isFk ? " · " : null}
+              {col.isFk ? "FK" : null}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SchemaIndexList({ indexes }: { indexes: DbIndexMeta[] }) {
+  const { t } = useI18n();
+  if (indexes.length === 0) return null;
+
+  return (
+    <>
+      <div className="db-toolbox-schema-section-label">{t("database.toolbox.side.schemaDiffIndexes")}</div>
+      <ul className="db-toolbox-column-list db-toolbox-column-list--indexes">
+        {indexes.map((idx) => (
+          <li key={idx.name} className="db-toolbox-column-row">
+            <span className="db-toolbox-column-row__name">{idx.name}</span>
+            <span className="db-toolbox-column-row__type">
+              {idx.unique ? "UNIQUE" : "INDEX"}
+            </span>
+            <span className="db-toolbox-column-row__flags">{idx.columns.join(", ")}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function SchemaDiffSections({
+  columnDiffs,
+  indexDiffs,
+}: {
+  columnDiffs: SchemaColumnDiff[];
+  indexDiffs: SchemaIndexDiff[];
+}) {
+  const { t } = useI18n();
+  if (columnDiffs.length === 0 && indexDiffs.length === 0) return null;
+
+  return (
+    <>
+      {columnDiffs.length > 0 && (
+        <>
+          <div className="db-toolbox-schema-section-label">{t("database.toolbox.side.schemaDiffColumns")}</div>
+          <ul className="db-toolbox-schema-diff-list">
+            {columnDiffs.map((col) => (
+              <SchemaColumnDiffRow key={`col-${col.kind}-${col.name}`} diff={col} />
+            ))}
+          </ul>
+        </>
+      )}
+      {indexDiffs.length > 0 && (
+        <>
+          <div className="db-toolbox-schema-section-label">{t("database.toolbox.side.schemaDiffIndexes")}</div>
+          <ul className="db-toolbox-schema-diff-list">
+            {indexDiffs.map((idx) => (
+              <SchemaIndexDiffRow key={`idx-${idx.kind}-${idx.name}`} diff={idx} />
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
 function SchemaTargetSyncTableRow({
   tableName,
   diff,
+  sourceColumns,
+  sourceIndexes,
+  expanded,
+  onToggle,
 }: {
   tableName: string;
   diff?: SchemaTableDiff;
+  sourceColumns: DbColumnMeta[];
+  sourceIndexes: DbIndexMeta[];
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const { t } = useI18n();
   const status = diff?.status ?? "checking";
+  const colCount = sourceColumns.length;
+  const idxCount = sourceIndexes.length;
 
   const statusTag: TableTargetStatus | undefined =
     status === "checking"
@@ -421,9 +559,30 @@ function SchemaTargetSyncTableRow({
           ? "conflict"
           : undefined;
 
+  const metaLabel =
+    status === "checking"
+      ? t("database.toolbox.side.tagChecking")
+      : t("database.toolbox.side.schemaMetaCount", { columns: colCount, indexes: idxCount });
+
   return (
-    <li className="db-toolbox-schema-target-table">
-      <div className="db-toolbox-table-row db-toolbox-table-row--target">
+    <li className="db-toolbox-schema-table">
+      <div
+        className="db-toolbox-schema-table__head db-toolbox-schema-table__head--target"
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+      >
+        <span className={`tree-arrow${expanded ? " tree-arrow--open" : ""}`}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </span>
         <span className="db-toolbox-table-row__name">{tableName}</span>
         {status === "match" ? (
           <span className="db-toolbox-sync-tag db-toolbox-sync-tag--match">
@@ -436,16 +595,24 @@ function SchemaTargetSyncTableRow({
         ) : statusTag ? (
           <TableTargetTag status={statusTag} />
         ) : null}
+        <span className="db-toolbox-table-row__meta">{metaLabel}</span>
       </div>
-      {status === "error" && diff?.error && (
+      {expanded && status === "error" && diff?.error && (
         <div className="db-toolbox-schema-target-table__error">{diff.error}</div>
       )}
-      {(status === "new" || status === "diff") && diff && diff.columns.length > 0 && (
-        <ul className="db-toolbox-schema-diff-list">
-          {diff.columns.map((col) => (
-            <SchemaColumnDiffRow key={`${col.kind}-${col.name}`} diff={col} />
-          ))}
-        </ul>
+      {expanded && status === "match" && (
+        <>
+          {colCount > 0 && (
+            <>
+              <div className="db-toolbox-schema-section-label">{t("database.toolbox.side.schemaDiffColumns")}</div>
+              <SchemaColumnList columns={sourceColumns} />
+            </>
+          )}
+          <SchemaIndexList indexes={sourceIndexes} />
+        </>
+      )}
+      {expanded && (status === "new" || status === "diff") && diff && (
+        <SchemaDiffSections columnDiffs={diff.columns} indexDiffs={diff.indexes} />
       )}
     </li>
   );
@@ -480,6 +647,10 @@ export function SyncSidePanel({
   tableAnalysis = {},
   conflictDetailTable = null,
   onViewConflictDetail,
+  showMatchingTables,
+  onShowMatchingTablesChange,
+  sourceTableColumns = {},
+  sourceTableIndexes = {},
 }: SyncSidePanelProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -536,6 +707,17 @@ export function SyncSidePanel({
     tableAnalysis,
   ]);
 
+  const schemaTargetTableNames = useMemo(() => {
+    const names = [...sourceSelectedTableNames].sort((a, b) => a.localeCompare(b));
+    if (tab === "schemaSync" && showMatchingTables === false) {
+      return names.filter((name) => schemaTableDiffs[name]?.status !== "match");
+    }
+    return names;
+  }, [sourceSelectedTableNames, tab, showMatchingTables, schemaTableDiffs]);
+
+  const showMatchingFilter =
+    isTargetSync && tab === "schemaSync" && showMatchingTables !== undefined && onShowMatchingTablesChange;
+
   return (
     <section className={`db-toolbox-side${isTargetSync ? " db-toolbox-side--target-sync" : ""}`}>
       <header className="db-toolbox-side__header">
@@ -557,7 +739,9 @@ export function SyncSidePanel({
           onSearchChange={!isTargetSync ? setSearch : undefined}
           onSearchKeyDown={!isTargetSync ? handleSearchKeyDown : undefined}
           searchPlaceholder={t("database.toolbox.side.searchTables")}
-          toolbarLayout={isTargetSync ? "default" : "sourceRow"}
+          toolbarLayout={showMatchingFilter ? "targetRow" : isTargetSync ? "default" : "sourceRow"}
+          showMatchingTables={showMatchingFilter ? showMatchingTables : undefined}
+          onShowMatchingTablesChange={showMatchingFilter ? onShowMatchingTablesChange : undefined}
         />
       </header>
 
@@ -568,17 +752,23 @@ export function SyncSidePanel({
           ) : sourceSelectedTableNames.length === 0 ? (
             <div className="db-toolbox-side__empty">{t("database.toolbox.side.emptyTargetSync")}</div>
           ) : tab === "schemaSync" ? (
-            <ul className="db-toolbox-table-list db-toolbox-table-list--target db-toolbox-table-list--schema-target">
-              {[...sourceSelectedTableNames]
-                .sort((a, b) => a.localeCompare(b))
-                .map((name) => (
+            schemaTargetTableNames.length === 0 ? (
+              <div className="db-toolbox-side__empty">{t("database.toolbox.side.emptyMatchingHidden")}</div>
+            ) : (
+              <ul className="db-toolbox-table-list db-toolbox-table-list--target db-toolbox-table-list--schema-target">
+                {schemaTargetTableNames.map((name) => (
                   <SchemaTargetSyncTableRow
                     key={name}
                     tableName={name}
                     diff={schemaTableDiffs[name]}
+                    sourceColumns={sourceTableColumns[name] ?? []}
+                    sourceIndexes={sourceTableIndexes[name] ?? []}
+                    expanded={expandedTables.has(name)}
+                    onToggle={() => onToggleTable(name)}
                   />
                 ))}
-            </ul>
+              </ul>
+            )
           ) : targetSyncRows.length === 0 ? (
             <div className="db-toolbox-side__empty">{t("database.toolbox.side.emptyTargetSync")}</div>
           ) : (
@@ -693,6 +883,7 @@ function SchemaSyncTableRow({
 }) {
   const { t } = useI18n();
   const colCount = table.columns.length;
+  const idxCount = table.indexes.length;
 
   return (
     <li className="db-toolbox-schema-table">
@@ -720,25 +911,19 @@ function SchemaSyncTableRow({
         </span>
         <span className="db-toolbox-table-row__name">{table.name}</span>
         <span className="db-toolbox-table-row__meta">
-          {t("database.toolbox.side.columnCount", { count: colCount })}
+          {t("database.toolbox.side.schemaMetaCount", { columns: colCount, indexes: idxCount })}
         </span>
       </div>
-      {expanded && colCount > 0 && (
-        <ul className="db-toolbox-column-list">
-          {table.columns.map((col) => (
-            <li key={col.name} className="db-toolbox-column-row">
-              <span className="db-toolbox-column-row__name">{col.name}</span>
-              <span className="db-toolbox-column-row__type">{col.type}</span>
-              {(col.isPk || col.isFk) && (
-                <span className="db-toolbox-column-row__flags">
-                  {col.isPk ? "PK" : null}
-                  {col.isPk && col.isFk ? " · " : null}
-                  {col.isFk ? "FK" : null}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+      {expanded && (
+        <>
+          {colCount > 0 && (
+            <>
+              <div className="db-toolbox-schema-section-label">{t("database.toolbox.side.schemaDiffColumns")}</div>
+              <SchemaColumnList columns={table.columns} />
+            </>
+          )}
+          <SchemaIndexList indexes={table.indexes} />
+        </>
       )}
     </li>
   );

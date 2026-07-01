@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CellEditDialog } from "../../../components/ui/CellEditDialog";
+import { TextInput } from "../../../components/ui/TextInput";
 import { useI18n } from "../../../i18n";
 import type { DbColumnMeta } from "../api";
 import { BooleanEditor } from "./BooleanEditor";
@@ -85,11 +86,14 @@ function RowEditorField({
   const renderEditor = () => {
     if (readOnly) {
       return (
-        <input
+        <TextInput
           ref={readonlyRef}
+          clearable={false}
+          copyable={false}
+          readOnly
           className="cell-editor-input row-editor-field__input--readonly"
           value={value}
-          readOnly
+          onChange={() => undefined}
         />
       );
     }

@@ -8,6 +8,7 @@ import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../
 import { MODULE_PATHS } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useI18n } from "../../i18n";
+import { TextInput } from "../ui/TextInput";
 import {
   formatShortcut,
   matchesShortcut,
@@ -179,15 +180,19 @@ export function CommandPalette() {
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35" />
           </svg>
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t("shell.commandPalette.placeholder")}
-            className="flex-1 bg-transparent text-sm text-fg placeholder:text-muted outline-none"
-          />
+          <div className="flex-1 min-w-0">
+            <TextInput
+              ref={inputRef}
+              clearable={false}
+              copyable={false}
+              value={query}
+              onChange={setQuery}
+              onKeyDown={handleKeyDown}
+              placeholder={t("shell.commandPalette.placeholder")}
+              className="flex-1 bg-transparent text-sm text-fg placeholder:text-muted outline-none border-0 shadow-none"
+              style={{ height: "auto", padding: 0, background: "transparent", border: "none" }}
+            />
+          </div>
           <kbd className="px-1.5 py-0.5 text-[10px] text-meta bg-surface border border-border rounded font-mono">ESC</kbd>
         </div>
 

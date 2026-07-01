@@ -7,6 +7,7 @@ import {
   sortTagsForDisplay,
 } from "../../lib/resourceTags";
 import { ResourceTags } from "./ResourceTags";
+import { TextInput } from "./TextInput";
 
 const SYSTEM_KEYS = new Set<string>(Object.values(RESOURCE_TAG_KEYS));
 
@@ -84,11 +85,13 @@ export function ResourceTagEditor({ tags, onChange }: Props) {
           </div>
         )}
         <div className="resource-tag-editor-add">
-          <input
+          <TextInput
             className="input input-sm"
+            size="sm"
+            copyable={false}
             placeholder={t("resourceTags.addPlaceholder")}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={setDraft}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

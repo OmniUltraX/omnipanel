@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../ui/Button";
+import { TextInput } from "../ui/TextInput";
 import { FileEntryIcon } from "../ui/FileEntryIcon";
 import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../i18n";
@@ -63,7 +64,6 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
   const resourceIdRef = useRef(resourceId);
-  const pathInputRef = useRef<HTMLInputElement>(null);
   const pathEditSkipCommitRef = useRef(false);
   const loadSeqRef = useRef(0);
   const handledSftpNonceRef = useRef<number | null>(null);
@@ -258,10 +258,6 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
     pathEditSkipCommitRef.current = false;
     setPathInput(path);
     setPathEditing(true);
-    requestAnimationFrame(() => {
-      pathInputRef.current?.focus();
-      pathInputRef.current?.select();
-    });
   };
 
   const cancelPathEdit = () => {
@@ -281,12 +277,6 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
     if (next !== path) void loadDir(next);
   };
 
-  useEffect(() => {
-    if (!pathEditing) return;
-    pathInputRef.current?.focus();
-    pathInputRef.current?.select();
-  }, [pathEditing]);
-
   return (
     <div className="sftp-panel">
       <div className="sftp-toolbar">
@@ -298,11 +288,13 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
         </Button>
         <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
           {pathEditing ? (
-            <input
-              ref={pathInputRef}
+            <TextInput
+              autoFocus
+              copyable={false}
+              clearable={false}
               className="sftp-path-input"
               value={pathInput}
-              onChange={(e) => setPathInput(e.target.value)}
+              onChange={setPathInput}
               placeholder={t("ssh.sftp.pathEditPlaceholder")}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -350,7 +342,7 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
 
       {showMkdir && (
         <div className="sftp-mkdir-bar">
-          <input className="input input-sm" value={mkdirName} onChange={(e) => setMkdirName(e.target.value)} placeholder={t("ssh.sftp.mkdirPlaceholder")} />
+          <TextInput className="input input-sm" size="sm" value={mkdirName} onChange={setMkdirName} placeholder={t("ssh.sftp.mkdirPlaceholder")} />
           <Button variant="primary" size="sm" onClick={() => void handleMkdir()}>{t("ssh.sftp.create")}</Button>
           <Button variant="secondary" size="sm" onClick={() => { setShowMkdir(false); setMkdirName(""); }}>{t("ssh.keys.cancel")}</Button>
         </div>
@@ -358,7 +350,7 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
       {renameTarget && (
         <div className="sftp-mkdir-bar">
           <span className="text-sm">{t("ssh.sftp.rename")} <code>{renameTarget.name}</code></span>
-          <input className="input input-sm" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus onKeyDown={(e) => e.key === "Enter" && void handleRename()} />
+          <TextInput className="input input-sm" size="sm" value={renameValue} onChange={setRenameValue} autoFocus onKeyDown={(e) => e.key === "Enter" && void handleRename()} />
           <Button variant="primary" size="sm" onClick={() => void handleRename()}>{t("ssh.sftp.confirm")}</Button>
           <Button variant="secondary" size="sm" onClick={() => { setRenameTarget(null); setRenameValue(""); }}>{t("ssh.keys.cancel")}</Button>
         </div>
@@ -366,7 +358,7 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
       {chmodTarget && (
         <div className="sftp-mkdir-bar">
           <span className="text-sm">{t("ssh.sftp.chmod")} <code>{chmodTarget.name}</code></span>
-          <input className="input input-sm" value={chmodValue} onChange={(e) => setChmodValue(e.target.value)} placeholder="755" autoFocus onKeyDown={(e) => e.key === "Enter" && void handleChmod()} style={{ width: 80 }} />
+          <TextInput className="input input-sm" size="sm" value={chmodValue} onChange={setChmodValue} placeholder="755" autoFocus onKeyDown={(e) => e.key === "Enter" && void handleChmod()} style={{ width: 80 }} />
           <Button variant="primary" size="sm" onClick={() => void handleChmod()}>{t("ssh.sftp.confirm")}</Button>
           <Button variant="secondary" size="sm" onClick={() => { setChmodTarget(null); setChmodValue(""); }}>{t("ssh.keys.cancel")}</Button>
         </div>

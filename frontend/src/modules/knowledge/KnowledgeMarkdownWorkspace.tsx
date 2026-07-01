@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { TextInput } from "../../components/ui/TextInput";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
@@ -136,12 +137,14 @@ export function KnowledgeMarkdownWorkspace() {
     return (
       <div className="knowledge-workspace knowledge-workspace--folder">
         <div className="knowledge-workspace-header">
-          <input
+          <TextInput
+            clearable={false}
+            copyable={false}
             className="knowledge-workspace-title"
             value={displayTitle}
-            onChange={(e) => {
-              setDraftTitle(e.target.value);
-              void renameEntry(entry.id, e.target.value);
+            onChange={(value) => {
+              setDraftTitle(value);
+              void renameEntry(entry.id, value);
             }}
             aria-label={t("knowledge.title")}
           />
@@ -159,11 +162,12 @@ export function KnowledgeMarkdownWorkspace() {
   return (
     <div className="knowledge-workspace">
       <div className="knowledge-workspace-header">
-        <input
+        <TextInput
+          clearable={false}
+          copyable={false}
           className="knowledge-workspace-title"
           value={displayTitle}
-          onChange={(e) => {
-            const next = e.target.value;
+          onChange={(next) => {
             setDraftTitle(next);
             scheduleSave(next, contentRef.current);
           }}

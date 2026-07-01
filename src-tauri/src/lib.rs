@@ -47,6 +47,7 @@ fn export_ipc_bindings() {
         commands::database::db_save_schema_cache,
         commands::database::db_test_connection,
         commands::database::db_list_databases,
+        commands::database::db_list_character_sets,
         commands::database::db_create_database,
         commands::database::db_introspect_schema,
         commands::database::db_list_connection_users,
@@ -62,6 +63,9 @@ fn export_ipc_bindings() {
         commands::bg_task::bg_task_cancel,
         commands::bg_task::bg_task_submit_db_data_sync,
         commands::bg_task::bg_task_submit_db_schema_sync,
+        commands::bg_task::bg_task_submit_db_data_sync_execute,
+        commands::bg_task::bg_task_submit_db_schema_sync_execute,
+        commands::bg_task::bg_task_submit_db_schema_cache_refresh,
         commands::bg_task::bg_task_submit_knowledge_vectorize,
         commands::panel::panel_1panel_request,
         commands::panel::panel_1panel_test_connection,
@@ -409,6 +413,21 @@ pub fn run() {
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
 
             if let Some(window) = app.get_webview_window("main") {
+                let title = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|w| w.label == "main")
+                    .or_else(|| app.config().app.windows.first())
+                    .map(|w| w.title.clone())
+                    .unwrap_or_else(|| {
+                        app.config()
+                            .product_name
+                            .clone()
+                            .unwrap_or_else(|| "OmniPanel".to_string())
+                    });
+                window.set_title(&title).ok();
                 window.center().ok();
                 #[cfg(any(debug_assertions, feature = "debug-inspector"))]
                 if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
@@ -510,6 +529,7 @@ pub fn run() {
             commands::database::db_save_schema_cache,
             commands::database::db_test_connection,
             commands::database::db_list_databases,
+            commands::database::db_list_character_sets,
             commands::database::db_create_database,
             commands::database::db_introspect_schema,
             commands::database::db_list_connection_users,
@@ -533,6 +553,9 @@ pub fn run() {
         commands::bg_task::bg_task_cancel,
         commands::bg_task::bg_task_submit_db_data_sync,
         commands::bg_task::bg_task_submit_db_schema_sync,
+        commands::bg_task::bg_task_submit_db_data_sync_execute,
+        commands::bg_task::bg_task_submit_db_schema_sync_execute,
+        commands::bg_task::bg_task_submit_db_schema_cache_refresh,
         commands::bg_task::bg_task_submit_knowledge_vectorize,
             // 面板 API
             commands::panel::panel_1panel_request,

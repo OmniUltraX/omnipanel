@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useI18n } from "../../../i18n";
+import { TextInput } from "../../../components/ui/TextInput";
 import type { CommandHistoryEntry } from "./commandHistory";
 
 type CommandHistoryPopoverProps = {
@@ -31,7 +32,6 @@ export function CommandHistoryPopover({
 }: CommandHistoryPopoverProps) {
   const { t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const filterRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -52,13 +52,12 @@ export function CommandHistoryPopover({
         <span className="term-cmd-history__title">{t("terminal.command.historyTitle")}</span>
         <span className="term-cmd-history__hint">{t("terminal.command.historyHint")}</span>
       </div>
-      <input
-        ref={filterRef}
-        type="text"
+      <TextInput
+        copyable={false}
         className="term-cmd-history__search"
         value={filter}
         placeholder={t("terminal.command.historySearch")}
-        onChange={(event) => onFilterChange(event.target.value)}
+        onChange={onFilterChange}
         onKeyDown={(event) => {
           if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r") {
             event.preventDefault();

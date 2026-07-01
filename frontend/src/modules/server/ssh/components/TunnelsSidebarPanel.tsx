@@ -4,6 +4,7 @@ import type { SshTunnelInfo } from "../../../../ipc/bindings";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
 import { useI18n } from "../../../../i18n";
 import { Select } from "../../../../components/ui/Select";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { SshSidebarHeaderIconBtn } from "./SshSidebarModal";
 
@@ -198,23 +199,23 @@ export function TunnelsSidebarPanel({
             options={connectionOptions}
             placeholder={t("ssh.tunnels.selectHost")}
           />
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.tunnels.localPort")}
             value={localPort}
-            onChange={(e) => setLocalPort(e.target.value)}
+            onChange={setLocalPort}
           />
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.tunnels.remoteHost")}
             value={remoteHost}
-            onChange={(e) => setRemoteHost(e.target.value)}
+            onChange={setRemoteHost}
           />
-          <input
-            className="input input-sm"
+          <TextInput
+            size="sm"
             placeholder={t("ssh.tunnels.remotePort")}
             value={remotePort}
-            onChange={(e) => setRemotePort(e.target.value)}
+            onChange={setRemotePort}
           />
           <div className="ssh-sidebar-form__actions">
             <button type="button" className="btn btn-primary btn-xs" onClick={() => void handleCreate()}>

@@ -5,6 +5,7 @@ import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
+import { TextInput } from "../ui/TextInput";
 import { TunnelFlowList } from "../../modules/server/ssh/components/TunnelFlowList";
 
 export type TunnelPanelProps = {
@@ -130,25 +131,25 @@ export function TunnelPanel({ activeResource }: TunnelPanelProps) {
             />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               placeholder={t("ssh.tunnels.localPort")}
               value={localPort}
-              onChange={(e) => setLocalPort(e.target.value)}
+              onChange={setLocalPort}
               style={{ width: 100 }}
             />
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               placeholder={t("ssh.tunnels.remoteHost")}
               value={remoteHost}
-              onChange={(e) => setRemoteHost(e.target.value)}
+              onChange={setRemoteHost}
               style={{ flex: 1 }}
             />
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               placeholder={t("ssh.tunnels.remotePort")}
               value={remotePort}
-              onChange={(e) => setRemotePort(e.target.value)}
+              onChange={setRemotePort}
               style={{ width: 100 }}
             />
           </div>

@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { IconCheckCircle, IconXCircle } from "../../components/ui/Icons";
+import { TextInput } from "../../components/ui/TextInput";
 
 interface GrpcCallResponse {
   response_json: string;
@@ -100,10 +101,10 @@ export function GrpcPanel() {
 
         {/* Connection */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input className="input" placeholder="gRPC 端点 (http://host:port)" value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)} style={{ flex: 1 }} disabled={connected} />
-          <input className="input" placeholder="Metadata (k1=v1,k2=v2)" value={metadata}
-            onChange={(e) => setMetadata(e.target.value)} style={{ width: 200 }} disabled={connected} />
+          <TextInput className="input" placeholder="gRPC 端点 (http://host:port)" value={endpoint}
+            onChange={setEndpoint} style={{ flex: 1 }} disabled={connected} />
+          <TextInput className="input" placeholder="Metadata (k1=v1,k2=v2)" value={metadata}
+            onChange={setMetadata} style={{ width: 200 }} disabled={connected} />
           {!connected ? (
             <button className="btn btn-primary" onClick={handleConnect} disabled={loading}>连接</button>
           ) : (
@@ -115,8 +116,8 @@ export function GrpcPanel() {
           <>
             {/* Method & Request */}
             <div style={{ display: "flex", gap: 8 }}>
-              <input className="input" placeholder="方法路径 (package.Service/Method)" value={method}
-                onChange={(e) => setMethod(e.target.value)} style={{ flex: 1 }} />
+              <TextInput className="input" placeholder="方法路径 (package.Service/Method)" value={method}
+                onChange={setMethod} style={{ flex: 1 }} />
               <button className="btn btn-primary" onClick={handleCall} disabled={loading || !method}>
                 {loading ? "调用中..." : "发送"}
               </button>

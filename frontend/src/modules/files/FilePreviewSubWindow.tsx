@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ContentPreviewTextModeToolbar,
   type ContentPreviewTextMode,
@@ -7,8 +7,15 @@ import { isPreviewWebUrl, normalizePreviewWebUrl } from "../../lib/contentPrevie
 import { SubWindow } from "../../components/ui/SubWindow";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
-import { FilePreviewContent, type FileTextPreviewMeta } from "./FilePreviewContent";
-import { formatFileSize } from "./utils";
+import {
+  FilePreviewContent,
+  type FileJsonViewMode,
+  type FilePreviewContentHandle,
+  type FileTextPreviewMeta,
+} from "./FilePreviewContent";
+import { IconDownload } from "./FilesPanelIcons";
+import { fmtError, formatFileSize } from "./utils";
+import { cn } from "../../lib/utils";
 
 export interface FilePreviewSubWindowProps {
   open: boolean;
@@ -16,6 +23,7 @@ export interface FilePreviewSubWindowProps {
   connectionId: string;
   onClose: () => void;
   onDownload?: (entry: FileEntry) => void;
+  onSaved?: (entry: FileEntry) => void;
 }
 
 export function FilePreviewSubWindow({
@@ -24,26 +32,79 @@ export function FilePreviewSubWindow({
   connectionId,
   onClose,
   onDownload,
+  onSaved,
 }: FilePreviewSubWindowProps) {
   const { t } = useI18n();
+  const contentRef = useRef<FilePreviewContentHandle>(null);
   const [textMode, setTextMode] = useState<ContentPreviewTextMode>("code");
+  const [jsonViewMode, setJsonViewMode] = useState<FileJsonViewMode>("structured");
   const [textPreviewMeta, setTextPreviewMeta] = useState<FileTextPreviewMeta | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setTextMode("code");
+    setJsonViewMode("structured");
     setTextPreviewMeta(null);
+    setDirty(false);
+    setSaveNotice(null);
   }, [entry?.path]);
+
+  const handleSave = useCallback(async () => {
+    const handle = contentRef.current;
+    if (!handle?.canSave() || saving) return;
+    setSaving(true);
+    setSaveNotice(null);
+    try {
+      await handle.save();
+      if (entry) onSaved?.(entry);
+      setSaveNotice(t("files.preview.saveSuccess"));
+    } catch (e) {
+      setSaveNotice(t("files.preview.saveFailed", { message: fmtError(e) }));
+    } finally {
+      setSaving(false);
+    }
+  }, [entry, onSaved, saving, t]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      if (event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void handleSave();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [handleSave, open]);
+
+  useEffect(() => {
+    if (!saveNotice) return;
+    const timer = window.setTimeout(() => setSaveNotice(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [saveNotice]);
 
   const webPreviewUrl =
     textPreviewMeta && isPreviewWebUrl(textPreviewMeta.text)
       ? normalizePreviewWebUrl(textPreviewMeta.text)
       : null;
 
+  const canSave = dirty && !saving && entry?.kind === "file";
+
   const title = entry ? (
     <h2 id="subwindow-title" className="subwindow-title file-preview-subwindow-title">
-      <span className="file-preview-subwindow-name">{entry.name}</span>
+      <span className="file-preview-subwindow-name">
+        {entry.name}
+        {dirty ? <span className="file-preview-subwindow-dirty">*</span> : null}
+      </span>
       {entry.size != null ? (
         <span className="file-preview-subwindow-meta">{formatFileSize(entry.size)}</span>
+      ) : null}
+      {saveNotice ? (
+        <span className="file-preview-subwindow-save-notice">{saveNotice}</span>
       ) : null}
     </h2>
   ) : (
@@ -51,9 +112,38 @@ export function FilePreviewSubWindow({
   );
 
   const headerExtra =
-    textPreviewMeta || (entry && onDownload) ? (
+    textPreviewMeta || canSave || (entry && onDownload) ? (
       <div className="file-preview-subwindow-header-actions">
-        {textPreviewMeta ? (
+        {textPreviewMeta?.jsonStructured ? (
+          <div
+            className="content-preview-text-toolbar"
+            role="group"
+            aria-label={t("contentPreview.textMode")}
+          >
+            <button
+              type="button"
+              className={cn(
+                "content-preview-text-mode-btn",
+                jsonViewMode === "structured" && "is-active",
+              )}
+              aria-pressed={jsonViewMode === "structured"}
+              onClick={() => setJsonViewMode("structured")}
+            >
+              {t("contentPreview.modeJson")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "content-preview-text-mode-btn",
+                jsonViewMode === "source" && "is-active",
+              )}
+              aria-pressed={jsonViewMode === "source"}
+              onClick={() => setJsonViewMode("source")}
+            >
+              {t("contentPreview.modeCode")}
+            </button>
+          </div>
+        ) : textPreviewMeta ? (
           <ContentPreviewTextModeToolbar
             mode={textMode}
             onModeChange={setTextMode}
@@ -61,13 +151,25 @@ export function FilePreviewSubWindow({
             showWebMode={webPreviewUrl != null}
           />
         ) : null}
+        {canSave ? (
+          <button
+            type="button"
+            className="file-preview-subwindow-save"
+            onClick={() => void handleSave()}
+            title={t("files.preview.saveShortcut")}
+          >
+            {saving ? t("files.preview.saving") : t("files.preview.save")}
+          </button>
+        ) : null}
         {entry && onDownload ? (
           <button
             type="button"
-            className="file-preview-subwindow-download"
+            className="fm-action-btn"
             onClick={() => onDownload(entry)}
+            title={t("files.actions.download")}
+            aria-label={t("files.actions.download")}
           >
-            {t("files.actions.download")}
+            <IconDownload />
           </button>
         ) : null}
       </div>
@@ -85,11 +187,15 @@ export function FilePreviewSubWindow({
     >
       {entry ? (
         <FilePreviewContent
+          ref={contentRef}
           connectionId={connectionId}
           entry={entry}
           textMode={textMode}
           onTextModeChange={setTextMode}
+          jsonViewMode={jsonViewMode}
           showInlineTextModeToolbar={false}
+          editable={entry.kind === "file"}
+          onDirtyChange={setDirty}
           onTextPreviewMetaChange={setTextPreviewMeta}
         />
       ) : null}

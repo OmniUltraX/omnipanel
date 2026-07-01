@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon } from "@xterm/addon-search";
+import { TextInput } from "../ui/TextInput";
 
 interface Props {
   terminal: Terminal | null;
@@ -12,11 +13,6 @@ export function TerminalSearch({ terminal: _terminal, searchAddon, onClose }: Pr
   const [query, setQuery] = useState("");
   const [matchCount, setMatchCount] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   // Listen for search result changes
   useEffect(() => {
@@ -75,13 +71,13 @@ export function TerminalSearch({ terminal: _terminal, searchAddon, onClose }: Pr
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <input
-        ref={inputRef}
-        type="text"
+      <TextInput
+        autoFocus
+        copyable={false}
         value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          doSearch(e.target.value);
+        onChange={(value) => {
+          setQuery(value);
+          doSearch(value);
         }}
         onKeyDown={handleKeyDown}
         placeholder="搜索终端..."

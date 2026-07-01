@@ -24,6 +24,7 @@ import { ConnectionDialog } from "./ConnectionDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -47,15 +48,17 @@ import {
   createDatabase,
   fetchTableDdl,
   introspectTable,
+  listCharacterSets,
   listConnections,
   listDatabases,
-  MYSQL_CHARSET_PRESETS,
+  isMysqlConnectionInfoCapable,
   previewTable,
   saveConnection,
   isConnectionEnabled,
   isSqlCapableConnection,
   isRedisConnection,
   isToolboxCapableConnection,
+  type DbCharsetMeta,
   type DbConnectionConfig,
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
@@ -64,7 +67,7 @@ import { toCsv } from "./csvExport";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schemaCacheMerge";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
-import { refreshConnectionSchemaCache } from "./schemaCacheRefresh";
+import { submitSchemaCacheRefresh } from "./schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schemaTreeIds";
 import type { DatabaseSchema } from "./types";
@@ -89,6 +92,7 @@ import {
   isToolboxTab,
   makeToolboxWorkspaceTab,
   findTabIdForToolbox,
+  toolboxDockTabId,
   makeTableDesignerTabLabel,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
@@ -260,17 +264,50 @@ function CreateDatabaseDialog({
   const { t } = useI18n();
   const [name, setName] = useState("");
   const [charset, setCharset] = useState<string>("");
+  const [charsets, setCharsets] = useState<DbCharsetMeta[]>([]);
+  const [charsetsLoading, setCharsetsLoading] = useState(false);
+  const [charsetsError, setCharsetsError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isMysql = connection ? isMysqlConnectionInfoCapable(connection) : false;
 
   useEffect(() => {
     if (!open) {
       setName("");
       setCharset("");
+      setCharsets([]);
+      setCharsetsLoading(false);
+      setCharsetsError(null);
       setBusy(false);
       setError(null);
     }
   }, [open, connection?.id]);
+
+  useEffect(() => {
+    if (!open || !connection || !isMysql) {
+      return;
+    }
+    let cancelled = false;
+    setCharsetsLoading(true);
+    setCharsetsError(null);
+    void listCharacterSets(connection)
+      .then((list) => {
+        if (!cancelled) setCharsets(list);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCharsets([]);
+          setCharsetsError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCharsetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, isMysql]);
 
   const validate = (value: string): string | null => {
     const trimmed = value.trim();
@@ -294,14 +331,12 @@ function CreateDatabaseDialog({
     setBusy(true);
     setError(null);
     try {
-      const preset = charset
-        ? MYSQL_CHARSET_PRESETS.find((p) => p.value === charset)
-        : null;
+      const selectedCharset = charsets.find((c) => c.charset === charset) ?? null;
       const created = await createDatabase({
         connection,
         name: trimmed,
         charset: charset || null,
-        collation: preset?.collation ?? null,
+        collation: selectedCharset?.defaultCollation ?? null,
       });
       onCreated(created);
     } catch (err) {
@@ -312,13 +347,21 @@ function CreateDatabaseDialog({
     }
   };
 
-  const charsetOptions = [
-    { value: "", label: t("database.createDatabase.charsetServerDefault") },
-    ...MYSQL_CHARSET_PRESETS.map((p) => ({ value: p.value, label: p.label })),
-  ];
-  const preset = charset
-    ? MYSQL_CHARSET_PRESETS.find((p) => p.value === charset)
-    : null;
+  const charsetOptions = useMemo(
+    () => [
+      { value: "", label: t("database.createDatabase.charsetServerDefault") },
+      ...charsets.map((c) => ({
+        value: c.charset,
+        label: c.description ? `${c.charset} (${c.description})` : c.charset,
+      })),
+    ],
+    [charsets, t],
+  );
+  const selectedCharset = charsets.find((c) => c.charset === charset) ?? null;
+  const statusMessage =
+    error ??
+    charsetsError ??
+    (charsetsLoading ? t("database.createDatabase.charsetLoading") : null);
 
   return (
     <FormDialog
@@ -330,7 +373,14 @@ function CreateDatabaseDialog({
       size="sm"
       onCancel={onCancel}
       cancelDisabled={busy}
-      status={error ? { kind: "error", message: error } : null}
+      status={
+        statusMessage
+          ? {
+              kind: error || charsetsError ? "error" : "info",
+              message: statusMessage,
+            }
+          : null
+      }
       primaryAction={{
         label: busy ? t("database.createDatabase.creating") : t("database.createDatabase.create"),
         disabled: busy,
@@ -342,15 +392,15 @@ function CreateDatabaseDialog({
         htmlFor="create-db-name"
         description={t("database.createDatabase.nameDescription")}
       >
-        <input
+        <TextInput
           id="create-db-name"
           className="input"
           autoFocus
           placeholder={t("database.createDatabase.namePlaceholder")}
           value={name}
           disabled={busy}
-          onChange={(e) => {
-            setName(e.target.value);
+          onChange={(value) => {
+            setName(value);
             if (error) setError(null);
           }}
           onKeyDown={(e) => {
@@ -359,23 +409,24 @@ function CreateDatabaseDialog({
               void handleSubmit();
             }
           }}
-          style={{ width: "100%" }}
         />
       </FormField>
-      <FormField
-        label={t("database.createDatabase.charsetLabel")}
-        htmlFor="create-db-charset"
-        description={t("database.createDatabase.charsetDescription")}
-      >
-        <Select
-          value={charset}
-          onChange={setCharset}
-          options={charsetOptions}
-          size="sm"
-          disabled={busy}
-        />
-      </FormField>
-      {preset && (
+      {isMysql && (
+        <FormField
+          label={t("database.createDatabase.charsetLabel")}
+          htmlFor="create-db-charset"
+          description={t("database.createDatabase.charsetDescription")}
+        >
+          <Select
+            value={charset}
+            onChange={setCharset}
+            options={charsetOptions}
+            size="sm"
+            disabled={busy || charsetsLoading}
+          />
+        </FormField>
+      )}
+      {selectedCharset && (
         <div
           style={{
             fontSize: "11px",
@@ -383,7 +434,8 @@ function CreateDatabaseDialog({
             marginTop: "-2px",
           }}
         >
-          {t("database.createDatabase.collationLabel")}: <code>{preset.collation}</code>
+          {t("database.createDatabase.collationLabel")}:{" "}
+          <code>{selectedCharset.defaultCollation}</code>
         </div>
       )}
     </FormDialog>
@@ -518,6 +570,7 @@ export function DatabasePanel() {
   workspaceTabsRef.current = workspaceTabs;
   const activeWorkspaceTabIdRef = useRef(activeWorkspaceTabId);
   activeWorkspaceTabIdRef.current = activeWorkspaceTabId;
+  const hasReconciledModuleTabRef = useRef(false);
   const tableDesignerStatesRef = useRef(tableDesignerStates);
   tableDesignerStatesRef.current = tableDesignerStates;
 
@@ -547,7 +600,7 @@ export function DatabasePanel() {
 
   const activateWorkspaceTab = useCallback(
     (tabId: string) => {
-      setActiveWorkspaceTabId(tabId);
+      setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
       syncConnForTabId(tabId);
     },
     [syncConnForTabId],
@@ -555,14 +608,21 @@ export function DatabasePanel() {
 
   const openOrActivateToolboxTab = useCallback(
     (toolboxTab: ToolboxTabId) => {
-      const tabId = findTabIdForToolbox(workspaceTabsRef.current, toolboxTab);
+      const expectedId = toolboxDockTabId(toolboxTab);
+      const existingById = workspaceTabsRef.current.find((tab) => tab.id === expectedId);
+      const tabId = existingById?.id ?? findTabIdForToolbox(workspaceTabsRef.current, toolboxTab);
       const label = t(`database.tabs.${toolboxTab}`);
       if (tabId) {
         activateWorkspaceTab(tabId);
         return;
       }
       const tab = makeToolboxWorkspaceTab(toolboxTab, label);
-      setWorkspaceTabs((prev) => [...prev, tab]);
+      setWorkspaceTabs((prev) => {
+        if (prev.some((item) => item.id === tab.id)) {
+          return prev;
+        }
+        return [...prev, tab];
+      });
       activateWorkspaceTab(tab.id);
     },
     [activateWorkspaceTab, setWorkspaceTabs, t],
@@ -852,7 +912,13 @@ export function DatabasePanel() {
 
   const setSqlTabConnection = useCallback(
     (tabId: string, connId: string | null) => {
-      updateSqlTabState(tabId, { connId: connId ?? "", database: "" });
+      const nextConnId = connId ?? "";
+      const prevConnId =
+        useDbWorkspaceTabStore.getState().sqlTabStates[tabId]?.connId ?? "";
+      if (nextConnId === prevConnId) {
+        return;
+      }
+      updateSqlTabState(tabId, { connId: nextConnId, database: "" });
     },
     [updateSqlTabState],
   );
@@ -997,12 +1063,30 @@ export function DatabasePanel() {
 
   useEffect(() => {
     if (!workspaceInitialized) {
+      hasReconciledModuleTabRef.current = false;
+      return;
+    }
+    if (hasReconciledModuleTabRef.current) {
+      return;
+    }
+    hasReconciledModuleTabRef.current = true;
+
+    const activeTab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
+    if (isToolboxTab(activeTab)) {
+      setModuleTab((prev) => (prev === activeTab.toolboxTab ? prev : activeTab.toolboxTab));
       return;
     }
     if (moduleTab === "dataSync" || moduleTab === "schemaSync") {
       openOrActivateToolboxTab(moduleTab);
     }
-  }, [workspaceInitialized, moduleTab, openOrActivateToolboxTab]);
+  }, [
+    workspaceInitialized,
+    workspaceTabs,
+    activeWorkspaceTabId,
+    moduleTab,
+    openOrActivateToolboxTab,
+    setModuleTab,
+  ]);
 
   useEffect(() => {
     if (!workspaceInitialized || !activeWorkspaceTabId) {
@@ -1010,15 +1094,11 @@ export function DatabasePanel() {
     }
     const tab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
     if (isToolboxTab(tab)) {
-      if (moduleTab !== tab.toolboxTab) {
-        setModuleTab(tab.toolboxTab);
-      }
+      setModuleTab((prev) => (prev === tab.toolboxTab ? prev : tab.toolboxTab));
       return;
     }
-    if (moduleTab !== "query") {
-      setModuleTab("query");
-    }
-  }, [workspaceInitialized, workspaceTabs, activeWorkspaceTabId, moduleTab, setModuleTab]);
+    setModuleTab((prev) => (prev === "query" ? prev : "query"));
+  }, [workspaceInitialized, workspaceTabs, activeWorkspaceTabId, setModuleTab]);
 
   useEffect(() => {
     const flush = () => flushPersistWorkspaceSession();
@@ -2623,26 +2703,11 @@ export function DatabasePanel() {
       if (!conn || !isConnectionEnabled(conn)) {
         return;
       }
-      const { setConnectionRefreshing, patchConnection } = useDbSchemaCacheStore.getState();
-      setConnectionRefreshing(connId, true);
-      void refreshConnectionSchemaCache(conn, schemaCacheReporter)
-        .then(async (entry) => {
-          await patchConnection(connId, entry);
-          const names = entry.databases.map((db) => db.name);
-          setDatabasesByConnId((prev) => ({ ...prev, [connId]: names }));
-          setDatabaseFilters((prev) => ({
-            ...prev,
-            [connId]: mergeFilter(prev[connId], names),
-          }));
-        })
-        .catch((err) => {
-          schemaCacheReporter.onError?.(String(err));
-        })
-        .finally(() => {
-          setConnectionRefreshing(connId, false);
-        });
+      void submitSchemaCacheRefresh([connId], schemaCacheReporter).catch((err) => {
+        schemaCacheReporter.onError?.(String(err));
+      });
     },
-    [connections, schemaCacheReporter, setDatabaseFilters],
+    [connections, schemaCacheReporter],
   );
 
   const handleSelectTable = useCallback(

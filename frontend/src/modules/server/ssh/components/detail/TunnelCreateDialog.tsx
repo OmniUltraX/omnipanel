@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FormDialog } from "@/components/ui/FormDialog";
 import { Select } from "@/components/ui/Select";
+import { TextInput } from "@/components/ui/TextInput";
 import { useI18n } from "@/i18n";
 import { commands } from "@/ipc/bindings";
 
@@ -132,28 +133,28 @@ export function TunnelCreateDialog({
         <div className="ssh-tunnel-dialog-row">
           <label className="ssh-tunnel-dialog-field">
             <span>{t("ssh.tunnels.localPort")}</span>
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               value={localPort}
-              onChange={(e) => setLocalPort(e.target.value)}
+              onChange={setLocalPort}
               disabled={busy || success}
             />
           </label>
           <label className="ssh-tunnel-dialog-field">
             <span>{t("ssh.tunnels.remoteHost")}</span>
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               value={remoteHost}
-              onChange={(e) => setRemoteHost(e.target.value)}
+              onChange={setRemoteHost}
               disabled={busy || success}
             />
           </label>
           <label className="ssh-tunnel-dialog-field">
             <span>{t("ssh.tunnels.remotePort")}</span>
-            <input
-              className="input input-sm"
+            <TextInput
+              size="sm"
               value={remotePort}
-              onChange={(e) => setRemotePort(e.target.value)}
+              onChange={setRemotePort}
               disabled={busy || success}
             />
           </label>

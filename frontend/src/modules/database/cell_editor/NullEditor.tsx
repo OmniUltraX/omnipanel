@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { TextInput } from "../../../components/ui/TextInput";
 
 interface NullEditorProps {
   value: string;
@@ -16,12 +17,13 @@ export function NullEditor({ value, onChange, autoFocus = true }: NullEditorProp
   return (
     <div className="cell-editor-null">
       <span className="cell-editor-null-badge">NULL</span>
-      <input
+      <TextInput
         ref={ref}
-        type="text"
+        clearable={false}
+        copyable={false}
         className="cell-editor-input"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         placeholder="Enter new value…"
       />
     </div>

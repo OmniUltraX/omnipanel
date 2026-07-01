@@ -3,6 +3,8 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
+import { PasswordInput } from "../../components/ui/PasswordInput";
+import { TextInput } from "../../components/ui/TextInput";
 
 type PubSubStatus = "disconnected" | "connecting" | "connected";
 
@@ -199,42 +201,40 @@ export function RedisPubSubPanel() {
   return (
     <div className="pubsub-panel proto-pub-panel">
       <div className="proto-pub-toolbar">
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.hostPlaceholder")}
           value={host}
-          onChange={(e) => setHost(e.target.value)}
+          onChange={setHost}
           disabled={locked}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.portPlaceholder")}
           value={port}
-          onChange={(e) => setPort(e.target.value)}
+          onChange={setPort}
           style={{ width: "80px" }}
           disabled={locked}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.databasePlaceholder")}
           value={database}
-          onChange={(e) => setDatabase(e.target.value)}
+          onChange={setDatabase}
           style={{ width: "56px" }}
           disabled={locked}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.usernamePlaceholder")}
           value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          onChange={setUsername}
           disabled={locked}
         />
-        <input
-          className="input"
-          type="password"
+        <PasswordInput
           placeholder={t("protocol.pubsub.passwordPlaceholder")}
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={setPassword}
           disabled={locked}
         />
         <Button variant={connected ? "danger" : "primary"} onClick={() => void handleConnect()}>
@@ -269,11 +269,11 @@ export function RedisPubSubPanel() {
 
       <div className="proto-pub-subscribe">
         <span className="proto-pub-section-label">{t("protocol.pubsub.subscriptions")}</span>
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.subscribeChannel")}
           value={newChannel}
-          onChange={(e) => setNewChannel(e.target.value)}
+          onChange={setNewChannel}
           onKeyDown={(e) => {
             if (e.key === "Enter") void handleSubscribe();
           }}
@@ -315,18 +315,18 @@ export function RedisPubSubPanel() {
       </div>
 
       <div className="proto-pub-publish">
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.channel")}
           value={pubChannel}
-          onChange={(e) => setPubChannel(e.target.value)}
+          onChange={setPubChannel}
           disabled={!connected}
         />
-        <input
+        <TextInput
           className="input"
           placeholder={t("protocol.pubsub.publishPayload")}
           value={pubPayload}
-          onChange={(e) => setPubPayload(e.target.value)}
+          onChange={setPubPayload}
           onKeyDown={(e) => {
             if (e.key === "Enter") void handlePublish();
           }}

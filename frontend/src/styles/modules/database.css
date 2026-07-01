@@ -1703,36 +1703,6 @@
         margin: var(--sp-4) 0;
     }
 
-    .secret-input {
-        position: relative;
-        display: flex;
-        align-items: stretch;
-        width: 100%;
-    }
-
-    .secret-input .input {
-        padding-right: 72px;
-    }
-
-    .secret-input__actions {
-        position: absolute;
-        right: 4px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        align-items: center;
-        gap: 2px;
-    }
-
-    .secret-input textarea+.secret-input__actions {
-        top: var(--sp-2);
-        transform: none;
-    }
-
-    .secret-input__field--masked {
-        -webkit-text-security: disc;
-    }
-
     .form-row {
         display: flex;
         gap: var(--sp-3);
@@ -2009,6 +1979,60 @@
         align-items: center;
     }
 
+    .db-toolbox-side__filters--target-row {
+        flex-wrap: nowrap;
+        align-items: center;
+    }
+
+    .db-toolbox-side__filters--target-row .db-select {
+        flex: 0 1 140px;
+        min-width: 96px;
+    }
+
+    .db-toolbox-show-matching {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--muted);
+        cursor: pointer;
+        flex-shrink: 0;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .db-toolbox-schema-table__head--target .db-toolbox-table-row__name {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .db-toolbox-schema-table__head--target .db-toolbox-table-row__meta {
+        margin-left: auto;
+    }
+
+    .db-toolbox-table-list--schema-target .db-toolbox-schema-diff-list {
+        padding-left: calc(var(--sp-4) + 16px);
+    }
+
+    .db-toolbox-table-list--schema-target .db-toolbox-schema-target-table__error {
+        padding-left: calc(var(--sp-4) + 16px);
+    }
+
+    .db-toolbox-schema-section-label {
+        padding: var(--sp-1) var(--sp-4) var(--sp-1) calc(var(--sp-4) + 16px);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--meta);
+        background: var(--bg-deeper);
+    }
+
+    .db-toolbox-column-list--indexes {
+        padding-top: 0;
+    }
+
     .db-toolbox-side__filters .db-select {
         flex: 1;
         min-width: 120px;
@@ -2020,8 +2044,8 @@
     }
 
     .db-toolbox-side__filters--source-row .db-select {
-        flex: 0 1 140px;
-        min-width: 96px;
+        flex: 0 1 220px;
+        min-width: 160px;
     }
 
     .db-toolbox-side__filters--source-row .db-toolbox-search {

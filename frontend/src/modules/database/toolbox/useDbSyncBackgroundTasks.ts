@@ -1,13 +1,15 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { DbColumnMeta, DbConnectionConfig } from "../api";
+import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type { DataAnalysisResult } from "./types";
 import type { SchemaTableDiff } from "./schemaDiff";
-import { sourceColumnsSignature } from "./schemaDiff";
+import { sourceTableSchemaSignature } from "./schemaDiff";
 import {
   cancelBackgroundTask,
   submitDbDataSyncAnalysis,
+  submitDbDataSyncExecute,
   submitDbSchemaSyncAnalysis,
+  submitDbSchemaSyncExecute,
 } from "../../../stores/backgroundTaskStore";
 
 export interface BgTaskDbEventPayload {
@@ -43,6 +45,12 @@ export interface BgTaskDbEventPayload {
       sourceType?: string | null;
       targetType?: string | null;
     }>;
+    indexes?: Array<{
+      name: string;
+      kind: string;
+      sourceDetail?: string | null;
+      targetDetail?: string | null;
+    }>;
     error?: string | null;
   } | null;
 }
@@ -50,6 +58,7 @@ export interface BgTaskDbEventPayload {
 interface DbSyncBackgroundTaskHandlers {
   active: boolean;
   sourceTableColumns: Record<string, DbColumnMeta[]>;
+  sourceTableIndexes: Record<string, DbIndexMeta[]>;
   targetKey: string;
   onTargetRowCount: (table: string, count: number | null) => void;
   onTableAnalysis: (table: string, result: DataAnalysisResult) => void;
@@ -61,6 +70,7 @@ interface DbSyncBackgroundTaskHandlers {
 export function useDbSyncBackgroundTaskEvents({
   active,
   sourceTableColumns,
+  sourceTableIndexes,
   targetKey,
   onTargetRowCount,
   onTableAnalysis,
@@ -121,11 +131,15 @@ export function useDbSyncBackgroundTaskEvents({
             tableName: table,
             status: "error",
             columns: [],
+            indexes: [],
             error: schema.error ?? "unknown error",
           });
           return;
         }
-        const sourceKey = sourceColumnsSignature(sourceTableColumns[table] ?? []);
+        const sourceKey = sourceTableSchemaSignature(
+          sourceTableColumns[table] ?? [],
+          sourceTableIndexes[table] ?? [],
+        );
         onSchemaDiff(table, {
           tableName: table,
           status: schema.status === "match" ? "match" : "diff",
@@ -134,6 +148,12 @@ export function useDbSyncBackgroundTaskEvents({
             kind: c.kind as "added" | "removed" | "changed",
             sourceType: c.sourceType ?? undefined,
             targetType: c.targetType ?? undefined,
+          })),
+          indexes: (schema.indexes ?? []).map((idx) => ({
+            name: idx.name,
+            kind: idx.kind as "added" | "removed" | "changed",
+            sourceDetail: idx.sourceDetail ?? undefined,
+            targetDetail: idx.targetDetail ?? undefined,
           })),
           targetKey,
           sourceKey,
@@ -154,6 +174,7 @@ export function useDbSyncBackgroundTaskEvents({
     onTargetCounting,
     onTargetRowCount,
     sourceTableColumns,
+    sourceTableIndexes,
     targetKey,
   ]);
 }
@@ -191,10 +212,56 @@ export async function startDbSchemaSyncBackgroundTask(
   targetDb: string,
   tables: string[],
   sourceTableColumns: Record<string, DbColumnMeta[]>,
+  sourceTableIndexes: Record<string, DbIndexMeta[]>,
 ): Promise<string> {
   const specs = tables.map((name) => ({
     name,
     columns: sourceTableColumns[name] ?? [],
+    indexes: sourceTableIndexes[name] ?? [],
   }));
   return submitDbSchemaSyncAnalysis({ ...targetConn, database: targetDb }, targetDb, specs);
+}
+
+export async function startDbDataSyncExecute(
+  sourceConn: DbConnectionConfig,
+  targetConn: DbConnectionConfig,
+  sourceDb: string,
+  targetDb: string,
+  tables: Array<{
+    name: string;
+    columns: DbColumnMeta[];
+    strategy?: string;
+  }>,
+): Promise<string> {
+  const specs = tables.map((table) => ({
+    name: table.name,
+    columns: table.columns,
+    strategy: table.strategy ?? null,
+  }));
+  return submitDbDataSyncExecute(
+    { ...sourceConn, database: sourceDb },
+    { ...targetConn, database: targetDb },
+    specs,
+  );
+}
+
+export async function startDbSchemaSyncExecute(
+  sourceConn: DbConnectionConfig,
+  targetConn: DbConnectionConfig,
+  sourceDb: string,
+  targetDb: string,
+  tables: string[],
+  sourceTableColumns: Record<string, DbColumnMeta[]>,
+  sourceTableIndexes: Record<string, DbIndexMeta[]>,
+): Promise<string> {
+  const specs = tables.map((name) => ({
+    name,
+    columns: sourceTableColumns[name] ?? [],
+    indexes: sourceTableIndexes[name] ?? [],
+  }));
+  return submitDbSchemaSyncExecute(
+    { ...sourceConn, database: sourceDb },
+    { ...targetConn, database: targetDb },
+    specs,
+  );
 }

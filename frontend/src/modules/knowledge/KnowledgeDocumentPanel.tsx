@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { TextInput } from "../../components/ui/TextInput";
 import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";
@@ -128,12 +129,12 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     return (
       <div className="knowledge-workspace knowledge-workspace--folder">
         <div className="knowledge-workspace-header">
-          <input
+          <TextInput
             className="knowledge-workspace-title"
             value={displayTitle}
-            onChange={(e) => {
-              setDraftTitle(e.target.value);
-              void renameEntry(entry.id, e.target.value);
+            onChange={(value) => {
+              setDraftTitle(value);
+              void renameEntry(entry.id, value);
             }}
             aria-label={t("knowledge.title")}
           />
@@ -169,13 +170,12 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   return (
     <div className="knowledge-workspace">
       <div className="knowledge-workspace-header">
-        <input
+        <TextInput
           className="knowledge-workspace-title"
           value={displayTitle}
-          onChange={(e) => {
-            const next = e.target.value;
-            setDraftTitle(next);
-            scheduleSave(next, contentRef.current);
+          onChange={(value) => {
+            setDraftTitle(value);
+            scheduleSave(value, contentRef.current);
           }}
           aria-label={t("knowledge.title")}
         />

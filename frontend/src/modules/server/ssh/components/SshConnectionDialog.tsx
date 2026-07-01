@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../../../components/ui/FormDialog";
 import { ResourceTagEditor } from "../../../../components/ui/ResourceTagEditor";
-import { SecretInput } from "../../../../components/ui/SecretInput";
+import { PasswordInput } from "../../../../components/ui/PasswordInput";
 import { Select } from "../../../../components/ui/Select";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { useI18n } from "../../../../i18n";
 import { commands, type Connection, type SshKeyInfo } from "../../../../ipc/bindings";
 import { collectSshGroupSuggestions } from "../../../../lib/sshGroups";
@@ -145,46 +146,38 @@ export function SshConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("ssh.dialog.name")}</label>
-        <input
-          className="input"
+        <TextInput
           placeholder={t("ssh.dialog.namePlaceholder")}
           value={form.name}
-          onChange={(e) => update("name", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("name", value)}
         />
       </div>
 
       <div className="form-row">
         <div className="form-field" style={{ flex: 2 }}>
           <label className="form-label">{t("ssh.dialog.host")}</label>
-          <input
-            className="input"
+          <TextInput
             placeholder="example.com"
             value={form.host}
-            onChange={(e) => update("host", e.target.value)}
-            style={{ width: "100%" }}
+            onChange={(value) => update("host", value)}
           />
         </div>
         <div className="form-field" style={{ flex: 1 }}>
           <label className="form-label">{t("ssh.dialog.port")}</label>
-          <input
-            className="input"
+          <TextInput
             placeholder="22"
             value={form.port}
-            onChange={(e) => update("port", e.target.value)}
-            style={{ width: "100%" }}
+            onChange={(value) => update("port", value)}
           />
         </div>
       </div>
 
       <div className="form-field">
         <label className="form-label">{t("ssh.dialog.user")}</label>
-        <input
-          className="input"
+        <TextInput
           placeholder="root"
           value={form.user}
-          onChange={(e) => update("user", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("user", value)}
         />
       </div>
 
@@ -211,7 +204,8 @@ export function SshConnectionDialog({
       {form.authType === "password" ? (
         <div className="form-field">
           <label className="form-label">{t("ssh.dialog.password")}</label>
-          <SecretInput
+          <PasswordInput
+            copyable
             value={form.password}
             onChange={(value) => update("password", value)}
             placeholder="••••••"
@@ -232,7 +226,8 @@ export function SshConnectionDialog({
           </div>
           <div className="form-field">
             <label className="form-label">{t("ssh.dialog.passphrase")}</label>
-            <SecretInput
+            <PasswordInput
+              copyable
               value={form.passphrase}
               onChange={(value) => update("passphrase", value)}
               placeholder={t("ssh.dialog.passphrasePlaceholder")}
@@ -243,13 +238,11 @@ export function SshConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("ssh.dialog.group")}</label>
-        <input
-          className="input"
+        <TextInput
           list="ssh-group-suggestions"
           placeholder={t("ssh.dialog.groupPlaceholder")}
           value={form.group}
-          onChange={(e) => update("group", e.target.value)}
-          style={{ width: "100%" }}
+          onChange={(value) => update("group", value)}
         />
         <datalist id="ssh-group-suggestions">
           {groupSuggestions.map((g) => (

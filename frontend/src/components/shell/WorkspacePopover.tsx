@@ -30,6 +30,7 @@ import { isDashboardPath } from "../../lib/paths";
 import { appConfirm } from "../../lib/appConfirm";
 
 import { useI18n } from "../../i18n";
+import { TextInput } from "../ui/TextInput";
 
 
 
@@ -131,10 +132,6 @@ export function WorkspacePopover({
 
   const [renameError, setRenameError] = useState<string | null>(null);
 
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const renameInputRef = useRef<HTMLInputElement>(null);
-
 
 
   const canDelete = workspaces.length > 1;
@@ -202,32 +199,6 @@ export function WorkspacePopover({
     setReady(true);
 
   }, [anchorRef, workspaces.length, currentId, creating, renamingId, placement]);
-
-
-
-  useEffect(() => {
-
-    if (creating) {
-
-      inputRef.current?.focus();
-
-    }
-
-  }, [creating]);
-
-
-
-  useEffect(() => {
-
-    if (renamingId) {
-
-      renameInputRef.current?.focus();
-
-      renameInputRef.current?.select();
-
-    }
-
-  }, [renamingId]);
 
 
 
@@ -597,11 +568,11 @@ export function WorkspacePopover({
 
                   <div className="workspace-popover-inline-edit">
 
-                    <input
+                    <TextInput
 
-                      ref={renameInputRef}
+                      autoFocus
 
-                      type="text"
+                      copyable={false}
 
                       className="workspace-popover-input"
 
@@ -609,9 +580,9 @@ export function WorkspacePopover({
 
                       value={renameDraft}
 
-                      onChange={(e) => {
+                      onChange={(value) => {
 
-                        setRenameDraft(e.target.value);
+                        setRenameDraft(value);
 
                         if (renameError) setRenameError(null);
 
@@ -841,11 +812,11 @@ export function WorkspacePopover({
 
             <div className="workspace-popover-create">
 
-              <input
+              <TextInput
 
-                ref={inputRef}
+                autoFocus
 
-                type="text"
+                copyable={false}
 
                 className="workspace-popover-input"
 
@@ -853,9 +824,9 @@ export function WorkspacePopover({
 
                 value={draftName}
 
-                onChange={(e) => {
+                onChange={(value) => {
 
-                  setDraftName(e.target.value);
+                  setDraftName(value);
 
                   if (draftError) setDraftError(null);
 

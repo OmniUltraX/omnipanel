@@ -10,6 +10,7 @@ import type {
 import type { Option, OptionGroup } from "@react-querybuilder/core";
 import { Button } from "../../components/ui/Button";
 import { Select, type SelectOption } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { cn } from "../../lib/utils";
 
 function isOptionGroup(option: Option | OptionGroup): option is OptionGroup {
@@ -163,10 +164,29 @@ function QueryBuilderValueEditor({
     );
   }
 
+  const resolvedType =
+    inputTypeCoerced === "bigint" || inputTypeCoerced == null ? "text" : inputTypeCoerced;
+
+  if (resolvedType === "text") {
+    return (
+      <TextInput
+        data-testid={testID}
+        clearable={false}
+        copyable={false}
+        className={className}
+        title={title}
+        placeholder={placeholder}
+        disabled={disabled}
+        value={value == null ? "" : String(value)}
+        onChange={(next) => handleOnChange(next)}
+      />
+    );
+  }
+
   return (
     <input
       data-testid={testID}
-      type={inputTypeCoerced === "bigint" || inputTypeCoerced == null ? "text" : inputTypeCoerced}
+      type={resolvedType}
       className={className}
       title={title}
       placeholder={placeholder}

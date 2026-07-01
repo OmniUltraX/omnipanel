@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { commands } from "../../../../ipc/bindings";
 import type { SshKeyInfo } from "../../../../ipc/bindings";
 import { Select } from "../../../../components/ui/Select";
+import { PasswordInput } from "../../../../components/ui/PasswordInput";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { useI18n } from "../../../../i18n";
 
 export function KeysModuleView() {
@@ -200,22 +202,18 @@ export function KeysModuleView() {
             )}
             <div className="form-field">
               <label className="form-label">{t("ssh.keys.comment")}</label>
-              <input
-                className="input"
+              <TextInput
                 placeholder="user@host"
                 value={genComment}
-                onChange={(e) => setGenComment(e.target.value)}
-                style={{ width: "100%" }}
+                onChange={setGenComment}
               />
             </div>
             <div className="form-field">
               <label className="form-label">{t("ssh.keys.passphrase")}</label>
-              <input
-                className="input"
-                type="password"
+              <PasswordInput
                 placeholder={t("ssh.keys.passphrasePlaceholder")}
                 value={genPassphrase}
-                onChange={(e) => setGenPassphrase(e.target.value)}
+                onChange={setGenPassphrase}
                 style={{ width: "100%" }}
               />
             </div>
@@ -237,12 +235,10 @@ export function KeysModuleView() {
           <div className="panel-body" style={{ padding: 12 }}>
             <div className="form-field">
               <label className="form-label">{t("ssh.keys.name")}</label>
-              <input
-                className="input"
+              <TextInput
                 placeholder={t("ssh.keys.namePlaceholder")}
                 value={importName}
-                onChange={(e) => setImportName(e.target.value)}
-                style={{ width: "100%" }}
+                onChange={setImportName}
               />
             </div>
             <div className="form-field">

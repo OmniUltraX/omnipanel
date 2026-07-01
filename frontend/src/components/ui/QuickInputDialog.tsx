@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { FormDialog, FormField } from "./FormDialog";
+import { TextInput } from "./TextInput";
 
 export interface QuickInputDialogProps {
   open: boolean;
@@ -65,13 +66,14 @@ export function QuickInputDialog({
     >
       {fieldLabel || description ? (
         <FormField label={fieldLabel ?? ""} description={description}>
-          <input
+          <TextInput
             className="input"
             autoFocus
+            copyable={false}
             placeholder={placeholder}
             value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
+            onChange={(next) => {
+              setValue(next);
               setError(null);
             }}
             onKeyDown={(e) => {
@@ -88,13 +90,14 @@ export function QuickInputDialog({
           />
         </FormField>
       ) : (
-        <input
+        <TextInput
           className="input"
           autoFocus
+          copyable={false}
           placeholder={placeholder}
           value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
+          onChange={(next) => {
+            setValue(next);
             setError(null);
           }}
           onKeyDown={(e) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "r
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/Button";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import {
   isRedisConnection,
   listDatabases,
@@ -178,11 +179,11 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             placeholder={t("database.redisQuery.database")}
           />
         ) : null}
-        <input
+        <TextInput
+          copyable={false}
           className="redis-query-search-input"
-          type="text"
           value={pattern}
-          onChange={(event) => setPattern(event.target.value)}
+          onChange={setPattern}
           onKeyDown={handleSearchKeyDown}
           placeholder={t("database.redisQuery.patternPlaceholder")}
           disabled={loading}

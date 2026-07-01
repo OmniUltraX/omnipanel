@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { TextInput } from "../../components/ui/TextInput";
 import { rankByFuzzy } from "../../lib/fuzzyMatch";
 
 export interface SchemaFilterState {
@@ -35,7 +36,6 @@ export function SchemaFilterDialog({
   const [visible, setVisible] = useState<Set<string>>(new Set(initial.visibleNames));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -46,10 +46,6 @@ export function SchemaFilterDialog({
     setVisible(new Set(initial.visibleNames.size > 0 ? initial.visibleNames : items));
     setDragIndex(null);
     setQuery("");
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    });
   }, [open, items, initial]);
 
   const filteredOrdered = useMemo(
@@ -133,13 +129,12 @@ export function SchemaFilterDialog({
               <circle cx="7" cy="7" r="4.5" />
               <path d="M10.5 10.5L14 14" strokeLinecap="round" />
             </svg>
-            <input
-              ref={searchInputRef}
-              type="text"
+            <TextInput
+              copyable={false}
               className="db-filter-search-input"
               placeholder={t("database.filter.searchPlaceholder")}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={setQuery}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -148,6 +143,7 @@ export function SchemaFilterDialog({
               }}
               autoComplete="off"
               spellCheck={false}
+              autoFocus
             />
           </div>
 

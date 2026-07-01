@@ -101,6 +101,9 @@ export interface ContentPreviewViewProps {
   /** 内容切换时重置文本模式 */
   contentResetKey?: string;
   className?: string;
+  /** 允许编辑文本内容（代码/纯文本模式） */
+  editable?: boolean;
+  onTextChange?: (text: string) => void;
 }
 
 function resolveDefaultTextMode(
@@ -125,6 +128,8 @@ export function ContentPreviewView({
   showTextModeToolbar = true,
   contentResetKey,
   className,
+  editable = false,
+  onTextChange,
 }: ContentPreviewViewProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
@@ -246,13 +251,20 @@ export function ContentPreviewView({
         <div className="content-preview-code">
           <CodeEditor
             value={content.text}
-            onChange={() => {}}
-            readOnly
+            onChange={(next) => onTextChange?.(next)}
+            readOnly={!editable}
             language={codeLanguage}
             height="100%"
             className="content-preview-code-editor"
           />
         </div>
+      ) : editable && textMode === "plain" ? (
+        <textarea
+          className="content-preview-text content-preview-text--editable"
+          value={content.text}
+          onChange={(e) => onTextChange?.(e.target.value)}
+          spellCheck={false}
+        />
       ) : (
         <pre className="content-preview-text">{content.text}</pre>
       )}

@@ -22,6 +22,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
 import { Button } from "../../components/ui/Button";
+import { TextInput } from "../../components/ui/TextInput";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { useI18n } from "../../i18n";
 import { textSearchMatches } from "../../lib/textSearchMatch";
@@ -661,12 +662,12 @@ function ColumnVisibilitySidebar({
               <circle cx="7" cy="7" r="4.5" />
               <path d="M10.5 10.5L14 14" strokeLinecap="round" />
             </svg>
-            <input
-              type="text"
+            <TextInput
+              copyable={false}
               className="db-col-visibility-popover-search-input"
               placeholder={t("database.results.columnVisibilitySearch")}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={setQuery}
               autoComplete="off"
               spellCheck={false}
             />

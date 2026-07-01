@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { FormDialog } from "../ui/FormDialog";
+import { PasswordInput } from "../ui/PasswordInput";
+import { TextInput } from "../ui/TextInput";
 import { useI18n } from "../../i18n";
 import {
   fetchProviderModelList,
@@ -246,12 +248,12 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
     >
       <div className="form-field">
         <label htmlFor="add-model-provider">{t("settings.aiModels.fields.providerName")}</label>
-        <input
+        <TextInput
           id="add-model-provider"
           className="input"
           autoFocus
           value={form.providerName}
-          onChange={(e) => updateField("providerName", e.target.value)}
+          onChange={(value) => updateField("providerName", value)}
           placeholder={t("settings.aiModels.fields.providerNamePlaceholder")}
           disabled={saving}
           onKeyDown={(e) => {
@@ -265,11 +267,11 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
 
       <div className="form-field">
         <label htmlFor="add-model-names">{t("settings.aiModels.fields.modelNames")}</label>
-        <input
+        <TextInput
           id="add-model-names"
           className="input"
           value={form.modelNames}
-          onChange={(e) => updateField("modelNames", e.target.value)}
+          onChange={(value) => updateField("modelNames", value)}
           placeholder={t("settings.aiModels.fields.modelNamesPlaceholder")}
           disabled={saving}
           onKeyDown={(e) => {
@@ -309,13 +311,13 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
 
       <div className="form-field">
         <label htmlFor="add-model-baseurl">{t("settings.aiModels.fields.baseUrl")}</label>
-        <input
+        <TextInput
           id="add-model-baseurl"
           className="input"
           value={form.baseUrl}
           disabled={saving}
-          onChange={(e) =>
-            setForm((p) => ({ ...p, baseUrl: e.target.value, baseUrlTouched: true }))
+          onChange={(baseUrl) =>
+            setForm((p) => ({ ...p, baseUrl, baseUrlTouched: true }))
           }
           placeholder={defaultBaseUrlFor(form.apiStandard)}
           onKeyDown={(e) => {
@@ -329,15 +331,14 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
 
       <div className="form-field">
         <label htmlFor="add-model-apikey">{t("settings.aiModels.fields.apiKey")}</label>
-        <input
+        <PasswordInput
+          copyable
           id="add-model-apikey"
-          className="input"
-          type="password"
           autoComplete="off"
           spellCheck={false}
           value={form.apiKey}
           disabled={saving}
-          onChange={(e) => updateField("apiKey", e.target.value)}
+          onChange={(value) => updateField("apiKey", value)}
           placeholder={
             isEdit
               ? t("settings.aiModels.fields.apiKeyPlaceholderEdit")

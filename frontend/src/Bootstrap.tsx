@@ -13,6 +13,7 @@ import { initBackgroundTasks } from "./stores/backgroundTaskStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { initMcpToolStore } from "./stores/mcpToolStore";
 import { initActionListener } from "./stores/actionStore";
+import { syncAppWindowTitle } from "./lib/appWindowTitle";
 
 const MIN_SPLASH_MS = 1400;
 const EXIT_ANIM_MS = 520;
@@ -39,6 +40,7 @@ export function Bootstrap() {
 
   useEffect(() => {
     removeHtmlBootSplash();
+    syncAppWindowTitle();
   }, []);
 
   useEffect(() => {

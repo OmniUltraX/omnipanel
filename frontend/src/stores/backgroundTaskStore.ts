@@ -5,6 +5,7 @@ import { refreshConnectionPool } from "./connectionPoolStore";
 import {
   initKnowledgeVectorizeBackgroundTasks,
 } from "../modules/knowledge/knowledgeVectorize";
+import { initSchemaCacheBackgroundTasks } from "../modules/database/schemaCacheBackgroundTasks";
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -106,6 +107,38 @@ export async function submitKnowledgeVectorize(args: unknown): Promise<string> {
   return invoke<string>("bg_task_submit_knowledge_vectorize", { args });
 }
 
+export async function submitDbSchemaCacheRefresh(
+  connectionIds: string[] | null,
+): Promise<string> {
+  return invoke<string>("bg_task_submit_db_schema_cache_refresh", {
+    connectionIds,
+  });
+}
+
+export async function submitDbDataSyncExecute(
+  source: unknown,
+  target: unknown,
+  tables: unknown[],
+): Promise<string> {
+  return invoke<string>("bg_task_submit_db_data_sync_execute", {
+    source,
+    target,
+    tables,
+  });
+}
+
+export async function submitDbSchemaSyncExecute(
+  source: unknown,
+  target: unknown,
+  tables: unknown[],
+): Promise<string> {
+  return invoke<string>("bg_task_submit_db_schema_sync_execute", {
+    source,
+    target,
+    tables,
+  });
+}
+
 let bgTaskInitialized = false;
 
 /** 订阅后台任务事件，在 Bootstrap 中调用一次。 */
@@ -115,6 +148,7 @@ export function initBackgroundTasks() {
 
   void useBackgroundTaskStore.getState().refreshRunning();
   initKnowledgeVectorizeBackgroundTasks();
+  initSchemaCacheBackgroundTasks();
 
   const unsubs: Array<() => void> = [];
 

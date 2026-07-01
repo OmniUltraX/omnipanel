@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
+import { TextInput } from "../ui/TextInput";
 import { FileEntryIcon } from "../ui/FileEntryIcon";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
@@ -16,6 +17,7 @@ import {
   joinRemotePath,
   LOCAL_CONNECTION_ID,
   parentPath,
+  sortFileEntries,
 } from "../../modules/files/utils";
 
 function splitLocalBreadcrumb(path: string): { label: string; path: string }[] {
@@ -62,7 +64,6 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     documents: string;
     downloads: string;
   } | null>(null);
-  const pathInputRef = useRef<HTMLInputElement>(null);
   const pathEditSkipCommitRef = useRef(false);
   const loadSeqRef = useRef(0);
   const initRef = useRef(false);
@@ -73,14 +74,8 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     setError(null);
     try {
       const list = await listDirectory(LOCAL_CONNECTION_ID, dir);
-      list.entries.sort((a, b) => {
-        const aDir = a.kind === "dir";
-        const bDir = b.kind === "dir";
-        if (aDir !== bDir) return aDir ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
       if (currentSeq !== loadSeqRef.current) return;
-      setEntries(list.entries);
+      setEntries(sortFileEntries(list.entries));
       setPath(dir);
       setSelectedName(null);
     } catch (e) {
@@ -176,10 +171,6 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     pathEditSkipCommitRef.current = false;
     setPathInput(path);
     setPathEditing(true);
-    requestAnimationFrame(() => {
-      pathInputRef.current?.focus();
-      pathInputRef.current?.select();
-    });
   };
 
   const cancelPathEdit = () => {
@@ -198,12 +189,6 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     setPathInput("");
     if (next && next !== path) void loadDir(next);
   };
-
-  useEffect(() => {
-    if (!pathEditing) return;
-    pathInputRef.current?.focus();
-    pathInputRef.current?.select();
-  }, [pathEditing]);
 
   const quickButtons = quickPaths
     ? [
@@ -231,11 +216,13 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
         </Button>
         <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
           {pathEditing ? (
-            <input
-              ref={pathInputRef}
+            <TextInput
+              autoFocus
+              copyable={false}
+              clearable={false}
               className="sftp-path-input"
               value={pathInput}
-              onChange={(e) => setPathInput(e.target.value)}
+              onChange={setPathInput}
               placeholder={t("ssh.sftp.pathEditPlaceholder")}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -292,10 +279,11 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
 
       {showMkdir && (
         <div className="sftp-mkdir-bar">
-          <input
+          <TextInput
             className="input input-sm"
+            size="sm"
             value={mkdirName}
-            onChange={(e) => setMkdirName(e.target.value)}
+            onChange={setMkdirName}
             placeholder={t("ssh.sftp.mkdirPlaceholder")}
           />
           <Button variant="primary" size="sm" onClick={() => void handleMkdir()}>{t("ssh.sftp.create")}</Button>
@@ -305,10 +293,11 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
       {renameTarget && (
         <div className="sftp-mkdir-bar">
           <span className="text-sm">{t("ssh.sftp.rename")} <code>{renameTarget.name}</code></span>
-          <input
+          <TextInput
             className="input input-sm"
+            size="sm"
             value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
+            onChange={setRenameValue}
             autoFocus
             onKeyDown={(e) => e.key === "Enter" && void handleRename()}
           />

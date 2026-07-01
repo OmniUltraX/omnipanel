@@ -29,6 +29,7 @@ import { DockerVolumeDrawer } from "./DockerVolumeDrawer";
 import { DockerComposeDrawer } from "./DockerComposeDrawer";
 import { DockerFileEditor } from "./DockerFileEditor";
 import { Button } from "../../components/ui/Button";
+import { TextInput } from "../../components/ui/TextInput";
 import { LogViewer } from "../../components/ui/LogViewer";
 import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
@@ -817,12 +818,13 @@ export function DockerPanel() {
                     + 创建容器
                   </button>
                   <span style={{ marginLeft: "auto" }}>
-                    <input
+                    <TextInput
                       className="input input-search"
+                      copyable={false}
                       placeholder="筛选容器…"
                       style={{ fontSize: 11, width: 200 }}
                       value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
+                      onChange={setSearchInput}
                     />
                   </span>
                 </div>

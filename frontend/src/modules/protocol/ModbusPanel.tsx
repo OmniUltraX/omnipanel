@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { IconClipboard, IconPencil } from "../../components/ui/Icons";
 
 type RegisterType = "coils" | "discrete_inputs" | "holding_registers" | "input_registers";
@@ -125,11 +126,11 @@ export function ModbusPanel() {
         <div style={STYLE.title}>🔌 Modbus Connection</div>
         <div style={STYLE.row}>
           <span style={STYLE.label}>Host</span>
-          <input style={STYLE.input} value={host} onChange={(e) => setHost(e.target.value)} placeholder="127.0.0.1" disabled={connected} />
+          <TextInput style={STYLE.input} value={host} onChange={setHost} placeholder="127.0.0.1" disabled={connected} />
           <span style={STYLE.label}>Port</span>
-          <input style={{ ...STYLE.input, maxWidth: 80 }} value={port} onChange={(e) => setPort(e.target.value)} placeholder="502" disabled={connected} />
+          <TextInput style={{ ...STYLE.input, maxWidth: 80 }} value={port} onChange={setPort} placeholder="502" disabled={connected} />
           <span style={STYLE.label}>Slave ID</span>
-          <input style={{ ...STYLE.input, maxWidth: 60 }} value={slaveId} onChange={(e) => setSlaveId(e.target.value)} placeholder="1" disabled={connected} />
+          <TextInput style={{ ...STYLE.input, maxWidth: 60 }} value={slaveId} onChange={setSlaveId} placeholder="1" disabled={connected} />
         </div>
         <div style={STYLE.row}>
           <span style={STYLE.status(connected)}>{connected ? "● Connected" : "○ Disconnected"}</span>
@@ -164,9 +165,9 @@ export function ModbusPanel() {
           </div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Address</span>
-            <input style={STYLE.input} value={readAddr} onChange={(e) => setReadAddr(e.target.value)} />
+            <TextInput style={STYLE.input} value={readAddr} onChange={setReadAddr} />
             <span style={STYLE.label}>Quantity</span>
-            <input style={{ ...STYLE.input, maxWidth: 80 }} value={readQty} onChange={(e) => setReadQty(e.target.value)} />
+            <TextInput style={{ ...STYLE.input, maxWidth: 80 }} value={readQty} onChange={setReadQty} />
           </div>
           <button style={STYLE.btn(true)} onClick={handleRead} disabled={!connected || busy}>Read</button>
         </div>
@@ -191,9 +192,9 @@ export function ModbusPanel() {
           </div>
           <div style={STYLE.row}>
             <span style={STYLE.label}>Address</span>
-            <input style={STYLE.input} value={writeAddr} onChange={(e) => setWriteAddr(e.target.value)} />
+            <TextInput style={STYLE.input} value={writeAddr} onChange={setWriteAddr} />
             <span style={STYLE.label}>Value</span>
-            <input style={STYLE.input} value={writeValue} onChange={(e) => setWriteValue(e.target.value)} />
+            <TextInput style={STYLE.input} value={writeValue} onChange={setWriteValue} />
           </div>
           <button style={STYLE.btn(true)} onClick={handleWrite} disabled={!connected || busy}>Write</button>
         </div>

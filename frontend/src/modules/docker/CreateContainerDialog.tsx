@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { commands } from "../../ipc/bindings";
 import type { DockerCreateContainerRequest } from "../../ipc/bindings";
 
@@ -120,12 +121,12 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
 
           <div className="form-field">
             <label className="form-label">镜像名 <span className="text-danger">*</span></label>
-            <input className="input" placeholder="nginx:latest" value={image} onChange={(e) => setImage(e.target.value)} style={{ width: "100%" }} />
+            <TextInput placeholder="nginx:latest" value={image} onChange={setImage} style={{ width: "100%" }} />
           </div>
 
           <div className="form-field">
             <label className="form-label">容器名</label>
-            <input className="input" placeholder="留空自动生成" value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+            <TextInput placeholder="留空自动生成" value={name} onChange={setName} style={{ width: "100%" }} />
           </div>
 
           {/* Ports */}
@@ -138,7 +139,7 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
               </div>
             ))}
             <div style={{ display: "flex", gap: 4 }}>
-              <input className="input input-sm" placeholder="8080:80/tcp" value={newPort} onChange={(e) => setNewPort(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPort())} style={{ flex: 1 }} />
+              <TextInput size="sm" placeholder="8080:80/tcp" value={newPort} onChange={setNewPort} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPort())} style={{ flex: 1 }} />
               <button className="btn btn-secondary btn-sm" onClick={addPort}>+</button>
             </div>
           </div>
@@ -153,7 +154,7 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
               </div>
             ))}
             <div style={{ display: "flex", gap: 4 }}>
-              <input className="input input-sm" placeholder="/host/path:/container/path" value={newVolume} onChange={(e) => setNewVolume(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addVolume())} style={{ flex: 1 }} />
+              <TextInput size="sm" placeholder="/host/path:/container/path" value={newVolume} onChange={setNewVolume} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addVolume())} style={{ flex: 1 }} />
               <button className="btn btn-secondary btn-sm" onClick={addVolume}>+</button>
             </div>
           </div>
@@ -168,19 +169,19 @@ export function CreateContainerDialog({ open, connectionId, onClose, onCreated }
               </div>
             ))}
             <div style={{ display: "flex", gap: 4 }}>
-              <input className="input input-sm" placeholder="KEY=VALUE" value={newEnv} onChange={(e) => setNewEnv(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addEnv())} style={{ flex: 1 }} />
+              <TextInput size="sm" placeholder="KEY=VALUE" value={newEnv} onChange={setNewEnv} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addEnv())} style={{ flex: 1 }} />
               <button className="btn btn-secondary btn-sm" onClick={addEnv}>+</button>
             </div>
           </div>
 
           <div className="form-field">
             <label className="form-label">网络</label>
-            <input className="input" placeholder="留空使用默认" value={network} onChange={(e) => setNetwork(e.target.value)} style={{ width: "100%" }} />
+            <TextInput placeholder="留空使用默认" value={network} onChange={setNetwork} style={{ width: "100%" }} />
           </div>
 
           <div className="form-field">
             <label className="form-label">启动命令</label>
-            <input className="input" placeholder="留空使用镜像默认命令" value={cmd} onChange={(e) => setCmd(e.target.value)} style={{ width: "100%" }} />
+            <TextInput placeholder="留空使用镜像默认命令" value={cmd} onChange={setCmd} style={{ width: "100%" }} />
           </div>
 
           <div className="form-field">

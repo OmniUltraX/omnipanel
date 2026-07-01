@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
-import { SecretInput } from "../../components/ui/SecretInput";
+import { PasswordInput } from "../../components/ui/PasswordInput";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { useI18n } from "../../i18n";
 import { commands, type Connection } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -284,10 +285,9 @@ export function FileConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("files.dialog.name")}</label>
-        <input
-          className="input"
+        <TextInput
           value={form.name}
-          onChange={(e) => update("name", e.target.value)}
+          onChange={(value) => update("name", value)}
           placeholder={t("files.dialog.namePlaceholder")}
           style={{ width: "100%" }}
         />
@@ -311,28 +311,28 @@ export function FileConnectionDialog({
               <div className="form-row">
                 <div className="form-field" style={{ flex: 2 }}>
                   <label className="form-label">{t("files.dialog.host")}</label>
-                  <input className="input" value={form.host} onChange={(e) => update("host", e.target.value)} style={{ width: "100%" }} />
+                  <TextInput value={form.host} onChange={(value) => update("host", value)} style={{ width: "100%" }} />
                 </div>
                 <div className="form-field" style={{ flex: 1 }}>
                   <label className="form-label">{t("files.dialog.port")}</label>
-                  <input className="input" value={form.port} onChange={(e) => update("port", e.target.value)} style={{ width: "100%" }} />
+                  <TextInput value={form.port} onChange={(value) => update("port", value)} style={{ width: "100%" }} />
                 </div>
               </div>
               <div className="form-row">
                 <div className="form-field" style={{ flex: 1 }}>
                   <label className="form-label">{t("files.dialog.user")}</label>
-                  <input className="input" value={form.user} onChange={(e) => update("user", e.target.value)} style={{ width: "100%" }} />
+                  <TextInput value={form.user} onChange={(value) => update("user", value)} style={{ width: "100%" }} />
                 </div>
                 <div className="form-field" style={{ flex: 1 }}>
                   <label className="form-label">{t("files.dialog.password")}</label>
-                  <SecretInput value={form.secret} onChange={(v) => update("secret", v)} placeholder="••••••••" />
+                  <PasswordInput copyable value={form.secret} onChange={(v) => update("secret", v)} placeholder="••••••••" />
                 </div>
               </div>
             </>
           )}
           <div className="form-field">
             <label className="form-label">{t("files.dialog.rootPath")}</label>
-            <input className="input" value={form.rootPath} onChange={(e) => update("rootPath", e.target.value)} style={{ width: "100%" }} />
+            <TextInput value={form.rootPath} onChange={(value) => update("rootPath", value)} style={{ width: "100%" }} />
           </div>
         </>
       )}
@@ -341,24 +341,23 @@ export function FileConnectionDialog({
         <>
           <div className="form-field">
             <label className="form-label">{t("files.dialog.bucket")}</label>
-            <input className="input" value={form.bucket} onChange={(e) => update("bucket", e.target.value)} style={{ width: "100%" }} />
+            <TextInput value={form.bucket} onChange={(value) => update("bucket", value)} style={{ width: "100%" }} />
           </div>
           <div className="form-row">
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.region")}</label>
-              <input className="input" value={form.region} onChange={(e) => update("region", e.target.value)} style={{ width: "100%" }} />
+              <TextInput value={form.region} onChange={(value) => update("region", value)} style={{ width: "100%" }} />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.endpoint")}</label>
-              <input className="input" value={form.endpoint} onChange={(e) => update("endpoint", e.target.value)} style={{ width: "100%" }} />
+              <TextInput value={form.endpoint} onChange={(value) => update("endpoint", value)} style={{ width: "100%" }} />
             </div>
           </div>
           <div className="form-field">
             <label className="form-label">{t("files.dialog.publicDomain")}</label>
-            <input
-              className="input"
+            <TextInput
               value={form.publicDomain}
-              onChange={(e) => update("publicDomain", e.target.value)}
+              onChange={(value) => update("publicDomain", value)}
               placeholder={t("files.dialog.publicDomainPlaceholder")}
               style={{ width: "100%" }}
             />
@@ -367,16 +366,16 @@ export function FileConnectionDialog({
           <div className="form-row">
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.accessKey")}</label>
-              <input className="input" value={form.accessKey} onChange={(e) => update("accessKey", e.target.value)} style={{ width: "100%" }} />
+              <TextInput value={form.accessKey} onChange={(value) => update("accessKey", value)} style={{ width: "100%" }} />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.secretKey")}</label>
-              <SecretInput value={form.secret} onChange={(v) => update("secret", v)} placeholder="••••••••" />
+              <PasswordInput copyable value={form.secret} onChange={(v) => update("secret", v)} placeholder="••••••••" />
             </div>
           </div>
           <div className="form-field">
             <label className="form-label">{t("files.dialog.prefix")}</label>
-            <input className="input" value={form.prefix} onChange={(e) => update("prefix", e.target.value)} style={{ width: "100%" }} />
+            <TextInput value={form.prefix} onChange={(value) => update("prefix", value)} style={{ width: "100%" }} />
           </div>
         </>
       )}

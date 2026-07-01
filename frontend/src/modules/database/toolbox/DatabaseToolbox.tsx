@@ -6,8 +6,14 @@ import { useDataLoading } from "../../../components/ui/DataLoading";
 import { WarnAlert } from "../../../components/ui/WarnAlert";
 import { SubWindow } from "../../../components/ui/SubWindow";
 import { quickInput } from "../../../lib/quickInput";
-import { useActionStore } from "../../../stores/actionStore";
-import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
+import {
+  cancelDbBackgroundTask,
+  startDbDataSyncBackgroundTask,
+  startDbDataSyncExecute,
+  startDbSchemaSyncBackgroundTask,
+  startDbSchemaSyncExecute,
+  useDbSyncBackgroundTaskEvents,
+} from "./useDbSyncBackgroundTasks";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
 import {
   countTable,
@@ -16,22 +22,18 @@ import {
   listTables,
   type DbConnectionConfig,
   type DbColumnMeta,
+  type DbIndexMeta,
 } from "../api";
 import { SyncSidePanel } from "./SyncSidePanel";
 import { DbToolboxSplitLayout } from "./DbToolboxSplitLayout";
 import { ModuleEmptyState } from "../../../components/ui/ModuleEmptyState";
 import {
   buildNewTableDiff,
-  sourceColumnsSignature,
+  sourceTableSchemaSignature,
   type SchemaTableDiff,
 } from "./schemaDiff";
 import { TableRowDiffPanel } from "./TableRowDiffPanel";
-import {
-  cancelDbBackgroundTask,
-  startDbDataSyncBackgroundTask,
-  startDbSchemaSyncBackgroundTask,
-  useDbSyncBackgroundTaskEvents,
-} from "./useDbSyncBackgroundTasks";
+import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import {
   connectionWithDatabase,
   resolveDataSyncConflictStatus,
@@ -92,6 +94,8 @@ export function DatabaseToolbox({
   const [targetTablesLoading, setTargetTablesLoading] = useState(false);
 
   const [sourceExpanded, setSourceExpanded] = useState<Set<string>>(() => new Set());
+  const [targetExpanded, setTargetExpanded] = useState<Set<string>>(() => new Set());
+  const [showMatchingTables, setShowMatchingTables] = useState(true);
   const [sourceSelected, setSourceSelected] = useState<Set<string>>(() => new Set());
   const [tableTargetStatus, setTableTargetStatus] = useState<Record<string, TableTargetStatus>>({});
   const [tableSyncStrategies, setTableSyncStrategies] = useState<Record<string, DataSyncStrategy>>({});
@@ -100,8 +104,6 @@ export function DatabaseToolbox({
   const [submitting, setSubmitting] = useState(false);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [largeTableWarn, setLargeTableWarn] = useState<{ names: string[]; rows: Record<string, number> } | null>(null);
-  const enqueueAction = useActionStore((s) => s.enqueueAction);
-  const completeAction = useActionStore((s) => s.completeAction);
   const analyzingRef = useRef(new Set<string>());
   /** 递增后使进行中的统计/比对任务全部失效 */
   const syncRunIdRef = useRef(0);
@@ -132,6 +134,8 @@ export function DatabaseToolbox({
   const taskLoadRef = useRef<{ config: SyncTaskConfig; runAfterLoad: boolean } | null>(null);
   const runAfterLoadRef = useRef(false);
   const taskLoadAppliedRef = useRef(false);
+  const prevSourceConnIdRef = useRef<string | null>(null);
+  const prevTargetConnIdRef = useRef<string | null>(null);
 
   const targetConfigured = Boolean(targetConnId && targetDb.trim());
 
@@ -150,8 +154,18 @@ export function DatabaseToolbox({
       return;
     }
     const defaultConn = pickDefaultConnId(initialSourceConnectionId);
-    setSourceConnId(defaultConn);
-    setTargetConnId(defaultConn);
+    setSourceConnId((prev) => {
+      if (prev && connections.some((c) => c.id === prev)) {
+        return prev;
+      }
+      return prev === defaultConn ? prev : defaultConn;
+    });
+    setTargetConnId((prev) => {
+      if (prev && connections.some((c) => c.id === prev)) {
+        return prev;
+      }
+      return prev === defaultConn ? prev : defaultConn;
+    });
   }, [active, initialSourceConnectionId, pickDefaultConnId, connections]);
 
   useEffect(() => {
@@ -209,13 +223,21 @@ export function DatabaseToolbox({
 
   useEffect(() => {
     if (!active) {
+      prevSourceConnIdRef.current = null;
       return;
     }
     if (!sourceConnId) {
-      setSourceDbs([]);
-      setSourceDb("");
+      if (prevSourceConnIdRef.current !== null) {
+        setSourceDbs([]);
+        setSourceDb("");
+        prevSourceConnIdRef.current = null;
+      }
       return;
     }
+    if (prevSourceConnIdRef.current === sourceConnId) {
+      return;
+    }
+    prevSourceConnIdRef.current = sourceConnId;
     setSourceDbs([]);
     setSourceDb("");
     void loadDatabases(sourceConnId, "source");
@@ -223,13 +245,21 @@ export function DatabaseToolbox({
 
   useEffect(() => {
     if (!active) {
+      prevTargetConnIdRef.current = null;
       return;
     }
     if (!targetConnId) {
-      setTargetDbs([]);
-      setTargetDb("");
+      if (prevTargetConnIdRef.current !== null) {
+        setTargetDbs([]);
+        setTargetDb("");
+        prevTargetConnIdRef.current = null;
+      }
       return;
     }
+    if (prevTargetConnIdRef.current === targetConnId) {
+      return;
+    }
+    prevTargetConnIdRef.current = targetConnId;
     setTargetDbs([]);
     setTargetDb("");
     void loadDatabases(targetConnId, "target");
@@ -288,6 +318,7 @@ export function DatabaseToolbox({
         const tables: SyncTableInfo[] = result.tables.map((tbl) => ({
           name: tbl.name,
           columns: tbl.columns,
+          indexes: tbl.indexes ?? [],
           rowCount: mode === "dataSync" ? null : 0,
         }));
 
@@ -475,7 +506,7 @@ export function DatabaseToolbox({
       setSchemaTableDiffs(() => {
         const next: Record<string, SchemaTableDiff> = {};
         for (const name of selected) {
-          next[name] = { tableName: name, status: "checking", columns: [] };
+          next[name] = { tableName: name, status: "checking", columns: [], indexes: [] };
         }
         return next;
       });
@@ -489,10 +520,16 @@ export function DatabaseToolbox({
       for (const name of selected) {
         if (!targetTableNames.has(name)) {
           const sourceTable = sourceSnapshot.tables.find((t) => t.name === name);
-          next[name] = buildNewTableDiff(name, sourceTable?.columns ?? []);
+          next[name] = buildNewTableDiff(
+            name,
+            sourceTable?.columns ?? [],
+            sourceTable?.indexes ?? [],
+          );
         } else {
           const sourceTable = sourceSnapshot.tables.find((t) => t.name === name);
-          const sourceKey = sourceTable ? sourceColumnsSignature(sourceTable.columns) : "";
+          const sourceKey = sourceTable
+            ? sourceTableSchemaSignature(sourceTable.columns, sourceTable.indexes)
+            : "";
           if (
             prev[name]?.targetKey === targetKey &&
             prev[name]?.sourceKey === sourceKey &&
@@ -500,7 +537,7 @@ export function DatabaseToolbox({
           ) {
             next[name] = prev[name];
           } else {
-            next[name] = { tableName: name, status: "checking", columns: [] };
+            next[name] = { tableName: name, status: "checking", columns: [], indexes: [] };
           }
         }
       }
@@ -520,6 +557,15 @@ export function DatabaseToolbox({
 
   const toggleSourceTable = useCallback((name: string) => {
     setSourceExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const toggleTargetTable = useCallback((name: string) => {
+    setTargetExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -565,6 +611,14 @@ export function DatabaseToolbox({
     const map: Record<string, DbColumnMeta[]> = {};
     for (const table of sourceSnapshot.tables) {
       map[table.name] = table.columns;
+    }
+    return map;
+  }, [sourceSnapshot.tables]);
+
+  const sourceTableIndexes = useMemo(() => {
+    const map: Record<string, DbIndexMeta[]> = {};
+    for (const table of sourceSnapshot.tables) {
+      map[table.name] = table.indexes;
     }
     return map;
   }, [sourceSnapshot.tables]);
@@ -620,6 +674,7 @@ export function DatabaseToolbox({
   useDbSyncBackgroundTaskEvents({
     active,
     sourceTableColumns,
+    sourceTableIndexes,
     targetKey: schemaTargetKey,
     onTargetRowCount: handleBgTargetRowCount,
     onTableAnalysis: handleBgTableAnalysis,
@@ -697,7 +752,7 @@ export function DatabaseToolbox({
         schemaFetchingRef.current.add(name);
         setSchemaTableDiffs((prev) => ({
           ...prev,
-          [name]: { tableName: name, status: "checking", columns: [] },
+          [name]: { tableName: name, status: "checking", columns: [], indexes: [] },
         }));
       }
 
@@ -707,6 +762,7 @@ export function DatabaseToolbox({
           targetDb,
           tableNames,
           sourceTableColumns,
+          sourceTableIndexes,
         );
         bgSchemaTaskIdRef.current = taskId;
       } catch (e) {
@@ -718,13 +774,14 @@ export function DatabaseToolbox({
               tableName: name,
               status: "error",
               columns: [],
+              indexes: [],
               error: typeof e === "string" ? e : String(e),
             },
           }));
         }
       }
     },
-    [connections, targetConnId, targetDb, sourceTableColumns],
+    [connections, targetConnId, targetDb, sourceTableColumns, sourceTableIndexes],
   );
 
   const handleViewConflictDetail = useCallback(
@@ -881,7 +938,9 @@ export function DatabaseToolbox({
     for (const name of selected) {
       if (schemaFetchingRef.current.has(name)) continue;
       const sourceTable = sourceSnapshot.tables.find((t) => t.name === name);
-      const sourceKey = sourceTable ? sourceColumnsSignature(sourceTable.columns) : "";
+      const sourceKey = sourceTable
+        ? sourceTableSchemaSignature(sourceTable.columns, sourceTable.indexes)
+        : "";
       const prev = schemaTableDiffsRef.current[name];
       if (
         prev?.targetKey === targetKey &&
@@ -966,6 +1025,8 @@ export function DatabaseToolbox({
     setSourceExpanded(new Set());
     setTableSyncStrategies({});
     taskLoadRef.current = { config, runAfterLoad };
+    prevSourceConnIdRef.current = null;
+    prevTargetConnIdRef.current = null;
     setSourceConnId(config.sourceConnId);
     setTargetConnId(config.targetConnId);
     setSourceDb("");
@@ -1101,52 +1162,39 @@ export function DatabaseToolbox({
     setSubmitNotice(null);
 
     const tableNames = Array.from(sourceSelected).sort((a, b) => a.localeCompare(b));
-    const title =
-      tab === "dataSync"
-        ? t("database.toolbox.submitDataTitle")
-        : t("database.toolbox.submitSchemaTitle");
 
-    const lines =
-      tab === "dataSync"
-        ? tableNames.map((name) => {
-            const status = tableTargetStatus[name];
-            const strategy = tableSyncStrategies[name];
-            if (status === "new") {
-              return `${name}: ${t("database.toolbox.side.tagNew")}`;
-            }
-            if (status === "conflict" && strategy) {
-              return `${name}: ${t("database.toolbox.side.tagConflict")} · ${strategy}`;
-            }
-            return name;
-          })
-        : tableNames.map((name) => {
-            const diff = schemaTableDiffs[name];
-            if (!diff) return name;
-            if (diff.status === "new") return `${name}: ${t("database.toolbox.side.schemaDiffNewTable")}`;
-            if (diff.status === "diff") {
-              return `${name}: ${diff.columns.length} ${t("database.toolbox.side.schemaDiffChanged")}`;
-            }
-            if (diff.status === "match") return `${name}: ${t("database.toolbox.side.schemaDiffMatch")}`;
-            return name;
-          });
-
-    const description = [
-      `${sourceConn.name}/${sourceDb} → ${targetConn.name}/${targetDb}`,
-      ...lines,
-    ].join("\n");
-
-    const action = enqueueAction({
-      type: "sql",
-      title,
-      description,
-      command: `-- ${title}\n${description}`,
-      resourceId: sourceConn.id,
-      source: "用户",
-    });
-
-    completeAction(action.id);
-    setSubmitNotice(t("database.toolbox.submitSuccess"));
-    setSubmitting(false);
+    try {
+      if (tab === "dataSync") {
+        await startDbDataSyncExecute(
+          sourceConn,
+          targetConn,
+          sourceDb,
+          targetDb,
+          tableNames.map((name) => ({
+            name,
+            columns: sourceTableColumns[name] ?? [],
+            strategy:
+              tableSyncStrategies[name] ??
+              (tableTargetStatus[name] === "new" ? "rewrite" : "rewrite"),
+          })),
+        );
+      } else {
+        await startDbSchemaSyncExecute(
+          sourceConn,
+          targetConn,
+          sourceDb,
+          targetDb,
+          tableNames,
+          sourceTableColumns,
+          sourceTableIndexes,
+        );
+      }
+      setSubmitNotice(t("database.toolbox.submitSuccess"));
+    } catch (error) {
+      setSubmitNotice(String(error));
+    } finally {
+      setSubmitting(false);
+    }
   }, [
     canSubmit,
     submitting,
@@ -1157,11 +1205,10 @@ export function DatabaseToolbox({
     targetDb,
     sourceSelected,
     tab,
-    tableTargetStatus,
+    sourceTableColumns,
+    sourceTableIndexes,
     tableSyncStrategies,
-    schemaTableDiffs,
-    enqueueAction,
-    completeAction,
+    tableTargetStatus,
     t,
   ]);
 
@@ -1174,16 +1221,22 @@ export function DatabaseToolbox({
   }, [canSubmit, submitting, handleSubmit]);
 
   const handleSourceConnectionChange = useCallback((connId: string) => {
+    if (connId === sourceConnId) {
+      return;
+    }
     setSourceConnId(connId);
     setSourceDb("");
     setSourceDbs([]);
-  }, []);
+  }, [sourceConnId]);
 
   const handleTargetConnectionChange = useCallback((connId: string) => {
+    if (connId === targetConnId) {
+      return;
+    }
     setTargetConnId(connId);
     setTargetDb("");
     setTargetDbs([]);
-  }, []);
+  }, [targetConnId]);
 
   if (connections.length === 0) {
     return (
@@ -1239,8 +1292,8 @@ export function DatabaseToolbox({
               databasesLoading={targetDbsLoading}
               snapshot={EMPTY_SNAPSHOT}
               tab={tab}
-              expandedTables={new Set()}
-              onToggleTable={() => {}}
+              expandedTables={targetExpanded}
+              onToggleTable={toggleTargetTable}
               selectedTables={new Set()}
               onToggleSelect={() => {}}
               onSelectAllTables={() => {}}
@@ -1254,6 +1307,10 @@ export function DatabaseToolbox({
               tableAnalysis={tableAnalysis}
               conflictDetailTable={conflictDetailTable}
               onViewConflictDetail={handleViewConflictDetail}
+              showMatchingTables={showMatchingTables}
+              onShowMatchingTablesChange={setShowMatchingTables}
+              sourceTableColumns={sourceTableColumns}
+              sourceTableIndexes={sourceTableIndexes}
             />
           }
         />
@@ -1288,7 +1345,7 @@ export function DatabaseToolbox({
             disabled={!canSubmit || submitting}
             onClick={() => void handleSubmit()}
           >
-            {tab === "dataSync" ? t("database.toolbox.submitData") : t("database.toolbox.submitSchema")}
+            {t("database.toolbox.submit")}
           </Button>
         </div>
       </footer>

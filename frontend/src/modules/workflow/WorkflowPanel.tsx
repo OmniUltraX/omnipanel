@@ -7,6 +7,7 @@ import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import type {
   Workflow,
   WorkflowDetail,
@@ -249,12 +250,13 @@ export function WorkflowPanel() {
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
-                  <input
+                  <TextInput
                     className="input input-search"
+                    copyable={false}
                     placeholder={t("workflow.ui.searchPlaceholder")}
                     style={{ width: 200 }}
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={setQuery}
                   />
                   <button
                     className="btn btn-primary btn-sm"
@@ -897,9 +899,9 @@ function WorkflowFormDialog({
           {/* Basic info */}
           <div className="knowledge-field">
             <label>{t("workflow.ui.form.name")} *</label>
-            <input
+            <TextInput
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={setName}
               placeholder={t("workflow.ui.form.namePlaceholder")}
               autoFocus
             />
@@ -907,9 +909,9 @@ function WorkflowFormDialog({
 
           <div className="knowledge-field">
             <label>{t("workflow.ui.form.description")}</label>
-            <input
+            <TextInput
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder={t("workflow.ui.form.descriptionPlaceholder")}
             />
           </div>
@@ -950,9 +952,9 @@ function WorkflowFormDialog({
           <div className="knowledge-field-row" style={{ display: "flex", gap: "var(--sp-3)" }}>
             <div className="knowledge-field" style={{ flex: 1 }}>
               <label>{t("workflow.ui.form.target")}</label>
-              <input
+              <TextInput
                 value={target}
-                onChange={(e) => setTarget(e.target.value)}
+                onChange={setTarget}
                 placeholder={t("workflow.ui.form.targetPlaceholder")}
               />
             </div>
@@ -1010,9 +1012,9 @@ function WorkflowFormDialog({
                   {index + 1}
                 </div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}>
-                  <input
+                  <TextInput
                     value={step.name}
-                    onChange={(e) => updateStep(index, "name", e.target.value)}
+                    onChange={(value) => updateStep(index, "name", value)}
                     placeholder={t("workflow.ui.form.stepName")}
                     style={{ fontSize: 12 }}
                   />
@@ -1030,9 +1032,9 @@ function WorkflowFormDialog({
                         { value: "workflow", label: "Workflow" },
                       ]}
                     />
-                    <input
+                    <TextInput
                       value={step.command}
-                      onChange={(e) => updateStep(index, "command", e.target.value)}
+                      onChange={(value) => updateStep(index, "command", value)}
                       placeholder={t("workflow.ui.form.stepCommand")}
                       style={{ fontSize: 11, flex: 1 }}
                     />

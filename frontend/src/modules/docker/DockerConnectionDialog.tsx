@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FormDialog } from "../../components/ui/FormDialog";
+import { PasswordInput } from "../../components/ui/PasswordInput";
 import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
@@ -414,11 +416,10 @@ export function DockerConnectionDialog({
     >
           <div className="form-field">
             <label className="form-label">连接名称</label>
-            <input
-              className="input"
+            <TextInput
               placeholder="例如：本地 Docker / 生产 K8s 节点 / 192.168.1.10"
               value={form.name}
-              onChange={(e) => update("name", e.target.value)}
+              onChange={(value) => update("name", value)}
               style={{ width: "100%" }}
             />
           </div>
@@ -458,21 +459,19 @@ export function DockerConnectionDialog({
               <div className="form-row">
                 <div className="form-field" style={{ flex: 2 }}>
                   <label className="form-label">Engine 地址</label>
-                  <input
-                    className="input"
+                  <TextInput
                     placeholder="docker.example.com"
                     value={form.remoteHost}
-                    onChange={(e) => update("remoteHost", e.target.value)}
+                    onChange={(value) => update("remoteHost", value)}
                     style={{ width: "100%" }}
                   />
                 </div>
                 <div className="form-field" style={{ flex: 1 }}>
                   <label className="form-label">端口</label>
-                  <input
-                    className="input"
+                  <TextInput
                     placeholder="2376"
                     value={form.remotePort}
-                    onChange={(e) => update("remotePort", e.target.value)}
+                    onChange={(value) => update("remotePort", value)}
                     style={{ width: "100%" }}
                   />
                 </div>
@@ -543,22 +542,20 @@ export function DockerConnectionDialog({
             <>
               <div className="form-field">
                 <label className="form-label">1Panel 面板地址</label>
-                <input
-                  className="input"
+                <TextInput
                   placeholder="http://192.168.1.2:9999"
                   value={form.panelBaseUrl}
-                  onChange={(e) => update("panelBaseUrl", e.target.value)}
+                  onChange={(value) => update("panelBaseUrl", value)}
                   style={{ width: "100%" }}
                 />
               </div>
               <div className="form-field">
                 <label className="form-label">API Key</label>
-                <input
-                  className="input"
-                  type="password"
+                <PasswordInput
+                  copyable
                   placeholder="1Panel 面板设置中的 API Key"
                   value={form.panelApiKey}
-                  onChange={(e) => update("panelApiKey", e.target.value)}
+                  onChange={(value) => update("panelApiKey", value)}
                   style={{ width: "100%" }}
                 />
               </div>
@@ -695,21 +692,19 @@ export function DockerConnectionDialog({
               <div className="form-row">
                 <div className="form-field" style={{ flex: 2 }}>
                   <label className="form-label">SSH 主机</label>
-                  <input
-                    className="input"
+                  <TextInput
                     placeholder="ssh.example.com"
                     value={form.sshHost}
-                    onChange={(e) => update("sshHost", e.target.value)}
+                    onChange={(value) => update("sshHost", value)}
                     style={{ width: "100%" }}
                   />
                 </div>
                 <div className="form-field" style={{ flex: 1 }}>
                   <label className="form-label">端口</label>
-                  <input
-                    className="input"
+                  <TextInput
                     placeholder="22"
                     value={form.sshPort}
-                    onChange={(e) => update("sshPort", e.target.value)}
+                    onChange={(value) => update("sshPort", value)}
                     style={{ width: "100%" }}
                   />
                 </div>
@@ -717,11 +712,10 @@ export function DockerConnectionDialog({
 
               <div className="form-field">
                 <label className="form-label">用户名</label>
-                <input
-                  className="input"
+                <TextInput
                   placeholder="root"
                   value={form.sshUser}
-                  onChange={(e) => update("sshUser", e.target.value)}
+                  onChange={(value) => update("sshUser", value)}
                   style={{ width: "100%" }}
                 />
               </div>
@@ -749,12 +743,11 @@ export function DockerConnectionDialog({
               {form.sshAuth === "password" ? (
                 <div className="form-field">
                   <label className="form-label">密码</label>
-                  <input
-                    className="input"
-                    type="password"
+                  <PasswordInput
+                    copyable
                     placeholder="••••••"
                     value={form.sshPassword}
-                    onChange={(e) => update("sshPassword", e.target.value)}
+                    onChange={(value) => update("sshPassword", value)}
                     style={{ width: "100%" }}
                   />
                 </div>
@@ -773,12 +766,10 @@ export function DockerConnectionDialog({
                   </div>
                   <div className="form-field">
                     <label className="form-label">私钥密码（可选）</label>
-                    <input
-                      className="input"
-                      type="password"
+                    <PasswordInput
                       placeholder="无"
                       value={form.sshPassphrase}
-                      onChange={(e) => update("sshPassphrase", e.target.value)}
+                      onChange={(value) => update("sshPassphrase", value)}
                       style={{ width: "100%" }}
                     />
                   </div>
@@ -810,11 +801,10 @@ export function DockerConnectionDialog({
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">分组</label>
-              <input
-                className="input"
+              <TextInput
                 placeholder="默认"
                 value={form.group}
-                onChange={(e) => update("group", e.target.value)}
+                onChange={(value) => update("group", value)}
                 style={{ width: "100%" }}
               />
             </div>
