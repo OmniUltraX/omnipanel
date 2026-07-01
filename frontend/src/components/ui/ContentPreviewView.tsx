@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeEditor, type CodeEditorLanguage } from "./CodeEditor";
 import { ModuleEmptyState } from "./ModuleEmptyState";
+import { VirtualJsonView } from "./VirtualJsonView";
 import { useI18n } from "../../i18n";
 import {
   isPreviewWebUrl,
@@ -209,19 +210,28 @@ export function ContentPreviewView({
         </div>
       ) : null}
       {content.kind === "json" ? (
-        <div className="content-preview-json">
-          <JsonView
-            value={content.value}
-            style={{
-              ...jsonTheme,
-              backgroundColor: "transparent",
-              fontSize: 12,
-              fontFamily: "var(--font-mono, ui-monospace, monospace)",
-            }}
-            displayObjectSize={false}
-            displayDataTypes={false}
-            shortenTextAfterLength={0}
-          />
+        <div
+          className={cn(
+            "content-preview-json",
+            content.virtual && "content-preview-json--virtual",
+          )}
+        >
+          {content.virtual ? (
+            <VirtualJsonView value={content.value} />
+          ) : (
+            <JsonView
+              value={content.value}
+              style={{
+                ...jsonTheme,
+                backgroundColor: "transparent",
+                fontSize: 12,
+                fontFamily: "var(--font-mono, ui-monospace, monospace)",
+              }}
+              displayObjectSize={false}
+              displayDataTypes={false}
+              shortenTextAfterLength={0}
+            />
+          )}
         </div>
       ) : content.kind === "image" ? (
         <div className="content-preview-image-wrap">

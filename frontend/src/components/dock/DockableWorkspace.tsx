@@ -596,17 +596,26 @@ export function DockableWorkspace({
     return () => observer.disconnect();
   }, [tabs.length]);
 
-  // windowControl：tab 与窗口按钮之间的 void 区域用于拖拽移动窗口
+  // windowControl：tab 与窗口按钮之间的 void 区域用于拖拽移动窗口（仅限本层 dock，不含嵌套 DockableWorkspace）
   useEffect(() => {
-    if (!windowControl) return;
     const root = wrapperRef.current;
     if (!root) return;
+
     const apply = () => {
       root.querySelectorAll<HTMLElement>(".dv-void-container").forEach((el) => {
-        el.setAttribute("data-tauri-drag-region", "");
-        el.classList.add("dock-window-void-drag");
+        const owner = el.closest(".dockable-workspace");
+        if (owner !== root) return;
+
+        if (windowControl) {
+          el.setAttribute("data-tauri-drag-region", "");
+          el.classList.add("dock-window-void-drag");
+        } else {
+          el.removeAttribute("data-tauri-drag-region");
+          el.classList.remove("dock-window-void-drag");
+        }
       });
     };
+
     apply();
     const observer = new MutationObserver(apply);
     observer.observe(root, { childList: true, subtree: true });

@@ -3012,9 +3012,10 @@ export const enUS: TranslationDict = {
         authorization: "Authorization",
       },
       authAuthorizationPlaceholder: "Bearer <token> or full Authorization value",
-      largeJsonHint:
-        "JSON response is about {size}, exceeding the tree preview limit ({limit}). Source view is used to keep the UI responsive.",
-      largeJsonTreeDisabled: "Response too large for tree JSON preview",
+      largeJsonSourceHint:
+        "JSON response is about {size}, exceeding the tree preview limit ({limit}). Use source view to inspect it.",
+      largeJsonTreeDisabled: "Response exceeds 4 MB; tree JSON preview is unavailable",
+      parsingJson: "Parsing JSON…",
       viewSource: "View source",
       formatJson: "Format JSON",
       formattingJson: "Formatting…",

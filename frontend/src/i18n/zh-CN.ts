@@ -2971,9 +2971,10 @@ export const zhCN = {
         authorization: "Authorization",
       },
       authAuthorizationPlaceholder: "Bearer <token> 或完整 Authorization 值",
-      largeJsonHint:
-        "JSON 响应约 {size}，超过树形预览上限（{limit}）。已改用源码视图，避免界面卡顿。",
-      largeJsonTreeDisabled: "响应过大，无法使用树形 JSON 预览",
+      largeJsonSourceHint:
+        "JSON 响应约 {size}，超过树形预览上限（{limit}）。请使用源码视图查看。",
+      largeJsonTreeDisabled: "响应超过 4MB，无法使用树形 JSON 预览",
+      parsingJson: "正在解析 JSON…",
       viewSource: "查看源码",
       formatJson: "格式化 JSON",
       formattingJson: "格式化中…",

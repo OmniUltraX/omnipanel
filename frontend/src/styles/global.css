@@ -3214,6 +3214,11 @@ a {
     flex-grow: 0;
 }
 
+/* 嵌套 dock（如 SQL/HTTP 结果会话 Tab）不参与窗口拖拽 */
+.dockable-workspace:not(.dock-window-control) .dv-void-container {
+    -webkit-app-region: no-drag;
+}
+
 /* Tab 栏前缀操作区（dockview dv-pre-actions-container） */
 .dockable-workspace .dv-pre-actions-container,
 .dockable-workspace .dock-prefix-actions {
@@ -15200,6 +15205,32 @@ a {
 
 .content-preview-json .w-json-view {
     background: transparent !important;
+}
+
+.content-preview-json--virtual {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* react-obj-view 向上查找 overflow:auto|scroll 的祖先作为虚拟滚动容器 */
+    overflow: auto;
+    padding: 0;
+}
+
+.content-preview-json--virtual .virtual-json-view {
+    display: block;
+}
+
+.content-preview-json--virtual .big-objview-container {
+    min-height: 100%;
+}
+
+.content-preview-json--virtual .big-objview-root {
+    min-height: 100%;
+    height: auto !important;
+    background: transparent !important;
+    padding: var(--sp-3) var(--sp-4);
+    box-sizing: border-box;
 }
 
 .content-preview-text {

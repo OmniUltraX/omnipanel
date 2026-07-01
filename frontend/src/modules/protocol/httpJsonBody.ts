@@ -12,6 +12,8 @@ export const MAX_HTTP_JSON_PREVIEW_BYTES = MAX_HTTP_JSON_TREE_BYTES;
 
 export type HttpResponseBodyPreview =
   | { kind: "json-tree"; value: object }
+  /** 512KB–4MB：异步解析后使用虚拟树预览 */
+  | { kind: "json-large"; body: string; sizeBytes: number }
   | { kind: "json-source"; body: string; sizeBytes: number }
   | { kind: "text"; text: string }
   | { kind: "text-truncated"; preview: string; totalBytes: number };
@@ -76,8 +78,11 @@ export function resolveHttpResponseBodyPreview(
   const trimmed = body.trim();
 
   if (tryJson && trimmed.length > 0) {
-    if (byteLength > MAX_HTTP_JSON_TREE_BYTES) {
+    if (byteLength > MAX_HTTP_JSON_FORMAT_BYTES) {
       return { kind: "json-source", body, sizeBytes: byteLength };
+    }
+    if (byteLength > MAX_HTTP_JSON_TREE_BYTES) {
+      return { kind: "json-large", body, sizeBytes: byteLength };
     }
     try {
       const parsed: unknown = JSON.parse(trimmed);
@@ -102,6 +107,9 @@ export function resolveHttpResponseBodyContent(body: string, contentType: string
   const preview = resolveHttpResponseBodyPreview(body, contentType);
   if (preview.kind === "json-tree") {
     return { kind: "json" as const, value: preview.value };
+  }
+  if (preview.kind === "json-large") {
+    return { kind: "text" as const, text: preview.body };
   }
   if (preview.kind === "json-source") {
     return { kind: "text" as const, text: preview.body };
