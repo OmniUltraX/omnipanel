@@ -43,7 +43,7 @@
         flex-direction: column;
     }
 
-    .ssh-host-sidebar .vsplit-sidebar-section__toolbar.host-list-actions {
+    .ssh-host-sidebar .schema-toolbar.host-list-actions {
         margin-left: 0;
     }
 
@@ -2253,7 +2253,7 @@
         resize: vertical;
     }
 
-    .ssh-host-sidebar .vsplit-sidebar-section__actions .vsplit-sidebar-section__toolbar {
+    .ssh-host-sidebar .vsplit-sidebar-section__actions .schema-toolbar--inline {
         display: flex;
         align-items: center;
         gap: 0;

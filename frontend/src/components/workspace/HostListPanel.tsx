@@ -458,7 +458,7 @@ export function HostListPanel({
 
   const toolbar = useMemo(
     () => (
-      <div className="vsplit-sidebar-section__toolbar host-list-actions">
+      <div className="schema-toolbar schema-toolbar--inline host-list-actions">
         <Button
           variant="icon"
           title={t("ssh.sidebar.syncConfig")}

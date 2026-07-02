@@ -10,6 +10,7 @@ use axum::{
 use omnipanel_ai::provider::AiProviderRegistry;
 use serde::Deserialize;
 use tokio::sync::Mutex;
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::router::GatewayRouter;
 
@@ -40,12 +41,18 @@ pub fn spawn_gateway(
         api_key: config.api_key.filter(|k| !k.trim().is_empty()),
     };
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/models", get(list_models))
         .route("/gateway/healthz", get(healthz))
         .route("/gateway/status", get(status))
         .route("/gateway/metrics", get(metrics))
+        .layer(cors)
         .with_state(ctx);
 
     let bind = config.bind_addr.clone();

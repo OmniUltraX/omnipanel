@@ -1,7 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import JsonView from "@uiw/react-json-view";
-import { darkTheme } from "@uiw/react-json-view/dark";
-import { lightTheme } from "@uiw/react-json-view/light";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeEditor, type CodeEditorLanguage } from "./CodeEditor";
@@ -16,7 +13,6 @@ import {
   type ContentPreviewTextMode,
 } from "../../lib/contentPreview";
 import { cn } from "../../lib/utils";
-import { useSettingsStore } from "../../stores/settingsStore";
 
 export type {
   ContentPreviewPayload,
@@ -133,7 +129,6 @@ export function ContentPreviewView({
   onTextChange,
 }: ContentPreviewViewProps) {
   const { t } = useI18n();
-  const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [internalTextMode, setInternalTextMode] = useState<ContentPreviewTextMode>(() =>
     resolveDefaultTextMode(codeLanguage, defaultTextMode),
   );
@@ -156,7 +151,6 @@ export function ContentPreviewView({
     }
   }, [textMode, webPreviewUrl, setTextMode]);
 
-  const jsonTheme = resolvedTheme === "dark" ? darkTheme : lightTheme;
   const showToolbar = showTextModeToolbar && status === "ready" && content?.kind === "text";
 
   const bodyClassName = cn(
@@ -210,28 +204,8 @@ export function ContentPreviewView({
         </div>
       ) : null}
       {content.kind === "json" ? (
-        <div
-          className={cn(
-            "content-preview-json",
-            content.virtual && "content-preview-json--virtual",
-          )}
-        >
-          {content.virtual ? (
-            <VirtualJsonView value={content.value} />
-          ) : (
-            <JsonView
-              value={content.value}
-              style={{
-                ...jsonTheme,
-                backgroundColor: "transparent",
-                fontSize: 12,
-                fontFamily: "var(--font-mono, ui-monospace, monospace)",
-              }}
-              displayObjectSize={false}
-              displayDataTypes={false}
-              shortenTextAfterLength={0}
-            />
-          )}
+        <div className="content-preview-json content-preview-json--virtual">
+          <VirtualJsonView value={content.value} />
         </div>
       ) : content.kind === "image" ? (
         <div className="content-preview-image-wrap">

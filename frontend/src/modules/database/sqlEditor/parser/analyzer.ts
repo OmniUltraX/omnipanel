@@ -244,6 +244,150 @@ function analyzeAstNode(ast: unknown): StatementAnalysis | null {
   return buildAnalysis(tables);
 }
 
+type SelectAst = {
+  type?: string;
+  from?: unknown;
+  with?: WithItemAst[];
+};
+
+type WithItemAst = {
+  name?: { value?: string };
+  stmt?: { ast?: SelectAst };
+};
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findMatchingOpenParen(sql: string, closeIndex: number): number {
+  let depth = 1;
+  for (let i = closeIndex - 1; i >= 0; i--) {
+    const ch = sql[i];
+    if (ch === ")") depth++;
+    else if (ch === "(") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function findMatchingCloseParen(sql: string, openIndex: number): number {
+  let depth = 1;
+  for (let i = openIndex + 1; i < sql.length; i++) {
+    const ch = sql[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function findSubqueryContentRangeContaining(
+  sql: string,
+  alias: string,
+  offset: number,
+): { start: number; end: number } | null {
+  const aliasRe = new RegExp(`\\)\\s*(?:AS\\s+)?${escapeRegex(alias)}\\b`, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = aliasRe.exec(sql))) {
+    const closeParen = match.index;
+    const openParen = findMatchingOpenParen(sql, closeParen);
+    if (openParen < 0) continue;
+    const start = openParen + 1;
+    const end = closeParen;
+    if (offset >= start && offset <= end) {
+      return { start, end };
+    }
+  }
+  return null;
+}
+
+function findCteBodyRangeContaining(
+  sql: string,
+  cteName: string,
+  offset: number,
+): { start: number; end: number } | null {
+  const cteRe = new RegExp(`\\b${escapeRegex(cteName)}\\s+AS\\s*\\(`, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = cteRe.exec(sql))) {
+    const openParen = match.index + match[0].length - 1;
+    const closeParen = findMatchingCloseParen(sql, openParen);
+    if (closeParen < 0) continue;
+    const start = openParen + 1;
+    const end = closeParen;
+    if (offset >= start && offset <= end) {
+      return { start, end };
+    }
+  }
+  return null;
+}
+
+/** 根据光标位置定位最内层 SELECT 作用域（嵌套子查询 / CTE）。 */
+function findScopedSelectAst(select: SelectAst, sql: string, offset: number): SelectAst {
+  const withItems = select.with;
+  if (withItems) {
+    for (const item of withItems) {
+      const alias = item.name?.value ? stripIdentifierQuotes(String(item.name.value)) : null;
+      const sub = item.stmt?.ast;
+      if (!alias || sub?.type !== "select") continue;
+      const range = findCteBodyRangeContaining(sql, alias, offset);
+      if (range) {
+        return findScopedSelectAst(sub, sql, offset);
+      }
+    }
+  }
+
+  const from = select.from;
+  if (!from) return select;
+  const items = Array.isArray(from) ? from : [from];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { expr?: { ast?: SelectAst }; as?: string | null };
+    const sub = row.expr?.ast;
+    const alias = row.as ? stripIdentifierQuotes(String(row.as)) : null;
+    if (sub?.type !== "select" || !alias) continue;
+    const range = findSubqueryContentRangeContaining(sql, alias, offset);
+    if (range) {
+      return findScopedSelectAst(sub, sql, offset);
+    }
+  }
+  return select;
+}
+
+/** 解析光标所在 SELECT 作用域内的表引用与别名（嵌套子查询优先）。 */
+export function analyzeStatementAtOffset(
+  sql: string,
+  offset: number,
+  dbType?: string | null,
+): StatementAnalysis | null {
+  const leading = sql.length - sql.trimStart().length;
+  const trimmed = sql.trim();
+  if (!trimmed) return null;
+
+  const adjustedOffset = Math.max(0, Math.min(offset - leading, trimmed.length));
+
+  const ast = safeParseStatement(trimmed, dbType);
+  if (!ast || typeof ast !== "object") {
+    return analyzeStatement(trimmed, dbType);
+  }
+
+  const root = (Array.isArray(ast) ? ast[0] : ast) as SelectAst;
+  if (root.type !== "select") {
+    return analyzeStatement(trimmed, dbType);
+  }
+
+  const scoped = findScopedSelectAst(root, trimmed, adjustedOffset);
+  const scopedAnalysis = analyzeAstNode(scoped);
+  if (scopedAnalysis && scopedAnalysis.tables.length > 0) {
+    return scopedAnalysis;
+  }
+
+  return analyzeStatement(trimmed, dbType);
+}
+
 /** 解析单条 SQL 语句，提取表引用与别名映射（AST 优先，正则兜底/合并）。 */
 export function analyzeStatement(sql: string, dbType?: string | null): StatementAnalysis | null {
   const trimmed = sql.trim();
@@ -307,4 +451,191 @@ export function qualifiersForTableRef(ref: TableRef): string[] {
     names.add(ref.alias);
   }
   return [...names];
+}
+
+export interface TableRefSpan {
+  schemaName?: string;
+  tableName: string;
+  from: number;
+  to: number;
+}
+
+function tableTokenSpan(token: string, tokenFrom: number): TableRefSpan | null {
+  const parsed = parseQualifiedTableToken(token);
+  if (!parsed) return null;
+
+  if (parsed.schemaName) {
+    const dot = token.lastIndexOf(".");
+    const tablePart = token.slice(dot + 1);
+    const innerTable = stripIdentifierQuotes(tablePart);
+    const tableFrom = tokenFrom + dot + 1;
+    const leadQuote = tablePart.startsWith("`") || tablePart.startsWith('"') ? 1 : 0;
+    return {
+      schemaName: parsed.schemaName,
+      tableName: parsed.tableName,
+      from: tableFrom + leadQuote,
+      to: tableFrom + leadQuote + innerTable.length,
+    };
+  }
+
+  const leadQuote = token.startsWith("`") || token.startsWith('"') ? 1 : 0;
+  const inner = stripIdentifierQuotes(token);
+  return {
+    tableName: parsed.tableName,
+    from: tokenFrom + leadQuote,
+    to: tokenFrom + leadQuote + inner.length,
+  };
+}
+
+function pushRegexSpan(spans: TableRefSpan[], token: string, tokenFrom: number): void {
+  const span = tableTokenSpan(token, tokenFrom);
+  if (!span) return;
+  spans.push(span);
+}
+
+function parseTableAliasChunkWithSpans(
+  chunk: string,
+  chunkStart: number,
+  spans: TableRefSpan[],
+): void {
+  const trimmed = chunk.trim();
+  if (!trimmed) return;
+  const trimOffset = chunk.indexOf(trimmed);
+  const chunkBase = chunkStart + trimOffset;
+  const withoutOn = trimmed.replace(/\s+\bON\b[\s\S]*$/i, "").trim();
+  const onOffset = trimmed.indexOf(withoutOn);
+  const base = chunkBase + onOffset;
+  const match = withoutOn.match(
+    /^((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)(?:\s+(?:AS\s+)?([`"]?[\w$]+[`"]?))?$/i,
+  );
+  if (!match) return;
+  const token = match[1];
+  const tokenStart = base + withoutOn.indexOf(token);
+  pushRegexSpan(spans, token, tokenStart);
+}
+
+function extractTableRefSpansFromRegex(sql: string, baseOffset: number): TableRefSpan[] {
+  const spans: TableRefSpan[] = [];
+
+  const fromMatch = sql.match(/\bFROM\b([\s\S]*)/i);
+  if (fromMatch?.index !== undefined) {
+    let segment = fromMatch[1];
+    const stop = segment.search(
+      /\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|UNION|EXCEPT|INTERSECT)\b/i,
+    );
+    if (stop >= 0) {
+      segment = segment.slice(0, stop);
+    }
+    const segmentStart = fromMatch.index + fromMatch[0].indexOf(segment);
+    const joinParts = segment.split(/\b(?:,(?![^()]*\)))|\b(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)?\s*JOIN\b/i);
+    let searchFrom = 0;
+    for (const part of joinParts) {
+      const partIndex = segment.indexOf(part, searchFrom);
+      if (partIndex < 0) continue;
+      parseTableAliasChunkWithSpans(part, segmentStart + partIndex, spans);
+      searchFrom = partIndex + part.length;
+    }
+  }
+
+  const updateRe =
+    /\bUPDATE\s+((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)(?:\s+(?:AS\s+)?([`"]?[\w$]+[`"]?))?(?=\s+SET\b)/gi;
+  for (const match of sql.matchAll(updateRe)) {
+    const token = match[1];
+    const tokenStart = match.index! + match[0].indexOf(token);
+    pushRegexSpan(spans, token, tokenStart);
+  }
+
+  const deleteRe =
+    /\bDELETE\s+FROM\s+((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)(?:\s+(?:AS\s+)?([`"]?[\w$]+[`"]?))?/gi;
+  for (const match of sql.matchAll(deleteRe)) {
+    const token = match[1];
+    const tokenStart = match.index! + match[0].indexOf(token);
+    pushRegexSpan(spans, token, tokenStart);
+  }
+
+  const insertRe = /\bINSERT\s+INTO\s+((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)/gi;
+  for (const match of sql.matchAll(insertRe)) {
+    const token = match[1];
+    const tokenStart = match.index! + match[0].indexOf(token);
+    pushRegexSpan(spans, token, tokenStart);
+  }
+
+  return spans.map((span) => ({
+    ...span,
+    from: span.from + baseOffset,
+    to: span.to + baseOffset,
+  }));
+}
+
+function dedupeTableRefSpans(spans: TableRefSpan[]): TableRefSpan[] {
+  const byRange = new Map<string, TableRefSpan>();
+  for (const span of spans) {
+    byRange.set(`${span.from}:${span.to}`, span);
+  }
+  return [...byRange.values()];
+}
+
+/** 提取语句中表引用的文档范围（用于 Lint 波浪线）。 */
+export function extractTableRefSpans(
+  sql: string,
+  baseOffset = 0,
+  dbType?: string | null,
+): TableRefSpan[] {
+  const trimmed = sql.trim();
+  if (!trimmed) return [];
+  const leading = sql.indexOf(trimmed);
+  const adjustedBase = baseOffset + leading;
+
+  const spans = extractTableRefSpansFromRegex(trimmed, adjustedBase);
+  const analysis = analyzeStatement(trimmed, dbType);
+  if (!analysis || analysis.tables.length === 0) {
+    return dedupeTableRefSpans(spans);
+  }
+
+  const allowed = new Set(analysis.tables.map((ref) => refKey(ref)));
+  return dedupeTableRefSpans(
+    spans.filter((span) => {
+      const ref: TableRef = { schemaName: span.schemaName, tableName: span.tableName };
+      return allowed.has(refKey(ref));
+    }),
+  );
+}
+
+function formatMissingTableName(ref: TableRef): string {
+  return ref.schemaName ? `${ref.schemaName}.${ref.tableName}` : ref.tableName;
+}
+
+/** 判断悬停标识符是否为不存在的表引用，返回展示名。 */
+export function resolveMissingTableHover(
+  catalog: Catalog,
+  analysis: StatementAnalysis | null,
+  word: string,
+  qualifier: string | null,
+): string | null {
+  if (!catalog.hasTables()) return null;
+
+  if (qualifier) {
+    if (catalog.isDatabaseName(qualifier) && !catalog.findTable(word, qualifier)) {
+      return `${qualifier}.${word}`;
+    }
+    return null;
+  }
+
+  if (!analysis) return null;
+
+  const aliasRef = analysis.aliasMap.get(word.toLowerCase());
+  if (aliasRef && !catalog.findTable(aliasRef.tableName, aliasRef.schemaName)) {
+    return formatMissingTableName(aliasRef);
+  }
+
+  const tableRef = analysis.tables.find(
+    (ref) =>
+      ref.tableName.toLowerCase() === word.toLowerCase() &&
+      (!ref.alias || ref.alias.toLowerCase() === word.toLowerCase()),
+  );
+  if (tableRef && !catalog.findTable(tableRef.tableName, tableRef.schemaName)) {
+    return formatMissingTableName(tableRef);
+  }
+
+  return null;
 }

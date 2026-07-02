@@ -11,11 +11,14 @@ function tableFromSchema(table: TableSchema): Table {
   return {
     name: table.name,
     kind: table.kind,
+    comment: table.comment,
     columns: table.columns.map((col) => ({
       name: col.name,
       type: col.type,
       isPK: col.isPK,
       isFK: col.isFK,
+      nullable: col.nullable,
+      comment: col.comment,
     })),
   };
 }
@@ -32,6 +35,8 @@ export class Catalog {
     return new Catalog(
       schemas.map((db) => ({
         name: db.name,
+        connectionName: db.connectionName,
+        dbType: db.dbType,
         tables: db.tables.map(tableFromSchema),
       })),
     );
@@ -40,14 +45,19 @@ export class Catalog {
   toSchemas(): DatabaseSchema[] {
     return this.databases.map((db) => ({
       name: db.name,
+      connectionName: db.connectionName,
+      dbType: db.dbType,
       tables: db.tables.map((table) => ({
         name: table.name,
         kind: table.kind,
+        comment: table.comment,
         columns: table.columns.map((col) => ({
           name: col.name,
           type: col.type,
           isPK: col.isPK,
           isFK: col.isFK,
+          nullable: col.nullable,
+          comment: col.comment,
         })),
       })),
     }));

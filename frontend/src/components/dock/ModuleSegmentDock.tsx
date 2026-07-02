@@ -6,6 +6,7 @@ import {
   type DockableTab,
 } from "./DockableWorkspace";
 import type { DockPanelRefreshProps } from "./dockPanelRefresh";
+import type { DockTabPageType } from "./dockableTab";
 import type { DockTabIconKind } from "./DockTabIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { ModuleDockTitle } from "./ModuleDockTitle";
@@ -20,6 +21,11 @@ export interface ModuleSegmentTab {
   panelType?: string;
   /** 保留 panel，仅隐藏 Tab 栏标签 */
   tabBarHidden?: boolean;
+  type?: DockTabPageType;
+  dirty?: boolean;
+  saved?: boolean;
+  /** Schema 预览 Tab：标题斜体 */
+  preview?: boolean;
 }
 
 export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
@@ -105,6 +111,10 @@ export function ModuleSegmentDock({
         tooltip: tab.tooltip ?? tab.label,
         status: tab.status,
         tabBarHidden: tab.tabBarHidden,
+        type: tab.type,
+        dirty: tab.dirty,
+        saved: tab.saved,
+        preview: tab.preview,
       })),
     [tabs],
   );

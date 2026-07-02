@@ -244,7 +244,14 @@ impl McpManager {
             LocalSessionManager::default().into(),
             StreamableHttpServerConfig::default(),
         );
-        let router = axum::Router::new().nest_service("/mcp", service);
+        let router = axum::Router::new()
+            .nest_service("/mcp", service)
+            .layer(
+                tower_http::cors::CorsLayer::new()
+                    .allow_origin(tower_http::cors::Any)
+                    .allow_methods(tower_http::cors::Any)
+                    .allow_headers(tower_http::cors::Any),
+            );
 
         let task = tokio::spawn(async move {
             let serve = axum::serve(listener, router);

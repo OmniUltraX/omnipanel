@@ -1,7 +1,10 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { EditorView } from "@codemirror/view";
-import { findStatementRangeAtOffset } from "../../sqlIntel/sqlLex";
+import { splitSqlStatements } from "../../sqlIntel/sqlLex";
+import type { DatabaseSchema } from "../../types";
+import { Catalog } from "../catalog";
 import { formatParseError } from "../parser/ast";
+import { extractTableRefSpans } from "../parser/analyzer";
 
 const KEYWORD_TYPO_SUGGESTIONS: Record<string, string> = {
   FORM: "FROM",
@@ -36,25 +39,66 @@ function scanKeywordTypos(text: string, baseOffset: number): Diagnostic[] {
   return diagnostics;
 }
 
-/** SQL 语法 Lint：Parser 错误 + 常见关键字拼写。 */
-export function createSqlLinter(getDbType?: () => string | undefined) {
+function scanMissingTables(
+  catalog: Catalog,
+  statement: string,
+  baseOffset: number,
+  dbType?: string,
+): Diagnostic[] {
+  if (!catalog.hasTables()) return [];
+
+  const diagnostics: Diagnostic[] = [];
+  const seen = new Set<string>();
+  for (const span of extractTableRefSpans(statement, baseOffset, dbType)) {
+    const rangeKey = `${span.from}:${span.to}`;
+    if (seen.has(rangeKey)) continue;
+    seen.add(rangeKey);
+    if (catalog.findTable(span.tableName, span.schemaName)) continue;
+    const display = span.schemaName ? `${span.schemaName}.${span.tableName}` : span.tableName;
+    diagnostics.push({
+      from: span.from,
+      to: span.to,
+      severity: "error",
+      message: `表「${display}」不存在`,
+    });
+  }
+  return diagnostics;
+}
+
+/** SQL 语法 Lint：Parser 错误 + 常见关键字拼写 + 表存在性。 */
+export function createSqlLinter(
+  getDbType?: () => string | undefined,
+  getSchemas?: () => DatabaseSchema[],
+) {
   return linter((view: EditorView) => {
     const doc = view.state.doc.toString();
-    const head = view.state.selection.main.head;
-    const { from, to } = findStatementRangeAtOffset(doc, head);
-    const statement = doc.slice(from, to).trim();
-    if (!statement) return [];
+    const dbType = getDbType?.();
+    const catalog = Catalog.fromSchemas(getSchemas?.() ?? []);
 
-    const diagnostics: Diagnostic[] = scanKeywordTypos(statement, from);
-    const parseError = formatParseError(statement, getDbType?.());
-    if (parseError) {
-      diagnostics.push({
-        from,
-        to: Math.min(from + statement.length, doc.length),
-        severity: "warning",
-        message: parseError,
-      });
+    const diagnostics: Diagnostic[] = [];
+    const statements = splitSqlStatements(doc);
+    const parts = statements.length > 0 ? statements : [{ sql: doc.trim(), from: 0, to: doc.length, hadTrailingSemicolon: false }];
+
+    for (const part of parts) {
+      const statement = doc.slice(part.from, part.to).trim();
+      if (!statement) continue;
+      const leading = doc.slice(part.from, part.to).indexOf(statement);
+      const baseOffset = part.from + Math.max(leading, 0);
+
+      diagnostics.push(...scanKeywordTypos(statement, baseOffset));
+      diagnostics.push(...scanMissingTables(catalog, statement, baseOffset, dbType));
+
+      const parseError = formatParseError(statement, dbType);
+      if (parseError) {
+        diagnostics.push({
+          from: baseOffset,
+          to: Math.min(baseOffset + statement.length, doc.length),
+          severity: "warning",
+          message: parseError,
+        });
+      }
     }
+
     return diagnostics;
   });
 }

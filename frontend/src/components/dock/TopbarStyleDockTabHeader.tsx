@@ -4,6 +4,7 @@ import type { TopbarTabDef } from "../../stores/topbarStore";
 import { DockTabChrome } from "./DockTabChrome";
 import type { DockTabPageType } from "./dockableTab";
 import { useDockTabLiveMeta } from "./dockTabLiveMeta";
+import { useDockTabHeaderRuntime } from "./dockTabHeaderRuntime";
 import { useDockTabBarHidden } from "./useDockTabBarHidden";
 
 interface PanelParams {
@@ -14,6 +15,7 @@ interface PanelParams {
   type?: DockTabPageType;
   dirty?: boolean;
   saved?: boolean;
+  preview?: boolean;
 }
 
 interface TopbarStyleDockTabHeaderProps
@@ -50,6 +52,20 @@ export function TopbarStyleDockTabHeader({
     pageType === "file"
       ? !dirty && Boolean(liveMeta.saved ?? props.params?.saved)
       : undefined;
+  const preview =
+    liveMeta.rev > 0
+      ? Boolean(liveMeta.preview)
+      : Boolean(props.params?.preview);
+  const runtime = useDockTabHeaderRuntime();
+
+  const handleDoubleClick = (event: ReactMouseEvent) => {
+    if (!preview) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    runtime?.onTabDoubleClickRef.current?.(tabId);
+  };
 
   const statusMark = dirty ? (
     <span className="dock-tab-dirty" aria-label="未保存" />
@@ -63,14 +79,21 @@ export function TopbarStyleDockTabHeader({
       {...props}
       closable={closable}
       tooltip={tooltip}
+      isPreview={preview}
       tabId={tabId}
       onContextMenu={onContextMenu}
       onPointerUp={onPointerUp}
+      onDoubleClick={handleDoubleClick}
     >
       {status ? (
         <span className={`topbar-tab-dot ${tabStatusClass(status)}`} />
       ) : null}
-      <span className="dock-tab-label">{label}</span>
+      <span
+        className={`dock-tab-label${preview ? " dock-tab-label--preview" : ""}`}
+        style={preview ? { fontStyle: "italic" } : { fontStyle: "normal" }}
+      >
+        {label}
+      </span>
       {statusMark}
     </DockTabChrome>
     </div>

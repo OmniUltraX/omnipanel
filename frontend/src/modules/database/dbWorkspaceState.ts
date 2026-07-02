@@ -111,8 +111,14 @@ export function estimateSqlResultTotalRows(
 
 /** 未提交的新建行在 tabDirtyRows 中的 key 前缀 */
 export const NEW_ROW_KEY_PREFIX = "__new__:";
+/** 待删除行在 tabDirtyRows 中的 key 前缀（后缀为 resolvePreviewRowKey 生成的行键） */
+export const DELETED_ROW_KEY_PREFIX = "__delete__:";
 /** 预览网格行对象上标记 pending insert 的内部字段（非表列） */
 export const PENDING_INSERT_ROW_KEY = "__pendingRowKey";
+
+export function isDeletedRowDirtyKey(key: string): boolean {
+  return key.startsWith(DELETED_ROW_KEY_PREFIX);
+}
 
 export function resolvePreviewRowKey(
   row: Record<string, unknown>,

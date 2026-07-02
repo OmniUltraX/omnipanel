@@ -123,7 +123,7 @@ export function DockerSidebar({
   ];
 
   const toolbar = (
-    <>
+    <div className="schema-toolbar schema-toolbar--inline">
       {onScan && (
         <Button
           type="button"
@@ -150,7 +150,7 @@ export function DockerSidebar({
           <path d="M12 5v14M5 12h14" />
         </svg>
       </Button>
-    </>
+    </div>
   );
 
   const panelBody = (

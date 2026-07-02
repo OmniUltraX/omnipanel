@@ -86,7 +86,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     EditorView.lineWrapping,
     getSearchHighlightExtension(),
     createFunctionSignaturePlugin(getDbType),
-    createSqlLinter(getDbType),
+    createSqlLinter(getDbType, getSchemas),
     createSqlHoverTooltip(getSchemas, getDbType),
     autocompletion({
       activateOnTyping: true,

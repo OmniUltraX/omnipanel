@@ -1,6 +1,9 @@
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting, type Extension } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
+import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { sql } from "@codemirror/lang-sql";
+import { resolveSqlDialect } from "./sqlIntel/sqlDialect";
 import {
   DEFAULT_SQL_EDITOR_FONT_FAMILY,
   DEFAULT_SQL_EDITOR_FONT_SIZE,
@@ -216,18 +219,6 @@ function createDarkTheme(typography: SqlEditorTypography) {
       ".cm-activeLine": { backgroundColor: "#302c2c40" },
       ".cm-activeLineGutter": { color: "#c8c6c4" },
       ".cm-editor": { position: "relative" },
-      ".cm-sql-hover-tooltip": {
-        padding: "6px 10px",
-        fontSize: "12px",
-        lineHeight: "1.45",
-        whiteSpace: "pre-wrap",
-        maxWidth: "360px",
-        color: "var(--text-primary)",
-        backgroundColor: "var(--surface-elevated)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "6px",
-        boxShadow: "var(--shadow-md)",
-      },
       ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 12px", minWidth: "2.5em" },
       ".cm-gutter-lint": {
         minWidth: "2.2em",
@@ -353,18 +344,6 @@ function createLightTheme(typography: SqlEditorTypography) {
       ".cm-activeLine": { backgroundColor: "#ffffff60" },
       ".cm-activeLineGutter": { color: "#424245" },
       ".cm-editor": { position: "relative" },
-      ".cm-sql-hover-tooltip": {
-        padding: "6px 10px",
-        fontSize: "12px",
-        lineHeight: "1.45",
-        whiteSpace: "pre-wrap",
-        maxWidth: "360px",
-        color: "var(--text-primary)",
-        backgroundColor: "var(--surface-elevated)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "6px",
-        boxShadow: "var(--shadow-md)",
-      },
       ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 12px", minWidth: "2.5em" },
       ".cm-gutter-lint": {
         minWidth: "2.2em",
@@ -458,6 +437,53 @@ export function getSqlEditorThemeExtensions(
   return [
     isLight ? createLightTheme(typography) : createDarkTheme(typography),
     syntaxHighlighting(isLight ? lightHighlight : darkHighlight),
+  ];
+}
+
+/** Hover 浮层等只读 SQL 片段：与主编辑器同色高亮，透明底、无行号。 */
+export function getSqlSnippetHighlightExtensions(dbType?: string | null): Extension[] {
+  const isLight = isLightTheme();
+  const profile = resolveSqlDialect(dbType);
+  return [
+    sql({ dialect: profile.cmDialect, upperCaseKeywords: true }),
+    EditorState.readOnly.of(true),
+    EditorView.lineWrapping,
+    syntaxHighlighting(isLight ? lightHighlight : darkHighlight),
+    EditorView.contentAttributes.of({ class: "db-sql-hover-cm-content" }),
+    EditorView.theme(
+      {
+        "&": {
+          backgroundColor: "transparent",
+          color: "inherit",
+        },
+        ".cm-editor": {
+          outline: "none",
+          cursor: "text",
+        },
+        ".cm-scroller": {
+          overflow: "auto",
+          fontFamily: "var(--font-mono)",
+          fontSize: "11px",
+          lineHeight: "1.5",
+          cursor: "text",
+        },
+        ".cm-content": {
+          padding: "8px 10px",
+          caretColor: "transparent",
+          cursor: "text",
+        },
+        ".cm-line": {
+          cursor: "text",
+        },
+        ".cm-gutters": { display: "none !important" },
+        ".cm-activeLine": { backgroundColor: "transparent !important" },
+        ".cm-cursor, .cm-dropCursor": { display: "none !important" },
+        ".cm-selectionBackground": {
+          backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent) !important",
+        },
+      },
+      { dark: !isLight },
+    ),
   ];
 }
 

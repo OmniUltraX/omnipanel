@@ -38,6 +38,8 @@ fn export_ipc_bindings() {
         commands::terminal::close_terminal,
         commands::terminal::terminal_snapshot,
         commands::database::db_list_connections,
+        commands::navicat::decrypt_navicat_password,
+        commands::navicat::decrypt_navicat_passwords,
         commands::database::db_save_connection,
         commands::database::db_delete_connection,
         commands::database::db_load_schema_filters,
@@ -314,6 +316,7 @@ fn export_ipc_bindings() {
         commands::ai_chat::ai_list_sessions,
         commands::ai_chat::ai_list_session_traces,
         commands::ai_chat::ai_gateway_configure,
+        commands::ai_chat::ai_services_probe,
         
     ]);
 
@@ -476,6 +479,7 @@ pub fn run() {
             commands::ai_chat::ai_list_sessions,
             commands::ai_chat::ai_list_session_traces,
             commands::ai_chat::ai_gateway_configure,
+            commands::ai_chat::ai_services_probe,
             // ACP agent
             commands::acp::acp_connect,
             commands::acp::acp_connect_default,
@@ -549,6 +553,8 @@ pub fn run() {
             commands::terminal::terminal_snapshot,
             // Database
             commands::database::db_list_connections,
+        commands::navicat::decrypt_navicat_password,
+        commands::navicat::decrypt_navicat_passwords,
             commands::database::db_save_connection,
             commands::database::db_delete_connection,
             commands::database::db_load_schema_filters,

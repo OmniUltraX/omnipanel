@@ -191,6 +191,7 @@ export function TableDesignerDockPane({
     <TableDesignerPanel
       driver={driver}
       dbName={dbName}
+      baseline={baseline}
       model={model}
       onModelChange={(next) => {
         setModel(next);

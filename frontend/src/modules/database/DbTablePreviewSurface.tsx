@@ -14,6 +14,8 @@ import { useI18n } from "../../i18n";
 import {
   NEW_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
+  DELETED_ROW_KEY_PREFIX,
+  isDeletedRowDirtyKey,
   resolvePreviewRowKey,
   type SortState,
 } from "./dbWorkspaceState";
@@ -51,7 +53,22 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     connectionHasTableSchemaChildren(previewConnection)
   );
 
-  const canExport = Boolean(preview?.data && previewConnection);
+  const canDeleteRow = !!(
+    canInsertRow &&
+    previewConnection.db_type !== "redis"
+  );
+
+  const pkCols = useMemo(() => colMeta?.filter((col) => col.isPk) ?? [], [colMeta]);
+
+  const deletedRowKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const key of Object.keys(tabDirtyRowsForTab)) {
+      if (isDeletedRowDirtyKey(key)) {
+        keys.add(key.slice(DELETED_ROW_KEY_PREFIX.length));
+      }
+    }
+    return keys;
+  }, [tabDirtyRowsForTab]);
 
   const previewDisplayRows = useMemo(() => {
     if (!preview?.data || !colMeta) return preview?.data?.rows ?? [];
@@ -65,8 +82,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         }
         return row;
       });
-    return [...preview.data.rows, ...pendingRows];
-  }, [preview?.data, colMeta, tabDirtyRowsForTab]);
+    const existingRows = preview.data.rows.filter((row) => {
+      const rowKey = resolvePreviewRowKey(row, pkCols);
+      return !deletedRowKeys.has(rowKey);
+    });
+    return [...existingRows, ...pendingRows];
+  }, [preview?.data, colMeta, tabDirtyRowsForTab, pkCols, deletedRowKeys]);
 
   const previewColumns = useMemo(() => {
     const fromData = preview?.data?.columns ?? [];
@@ -82,7 +103,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   );
   const previewCellOverrides = tabDirtyRowsForTab;
 
-  const pkCols = useMemo(() => colMeta?.filter((col) => col.isPk) ?? [], [colMeta]);
+  const canExport = Boolean(preview?.data && previewConnection);
 
   const activeCellKey = useMemo(() => {
     if (!activeCell) return null;
@@ -144,6 +165,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       ws.handleRowPaste(tab.id, payload);
     },
     [ws.handleRowPaste, tab.id],
+  );
+  const handlePreviewRowsDelete = useCallback(
+    (rows: Array<{ rowIndex: number; row: Record<string, unknown> }>) => {
+      ws.handleRowsDelete(tab.id, rows);
+    },
+    [ws.handleRowsDelete, tab.id],
   );
   const handlePreviewPageChange = useCallback(
     (page: number) => {
@@ -317,6 +344,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onRowEdit={handlePreviewRowEdit}
       onCellSetNull={handlePreviewCellSetNull}
       onRowPaste={canInsertRow ? handlePreviewRowPaste : undefined}
+      onDeleteSelectedRows={canDeleteRow ? handlePreviewRowsDelete : undefined}
       dirtyRowKeys={previewDirtyRowKeys}
       cellOverrides={previewCellOverrides}
       onPageChange={handlePreviewPageChange}

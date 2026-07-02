@@ -65,19 +65,6 @@
         gap: 0;
     }
 
-    .vsplit-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-    .vsplit-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-    .vsplit-sidebar-section__actions .schema-toolbar--inline button,
-    .schema-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-    .schema-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-    .schema-sidebar-section__actions .schema-toolbar--inline button {
-        width: 24px;
-        height: 24px;
-        min-width: 24px;
-        min-height: 24px;
-        padding: 0;
-    }
-
     .schema-header h3 {
         font-size: 13px;
         font-weight: 600;
@@ -4076,9 +4063,51 @@
         flex-shrink: 0;
     }
 
-    .db-pagination-toolbar:not(:empty)+.db-pagination-info {
+    .db-pagination-toolbar:not(:empty)+.db-pagination-info,
+    .db-delete-selected-rows-wrap+.db-pagination-toolbar,
+    .db-delete-selected-rows-wrap+.db-pagination-info {
         padding-left: var(--sp-3);
         border-left: 1px solid var(--border);
+    }
+
+    .db-delete-selected-rows-wrap {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .db-delete-selected-rows {
+        color: var(--meta);
+    }
+
+    .db-delete-selected-rows:disabled {
+        opacity: 0.55;
+    }
+
+    .db-delete-selected-rows:not(:disabled) {
+        color: var(--danger);
+    }
+
+    .db-delete-selected-rows:not(:disabled):hover {
+        color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 12%, transparent);
+    }
+
+    .db-delete-selected-rows-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 3px;
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 600;
+        line-height: 14px;
+        text-align: center;
+        background: var(--danger);
+        color: #fff;
+        box-shadow: 0 0 0 1px var(--bg);
+        pointer-events: none;
     }
 
     .db-pagination-info {
@@ -4179,15 +4208,15 @@
         overflow-y: auto;
     }
 
-    .db-col-visibility-sidebar-item-type {
-        flex-shrink: 0;
-        max-width: 72px;
+    .db-col-visibility-sidebar-item-comment {
+        flex: 0 1 42%;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: 10px;
         color: var(--meta);
-        font-family: var(--font-mono, ui-monospace, monospace);
+        text-align: right;
     }
 
     .db-data-table-col-sidebar .db-col-visibility-popover-item {
@@ -4638,16 +4667,10 @@
         flex-shrink: 0;
     }
 
-    .db-table-designer-comment {
+    .db-table-designer-comment-wrap {
         flex: 1;
-        min-width: 120px;
-        max-width: 360px;
-        padding: 6px 10px;
-        font-size: 12px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--r-sm);
-        color: var(--fg);
+        min-width: 160px;
+        max-width: 380px;
     }
 
     .db-table-designer-toolbar-actions {
@@ -4704,20 +4727,43 @@
         opacity: 1;
     }
 
-    .db-table-designer-split,
-    .db-table-designer-main-split {
+    .db-table-designer-split {
         flex: 1;
         min-height: 0;
     }
 
     .db-table-designer-main-pane,
-    .db-table-designer-fields-pane,
-    .db-table-designer-indexes-pane,
     .db-table-designer-sql-pane {
         min-height: 0;
         display: flex;
         flex-direction: column;
         overflow: hidden;
+    }
+
+    .db-table-designer-tabs {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        flex-shrink: 0;
+        padding: 0 var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-deeper);
+    }
+
+    .db-table-designer-tabs-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .db-table-designer-tab-panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: var(--sp-3);
     }
 
     .db-table-designer-section {
@@ -4754,6 +4800,9 @@
         flex: 1;
         min-height: 0;
         overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg);
     }
 
     .db-table-designer-grid {
@@ -4764,36 +4813,153 @@
 
     .db-table-designer-grid th,
     .db-table-designer-grid td {
-        padding: 6px 8px;
         border-bottom: 1px solid var(--border-soft);
         vertical-align: middle;
-        white-space: nowrap;
+    }
+
+    .db-table-designer-grid tbody td {
+        padding: 5px 8px;
+    }
+
+    .db-table-designer-grid tbody td.db-table-designer-cell-drag {
+        padding: 5px 4px 5px 8px;
+        width: 32px;
+    }
+
+    .db-table-designer-grid tbody td.db-table-designer-cell-center {
+        padding: 5px 8px;
+        width: 52px;
+        text-align: center;
+    }
+
+    .db-table-designer-grid tbody td.db-table-designer-cell-actions {
+        padding: 5px 8px;
+        width: 40px;
+        text-align: center;
+    }
+
+    .db-table-designer-grid tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .db-table-designer-grid tbody tr:hover {
+        background: color-mix(in srgb, var(--surface) 55%, transparent);
     }
 
     .db-table-designer-grid th {
+        padding: 9px 10px;
         position: sticky;
         top: 0;
-        z-index: 1;
-        background: var(--bg);
+        z-index: 2;
+        background: var(--surface);
         font-weight: 600;
-        color: var(--meta);
+        font-size: 11px;
+        color: var(--muted);
         text-align: left;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
     }
 
-    .db-table-designer-grid input,
-    .db-table-designer-grid select {
+    .db-table-designer-grid th.db-table-designer-cell-drag {
+        width: 32px;
+        padding-left: 8px;
+    }
+
+    .db-table-designer-grid .input-field,
+    .db-table-designer-grid .db-table-designer-cell-select {
+        min-width: 0;
         width: 100%;
-        min-width: 72px;
-        padding: 4px 6px;
-        font-size: 12px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--r-sm);
-        color: var(--fg);
+    }
+
+    .db-table-designer-grid .db-table-designer-cell-select {
+        min-width: 96px;
+    }
+
+    .db-table-designer-grid--fields td:nth-child(2) {
+        min-width: 132px;
+    }
+
+    .db-table-designer-grid--fields td:nth-child(3) {
+        min-width: 108px;
+    }
+
+    .db-table-designer-grid--fields td:nth-child(4) {
+        min-width: 80px;
+    }
+
+    .db-table-designer-grid--fields td:nth-child(8) {
+        min-width: 112px;
+    }
+
+    .db-table-designer-grid--fields td:nth-child(9) {
+        min-width: 140px;
+    }
+
+    .db-table-designer-grid--indexes td:nth-child(1) {
+        min-width: 140px;
+    }
+
+    .db-table-designer-grid--indexes td:nth-child(2) {
+        min-width: 200px;
+    }
+
+    .db-table-designer-grid input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: var(--accent);
+        cursor: pointer;
     }
 
     .db-table-designer-cell-center {
         text-align: center;
+    }
+
+    .db-table-designer-cell-drag {
+        width: 32px;
+    }
+
+    .db-table-designer-row--dragging {
+        opacity: 0.6;
+        background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    }
+
+    .db-table-designer-row--drop-target {
+        background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    .db-table-designer-drag {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--meta);
+        cursor: grab;
+        flex-shrink: 0;
+        touch-action: none;
+        user-select: none;
+        transition: color 0.12s, background 0.12s;
+    }
+
+    .db-table-designer-drag:hover {
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .db-table-designer-cell-actions {
+        width: 40px;
+        text-align: center;
+    }
+
+    .db-table-designer-drag:active {
+        cursor: grabbing;
+        color: var(--accent);
     }
 
     .db-table-designer-empty-row {
@@ -4804,16 +4970,30 @@
 
     .db-table-designer-remove {
         color: var(--meta);
+        border-radius: var(--r-sm);
+        transition: color 0.12s, background 0.12s;
     }
 
     .db-table-designer-remove:hover {
         color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
     }
 
     .db-table-designer-section--sql .db-table-designer-sql-content {
         flex: 1;
         min-height: 0;
         overflow: hidden;
+    }
+
+    .db-table-designer-sql-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        border-top: 1px solid var(--border);
+        background: var(--bg-deeper);
+        flex-shrink: 0;
     }
 
     .db-table-designer-section--sql .table-ddl-viewer {
@@ -5524,15 +5704,111 @@
     }
 }
 
-/* 须放在 @layer 外，才能覆盖 Button 上的 Tailwind rounded-md（utilities 层优先级更高） */
-.schema-toolbar.schema-toolbar--inline [data-slot="button"],
-.schema-toolbar.schema-toolbar--inline .btn-icon,
-.schema-toolbar.schema-toolbar--inline button,
-.vsplit-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.vsplit-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.vsplit-sidebar-section__actions .schema-toolbar--inline button,
-.schema-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.schema-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.schema-sidebar-section__actions .schema-toolbar--inline button {
-    border-radius: 0;
+.db-import-preview-dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 320px;
+}
+
+.db-import-preview-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.db-import-preview-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.db-import-preview-group select {
+    min-width: 140px;
+}
+
+.db-import-preview-select-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--fg);
+}
+
+.db-import-preview-table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+}
+
+.db-import-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.db-import-preview-table th,
+.db-import-preview-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.db-import-preview-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.db-import-preview-row--disabled {
+    opacity: 0.72;
+}
+
+.db-import-preview-name {
+    font-weight: 500;
+}
+
+.db-import-preview-engine {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.db-import-preview-engine__icon {
+    flex: 0 0 auto;
+}
+
+.db-import-preview-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.db-import-preview-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.db-import-preview-status--ready {
+    color: var(--success, #2f9e44);
+    background: color-mix(in srgb, var(--success, #2f9e44) 12%, transparent);
+}
+
+.db-import-preview-status--warn {
+    color: var(--warning, #d97706);
+    background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);
 }

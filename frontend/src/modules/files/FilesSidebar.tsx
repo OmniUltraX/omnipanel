@@ -137,7 +137,7 @@ export function FilesSidebar({
     const protocol = SECTION_PROTOCOL[sectionKey];
     if (!protocol) return null;
     return (
-      <div className="vsplit-sidebar-section__toolbar">
+      <div className="schema-toolbar schema-toolbar--inline">
         <Button
           variant="icon"
           title={t("files.sidebar.add")}

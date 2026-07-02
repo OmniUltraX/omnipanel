@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use omnipanel_ai::ir::StreamEvent;
 use omnipanel_ai::orchestrator::{
@@ -532,4 +533,43 @@ pub async fn ai_gateway_configure(
     );
     *state.gateway_handle.lock().await = Some(handle);
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiServicesHealth {
+    pub gateway: bool,
+    pub mcp: bool,
+}
+
+/// 由 Rust 后端探测 Agent Router / OmniMCP 是否可达，避免 WebView 直连 localhost 触发 CORS。
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_services_probe(enabled: bool, port: u16) -> Result<AiServicesHealth, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let port = if port == 0 { 8765 } else { port };
+    let gateway = if enabled {
+        let url = format!("http://127.0.0.1:{port}/gateway/healthz");
+        client
+            .get(url)
+            .send()
+            .await
+            .map(|response| response.status().is_success())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    // GET /mcp 可能返回 4xx，但只要 TCP/HTTP 有响应即表示 OmniMCP 在监听。
+    let mcp = client
+        .get("http://127.0.0.1:12756/mcp")
+        .send()
+        .await
+        .is_ok();
+
+    Ok(AiServicesHealth { gateway, mcp })
 }

@@ -1,4 +1,4 @@
-/** 树形 JSON 预览（JsonView）体积上限。 */
+/** 树形 JSON 预览（VirtualJsonView / react-obj-view）体积上限。 */
 export const MAX_HTTP_JSON_TREE_BYTES = 512 * 1024;
 
 /** 允许同步格式化的 JSON 体积上限（用户主动触发）。 */

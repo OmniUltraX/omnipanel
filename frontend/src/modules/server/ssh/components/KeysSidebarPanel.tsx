@@ -83,7 +83,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
   const headerToolbar = useMemo(
     () => (
-      <div className="vsplit-sidebar-section__toolbar">
+      <div className="schema-toolbar schema-toolbar--inline">
         <SshSidebarHeaderIconBtn
           title={t("common.refresh")}
           disabled={loading}

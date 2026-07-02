@@ -1,8 +1,8 @@
 import type { DatabaseSchema, TableSchema } from "../../types";
 import type { Catalog } from "../catalog";
 import { Catalog as CatalogClass } from "../catalog";
-import { analyzeStatement, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
-import { sliceStatementAtOffset } from "./ast";
+import { analyzeStatement, analyzeStatementAtOffset, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
+import { sliceStatementAtOffset, statementOffsetAtPos } from "./ast";
 
 export type SqlCompletionContext =
   | "statement_start"
@@ -134,7 +134,8 @@ export function resolveFromTableInStatement(
   const statement = sliceStatementAtOffset(text, offset).trim();
   if (!statement) return null;
 
-  const analysis = analyzeStatement(statement, dbType);
+  const offsetInStatement = statementOffsetAtPos(text, offset);
+  const analysis = analyzeStatementAtOffset(statement, offsetInStatement, dbType);
   if (analysis) {
     const resolved = resolvePrimaryFromTable(catalog, analysis);
     if (resolved) {
@@ -155,7 +156,8 @@ export function resolveAliasTableInStatement(
 ): { table: TableSchema; qualifiedTable: string } | null {
   const catalog = CatalogClass.fromSchemas(schemas);
   const statement = sliceStatementAtOffset(text, offset).trim();
-  const analysis = analyzeStatement(statement, dbType);
+  const offsetInStatement = statementOffsetAtPos(text, offset);
+  const analysis = analyzeStatementAtOffset(statement, offsetInStatement, dbType);
   if (!analysis) {
     const direct = catalog.findTable(alias);
     return direct ? { table: direct.table as TableSchema, qualifiedTable: direct.qualifiedTable } : null;

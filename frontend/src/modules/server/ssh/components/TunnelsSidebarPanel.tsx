@@ -91,7 +91,7 @@ export function TunnelsSidebarPanel({
 
   const headerToolbar = useMemo(
     () => (
-      <div className="vsplit-sidebar-section__toolbar">
+      <div className="schema-toolbar schema-toolbar--inline">
         <SshSidebarHeaderIconBtn
           title={t("common.refresh")}
           disabled={loading}

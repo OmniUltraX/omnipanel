@@ -1,6 +1,32 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
+import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { useSettingsStore } from "../../stores/settingsStore";
+
+interface AiServicesHealth {
+  gateway: boolean;
+  mcp: boolean;
+}
+
+async function probeViaTauri(enabled: boolean, port: number): Promise<AiServicesHealth> {
+  return invoke<AiServicesHealth>("ai_services_probe", { enabled, port });
+}
+
+async function probeViaFetch(enabled: boolean, port: number): Promise<AiServicesHealth> {
+  const gateway = enabled
+    ? await fetch(`http://127.0.0.1:${port || 8765}/gateway/healthz`)
+        .then((response) => response.ok)
+        .catch(() => false)
+    : false;
+
+  // OmniMCP /mcp 是 POST 端点：任何响应（含 4xx/405）都说明服务在监听。
+  const mcp = await fetch("http://127.0.0.1:12756/mcp", { method: "GET" })
+    .then(() => true)
+    .catch(() => false);
+
+  return { gateway, mcp };
+}
 
 /** 状态栏 Agent Router / OmniMCP 指示点 */
 export function StatusBarAiServicesIndicator() {
@@ -11,17 +37,19 @@ export function StatusBarAiServicesIndicator() {
 
   useEffect(() => {
     const check = () => {
-      if (enabled) {
-        void fetch(`http://127.0.0.1:${port || 8765}/gateway/healthz`)
-          .then((r) => setRouterOk(r.ok))
-          .catch(() => setRouterOk(false));
-      } else {
-        setRouterOk(false);
-      }
-      // OmniMCP /mcp 是 POST 端点：任何响应（含 4xx/405）都说明服务在监听。
-      void fetch("http://127.0.0.1:12756/mcp", { method: "GET" })
-        .then(() => setMcpOk(true))
-        .catch(() => setMcpOk(false));
+      const probe = isTauriRuntime()
+        ? probeViaTauri(enabled, port || 8765)
+        : probeViaFetch(enabled, port || 8765);
+
+      void probe
+        .then((health) => {
+          setRouterOk(health.gateway);
+          setMcpOk(health.mcp);
+        })
+        .catch(() => {
+          setRouterOk(false);
+          setMcpOk(false);
+        });
     };
     check();
     const timer = window.setInterval(check, 15000);

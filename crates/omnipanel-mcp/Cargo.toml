@@ -25,3 +25,4 @@ rmcp = { version = "1.7.0", features = [
 ] }
 axum = "0.8"
 http = "1"
+tower-http = { version = "0.6", features = ["cors"] }

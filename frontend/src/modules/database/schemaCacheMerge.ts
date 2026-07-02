@@ -6,6 +6,9 @@ export interface CachedTableColumn {
   type: string;
   isPk?: boolean;
   isFk?: boolean;
+  comment?: string | null;
+  nullable?: boolean;
+  isAutoIncrement?: boolean;
 }
 
 export interface CachedTableIndex {
@@ -50,7 +53,15 @@ export interface CachedConnection {
 function mapCachedTable(table: {
   name: string;
   comment?: string | null;
-  columns: { name: string; type: string; isPk: boolean; isFk: boolean }[];
+  columns: {
+    name: string;
+    type: string;
+    isPk: boolean;
+    isFk: boolean;
+    comment?: string | null;
+    nullable?: boolean;
+    isAutoIncrement?: boolean;
+  }[];
   indexes?: { name: string; columns: string[]; unique: boolean }[];
 }): CachedTable {
   return {
@@ -61,6 +72,9 @@ function mapCachedTable(table: {
       type: col.type,
       isPk: col.isPk,
       isFk: col.isFk,
+      comment: col.comment ?? undefined,
+      nullable: col.nullable,
+      isAutoIncrement: col.isAutoIncrement,
     })),
     indexes: (table.indexes ?? []).map((idx) => ({
       name: idx.name,
@@ -84,7 +98,10 @@ function cachedTableEqual(a: CachedTable, b: CachedTable): boolean {
       left.name !== right.name ||
       left.type !== right.type ||
       left.isPk !== right.isPk ||
-      left.isFk !== right.isFk
+      left.isFk !== right.isFk ||
+      left.comment !== right.comment ||
+      left.nullable !== right.nullable ||
+      left.isAutoIncrement !== right.isAutoIncrement
     ) {
       return false;
     }
@@ -241,7 +258,15 @@ export function getCachedTableColumns(
   if (!table?.columns?.length) {
     return null;
   }
-  return table.columns;
+  return table.columns.map((col) => ({
+    name: col.name,
+    type: col.type,
+    isPk: col.isPk,
+    isFk: col.isFk,
+    nullable: col.nullable,
+    isAutoIncrement: col.isAutoIncrement,
+    comment: col.comment ?? undefined,
+  }));
 }
 
 export function getCachedTableCommentMap(

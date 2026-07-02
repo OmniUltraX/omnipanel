@@ -26,6 +26,76 @@ function indexSignature(index: TableDesignerIndexRow): string {
   });
 }
 
+function fieldOrderChanged(baseline: TableDesignerModel, model: TableDesignerModel): boolean {
+  const baseOrder = baseline.fields.map((field) => field.id);
+  const modelOrder = model.fields.map((field) => field.id);
+  if (baseOrder.length !== modelOrder.length) return false;
+  return baseOrder.some((id, index) => id !== modelOrder[index]);
+}
+
+function columnOrderNeedsApply(baseline: TableDesignerModel, model: TableDesignerModel): boolean {
+  const removedIds = new Set(
+    baseline.fields.filter((field) => !model.fields.some((item) => item.id === field.id)).map((field) => field.id),
+  );
+  const keptBaseOrder = baseline.fields
+    .filter((field) => !removedIds.has(field.id))
+    .map((field) => field.id);
+  const newIds = model.fields
+    .filter((field) => !baseline.fields.some((item) => item.id === field.id))
+    .map((field) => field.id);
+  const dbOrderAfterAlters = [...keptBaseOrder, ...newIds];
+  const targetOrder = model.fields.map((field) => field.id);
+  if (dbOrderAfterAlters.length !== targetOrder.length) return true;
+  return dbOrderAfterAlters.some((id, index) => id !== targetOrder[index]);
+}
+
+function buildMysqlColumnReorderStmts(
+  tableRef: string,
+  targetFields: TableDesignerFieldRow[],
+  initialOrder: string[],
+): string[] {
+  if (targetFields.length <= 1) return [];
+
+  const fieldById = new Map(targetFields.map((field) => [field.id, field]));
+  const stmts: string[] = [];
+  let order = [...initialOrder];
+
+  for (let index = 0; index < targetFields.length; index += 1) {
+    const wantId = targetFields[index].id;
+    const currentIndex = order.indexOf(wantId);
+    if (currentIndex === index) continue;
+
+    const field = fieldById.get(wantId);
+    if (!field) continue;
+
+    const definition = mysqlColumnDef(field);
+    if (index === 0) {
+      stmts.push(`ALTER TABLE ${tableRef} MODIFY COLUMN ${definition} FIRST`);
+    } else {
+      const afterName = targetFields[index - 1].name.trim();
+      stmts.push(`ALTER TABLE ${tableRef} MODIFY COLUMN ${definition} AFTER ${mysqlQuoteId(afterName)}`);
+    }
+
+    order = order.filter((id) => id !== wantId);
+    order.splice(index, 0, wantId);
+  }
+
+  return stmts;
+}
+
+function mysqlColumnOrderAfterAlters(baseline: TableDesignerModel, model: TableDesignerModel): string[] {
+  const removedIds = new Set(
+    baseline.fields.filter((field) => !model.fields.some((item) => item.id === field.id)).map((field) => field.id),
+  );
+  const keptBaseOrder = baseline.fields
+    .filter((field) => !removedIds.has(field.id))
+    .map((field) => field.id);
+  const newIds = model.fields
+    .filter((field) => !baseline.fields.some((item) => item.id === field.id))
+    .map((field) => field.id);
+  return [...keptBaseOrder, ...newIds];
+}
+
 export function hasModelChanges(
   baseline: TableDesignerModel,
   model: TableDesignerModel,
@@ -40,6 +110,7 @@ export function hasModelChanges(
     const cur = curFields.get(id);
     if (!cur || fieldSignature(field) !== fieldSignature(cur)) return true;
   }
+  if (fieldOrderChanged(baseline, model)) return true;
 
   const baseIndexes = baseline.indexes.filter((i) => !i.primary);
   const curIndexes = model.indexes.filter((i) => !i.primary);
@@ -149,6 +220,16 @@ export function buildApplySqlMySQL(
     } else {
       stmts.push(`ALTER TABLE ${tableRef} ADD INDEX ${name} (${cols})`);
     }
+  }
+
+  if (columnOrderNeedsApply(baseline, model)) {
+    stmts.push(
+      ...buildMysqlColumnReorderStmts(
+        tableRef,
+        model.fields,
+        mysqlColumnOrderAfterAlters(baseline, model),
+      ),
+    );
   }
 
   return stmts;

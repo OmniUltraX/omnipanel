@@ -695,7 +695,7 @@ export function KnowledgeSidebar() {
   };
 
   const renderSelfBuiltActions = () => (
-    <div className="vsplit-sidebar-section__toolbar knowledge-sidebar-section-actions" ref={newMenuRef}>
+    <div className="schema-toolbar schema-toolbar--inline knowledge-sidebar-section-actions" ref={newMenuRef}>
       <Button
         variant="icon"
         size="sm"
@@ -732,7 +732,7 @@ export function KnowledgeSidebar() {
   );
 
   const renderImportedActions = () => (
-    <div className="vsplit-sidebar-section__toolbar knowledge-sidebar-section-actions">
+    <div className="schema-toolbar schema-toolbar--inline knowledge-sidebar-section-actions">
       <Button
         variant="icon"
         size="sm"

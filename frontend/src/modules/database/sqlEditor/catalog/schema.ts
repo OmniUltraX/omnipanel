@@ -5,17 +5,22 @@ export interface Column {
   type: string;
   isPK?: boolean;
   isFK?: boolean;
+  nullable?: boolean;
+  comment?: string;
 }
 
 export interface Table {
   name: string;
   columns: Column[];
   kind?: "table" | "view";
+  comment?: string;
 }
 
 export interface Database {
   name: string;
   tables: Table[];
+  connectionName?: string;
+  dbType?: string;
 }
 
 export interface CatalogSnapshot {

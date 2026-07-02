@@ -10,11 +10,14 @@ function tablesFromCacheEntry(
   return entry.map((table) => ({
     name: table.name,
     kind,
+    comment: table.comment?.trim() || undefined,
     columns: table.columns.map((col) => ({
       name: col.name,
       type: col.type,
       isPK: col.isPk,
       isFK: col.isFk,
+      nullable: col.nullable,
+      comment: col.comment?.trim() || undefined,
     })),
   }));
 }

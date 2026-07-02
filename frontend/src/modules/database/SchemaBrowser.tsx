@@ -16,6 +16,7 @@ import { appAlert } from "../../lib/appAlert";
 import { quickInput } from "../../lib/quickInput";
 import { useActionStore } from "../../stores/actionStore";
 import { Button } from "../../components/ui/Button";
+import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
 import { ScopedSearch, type ScopedSearchHandle } from "../../components/ui/ScopedSearch";
 import {
   type DbConnectionConfig,
@@ -556,6 +557,7 @@ export type SchemaContextMenuContext = {
 export interface SchemaBrowserProps {
   activeConnId?: string | null;
   onCreateConnection?: () => void;
+  onImportNavicat?: () => void;
   onSelectConnection?: (connId: string, mode?: SchemaDockOpenMode) => void;
   onSelectTable?: (selection: SchemaTableSelection, mode?: SchemaDockOpenMode) => void;
   onSelectDatabase?: (selection: SchemaDatabaseSelection, mode?: SchemaDockOpenMode) => void;
@@ -576,6 +578,7 @@ export interface SchemaBrowserProps {
 export function SchemaBrowser({
   activeConnId = null,
   onCreateConnection,
+  onImportNavicat,
   onSelectConnection,
   onSelectTable,
   onSelectDatabase,
@@ -1729,6 +1732,47 @@ export function SchemaBrowser({
           <path d="M12 5v14M5 12h14" />
         </svg>
       </Button>
+      {onImportNavicat ? (
+        <IconDropdownButton
+          title={t("database.sidebar.importConnections")}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <path d="M12 3v12" />
+              <path d="M8 11l4 4 4-4" />
+              <path d="M4 21h16" />
+            </svg>
+          }
+          items={[
+            {
+              id: "datagrip",
+              label: t("database.sidebar.importFormatDatagrip"),
+              subtitle: t("database.import.inDevelopment"),
+              onSelect: () => {
+                void appAlert(
+                  t("database.import.inDevelopment"),
+                  t("database.sidebar.importFormatDatagrip"),
+                );
+              },
+            },
+            {
+              id: "navicat",
+              label: t("database.sidebar.importFormatNavicat"),
+              onSelect: onImportNavicat,
+            },
+            {
+              id: "dbeaver",
+              label: t("database.sidebar.importFormatDbeaver"),
+              subtitle: t("database.import.inDevelopment"),
+              onSelect: () => {
+                void appAlert(
+                  t("database.import.inDevelopment"),
+                  t("database.sidebar.importFormatDbeaver"),
+                );
+              },
+            },
+          ]}
+        />
+      ) : null}
       <Button
         variant="icon"
         title={t("database.sidebar.refresh")}

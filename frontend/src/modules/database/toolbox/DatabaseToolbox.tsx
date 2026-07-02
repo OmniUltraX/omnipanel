@@ -259,8 +259,14 @@ export function DatabaseToolbox({
         setSchemaAnalysisDiffs({});
       }
       if (cached.tableAnalysis && tab === "dataSync") {
-        setTableAnalysis(cached.tableAnalysis);
-        lastAnalyzedSelectionRef.current = new Set(Object.keys(cached.tableAnalysis));
+        const sanitized: Record<string, DataAnalysisResult> = {};
+        for (const [name, result] of Object.entries(cached.tableAnalysis)) {
+          if (result.status !== "analyzing") {
+            sanitized[name] = result;
+          }
+        }
+        setTableAnalysis(sanitized);
+        lastAnalyzedSelectionRef.current = new Set(Object.keys(sanitized));
       } else if (tab === "dataSync") {
         setTableAnalysis({});
         lastAnalyzedSelectionRef.current = new Set();
@@ -525,6 +531,10 @@ export function DatabaseToolbox({
     if (!active) {
       return;
     }
+    // 任务加载期间会恢复 analysisCache 中的 targetRowCounts，此处跳过清空避免目标侧一直「检测中」
+    if (taskLoadRef.current) {
+      return;
+    }
     syncRunIdRef.current += 1;
     targetCountingRef.current.clear();
     setTargetCountingTables(new Set());
@@ -713,6 +723,96 @@ export function DatabaseToolbox({
       });
     };
   }, [active, tab, sourceSnapshot.loading, sourceSnapshot.tables, sourceSelected, sourceConnId, sourceDb, connections]);
+
+  /** 数据同步：已勾选且目标存在的表，补齐目标行数（缓存恢复或目标库切换后） */
+  useEffect(() => {
+    if (!active || tab !== "dataSync" || targetTablesLoading || !targetConfigured) {
+      return;
+    }
+
+    const conn = connections.find((c) => c.id === targetConnId);
+    if (!conn || !targetDb.trim()) {
+      return;
+    }
+
+    const pending = Array.from(sourceSelected).filter((name) => {
+      if (!targetTableNames.has(name)) {
+        return false;
+      }
+      if (targetCountingRef.current.has(name)) {
+        return false;
+      }
+      return targetRowCounts[name] == null;
+    });
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    const scoped = connectionWithDatabase(conn, targetDb);
+    const runId = syncRunIdRef.current;
+
+    for (const name of pending) {
+      targetCountingRef.current.add(name);
+    }
+    setTargetCountingTables((prev) => new Set([...prev, ...pending]));
+
+    void (async () => {
+      for (const name of pending) {
+        if (syncRunIdRef.current !== runId) {
+          break;
+        }
+        try {
+          const count = await countTable(scoped, name, targetDb);
+          if (syncRunIdRef.current !== runId) {
+            return;
+          }
+          setTargetRowCounts((prev) => ({ ...prev, [name]: count }));
+        } catch {
+          if (syncRunIdRef.current !== runId) {
+            return;
+          }
+          setTargetRowCounts((prev) => ({ ...prev, [name]: -1 }));
+        } finally {
+          targetCountingRef.current.delete(name);
+          if (syncRunIdRef.current === runId) {
+            setTargetCountingTables((prev) => {
+              const next = new Set(prev);
+              next.delete(name);
+              return next;
+            });
+          }
+        }
+      }
+    })();
+
+    return () => {
+      if (syncRunIdRef.current !== runId) {
+        return;
+      }
+      for (const name of pending) {
+        targetCountingRef.current.delete(name);
+      }
+      setTargetCountingTables((prev) => {
+        const next = new Set(prev);
+        for (const name of pending) {
+          next.delete(name);
+        }
+        return next;
+      });
+    };
+  }, [
+    active,
+    tab,
+    targetTablesLoading,
+    targetConfigured,
+    sourceSelected,
+    targetTableNames,
+    targetRowCounts,
+    targetConnId,
+    targetDb,
+    connections,
+  ]);
 
   /** 已勾选源表：按源/目标行数判定冲突或新增 */
   useEffect(() => {

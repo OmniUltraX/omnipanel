@@ -6,7 +6,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { Button } from "../../components/ui/Button";
-import { Modal } from "../../components/ui/Modal";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./SchemaBrowser";
 import type { SchemaTreeItem } from "./schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
@@ -21,8 +20,10 @@ import { RedisQueryPanel } from "./RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./ConnectionResolvedDockPane";
 import { DbSchemaProvider } from "./DbSchemaContext";
 import { ConnectionDialog } from "./ConnectionDialog";
+import { ConnectionImportPreviewDialog } from "./ConnectionImportPreviewDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
+import { appAlert } from "../../lib/appAlert";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import { TextInput } from "../../components/ui/TextInput";
@@ -69,7 +70,7 @@ import {
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
 import { formatSql } from "./sqlIntel/sqlFormat";
 import { toCsv } from "./csvExport";
-import { isAutoIncrementColumn } from "./columnMetaUtils";
+import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./columnMetaUtils";
 import { shouldUseInlineCellEdit } from "./cell_editor";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schemaCacheMerge";
@@ -126,6 +127,7 @@ import {
   estimateTablePreviewTotalRows,
   buildOrderByClause,
   NEW_ROW_KEY_PREFIX,
+  DELETED_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
   resolveSqlTabConnectionId,
   rowsToRecord,
@@ -181,6 +183,8 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { dbTabToSnapshot, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
 import { connectionNodeId } from "./schemaTreeExpanded";
+import { loadNavicatImportPreview } from "./navicatImport/loadNavicatNcxFile";
+import type { NavicatImportPreviewItem } from "./navicatImport/types";
 
 type DbModuleTab = "query" | "dataSync" | "schemaSync";
 const DB_MODULE_TABS: DbModuleTab[] = ["query", "dataSync", "schemaSync"];
@@ -483,6 +487,10 @@ export function DatabasePanel() {
   const setActiveGroupId = useDbGroupStore((s) => s.setActiveGroupId);
   const getGroupName = useDbGroupStore((s) => s.getGroupName);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    fileName: string;
+    items: NavicatImportPreviewItem[];
+  } | null>(null);
   const [editingConnection, setEditingConnection] = useState<DbConnectionConfig | null>(null);
   const [schemaRefreshToken, setSchemaRefreshToken] = useState(0);
 
@@ -535,17 +543,6 @@ export function DatabasePanel() {
     row: Record<string, unknown>;
     isNewRow?: boolean;
   } | null>(null);
-  /** 每个 tab 的「未提交修改」：行键 -> {列名: 新值}。提交或回滚后清空对??tab??*/
-  const [pendingTabAction, setPendingTabAction] = useState<
-    | {
-        kind: "refresh" | "page" | "close" | "sort" | "filter";
-        tabId: string;
-        page?: number;
-        sort?: SortState | null;
-        filter?: RuleGroupType | null;
-      }
-    | null
-  >(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
   const updateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
   const [createDbDialog, setCreateDbDialog] = useState<
@@ -987,6 +984,22 @@ export function DatabasePanel() {
     }
   }, [activeGroupName]);
 
+  const handleImportConnections = useCallback(async () => {
+    try {
+      const preview = await loadNavicatImportPreview(connections);
+      if (!preview) {
+        return;
+      }
+      setImportPreview(preview);
+    } catch (error) {
+      const message =
+        String(error).includes("EMPTY")
+          ? t("database.import.emptyFile")
+          : t("database.import.parseFailed", { error: String(error) });
+      await appAlert(message, t("database.import.previewTitle"));
+    }
+  }, [connections, t]);
+
   useEffect(() => {
     void refreshConnections();
   }, [schemaRefreshToken, refreshConnections]);
@@ -1397,9 +1410,20 @@ export function DatabasePanel() {
       const key = `${conn.id}:${database}`;
       const cached = schemaByKey[key];
       if (cached) {
-        return [cached];
+        return [
+          {
+            ...cached,
+            connectionName: cached.connectionName ?? conn.name,
+            dbType: cached.dbType ?? conn.db_type,
+          },
+        ];
       }
-      return [buildDatabaseSchema(database, [])];
+      return [
+        buildDatabaseSchema(database, [], {
+          connectionName: conn.name,
+          dbType: conn.db_type,
+        }),
+      ];
     },
     [resolveSqlTabConnection, schemaByKey],
   );
@@ -1507,7 +1531,10 @@ export function DatabasePanel() {
       ];
       setSchemaByKey((prev) => ({
         ...prev,
-        [key]: buildDatabaseSchema(database, tables),
+        [key]: buildDatabaseSchema(database, tables, {
+          connectionName: conn.name,
+          dbType: conn.db_type,
+        }),
       }));
     }
   }, [
@@ -1552,21 +1579,10 @@ export function DatabasePanel() {
             }
             return { ...prevMeta, [tabId]: cachedColumns };
           });
-        } else {
-          const existingMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
-          if (!existingMeta?.length) {
-            void introspectTable(connection, dbName, tableName)
-              .then((schema) => {
-                setTableColumnMeta((prevMeta) => {
-                  if (prevMeta[tabId]?.length) {
-                    return prevMeta;
-                  }
-                  return { ...prevMeta, [tabId]: schema.columns };
-                });
-              })
-              .catch(() => {});
-          }
         }
+        fetchAndApplyTableColumnMeta(tabId, connection, dbName, tableName, (columns) => {
+          setTableColumnMeta((prevMeta) => ({ ...prevMeta, [tabId]: columns }));
+        });
       }
 
       const countPromise = countTable(connForSchema, tableName, dbName).catch(() => null);
@@ -1877,6 +1893,15 @@ export function DatabasePanel() {
           return `'${String(v).replace(/'/g, "\\'")}'`;
         };
         for (const [rowKey, changes] of Object.entries(dirty)) {
+          if (rowKey.startsWith(DELETED_ROW_KEY_PREFIX)) {
+            const originalKey = rowKey.slice(DELETED_ROW_KEY_PREFIX.length);
+            const pkValues = pkNames.map((n) => {
+              const v = readRowKeyValue(originalKey, n);
+              return v === "" ? `\`${n}\` IS NULL` : `\`${n}\` = ${escape(v)}`;
+            });
+            sqls.push(`DELETE FROM \`${tableName}\` WHERE ${pkValues.join(" AND ")} LIMIT 1`);
+            continue;
+          }
           if (rowKey.startsWith(NEW_ROW_KEY_PREFIX)) {
             const entries = Object.entries(changes);
             if (entries.length === 0) continue;
@@ -2191,35 +2216,36 @@ export function DatabasePanel() {
       sort?: SortState | null;
       filter?: RuleGroupType | null;
     }) => {
-      if (hasDirty(action.tabId)) {
-        setPendingTabAction(action);
-        return;
-      }
-      executeTabAction(action);
+      void (async () => {
+        if (hasDirty(action.tabId)) {
+          const dirtyCount = Object.keys(
+            useDbWorkspaceTabStore.getState().tabDirtyRows[action.tabId] ?? {},
+          ).length;
+          const commit = await appConfirm(
+            t("database.results.dirtyMessage", { count: dirtyCount }),
+            t("database.results.dirtyTitle"),
+            {
+              confirmLabel: t("database.results.dirtyCommit"),
+              cancelLabel: t("database.results.dirtyRollback"),
+              kind: "warning",
+            },
+          );
+          if (commit) {
+            try {
+              await commitTabDirty(action.tabId);
+            } catch {
+              // 提交失败时不清空 dirty，提示用户去处理
+              return;
+            }
+          } else {
+            rollbackTabDirty(action.tabId);
+          }
+        }
+        executeTabAction(action);
+      })();
     },
-    [hasDirty, executeTabAction],
+    [hasDirty, executeTabAction, commitTabDirty, rollbackTabDirty, t],
   );
-
-  const confirmPendingCommit = useCallback(async () => {
-    if (!pendingTabAction) return;
-    const tabId = pendingTabAction.tabId;
-    setPendingTabAction(null);
-    try {
-      await commitTabDirty(tabId);
-    } catch {
-      // 提交失败时不清空 dirty，提示用户去处理
-      return;
-    }
-    executeTabAction(pendingTabAction);
-  }, [pendingTabAction, commitTabDirty, executeTabAction]);
-
-  const cancelPendingCommit = useCallback(() => {
-    if (!pendingTabAction) return;
-    const action = pendingTabAction;
-    setPendingTabAction(null);
-    rollbackTabDirty(action.tabId);
-    executeTabAction(action);
-  }, [pendingTabAction, rollbackTabDirty, executeTabAction]);
 
   const handleRowEdit = useCallback(
     (tabId: string, cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
@@ -2258,6 +2284,42 @@ export function DatabasePanel() {
       setTabDirtyRows((prev) => {
         const cur = { ...(prev[tabId] ?? {}) };
         cur[rowKey] = changes;
+        return { ...prev, [tabId]: cur };
+      });
+    },
+    [],
+  );
+
+  const handleRowsDelete = useCallback(
+    (
+      tabId: string,
+      rowInfos: Array<{ rowIndex: number; row: Record<string, unknown> }>,
+    ) => {
+      if (rowInfos.length === 0) return;
+      const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+      if (!colMeta?.length) return;
+      const pkCols = colMeta.filter((c) => c.isPk);
+
+      setTabDirtyRows((prev) => {
+        const cur = { ...(prev[tabId] ?? {}) };
+        for (const { row } of rowInfos) {
+          const pendingKey = row[PENDING_INSERT_ROW_KEY];
+          if (typeof pendingKey === "string") {
+            delete cur[pendingKey];
+            continue;
+          }
+          if (pkCols.length === 0) continue;
+          const rowKey = pkCols
+            .map((pk) => `${pk.name}=${row[pk.name] == null ? "" : String(row[pk.name])}`)
+            .join("&");
+          delete cur[rowKey];
+          cur[`${DELETED_ROW_KEY_PREFIX}${rowKey}`] = {};
+        }
+        if (Object.keys(cur).length === 0) {
+          const next = { ...prev };
+          delete next[tabId];
+          return next;
+        }
         return { ...prev, [tabId]: cur };
       });
     },
@@ -2971,17 +3033,10 @@ export function DatabasePanel() {
       if (existingTabId) {
         activateWorkspaceTab(existingTabId);
         if (connection.db_type !== "redis") {
-          const warmed = warmColumnMetaFromCache(existingTabId);
-          if (!warmed) {
-            void introspectTable(connection, dbName, tableName)
-              .then((schema) => {
-                setTableColumnMeta((prev) => {
-                  if (prev[existingTabId]?.length) return prev;
-                  return { ...prev, [existingTabId]: schema.columns };
-                });
-              })
-              .catch(() => {});
-          }
+          warmColumnMetaFromCache(existingTabId);
+          fetchAndApplyTableColumnMeta(existingTabId, connection, dbName, tableName, (columns) => {
+            setTableColumnMeta((prev) => ({ ...prev, [existingTabId]: columns }));
+          });
         }
         return;
       }
@@ -3856,6 +3911,7 @@ export function DatabasePanel() {
         handleCellSetNull,
         handleRowNew,
         handleRowPaste,
+        handleRowsDelete,
         resolveConnection,
         connectionsLoading,
         selectTable: handleSelectTable,
@@ -3896,6 +3952,7 @@ export function DatabasePanel() {
     handleCellSetNull,
     handleRowNew,
     handleRowPaste,
+    handleRowsDelete,
     resolveConnection,
     connectionsLoading,
     handleSelectTable,
@@ -4293,16 +4350,6 @@ export function DatabasePanel() {
       ? state.tabDirtyRows[editorHostTabId] ?? EMPTY_TAB_DIRTY_ROWS
       : EMPTY_TAB_DIRTY_ROWS,
   );
-  const pendingCommitTabId = pendingTabAction?.tabId ?? null;
-  const pendingDirtyCount = useDbWorkspaceTabStore((state) =>
-    pendingCommitTabId
-      ? Object.keys(state.tabDirtyRows[pendingCommitTabId] ?? {}).length
-      : 0,
-  );
-  const pendingCommitBusy = useDbWorkspaceTabStore((state) =>
-    pendingCommitTabId ? state.committingTabs.has(pendingCommitTabId) : false,
-  );
-
   return (
     <>
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
@@ -4320,6 +4367,7 @@ export function DatabasePanel() {
               setEditingConnection(null);
               setDialogOpen(true);
             }}
+            onImportNavicat={() => void handleImportConnections()}
             onSelectConnection={handleSelectConnection}
             onOpenSqlFile={openSqlFile}
             onOpenSyncTask={handleOpenSyncTask}
@@ -4375,43 +4423,6 @@ export function DatabasePanel() {
         }
       }}
     />
-    <Modal
-      open={pendingTabAction !== null}
-      onClose={cancelPendingCommit}
-    >
-      {pendingTabAction && (
-          <div className="warn-alert-dialog" role="alertdialog">
-            <div className="warn-alert-header">
-              <span className="warn-alert-icon" aria-hidden>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-              </span>
-              <h3 className="warn-alert-title">{t("database.results.dirtyTitle")}</h3>
-            </div>
-            <div className="warn-alert-body">
-              <p className="warn-alert-message">
-                {t("database.results.dirtyMessage", { count: pendingDirtyCount })}
-              </p>
-            </div>
-            <div className="warn-alert-footer">
-              <Button type="button" variant="secondary" onClick={cancelPendingCommit}>
-                {t("database.results.dirtyRollback")}
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                onClick={confirmPendingCommit}
-                disabled={pendingCommitBusy}
-              >
-                {t("database.results.dirtyCommit")}
-              </Button>
-            </div>
-          </div>
-      )}
-    </Modal>
     <ConnectionDialog
       open={dialogOpen}
       onClose={() => {
@@ -4425,6 +4436,18 @@ export function DatabasePanel() {
       defaultGroup={activeGroupName}
       groups={groups}
       initialConnection={editingConnection}
+    />
+    <ConnectionImportPreviewDialog
+      open={importPreview !== null}
+      fileName={importPreview?.fileName ?? ""}
+      items={importPreview?.items ?? []}
+      groups={groups}
+      defaultGroup={activeGroupName}
+      onClose={() => setImportPreview(null)}
+      onImported={() => {
+        setSchemaRefreshToken((token) => token + 1);
+        void refreshConnections();
+      }}
     />
     </DbWorkspaceProviders>
     </DbSidebarLinkageProvider>

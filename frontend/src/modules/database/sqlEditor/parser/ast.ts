@@ -40,3 +40,10 @@ export function sliceStatementAtOffset(text: string, offset: number): string {
   const stmtEnd = text.indexOf(";", pos);
   return text.slice(stmtStart, stmtEnd >= 0 ? stmtEnd : text.length);
 }
+
+/** 光标在整段文本中所属语句内的字节偏移。 */
+export function statementOffsetAtPos(text: string, offset: number): number {
+  const pos = Math.max(0, Math.min(offset, text.length));
+  const stmtStart = text.lastIndexOf(";", pos - 1) + 1;
+  return pos - stmtStart;
+}

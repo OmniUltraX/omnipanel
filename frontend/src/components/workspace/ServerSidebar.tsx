@@ -89,17 +89,19 @@ export function ServerSidebar({
   ];
 
   const addServerButton = (
-    <Button
-      type="button"
-      variant="icon"
-      className="server-sidebar-add"
-      title={t("server.sidebar.addPanel")}
-      onClick={onCreateServer}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-    </Button>
+    <div className="schema-toolbar schema-toolbar--inline">
+      <Button
+        type="button"
+        variant="icon"
+        className="server-sidebar-add"
+        title={t("server.sidebar.addPanel")}
+        onClick={onCreateServer}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </Button>
+    </div>
   );
 
   const panelBody = (

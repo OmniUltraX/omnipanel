@@ -21,7 +21,7 @@ export function isPreviewWebUrl(text: string): boolean {
 }
 
 export type ContentPreviewPayload =
-  | { kind: "json"; value: object; /** 大 JSON 使用 react-obj-view 虚拟树 */ virtual?: boolean }
+  | { kind: "json"; value: object; /** @deprecated 已统一使用 VirtualJsonView */ virtual?: boolean }
   | { kind: "text"; text: string }
   | { kind: "image"; url: string; alt?: string };
 

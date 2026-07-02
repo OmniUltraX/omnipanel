@@ -322,8 +322,12 @@ function filterItems(items: CompletionItem[], prefix: string): CompletionItem[] 
   return sortCompletionsByKind(applyKindTierBoost(filtered));
 }
 
-export function buildDatabaseSchema(databaseName: string, tables: TableSchema[]): DatabaseSchema {
-  return { name: databaseName, tables };
+export function buildDatabaseSchema(
+  databaseName: string,
+  tables: TableSchema[],
+  meta?: Pick<DatabaseSchema, "connectionName" | "dbType">,
+): DatabaseSchema {
+  return { name: databaseName, tables, ...meta };
 }
 
 /** 表名后的快捷片段：select / count / update / insert */
@@ -391,17 +395,31 @@ export function buildTableActionSnippets(
 }
 
 export function introspectToTableSchemas(
-  tables: { name: string; columns: { name: string; type: string; isPk?: boolean; isFk?: boolean }[] }[],
+  tables: {
+    name: string;
+    comment?: string | null;
+    columns: {
+      name: string;
+      type: string;
+      isPk?: boolean;
+      isFk?: boolean;
+      nullable?: boolean;
+      comment?: string | null;
+    }[];
+  }[],
   kind: TableSchema["kind"] = "table",
 ): TableSchema[] {
   return tables.map((table) => ({
     name: table.name,
     kind,
+    comment: table.comment?.trim() || undefined,
     columns: table.columns.map((col) => ({
       name: col.name,
       type: col.type,
       isPK: col.isPk,
       isFK: col.isFk,
+      nullable: col.nullable,
+      comment: col.comment?.trim() || undefined,
     })),
   }));
 }

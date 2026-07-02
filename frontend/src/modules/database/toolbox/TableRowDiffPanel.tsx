@@ -63,7 +63,10 @@ export function TableRowDiffPanel({
     setKindFilters(ALL_ROW_DIFF_KINDS);
     setFullDiffs(null);
     setFullDiffsError(null);
+    setFullDiffsLoading(false);
   }, [tableName, analysis?.diffs, analysis?.diffRows, analysis?.truncated]);
+
+  const columnKey = useMemo(() => columns.map((col) => col.name).join("\0"), [columns]);
 
   const shouldFetchAll = useMemo(
     () =>
@@ -74,7 +77,8 @@ export function TableRowDiffPanel({
   );
 
   useEffect(() => {
-    if (!shouldFetchAll || !sourceConn || !targetConn) {
+    if (!shouldFetchAll || !sourceConn || !targetConn || columns.length === 0) {
+      setFullDiffsLoading(false);
       return;
     }
 
@@ -104,8 +108,9 @@ export function TableRowDiffPanel({
 
     return () => {
       cancelled = true;
+      setFullDiffsLoading(false);
     };
-  }, [shouldFetchAll, sourceConn, targetConn, tableName, columns]);
+  }, [shouldFetchAll, sourceConn, targetConn, tableName, columnKey, columns]);
 
   const allDiffs = useMemo(() => {
     if (analysis?.status !== "diff") {

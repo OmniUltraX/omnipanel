@@ -1,16 +1,17 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../components/ui/Button";
-import { TextInput } from "../../../components/ui/TextInput";
+import { Select } from "../../../components/ui/Select";
+import { TextInput, type TextInputProps } from "../../../components/ui/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { useI18n } from "../../../i18n";
 import { TableDdlViewer } from "../TableDdlViewer";
-import type { TableDesignerDriver, TableDesignerFieldRow, TableDesignerIndexRow, TableDesignerModel } from "./types";
+import type { TableDesignerDriver, TableDesignerFieldRow, TableDesignerIndexRow, TableDesignerModel, TableDesignerTypeOption } from "./types";
 
 interface TableDesignerPanelProps {
   driver: TableDesignerDriver;
   dbName: string;
-  model: TableDesignerModel;
-  onModelChange: (model: TableDesignerModel) => void;
+  baseline: TableDesignerModel;
+  model: TableDesignerModel;  onModelChange: (model: TableDesignerModel) => void;
   onReload?: () => void;
   reloading?: boolean;
   dirty?: boolean;
@@ -27,11 +28,59 @@ function parseIndexColumns(raw: string): string[] {
     .filter(Boolean);
 }
 
+function resolveFieldRowIndexFromMouseEvent(event: MouseEvent): number | null {
+  const el = document.elementFromPoint(event.clientX, event.clientY);
+  const row = el?.closest("tr[data-field-index]");
+  if (!row) {
+    return null;
+  }
+  const index = Number((row as HTMLElement).dataset.fieldIndex);
+  return Number.isNaN(index) ? null : index;
+}
+
+function formatApplySqlPreview(statements: string[]): string {
+  if (statements.length === 0) {
+    return "";
+  }
+  return statements
+    .map((statement) => (statement.trimEnd().endsWith(";") ? statement.trimEnd() : `${statement.trimEnd()};`))
+    .join("\n\n");
+}
+
+function resolveFieldTypeOptions(
+  typeOptions: readonly TableDesignerTypeOption[],
+  currentType: string,
+): TableDesignerTypeOption[] {
+  if (!currentType || typeOptions.some((option) => option.value === currentType)) {
+    return [...typeOptions];
+  }
+  return [...typeOptions, { value: currentType, label: currentType }];
+}
+
+const TABLE_DESIGNER_SELECT_Z_INDEX = 10100;
+
+type DesignerCellTextInputProps = Omit<TextInputProps, "size" | "className"> & {
+  className?: string;
+};
+
+/** 表设计网格单元格内文本输入，使用全局 TextInput（含复制 / 清空） */
+function DesignerCellTextInput({ className, ...props }: DesignerCellTextInputProps) {
+  return (
+    <TextInput
+      {...props}
+      size="sm"
+      className={["input", "db-table-designer-cell-input", className].filter(Boolean).join(" ")}
+    />
+  );
+}
+
+type DesignerTabId = "fields" | "indexes";
+
 export function TableDesignerPanel({
   driver,
   dbName,
-  model,
-  onModelChange,
+  baseline,
+  model,  onModelChange,
   onReload,
   reloading = false,
   dirty = false,
@@ -41,8 +90,23 @@ export function TableDesignerPanel({
   onDismissSaveNotice,
 }: TableDesignerPanelProps) {
   const { t } = useI18n();
+  const [activeTab, setActiveTab] = useState<DesignerTabId>("fields");
   const [validationKey, setValidationKey] = useState<string | null>(null);
+  const [dragFieldIndex, setDragFieldIndex] = useState<number | null>(null);
+  const [dropHoverIndex, setDropHoverIndex] = useState<number | null>(null);
+  const dragFieldIndexRef = useRef<number | null>(null);
+  const pointerDragActiveRef = useRef(false);
   const typeOptions = useMemo(() => driver.getTypeOptions(), [driver]);
+
+  const setDragSourceIndex = useCallback((index: number | null) => {
+    dragFieldIndexRef.current = index;
+    setDragFieldIndex(index);
+  }, []);
+
+  const clearDragSourceIndex = useCallback(() => {
+    dragFieldIndexRef.current = null;
+    setDragFieldIndex(null);
+  }, []);
 
   const updateModel = useCallback(
     (patch: Partial<TableDesignerModel>) => {
@@ -51,7 +115,6 @@ export function TableDesignerPanel({
     },
     [model, onModelChange],
   );
-
   const updateField = useCallback(
     (id: string, patch: Partial<TableDesignerFieldRow>) => {
       updateModel({
@@ -81,6 +144,57 @@ export function TableDesignerPanel({
     [model.fields, updateModel],
   );
 
+  const reorderFields = useCallback(
+    (from: number, to: number) => {
+      if (from === to || from < 0 || to < 0 || from >= model.fields.length || to >= model.fields.length) {
+        return;
+      }
+      const next = [...model.fields];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      updateModel({ fields: next });
+    },
+    [model.fields, updateModel],
+  );
+
+  const beginFieldPointerDrag = useCallback(
+    (index: number) => {
+      pointerDragActiveRef.current = true;
+      setDragSourceIndex(index);
+      setDropHoverIndex(index);
+    },
+    [setDragSourceIndex],
+  );
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      if (!pointerDragActiveRef.current) {
+        return;
+      }
+      const hoverIndex = resolveFieldRowIndexFromMouseEvent(event);
+      setDropHoverIndex((prev) => (prev === hoverIndex ? prev : hoverIndex));
+    };
+
+    const onMouseUp = (event: MouseEvent) => {
+      if (!pointerDragActiveRef.current) {
+        return;
+      }
+      pointerDragActiveRef.current = false;
+      const from = dragFieldIndexRef.current;
+      const to = resolveFieldRowIndexFromMouseEvent(event);
+      setDropHoverIndex(null);
+      if (from !== null && to !== null) {
+        reorderFields(from, to);
+      }
+      clearDragSourceIndex();    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [clearDragSourceIndex, reorderFields]);
+
   const addIndex = useCallback(() => {
     updateModel({ indexes: [...model.indexes, driver.createEmptyIndex()] });
   }, [driver, model.indexes, updateModel]);
@@ -92,13 +206,20 @@ export function TableDesignerPanel({
     [model.indexes, updateModel],
   );
 
-  const previewSql = useMemo(
-    () => driver.buildPreviewSql(model, dbName),
-    [driver, model, dbName],
+  const applyStatements = useMemo(
+    () => driver.buildApplySql(baseline, model, dbName),
+    [driver, baseline, model, dbName],
   );
 
-  const handleValidate = useCallback(() => {
-    setValidationKey(driver.validate(model));
+  const applySqlPreview = useMemo(() => {
+    const sql = formatApplySqlPreview(applyStatements);
+    if (sql) {
+      return sql;
+    }
+    return `-- ${t("database.tableDesigner.applySqlEmpty")}`;
+  }, [applyStatements, t]);
+
+  const handleValidate = useCallback(() => {    setValidationKey(driver.validate(model));
   }, [driver, model]);
 
   return (
@@ -109,12 +230,15 @@ export function TableDesignerPanel({
           <span className="db-table-designer-title">
             {dbName}.{model.tableName}
           </span>
-          <TextInput
-            className="db-table-designer-comment"
-            value={model.comment}
-            onChange={(comment) => updateModel({ comment })}
-            placeholder={t("database.tableDesigner.commentPlaceholder")}
-          />
+          <div className="db-table-designer-comment-wrap">
+            <TextInput
+              size="sm"
+              className="input"
+              value={model.comment}
+              onChange={(comment) => updateModel({ comment })}
+              placeholder={t("database.tableDesigner.commentPlaceholder")}
+            />
+          </div>
         </div>
         <div className="db-table-designer-toolbar-actions">
           {onReload && (
@@ -125,14 +249,8 @@ export function TableDesignerPanel({
           <Button variant="secondary" size="sm" disabled={saving} onClick={handleValidate}>
             {t("database.tableDesigner.validate")}
           </Button>
-          {onSave && (
-            <Button variant="default" size="sm" disabled={!dirty || saving} onClick={onSave}>
-              {saving ? t("database.tableDesigner.saving") : t("database.tableDesigner.save")}
-            </Button>
-          )}
         </div>
       </div>
-
       {saveNotice && (
         <div
           className={
@@ -164,11 +282,28 @@ export function TableDesignerPanel({
 
       <DockLayout direction="vertical" className="db-table-designer-split">
         <DockPanel defaultSize="68%" minSize="35%" className="db-table-designer-main-pane">
-          <DockLayout direction="horizontal" className="db-table-designer-main-split">
-            <DockPanel defaultSize="62%" minSize="30%" className="db-table-designer-fields-pane">
-              <div className="db-table-designer-section">
-                <div className="db-table-designer-section-header">
-                  <h3>{t("database.tableDesigner.fields")}</h3>
+          <div className="db-table-designer-section">
+            <div className="db-table-designer-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                className={`db-toolbox-tab${activeTab === "fields" ? " active" : ""}`}
+                aria-selected={activeTab === "fields"}
+                onClick={() => setActiveTab("fields")}
+              >
+                {t("database.tableDesigner.fields")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`db-toolbox-tab${activeTab === "indexes" ? " active" : ""}`}
+                aria-selected={activeTab === "indexes"}
+                onClick={() => setActiveTab("indexes")}
+              >
+                {t("database.tableDesigner.indexes")}
+              </button>
+              <div className="db-table-designer-tabs-actions">
+                {activeTab === "fields" ? (
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -180,11 +315,36 @@ export function TableDesignerPanel({
                       <path d="M8 3v10M3 8h10" />
                     </svg>
                   </Button>
-                </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title={t("database.tableDesigner.addIndex")}
+                    aria-label={t("database.tableDesigner.addIndex")}
+                    onClick={addIndex}
+                  >
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                      <path d="M8 3v10M3 8h10" />
+                    </svg>
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div
+              className="db-table-designer-tab-panel"
+              role="tabpanel"
+              aria-label={
+                activeTab === "fields"
+                  ? t("database.tableDesigner.fields")
+                  : t("database.tableDesigner.indexes")
+              }
+            >
+              {activeTab === "fields" ? (
                 <div className="db-table-designer-grid-wrap">
-                  <table className="db-table-designer-grid">
+                  <table className="db-table-designer-grid db-table-designer-grid--fields">
                     <thead>
                       <tr>
+                        <th className="db-table-designer-cell-drag" aria-label={t("database.tableDesigner.dragHint")} />
                         <th>{t("database.tableDesigner.field.name")}</th>
                         <th>{t("database.tableDesigner.field.type")}</th>
                         <th>{t("database.tableDesigner.field.length")}</th>
@@ -197,39 +357,62 @@ export function TableDesignerPanel({
                       </tr>
                     </thead>
                     <tbody>
-                      {model.fields.map((field) => (
-                        <tr key={field.id}>
+                      {model.fields.map((field, index) => (
+                        <tr
+                          key={field.id}
+                          data-field-index={index}
+                          className={
+                            dragFieldIndex === index
+                              ? "db-table-designer-row--dragging"
+                              : dropHoverIndex === index && dragFieldIndex !== null
+                                ? "db-table-designer-row--drop-target"
+                                : undefined
+                          }
+                        >
+                          <td className="db-table-designer-cell-drag">
+                            <button
+                              type="button"
+                              className="db-table-designer-drag"
+                              title={t("database.tableDesigner.dragHint")}
+                              onMouseDown={(event) => {
+                                if (event.button !== 0) {
+                                  return;
+                                }
+                                event.preventDefault();
+                                event.stopPropagation();
+                                beginFieldPointerDrag(index);
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" aria-hidden>
+                                <circle cx="9" cy="6" r="1.2" />
+                                <circle cx="15" cy="6" r="1.2" />
+                                <circle cx="9" cy="12" r="1.2" />
+                                <circle cx="15" cy="12" r="1.2" />
+                                <circle cx="9" cy="18" r="1.2" />
+                                <circle cx="15" cy="18" r="1.2" />
+                              </svg>
+                            </button>
+                          </td>
                           <td>
-                            <TextInput
-                              clearable={false}
-                              copyable={false}
-                              size="sm"
-                              className=""
+                            <DesignerCellTextInput
                               value={field.name}
                               onChange={(name) => updateField(field.id, { name })}
                             />
                           </td>
                           <td>
-                            <select
+                            <Select
                               value={field.type}
-                              onChange={(event) => updateField(field.id, { type: event.target.value })}
-                            >
-                              {typeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                              {!typeOptions.some((option) => option.value === field.type) && (
-                                <option value={field.type}>{field.type}</option>
-                              )}
-                            </select>
+                              onChange={(type) => updateField(field.id, { type })}
+                              options={resolveFieldTypeOptions(typeOptions, field.type)}
+                              size="sm"
+                              searchable
+                              className="db-table-designer-cell-select"
+                              aria-label={t("database.tableDesigner.field.type")}
+                              panelZIndex={TABLE_DESIGNER_SELECT_Z_INDEX}
+                            />
                           </td>
                           <td>
-                            <TextInput
-                              clearable={false}
-                              copyable={false}
-                              size="sm"
-                              className=""
+                            <DesignerCellTextInput
                               value={field.length}
                               onChange={(length) => updateField(field.id, { length })}
                             />
@@ -258,26 +441,18 @@ export function TableDesignerPanel({
                             />
                           </td>
                           <td>
-                            <TextInput
-                              clearable={false}
-                              copyable={false}
-                              size="sm"
-                              className=""
+                            <DesignerCellTextInput
                               value={field.defaultValue}
                               onChange={(defaultValue) => updateField(field.id, { defaultValue })}
                             />
                           </td>
                           <td>
-                            <TextInput
-                              clearable={false}
-                              copyable={false}
-                              size="sm"
-                              className=""
+                            <DesignerCellTextInput
                               value={field.comment}
                               onChange={(comment) => updateField(field.id, { comment })}
                             />
                           </td>
-                          <td>
+                          <td className="db-table-designer-cell-actions">
                             <button
                               type="button"
                               className="btn-icon db-table-designer-remove"
@@ -293,27 +468,9 @@ export function TableDesignerPanel({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </DockPanel>
-            <DockHandle direction="horizontal" />
-            <DockPanel defaultSize="38%" minSize="24%" className="db-table-designer-indexes-pane">
-              <div className="db-table-designer-section">
-                <div className="db-table-designer-section-header">
-                  <h3>{t("database.tableDesigner.indexes")}</h3>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title={t("database.tableDesigner.addIndex")}
-                    aria-label={t("database.tableDesigner.addIndex")}
-                    onClick={addIndex}
-                  >
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-                      <path d="M8 3v10M3 8h10" />
-                    </svg>
-                  </Button>
-                </div>
+              ) : (
                 <div className="db-table-designer-grid-wrap">
-                  <table className="db-table-designer-grid">
+                  <table className="db-table-designer-grid db-table-designer-grid--indexes">
                     <thead>
                       <tr>
                         <th>{t("database.tableDesigner.index.name")}</th>
@@ -334,21 +491,13 @@ export function TableDesignerPanel({
                         model.indexes.map((index) => (
                           <tr key={index.id}>
                             <td>
-                              <TextInput
-                                clearable={false}
-                                copyable={false}
-                                size="sm"
-                                className=""
+                              <DesignerCellTextInput
                                 value={index.name}
                                 onChange={(name) => updateIndex(index.id, { name })}
                               />
                             </td>
                             <td>
-                              <TextInput
-                                clearable={false}
-                                copyable={false}
-                                size="sm"
-                                className=""
+                              <DesignerCellTextInput
                                 value={index.columns.join(", ")}
                                 placeholder={t("database.tableDesigner.index.columnsPlaceholder")}
                                 onChange={(value) =>
@@ -370,7 +519,7 @@ export function TableDesignerPanel({
                                 onChange={(event) => updateIndex(index.id, { primary: event.target.checked })}
                               />
                             </td>
-                            <td>
+                            <td className="db-table-designer-cell-actions">
                               <button
                                 type="button"
                                 className="btn-icon db-table-designer-remove"
@@ -387,9 +536,9 @@ export function TableDesignerPanel({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </DockPanel>
-          </DockLayout>
+              )}
+            </div>
+          </div>
         </DockPanel>
         <DockHandle direction="vertical" />
         <DockPanel defaultSize="32%" minSize="18%" className="db-table-designer-sql-pane">
@@ -401,10 +550,16 @@ export function TableDesignerPanel({
               </span>
             </div>
             <div className="db-table-designer-sql-content">
-              <TableDdlViewer ddl={previewSql} />
+              <TableDdlViewer ddl={applySqlPreview} />
             </div>
-          </div>
-        </DockPanel>
+            {onSave && (
+              <div className="db-table-designer-sql-footer">
+                <Button variant="default" size="sm" disabled={!dirty || saving} onClick={onSave}>
+                  {saving ? t("database.tableDesigner.saving") : t("database.tableDesigner.save")}
+                </Button>
+              </div>
+            )}
+          </div>        </DockPanel>
       </DockLayout>
     </div>
   );

@@ -20,7 +20,7 @@ type JsonBodyViewMode = "structured" | "source";
 
 interface Props {
   session: HttpResponseSession;
-  /** 仅激活 Tab 才解析/渲染 JSON 预览，避免 Dock 多 Tab 同时挂载 JsonView 卡死 */
+  /** 仅激活 Tab 才解析/渲染 JSON 预览，避免 Dock 多 Tab 同时挂载虚拟 JSON 树卡死 */
   isActive?: boolean;
 }
 
