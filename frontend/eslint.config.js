@@ -22,6 +22,35 @@ export default defineConfig([
     rules: {
       // 终端/协议需处理 ANSI 等控制字符，正则中出现控制字符是本质需求
       'no-control-regex': 'off',
+      // 禁止 Tauri / 浏览器原生确认与提示框（文件 open/save 除外）
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tauri-apps/plugin-dialog',
+              importNames: ['confirm', 'message', 'ask'],
+              message:
+                '禁止使用 Tauri 原生 confirm/message/ask。请用 appConfirm / appAlert / appPrompt；文件选择请 import open 或 save。',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'confirm',
+          message: '请使用 appConfirm()，勿使用 window.confirm。',
+        },
+        {
+          name: 'alert',
+          message: '请使用 appAlert()，勿使用 window.alert。',
+        },
+        {
+          name: 'prompt',
+          message: '请使用 appPrompt() 或 quickInput()，勿使用 window.prompt。',
+        },
+      ],
       // 下划线前缀表示有意忽略的变量/参数
       '@typescript-eslint/no-unused-vars': [
         'error',

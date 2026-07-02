@@ -1,19 +1,24 @@
-import { nativeConfirm, type NativeDialogOptions } from "./nativeDialog";
+import { requestAppConfirm } from "../stores/appDialogStore";
 
-export type AppConfirmOptions = Pick<NativeDialogOptions, "okLabel" | "cancelLabel" | "kind"> & {
+export type AppConfirmOptions = {
+  okLabel?: string;
+  cancelLabel?: string;
   confirmLabel?: string;
+  kind?: "info" | "warning" | "error";
 };
 
-/** 系统原生确认框 */
+/**
+ * 应用内确认框（全局 `AppDialogHost` + `WarnAlert` 渲染）。
+ *
+ * **禁止**改为 Tauri / `window.confirm` 原生弹窗；需要改样式请改 `WarnAlert`。
+ */
 export function appConfirm(
   message: string,
   title = "OmniPanel",
   options?: AppConfirmOptions,
 ): Promise<boolean> {
-  return nativeConfirm(message, {
-    title,
-    kind: options?.kind ?? "warning",
-    okLabel: options?.confirmLabel ?? options?.okLabel,
+  return requestAppConfirm(message, title, {
+    confirmLabel: options?.confirmLabel ?? options?.okLabel,
     cancelLabel: options?.cancelLabel,
   });
 }

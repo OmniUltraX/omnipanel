@@ -21,6 +21,7 @@ import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiDockView } from "./components/ai/AiDockView";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
+import { AppDialogHost } from "./components/ui/AppDialogHost";
 import { QuickInputHost } from "./components/ui/QuickInputHost";
 import { ToastHost } from "./components/ui/ToastHost";
 import { Button } from "./components/ui/Button";
@@ -505,6 +506,8 @@ function AppShell() {
       <NotificationDrawer />
       <WindowResize />
       <QuickInputHost />
+      {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
+      <AppDialogHost />
       <ToastHost />
       <SettingsWindow />
       <SubWindowMinimizedStack />

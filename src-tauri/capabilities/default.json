@@ -19,8 +19,11 @@
     "core:event:allow-emit",
     "core:event:allow-listen",
     "shell:default",
-    "dialog:default",
-    "dialog:allow-confirm",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:deny-confirm",
+    "dialog:deny-message",
+    "dialog:deny-ask",
     "fs:default",
     "updater:default"
   ]
