@@ -3,13 +3,13 @@ import type {
   TablePreviewState,
   DbColumnMeta,
   SortState,
-} from "../modules/database/dbWorkspaceState";
+} from "../modules/database/workspace/dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
-import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
+import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 import type { DbConnectionConfig } from "../modules/database/api";
 import type { DatabaseSchema } from "../modules/database/types";
-import type { SqlEditorOpenMode } from "../modules/database/SqlEditor";
-import type { SchemaTableSelection } from "../modules/database/SchemaBrowser";
+import type { SqlEditorOpenMode } from "../modules/database/sql/SqlEditor";
+import type { SchemaTableSelection } from "../modules/database/schema/SchemaBrowser";
 
 export type DbTabAction = {
   kind: "refresh" | "page" | "close" | "sort" | "filter";

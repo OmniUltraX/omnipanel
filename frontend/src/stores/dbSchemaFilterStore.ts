@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { loadSchemaFilters, saveSchemaFilters } from "../modules/database/api";
-import type { SchemaFilterState } from "../modules/database/DatabaseFilterDialog";
-import { filterStatesToSnapshot, snapshotToFilterStates } from "../modules/database/schemaFilters";
+import type { SchemaFilterState } from "../modules/database/schema/DatabaseFilterDialog";
+import { filterStatesToSnapshot, snapshotToFilterStates } from "../modules/database/schema/schemaFilters";
 
 interface DbSchemaFilterState {
   databaseFilters: Record<string, SchemaFilterState>;

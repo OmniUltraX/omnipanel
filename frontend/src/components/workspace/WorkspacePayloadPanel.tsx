@@ -3,7 +3,7 @@ import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import { WorkspaceEmptyPage } from "../ui/WorkspaceEmptyPage";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
-import { DatabaseTabDockPane } from "../../modules/database/DatabaseTabDockPane";
+import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
 import { DockerWorkspaceTabPane } from "../../modules/docker/DockerWorkspaceTabPane";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 import { ensureTerminalTabFromSnapshot } from "../../lib/workspaceTabActions";

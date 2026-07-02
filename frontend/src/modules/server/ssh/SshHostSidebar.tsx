@@ -8,7 +8,7 @@ import { useI18n } from "../../../i18n";
 import { HostListPanel } from "../../../components/workspace/HostListPanel";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import { useSshActiveHostStore } from "./stores/sshActiveHostStore";
-import type { HostDockOpenMode } from "./workspaceTabs";
+import type { HostDockOpenMode } from "./workspace/workspaceTabs";
 import { useSshSelectionStore } from "./stores/sshSelectionStore";
 import { useSshWorkspaceNavStore } from "./stores/sshWorkspaceNavStore";
 import { TunnelsSidebarPanel } from "./components/TunnelsSidebarPanel";

@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
 import { migrateLayoutStorage } from "../../../../lib/layoutMigration";
 import { useSshActiveHostStore } from "../stores/sshActiveHostStore";
-import type { HostDockOpenMode } from "../workspaceTabs";
+import type { HostDockOpenMode } from "../workspace/workspaceTabs";
 
 export function useSshHostWorkspace(sshResources: WorkspaceResource[]) {
   useEffect(() => {

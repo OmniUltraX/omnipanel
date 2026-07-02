@@ -1,7 +1,7 @@
 import type { DbConnectionConfig } from "../api";
 import { isConnectionEnabled } from "../api";
-import type { SqlTabState, TablePreviewState } from "../dbWorkspaceState";
-import type { DbWorkspaceTab } from "../workspaceTabs";
+import type { SqlTabState, TablePreviewState } from "../workspace/dbWorkspaceState";
+import type { DbWorkspaceTab } from "../workspace/workspaceTabs";
 import type {
   DatabaseConnectionContext,
   DatabaseModuleContext,

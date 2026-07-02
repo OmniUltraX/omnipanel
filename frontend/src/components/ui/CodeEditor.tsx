@@ -10,7 +10,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
 import { sql } from "@codemirror/lang-sql";
-import { getSqlEditorThemeExtensions, isLightTheme } from "../../modules/database/sqlEditorTheme";
+import { getSqlEditorThemeExtensions, isLightTheme } from "../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export type CodeEditorLanguage = "text" | "sql" | "json" | "yaml" | "shell" | "dockerfile";

@@ -1,5 +1,5 @@
 import { commands } from "../ipc/bindings";
-import { emptySchemaCacheSnapshot } from "../modules/database/schemaCache";
+import { emptySchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 import { BUILTIN_DB_GROUPS, useDbGroupStore } from "../stores/dbGroupStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useDbSchemaCacheStore } from "../stores/dbSchemaCacheStore";

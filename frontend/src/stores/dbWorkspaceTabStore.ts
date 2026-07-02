@@ -4,8 +4,8 @@ import type { DbColumnMeta } from "../modules/database/api";
 import {
   type SqlTabState,
   type TablePreviewState,
-} from "../modules/database/dbWorkspaceState";
-import type { DbWorkspaceTab, TablePreviewWorkspaceTab } from "../modules/database/workspaceTabs";
+} from "../modules/database/workspace/dbWorkspaceState";
+import type { DbWorkspaceTab, TablePreviewWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 
 type TabDirtyRows = Record<string, Record<string, Record<string, unknown>>>;
 

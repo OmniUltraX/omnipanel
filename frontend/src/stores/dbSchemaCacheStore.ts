@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { loadSchemaCache, saveSchemaCache } from "../modules/database/api";
-import type { SchemaCacheSnapshot } from "../modules/database/schemaCache";
-import { emptySchemaCacheSnapshot } from "../modules/database/schemaCache";
+import type { SchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
+import { emptySchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 
 interface DbSchemaCacheState {
   snapshot: SchemaCacheSnapshot;

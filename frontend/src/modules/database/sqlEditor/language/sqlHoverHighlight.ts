@@ -1,7 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { formatStatement } from "./formatter";
-import { getSqlSnippetHighlightExtensions } from "../../sqlEditorTheme";
+import { getSqlSnippetHighlightExtensions } from "../../sql/sqlEditorTheme";
 
 export interface SqlHighlightMount {
   host: HTMLElement;

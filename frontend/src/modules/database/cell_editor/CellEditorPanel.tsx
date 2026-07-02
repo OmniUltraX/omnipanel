@@ -147,4 +147,3 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     );
   },
 );
-

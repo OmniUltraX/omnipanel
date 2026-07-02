@@ -2,6 +2,7 @@ import type { IDockviewPanelHeaderProps } from "dockview-react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { DockTabChrome } from "./DockTabChrome";
+import { DockTabIcon, type DockTabIconKind } from "./DockTabIcon";
 import type { DockTabPageType } from "./dockableTab";
 import { useDockTabLiveMeta } from "./dockTabLiveMeta";
 import { useDockTabHeaderRuntime } from "./dockTabHeaderRuntime";
@@ -10,6 +11,7 @@ import { useDockTabBarHidden } from "./useDockTabBarHidden";
 interface PanelParams {
   tabId: string;
   label?: string;
+  icon?: DockTabIconKind;
   status?: TopbarTabDef["status"];
   tooltip?: string;
   type?: DockTabPageType;
@@ -42,6 +44,7 @@ export function TopbarStyleDockTabHeader({
   const liveMeta = useDockTabLiveMeta(tabId);
   const rootRef = useDockTabBarHidden(tabId, Boolean(liveMeta.tabBarHidden));
   const label = liveMeta.label ?? props.params?.label ?? tabId;
+  const icon = liveMeta.icon ?? props.params?.icon;
   const status = props.params?.status;
   const tooltip = props.params?.tooltip ?? label;
   const pageType: DockTabPageType | undefined =
@@ -85,6 +88,7 @@ export function TopbarStyleDockTabHeader({
       onPointerUp={onPointerUp}
       onDoubleClick={handleDoubleClick}
     >
+      {icon ? <DockTabIcon kind={icon} /> : null}
       {status ? (
         <span className={`topbar-tab-dot ${tabStatusClass(status)}`} />
       ) : null}

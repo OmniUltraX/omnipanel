@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DataLoading } from "../../../components/ui/DataLoading";
-import { TableDdlViewer } from "../TableDdlViewer";
+import { TableDdlViewer } from "../table/TableDdlViewer";
 import { buildSyncTaskSqlPreview, type SyncTaskSqlPreviewInput } from "./syncTaskSqlPreview";
 
 interface SyncTaskScriptPreviewPanelProps {

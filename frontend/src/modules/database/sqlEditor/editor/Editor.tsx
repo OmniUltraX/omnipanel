@@ -16,8 +16,8 @@ import {
   isSqlEditorFocused,
   findStatementRangeAtOffset,
 } from "../language/selection";
-import { getSqlEditorThemeExtensions, isLightTheme } from "../../sqlEditorTheme";
-import { updateSearchHighlight } from "../../sqlSearchHighlight";
+import { getSqlEditorThemeExtensions, isLightTheme } from "../../sql/sqlEditorTheme";
+import { updateSearchHighlight } from "../../sql/sqlSearchHighlight";
 import { formatSql, formatSqlRange } from "../language/formatter";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { createSqlEditorExtensions } from "./extensions";

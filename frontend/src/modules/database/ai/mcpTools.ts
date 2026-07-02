@@ -12,8 +12,8 @@ import {
   type DbConnectionConfig,
 } from "../api";
 import { connectionWithDatabase } from "../toolbox/types";
-import { makeQueryRunId } from "../queryRun";
-import type { QueryResult } from "../dbWorkspaceState";
+import { makeQueryRunId } from "../sql/queryRun";
+import type { QueryResult } from "../workspace/dbWorkspaceState";
 
 function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();

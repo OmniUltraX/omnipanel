@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SchemaFiltersSnapshot } from "./schemaFilters";
-import type { SchemaTreeExpandedSnapshot } from "./schemaTreeExpanded";
-import type { SchemaCacheSnapshot } from "./schemaCache";
+import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
+import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
+import type { SchemaCacheSnapshot } from "./schema/schemaCache";
 
 export interface DbConnectionConfig {
   id: string;

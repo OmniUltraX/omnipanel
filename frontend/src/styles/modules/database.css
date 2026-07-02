@@ -3121,12 +3121,16 @@
         min-height: 0;
         max-height: none;
         margin: 0;
-        padding: var(--sp-2) var(--sp-3);
+        padding: var(--sp-4);
         resize: none;
         border: none;
         border-radius: 0;
         background: var(--surface);
         box-sizing: border-box;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--fg-2);
         scrollbar-width: none;
         -ms-overflow-style: none;
     }
@@ -3148,10 +3152,15 @@
         flex: 1;
         width: 100%;
         min-height: 0;
+        padding: var(--sp-4);
         border: none;
         border-radius: 0;
         background: var(--surface);
         box-sizing: border-box;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--fg-2);
     }
 
     .db-cell-editor-panel .cell-editor-input:focus {
@@ -3350,6 +3359,59 @@
         font-style: italic;
     }
 
+    .db-data-table-cell-overlay {
+        position: fixed;
+        z-index: var(--z-dialog);
+        box-sizing: border-box;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border-focus);
+        background: var(--surface);
+        color: var(--fg);
+        font-size: 11px;
+        line-height: 1.4;
+        font-family: "Maple Mono NF CN Light", var(--font-mono);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+    }
+
+    .db-data-table-cell-overlay--preview {
+        pointer-events: none;
+    }
+
+    .db-data-table-cell-overlay--edit {
+        pointer-events: auto;
+    }
+
+    .db-data-table-cell-overlay-preview {
+        display: flex;
+        flex-direction: column;
+        max-height: 320px;
+        min-height: 100%;
+        overflow: auto;
+    }
+
+    .db-data-table-cell-overlay-preview-view {
+        min-height: 0;
+    }
+
+    .db-data-table-cell-overlay-preview-view .content-preview-text {
+        padding: var(--sp-2) var(--sp-3);
+        font-size: 11px;
+        line-height: 1.4;
+    }
+
+    .db-data-table-cell-overlay-preview-view .content-preview-json {
+        padding: var(--sp-2) var(--sp-3);
+        font-size: 11px;
+    }
+
+    .db-data-table-cell-tooltip {
+        padding: 4px 8px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        pointer-events: none;
+    }
+
     .db-data-table-cell-null-tag {
         display: inline-block;
         font-size: 9px;
@@ -3391,7 +3453,7 @@
         z-index: 20;
         display: inline-flex;
         align-items: flex-start;
-        max-width: min(720px, calc(100vw - 16px));
+        max-width: min(560px, 92vw);
     }
 
     .db-data-table-inline-editor {
@@ -3399,30 +3461,35 @@
         display: block;
         width: auto;
         height: auto;
-        min-width: 160px;
-        max-width: min(720px, calc(100vw - 16px));
         margin: 0;
-        padding: 6px 10px;
+        padding: 4px 8px;
         border: 1px solid var(--border-focus, var(--accent));
         border-radius: var(--r-sm);
         background: var(--surface);
         color: inherit;
         font: inherit;
-        line-height: 1.5;
+        font-family: "Maple Mono NF CN Light", var(--font-mono);
+        font-size: 11px;
+        line-height: 1.4;
         outline: none;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
         -webkit-appearance: none;
         appearance: none;
     }
 
+    .db-data-table-cell-overlay--edit .db-data-table-inline-editor--textarea {
+        width: 100%;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
     .db-data-table-inline-editor--textarea {
         resize: none;
         overflow-x: hidden;
-        min-height: 36px;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
         word-break: break-word;
-        field-sizing: content;
     }
 
     .db-data-table-inline-editor--textarea::-webkit-scrollbar {

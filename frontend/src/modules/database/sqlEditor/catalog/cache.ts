@@ -1,4 +1,4 @@
-import type { SchemaCacheSnapshot, SchemaCacheConnectionEntry } from "../../schemaCache";
+import type { SchemaCacheSnapshot, SchemaCacheConnectionEntry } from "../../schema/schemaCache";
 import type { DbTableSchema } from "../../api";
 import { Catalog } from "./catalog";
 import type { Table } from "./schema";

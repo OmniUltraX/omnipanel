@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
+import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 import type { ModuleRouteSnapshot } from "../lib/workspaceModuleRoutes";
 import type { ComponentSnapshot } from "../lib/workspaceComponentTypes";
 

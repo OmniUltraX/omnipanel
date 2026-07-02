@@ -5,7 +5,7 @@ import {
   sanitizeWorkspaceSession,
   type DbClosedPanelEntry,
   type DbWorkspaceSessionSnapshot,
-} from "../modules/database/dbWorkspaceSession";
+} from "../modules/database/workspace/dbWorkspaceSession";
 
 const STORAGE_KEY = "omnipanel.dbWorkspaceSession.v1";
 

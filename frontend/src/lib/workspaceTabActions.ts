@@ -23,7 +23,7 @@ import {
 import { disposeTabBackendSessions } from "../hooks/useTerminal";
 import { clearPaneBackendPending } from "../hooks/useTerminal";
 import { clearTerminalPaneSender } from "../modules/terminal/terminalPaneSenders";
-import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
+import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 import {
   buildComponentSnapshot,
   type ComponentSnapshot,

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { loadSchemaTreeExpanded, saveSchemaTreeExpanded } from "../modules/database/api";
-import type { SchemaTreeExpandedSnapshot } from "../modules/database/schemaTreeExpanded";
+import type { SchemaTreeExpandedSnapshot } from "../modules/database/schema/schemaTreeExpanded";
 
 interface DbSchemaTreeExpandedState {
   expandedNodeIds: Set<string>;

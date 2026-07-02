@@ -5,7 +5,7 @@ import { refreshConnectionPool } from "./connectionPoolStore";
 import {
   initKnowledgeVectorizeBackgroundTasks,
 } from "../modules/knowledge/knowledgeVectorize";
-import { initSchemaCacheBackgroundTasks } from "../modules/database/schemaCacheBackgroundTasks";
+import { initSchemaCacheBackgroundTasks } from "../modules/database/schema/schemaCacheBackgroundTasks";
 import { initDbSyncTaskRunTracking } from "./dbSyncTaskRunTracking";
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";

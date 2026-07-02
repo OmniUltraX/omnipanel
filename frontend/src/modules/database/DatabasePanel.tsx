@@ -6,21 +6,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { Button } from "../../components/ui/Button";
-import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./SchemaBrowser";
-import type { SchemaTreeItem } from "./schemaTreeItem";
+import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
+import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
-import { DatabaseSchemaSidebar } from "./DatabaseSchemaSidebar";
+import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
 import {
   DatabaseModuleContextBridge,
   resolveDatabaseModuleContext,
 } from "./ai";
-import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
-import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
-import { RedisQueryPanel } from "./RedisQueryPanel";
-import { ConnectionResolvedDockPane } from "./ConnectionResolvedDockPane";
-import { DbSchemaProvider } from "./DbSchemaContext";
-import { ConnectionDialog } from "./ConnectionDialog";
-import { ConnectionImportPreviewDialog } from "./ConnectionImportPreviewDialog";
+import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
+import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoPanel";
+import { RedisQueryPanel } from "./redis/RedisQueryPanel";
+import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
+import { DbSchemaProvider } from "./schema/DbSchemaContext";
+import { ConnectionDialog } from "./connection/ConnectionDialog";
+import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
@@ -35,12 +35,12 @@ import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
-import { getVisibleNames, mergeFilter } from "./DatabaseFilterDialog";
+import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
-import { makeQueryRunId, isQueryCancelledError } from "./queryRun";
+import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
@@ -69,16 +69,16 @@ import {
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
 import { formatSql } from "./sqlIntel/sqlFormat";
-import { toCsv } from "./csvExport";
-import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./columnMetaUtils";
+import { toCsv } from "./shared/csvExport";
+import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./shared/columnMetaUtils";
 import { isSameCellValue, shouldUseInlineCellEdit } from "./cell_editor";
-import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redisTableMeta";
-import { getCachedDatabaseNames, getCachedTableColumns } from "./schemaCacheMerge";
-import { snapshotToFilterStates } from "./schemaFilters";
-import type { SchemaCacheConnectionEntry } from "./schemaCache";
-import { submitSchemaCacheRefresh } from "./schemaCacheBackgroundTasks";
-import { createSchemaCacheRefreshReporter } from "./schemaCacheStatusLog";
-import { parseDatabaseNodeId, parseTableNodeId } from "./schemaTreeIds";
+import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redis/redisTableMeta";
+import { getCachedDatabaseNames, getCachedTableColumns } from "./schema/schemaCacheMerge";
+import { snapshotToFilterStates } from "./schema/schemaFilters";
+import type { SchemaCacheConnectionEntry } from "./schema/schemaCache";
+import { submitSchemaCacheRefresh } from "./schema/schemaCacheBackgroundTasks";
+import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
+import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
   makeSqlTabId,
@@ -110,10 +110,10 @@ import {
   type SqlWorkspaceTab,
   type TableDesignerWorkspaceTab,
   type TablePreviewWorkspaceTab,
-} from "./workspaceTabs";
+} from "./workspace/workspaceTabs";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
-import { DatabaseTableEditorHost } from "./DatabaseTableEditorHost";
+import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import type { SyncTask } from "./toolbox/types";
 import { useDbSyncTaskStore } from "../../stores/dbSyncTaskStore";
@@ -138,17 +138,17 @@ import {
   type TablePreviewState,
   type QueryResult,
   resolveConnIdForWorkspaceTab,
-} from "./dbWorkspaceState";
-import { DatabaseWorkspaceDock } from "./DatabaseWorkspaceDock";
+} from "./workspace/dbWorkspaceState";
+import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import {
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
   selectTablePreviewTabIdKey,
-} from "./databasePanelTabKeys";
-import { DbPanelSurface } from "./DbPanelSurface";
-import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
-import { DbSidebarLinkageProvider } from "./DbSidebarLinkageContext";
-import { formatFilterWhere } from "./tablePreviewFilter";
+} from "./workspace/databasePanelTabKeys";
+import { DbPanelSurface } from "./workspace/DbPanelSurface";
+import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
+import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
+import { formatFilterWhere } from "./grid/tablePreviewFilter";
 import type { RuleGroupType } from "react-querybuilder";
 import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
@@ -170,7 +170,7 @@ import {
   tablePreviewStateFromSnapshot,
   type DbClosedPanelEntry,
   type DbSqlTabStateSnapshot,
-} from "./dbWorkspaceSession";
+} from "./workspace/dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
 import {
@@ -182,7 +182,7 @@ import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { dbTabToSnapshot, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
-import { connectionNodeId } from "./schemaTreeExpanded";
+import { connectionNodeId } from "./schema/schemaTreeExpanded";
 import { loadNavicatImportPreview } from "./navicatImport/loadNavicatNcxFile";
 import type { NavicatImportPreviewItem } from "./navicatImport/types";
 

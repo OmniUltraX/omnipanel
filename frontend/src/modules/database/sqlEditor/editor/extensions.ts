@@ -25,8 +25,8 @@ import { sql } from "@codemirror/lang-sql";
 import { autocompletion, completionKeymap, closeBrackets } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "../../types";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
-import { getSearchHighlightExtension } from "../../sqlSearchHighlight";
-import { getSqlEditorThemeExtensions, isLightTheme } from "../../sqlEditorTheme";
+import { getSearchHighlightExtension } from "../../sql/sqlSearchHighlight";
+import { getSqlEditorThemeExtensions, isLightTheme } from "../../sql/sqlEditorTheme";
 import {
   createSqlCompletionSource,
   sqlCompletionReopenOnDelete,

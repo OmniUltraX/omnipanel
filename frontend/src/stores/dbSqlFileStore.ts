@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
-import type { SqlTabState } from "../modules/database/dbWorkspaceState";
+import type { SqlTabState } from "../modules/database/workspace/dbWorkspaceState";
 
 export type DbSqlFileNodeType = "folder" | "file";
 

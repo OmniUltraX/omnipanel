@@ -1,6 +1,6 @@
 import type { DbWorkspaceMirrorContextValue } from "../contexts/DbWorkspaceContext.types";
-import type { DbWorkspaceTab } from "../modules/database/workspaceTabs";
-import { resolveSqlTabConnectionId } from "../modules/database/dbWorkspaceState";
+import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
+import { resolveSqlTabConnectionId } from "../modules/database/workspace/dbWorkspaceState";
 
 export interface MirroredDbTabSnapshot {
   ctx: DbWorkspaceMirrorContextValue;

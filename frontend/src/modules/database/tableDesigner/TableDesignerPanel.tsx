@@ -4,7 +4,7 @@ import { Select } from "../../../components/ui/Select";
 import { TextInput, type TextInputProps } from "../../../components/ui/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { useI18n } from "../../../i18n";
-import { TableDdlViewer } from "../TableDdlViewer";
+import { TableDdlViewer } from "../table/TableDdlViewer";
 import type { TableDesignerDriver, TableDesignerFieldRow, TableDesignerIndexRow, TableDesignerModel, TableDesignerTypeOption } from "./types";
 
 interface TableDesignerPanelProps {
