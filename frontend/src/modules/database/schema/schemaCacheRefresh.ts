@@ -69,7 +69,11 @@ export async function fetchConnectionSchemaCache(
   const refreshedAt = Date.now();
   try {
     const presetDb = connection.database.trim();
-    const dbNames = presetDb ? [presetDb] : await listDatabases(connection);
+    const isSqlite = connection.db_type === "sqlite" || connection.db_type === "sqlite3";
+    const dbDisplayName = isSqlite && presetDb
+      ? (presetDb.split(/[/\\]/).pop() ?? presetDb)
+      : presetDb;
+    const dbNames = dbDisplayName ? [dbDisplayName] : await listDatabases(connection);
     const databases: SchemaCacheDatabaseEntry[] = [];
 
     for (let index = 0; index < dbNames.length; index++) {

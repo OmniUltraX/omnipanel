@@ -19,7 +19,7 @@ import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
 } from "../mysqlDeploymentDetect";
-import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
@@ -216,7 +216,7 @@ function MysqlDeploymentTags({
     if (deployment?.serverName?.trim()) {
       return deployment.serverName.trim();
     }
-    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 

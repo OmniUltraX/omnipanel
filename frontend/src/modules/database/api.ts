@@ -66,9 +66,13 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     form.engine === "sqlite" && database
       ? (database.split(/[/\\]/).pop() ?? database)
       : "";
+  let name = form.name.trim() || nameFromPath || host || "Untitled";
+  if (form.engine === "sqlite" && (/[/\\]/.test(name))) {
+    name = name.split(/[/\\]/).pop() ?? name;
+  }
   return {
     id,
-    name: form.name.trim() || nameFromPath || host || "Untitled",
+    name,
     db_type: form.engine,
     host,
     port,

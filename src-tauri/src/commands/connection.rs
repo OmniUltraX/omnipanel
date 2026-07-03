@@ -1,14 +1,18 @@
+use std::collections::HashMap;
+use std::net::ToSocketAddrs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{Connection, ConnectionKind, Vault};
+use omnipanel_store::{
+    Connection, ConnectionKind, DbConnectionConfig, HostResolveEntry, Vault,
+    get_cached_addresses, load_host_resolve_cache, save_host_resolve_cache, upsert_cache_entry,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::State;
 
 use crate::state::AppState;
 use omnipanel_ssh::ssh_config_from_json;
-use omnipanel_store::DbConnectionConfig;
 
 #[derive(Debug, Deserialize)]
 struct PanelConfig {
@@ -201,4 +205,63 @@ pub async fn conn_test(
             format!("暂不支持 {other:?} 类型的连接测试"),
         )),
     }
+}
+
+/// 解析域名为 IP 地址，结果持久化到缓存，避免重复解析。
+/// 传入已存在的 IP 地址直接返回；域名则先查缓存，未命中再 DNS 解析。
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_host(host: String) -> Result<Vec<String>, OmniError> {
+    let trimmed = host.trim().to_lowercase();
+    if trimmed.is_empty() {
+        return Err(OmniError::invalid_input("host 为空"));
+    }
+
+    // 已经是 IP 地址 → 直接返回
+    let is_ip = trimmed
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == ':');
+    if is_ip {
+        return Ok(vec![trimmed]);
+    }
+
+    // 查缓存
+    let mut cache = load_host_resolve_cache().map_err(|e| {
+        OmniError::internal(format!("加载主机解析缓存失败: {e}"))
+    })?;
+    if let Some(cached) = get_cached_addresses(&cache, &trimmed) {
+        if !cached.is_empty() {
+            return Ok(cached);
+        }
+    }
+
+    // DNS 解析
+    let addrs: Vec<String> = tokio::task::spawn_blocking({
+        let host = trimmed.clone();
+        move || {
+            (host.as_str(), 0)
+                .to_socket_addrs()
+                .ok()
+                .into_iter()
+                .flatten()
+                .map(|sa| sa.ip().to_string())
+                .collect::<Vec<_>>()
+        }
+    })
+    .await
+    .map_err(|e| OmniError::internal(format!("DNS 解析任务失败: {e}")))?
+    .into_iter()
+    .collect();
+
+    // 持久化缓存
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    upsert_cache_entry(&mut cache, &trimmed, addrs.clone(), now);
+    save_host_resolve_cache(&cache).map_err(|e| {
+        OmniError::internal(format!("保存主机解析缓存失败: {e}"))
+    })?;
+
+    Ok(addrs)
 }

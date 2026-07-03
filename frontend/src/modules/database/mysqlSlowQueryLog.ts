@@ -27,6 +27,14 @@ function normalizeHost(host: string): string {
   return host.trim().toLowerCase();
 }
 
+/** 粗略判断 host 是否为域名（非 IP 格式且非 localhost 别名）。 */
+function isDomainName(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  if (LOCALHOST_ALIASES.has(h)) return false;
+  // 包含字母 → 域名
+  return /[a-zA-Z]/.test(h);
+}
+
 export function hostsMatch(dbHost: string, sshHost: string): boolean {
   const a = normalizeHost(dbHost);
   const b = normalizeHost(sshHost);
@@ -34,8 +42,8 @@ export function hostsMatch(dbHost: string, sshHost: string): boolean {
   return LOCALHOST_ALIASES.has(a) && LOCALHOST_ALIASES.has(b);
 }
 
-/** 按数据库连接 host 查找匹配的 SSH 连接（同主机名 / localhost 等价）。 */
-export function findSshConnectionForDbHost(
+/** 同步的快速匹配（不解析域名），用于无法 await 的上下文。 */
+export function findSshConnectionForDbHostSync(
   sshConnections: Connection[],
   dbHost: string,
 ): Connection | undefined {
@@ -44,6 +52,57 @@ export function findSshConnectionForDbHost(
     const cfg = parseSshConfig(conn);
     return cfg ? hostsMatch(dbHost, cfg.host) : false;
   });
+}
+
+/** 按数据库 host 查找匹配的 SSH 连接。先做直接匹配，失败时自动解析域名后重试。 */
+export async function findSshConnectionForDbHost(
+  sshConnections: Connection[],
+  dbHost: string,
+): Promise<Connection | undefined> {
+  // 1. 直接匹配（同步快速路径）
+  const matched = findSshConnectionForDbHostSync(sshConnections, dbHost);
+  if (matched) return matched;
+
+  // 2. 尝试解析两侧域名后匹配
+  const needResolve = (h: string) => isDomainName(h) && !LOCALHOST_ALIASES.has(normalizeHost(h));
+  const resolvedCache = new Map<string, string[]>();
+
+  async function resolve(h: string): Promise<string[]> {
+    const cached = resolvedCache.get(h);
+    if (cached) return cached;
+    try {
+      const result = await commands.resolveHost(h);
+      if (result.status === "error") {
+        throw new Error(JSON.stringify(result.error));
+      }
+      const addrs = result.data;
+      resolvedCache.set(h, addrs);
+      return addrs;
+    } catch {
+      return [];
+    }
+  }
+
+  const dbResolved: string[] = needResolve(dbHost) ? await resolve(dbHost) : [normalizeHost(dbHost)];
+
+  for (const conn of sshConnections) {
+    if (conn.kind !== "ssh") continue;
+    const cfg = parseSshConfig(conn);
+    if (!cfg) continue;
+    let sshCandidates: string[] = [normalizeHost(cfg.host)];
+    if (needResolve(cfg.host)) {
+      sshCandidates = [...sshCandidates, ...(await resolve(cfg.host))];
+    }
+    sshCandidates = [...new Set(sshCandidates)];
+
+    for (const a of dbResolved) {
+      for (const b of sshCandidates) {
+        if (a === b) return conn;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function remotePaneConnected(resourceId: string): boolean {
@@ -96,7 +155,7 @@ export function resolveSlowLogAvailabilitySync(
   if (!isMysqlConnectionInfoCapable(connection)) {
     return { enabled: false, reason: "not_mysql" };
   }
-  const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+  const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
   if (!ssh) {
     return { enabled: false, reason: "no_ssh" };
   }

@@ -13,6 +13,7 @@ mod http;
 mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
+mod host_resolve_cache;
 mod paths;
 mod schema_cache;
 mod schema_filters;
@@ -34,6 +35,10 @@ pub use file_index::{
     FileIndexBatchItem, FileIndexEntry, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
 };
 pub use file_index_storage::{FileIndexStorage, resolve_file_index_db_path};
+pub use host_resolve_cache::{
+    get_cached_addresses, load_host_resolve_cache, save_host_resolve_cache, upsert_cache_entry,
+    HostResolveEntry,
+};
 pub use paths::default_file_index_storage_dir;
 pub use database::{
     DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
@@ -49,8 +54,9 @@ pub use knowledge_vector::{
 };
 pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
-    database_schema_cache_path, database_schema_filters_path, database_schema_tree_expanded_path,
-    mcp_services_path, meta_db_path, module_dir, omnipd_root, skills_root,
+    database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
+    database_schema_tree_expanded_path, mcp_services_path, meta_db_path, module_dir, omnipd_root,
+    skills_root,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,

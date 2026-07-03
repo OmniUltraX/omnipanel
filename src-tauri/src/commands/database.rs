@@ -489,15 +489,39 @@ fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
 pub async fn db_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbConnectionConfig>, String> {
-    state.db_connections.list().map_err(|e| e.to_string())
+    let mut conns = state.db_connections.list().map_err(|e| e.to_string())?;
+    for conn in &mut conns {
+        if conn.db_type == "sqlite" {
+            let name = &conn.name;
+            if name.contains('\\') || name.contains('/') {
+                if let Some(base) = name.rsplit(|c| c == '\\' || c == '/').next() {
+                    if !base.is_empty() {
+                        conn.name = base.to_string();
+                    }
+                }
+            }
+        }
+    }
+    Ok(conns)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn db_save_connection(
     state: State<'_, AppState>,
-    connection: DbConnectionConfig,
+    mut connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
+    if connection.db_type == "sqlite" {
+        // 对于 SQLite 连接，将名称从绝对路径简化为文件名
+        let name = &connection.name;
+        if name.contains('\\') || name.contains('/') {
+            if let Some(base) = name.rsplit(|c| c == '\\' || c == '/').next() {
+                if !base.is_empty() {
+                    connection.name = base.to_string();
+                }
+            }
+        }
+    }
     state
         .db_connections
         .save(connection)
@@ -597,7 +621,22 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
             Ok((0..16).map(|n| n.to_string()).collect())
         }
-        _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
+        _ if !connection.database.trim().is_empty() => {
+            // SQLite 等单文件数据库：显示文件名而非完整路径
+            if connection.db_type.eq_ignore_ascii_case("sqlite")
+                || connection.db_type.eq_ignore_ascii_case("sqlite3")
+            {
+                let path = connection.database.trim();
+                let name = path
+                    .rsplit(|c| c == '\\' || c == '/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(path);
+                Ok(vec![name.to_string()])
+            } else {
+                Ok(vec![connection.database.clone()])
+            }
+        }
         _ => Ok(vec![]),
     }
 }
@@ -2243,7 +2282,12 @@ fn introspect_sqlite_schema_inner(
         .collect();
 
     Ok(DbIntrospectResult {
-        database: path.to_string(),
+        database: path
+            .rsplit(|c| c == '\\' || c == '/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(path)
+            .to_string(),
         tables,
         views,
         routines,
@@ -2326,11 +2370,10 @@ fn sqlite_pragma_indexes(
             .prepare(&col_sql)
             .map_err(|e| format!("PRAGMA index_info failed: {e}"))?;
         let cols: Vec<String> = col_stmt
-            .query_map([], |row| row.get(2))
+            .query_map([], |row| row.get::<_, Option<String>>(2))
             .map_err(|e| format!("PRAGMA index_info query failed: {e}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("collect error: {e}"))?;
-
+            .filter_map(|r| r.ok().flatten())
+            .collect();
         if !cols.is_empty() {
             indexes.push(DbIndexMeta {
                 name: idx_name,
