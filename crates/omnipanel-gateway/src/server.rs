@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use omnipanel_ai::provider::AiProviderRegistry;
-use omnipanel_store::{AiSessionRecord, Storage};
+use omnipanel_store::Storage;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};

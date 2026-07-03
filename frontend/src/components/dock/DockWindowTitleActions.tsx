@@ -47,6 +47,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
     if (mode === "controls") return;
     const target = event.target as HTMLElement;
     if (target.closest(".win-controls")) return;
+    if (target.closest(".dv-tab, .dv-default-tab, .dock-tab-header-root")) return;
     const win = getCurrentWindow();
     if (await win.isFullscreen()) {
       await win.setFullscreen(false);

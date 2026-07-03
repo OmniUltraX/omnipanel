@@ -20,8 +20,6 @@ use specta::Type;
 use tauri::{ipc::Channel, AppHandle, State};
 use tokio::sync::{oneshot, Mutex};
 
-use crate::agent::agent_kind_label;
-use crate::commands::agents::{agent_kind_key, detect_all_agents_sync};
 use crate::state::AppState;
 
 struct RegistryToolExecutor {

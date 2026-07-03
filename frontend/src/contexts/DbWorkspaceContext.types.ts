@@ -78,6 +78,8 @@ export interface DbWorkspaceSharedContextValue {
   resolveConnection: (connId: string) => DbConnectionConfig | null;
   connectionsLoading: boolean;
   selectTable: (selection: SchemaTableSelection) => void;
+  openTableDesigner: (selection: SchemaTableSelection) => void;
+  openTableQuery: (selection: SchemaTableSelection) => void;
   setTabMode: (id: string, mode: "data" | "sql") => void;
   commitTabDirty: (tabId: string) => Promise<void>;
   openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) => void;

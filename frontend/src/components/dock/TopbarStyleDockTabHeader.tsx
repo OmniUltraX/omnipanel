@@ -62,9 +62,6 @@ export function TopbarStyleDockTabHeader({
   const runtime = useDockTabHeaderRuntime();
 
   const handleDoubleClick = (event: ReactMouseEvent) => {
-    if (!preview) {
-      return;
-    }
     event.preventDefault();
     event.stopPropagation();
     runtime?.onTabDoubleClickRef.current?.(tabId);
