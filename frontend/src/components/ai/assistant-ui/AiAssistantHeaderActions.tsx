@@ -1,7 +1,6 @@
 import { Button } from "../../ui/Button";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
-
 function ConversationListIcon() {
   return (
     <svg
@@ -48,17 +47,7 @@ export function AiAssistantHeaderLeft() {
   );
 }
 
-/** 标题栏右侧：会话列表 */
-export function AiAssistantHeaderRight() {
-  return null;
-}
-
-/** SubWindow 等场景：左右工具条合并为一行 */
+/** SubWindow 标题栏附加控件：会话列表折叠 */
 export function AiAssistantHeaderToolbar() {
-  return (
-    <div className="ai-subwindow-header-toolbar">
-      <AiAssistantHeaderLeft />
-      <AiAssistantHeaderRight />
-    </div>
-  );
+  return <AiAssistantHeaderLeft />;
 }

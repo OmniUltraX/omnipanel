@@ -1,7 +1,4 @@
-import {
-  AiAssistantHeaderLeft,
-  AiAssistantHeaderRight,
-} from "./AiAssistantHeaderActions";
+import { AiAssistantHeaderLeft } from "./AiAssistantHeaderActions";
 import { AiAssistantBody } from "./AiAssistantBody";
 import { AiConversationTitle } from "./AiConversationTitle";
 
@@ -16,7 +13,6 @@ export function AiAssistantShell({ showDockHeader }: AiAssistantShellProps) {
         <div className="ai-panel-header">
           <AiConversationTitle as="h3" className="ai-panel-header-title" />
           <AiAssistantHeaderLeft />
-          <AiAssistantHeaderRight />
         </div>
       ) : null}
       <AiAssistantBody />

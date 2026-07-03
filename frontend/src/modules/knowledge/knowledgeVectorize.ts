@@ -217,14 +217,24 @@ export type KnowledgeChunkPreview = {
 
 export const KNOWLEDGE_CHUNK_PAGE_SIZE = 12;
 
-export async function loadKnowledgeChunksPage(
+export const KNOWLEDGE_RECALL_DEFAULT_TOP_K = 5;
+export const KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT = 50;
+export const KNOWLEDGE_RECALL_TOP_K_MIN = 1;
+export const KNOWLEDGE_RECALL_TOP_K_MAX = 100;
+
+export type KnowledgeRecallOptions = {
+  topK?: number;
+  /** 余弦相似度下限，0–1 */
+  minScore?: number;
+};
+
+export async function loadKnowledgeChunks(
   entryId: string,
-  page: number,
-  pageSize = KNOWLEDGE_CHUNK_PAGE_SIZE,
+  offset: number,
+  limit = KNOWLEDGE_CHUNK_PAGE_SIZE,
 ): Promise<KnowledgeChunkListResult> {
-  const safePage = Math.max(1, page);
-  const offset = (safePage - 1) * pageSize;
-  const res = await commands.knowledgeListChunks(entryId, offset, pageSize);
+  const safeOffset = Math.max(0, offset);
+  const res = await commands.knowledgeListChunks(entryId, safeOffset, limit);
   if (res.status === "ok") {
     return res.data;
   }
@@ -250,7 +260,16 @@ export async function recallKnowledgeEntry(
   entryId: string,
   query: string,
   provider: EmbeddingProviderConfig,
+  options?: KnowledgeRecallOptions,
 ): Promise<KnowledgeRecallHit[]> {
+  const topK = Math.min(
+    KNOWLEDGE_RECALL_TOP_K_MAX,
+    Math.max(KNOWLEDGE_RECALL_TOP_K_MIN, options?.topK ?? KNOWLEDGE_RECALL_DEFAULT_TOP_K),
+  );
+  const minScore = Math.min(
+    1,
+    Math.max(0, options?.minScore ?? KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT / 100),
+  );
   const res = await commands.knowledgeRecallTest({
     entryId,
     query,
@@ -261,6 +280,8 @@ export async function recallKnowledgeEntry(
       apiKey: provider.apiKey.trim(),
       apiStandard: provider.apiStandard,
     },
+    topK,
+    minScore,
   });
   if (res.status === "ok") {
     return res.data;

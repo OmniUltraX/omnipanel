@@ -65,6 +65,19 @@ export type RedisQueryWorkspaceTab = {
   preview?: boolean;
 };
 
+export type SlowQueryLogWorkspaceTab = {
+  id: string;
+  kind: "slow-query";
+  label: string;
+  connId: string;
+  sshConnectionId: string;
+  logFilePath: string;
+  deploymentKind?: "host" | "docker";
+  containerId?: string;
+  workspaceOnly?: boolean;
+  preview?: boolean;
+};
+
 export type ToolboxWorkspaceTab = {
   id: string;
   kind: "toolbox";
@@ -83,6 +96,7 @@ export type DbWorkspaceTab =
   | DatabaseListWorkspaceTab
   | TableDesignerWorkspaceTab
   | ConnectionInfoWorkspaceTab
+  | SlowQueryLogWorkspaceTab
   | RedisQueryWorkspaceTab
   | ToolboxWorkspaceTab;
 
@@ -104,6 +118,10 @@ export function isTableDesignerTab(tab: DbWorkspaceTab): tab is TableDesignerWor
 
 export function isConnectionInfoTab(tab: DbWorkspaceTab): tab is ConnectionInfoWorkspaceTab {
   return tab.kind === "connection";
+}
+
+export function isSlowQueryLogTab(tab: DbWorkspaceTab): tab is SlowQueryLogWorkspaceTab {
+  return tab.kind === "slow-query";
 }
 
 export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspaceTab {
@@ -182,6 +200,10 @@ export function makeConnectionInfoTabId(): string {
   return `conninfo:${Date.now()}`;
 }
 
+export function makeSlowQueryLogTabId(): string {
+  return `slowlog:${Date.now()}`;
+}
+
 export function makeRedisQueryTabId(): string {
   return `redisq:${Date.now()}`;
 }
@@ -201,6 +223,11 @@ export function makeTableTabLabel(dbName: string, tableName: string) {
 /** 连接信息 Tab 唯一键 */
 export function makeConnectionTabKey(connId: string): string {
   return `conn:${connId}`;
+}
+
+/** 慢查询日志 Tab 唯一键 */
+export function makeSlowQueryLogTabKey(connId: string): string {
+  return `slowlog:${connId}`;
 }
 
 /** 数据库列表 Tab 唯一键：连接 + 库名 */
@@ -267,6 +294,16 @@ export function findTabIdForConnection(
 ): string | undefined {
   return tabs.find(
     (tab) => isModuleDockTab(tab) && tab.kind === "connection" && tab.connId === connId,
+  )?.id;
+}
+
+/** 查找已打开指定连接的慢查询日志 Tab */
+export function findTabIdForSlowQueryLog(
+  tabs: DbWorkspaceTab[],
+  connId: string,
+): string | undefined {
+  return tabs.find(
+    (tab) => isModuleDockTab(tab) && tab.kind === "slow-query" && tab.connId === connId,
   )?.id;
 }
 

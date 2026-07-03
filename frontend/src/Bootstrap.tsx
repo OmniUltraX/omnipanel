@@ -65,10 +65,8 @@ export function Bootstrap() {
         initSettings();
 
         const proxy = useSettingsStore.getState().proxy;
-        if (proxy.enabled) {
-          await pushLog(t("app.splash.logs.proxy"));
-          invoke("set_proxy_config", { config: proxy }).catch(() => {});
-        }
+        await pushLog(t("app.splash.logs.proxy"));
+        invoke("set_proxy_config", { config: proxy }).catch(() => {});
 
         const fileIndexStorageDir = useSettingsStore.getState().fileIndexStorageDir;
         await pushLog(t("app.splash.logs.fileIndex"));

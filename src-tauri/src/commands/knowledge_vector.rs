@@ -202,7 +202,7 @@ async fn fetch_ollama_embeddings(
     Ok(parsed.embeddings)
 }
 
-async fn fetch_provider_embeddings(
+pub(crate) async fn fetch_provider_embeddings(
     provider: &EmbeddingProviderConfig,
     inputs: &[String],
 ) -> Result<Vec<Vec<f32>>, String> {
@@ -466,9 +466,13 @@ pub struct KnowledgeRecallTestArgs {
     pub entry_id: String,
     pub query: String,
     pub provider: EmbeddingProviderConfig,
+    /// 返回的最大文本块数；缺省为 5。
+    pub top_k: Option<u32>,
+    /// 余弦相似度下限（0–1）；缺省为 0.5。
+    pub min_score: Option<f64>,
 }
 
-/// 对单篇文档执行向量召回测试，返回全部文本块及其匹配度。
+/// 对单篇文档执行向量召回测试，返回匹配文本块及相似度。
 #[tauri::command]
 #[specta::specta]
 pub async fn knowledge_recall_test(
@@ -507,6 +511,85 @@ pub async fn knowledge_recall_test(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| OmniError::connection("query embedding 为空"))?;
 
+    let top_k = args.top_k.unwrap_or(5).clamp(1, 500) as usize;
+    let min_score = args.min_score.unwrap_or(0.5).clamp(0.0, 1.0);
+
     let storage = state.storage.lock().await;
-    storage.recall_knowledge_entry_vectors(&args.entry_id, &query_embedding)
+    storage.recall_knowledge_entry_vectors(
+        &args.entry_id,
+        &query_embedding,
+        top_k,
+        min_score,
+    )
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeQueryHit {
+    pub entry_id: String,
+    pub title: String,
+    #[specta(type = f64)]
+    pub chunk_index: i64,
+    pub content: String,
+    pub score: f64,
+}
+
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeQueryDocumentArgs {
+    pub provider: EmbeddingProviderConfig,
+    pub key: String,
+    pub top_n: Option<u32>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_query_document(
+    state: State<'_, AppState>,
+    args: KnowledgeQueryDocumentArgs,
+) -> Result<Vec<KnowledgeQueryHit>, OmniError> {
+    if args.provider.api_standard.to_lowercase() == "anthropic" {
+        return Err(OmniError::invalid_input(
+            "Anthropic 提供商暂不支持 embedding，请在设置中选用 OpenAI 兼容模型",
+        ));
+    }
+    let key = args.key.trim();
+    if key.is_empty() {
+        return Err(OmniError::invalid_input("查询关键字不能为空"));
+    }
+
+    let query_vectors = fetch_provider_embeddings(&args.provider, &[key.to_string()])
+        .await
+        .map_err(|e| {
+            OmniError::connection(format!(
+                "provider {} / {}: {e}",
+                args.provider.provider_id, args.provider.model_name
+            ))
+        })?;
+    let query_embedding = query_vectors
+        .into_iter()
+        .next()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| OmniError::connection("query embedding 为空"))?;
+
+    let top_n = args.top_n.unwrap_or(5).clamp(1, 50) as usize;
+
+    let storage = state.storage.lock().await;
+    let hits = storage.search_knowledge_vectors(&query_embedding, top_n)?;
+
+    let mut results = Vec::with_capacity(hits.len());
+    for hit in hits {
+        let title = storage
+            .get_knowledge(&hit.entry_id)?
+            .map(|e| e.title)
+            .unwrap_or_default();
+        results.push(KnowledgeQueryHit {
+            entry_id: hit.entry_id,
+            title,
+            chunk_index: hit.chunk_index,
+            content: hit.content,
+            score: hit.score,
+        });
+    }
+    Ok(results)
 }

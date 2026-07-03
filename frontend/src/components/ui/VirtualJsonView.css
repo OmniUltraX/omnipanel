@@ -1,0 +1,95 @@
+.json-view-container {
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.json-view-child {
+  margin-left: 16px;
+}
+
+.json-view-label {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.json-view-label-clickable {
+  color: var(--fg);
+  font-weight: 500;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+.json-view-label-clickable:hover {
+  color: var(--accent);
+}
+
+.json-view-punctuation {
+  color: var(--fg-2);
+}
+
+.json-view-null {
+  color: var(--danger);
+}
+
+.json-view-undefined {
+  color: var(--danger);
+  opacity: 0.7;
+}
+
+.json-view-number {
+  color: var(--accent);
+}
+
+.json-view-string {
+  color: var(--success);
+}
+
+.json-view-boolean {
+  color: var(--warn);
+}
+
+.json-view-other {
+  color: var(--fg-2);
+}
+
+.json-view-expand-icon {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  user-select: none;
+  display: inline-block;
+  width: 12px;
+}
+
+.json-view-expand-icon::after {
+  content: '\25B8';
+}
+
+.json-view-collapse-icon {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  user-select: none;
+  display: inline-block;
+  width: 12px;
+}
+
+.json-view-collapse-icon::after {
+  content: '\25BE';
+}
+
+.json-view-collapsed-content {
+  color: var(--muted);
+}
+
+.json-view-collapsed-content::after {
+  content: '...';
+}
+
+.json-view-child-fields {
+  display: block;
+}

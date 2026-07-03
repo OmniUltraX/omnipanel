@@ -433,7 +433,7 @@ export function SubWindow({
             : null}
         </div>
       ) : (
-        <div className={overlayClass} role="presentation" onClick={onClose}>
+        <div className={overlayClass} role="presentation">
           <div
             className={panelClass}
             role="dialog"

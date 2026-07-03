@@ -2,6 +2,7 @@ import type { ModuleKey } from "../../paths";
 import type { McpToolCatalogEntry, McpToolInfo } from "../../../ipc/bindings";
 import { DATABASE_MODULE_MCP_TOOLS } from "../../../modules/database/ai/mcpTools";
 import { TERMINAL_MODULE_MCP_TOOLS } from "../../../modules/terminal/ai/mcpTools";
+import { KNOWLEDGE_MODULE_MCP_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
 import type { McpToolRegistration } from "./types";
 
 /** 与 Rust `BUILTIN_SERVICE_ID` 保持一致 */
@@ -43,7 +44,7 @@ const KNOWLEDGE_BUILTIN_CATALOG: McpToolRegistration[] = [
   },
 ];
 
-MODULE_MCP_CATALOG.knowledge = KNOWLEDGE_BUILTIN_CATALOG;
+MODULE_MCP_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_MCP_TOOLS];
 
 export function parseModuleKeyFromToolName(toolName: string): ModuleKey | null {
   if (!toolName.startsWith("omni_")) return null;

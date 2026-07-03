@@ -49,6 +49,11 @@ pub const DEFAULT_MCP_TOOLS: &[(&str, &str, &str)] = &[
         "knowledge",
         "列出知识库文档，可按类型或标签过滤。",
     ),
+    (
+        "omni_knowledge_query_document",
+        "knowledge",
+        "使用向量匹配在知识库中语义检索文档片段。传入查询关键字，返回最相关的文本块及其来源文档标题。",
+    ),
 ];
 
 /// 持久化的 MCP 工具条目。

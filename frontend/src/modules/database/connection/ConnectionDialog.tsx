@@ -6,6 +6,8 @@ import { PasswordInput } from "../../../components/ui/PasswordInput";
 import { Select } from "../../../components/ui/Select";
 import { TextInput } from "../../../components/ui/TextInput";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { useConnectionStore } from "../../../stores/connectionStore";
+import type { Connection } from "../../../ipc/bindings";
 import type { FormFillFieldDef, FormFillValue } from "../../../components/ai/simple/formFill";
 import type { DbConnectionGroup } from "../../../stores/dbGroupStore";
 import type { DbConnectionConfig } from "../api";
@@ -20,6 +22,10 @@ import {
 import { submitSchemaCacheRefresh } from "../schema/schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "../schema/schemaCacheStatusLog";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
+import { commands } from "../../../ipc/bindings";
+import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+
+const LOCALHOST_ALIASES = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   postgresql: { port: "5432", icon: "PG" },
@@ -182,6 +188,38 @@ export function ConnectionDialog({
     try {
       const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
       void submitSchemaCacheRefresh([saved.id], schemaCacheReporter);
+
+      // 保存成功后，若为远程数据库且尚无对应 SSH 连接，自动创建一个
+      const dbHost = form.host.trim();
+      if (dbHost && form.engine !== "sqlite" && !LOCALHOST_ALIASES.has(dbHost.toLowerCase())) {
+        const existingSsh = findSshConnectionForDbHost(
+          useConnectionStore.getState().connections,
+          dbHost,
+        );
+        if (!existingSsh) {
+          const sshConn: Connection = {
+            id: "",
+            kind: "ssh",
+            name: `${dbHost} (SSH)`,
+            group: form.group.trim() || "默认",
+            envTag: "unknown",
+            tags: [],
+            config: JSON.stringify({
+              host: dbHost,
+              port: 22,
+              user: "root",
+              auth: { type: "password" as const },
+            }),
+          };
+          // 静默创建并自动连接，不影响主流程
+          useConnectionStore.getState().save(sshConn).then((saved) => {
+            if (saved?.id) {
+              commands.sshConnectConnection(saved.id, 80, 24).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      }
+
       onSaved?.();
       onClose();
     } catch (error) {

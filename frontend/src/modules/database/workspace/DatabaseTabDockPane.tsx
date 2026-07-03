@@ -9,8 +9,9 @@ import { DbPanelSurface } from "./DbPanelSurface";
 import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
 import { isTablePreviewTab } from "../../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
+import { DatabaseSlowQueryLogPanel } from "./DatabaseSlowQueryLogPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
-import { isConnectionInfoTab, isDatabaseListTab, isSqlWorkspaceTab } from "./workspaceTabs";
+import { isConnectionInfoTab, isDatabaseListTab, isSlowQueryLogTab, isSqlWorkspaceTab } from "./workspaceTabs";
 
 interface DatabaseTabDockPaneProps {
   tabId: string;
@@ -76,6 +77,22 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
             })()
           ) : isTablePreviewTab(tab) ? (
             <DbTablePreviewSurface tab={tab} />
+          ) : isSlowQueryLogTab(tab) ? (
+            (() => {
+              const connection =
+                overriddenCtx.groupConnections.find((item) => item.id === tab.connId) ?? null;
+              if (!connection) {
+                return null;
+              }
+              return (
+                <DatabaseSlowQueryLogPanel
+                  connection={connection}
+                  sshConnectionId={tab.sshConnectionId}
+                  logFilePath={tab.logFilePath}
+                  active={_isActive}
+                />
+              );
+            })()
           ) : isSqlWorkspaceTab(tab) ? (
             <DbPanelSurface tab={tab} />
           ) : null}

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import type { AiConversation } from "../stores/aiStore";
 import {
   firstModelSelectionId,
   resolveModelSelection,
@@ -42,4 +43,25 @@ export function useAssistantScenarioModelSelectionId(): string | null {
     () => resolveScenarioModelSelectionId(providers, configuredId),
     [providers, configuredId],
   );
+}
+
+/** 解析指定会话的模型选择；未配置时回退草稿或助手场景默认。 */
+export function resolveConversationModelSelectionId(
+  providers: AiModelProvider[],
+  conversation: Pick<AiConversation, "modelSelectionId"> | null | undefined,
+  assistantDefaultId?: string | null,
+  draftSelectionId?: string | null,
+): string | null {
+  const fromConversation = resolveScenarioModelSelectionId(
+    providers,
+    conversation?.modelSelectionId,
+  );
+  if (conversation?.modelSelectionId?.trim() && fromConversation) {
+    return fromConversation;
+  }
+  const fromDraft = resolveScenarioModelSelectionId(providers, draftSelectionId);
+  if (draftSelectionId?.trim() && fromDraft) {
+    return fromDraft;
+  }
+  return resolveScenarioModelSelectionId(providers, assistantDefaultId);
 }

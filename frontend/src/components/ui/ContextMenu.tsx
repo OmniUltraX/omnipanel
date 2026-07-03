@@ -22,8 +22,30 @@ export interface ContextMenuItem {
   icon?: ReactNode;
   /** 右侧快捷键提示（可选） */
   shortcut?: string;
+  /** 禁用时悬停提示（配合 `disabledReasonIcon` 展示问号图标） */
+  disabledReason?: string;
+  /** 禁用时在右侧显示原因提示图标，默认 true */
+  disabledReasonIcon?: boolean;
   /** 子菜单项（仅一层，不再递归） */
   children?: ContextMenuItem[];
+}
+
+function ContextMenuDisabledHint({ reason }: { reason: string }) {
+  return (
+    <span
+      className="context-menu-item__hint"
+      title={reason}
+      aria-label={reason}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+        <circle cx="8" cy="8" r="6.25" />
+        <path d="M6.2 6.1a1.8 1.8 0 0 1 3.5.7c0 1.2-1.7 1.3-1.7 2.4" />
+        <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
+      </svg>
+    </span>
+  );
 }
 
 export interface ContextMenuProps {
@@ -100,6 +122,9 @@ function ContextMenuSubmenuList({
             {item.shortcut ? (
               <span className="context-menu-item__shortcut">{item.shortcut}</span>
             ) : null}
+            {item.disabled && item.disabledReason && item.disabledReasonIcon !== false ? (
+              <ContextMenuDisabledHint reason={item.disabledReason} />
+            ) : null}
           </button>
         ),
       )}
@@ -171,6 +196,9 @@ function ContextMenuPanel({
               <span className="context-menu-item__label">{item.label}</span>
               {item.shortcut ? (
                 <span className="context-menu-item__shortcut">{item.shortcut}</span>
+              ) : null}
+              {item.disabled && item.disabledReason && item.disabledReasonIcon !== false ? (
+                <ContextMenuDisabledHint reason={item.disabledReason} />
               ) : null}
               {hasChildren && (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" aria-hidden>

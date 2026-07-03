@@ -12,6 +12,7 @@ import { commands } from "../../../ipc/bindings";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat } from "../../../lib/ai/orchestrator";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -81,12 +82,28 @@ function buildHistoryJson(convId: string): string | undefined {
   );
 }
 
-function resolveBackendForGeneration(inline?: InlineTerminalAiTarget) {
+function resolveBackendForGeneration(
+  inline?: InlineTerminalAiTarget,
+  conversationId?: string | null,
+) {
   const providers = useAiModelsStore.getState().providers;
-  const selectionId = inline
-    ? resolveTerminalModelSelectionId(providers)
-    : useSettingsStore.getState().aiScenarioAssistantModelSelectionId ??
-      resolveTerminalModelSelectionId(providers);
+  const assistantDefaultId =
+    useSettingsStore.getState().aiScenarioAssistantModelSelectionId;
+  let selectionId: string | null;
+  if (inline) {
+    selectionId = resolveTerminalModelSelectionId(providers);
+  } else {
+    const conversation = conversationId
+      ? useAiStore.getState().conversations.find((c) => c.id === conversationId)
+      : undefined;
+    const draftSelectionId = useAiStore.getState().currentModelSelectionId;
+    selectionId = resolveConversationModelSelectionId(
+      providers,
+      conversation,
+      assistantDefaultId,
+      draftSelectionId,
+    );
+  }
   return resolveBackendFromSelection(providers, selectionId);
 }
 
@@ -429,7 +446,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-        const backend = resolveBackendForGeneration(inline);
+        const backend = resolveBackendForGeneration(inline, convId);
         if (!backend) {
           throw new Error("请先在设置中配置并选择 AI 模型或 Agent");
         }

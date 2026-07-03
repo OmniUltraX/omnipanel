@@ -259,6 +259,9 @@ export function sanitizeWorkspaceSession(
     if (tab.kind === "redis-query") {
       return Boolean(tab.connId);
     }
+    if (tab.kind === "slow-query") {
+      return Boolean(tab.connId && tab.sshConnectionId && tab.logFilePath);
+    }
     if (tab.kind === "toolbox") {
       return (
         Boolean(tab.syncTaskId) &&
