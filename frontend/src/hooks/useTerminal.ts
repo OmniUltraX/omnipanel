@@ -50,6 +50,7 @@ import {
   trackTerminalOutputForAutoReturn,
   tryAutoReturnAfterBlockEnd,
 } from "../modules/terminal/terminalAutoReturn";
+import { markShellPromptReady } from "../modules/terminal/terminalShellRecovery";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
 import {
   unregisterTerminalAutoLsSession,
@@ -62,6 +63,7 @@ import {
   resolveSavedSessionCwd,
 } from "../modules/terminal/terminalSessionResume";
 import { isWarpDisplay } from "../modules/terminal/terminalDisplayMode";
+import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
 import { useModuleVisibility } from "../lib/moduleVisibility";
@@ -523,6 +525,7 @@ export function useTerminal(
 
     sendCommandRef.current = sendCommand;
     registerShellHistoryPtySender(sessionId, sendCommand);
+    setTerminalPaneRawWriter(sessionId, writeToBackend);
 
     function tryShellSessionBootstrapOnReady(): void {
       if (isSilentHistorySync(sessionId) || !isWarpDisplay(sessionId)) return;
@@ -563,6 +566,7 @@ export function useTerminal(
             case "A": {
               const y = t.buffer.active.cursorY + t.buffer.active.baseY;
               pendingBlock = { startLine: y, command: "", cwd: currentCwd };
+              markShellPromptReady(sessionId);
               break;
             }
             case "B":
@@ -1131,6 +1135,7 @@ export function useTerminal(
       }
       sendCommandRef.current = null;
       registerShellHistoryPtySender(sessionId, null);
+      setTerminalPaneRawWriter(sessionId, null);
       unregisterTerminalAutoLsSession(sessionId);
       registerRuntimeBackendSession(sessionId, null);
       inputBindingRef.current?.dispose();

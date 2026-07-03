@@ -117,7 +117,7 @@ impl InternalOrchestrator {
                 }
             }
 
-            if stop_reason == StopReason::ToolUse && !accumulated_tool_calls.is_empty() {
+            if !accumulated_tool_calls.is_empty() {
                 let executor = tool_executor.ok_or_else(|| "缺少 ToolExecutor".to_string())?;
 
                 let tool_calls: Vec<ToolCall> = accumulated_tool_calls

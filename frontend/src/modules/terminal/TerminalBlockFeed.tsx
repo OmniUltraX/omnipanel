@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_TERMINAL_BLOCKS,
   useBlocksStore,
@@ -12,7 +12,6 @@ import { getResolvedAiThread } from "./aiThreadBridge";
 import { AiDockResizeHandle } from "./AiDockResizeHandle";
 import { DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
 import { useStickyAiBlockId } from "./useStickyAiBlockId";
-import { useStickyActive } from "./useStickyActive";
 import { cancelInlineAiBlock } from "./warpInlineAi";
 import { useI18n } from "../../i18n";
 import { stripAutoLsSuffix } from "./terminalAutoLs";
@@ -232,216 +231,65 @@ function AiStatusIcon({ block }: { block: TerminalBlock }) {
 
 
 function AiBlockCard({
-  block,
+  blockId,
   sessionId,
   expanded,
   onToggle,
   isStickyCandidate,
-  feedScrollRef,
   feedPinnedToBottom,
   onFocusInput,
 }: {
-  block: TerminalBlock;
+  blockId: string;
   sessionId: string;
   expanded: boolean;
   onToggle: () => void;
   /** 当前视口上下文中可吸顶的 AI 候选 */
   isStickyCandidate?: boolean;
-  feedScrollRef: RefObject<HTMLElement | null>;
   feedPinnedToBottom: boolean;
   onFocusInput?: () => void;
 }) {
-  const [sentinelEl, setSentinelEl] = useState<HTMLDivElement | null>(null);
-  const isStickyActive = useStickyActive(
-    sentinelEl,
-    feedScrollRef,
-    Boolean(isStickyCandidate),
-  );
+  const block = useBlocksStore((state) => state.findBlockById(blockId));
   const dockMaxHeight = useTerminalUiStore(
     (state) => state.aiDockHeights[sessionId] ?? DEFAULT_AI_DOCK_HEIGHT,
   );
-  const stickyHostRef = useRef<HTMLDivElement>(null);
-  const [naturalHeight, setNaturalHeight] = useState(0);
-  const prevStickyActiveRef = useRef(false);
-  const threadSignature = useMemo(() => {
-    const thread = getResolvedAiThread(block);
-    return thread
-      .map((item) => {
-        if (item.kind === "message") {
-          return `m:${item.id}:${item.content.length}:${item.reasoning?.length ?? 0}`;
-        }
-        return `t:${item.id}:${item.status}:${item.result?.length ?? 0}`;
-      })
-      .join("|");
-  }, [block]);
 
-  // 仅「流式输出中 + feed 贴底」时让 dock 自动跟随最新输出；其余（静态浏览）交给
-  // 下方的进度同步 effect，避免 autoScroll 把 thread 锁到底、覆盖用户浏览进度。
-  const dockAutoScroll =
-    isStickyActive && feedPinnedToBottom && block.status === "running";
+  const dockAutoScroll = Boolean(
+    block?.kind === "ai" &&
+      isStickyCandidate &&
+      expanded &&
+      feedPinnedToBottom &&
+      block.status === "running",
+  );
 
-  useLayoutEffect(() => {
-    const host = stickyHostRef.current;
-    if (!host || !expanded) return;
+  if (!block || block.kind !== "ai") return null;
 
-    const measure = () => {
-      if (isStickyActive) return;
-      const next = host.offsetHeight;
-      setNaturalHeight((prev) => (next > prev ? next : prev));
-    };
+  const stickyClass = isStickyCandidate ? " term-warp-block--ai-sticky" : "";
+  const dockClass =
+    isStickyCandidate && expanded ? " term-warp-block--ai-sticky-docked" : "";
 
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [isStickyActive, threadSignature, dockMaxHeight, expanded]);
-
-  useLayoutEffect(() => {
-    const host = stickyHostRef.current;
-    const justActivated = isStickyActive && !prevStickyActiveRef.current;
-    prevStickyActiveRef.current = isStickyActive;
-
-    if (!justActivated || !expanded || !host) return;
-
-    // 吸顶瞬间补测一次完整高度，确保 spacer 占位（naturalHeight - dockMaxHeight）够。
-    const measured = Math.max(naturalHeight, host.scrollHeight);
-    if (measured > naturalHeight) {
-      setNaturalHeight(measured);
-    }
-  }, [isStickyActive, expanded, naturalHeight]);
-
-  // 吸顶期间：dock 内 AI 进度按「不吸顶时视口底部所见」对齐——dock 底部显示的内容
-  // 等于你没吸顶时那一屏底部正在看的 AI 内容（按底部为准）。feed 滚动实时驱动，
-  // dock 内容跟随。命令 shell 已由 CSS order 紧跟在 dock 下方（spacer 排到末尾），
-  // 故 dock 底部对齐 + 命令紧跟可兼得、无中间空白。
-  // dockAutoScroll（流式贴底跟随）激活时跳过，避免与自动滚底互相打架。
-  useLayoutEffect(() => {
-    const feed = feedScrollRef.current;
-    const host = stickyHostRef.current;
-    if (!isStickyActive || !expanded || !feed || !host || !sentinelEl) return;
-    if (dockAutoScroll) return;
-
-    let raf = 0;
-    const sync = () => {
-      raf = 0;
-      const thread = host.querySelector<HTMLElement>(".term-warp-ai-thread");
-      if (!thread) return;
-      const feedRect = feed.getBoundingClientRect();
-      const sentinelTop = sentinelEl.getBoundingClientRect().top;
-      const hostTop = host.getBoundingClientRect().top;
-      const threadTop = thread.getBoundingClientRect().top;
-      // host 顶滚出 feed 顶部的量
-      const scrolledPast = feedRect.top - sentinelTop;
-      // dock 内 header 高度（thread 容器顶相对 host 顶）
-      const headerHeight = threadTop - hostTop;
-      // feed 视口底部落在 thread 内容坐标系中的位置
-      const viewportBottomInThread =
-        scrolledPast + feedRect.height - headerHeight;
-      // 让 dock 底部（可见区底）对齐该位置 → 按底部为准
-      const target = viewportBottomInThread - thread.clientHeight;
-      const max = Math.max(0, thread.scrollHeight - thread.clientHeight);
-      thread.scrollTop = Math.min(Math.max(0, target), max);
-    };
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(sync);
-    };
-
-    sync();
-    feed.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      feed.removeEventListener("scroll", onScroll);
-    };
-  }, [isStickyActive, expanded, feedScrollRef, sentinelEl, dockAutoScroll]);
-
-  // 吸顶时 host 从自然高度 naturalHeight 塌缩到 dockMaxHeight，文档流骤减
-  // (naturalHeight - dockMaxHeight)。若占位补位晚于塌缩一帧（用 effect+setState 异步补），
-  // 中间那一帧 scrollHeight 骤减 → 浏览器夹回 scrollTop → 哨兵回视口 → 取消吸顶 →
-  // 高度恢复 → 再吸顶，形成闪烁。
-  //
-  // 修复：占位高度在「渲染期同步计算」，与 host 塌缩落在同一次 commit，无时序 gap。
-  // 占位 = 塌缩损失，使 segment 吸顶前后总高恒定 (dockMaxHeight + spacer == naturalHeight)，
-  // scrollHeight 不变 → scrollTop 不被夹 → 哨兵不回弹 → 不闪烁。
-  // 段内 host 下方若有 shell，会多补该高度（宁可略多空白也不可少补导致塌陷）。
-  const stickyFlowSpacerHeight =
-    isStickyActive && expanded ? Math.max(0, naturalHeight - dockMaxHeight) : 0;
-
-  if (!isStickyCandidate) {
-    if (!expanded) {
-      return (
-        <article
-          className="term-warp-block term-warp-block--ai term-warp-block--collapsed"
-          data-block-id={block.id}
-        >
-          <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
-          <AiBlockHeaderActions
-            block={block}
-            sessionId={sessionId}
-            expanded={false}
-            onToggle={onToggle}
-            onFocusInput={onFocusInput}
-          />
-        </article>
-      );
-    }
-
+  if (!expanded) {
     return (
       <article
-        className="term-warp-block term-warp-block--ai term-warp-block--expanded"
+        className={`term-warp-block term-warp-block--ai term-warp-block--collapsed${stickyClass}`}
         data-block-id={block.id}
       >
-        <header className="term-warp-block__header">
-          <AiBlockSummary block={block} expanded onToggle={onToggle} />
-          <span className="term-warp-block__badge">助手</span>
-          <AiBlockHeaderActions
-            block={block}
-            sessionId={sessionId}
-            expanded
-            onToggle={onToggle}
-            onFocusInput={onFocusInput}
-          />
-        </header>
-        <TerminalAiThreadView blockId={block.id} />
+        <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
+        <AiBlockHeaderActions
+          block={block}
+          sessionId={sessionId}
+          expanded={false}
+          onToggle={onToggle}
+          onFocusInput={onFocusInput}
+        />
       </article>
     );
   }
 
-  const stickySentinel = (
-    <div
-      ref={setSentinelEl}
-      className="term-warp-ai-sticky-sentinel"
-      aria-hidden
-    />
-  );
-
-  const stickyCollapsedClass = " term-warp-block--ai-sticky";
-
-  if (!expanded) {
-    return (
-      <>
-        {stickySentinel}
-        <article
-          className={`term-warp-block term-warp-block--ai term-warp-block--collapsed${stickyCollapsedClass}`}
-        >
-          <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
-          <AiBlockHeaderActions
-            block={block}
-            sessionId={sessionId}
-            expanded={false}
-            onToggle={onToggle}
-            onFocusInput={onFocusInput}
-          />
-        </article>
-      </>
-    );
-  }
-
-  const article = (
+  return (
     <article
-      className={`term-warp-block term-warp-block--ai term-warp-block--expanded${
-        isStickyActive ? " term-warp-block--ai-sticky-docked" : ""
-      }`}
+      className={`term-warp-block term-warp-block--ai term-warp-block--expanded${stickyClass}${dockClass}`}
+      style={isStickyCandidate ? { maxHeight: dockMaxHeight } : undefined}
+      data-block-id={block.id}
     >
       <header className="term-warp-block__header">
         <AiBlockSummary block={block} expanded onToggle={onToggle} />
@@ -454,33 +302,23 @@ function AiBlockCard({
           onFocusInput={onFocusInput}
         />
       </header>
-      <TerminalAiThreadView blockId={block.id} dockedAutoScroll={dockAutoScroll} />
+      <TerminalAiThreadView
+        blockId={block.id}
+        dockedAutoScroll={dockAutoScroll}
+      />
+      {isStickyCandidate ? <AiDockResizeHandle sessionId={sessionId} /> : null}
     </article>
   );
-
-  return (
-    <>
-      {stickySentinel}
-      <div
-        ref={stickyHostRef}
-        className={`term-warp-ai-sticky-host${
-          isStickyActive ? " term-warp-ai-sticky-host--active" : ""
-        }`}
-        style={isStickyActive ? { maxHeight: dockMaxHeight } : undefined}
-      >
-        {article}
-        {isStickyActive ? <AiDockResizeHandle sessionId={sessionId} /> : null}
-      </div>
-      {stickyFlowSpacerHeight > 0 ? (
-        <div
-          className="term-warp-ai-sticky-flow-spacer"
-          style={{ height: stickyFlowSpacerHeight }}
-          aria-hidden
-        />
-      ) : null}
-    </>
-  );
 }
+
+const MemoAiBlockCard = memo(AiBlockCard, (prev, next) =>
+  prev.blockId === next.blockId &&
+  prev.sessionId === next.sessionId &&
+  prev.expanded === next.expanded &&
+  prev.isStickyCandidate === next.isStickyCandidate &&
+  prev.feedPinnedToBottom === next.feedPinnedToBottom &&
+  prev.onFocusInput === next.onFocusInput,
+);
 
 function ShellBlockCard({
   block,
@@ -658,7 +496,6 @@ function FeedAiRunSegmentView({
   expandedAiBlockId,
   setExpandedAiBlock,
   stickyAiBlockId,
-  feedScrollRef,
   feedPinnedToBottom,
   onRunCommand,
   sessionType,
@@ -672,7 +509,6 @@ function FeedAiRunSegmentView({
   expandedAiBlockId: string | null;
   setExpandedAiBlock: (sessionId: string, blockId: string | null) => void;
   stickyAiBlockId: string | null;
-  feedScrollRef: RefObject<HTMLElement | null>;
   feedPinnedToBottom: boolean;
   onRunCommand?: (command: string) => void;
   sessionType?: TerminalSessionType;
@@ -693,13 +529,12 @@ function FeedAiRunSegmentView({
 
   return (
     <div className="term-warp-sticky-segment" data-block-id={ai.id}>
-      <AiBlockCard
-        block={ai}
+      <MemoAiBlockCard
+        blockId={ai.id}
         sessionId={sessionId}
         expanded={expanded}
         onToggle={onToggle}
         isStickyCandidate={isStickyCandidate}
-        feedScrollRef={feedScrollRef}
         feedPinnedToBottom={feedPinnedToBottom}
         onFocusInput={onFocusInput}
       />
@@ -759,7 +594,7 @@ export function TerminalBlockFeed({
     () => buildFeedShellSignature(visibleBlocks),
     [visibleBlocks],
   );
-  const stickyAiBlockId = useStickyAiBlockId(scrollRef, listRef, visibleBlocks, activitySignature);
+  const stickyAiBlockId = useStickyAiBlockId(scrollRef, listRef, visibleBlocks, shellSignature);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -799,13 +634,8 @@ export function TerminalBlockFeed({
     prevActivitySignatureRef.current = activitySignature;
     prevShellSignatureRef.current = shellSignature;
 
-    const stickyDockedStreaming = Boolean(
-      onlyAiThreadStream &&
-        el.querySelector(".term-warp-ai-sticky-host--active"),
-    );
-
+    if (!blockCountGrew && onlyAiThreadStream) return;
     if (!blockCountGrew && !followOutputRef.current) return;
-    if (stickyDockedStreaming && !blockCountGrew) return;
 
     if (blockCountGrew) {
       followOutputRef.current = true;
@@ -828,7 +658,7 @@ export function TerminalBlockFeed({
     let resizeRaf = 0;
     const observer = new ResizeObserver(() => {
       if (!followOutputRef.current) return;
-      if (container.querySelector(".term-warp-ai-sticky-host--active")) return;
+      if (container.querySelector(".term-warp-block--ai-sticky-docked")) return;
       cancelAnimationFrame(resizeRaf);
       resizeRaf = requestAnimationFrame(() => {
         if (!followOutputRef.current) return;
@@ -881,7 +711,6 @@ export function TerminalBlockFeed({
               expandedAiBlockId={expandedAiBlockId}
               setExpandedAiBlock={setExpandedAiBlock}
               stickyAiBlockId={stickyAiBlockId}
-              feedScrollRef={scrollRef}
               feedPinnedToBottom={feedPinnedToBottom}
               onRunCommand={onRunCommand}
               sessionType={sessionType}

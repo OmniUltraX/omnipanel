@@ -496,7 +496,7 @@ pub async fn ai_send_message(
         }
 
         // If the AI wants to use tools, execute them and loop
-        if stop_reason == StopReason::ToolUse && !accumulated_tool_calls.is_empty() {
+        if !accumulated_tool_calls.is_empty() {
             // Add assistant message with tool_calls to history
             let tool_calls: Vec<ToolCall> = accumulated_tool_calls
                 .iter()

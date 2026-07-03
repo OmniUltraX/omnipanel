@@ -14,6 +14,7 @@ import { useTerminalUiStore } from "../../modules/terminal/terminalUiStore";
 import { checkCommand, type DangerLevel } from "../../lib/commandGuard";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { appConfirm } from "../appConfirm";
+import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
 
 const TERMINAL_TOOL = "omni_terminal_run_terminal_command";
@@ -87,7 +88,7 @@ export async function handleInternalPendingTerminalTool(options: {
           result: MISSING_COMMAND_HINT,
         });
       }
-      await commands.aiChatToolResult(
+      await reportToolResultWithRetry(
         options.conversationId,
         options.toolCallId,
         MISSING_COMMAND_HINT,
@@ -124,19 +125,14 @@ export async function handleInternalPendingTerminalTool(options: {
       useTerminalUiStore.getState().setExpandedAiBlock(options.sessionId, options.blockId);
     }
 
-    const decision = await waitForInlineToolDecision(
+    await waitForInlineToolDecision(
       options.blockId,
       options.toolCallId,
       options.sessionId,
       parseCommand(options.argsJson),
-    );
-
-    await commands.aiChatToolResult(
       options.conversationId,
-      options.toolCallId,
-      decision.result,
-      decision.approved,
     );
+    // approveInlineTerminalTool 已在 resolve 前 await 回传；此处不再重复 aiChatToolResult。
   } finally {
     inFlightToolCalls.delete(key);
   }
