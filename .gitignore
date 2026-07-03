@@ -30,6 +30,9 @@ Thumbs.db
 # Claude Code local config
 .claude/
 
+# Warp terminal / local agent workspace
+warp/
+
 # Environment
 .env
 .env.local

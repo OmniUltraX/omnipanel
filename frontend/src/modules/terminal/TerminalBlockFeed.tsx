@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_TERMINAL_BLOCKS,
   useBlocksStore,
@@ -339,7 +339,12 @@ function ShellBlockCard({
   sessionUser?: string | null;
   onFocusInput?: () => void;
 }) {
-  const output = shellOutput(block);
+  // 稳定 output 引用：避免 useSftpEnrichedLsListing effect 频繁 cleanup 导致
+  // SFTP fetch promise 反复被 cancelled（首次 cd 后 listing 已渲染但 SFTP 拉不到）
+  const output = useMemo(
+    () => shellOutput(block),
+    [block.attachedListing, block.command, block.output, block.status],
+  );
   const duration = formatDuration(block);
   const running = block.status === "running";
   const cmd = stripAutoLsSuffix(normalizeBlockCommand(block.command));
@@ -566,6 +571,7 @@ export function TerminalBlockFeed({
   onFocusInput,
 }: TerminalBlockFeedProps) {
   const blocks = useBlocksStore((state) => state.blocks[sessionId] ?? EMPTY_TERMINAL_BLOCKS);
+  const { t } = useI18n();
   const expandedAiBlockId = useTerminalUiStore((state) => state.expandedAiBlockIds[sessionId] ?? null);
   const setExpandedAiBlock = useTerminalUiStore((state) => state.setExpandedAiBlock);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -574,6 +580,8 @@ export function TerminalBlockFeed({
   /** 用户未主动上滚时持续跟随输出；内容增高后不能用即时 isFeedPinnedToBottom 判断 */
   const followOutputRef = useRef(true);
   const [feedPinnedToBottom, setFeedPinnedToBottom] = useState(true);
+  const [feedCanScroll, setFeedCanScroll] = useState(false);
+  const [feedAtTop, setFeedAtTop] = useState(true);
   const lastFeedScrollHeightRef = useRef(0);
   const prevActivitySignatureRef = useRef("");
   const prevShellSignatureRef = useRef("");
@@ -610,6 +618,11 @@ export function TerminalBlockFeed({
       lastFeedScrollHeightRef.current = scrollHeight;
       followOutputRef.current = pinned;
       setFeedPinnedToBottom((prev) => (prev === pinned ? prev : pinned));
+      // 滚动条状态：内容超出 / 顶部
+      const canScroll = scrollHeight - el.clientHeight > 1;
+      setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
+      const atTop = el.scrollTop <= 1;
+      setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
     };
 
     syncPinned();
@@ -650,13 +663,53 @@ export function TerminalBlockFeed({
     });
   }, [activitySignature, shellSignature, visibleBlocks.length]);
 
+  // 首次挂载（容器从无到有）强制跳到底 —— 用户打开 tab 时直接看最新输出
+  const didMountRef = useRef(false);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (didMountRef.current) return;
+    didMountRef.current = true;
+    // 下一帧再跳（等 listRef 已渲染）
+    requestAnimationFrame(() => {
+      const target = scrollRef.current;
+      if (!target) return;
+      target.scrollTop = target.scrollHeight;
+      followOutputRef.current = true;
+      setFeedPinnedToBottom(true);
+    });
+  }, [visibleBlocks.length]);
+
+  const scrollFeedToTop = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: 0, behavior: "smooth" });
+    followOutputRef.current = false;
+    setFeedPinnedToBottom(false);
+  }, []);
+
+  const scrollFeedToBottomNow = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    followOutputRef.current = true;
+    setFeedPinnedToBottom(true);
+  }, []);
+
   useEffect(() => {
     const list = listRef.current;
     const container = scrollRef.current;
     if (!list || !container) return;
 
     let resizeRaf = 0;
+    const syncScrollState = () => {
+      const canScroll = container.scrollHeight - container.clientHeight > 1;
+      setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
+      const atTop = container.scrollTop <= 1;
+      setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
+    };
     const observer = new ResizeObserver(() => {
+      syncScrollState();
       if (!followOutputRef.current) return;
       if (container.querySelector(".term-warp-block--ai-sticky-docked")) return;
       cancelAnimationFrame(resizeRaf);
@@ -719,6 +772,36 @@ export function TerminalBlockFeed({
             />
           );
         })}
+      </div>
+      <div
+        className={`term-warp-feed__scroll-controls${
+          feedCanScroll ? " is-visible" : ""
+        }`}
+        data-pinned-to-bottom={feedPinnedToBottom ? "true" : "false"}
+        data-at-top={feedAtTop ? "true" : "false"}
+      >
+        <button
+          type="button"
+          className={`term-warp-feed__scroll-btn${
+            !feedAtTop ? " is-shown" : ""
+          }`}
+          aria-label={t("terminal.feed.scrollToTop")}
+          title={t("terminal.feed.scrollToTop")}
+          onClick={scrollFeedToTop}
+        >
+          ▲
+        </button>
+        <button
+          type="button"
+          className={`term-warp-feed__scroll-btn${
+            !feedPinnedToBottom ? " is-shown" : ""
+          }`}
+          aria-label={t("terminal.feed.scrollToBottom")}
+          title={t("terminal.feed.scrollToBottom")}
+          onClick={scrollFeedToBottomNow}
+        >
+          ▼
+        </button>
       </div>
     </div>
   );

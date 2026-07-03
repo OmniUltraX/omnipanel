@@ -57,10 +57,11 @@ import {
   isTerminalSshManagementTab,
 } from "./constants";
 import { useSshWorkspaceNavStore } from "../server/ssh/stores/sshWorkspaceNavStore";
+import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
-  const resource = resolveResourceById(tab.session.resourceId);
-  return resource?.name ?? tab.title ?? fallbackName ?? tab.session.resourceId;
+  // 用户重命名 (tab.title) 优先于资源名 —— 用户能区分同一资源下的多个 tab
+  return tab.title || fallbackName || resolveResourceById(tab.session.resourceId)?.name || tab.session.resourceId;
 }
 
 function topbarTabStatus(
@@ -196,6 +197,12 @@ export function TerminalPanel() {
     y: number;
     tabId: string;
     index: number;
+  } | null>(null);
+  // Tab 重命名 prompt：null 表示关闭，否则 { tabId, currentTitle }
+  const [renameTarget, setRenameTarget] = useState<{
+    tabId: string;
+    currentTitle: string;
+    value: string;
   } | null>(null);
 
   useEffect(() => {
@@ -509,6 +516,14 @@ export function TerminalPanel() {
       const idx = dockVisibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
 
       if (action === "rename") {
+        const ctxTab = dockVisibleTabs.find((tab) => tab.id === ctxMenu.tabId);
+        if (ctxTab) {
+          setRenameTarget({
+            tabId: ctxTab.id,
+            currentTitle: ctxTab.title,
+            value: ctxTab.title,
+          });
+        }
         setCtxMenu(null);
         return;
       }
@@ -569,6 +584,19 @@ export function TerminalPanel() {
     },
     [ctxMenu, handleCloseTab, handleCloseTabs, handleEndSession, activeWorkspaceId, setActiveTab, setDockLayout],
   );
+
+  const commitRename = useCallback(() => {
+    if (!renameTarget) return;
+    const trimmed = renameTarget.value.trim();
+    if (!trimmed) {
+      setRenameTarget(null);
+      return;
+    }
+    if (trimmed !== renameTarget.currentTitle) {
+      useTerminalStore.getState().renameTab(renameTarget.tabId, trimmed);
+    }
+    setRenameTarget(null);
+  }, [renameTarget]);
 
   const renderDockPanel = useCallback(
     (tabId: string) => {
@@ -643,6 +671,8 @@ export function TerminalPanel() {
           }}
         />
       </TerminalSessionsWorkspaceView>
+      {/* 全局单例：所有终端 tab 共享一个文件预览弹窗（zustand store 驱动） */}
+      <TerminalFilePreviewSubWindow />
       {ctxMenu && (() => {
         const menuTabIndex = visibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
         const closeItems = buildTabCloseMenuItems(
@@ -650,7 +680,7 @@ export function TerminalPanel() {
           visibleTabs.length,
           menuTabIndex >= 0 ? menuTabIndex : 0,
           handleContextAction,
-          { showWorkspaceActions: true },
+          { showWorkspaceActions: true, showRename: true },
         );
         const endSessionItem = {
           id: "tab-end-session",
@@ -670,6 +700,82 @@ export function TerminalPanel() {
           />
         );
       })()}
+      {renameTarget && (
+        <RenamePromptDialog
+          label={t("shell.topbar.rename")}
+          currentTitle={renameTarget.currentTitle}
+          value={renameTarget.value}
+          onChange={(next) => setRenameTarget({ ...renameTarget, value: next })}
+          onCommit={commitRename}
+          onCancel={() => setRenameTarget(null)}
+        />
+      )}
     </>
+  );
+}
+
+/** 重命名 prompt：极简居中弹窗（terminal 上下文避免 inline bar 干扰） */
+function RenamePromptDialog({
+  label,
+  currentTitle,
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  label: string;
+  currentTitle: string;
+  value: string;
+  onChange: (next: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
+  return (
+    <div
+      className="rename-prompt-backdrop"
+      onClick={onCancel}
+      role="dialog"
+      aria-label={label}
+    >
+      <div
+        className="rename-prompt-dialog"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit();
+          }
+        }}
+      >
+        <div className="rename-prompt-label">{label}</div>
+        <div className="rename-prompt-current">{currentTitle}</div>
+        <input
+          type="text"
+          className="rename-prompt-input"
+          value={value}
+          autoFocus
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <div className="rename-prompt-actions">
+          <button type="button" className="rename-prompt-btn" onClick={onCancel}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="rename-prompt-btn rename-prompt-btn--primary"
+            onClick={onCommit}
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

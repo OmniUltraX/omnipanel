@@ -71,11 +71,7 @@ export async function findSshConnectionForDbHost(
     const cached = resolvedCache.get(h);
     if (cached) return cached;
     try {
-      const result = await commands.resolveHost(h);
-      if (result.status === "error") {
-        throw new Error(JSON.stringify(result.error));
-      }
-      const addrs = result.data;
+      const addrs = await invoke<string[]>("resolve_host", { host: h });
       resolvedCache.set(h, addrs);
       return addrs;
     } catch {

@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,13 +18,17 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { readRemotePreview, uploadRemote } from "./fileApi";
 import {
   decodePreviewBytes,
+  detectPreviewKindFromBytes,
   parsePreviewJsonText,
   resolveFilePreviewKind,
   type FilePreviewKind,
 } from "./filePreviewKind";
 import {
+  classifyLargeFile,
+  countPreviewLines,
   exceedsPreviewThreshold,
   fmtError,
+  FORCE_PREVIEW_MAX_BYTES,
   formatFileSize,
   imageMimeType,
   LOCAL_CONNECTION_ID,
@@ -45,6 +50,13 @@ export type FilePreviewContentHandle = {
   save: () => Promise<void>;
 };
 
+export interface FilePreviewIO {
+  /** 读取最多 maxBytes 字节，路径不存在时抛错 */
+  readBytes(path: string, maxBytes: number): Promise<number[]>;
+  /** 写文件（覆盖） */
+  writeBytes(path: string, bytes: number[]): Promise<void>;
+}
+
 export interface FilePreviewContentProps {
   connectionId: string;
   entry: FileEntry;
@@ -57,6 +69,12 @@ export interface FilePreviewContentProps {
   jsonViewMode?: FileJsonViewMode;
   editable?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * 自定义 IO 适配器。如果提供，FilePreviewContent 内部走该 IO 而非 file_manager 通道
+   * （file_manager 用 connectionId 找 file_connections；终端 SSH 资源没有对应的 file_connection，
+   *  必须用 SSH 资源 id 走 sftp_download/sftp_upload 通道）。
+   */
+  customIO?: FilePreviewIO;
 }
 
 function encodeUtf8(text: string): number[] {
@@ -79,12 +97,26 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       jsonViewMode = "structured",
       editable = false,
       onDirtyChange,
+      customIO,
     },
     ref,
   ) {
     const { t } = useI18n();
     const thresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
-    const previewKind = resolveFilePreviewKind(entry.name);
+    const initialKind = resolveFilePreviewKind(entry.name);
+    // 内容检测覆盖：实际加载后用魔术字节 + NUL 字节检测再校正 kind
+    const [detectedKind, setDetectedKind] = useState<FilePreviewKind | null>(null);
+    const previewKind = detectedKind ?? initialKind;
+    // 大文件策略：normal / truncated (1-10MB) / blocked (>10MB) / unknown
+    const largeStrategy = useMemo(
+      () => classifyLargeFile(entry.size, thresholdBytes),
+      [entry.size, thresholdBytes],
+    );
+    // 用户点击"强制预览完整文件"时跳过 truncated 截断
+    const [forceFull, setForceFull] = useState(false);
+    // 当前加载的字节数（用于 banner）
+    const [loadedBytes, setLoadedBytes] = useState(0);
+    const isTruncatedRead = largeStrategy === "truncated" && !forceFull;
     const codeLanguage =
       previewKind === "text" || previewKind === "json"
         ? codeEditorLanguageFromPath(entry.name)
@@ -159,7 +191,9 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       const text = draftText;
       if (text == null || text === savedTextRef.current) return;
 
-      await uploadRemote(connectionId, entry.path, encodeUtf8(text));
+      await (customIO
+        ? customIO.writeBytes(entry.path, encodeUtf8(text))
+        : uploadRemote(connectionId, entry.path, encodeUtf8(text)));
       savedTextRef.current = text;
       onDirtyChange?.(false);
 
@@ -172,6 +206,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       }
     }, [
       connectionId,
+      customIO,
       draftText,
       editable,
       entry.path,
@@ -226,25 +261,47 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         };
       }
 
-      if (exceedsPreviewThreshold(entry.size, thresholdBytes)) {
+      // 大于 10MB 直接禁止预览（即使强制也不行 —— 一次性加载 10MB 字符串会卡）
+      if (largeStrategy === "blocked") {
         setLoading(false);
-        setError(t("files.preview.tooLarge", { limit: formatFileSize(thresholdBytes) }));
+        setError(
+          t("files.preview.tooLarge", {
+            limit: formatFileSize(FORCE_PREVIEW_MAX_BYTES),
+          }) + "（建议用外部工具打开）",
+        );
         return () => {
           cancelled = true;
         };
       }
 
-      const readMaxBytes = resolvePreviewReadMaxBytes(entry.size, thresholdBytes);
+      // truncated 模式：读阈值大小，banner 提示用户可强制预览完整文件
+      // normal/unknown 模式：按 entry.size 算 max
+      const readMaxBytes = isTruncatedRead
+        ? thresholdBytes
+        : resolvePreviewReadMaxBytes(entry.size, thresholdBytes);
 
       void (async () => {
         try {
-          const bytes = await readRemotePreview(connectionId, entry.path, readMaxBytes);
+          const bytes = await (customIO
+            ? customIO.readBytes(entry.path, readMaxBytes)
+            : readRemotePreview(connectionId, entry.path, readMaxBytes));
           if (cancelled) return;
+
+          setLoadedBytes(bytes.length);
+
+          // 加载完后再做内容检测（魔术字节 / NUL 字节启发式），用于修正扩展名错配或无扩展名的文件
+          // 例如 photo.txt 实际是 JPEG、sudoers 无扩展名但内容是文本
+          const byteView = new Uint8Array(bytes);
+          const detected = detectPreviewKindFromBytes(byteView);
+          if (detected && detected !== initialKind) {
+            setDetectedKind(detected);
+            return;
+          }
 
           if (previewKind === "json" || previewKind === "text") {
             applyLoadedText(decodePreviewBytes(bytes));
           } else {
-            const blob = new Blob([new Uint8Array(bytes)], { type: imageMimeType(entry.name) });
+            const blob = new Blob([byteView], { type: imageMimeType(entry.name) });
             objectUrl = URL.createObjectURL(blob);
             setImageUrl(objectUrl);
             onTextPreviewMetaChange?.(null);
@@ -262,15 +319,30 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
     }, [
       applyLoadedText,
       connectionId,
+      customIO,
       entry.path,
       entry.size,
       entry.name,
+      initialKind,
+      isTruncatedRead,
       onDirtyChange,
       onTextPreviewMetaChange,
       previewKind,
       t,
       thresholdBytes,
     ]);
+
+    // truncated banner：仅 truncated + 不强制时显示
+    const truncatedBanner = useMemo(() => {
+      if (largeStrategy !== "truncated" || forceFull) return null;
+      const totalSize = formatFileSize(entry.size);
+      const loadedSize = formatFileSize(loadedBytes);
+      return {
+        totalSize,
+        loadedSize,
+        lines: countPreviewLines(draftText),
+      };
+    }, [largeStrategy, forceFull, entry.size, loadedBytes, draftText]);
 
     if (previewKind === "unsupported") {
       return (
@@ -316,7 +388,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
     }
 
     if (previewKind === "json" && jsonContent != null && jsonViewMode === "structured") {
-      return (
+      const inner = (
         <ContentPreviewView
           status="ready"
           content={{ kind: "json", value: jsonContent }}
@@ -324,10 +396,30 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
           contentResetKey={entry.path}
         />
       );
+      if (truncatedBanner) {
+        return (
+          <div className="file-preview-truncated">
+            <div className="file-preview-truncated-banner">
+              <span>
+                ⚠ 文件较大，仅显示前 {truncatedBanner.loadedSize} / {truncatedBanner.totalSize}
+              </span>
+              <button
+                type="button"
+                className="file-preview-truncated-force"
+                onClick={() => setForceFull(true)}
+              >
+                强制预览完整文件
+              </button>
+            </div>
+            <div className="file-preview-truncated-body">{inner}</div>
+          </div>
+        );
+      }
+      return inner;
     }
 
     if ((previewKind === "json" || previewKind === "text") && draftText != null) {
-      return (
+      const inner = (
         <ContentPreviewView
           status="ready"
           content={{ kind: "text", text: draftText }}
@@ -341,6 +433,27 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
           onTextChange={handleTextChange}
         />
       );
+      if (truncatedBanner) {
+        return (
+          <div className="file-preview-truncated">
+            <div className="file-preview-truncated-banner">
+              <span>
+                ⚠ 文件较大，仅显示前 {truncatedBanner.loadedSize} / {truncatedBanner.totalSize}
+                {truncatedBanner.lines > 0 ? `（约 ${truncatedBanner.lines} 行）` : ""}
+              </span>
+              <button
+                type="button"
+                className="file-preview-truncated-force"
+                onClick={() => setForceFull(true)}
+              >
+                强制预览完整文件
+              </button>
+            </div>
+            <div className="file-preview-truncated-body">{inner}</div>
+          </div>
+        );
+      }
+      return inner;
     }
 
     return (

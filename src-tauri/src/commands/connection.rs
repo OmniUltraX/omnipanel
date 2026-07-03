@@ -1,10 +1,9 @@
-use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    Connection, ConnectionKind, DbConnectionConfig, HostResolveEntry, Vault,
+    Connection, ConnectionKind, DbConnectionConfig, Vault,
     get_cached_addresses, load_host_resolve_cache, save_host_resolve_cache, upsert_cache_entry,
 };
 use serde::Deserialize;

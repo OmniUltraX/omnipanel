@@ -1357,6 +1357,54 @@
         gap: var(--sp-3);
     }
 
+    .term-warp-feed__scroll-controls {
+        position: sticky;
+        bottom: var(--sp-3);
+        margin-left: auto;
+        width: max-content;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .term-warp-feed__scroll-controls.is-visible {
+        opacity: 1;
+    }
+
+    .term-warp-feed__scroll-btn {
+        pointer-events: none;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--surface) 92%, transparent);
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+    }
+
+    .term-warp-feed__scroll-btn.is-shown {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+    }
+
+    .term-warp-feed__scroll-btn.is-shown:hover {
+        background: var(--surface);
+        color: var(--text);
+    }
+
     /* 吸顶布局态：由视口解析出的「当前展示内容上方」最后一条 AI（见 useStickyAiBlockId） */
     .term-warp-block--ai-sticky {
         position: sticky;
@@ -1603,6 +1651,24 @@
     .term-ls-entry--clickable:hover,
     .term-ls-entry--clickable:focus-visible {
         background: color-mix(in srgb, var(--accent) 22%, transparent);
+        outline: none;
+    }
+
+    /* 文件项可"打开预览"：区别于目录的 cd 行为，悬停给不同的高亮色 */
+    .term-ls-entry--openable {
+        cursor: pointer;
+        text-decoration: none;
+        border-radius: 3px;
+        padding: 0;
+        transition: background 0.12s ease, color 0.12s ease;
+        border: 0;
+        background: transparent;
+        font: inherit;
+    }
+
+    .term-ls-entry--openable:hover,
+    .term-ls-entry--openable:focus-visible {
+        background: color-mix(in srgb, #74c0fc 18%, transparent);
         outline: none;
     }
 

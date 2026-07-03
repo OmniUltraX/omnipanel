@@ -9,6 +9,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
+import { useTerminalFileLinkProvider } from "../modules/terminal/useTerminalFileLinkProvider";
 import {
   findTerminalPane,
   useTerminalStore,
@@ -49,6 +50,7 @@ import { registerRuntimeBackendSession } from "../modules/terminal/commandBar/sh
 import {
   trackTerminalOutputForAutoReturn,
   tryAutoReturnAfterBlockEnd,
+  notifyAltScreenChange,
 } from "../modules/terminal/terminalAutoReturn";
 import { markShellPromptReady } from "../modules/terminal/terminalShellRecovery";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
@@ -134,9 +136,17 @@ export interface UseTerminalOptions {
   active?: boolean;
   /**
    * 重新连接计数器：父组件自增后会触发主 effect 重新执行，
-   * 用于 pane header 上的"刷新"按钮，强制重建后端会话。
+   * 用于需要重置 terminal 状态的场景（例如 SSH 重连）。
    */
   reconnectKey?: number;
+  /** 文件链接 provider 配置：传入则在 xterm 输出中识别可点击的文件路径 */
+  fileLink?: {
+    sessionType: "local" | "remote";
+    resourceId: string | null;
+    remoteHome: string | null;
+    cwd: string;
+    paneId: string;
+  };
 }
 
 function toBytes(data: string): number[] {
@@ -420,7 +430,7 @@ export function useTerminal(
   suspended = false,
   options: UseTerminalOptions = {},
 ) {
-  const { inputMode = "interactive", sendRef, active = true, reconnectKey = 0 } = options;
+  const { inputMode = "interactive", sendRef, active = true, reconnectKey = 0, fileLink } = options;
   const inputModeRef = useRef(inputMode);
   inputModeRef.current = inputMode;
   const writeToBackendRef = useRef<(data: string) => void>(() => {});
@@ -676,12 +686,14 @@ export function useTerminal(
                 if (finishedBlock) {
                   tryPostShellAiTrigger(sessionId, finishedBlock);
                 }
-                tryAutoReturnAfterBlockEnd(sessionId, blockId);
                 trimXtermAfterBlockEnd(t);
                 clearOutputWatch(sessionId);
                 releaseFeedCapture(sessionId);
               }
               pendingBlock = null;
+              // 命令结束，尝试自动回到 Command Bar（OSC 133 D 是最可靠的事件源，
+              // 不依赖命令是否使用 alternate screen buffer）
+              tryAutoReturnAfterBlockEnd(sessionId, blockId);
               break;
             }
           }
@@ -997,6 +1009,12 @@ export function useTerminal(
 
         setupShellIntegration(term);
 
+        term.buffer.onBufferChange(() => {
+          if (!term) return;
+          const isAlternate = term.buffer.active === term.buffer.alternate;
+          notifyAltScreenChange(sessionId, isAlternate);
+        });
+
         void attachOutputListener();
         void attachEventListener();
         void ensureBackendSession(term.cols, term.rows);
@@ -1227,6 +1245,19 @@ export function useTerminal(
       registerShellHistoryPtySender(sessionId, null);
     }
   }, [active, sendRef, sessionId, suspended]);
+
+  // 终端输出中的文件路径点击预览（xterm ILinkProvider）
+  // 注意：xterm ILinkProvider 是懒加载（仅在 hover 时触发），Command Bar 模式不响应
+  // 待确认方案后启用
+  useTerminalFileLinkProvider({
+    termRef,
+    paneId: sessionId,
+    sessionType: fileLink?.sessionType ?? "remote",
+    resourceId: fileLink?.resourceId ?? null,
+    remoteHome: fileLink?.remoteHome ?? null,
+    cwd: fileLink?.cwd ?? "/",
+    enabled: false, // 暂时禁用
+  });
 
   return { termRef, searchAddonRef };
 }

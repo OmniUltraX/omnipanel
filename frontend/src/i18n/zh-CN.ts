@@ -1689,6 +1689,10 @@ export const zhCN = {
       thinking: "思考中…",
       stalled: "AI 响应超时，请检查模型配置或网络后重试",
     },
+    feed: {
+      scrollToTop: "滚动到顶部",
+      scrollToBottom: "滚动到底部",
+    },
     newSession: {
       local: "本地终端",
       localDesc: "打开新的本地 PTY 面板",
@@ -1706,6 +1710,8 @@ export const zhCN = {
       reorderConnection: "拖拽调整连接顺序",
       workspaceEmpty: "暂无打开的终端视图",
       workspaceEmptyHint: "从左侧会话列表打开会话，或点击 + 新建",
+      open: "打开",
+      copy: "复制会话",
     },
     pane: {
       server: "目标服务器",
