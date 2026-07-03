@@ -11,6 +11,7 @@ interface McpToolStore {
   refresh: () => Promise<void>;
   isInternalEnabled: (toolName: string) => boolean;
   isAvailable: (toolName: string) => boolean;
+  isExternalExposed: (toolName: string) => boolean;
   setInternalEnabled: (toolName: string, enabled: boolean) => Promise<void>;
   setExternalExposed: (toolName: string, exposed: boolean) => Promise<void>;
 }
@@ -48,6 +49,12 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
     return isModuleOpen(tool.module_key as ModuleKey);
   },
 
+  isExternalExposed: (toolName) => {
+    const tool = get().tools.find((t) => t.tool_name === toolName);
+    if (!tool?.external_exposed) return false;
+    return isModuleOpen(tool.module_key as ModuleKey);
+  },
+
   setInternalEnabled: async (toolName, enabled) => {
     const res = await commands.mcpToolSetInternalEnabled(toolName, enabled);
     if (res.status !== "ok") return;
@@ -69,6 +76,10 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
 
 export function isMcpToolAvailable(toolName: string): boolean {
   return useMcpToolStore.getState().isAvailable(toolName);
+}
+
+export function isMcpToolExternalExposed(toolName: string): boolean {
+  return useMcpToolStore.getState().isExternalExposed(toolName);
 }
 
 /** @deprecated 使用 isMcpToolAvailable */

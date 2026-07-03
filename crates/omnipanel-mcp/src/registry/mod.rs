@@ -1,5 +1,8 @@
+pub mod database_tools;
 pub mod external;
 pub mod native;
+pub mod omnimcp_execute;
+pub mod terminal_tools;
 
 use std::sync::Arc;
 

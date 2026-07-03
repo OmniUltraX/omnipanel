@@ -3,26 +3,12 @@ import { Button } from "../ui/Button";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/TextInput";
 import { commands, type McpToolInfo } from "../../ipc/bindings";
+import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleMcpCatalog";
 import {
-  getAllModuleMcpToolInfos,
-  OMNIMCP_BUILTIN_SERVICE_ID,
-} from "../../lib/ai/context/moduleMcpCatalog";
-import { isMcpToolAvailable } from "../../stores/mcpToolStore";
+  initMcpToolStore,
+  isMcpToolExternalExposed,
+} from "../../stores/mcpToolStore";
 import { fuzzyMatchModelName } from "../../lib/fetchProviderModels";
-
-function mergeBuiltinModuleTools(serviceId: string, backendTools: McpToolInfo[]): McpToolInfo[] {
-  if (serviceId !== OMNIMCP_BUILTIN_SERVICE_ID) {
-    return backendTools;
-  }
-  const existingNames = new Set(backendTools.map((tool) => tool.name));
-  const merged = [...backendTools];
-  for (const tool of getAllModuleMcpToolInfos()) {
-    if (!existingNames.has(tool.name) && isMcpToolAvailable(tool.name)) {
-      merged.push(tool);
-    }
-  }
-  return merged;
-}
 
 const PAGE_SIZE = 15;
 
@@ -55,13 +41,17 @@ export function McpServiceToolList({
     }
     setError(null);
     try {
+      if (serviceId === OMNIMCP_BUILTIN_SERVICE_ID) {
+        await initMcpToolStore();
+      }
       const result = await commands.mcpListServiceTools(serviceId);
       if (result.status === "ok") {
-        const merged = mergeBuiltinModuleTools(serviceId, result.data).filter(
-          (tool) => serviceId !== OMNIMCP_BUILTIN_SERVICE_ID || isMcpToolAvailable(tool.name),
-        );
-        setTools(merged);
-        onToolsLoadedRef.current?.(serviceId, merged.length);
+        let list = result.data;
+        if (serviceId === OMNIMCP_BUILTIN_SERVICE_ID) {
+          list = list.filter((tool) => isMcpToolExternalExposed(tool.name));
+        }
+        setTools(list);
+        onToolsLoadedRef.current?.(serviceId, list.length);
       } else {
         setTools([]);
         onToolsLoadedRef.current?.(serviceId, 0);
@@ -76,7 +66,7 @@ export function McpServiceToolList({
     } finally {
       setLoading(false);
     }
-  }, [serviceId]);
+  }, [serviceId, t]);
 
   useEffect(() => {
     void loadTools();

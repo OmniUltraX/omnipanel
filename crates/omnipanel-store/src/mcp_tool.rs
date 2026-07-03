@@ -169,10 +169,10 @@ impl Storage {
         self.mcp_tool_get(tool_name)
     }
 
-    /// 设置内置工具「对外暴露」状态。
+    /// 设置内置工具「对外暴露」状态（OmniMCP 对外可见）。
     ///
-    /// 开启暴露要求：所属模块处于 open；且工具为后端可直执（Native），
-    /// 因为 OmniMCP 只能在后端执行工具，UiDelegated（终端/数据库）无法对外提供。
+    /// 开启暴露要求所属模块处于 open；具体能否被外部 MCP 直调取决于后端是否已实现
+    ///（Native 只读/写工具可直调，UiDelegated 工具可在列表中暴露但直调需桌面端会话）。
     pub fn mcp_tool_set_external_exposed(
         &self,
         tool_name: &str,
@@ -182,12 +182,6 @@ impl Storage {
         let tool = self.mcp_tool_get(tool_name)?;
 
         if exposed {
-            if !super::mcp_tool_spec::builtin_tool_is_native(tool_name) {
-                return Err(OmniError::new(
-                    ErrorCode::InvalidInput,
-                    format!("工具 {tool_name} 不支持经 OmniMCP 对外暴露（仅后端直执工具可暴露）"),
-                ));
-            }
             self.repair_app_modules()?;
             let module = self.app_module_get(&tool.module_key)?;
             if module.status != AppModuleStatus::Open {
@@ -406,17 +400,26 @@ mod tests {
     }
 
     #[test]
-    fn external_exposed_rejects_ui_delegated() {
+    fn external_exposed_allows_all_builtin_tools_when_module_open() {
         let storage = Storage::open_in_memory().unwrap();
-        // 终端工具为 UiDelegated，不可对外暴露
+        assert!(storage
+            .mcp_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .is_ok());
+        assert!(storage
+            .mcp_tool_set_external_exposed("omni_database_list_connections", true)
+            .is_ok());
+    }
+
+    #[test]
+    fn external_exposed_rejects_when_module_closed() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage
+            .app_module_set_status("terminal", AppModuleStatus::Closed)
+            .unwrap();
         let err = storage
             .mcp_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidInput);
-        // 知识库工具为 Native，可对外暴露
-        assert!(storage
-            .mcp_tool_set_external_exposed("omni_knowledge_list_documents", true)
-            .is_ok());
     }
 
     #[test]

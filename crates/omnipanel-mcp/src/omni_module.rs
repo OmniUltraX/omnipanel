@@ -63,7 +63,12 @@ pub fn filter_tools_for_request(
             .into_iter()
             .filter(|tool| {
                 let name = tool.name.as_ref();
-                is_available(name) && omni_tool_module_key(name) == Some(module.as_str())
+                if !is_available(name) {
+                    return false;
+                }
+                let tool_module = omnipanel_store::builtin_tool_module_key(name)
+                    .or_else(|| omni_tool_module_key(name));
+                tool_module == Some(module.as_str())
             })
             .collect(),
     }
@@ -80,9 +85,11 @@ pub fn ensure_tool_allowed_for_module(
         ),
         OmniModuleScope::All => Ok(()),
         OmniModuleScope::Module(module) => {
-            let tool_module = omni_tool_module_key(tool_name).ok_or_else(|| {
-                format!("工具 {tool_name} 不符合 omni_{{module}}_{{function}} 命名规范")
-            })?;
+            let tool_module = omnipanel_store::builtin_tool_module_key(tool_name)
+                .or_else(|| omni_tool_module_key(tool_name))
+                .ok_or_else(|| {
+                    format!("工具 {tool_name} 未注册或不符合 omni_{{module}}_{{function}} 命名规范")
+                })?;
             if tool_module != module.as_str() {
                 return Err(format!(
                     "工具 {tool_name} 不属于模块 {module}（当前 X-Omni-Module 请求头）"
@@ -133,6 +140,22 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("X-Omni-Module"));
+    }
+
+    #[test]
+    fn filter_load_skill_by_knowledge_module() {
+        let schema = std::sync::Arc::new(serde_json::Map::new());
+        let tools = vec![
+            Tool::new("load_skill", "skill", schema.clone()),
+            Tool::new("omni_database_list_connections", "db", schema),
+        ];
+        let filtered = filter_tools_for_request(
+            tools,
+            &OmniModuleScope::Module("knowledge".to_string()),
+            |_| true,
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name.as_ref(), "load_skill");
     }
 
     #[test]

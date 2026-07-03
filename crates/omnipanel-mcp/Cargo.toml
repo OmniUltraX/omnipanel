@@ -12,6 +12,9 @@ anyhow.workspace = true
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }
+omnipanel-db = { path = "../omnipanel-db" }
+omnipanel-exec = { path = "../omnipanel-exec" }
+sqlx.workspace = true
 async-trait = "0.1"
 specta.workspace = true
 rmcp = { version = "1.7.0", features = [

@@ -13,9 +13,12 @@ use tokio::sync::Mutex;
 
 use omnipanel_store::{KnowledgeEntry, Storage};
 
+use crate::exposed_tools::merge_exposed_spec_tools;
 use crate::omni_module::{
     ensure_tool_allowed_for_module, filter_tools_for_request, request_omni_module_scope,
 };
+use crate::registry::native::is_router_native_tool;
+use crate::registry::omnimcp_execute::execute_omnimcp_tool;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct CreateDocumentParams {
@@ -163,8 +166,10 @@ impl ServerHandler for OmniMcpHandler {
     ) -> Result<ListToolsResult, ErrorData> {
         let scope = request_omni_module_scope(&context);
         let storage = self.storage.lock().await;
+        let router_tools = self.tool_router.list_all();
+        let merged = merge_exposed_spec_tools(&storage, router_tools);
         let tools = filter_tools_for_request(
-            self.tool_router.list_all(),
+            merged,
             &scope,
             |name| storage.mcp_tool_is_exposed_available(name).unwrap_or(false),
         );
@@ -194,8 +199,20 @@ impl ServerHandler for OmniMcpHandler {
             }
         }
 
-        let tcc = ToolCallContext::new(self, request, context);
-        self.tool_router.call(tcc).await
+        if is_router_native_tool(tool_name) {
+            let tcc = ToolCallContext::new(self, request, context);
+            return self.tool_router.call(tcc).await;
+        }
+
+        let arguments = request.arguments.clone().map_or_else(
+            || serde_json::Value::Object(serde_json::Map::new()),
+            serde_json::Value::Object,
+        );
+
+        match execute_omnimcp_tool(tool_name, arguments, self.storage.clone()).await {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(message) => Err(ErrorData::internal_error(message, None)),
+        }
     }
 
     fn get_info(&self) -> ServerInfo {

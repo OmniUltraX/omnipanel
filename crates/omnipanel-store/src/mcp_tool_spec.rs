@@ -23,6 +23,8 @@ pub struct BuiltinToolSpec {
     pub description: &'static str,
     pub input_schema: &'static str,
     pub exec_kind: ToolExecKind,
+    /// OmniMCP 对外暴露后是否可在后端直调（与内部 exec_kind 独立；终端/数据库内部仍走前端）。
+    pub omnimcp_backend: bool,
 }
 
 const SCHEMA_TERMINAL_RUN: &str = r#"{
@@ -104,6 +106,13 @@ const SCHEMA_KNOWLEDGE_LIST: &str = r#"{
   }
 }"#;
 
+const SCHEMA_LIST_CONNECTIONS: &str = r#"{
+  "type": "object",
+  "properties": {
+    "keyword": { "type": "string", "description": "可选，按连接名称关键字过滤（忽略大小写）" }
+  }
+}"#;
+
 const SCHEMA_LOAD_SKILL: &str = r#"{
   "type": "object",
   "properties": {
@@ -115,11 +124,28 @@ const SCHEMA_LOAD_SKILL: &str = r#"{
 /// 全部内置工具规格（单一真相源）。
 pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
+        tool_name: "omni_ssh_list_connections",
+        module_key: "ssh",
+        description: "列出已保存的 SSH 连接（不含凭据与完整 config），供外部 Agent 选择目标主机。",
+        input_schema: SCHEMA_LIST_CONNECTIONS,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
         tool_name: "omni_terminal_run_terminal_command",
         module_key: "terminal",
         description: "在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
         input_schema: SCHEMA_TERMINAL_RUN,
         exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_database_list_connections",
+        module_key: "database",
+        description: "列出已保存的数据库连接（不含密码等敏感字段），供外部 Agent 选择 connection_name。",
+        input_schema: SCHEMA_LIST_CONNECTIONS,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_database_get_databases_from_connection",
@@ -127,6 +153,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "根据连接名获取该连接下的数据库列表，可选关键字过滤。",
         input_schema: SCHEMA_DB_GET_DATABASES,
         exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_database_get_tables_from_database",
@@ -134,6 +161,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "根据连接名和数据库名获取表列表，可选关键字过滤。",
         input_schema: SCHEMA_DB_GET_TABLES,
         exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_database_get_table_info",
@@ -141,6 +169,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。",
         input_schema: SCHEMA_DB_TABLE_INFO,
         exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_database_execute_sql",
@@ -148,6 +177,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。",
         input_schema: SCHEMA_DB_EXECUTE_SQL,
         exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_knowledge_create_document",
@@ -155,6 +185,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "在知识库中创建文档。",
         input_schema: SCHEMA_KNOWLEDGE_CREATE,
         exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_knowledge_remove_document",
@@ -162,6 +193,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "按 ID 删除知识库文档。",
         input_schema: SCHEMA_KNOWLEDGE_REMOVE,
         exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_knowledge_list_documents",
@@ -169,6 +201,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "列出知识库文档，可按类型或标签过滤。",
         input_schema: SCHEMA_KNOWLEDGE_LIST,
         exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "load_skill",
@@ -176,6 +209,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         description: "加载指定 Skill 的完整 SKILL.md 正文（渐进式披露）",
         input_schema: SCHEMA_LOAD_SKILL,
         exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
     },
 ];
 
@@ -184,9 +218,19 @@ pub fn builtin_tool_spec(tool_name: &str) -> Option<&'static BuiltinToolSpec> {
     BUILTIN_TOOL_SPECS.iter().find(|s| s.tool_name == tool_name)
 }
 
+/// 按工具名查找 spec 的 module_key（含 `load_skill` 等非 omni_ 前缀工具）。
+pub fn builtin_tool_module_key(tool_name: &str) -> Option<&'static str> {
+    builtin_tool_spec(tool_name).map(|s| s.module_key)
+}
+
 /// 工具是否为后端直执（Native）。未知工具视为非 Native。
 pub fn builtin_tool_is_native(tool_name: &str) -> bool {
     builtin_tool_spec(tool_name).is_some_and(|s| s.exec_kind == ToolExecKind::Native)
+}
+
+/// OmniMCP 对外暴露后是否可在后端直调。
+pub fn builtin_tool_omnimcp_backend(tool_name: &str) -> bool {
+    builtin_tool_spec(tool_name).is_some_and(|s| s.omnimcp_backend)
 }
 
 #[cfg(test)]
@@ -220,6 +264,16 @@ mod tests {
     fn knowledge_and_load_skill_are_native() {
         assert!(builtin_tool_is_native("omni_knowledge_create_document"));
         assert!(builtin_tool_is_native("load_skill"));
+        assert!(builtin_tool_is_native("omni_database_list_connections"));
         assert!(!builtin_tool_is_native("omni_terminal_run_terminal_command"));
+    }
+
+    #[test]
+    fn load_skill_module_key_from_spec() {
+        assert_eq!(builtin_tool_module_key("load_skill"), Some("knowledge"));
+        assert_eq!(
+            builtin_tool_module_key("omni_ssh_list_connections"),
+            Some("ssh")
+        );
     }
 }
