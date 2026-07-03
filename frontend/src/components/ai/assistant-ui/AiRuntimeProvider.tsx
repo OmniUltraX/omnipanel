@@ -81,6 +81,33 @@ function buildHistoryJson(convId: string): string | undefined {
   );
 }
 
+/** 内联 AI 卡片的会话 id：每张卡片（blockId）独立，避免跨终端/跨卡片串上下文。 */
+function inlineConversationId(blockId: string): string {
+  return `term-${blockId}`;
+}
+
+/**
+ * 内联卡片的历史仅取「本卡片」线程内的既往轮次（不含当前进行中的 assistant 轮与当前 user 问题），
+ * 从根本上隔离不同终端 / 不同卡片的上下文。
+ */
+function buildInlineHistoryJson(
+  blockId: string,
+  assistantTurnId?: string,
+): string | undefined {
+  const block = useBlocksStore.getState().findBlockById(blockId);
+  if (!block) return undefined;
+  const msgs = getResolvedAiThread(block)
+    .filter(isAiThreadMessage)
+    .filter((m) => m.id !== assistantTurnId)
+    .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim());
+  // 去掉末尾当前 user 问题（userText 已单独传给后端）
+  if (msgs.length > 0 && msgs[msgs.length - 1].role === "user") {
+    msgs.pop();
+  }
+  if (msgs.length === 0) return undefined;
+  return JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content })));
+}
+
 function resolveBackendForGeneration(inline?: InlineTerminalAiTarget) {
   const providers = useAiModelsStore.getState().providers;
   const selectionId = inline
@@ -364,6 +391,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           } else {
             tryDispatchTool(id);
           }
+        } else {
+          // tool_call_update(pending) 可能先于 tool_call 到达（ACP 事件乱序），
+          // 此时 meta 尚未注册。标记等待，待 upsertToolCall 注册 meta 后补发派发，
+          // 否则工具将永不派发、后端 pending 挂起至超时（表现为“卡住”）。
+          waitingToolDispatchRef.current.add(id);
         }
       }
 
@@ -441,7 +473,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             backendId: backend.backendId,
             httpProvider: backend.kind === "http" ? backend.httpProvider : null,
             context: aiContext,
-            historyJson: buildHistoryJson(convId),
+            historyJson: inline
+              ? buildInlineHistoryJson(inline.blockId, inline.assistantTurnId)
+              : buildHistoryJson(convId),
             toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: "master" } } : "none",
           },
           signal,
@@ -512,10 +546,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      let convId = useAiStore.getState().activeConversationId ?? createConversation();
-      if (!useAiStore.getState().activeConversationId) {
-        useAiStore.getState().setActiveConversation(convId);
-      }
+      // 每张卡片独立会话（按 blockId 派生），不复用全局 activeConversationId，
+      // 也不写入侧栏会话列表 —— 彻底隔离不同终端 / 不同卡片的上下文。
+      const convId = inlineConversationId(blockId);
 
       const assistantTurnId = useBlocksStore.getState().pushAiThreadItem(blockId, {
         kind: "message",
@@ -525,10 +558,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       });
 
       useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
-
-      if (!continueThread) {
-        addMessage(convId, { role: "user", content: userText });
-      }
 
       const inlineTarget: InlineTerminalAiTarget = {
         sessionId,

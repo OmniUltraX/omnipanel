@@ -199,11 +199,44 @@ impl AcpClient {
                     }
                 }
             }
+
+            // stdout 关闭 = 子进程已退出：让所有在途请求立即失败，
+            // 否则 request() 会永久等待一个永不到来的响应（表现为“卡住”）。
+            let mut pending_map = pending.lock().await;
+            for (_, tx) in pending_map.drain() {
+                let _ = tx.send(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: 0,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: "ACP agent 连接已断开（子进程退出）".to_string(),
+                        data: None,
+                    }),
+                });
+            }
         });
 
         inner.stdin_tx = Some(stdin_tx);
         inner.child = Some(child);
         Ok(())
+    }
+
+    /// 检测子进程是否仍存活；若已退出则顺带清理句柄。
+    pub async fn is_alive(&self) -> bool {
+        let mut inner = self.inner.lock().await;
+        match inner.child {
+            Some(ref mut child) => match child.try_wait() {
+                Ok(Some(_)) => {
+                    inner.child = None;
+                    inner.stdin_tx = None;
+                    false
+                }
+                Ok(None) => true,
+                Err(_) => false,
+            },
+            None => false,
+        }
     }
 
     pub async fn request(

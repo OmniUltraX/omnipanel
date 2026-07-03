@@ -21,6 +21,15 @@ import { EnrichedLsListingView } from "./lsListing/EnrichedLsListingView";
 import { tryParseLsListing } from "./lsListing/parseLsListing";
 import { resolveShellOutputCwd, resolveCdDestination } from "./lsListing/resolveLsListingDirectory";
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconClipboard,
+  IconCopy,
+  IconQuote,
+} from "../../components/ui/Icons";
+import { showToast } from "../../stores/toastStore";
+import { useCommandBarDraftStore } from "./commandBarDraftStore";
 import type { TerminalSessionType } from "../../stores/terminalStore";
 import { groupFeedBlocksIntoSegments, type FeedAiRunSegment } from "./terminalFeedSegments";
 import {
@@ -465,8 +474,82 @@ function ShellBlockCard({
   const directoryPreview = shouldUseDirectoryPreview(block);
   const showCommandLine = !directoryPreview && cmd.length > 0;
 
+  const hasOutputBody = !!lsListing || (!!output && !directoryPreview);
+  const [outputCollapsed, setOutputCollapsed] = useState(false);
+  const outputLineCount = useMemo(() => {
+    const text = lsListing ? output || block.output : output;
+    if (!text) return 0;
+    return text.replace(/\n+$/, "").split("\n").length;
+  }, [lsListing, output, block.output]);
+
+  const copyToClipboard = async (text: string, okMsg: string) => {
+    const value = text.trim();
+    if (!value) {
+      showToast("没有可复制的内容");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(okMsg);
+    } catch {
+      showToast("复制失败");
+    }
+  };
+
+  const handleQuote = () => {
+    const reference = cmd || normalizeBlockCommand(block.command);
+    if (!reference.trim()) {
+      showToast("没有可引用的命令");
+      return;
+    }
+    useCommandBarDraftStore.getState().setDraft(sessionId, reference);
+    showToast("已引用命令到输入框");
+  };
+
   return (
     <article className="term-warp-block term-warp-block--shell" data-block-id={block.id}>
+      <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
+        {hasOutputBody ? (
+          <button
+            type="button"
+            className="term-warp-block__toolbar-btn"
+            title={outputCollapsed ? "展开输出" : "折叠输出"}
+            aria-label={outputCollapsed ? "展开输出" : "折叠输出"}
+            onClick={() => setOutputCollapsed((v) => !v)}
+          >
+            {outputCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="term-warp-block__toolbar-btn"
+          title="引用命令"
+          aria-label="引用命令"
+          onClick={handleQuote}
+        >
+          <IconQuote size={14} />
+        </button>
+        <button
+          type="button"
+          className="term-warp-block__toolbar-btn"
+          title="复制命令"
+          aria-label="复制命令"
+          onClick={() => copyToClipboard(cmd || normalizeBlockCommand(block.command), "已复制命令")}
+        >
+          <IconCopy size={14} />
+        </button>
+        {hasOutputBody ? (
+          <button
+            type="button"
+            className="term-warp-block__toolbar-btn"
+            title="复制输出"
+            aria-label="复制输出"
+            onClick={() => copyToClipboard(output || block.output, "已复制输出")}
+          >
+            <IconClipboard size={14} />
+          </button>
+        ) : null}
+      </div>
       {showCommandLine ? (
         <div className="term-warp-prompt-line">
           <TerminalPathBreadcrumb
@@ -494,7 +577,16 @@ function ShellBlockCard({
           />
         </div>
       ) : null}
-      {lsListing ? (
+      {outputCollapsed && hasOutputBody ? (
+        <button
+          type="button"
+          className="term-warp-output-collapsed"
+          onClick={() => setOutputCollapsed(false)}
+        >
+          <IconChevronRight size={13} />
+          <span>输出已折叠 {outputLineCount} 行</span>
+        </button>
+      ) : lsListing ? (
         <EnrichedLsListingView
           listing={lsListing}
           command={block.attachedListing ? "ls" : block.command}

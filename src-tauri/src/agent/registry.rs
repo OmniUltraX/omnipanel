@@ -32,7 +32,9 @@ impl AgentRegistry {
         {
             let map = self.managers.lock().await;
             if let Some(m) = map.get(&key) {
-                if m.is_connected() {
+                // 必须做真实存活检查：子进程崩溃后 is_connected() 仍返回 true，
+                // 直接复用会把请求发往已死管道，导致新对话无响应（空卡片/卡住）。
+                if m.is_healthy().await {
                     return Ok(m.clone());
                 }
             }

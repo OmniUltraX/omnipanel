@@ -423,11 +423,9 @@ async fn run_acp_internal_turn(
 ) -> Result<(), String> {
     use omnipanel_ai::providers::acp::{
         PromptOptions, build_client_tools_prompt, build_incremental_client_tools_prompt,
-        format_client_tool_result_prompt, looks_like_pending_tool_calls_json,
-        parse_client_tool_calls, pick_terminal_tool_call, prompt_expects_tool_retry,
-        prompt_has_tool_results,
+        format_client_tool_results_prompt, looks_like_pending_tool_calls_json,
+        parse_client_tool_calls,
     };
-    use omnipanel_ai::providers::acp::native_tools::TERMINAL_CLIENT_TOOL;
     use omnipanel_ai::ToolStatus;
 
     let backend_id = internal.backend_id.clone();
@@ -467,6 +465,27 @@ async fn run_acp_internal_turn(
         .as_deref()
         .filter(|s| !s.trim().is_empty());
 
+    // ACP client-tools 可注入的工具清单：取自内部 registry（尊重 internal_enabled + 模块 open），
+    // 仅保留内置 UiDelegated 工具（终端 / 数据库等，前端 dispatchPendingTool 可执行）。
+    // 与 HTTP DirectInject 共用同一 schema 单一真相源。
+    let acp_tools: Vec<omnipanel_ai::types::ToolDef> = if client_tools {
+        let manager_mcp = state.mcp_manager.lock().await;
+        let defs = manager_mcp
+            .to_internal_tool_defs(Some("master"))
+            .await
+            .unwrap_or_default();
+        defs.into_iter()
+            .filter(|d| {
+                omnipanel_store::builtin_tool_spec(&d.function.name)
+                    .is_some_and(|s| s.exec_kind == omnipanel_store::ToolExecKind::UiDelegated)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let acp_tool_names: std::collections::HashSet<String> =
+        acp_tools.iter().map(|d| d.function.name.clone()).collect();
+
     let is_first_user_prompt = if client_tools {
         manager.mark_first_prompt_sent(conversation_id).await
     } else {
@@ -475,7 +494,7 @@ async fn run_acp_internal_turn(
 
     let mut prompt_text = if client_tools {
         if is_first_user_prompt {
-            build_client_tools_prompt(&internal.user_text, terminal_context)
+            build_client_tools_prompt(&internal.user_text, terminal_context, &acp_tools)
         } else {
             build_incremental_client_tools_prompt(&internal.user_text, terminal_context)
         }
@@ -496,11 +515,10 @@ async fn run_acp_internal_turn(
             &prompt_text,
         );
 
-        let is_tool_continuation = client_tools && prompt_has_tool_results(&prompt_text);
-        let expects_tool_retry = client_tools && prompt_expects_tool_retry(&prompt_text);
-        let content_buffer: Option<Arc<std::sync::Mutex<String>>> = if client_tools
-            && (!is_tool_continuation || expects_tool_retry)
-        {
+        // 所有 client_tools 轮都缓冲内容：prompt() 内的智能闸门会让纯文本立即流式直通，
+        // 疑似 tool_calls JSON 全程 hold，turn 结束后在此统一解析（执行工具或作为文本发出），
+        // 从根本上杜绝 tool_calls JSON 当正文泄露到前端。
+        let content_buffer: Option<Arc<std::sync::Mutex<String>>> = if client_tools {
             Some(Arc::new(std::sync::Mutex::new(String::new())))
         } else {
             None
@@ -508,9 +526,10 @@ async fn run_acp_internal_turn(
         let content_hold = content_buffer.is_some();
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
-        let pending_tool: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<(String, bool)>>>> =
-            Arc::new(Mutex::new(None));
-        let pending_tool_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        // 收集本轮所有并行 tool_call（模型一次可返回多个），逐个等待结果后合并回下一轮 prompt。
+        // 元组：(tool_id, tool_name, 结果接收端)
+        type PendingTool = (String, String, tokio::sync::oneshot::Receiver<(String, bool)>);
+        let pending_tools: Arc<Mutex<Vec<PendingTool>>> = Arc::new(Mutex::new(Vec::new()));
 
         let manager_bg = manager.clone();
         let session_id_bg = session_id.clone();
@@ -532,7 +551,7 @@ async fn run_acp_internal_turn(
         while let Some(event) = rx.recv().await {
             if client_tools {
                 if let StreamEvent::ToolCall { id, name, arguments } = &event {
-                    if name == TERMINAL_CLIENT_TOOL {
+                    if acp_tool_names.contains(name) {
                         let key = format!("{conversation_id}:{id}");
                         let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
                         state
@@ -540,8 +559,10 @@ async fn run_acp_internal_turn(
                             .lock()
                             .await
                             .insert(key, tool_tx);
-                        *pending_tool.lock().await = Some(tool_rx);
-                        *pending_tool_id.lock().await = Some(id.clone());
+                        pending_tools
+                            .lock()
+                            .await
+                            .push((id.clone(), name.clone(), tool_rx));
                         let _ = arguments;
                     }
                 }
@@ -567,55 +588,62 @@ async fn run_acp_internal_turn(
             .map_err(|e| e.to_string())?
             .map_err(|e| e)?;
 
-        // 路径 B：ACP 原生 tool_call 已被 translate 映射并在流中注册 pending
         if client_tools {
-            if pending_tool.lock().await.is_none() {
+            // 路径 A：turn 内未收到原生 tool_call，但缓冲文本可能是 tool_calls JSON（可含多个）
+            if pending_tools.lock().await.is_empty() {
                 if let Some(buf) = &content_buffer {
                     let text = buf.lock().map(|g| g.clone()).unwrap_or_default();
-                    if let Some(tc) = pick_terminal_tool_call(&parse_client_tool_calls(&text)) {
-                        // 路径 A：从模型文本解析 tool_calls JSON
-                        let tool_id = tc.id.clone();
-                        let args = tc.arguments.clone();
-                        let key = format!("{conversation_id}:{tool_id}");
-                        let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
-                        state
-                            .pending_internal_tool_results
-                            .lock()
-                            .await
-                            .insert(key, tool_tx);
-                        *pending_tool.lock().await = Some(tool_rx);
-                        *pending_tool_id.lock().await = Some(tool_id.clone());
+                    let tool_calls: Vec<_> = parse_client_tool_calls(&text)
+                        .into_iter()
+                        .filter(|c| acp_tool_names.contains(&c.name))
+                        .collect();
+                    if !tool_calls.is_empty() {
+                        for tc in tool_calls {
+                            let tool_id = tc.id.clone();
+                            let tool_name = tc.name.clone();
+                            let key = format!("{conversation_id}:{tool_id}");
+                            let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
+                            state
+                                .pending_internal_tool_results
+                                .lock()
+                                .await
+                                .insert(key, tool_tx);
+                            pending_tools
+                                .lock()
+                                .await
+                                .push((tool_id.clone(), tool_name.clone(), tool_rx));
 
-                        let tool_call = StreamEvent::ToolCall {
-                            id: tool_id.clone(),
-                            name: TERMINAL_CLIENT_TOOL.to_string(),
-                            arguments: args,
-                        };
-                        record_internal_trace(
-                            state,
-                            conversation_id,
-                            &backend_id,
-                            turn_index,
-                            &tool_call,
-                        );
-                        let _ = on_event.send(tool_call);
+                            let tool_call = StreamEvent::ToolCall {
+                                id: tool_id.clone(),
+                                name: tool_name,
+                                arguments: tc.arguments,
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &tool_call,
+                            );
+                            let _ = on_event.send(tool_call);
 
-                        let tool_pending = StreamEvent::ToolCallUpdate {
-                            id: tool_id,
-                            status: ToolStatus::Pending,
-                            result: None,
-                        };
-                        record_internal_trace(
-                            state,
-                            conversation_id,
-                            &backend_id,
-                            turn_index,
-                            &tool_pending,
-                        );
-                        let _ = on_event.send(tool_pending);
+                            let tool_pending = StreamEvent::ToolCallUpdate {
+                                id: tool_id,
+                                status: ToolStatus::Pending,
+                                result: None,
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &tool_pending,
+                            );
+                            let _ = on_event.send(tool_pending);
+                        }
                     } else if !text.trim().is_empty() && !looks_like_pending_tool_calls_json(&text)
                     {
-                        // 纯文本回答：冲刷缓冲内容
+                        // 纯文本回答（闸门未触发时的兜底冲刷）
                         let content = StreamEvent::ContentDelta { text };
                         record_internal_trace(
                             state,
@@ -628,7 +656,7 @@ async fn run_acp_internal_turn(
                     }
                 }
             } else if let Some(buf) = &content_buffer {
-                // Path B 已注册 pending_tool：仍冲刷非 JSON 说明文字
+                // 路径 B 已注册 pending_tool：仍冲刷非 JSON 说明文字
                 flush_held_content(
                     buf,
                     &on_event,
@@ -639,19 +667,20 @@ async fn run_acp_internal_turn(
                 );
             }
 
-            if let Some(tool_rx) = pending_tool.lock().await.take() {
-                match tokio::time::timeout(std::time::Duration::from_secs(300), tool_rx).await {
-                    Ok(Ok((result, approved))) => {
-                        prompt_text = format_client_tool_result_prompt(
-                            TERMINAL_CLIENT_TOOL,
-                            &result,
-                            approved,
-                        );
-                        if let Some(tool_id) = pending_tool_id.lock().await.take() {
+            // 等待本轮所有工具结果，合并进下一轮 prompt
+            let pending: Vec<PendingTool> = {
+                let mut guard = pending_tools.lock().await;
+                std::mem::take(&mut *guard)
+            };
+            if !pending.is_empty() {
+                let mut results: Vec<(String, String, bool)> = Vec::new();
+                for (tool_id, tool_name, tool_rx) in pending {
+                    match tokio::time::timeout(std::time::Duration::from_secs(300), tool_rx).await {
+                        Ok(Ok((result, approved))) => {
                             let update = StreamEvent::ToolCallUpdate {
                                 id: tool_id,
                                 status: ToolStatus::Completed,
-                                result: Some(result),
+                                result: Some(result.clone()),
                             };
                             record_internal_trace(
                                 state,
@@ -661,39 +690,41 @@ async fn run_acp_internal_turn(
                                 &update,
                             );
                             let _ = on_event.send(update);
+                            results.push((tool_name, result, approved));
                         }
-                        turn_index += 1;
-                        continue;
-                    }
-                    Ok(Err(_)) => {
-                        let err = StreamEvent::Error {
-                            message: "工具响应通道已关闭".to_string(),
-                        };
-                        record_internal_trace(
-                            state,
-                            conversation_id,
-                            &backend_id,
-                            turn_index,
-                            &err,
-                        );
-                        let _ = on_event.send(err);
-                        return Ok(());
-                    }
-                    Err(_) => {
-                        let err = StreamEvent::Error {
-                            message: "工具执行超时（300s）".to_string(),
-                        };
-                        record_internal_trace(
-                            state,
-                            conversation_id,
-                            &backend_id,
-                            turn_index,
-                            &err,
-                        );
-                        let _ = on_event.send(err);
-                        return Ok(());
+                        Ok(Err(_)) => {
+                            let err = StreamEvent::Error {
+                                message: "工具响应通道已关闭".to_string(),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &err,
+                            );
+                            let _ = on_event.send(err);
+                            return Ok(());
+                        }
+                        Err(_) => {
+                            let err = StreamEvent::Error {
+                                message: "工具执行超时（300s）".to_string(),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &err,
+                            );
+                            let _ = on_event.send(err);
+                            return Ok(());
+                        }
                     }
                 }
+                prompt_text = format_client_tool_results_prompt(&results);
+                turn_index += 1;
+                continue;
             }
         }
 

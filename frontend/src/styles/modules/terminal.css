@@ -1390,11 +1390,77 @@
 
     /* Shell：贴近真实终端，无卡片边框 */
     .term-warp-block--shell {
+        position: relative;
         border: none;
         border-radius: 0;
         background: transparent;
         overflow: visible;
         contain: layout style paint;
+    }
+
+    /* 右上角操作图标：折叠 / 引用 / 复制命令 / 复制输出 */
+    .term-warp-block__toolbar {
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--bg, #1a1717) 82%, transparent);
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+    }
+
+    .term-warp-block--shell:hover .term-warp-block__toolbar,
+    .term-warp-block__toolbar:focus-within {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .term-warp-block__toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: none;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--meta, #9a938a);
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .term-warp-block__toolbar-btn:hover {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: #f8f4e8;
+    }
+
+    .term-warp-output-collapsed {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 2px 0;
+        padding: 2px 8px 2px 4px;
+        border: none;
+        border-radius: 5px;
+        background: color-mix(in srgb, var(--meta, #9a938a) 12%, transparent);
+        color: var(--meta, #9a938a);
+        font-size: 11px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .term-warp-output-collapsed:hover {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: #f8f4e8;
     }
 
     .term-warp-prompt-line {

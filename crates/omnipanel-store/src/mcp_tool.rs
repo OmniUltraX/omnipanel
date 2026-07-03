@@ -5,51 +5,8 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use super::app_module::{AppModuleStatus, DEFAULT_APP_MODULES};
+use super::mcp_tool_spec::BUILTIN_TOOL_SPECS;
 use super::storage::{Storage, map_sqlite};
-
-/// 默认 MCP 工具清单：(tool_name, module_key, description)
-pub const DEFAULT_MCP_TOOLS: &[(&str, &str, &str)] = &[
-    (
-        "omni_terminal_run_terminal_command",
-        "terminal",
-        "在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
-    ),
-    (
-        "omni_database_get_databases_from_connection",
-        "database",
-        "根据连接名获取该连接下的数据库列表，可选关键字过滤。",
-    ),
-    (
-        "omni_database_get_tables_from_database",
-        "database",
-        "根据连接名和数据库名获取表列表，可选关键字过滤。",
-    ),
-    (
-        "omni_database_get_table_info",
-        "database",
-        "根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。",
-    ),
-    (
-        "omni_database_execute_sql",
-        "database",
-        "在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。",
-    ),
-    (
-        "omni_knowledge_create_document",
-        "knowledge",
-        "在知识库中创建文档。",
-    ),
-    (
-        "omni_knowledge_remove_document",
-        "knowledge",
-        "按 ID 删除知识库文档。",
-    ),
-    (
-        "omni_knowledge_list_documents",
-        "knowledge",
-        "列出知识库文档，可按类型或标签过滤。",
-    ),
-];
 
 /// 持久化的 MCP 工具条目。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -61,6 +18,8 @@ pub struct McpToolRecord {
     pub internal_enabled: bool,
     /// 是否经 OmniMCP 对外暴露
     pub external_exposed: bool,
+    /// 工具参数 JSON Schema（后端 spec 为准，供前端渲染/校验与模型注入）
+    pub input_schema: String,
 }
 
 /// 从前端目录同步时的输入（不覆盖用户已设置的 enabled）。
@@ -72,14 +31,21 @@ pub struct McpToolCatalogEntry {
 }
 
 impl Storage {
-    /// 补种默认 MCP 工具（不覆盖已有行的开关）。
+    /// 以后端 spec 为准补种/修复内置 MCP 工具：
+    /// - 新工具按默认开关写入；
+    /// - 已存在行更新 module_key / description / input_schema（保留用户开关）。
     pub fn repair_mcp_tools(&self) -> OmniResult<()> {
         self.ensure_mcp_tool_columns()?;
-        for (name, module, desc) in DEFAULT_MCP_TOOLS {
+        for spec in BUILTIN_TOOL_SPECS {
             self.conn()
                 .execute(
-                    "INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed) VALUES (?1, ?2, ?3, 1, 1, 1)",
-                    params![name, module, desc],
+                    "INSERT INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema)
+                     VALUES (?1, ?2, ?3, 1, 1, 1, ?4)
+                     ON CONFLICT(tool_name) DO UPDATE SET
+                       module_key = excluded.module_key,
+                       description = excluded.description,
+                       input_schema = excluded.input_schema",
+                    params![spec.tool_name, spec.module_key, spec.description, spec.input_schema],
                 )
                 .map_err(map_sqlite)?;
         }
@@ -118,6 +84,14 @@ impl Storage {
                 )
                 .map_err(map_sqlite)?;
         }
+        if !cols.iter().any(|c| c == "input_schema") {
+            self.conn()
+                .execute(
+                    "ALTER TABLE mcp_tools ADD COLUMN input_schema TEXT NOT NULL DEFAULT ''",
+                    [],
+                )
+                .map_err(map_sqlite)?;
+        }
         Ok(())
     }
 
@@ -127,7 +101,7 @@ impl Storage {
         let mut stmt = self
             .conn()
             .prepare(
-                "SELECT tool_name, module_key, description, internal_enabled, external_exposed FROM mcp_tools ORDER BY module_key ASC, tool_name ASC",
+                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM mcp_tools ORDER BY module_key ASC, tool_name ASC",
             )
             .map_err(map_sqlite)?;
 
@@ -139,6 +113,7 @@ impl Storage {
                     description: row.get(2)?,
                     internal_enabled: row.get::<_, i32>(3)? != 0,
                     external_exposed: row.get::<_, i32>(4)? != 0,
+                    input_schema: row.get(5)?,
                 })
             })
             .map_err(map_sqlite)?;
@@ -146,16 +121,17 @@ impl Storage {
         rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)
     }
 
-    /// 同步前端目录：新增工具并更新描述/模块，保留 enabled。
+    /// 同步前端目录：仅登记后端 spec 未涵盖的「未知工具」，不覆盖任何既有行。
+    ///
+    /// 内置工具的 module_key / description / input_schema 一律以后端
+    /// `BUILTIN_TOOL_SPECS` 单一真相源为准（`repair_mcp_tools` 会持续校正），
+    /// 故此处对已存在工具不做修改，避免与真相源冲突。
     pub fn mcp_tool_sync_catalog(&self, entries: &[McpToolCatalogEntry]) -> OmniResult<()> {
         self.repair_mcp_tools()?;
         for entry in entries {
             self.conn()
                 .execute(
-                    "INSERT INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed) VALUES (?1, ?2, ?3, 1, 1, 1)
-                     ON CONFLICT(tool_name) DO UPDATE SET
-                       module_key = excluded.module_key,
-                       description = excluded.description",
+                    "INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema) VALUES (?1, ?2, ?3, 1, 1, 1, '')",
                     params![entry.tool_name, entry.module_key, entry.description],
                 )
                 .map_err(map_sqlite)?;
@@ -194,12 +170,34 @@ impl Storage {
     }
 
     /// 设置内置工具「对外暴露」状态。
+    ///
+    /// 开启暴露要求：所属模块处于 open；且工具为后端可直执（Native），
+    /// 因为 OmniMCP 只能在后端执行工具，UiDelegated（终端/数据库）无法对外提供。
     pub fn mcp_tool_set_external_exposed(
         &self,
         tool_name: &str,
         exposed: bool,
     ) -> OmniResult<McpToolRecord> {
         self.repair_mcp_tools()?;
+        let tool = self.mcp_tool_get(tool_name)?;
+
+        if exposed {
+            if !super::mcp_tool_spec::builtin_tool_is_native(tool_name) {
+                return Err(OmniError::new(
+                    ErrorCode::InvalidInput,
+                    format!("工具 {tool_name} 不支持经 OmniMCP 对外暴露（仅后端直执工具可暴露）"),
+                ));
+            }
+            self.repair_app_modules()?;
+            let module = self.app_module_get(&tool.module_key)?;
+            if module.status != AppModuleStatus::Open {
+                return Err(OmniError::new(
+                    ErrorCode::InvalidInput,
+                    format!("模块 {} 未打开，无法开启对外暴露", tool.module_key),
+                ));
+            }
+        }
+
         self.conn()
             .execute(
                 "UPDATE mcp_tools SET external_exposed = ?1 WHERE tool_name = ?2",
@@ -291,6 +289,10 @@ impl Storage {
     }
 
     /// 根据模块状态同步其下全部 MCP 工具（关闭/禁用时全部禁用）。
+    ///
+    /// 注意：此方法会在启动时对所有模块调用，故**不**在此恢复工具，
+    /// 以免覆盖用户手动禁用。恢复仅在模块 open 状态转换时由
+    /// `mcp_tool_restore_for_module` 触发（见 `app_module_set_status`）。
     pub fn mcp_tool_sync_with_module(&self, module_key: &str) -> OmniResult<()> {
         self.repair_mcp_tools()?;
         self.repair_app_modules()?;
@@ -299,6 +301,13 @@ impl Storage {
             self.mcp_tool_set_enabled_for_module(module_key, false)?;
         }
         Ok(())
+    }
+
+    /// 模块由非 open 转为 open 时恢复其下工具为可用（粗策略：全部置为 internal_enabled）。
+    /// 仅应在 open 状态转换时调用，不可在启动时对所有模块调用。
+    pub fn mcp_tool_restore_for_module(&self, module_key: &str) -> OmniResult<()> {
+        self.repair_mcp_tools()?;
+        self.mcp_tool_set_enabled_for_module(module_key, true)
     }
 
     /// 按全部模块状态同步 MCP 工具（启动/迁移后调用）。
@@ -312,7 +321,7 @@ impl Storage {
     fn mcp_tool_get(&self, tool_name: &str) -> OmniResult<McpToolRecord> {
         self.conn()
             .query_row(
-                "SELECT tool_name, module_key, description, internal_enabled, external_exposed FROM mcp_tools WHERE tool_name = ?1",
+                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM mcp_tools WHERE tool_name = ?1",
                 [tool_name],
                 |row| {
                     Ok(McpToolRecord {
@@ -321,6 +330,7 @@ impl Storage {
                         description: row.get(2)?,
                         internal_enabled: row.get::<_, i32>(3)? != 0,
                         external_exposed: row.get::<_, i32>(4)? != 0,
+                        input_schema: row.get(5)?,
                     })
                 },
             )
@@ -363,6 +373,8 @@ mod tests {
             .mcp_tool_is_enabled("omni_terminal_run_terminal_command")
             .unwrap());
 
+        // 前端 catalog 不再覆盖内置工具描述：单一真相源以后端 spec 为准，
+        // 且用户开关（internal_enabled=false）保留。
         storage
             .mcp_tool_sync_catalog(&[McpToolCatalogEntry {
                 tool_name: "omni_terminal_run_terminal_command".to_string(),
@@ -376,6 +388,53 @@ mod tests {
         let tool = storage
             .mcp_tool_get("omni_terminal_run_terminal_command")
             .unwrap();
-        assert_eq!(tool.description, "updated desc");
+        assert_ne!(tool.description, "updated desc");
+        assert!(!tool.input_schema.is_empty(), "内置工具应带 spec schema");
+    }
+
+    #[test]
+    fn mcp_tool_list_carries_input_schema() {
+        let storage = Storage::open_in_memory().unwrap();
+        let list = storage.mcp_tool_list().unwrap();
+        let term = list
+            .iter()
+            .find(|t| t.tool_name == "omni_terminal_run_terminal_command")
+            .unwrap();
+        let schema: serde_json::Value = serde_json::from_str(&term.input_schema).unwrap();
+        let required = schema.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(required.iter().any(|x| x.as_str() == Some("command")));
+    }
+
+    #[test]
+    fn external_exposed_rejects_ui_delegated() {
+        let storage = Storage::open_in_memory().unwrap();
+        // 终端工具为 UiDelegated，不可对外暴露
+        let err = storage
+            .mcp_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        // 知识库工具为 Native，可对外暴露
+        assert!(storage
+            .mcp_tool_set_external_exposed("omni_knowledge_list_documents", true)
+            .is_ok());
+    }
+
+    #[test]
+    fn module_reopen_restores_tools() {
+        let storage = Storage::open_in_memory().unwrap();
+        // 关闭 database 模块 → 其工具被禁用
+        storage
+            .app_module_set_status("database", AppModuleStatus::Closed)
+            .unwrap();
+        assert!(!storage
+            .mcp_tool_is_enabled("omni_database_execute_sql")
+            .unwrap());
+        // 重新打开 → 工具恢复
+        storage
+            .app_module_set_status("database", AppModuleStatus::Open)
+            .unwrap();
+        assert!(storage
+            .mcp_tool_is_enabled("omni_database_execute_sql")
+            .unwrap());
     }
 }

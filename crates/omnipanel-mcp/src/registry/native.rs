@@ -5,51 +5,17 @@ use omnipanel_store::{KnowledgeEntry, Storage};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
+/// 工具参数 schema —— 统一取自 omnipanel-store 的单一真相源 `BUILTIN_TOOL_SPECS`。
+/// 未知工具回退为空 object。
 pub fn input_schema_for(tool_name: &str) -> Value {
-    match tool_name {
-        "omni_knowledge_create_document" => serde_json::json!({
-            "type": "object",
-            "properties": {
-                "title": { "type": "string" },
-                "content": { "type": "string" },
-                "kind": { "type": "string" },
-                "tags": { "type": "string" },
-                "source": { "type": "string" },
-                "env_tag": { "type": "string" },
-                "risk_level": { "type": "string" },
-                "parent_id": { "type": "string" }
-            },
-            "required": ["title", "content"]
-        }),
-        "omni_knowledge_remove_document" => serde_json::json!({
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" }
-            },
-            "required": ["id"]
-        }),
-        "omni_knowledge_list_documents" => serde_json::json!({
-            "type": "object",
-            "properties": {
-                "kind": { "type": "string" },
-                "tag": { "type": "string" }
-            }
-        }),
-        "load_skill" => serde_json::json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Skill 的 name 或 id（见系统提示中的 Skills 列表）"
-                }
-            },
-            "required": ["name"]
-        }),
-        _ => serde_json::json!({
-            "type": "object",
-            "properties": {}
-        }),
-    }
+    omnipanel_store::builtin_tool_spec(tool_name)
+        .and_then(|spec| serde_json::from_str(spec.input_schema).ok())
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })
+        })
 }
 
 pub async fn execute(
