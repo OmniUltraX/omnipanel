@@ -148,7 +148,12 @@ impl Storage {
             ));
         }
 
-        self.mcp_tool_sync_with_module(module_key)?;
+        // 由非 open 转为 open 时恢复其下工具；转为非 open 时禁用其下工具。
+        if status == AppModuleStatus::Open && current.status != AppModuleStatus::Open {
+            self.mcp_tool_restore_for_module(module_key)?;
+        } else {
+            self.mcp_tool_sync_with_module(module_key)?;
+        }
 
         self.app_module_get(module_key)
     }

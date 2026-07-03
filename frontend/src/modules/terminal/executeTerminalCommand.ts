@@ -9,7 +9,7 @@ import {
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
-import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, isCdNavigationCommand } from "./terminalAutoLs";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete, isCdNavigationCommand } from "./terminalAutoLs";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 
@@ -470,6 +470,7 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
 
     if (isWarpDisplay(pending.tabId)) {
       const blockId = armFeedCapture(pending.tabId, command);
+      scheduleShellBlockFallbackComplete(pending.tabId, blockId);
       if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(command)) {
         scheduleCdBlockFallbackComplete(pending.tabId, blockId);
       }

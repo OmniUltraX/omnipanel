@@ -6,6 +6,9 @@ import { Button } from "../../components/ui/Button";
 import { TextInput } from "../../components/ui/TextInput";
 import { PasswordInput } from "../../components/ui/PasswordInput";
 import { TraceListView } from "./TraceListView";
+import { OmniMcpToolsExposureSection } from "../../components/settings/OmniMcpToolsExposureSection";
+import { McpServiceToolList } from "../../components/settings/McpServiceToolList";
+import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleMcpCatalog";
 
 type Tab = "router" | "omnimcp" | "traces";
 
@@ -165,6 +168,22 @@ export function AiGatewaySettings() {
               onChange={(v) => setAiGatewaySettings({ mcpExternalRequireApproval: v })}
             />
           </div>
+
+          <div className="settings-section-divider" />
+
+          <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.toolsTitle")}</div>
+          <p className="setting-hint settings-subsection-desc">
+            {t("settings.aiServices.omnimcp.toolsDesc")}
+          </p>
+          <OmniMcpToolsExposureSection />
+
+          <div className="settings-section-divider" />
+
+          <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.liveToolsTitle")}</div>
+          <p className="setting-hint settings-subsection-desc">
+            {t("settings.aiServices.omnimcp.liveToolsDesc")}
+          </p>
+          <McpServiceToolList serviceId={OMNIMCP_BUILTIN_SERVICE_ID} />
 
           <div className="settings-section-divider" />
 

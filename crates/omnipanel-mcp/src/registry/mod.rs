@@ -1,5 +1,8 @@
+pub mod database_tools;
 pub mod external;
 pub mod native;
+pub mod omnimcp_execute;
+pub mod terminal_tools;
 
 use std::sync::Arc;
 
@@ -31,13 +34,6 @@ pub struct RegisteredTool {
     pub mcp_tool_name: Option<String>,
 }
 
-const NATIVE_TOOL_NAMES: &[&str] = &[
-    "omni_knowledge_create_document",
-    "omni_knowledge_remove_document",
-    "omni_knowledge_list_documents",
-    "load_skill",
-];
-
 pub struct ToolRegistry {
     storage: Arc<Mutex<Storage>>,
 }
@@ -47,8 +43,9 @@ impl ToolRegistry {
         Self { storage }
     }
 
+    /// 是否后端直执（Native）——取自 store 单一真相源。
     pub fn is_native_tool(name: &str) -> bool {
-        NATIVE_TOOL_NAMES.contains(&name)
+        omnipanel_store::builtin_tool_is_native(name)
     }
 
     /// 克隆 storage 句柄用于隔离执行（不持有 `McpManager` 锁）。
@@ -77,11 +74,16 @@ impl ToolRegistry {
             } else {
                 ToolExecutionKind::UiDelegated
             };
+            // schema 优先取 DB 持久化值（前端/模型共用同一份），解析失败回退 spec。
+            let input_schema = serde_json::from_str::<Value>(&record.input_schema)
+                .ok()
+                .filter(|v| v.is_object())
+                .unwrap_or_else(|| native::input_schema_for(&record.tool_name));
             tools.push(RegisteredTool {
                 name: record.tool_name.clone(),
                 module_key: record.module_key.clone(),
                 description: record.description.clone(),
-                input_schema: native::input_schema_for(&record.tool_name),
+                input_schema,
                 kind,
                 mcp_service_id: None,
                 mcp_tool_name: None,
@@ -140,5 +142,62 @@ impl ToolRegistry {
         Err(format!(
             "工具 {name} 为 UiDelegated，应由前端 dispatchTool 执行，不应在后端直执"
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omnipanel_store::AppModuleStatus;
+
+    fn registry_with_storage() -> (ToolRegistry, Arc<Mutex<Storage>>) {
+        let storage = Arc::new(Mutex::new(Storage::open_in_memory().unwrap()));
+        (ToolRegistry::new(storage.clone()), storage)
+    }
+
+    #[tokio::test]
+    async fn list_enabled_carries_schema_and_kind() {
+        let (registry, _s) = registry_with_storage();
+        let tools = registry.list_enabled(None).await.unwrap();
+        let term = tools
+            .iter()
+            .find(|t| t.name == "omni_terminal_run_terminal_command")
+            .expect("terminal 工具应存在");
+        assert_eq!(term.kind, ToolExecutionKind::UiDelegated);
+        assert_eq!(
+            term.input_schema
+                .get("required")
+                .and_then(|r| r.as_array())
+                .map(|a| a.iter().any(|x| x.as_str() == Some("command"))),
+            Some(true)
+        );
+        // load_skill 已纳入 registry（native）
+        assert!(tools.iter().any(|t| t.name == "load_skill"));
+    }
+
+    #[tokio::test]
+    async fn disabled_tool_is_excluded() {
+        let (registry, storage) = registry_with_storage();
+        storage
+            .lock()
+            .await
+            .mcp_tool_set_internal_enabled("omni_terminal_run_terminal_command", false)
+            .unwrap();
+        let tools = registry.list_enabled(None).await.unwrap();
+        assert!(!tools
+            .iter()
+            .any(|t| t.name == "omni_terminal_run_terminal_command"));
+    }
+
+    #[tokio::test]
+    async fn closed_module_tools_are_excluded() {
+        let (registry, storage) = registry_with_storage();
+        storage
+            .lock()
+            .await
+            .app_module_set_status("database", AppModuleStatus::Closed)
+            .unwrap();
+        let tools = registry.list_enabled(None).await.unwrap();
+        assert!(!tools.iter().any(|t| t.module_key == "database"));
     }
 }

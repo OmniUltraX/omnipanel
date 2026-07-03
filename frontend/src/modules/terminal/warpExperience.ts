@@ -19,9 +19,21 @@ export function buildFixErrorPrompt(block: TerminalBlock): string {
   return `修复以下终端错误，给出可直接执行的命令：\n\n命令：\`${block.command}\`\n退出码：${block.exitCode}\n\n输出：\n\`\`\`\n${block.output.slice(-1500)}\n\`\`\``;
 }
 
-export function buildNaturalLanguagePrompt(query: string, cwd?: string): string {
-  const cwdLine = cwd ? `\n当前目录：${cwd}` : "";
-  return `${query}${cwdLine}\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_terminal_run_terminal_command 工具。`;
+export function buildNaturalLanguagePrompt(
+  query: string,
+  cwd?: string,
+  blockContext?: string,
+): string {
+  const parts: string[] = [];
+  if (blockContext?.trim()) {
+    parts.push(blockContext.trim(), "");
+  }
+  parts.push(query);
+  if (cwd) parts.push(`\n当前目录：${cwd}`);
+  parts.push(
+    "\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_terminal_run_terminal_command 工具。",
+  );
+  return parts.join("\n");
 }
 
 export interface CommandPlanStep {

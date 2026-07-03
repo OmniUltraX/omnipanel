@@ -2,7 +2,6 @@ import { submitAiPrompt } from "../../lib/ai/submitAiPrompt";
 import { cancelAiGeneration } from "../../lib/ai/cancelAiGeneration";
 import { commands } from "../../ipc/bindings";
 import { createBlockId, isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
-import { useAiStore } from "../../stores/aiStore";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { buildNaturalLanguagePrompt } from "./warpExperience";
 import { cancelPendingInlineTools } from "./inlineToolBridge";
@@ -45,10 +44,8 @@ const INLINE_AI_STOPPED = "已手动停止";
 
 /** 强制停止卡住的终端内联 AI 卡片 */
 export function cancelInlineAiBlock(sessionId: string, blockId: string): void {
-  const convId = useAiStore.getState().activeConversationId;
-  if (convId) {
-    void commands.aiChatCancel(convId).catch(() => {});
-  }
+  // 内联卡片会话按 blockId 派生（见 AiRuntimeProvider.inlineConversationId）
+  void commands.aiChatCancel(`term-${blockId}`).catch(() => {});
   cancelAiGeneration();
   cancelPendingInlineTools(blockId);
 
@@ -97,9 +94,10 @@ export async function submitInlineNaturalLanguage(
   sessionId: string,
   query: string,
   cwd = "",
+  options?: { blockContext?: string },
 ): Promise<string> {
   const blockId = beginAiBlock(sessionId, query, cwd);
-  const prompt = buildNaturalLanguagePrompt(query, cwd);
+  const prompt = buildNaturalLanguagePrompt(query, cwd, options?.blockContext);
 
   try {
     await submitAiPrompt(prompt, {
@@ -120,6 +118,7 @@ export async function submitInlineFollowUp(
   blockId: string,
   query: string,
   cwd = "",
+  options?: { blockContext?: string },
 ): Promise<void> {
   const trimmed = query.trim();
   if (!trimmed) return;
@@ -134,7 +133,7 @@ export async function submitInlineFollowUp(
   });
   useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
 
-  const prompt = buildNaturalLanguagePrompt(trimmed, cwd);
+  const prompt = buildNaturalLanguagePrompt(trimmed, cwd, options?.blockContext);
   try {
     await submitAiPrompt(prompt, {
       inline: { sessionId, blockId, continueThread: true },

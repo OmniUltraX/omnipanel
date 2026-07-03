@@ -16,7 +16,7 @@ use omnipanel_store::Storage;
 use crate::builtin::OmniMcpHandler;
 use crate::omni_module::omni_tool_module_key;
 use crate::process::stdio_command;
-use crate::registry::{external, native, RegisteredTool, ToolExecutionKind, ToolRegistry};
+use crate::registry::{external, RegisteredTool, ToolExecutionKind, ToolRegistry};
 use crate::store::{
     delete_custom_service, load_services_file, set_service_enabled, upsert_custom_service,
 };
@@ -113,6 +113,8 @@ impl McpManager {
         &self,
         module_filter: Option<&str>,
     ) -> Result<Vec<ToolDef>, String> {
+        // load_skill 已纳入 registry 单一真相源（native + knowledge 模块），
+        // 由 to_tool_defs 依开关/模块状态统一产出，不再无条件追加。
         let mut defs = self
             .tool_registry
             .to_tool_defs(module_filter)
@@ -123,19 +125,7 @@ impl McpManager {
                 .into_iter()
                 .map(ToolRegistry::registered_to_tool_def),
         );
-        defs.push(Self::load_skill_tool_def());
         Ok(defs)
-    }
-
-    fn load_skill_tool_def() -> ToolDef {
-        ToolDef {
-            tool_type: "function".to_string(),
-            function: omnipanel_ai::types::FunctionDef {
-                name: "load_skill".to_string(),
-                description: "加载指定 Skill 的完整 SKILL.md 正文（渐进式披露）".to_string(),
-                parameters: native::input_schema_for("load_skill"),
-            },
-        }
     }
 
     pub async fn upsert_service(&mut self, service: McpServiceConfig) -> anyhow::Result<McpServiceView> {

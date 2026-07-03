@@ -79,6 +79,12 @@ impl AcpManager {
         self.initialized.load(Ordering::SeqCst)
     }
 
+    /// 连接健康检查：不仅看 initialized 标志，还确认底层子进程仍存活。
+    /// 子进程崩溃后 `initialized` 仍为 true，仅凭它会把请求发往已死的管道。
+    pub async fn is_healthy(&self) -> bool {
+        self.initialized.load(Ordering::SeqCst) && self.client.is_alive().await
+    }
+
     pub async fn connect(self: &Arc<Self>) -> Result<()> {
         self.client.ensure_running().await?;
 
@@ -244,6 +250,10 @@ impl AcpManager {
         {
             let event_tx_updates = event_tx.clone();
             let translate_options = translate_options.clone();
+            // 智能流式闸门：内容一旦确认为纯文本立即开闸（几乎无延迟地流式），
+            // 疑似 tool_calls JSON 则全程 hold 到 buffer，由调用方在 turn 结束后解析，
+            // 从根本上杜绝“半截/完整 tool_calls JSON 当正文泄露到前端”。
+            let content_gate_open = Arc::new(AtomicBool::new(false));
             self.client
                 .set_notification_handler(Arc::new(move |method, params| {
                     if method != "session/update" {
@@ -257,9 +267,37 @@ impl AcpManager {
                         {
                             if content_hold {
                                 if let StreamEvent::ContentDelta { text } = &event {
-                                    if let Some(buf) = &content_buffer {
+                                    // 已开闸：后续文本直通流式
+                                    if content_gate_open.load(Ordering::Relaxed) {
+                                        if event_tx_updates.send(event).is_err() {
+                                            break;
+                                        }
+                                        continue;
+                                    }
+                                    // 未开闸：累积并判定是否为纯文本
+                                    let flush_text = if let Some(buf) = &content_buffer {
                                         if let Ok(mut guard) = buf.lock() {
                                             guard.push_str(text);
+                                            if content_starts_as_plain_text(&guard) {
+                                                let flushed = guard.clone();
+                                                guard.clear();
+                                                Some(flushed)
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(flushed) = flush_text {
+                                        content_gate_open.store(true, Ordering::Relaxed);
+                                        if event_tx_updates
+                                            .send(StreamEvent::ContentDelta { text: flushed })
+                                            .is_err()
+                                        {
+                                            break;
                                         }
                                     }
                                     continue;
@@ -385,6 +423,18 @@ fn translate_session_update_from_notif(
     translate_update_value(&notif.update, options)
 }
 
+/// 判断累积内容是否已可确认为“纯文本”（可安全流式），而非 tool_calls JSON。
+/// 首个非空白字符若是 `{` / `[` / 反引号（可能是 JSON 或 markdown 代码块），
+/// 则保持 hold；否则视为普通文本，立即开闸。
+fn content_starts_as_plain_text(buf: &str) -> bool {
+    let trimmed = buf.trim_start();
+    match trimmed.chars().next() {
+        None => false,
+        Some('{') | Some('[') | Some('`') => false,
+        Some(_) => true,
+    }
+}
+
 fn pick_reject_once_option(options: &[(String, String)]) -> &str {
     for (id, _) in options {
         if id.contains("reject") {
@@ -407,7 +457,8 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
     if !approved {
         return format!(
             "[Tool Result — {tool_name}]\n{body}\n\n[System — 工具已执行完毕]\n\
-             用户拒绝了命令执行。请用自然语言说明并询问是否需要其他方式。\n"
+             用户拒绝了命令执行。请用自然语言说明并询问是否需要其他方式。\n\
+             不要再次输出 tool_calls JSON。\n"
         );
     }
 
@@ -426,6 +477,43 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
          上方工具输出里已有真实结果。请用自然语言直接回答用户。\n\
          不要再次输出 tool_calls JSON。\n"
     )
+}
+
+/// 合并多个客户端工具结果为单个续轮 prompt（模型一轮并行调用多个工具时）。
+/// 单个结果时等价于 `format_client_tool_result_prompt`，保持失败/拒绝语义。
+pub fn format_client_tool_results_prompt(results: &[(String, String, bool)]) -> String {
+    use crate::providers::acp::client_tools::parse_tool_result_exit_code;
+
+    if results.len() == 1 {
+        let (name, result, approved) = &results[0];
+        return format_client_tool_result_prompt(name, result, *approved);
+    }
+
+    let mut blocks = String::new();
+    let mut any_rejected = false;
+    let mut any_failed = false;
+    for (name, result, approved) in results {
+        if !approved {
+            any_rejected = true;
+            blocks.push_str(&format!("[Tool Result — {name}]\n用户拒绝执行\n\n"));
+            continue;
+        }
+        if let Some(code) = parse_tool_result_exit_code(result) {
+            if code != 0 {
+                any_failed = true;
+            }
+        }
+        blocks.push_str(&format!("[Tool Result — {name}]\n{result}\n\n"));
+    }
+
+    let system = if any_rejected {
+        "[System — 部分工具被拒绝]\n用户拒绝了部分命令执行。请用自然语言说明并询问是否需要其他方式。\n不要再次输出 tool_calls JSON。\n"
+    } else if any_failed {
+        "[System — 命令执行失败]\n上方部分命令未成功。请根据 [Terminal Context] 中的 shell/OS 选择正确的命令，通过 tool_calls JSON 再试一次；不要使用错误平台的命令。\n"
+    } else {
+        "[System — 工具已执行完毕]\n上方工具输出里已有真实结果。请用自然语言直接回答用户。\n不要再次输出 tool_calls JSON。\n"
+    };
+    format!("{blocks}{system}")
 }
 
 pub use client_tools::{
@@ -543,4 +631,75 @@ async fn try_set_config_option(
             .is_ok();
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_text_opens_gate_but_json_holds() {
+        // 普通文本（含中文/字母）→ 立即开闸
+        assert!(content_starts_as_plain_text("当前时间是"));
+        assert!(content_starts_as_plain_text("The time is"));
+        assert!(content_starts_as_plain_text("  \n已完成"));
+        // JSON / 数组 / markdown 代码块 → 保持 hold
+        assert!(!content_starts_as_plain_text("{\"tool_calls\""));
+        assert!(!content_starts_as_plain_text("  {"));
+        assert!(!content_starts_as_plain_text("[{"));
+        assert!(!content_starts_as_plain_text("```json"));
+        // 空白 → 尚不能判定，保持 hold
+        assert!(!content_starts_as_plain_text("   "));
+    }
+
+    #[test]
+    fn multi_results_all_success() {
+        let results = vec![
+            (
+                "omni_terminal_run_terminal_command".to_string(),
+                "{\"command\":\"a\",\"exitCode\":0}".to_string(),
+                true,
+            ),
+            (
+                "omni_terminal_run_terminal_command".to_string(),
+                "{\"command\":\"b\",\"exitCode\":0}".to_string(),
+                true,
+            ),
+        ];
+        let p = format_client_tool_results_prompt(&results);
+        assert_eq!(p.matches("[Tool Result — ").count(), 2);
+        assert!(p.contains("[System — 工具已执行完毕]"));
+        assert!(p.contains("不要再次输出 tool_calls JSON"));
+    }
+
+    #[test]
+    fn multi_results_with_rejection() {
+        let results = vec![
+            (
+                "omni_terminal_run_terminal_command".to_string(),
+                "{\"command\":\"a\",\"exitCode\":0}".to_string(),
+                true,
+            ),
+            (
+                "omni_terminal_run_terminal_command".to_string(),
+                String::new(),
+                false,
+            ),
+        ];
+        let p = format_client_tool_results_prompt(&results);
+        assert!(p.contains("用户拒绝执行"));
+        assert!(p.contains("[System — 部分工具被拒绝]"));
+    }
+
+    #[test]
+    fn single_result_delegates_to_single_formatter() {
+        let results = vec![(
+            "omni_terminal_run_terminal_command".to_string(),
+            "{\"command\":\"date\",\"exitCode\":0}".to_string(),
+            true,
+        )];
+        let p = format_client_tool_results_prompt(&results);
+        assert!(p.contains("[Tool Result — omni_terminal_run_terminal_command]"));
+        assert!(p.contains("请用自然语言直接回答用户"));
+    }
 }

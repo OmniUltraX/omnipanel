@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+
 import { useI18n } from "../../i18n";
 import type { ModuleKey } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
@@ -52,11 +53,12 @@ function moduleLabelKey(moduleKey: string): string {
   return MODULE_LABEL_KEYS[moduleKey] ?? moduleKey;
 }
 
-export function McpToolsSettingsSection() {
+/** OmniMCP 对外暴露：全部内置工具均可配置，按模块分组。 */
+export function OmniMcpToolsExposureSection() {
   const { t } = useI18n();
   const tools = useMcpToolStore((s) => s.tools);
   const hydrate = useMcpToolStore((s) => s.hydrate);
-  const setInternalEnabled = useMcpToolStore((s) => s.setInternalEnabled);
+  const setExternalExposed = useMcpToolStore((s) => s.setExternalExposed);
   const modules = useAppModuleStore((s) => s.modules);
 
   useEffect(() => {
@@ -75,16 +77,16 @@ export function McpToolsSettingsSection() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [tools]);
 
-  const handleInternalToggle = useCallback(
-    async (toolName: string, moduleKey: string, enabled: boolean) => {
+  const handleExternalToggle = useCallback(
+    async (toolName: string, moduleKey: string, exposed: boolean) => {
       if (!isModuleOpen(moduleKey as ModuleKey)) return;
-      await setInternalEnabled(toolName, enabled);
+      await setExternalExposed(toolName, exposed);
     },
-    [setInternalEnabled],
+    [setExternalExposed],
   );
 
   if (tools.length === 0) {
-    return <p className="setting-hint">{t("settings.builtinTools.empty")}</p>;
+    return <p className="setting-hint">{t("settings.aiServices.omnimcp.toolsEmpty")}</p>;
   }
 
   return (
@@ -92,7 +94,7 @@ export function McpToolsSettingsSection() {
       <div className="setting-row builtin-tools-column-header">
         <div className="setting-label" aria-hidden="true" />
         <div className="setting-row-toggles setting-row-toggles--single">
-          <span className="setting-toggle-label">{t("settings.builtinTools.internal")}</span>
+          <span className="setting-toggle-label">{t("settings.builtinTools.external")}</span>
         </div>
       </div>
       {grouped.map(([moduleKey, moduleTools], index) => {
@@ -100,41 +102,43 @@ export function McpToolsSettingsSection() {
         return (
           <div key={moduleKey}>
             {index > 0 ? <div className="settings-section-divider" /> : null}
-            <div className="settings-subsection-title">{t(moduleLabelKey(moduleKey) as `routes.${ModuleKey}`)}</div>
+            <div className="settings-subsection-title">
+              {t(moduleLabelKey(moduleKey) as `routes.${ModuleKey}`)}
+            </div>
             {!moduleOpen ? (
               <p className="setting-hint settings-subsection-desc">
-                {t("settings.builtinTools.moduleClosedDesc")} {t("settings.builtinTools.moduleSyncHint")}
+                {t("settings.builtinTools.moduleClosedDesc")}
               </p>
             ) : (
               <p className="setting-hint settings-subsection-desc">
                 {t("settings.builtinTools.moduleDesc", { count: moduleTools.length })}
               </p>
             )}
-            {moduleTools.map((tool) => {
-              const displayInternal = moduleOpen && tool.internal_enabled;
-              return (
-                <div className="setting-row" key={tool.tool_name}>
-                  <div className="setting-label">
-                    <h4 className="mcp-tool-name" title={tool.tool_name}>
-                      {tool.tool_name}
-                    </h4>
-                    {tool.description ? <p>{tool.description}</p> : null}
-                  </div>
-                  <div className="setting-row-toggles setting-row-toggles--single">
-                    <SettingToggle
-                      label={t("settings.builtinTools.internal")}
-                      value={displayInternal}
-                      disabled={!moduleOpen}
-                      compact
-                      onChange={(v) => void handleInternalToggle(tool.tool_name, moduleKey, v)}
-                    />
-                  </div>
+            {moduleTools.map((tool) => (
+              <div className="setting-row" key={tool.tool_name}>
+                <div className="setting-label">
+                  <h4 className="mcp-tool-name" title={tool.tool_name}>
+                    {tool.tool_name}
+                  </h4>
+                  {tool.description ? <p>{tool.description}</p> : null}
                 </div>
-              );
-            })}
+                <div className="setting-row-toggles setting-row-toggles--single">
+                  <SettingToggle
+                    label={t("settings.builtinTools.external")}
+                    value={moduleOpen && tool.external_exposed}
+                    disabled={!moduleOpen}
+                    compact
+                    onChange={(v) => void handleExternalToggle(tool.tool_name, moduleKey, v)}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         );
       })}
+      <p className="setting-hint settings-subsection-desc">
+        {t("settings.aiServices.omnimcp.toolsUiDelegatedHint")}
+      </p>
     </>
   );
 }

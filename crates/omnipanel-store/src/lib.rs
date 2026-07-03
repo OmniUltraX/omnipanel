@@ -3,6 +3,7 @@
 
 mod ai_trace;
 mod mcp_tool;
+mod mcp_tool_spec;
 mod app_module;
 mod connection;
 mod database;
@@ -22,7 +23,11 @@ mod vault;
 mod workflow;
 
 pub use ai_trace::{AiSessionRecord, AiTraceRecord};
-pub use mcp_tool::{McpToolCatalogEntry, McpToolRecord, DEFAULT_MCP_TOOLS};
+pub use mcp_tool::{McpToolCatalogEntry, McpToolRecord};
+pub use mcp_tool_spec::{
+    builtin_tool_is_native, builtin_tool_module_key, builtin_tool_omnimcp_backend,
+    builtin_tool_spec, BuiltinToolSpec, ToolExecKind, BUILTIN_TOOL_SPECS,
+};
 pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES};
 pub use connection::{Connection, ConnectionKind};
 pub use file_index::{

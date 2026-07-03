@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use super::native_tools::TERMINAL_CLIENT_TOOL;
+use crate::types::ToolDef;
 
 const CLIENT_TOOLS_PREAMBLE: &str = r#"[System — OmniPanel Client Tool API]
 You are the model for an external agent (OmniPanel). The HOST application runs tools on the user's machine — NOT you, NOT Cursor CLI.
@@ -19,16 +20,70 @@ Rules:
 
 "#;
 
-const AVAILABLE_FUNCTIONS_SECTION: &str = r#"[Available Functions — use ONLY these via tool_calls JSON]
-Callable names: omni_terminal_run_terminal_command
-Example (Linux/bash — use when Terminal Context shows bash/Linux):
+/// 终端工具的跨平台示例（仅当工具清单含终端工具时注入）。
+const TERMINAL_EXAMPLES: &str = r#"Example (Linux/bash — use when Terminal Context shows bash/Linux):
 {"tool_calls":[{"id":"call_time1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"date '+%Y-%m-%d %H:%M:%S %z'\"}"}}]}
 Example (Windows PowerShell — use only when Terminal Context shows PowerShell/Windows):
 {"tool_calls":[{"id":"call_time1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"Get-Date -Format 'yyyy-MM-dd HH:mm:ss K'\"}"}}]}
-Compact schemas (name + required/optional fields only):
-[{"name":"omni_terminal_run_terminal_command","required":["command"]}]
-
 "#;
+
+/// 从 ToolDef 的 JSON Schema 中提取 required / optional 字段名。
+fn required_and_optional(parameters: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let required: Vec<String> = parameters
+        .get("required")
+        .and_then(|r| r.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let optional: Vec<String> = parameters
+        .get("properties")
+        .and_then(|p| p.as_object())
+        .map(|obj| {
+            obj.keys()
+                .filter(|k| !required.contains(k))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    (required, optional)
+}
+
+/// 依据工具清单动态生成 `[Available Functions]` 段（compact schema），
+/// 使 ACP 路径与内部 registry 单一真相源一致、随开关变化。
+pub fn build_available_functions_section(tools: &[ToolDef]) -> String {
+    if tools.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+    let has_terminal = names.iter().any(|n| *n == TERMINAL_CLIENT_TOOL);
+
+    let mut compact_items: Vec<String> = Vec::with_capacity(tools.len());
+    for t in tools {
+        let (required, optional) = required_and_optional(&t.function.parameters);
+        let required_json = serde_json::to_string(&required).unwrap_or_else(|_| "[]".to_string());
+        let optional_json = serde_json::to_string(&optional).unwrap_or_else(|_| "[]".to_string());
+        compact_items.push(format!(
+            "{{\"name\":\"{}\",\"required\":{},\"optional\":{}}}",
+            t.function.name, required_json, optional_json
+        ));
+    }
+
+    let mut section = String::from("[Available Functions — use ONLY these via tool_calls JSON]\n");
+    section.push_str("Callable names: ");
+    section.push_str(&names.join(", "));
+    section.push('\n');
+    if has_terminal {
+        section.push_str(TERMINAL_EXAMPLES);
+    }
+    section.push_str("Compact schemas (name + required/optional fields only):\n");
+    section.push('[');
+    section.push_str(&compact_items.join(","));
+    section.push_str("]\n\n");
+    section
+}
 
 /// 从模型文本中解析出的客户端 tool_call。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,13 +94,19 @@ pub struct ParsedToolCall {
 }
 
 /// 构建含 preamble + 终端上下文 + 工具定义的完整 client-tools prompt（首轮）。
-pub fn build_client_tools_prompt(user_text: &str, terminal_context: Option<&str>) -> String {
+/// `tools` 为本轮可用的工具清单（来自内部 registry，已按开关/模块过滤）。
+pub fn build_client_tools_prompt(
+    user_text: &str,
+    terminal_context: Option<&str>,
+    tools: &[ToolDef],
+) -> String {
     let ctx_block = terminal_context
         .filter(|s| !s.trim().is_empty())
         .map(|c| format!("{c}\n\n"))
         .unwrap_or_default();
+    let functions_section = build_available_functions_section(tools);
     format!(
-        "{CLIENT_TOOLS_PREAMBLE}{ctx_block}[User]\n{}\n\n{AVAILABLE_FUNCTIONS_SECTION}",
+        "{CLIENT_TOOLS_PREAMBLE}{ctx_block}[User]\n{}\n\n{functions_section}",
         user_text.trim()
     )
 }
@@ -262,13 +323,65 @@ fn uuid_simple() -> String {
 mod tests {
     use super::*;
 
+    fn terminal_tool_def() -> ToolDef {
+        ToolDef {
+            tool_type: "function".to_string(),
+            function: crate::types::FunctionDef {
+                name: TERMINAL_CLIENT_TOOL.to_string(),
+                description: "run terminal command".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" },
+                        "session_id": { "type": "string" }
+                    },
+                    "required": ["command"]
+                }),
+            },
+        }
+    }
+
     #[test]
     fn build_client_tools_prompt_includes_preamble_and_tools() {
-        let p = build_client_tools_prompt("当前的时间", None);
+        let tools = [terminal_tool_def()];
+        let p = build_client_tools_prompt("当前的时间", None, &tools);
         assert!(p.contains("OmniPanel Client Tool API"));
         assert!(p.contains("[User]\n当前的时间"));
         assert!(p.contains("omni_terminal_run_terminal_command"));
         assert!(p.contains("tool_calls"));
+    }
+
+    #[test]
+    fn available_functions_section_lists_multiple_tools_and_optional() {
+        let db_tool = ToolDef {
+            tool_type: "function".to_string(),
+            function: crate::types::FunctionDef {
+                name: "omni_database_execute_sql".to_string(),
+                description: "sql".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "connection_name": { "type": "string" },
+                        "database_name": { "type": "string" },
+                        "sql": { "type": "string" }
+                    },
+                    "required": ["connection_name", "database_name", "sql"]
+                }),
+            },
+        };
+        let tools = [terminal_tool_def(), db_tool];
+        let section = build_available_functions_section(&tools);
+        assert!(section.contains("omni_terminal_run_terminal_command"));
+        assert!(section.contains("omni_database_execute_sql"));
+        // 终端工具存在时注入跨平台示例
+        assert!(section.contains("Get-Date"));
+        // 终端可选字段 session_id 出现在 optional
+        assert!(section.contains("session_id"));
+    }
+
+    #[test]
+    fn empty_tools_yields_empty_section() {
+        assert!(build_available_functions_section(&[]).is_empty());
     }
 
     #[test]
@@ -309,7 +422,8 @@ mod tests {
     #[test]
     fn build_client_tools_prompt_includes_terminal_context() {
         let ctx = "[Terminal Context]\n- Shell: bash\n- OS: Ubuntu";
-        let p = build_client_tools_prompt("现在几点", Some(ctx));
+        let tools = [terminal_tool_def()];
+        let p = build_client_tools_prompt("现在几点", Some(ctx), &tools);
         assert!(p.contains("[Terminal Context]"));
         assert!(p.contains("bash"));
     }

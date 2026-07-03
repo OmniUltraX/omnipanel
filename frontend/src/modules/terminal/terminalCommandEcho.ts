@@ -11,6 +11,10 @@ const AUTO_LS_PS_SUFFIX_INLINE = /\s*;\s*if\s*\(\$\?\)\s*\{[^}]*\}\s*$/i;
 const AUTO_LS_AND_SUFFIX_INLINE = /\s*&&\s+(?:ls|dir|Get-ChildItem|gci)\b[^\r\n]*$/i;
 const PS_PROMPT_LINE_RE = /^PS\s+[A-Za-z]:[^>]*>\s*$/i;
 const PS_DIR_HEADER_LINE_RE = /^(?:目录|Directory):\s*[A-Za-z]:/i;
+const UNIX_PROMPT_LINE_RE = /^[^\s]+@[^\s]+:[^\s]*[$#]\s*$/;
+const POSIX_CD_AUTO_LS_LINE_RE =
+  /^\s*cd\b/i;
+const POSIX_CD_AUTO_LS_TAIL_RE = /\s&&\s*(?:ls|dir|ll|la|l|gci|get-childitem)\b/i;
 
 const SHELL_VARIANTS: TerminalShellFamily[] = ["posix", "powershell", "cmd"];
 
@@ -62,6 +66,10 @@ export function stripAutoLsEchoArtifacts(text: string): string {
       if (AUTO_LS_PS_SUFFIX_LINE.test(trimmed)) return false;
       if (/^if\s*\(\$\?\)\s*\{/.test(trimmed)) return false;
       if (/^\{\s*$/.test(trimmed) || /^\}\s*$/.test(trimmed)) return false;
+      if (POSIX_CD_AUTO_LS_LINE_RE.test(trimmed) && POSIX_CD_AUTO_LS_TAIL_RE.test(trimmed)) {
+        return false;
+      }
+      if (UNIX_PROMPT_LINE_RE.test(trimmed)) return false;
       return true;
     })
     .join("\n");
@@ -72,6 +80,8 @@ export function looksLikeShellCommandEchoLine(line: string): boolean {
   if (!trimmed) return false;
   if (/if\s*\(\$\?\)/i.test(trimmed)) return true;
   if (/^\s*cd\b/i.test(trimmed) && /;\s*if\s*\(\$\?\)/i.test(trimmed)) return true;
+  if (POSIX_CD_AUTO_LS_LINE_RE.test(trimmed) && POSIX_CD_AUTO_LS_TAIL_RE.test(trimmed)) return true;
+  if (UNIX_PROMPT_LINE_RE.test(trimmed)) return true;
   if (/^PS\s+[A-Za-z]:/i.test(trimmed)) return true;
   if (/^\{\s*$/.test(trimmed) || /^\}\s*;?\s*$/.test(trimmed)) return true;
   return false;
@@ -91,13 +101,31 @@ export function looksLikeShellCommandEcho(text: string): boolean {
     return true;
   }
 
+  if (POSIX_CD_AUTO_LS_LINE_RE.test(trimmed) && POSIX_CD_AUTO_LS_TAIL_RE.test(trimmed)) {
+    return true;
+  }
+
+  if (UNIX_PROMPT_LINE_RE.test(trimmed)) return true;
+
+  // PTY 折行时常见：cd && ls 与提示符粘在同一行
+  if (
+    POSIX_CD_AUTO_LS_LINE_RE.test(trimmed) &&
+    /\s&&\s/i.test(trimmed) &&
+    /@[^\s]+:.*[$#>]/.test(trimmed)
+  ) {
+    return true;
+  }
+
   const tokens = trimmed.split(/\s+/).filter(Boolean);
   const shellish = tokens.filter(
     (token) =>
-      /^(cd|if|ls|dir|gci|PS|\{|\}|;)$/i.test(token) ||
+      /^(cd|if|ls|dir|gci|PS|\{|\}|;|&&|\|\|)$/i.test(token) ||
       token === "($?)" ||
       /\(\$\?\)/.test(token),
   ).length;
+  if (shellish >= 2 && /\s&&\s/i.test(trimmed) && /^\s*cd\b/i.test(trimmed)) {
+    return true;
+  }
   return shellish >= 3 && /[;&|]/.test(trimmed);
 }
 
@@ -112,6 +140,7 @@ export function isResidualShellNoise(text: string): boolean {
     (line) =>
       looksLikeShellCommandEchoLine(line) ||
       PS_PROMPT_LINE_RE.test(line) ||
+      UNIX_PROMPT_LINE_RE.test(line) ||
       PS_DIR_HEADER_LINE_RE.test(line) ||
       /^----+\s+----/.test(line) ||
       /^Mode\s+LastWriteTime/i.test(line),
@@ -122,6 +151,8 @@ export function isResidualEchoTail(tail: string): boolean {
   const norm = tail.replace(/\s+/g, " ").trim();
   if (!norm) return true;
   if (PS_PROMPT_LINE_RE.test(norm)) return true;
+  if (UNIX_PROMPT_LINE_RE.test(norm)) return true;
+  if (looksLikeShellCommandEcho(norm)) return true;
   return isResidualShellNoise(tail);
 }
 

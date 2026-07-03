@@ -432,3 +432,21 @@ export function IconInbox({ size = 20, className }: IconProps) {
     </svg>
   );
 }
+
+export function IconCopy({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  );
+}
+
+export function IconQuote({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>
+      <path d="M6 7H4a1 1 0 00-1 1v4a1 1 0 001 1h3v-1a2 2 0 01-2 2v2a4 4 0 004-4V8a1 1 0 00-1-1z" />
+      <path d="M17 7h-2a1 1 0 00-1 1v4a1 1 0 001 1h3v-1a2 2 0 01-2 2v2a4 4 0 004-4V8a1 1 0 00-1-1z" />
+    </svg>
+  );
+}

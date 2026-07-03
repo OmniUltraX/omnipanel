@@ -2,6 +2,21 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [未发布]
+
+### 改进
+
+- **AI 工具注册表统一（单一真相源）**
+  - 内置工具的名称 / 模块 / 描述 / 参数 schema / 执行类型集中定义于后端 `omnipanel-store` 的 `BUILTIN_TOOL_SPECS`，杜绝前后端与各注入路径的 schema 漂移
+  - 工具 schema 落库（`mcp_tools.input_schema`），HTTP 直连、ACP、OmniMCP 三条路径共用同一份定义
+  - ACP client-tools 的可用工具清单改为按内部 registry 动态生成（随开关 / 模块状态变化），修复终端工具参数为空 `{}` 的问题，并支持数据库等 UiDelegated 工具经 ACP 调用
+  - `load_skill` 纳入统一 registry 管理（遵循开关与模块判定），不再无条件注入
+
+### 变更
+
+- **对外暴露收紧**：仅后端可直执（Native）工具允许经 OmniMCP 对外暴露；对 UiDelegated（终端 / 数据库）工具或未打开模块下的工具开启 external 暴露将被拒绝
+- **模块状态联动**：模块由关闭重新打开时自动恢复其下工具为可用；前端工具目录同步（`mcp_tool_sync_catalog`）不再覆盖内置工具描述（以后端 spec 为准）
+
 ## [0.4.2] - 2026-06-25
 
 ### 新增

@@ -205,6 +205,84 @@
         min-width: 0;
     }
 
+    .term-cmd-context-bar {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px var(--sp-3) 0;
+    }
+
+    .term-cmd-context-chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .term-cmd-context-chips__clear {
+        flex-shrink: 0;
+        padding: 2px 6px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-muted);
+        font-size: 11px;
+        line-height: 1.4;
+        cursor: pointer;
+        opacity: 0.8;
+        white-space: nowrap;
+    }
+
+    .term-cmd-context-chips__clear:hover {
+        opacity: 1;
+        color: var(--accent);
+    }
+
+    .term-cmd-context-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: min(420px, 100%);
+        padding: 2px 6px 2px 8px;
+        border-radius: var(--r-sm);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        color: var(--fg-muted);
+        font-size: 11px;
+        line-height: 1.4;
+    }
+
+    .term-cmd-context-chip__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: min(420px, 100%);
+        font-family: var(--font-mono);
+    }
+
+    .term-cmd-context-chip__remove {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: none;
+        border-radius: var(--r-xs);
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0.75;
+    }
+
+    .term-cmd-context-chip__remove:hover {
+        opacity: 1;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+
     .term-cmd-actions {
         display: flex;
         align-items: center;
@@ -1390,11 +1468,77 @@
 
     /* Shell：贴近真实终端，无卡片边框 */
     .term-warp-block--shell {
+        position: relative;
         border: none;
         border-radius: 0;
         background: transparent;
         overflow: visible;
         contain: layout style paint;
+    }
+
+    /* 右上角操作图标：折叠 / 引用 / 复制命令 / 复制输出 */
+    .term-warp-block__toolbar {
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--bg, #1a1717) 82%, transparent);
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+    }
+
+    .term-warp-block--shell:hover .term-warp-block__toolbar,
+    .term-warp-block__toolbar:focus-within {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .term-warp-block__toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: none;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--meta, #9a938a);
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .term-warp-block__toolbar-btn:hover {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: #f8f4e8;
+    }
+
+    .term-warp-output-collapsed {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 2px 0;
+        padding: 2px 8px 2px 4px;
+        border: none;
+        border-radius: 5px;
+        background: color-mix(in srgb, var(--meta, #9a938a) 12%, transparent);
+        color: var(--meta, #9a938a);
+        font-size: 11px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .term-warp-output-collapsed:hover {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: #f8f4e8;
     }
 
     .term-warp-prompt-line {
@@ -1784,6 +1928,28 @@
         padding: 8px 12px;
         border-bottom: 1px solid var(--border-soft);
         font-size: 12px;
+    }
+
+    .term-warp-block__header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+        margin-left: auto;
+    }
+
+    .term-warp-block__toggle .term-warp-block__chevron {
+        display: block;
+        transition: transform 0.15s ease;
+    }
+
+    .term-warp-block__toggle .term-warp-block__chevron--open {
+        transform: rotate(90deg);
+    }
+
+    .term-warp-block--ai.term-warp-block--collapsed .term-warp-block__header-actions {
+        margin-left: 0;
+        margin-right: 8px;
     }
 
     .term-warp-block__status {
@@ -2656,4 +2822,38 @@ body.term-session-tree--dragging .term-session-tree__connection-add {
     z-index: 100000;
     cursor: grabbing !important;
     cursor: -webkit-grabbing !important;
+}
+
+/* 覆盖全局 user-select: none — Block Feed / 交互式 xterm 可选中复制 */
+.term-warp-feed,
+.term-warp-feed .term-warp-output,
+.term-warp-feed .term-warp-prompt-line__cmd,
+.term-warp-feed .term-warp-block__cmd,
+.term-warp-feed .term-warp-block__body,
+.term-warp-feed .term-warp-block__reasoning-body,
+.term-warp-feed .term-ls-listing,
+.term-warp-feed .term-ls-entry:not(.term-ls-entry--clickable),
+.term-warp-feed .term-warp-ai-thread,
+.term-warp-feed .term-warp-ai-thread * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
+.term-xterm-wrap:not(.term-xterm-wrap--live),
+.term-xterm-wrap:not(.term-xterm-wrap--live) .xterm,
+.term-xterm-wrap:not(.term-xterm-wrap--live) .xterm .xterm-screen,
+.term-xterm-wrap:not(.term-xterm-wrap--live) .xterm .xterm-rows,
+.term-xterm-wrap:not(.term-xterm-wrap--live) .xterm .xterm-rows span {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
+.term-warp-feed .term-path-crumb,
+.term-warp-feed .term-path-crumb-sep,
+.term-warp-feed .term-warp-block__toolbar,
+.term-warp-feed .term-warp-block__toolbar *,
+.term-warp-feed .term-warp-block__summary,
+.term-warp-feed .term-warp-output-collapsed {
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }

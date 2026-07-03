@@ -151,4 +151,17 @@ describe("tryParseLsListing", () => {
     expect(looksLikeShellCommandEcho(echo)).toBe(true);
     expect(tryParseLsListing("cd 'C:\\Users\\chaoj\\华为云盘'; if ($?) { ls }", echo)).toBeNull();
   });
+
+  it("不把 POSIX cd && ls 回显误解析为目录列表", () => {
+    const echo =
+      "cd '/root/workspace' && ls root@iZm5ebvnbwyqc9newzlcdmZ:~/workspace#";
+    const cmd = "cd '/root/workspace' && ls";
+    expect(looksLikeShellCommandEcho(echo)).toBe(true);
+    expect(tryParseLsListing(cmd, echo)).toBeNull();
+  });
+
+  it("不把单行 cd && ls 回显误解析为目录列表", () => {
+    const echo = "cd '/root/workspace' && ls";
+    expect(tryParseLsListing("cd '/root/workspace' && ls", echo)).toBeNull();
+  });
 });
