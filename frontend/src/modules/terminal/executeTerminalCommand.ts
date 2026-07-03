@@ -14,7 +14,8 @@ import {
   prepareShellForAiTool,
   recoverShellAfterAiTool,
 } from "./terminalShellRecovery";
-import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete, isCdNavigationCommand } from "./terminalAutoLs";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete } from "./terminalAutoLs";
+import { isCdNavigationCommand } from "./terminalAutoLsPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 

@@ -40,7 +40,7 @@ export function SidebarSecondary({
       rightPreset={preset}
       rightSizePx={sidebarSizePx}
       rightMinPx={sidebarMinPx}
-      rightMaxPx={sidebarMaxPx}
+      rightMaxPx={sidebarMaxPx as number | undefined}
       className={className}
     />
   );

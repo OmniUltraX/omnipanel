@@ -9,7 +9,6 @@ import {
   isCdOnlyCommand,
   normalizeAutoLsCommand,
   buildCdWithAutoLs,
-  isCdNavigationCommand,
 } from "./terminalAutoLsPolicy";
 import {
   adaptAutoLsCommandForShell,
@@ -18,7 +17,7 @@ import {
 import { isSilentHistorySync } from "./commandBar/shellHistorySync";
 import { isWarpDisplay } from "./terminalDisplayMode";
 
-export { isCdOnlyCommand, isCdNavigationCommand, normalizeAutoLsCommand, stripAutoLsSuffix } from "./terminalAutoLsPolicy";
+export { isCdOnlyCommand, normalizeAutoLsCommand, stripAutoLsSuffix } from "./terminalAutoLsPolicy";
 
 function resolveShellFamilyForSession(sessionId?: string) {
   const pane = sessionId ? findTerminalPane(sessionId) : null;

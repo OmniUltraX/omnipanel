@@ -4,7 +4,7 @@ import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
-import { getVisibleProtocolTabs, type ProtocolTabKey } from "../../lib/protocolLabConfig";
+import { getVisibleProtocolTabs } from "../../lib/protocolLabConfig";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";

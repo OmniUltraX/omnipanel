@@ -421,7 +421,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                 (item) => item.kind === "tool_call" && item.id === id,
               )
             : undefined;
-          if (toolItem?.status === "pending") {
+          if (toolItem && "status" in toolItem && toolItem.status === "pending") {
             tryDispatchTool(id);
           }
         }

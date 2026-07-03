@@ -226,7 +226,7 @@ export function TableRowDiffPanel({
                 onChange={() => toggleKindFilter(kind)}
               />
               <span className={`db-toolbox-row-diff-kind db-toolbox-row-diff-kind--${kind}`}>
-                {rowDiffKindLabel(kind, t)}
+                {rowDiffKindLabel(kind, t as (key: string) => string)}
               </span>
             </label>
           ))}
@@ -252,7 +252,7 @@ export function TableRowDiffPanel({
               </thead>
               <tbody>
                 {pageDiffs.map((diff) => {
-                  const kindLabel = rowDiffKindLabel(diff.kind, t);
+                  const kindLabel = rowDiffKindLabel(diff.kind, t as (key: string) => string);
 
                   return (
                     <tr

@@ -213,7 +213,7 @@ interface DatabaseSlowQueryLogPanelProps {
 }
 
 export function DatabaseSlowQueryLogPanel({
-  connection,
+  connection: _connection,
   sshConnectionId,
   logFilePath,
   deploymentKind,

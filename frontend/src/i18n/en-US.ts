@@ -2489,6 +2489,18 @@ export const enUS: TranslationDict = {
       zhCN: "中文（简体）",
       enUS: "English",
     },
+    skills: {
+      desc: "Skills loads full content on demand via system prompt summary + load_skill tool.",
+      import: "Import",
+      create: "New Skill",
+      edit: "Edit Skill",
+      id: "ID",
+      name: "Name",
+      description: "Description",
+      body: "Body (SKILL.md)",
+      loading: "Loading Skills…",
+      empty: "No Skills yet. Import or create one",
+    },
     uiScale: {
       label: "UI scale",
       desc: "Resize the entire app UI (sidebar, panels, settings, etc.)",

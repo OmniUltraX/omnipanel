@@ -12,7 +12,6 @@ import { Button } from "../../components/ui/Button";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import {
   deleteKnowledgeChunks,
-  KNOWLEDGE_CHUNK_PAGE_SIZE,
   KNOWLEDGE_VECTORIZED_EVENT,
   loadKnowledgeChunks,
   loadKnowledgeVectorStatus,
@@ -89,7 +88,7 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
       ]);
       setEmbeddedAt(status?.embeddedAt ?? null);
       setTotal(result.total ?? 0);
-      setChunks(result.chunks);
+      setChunks(result.chunks as KnowledgeChunkPreview[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setChunks([]);
@@ -116,7 +115,7 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
       setTotal(result.total ?? total);
       setChunks((prev) => {
         const existingIds = new Set(prev.map((item) => item.id));
-        const appended = result.chunks.filter((item) => !existingIds.has(item.id));
+        const appended = (result.chunks as KnowledgeChunkPreview[]).filter((item) => !existingIds.has(item.id));
         return appended.length > 0 ? [...prev, ...appended] : prev;
       });
     } catch (e) {
@@ -181,7 +180,7 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
       try {
         const result = await deleteKnowledgeChunks(entry.id, chunkIds);
         clearSelection();
-        if (result.remaining <= 0) {
+        if ((result.remaining ?? 0) <= 0) {
           setTotal(0);
           setChunks([]);
           return;

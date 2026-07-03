@@ -227,7 +227,7 @@ export function ProtocolHttpSidebar() {
     [requestNewRequestPicker],
   );
 
-  const handleQuickCreateRequest = useCallback(() => {
+  void useCallback(() => {
     requestNewRequestPicker(null);
   }, [requestNewRequestPicker]);
 

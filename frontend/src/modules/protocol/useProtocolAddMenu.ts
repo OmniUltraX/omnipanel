@@ -3,7 +3,6 @@ import { useI18n } from "../../i18n";
 import {
   getVisibleProtocolTabs,
   isDevLockedProtocolTab,
-  type ProtocolTabKey,
 } from "../../lib/protocolLabConfig";
 import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import { useSettingsStore } from "../../stores/settingsStore";

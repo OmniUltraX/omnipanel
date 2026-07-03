@@ -113,7 +113,7 @@ export function KnowledgePanel() {
         id: tab.id,
         label: tab.label,
         panelType: "knowledge",
-        icon: (isChunks ? "table" : "file-local") as const,
+        icon: isChunks ? ("table" as const) : ("file-local" as const),
         tooltip: tab.label,
         closable: true,
         preview: Boolean(tab.preview),

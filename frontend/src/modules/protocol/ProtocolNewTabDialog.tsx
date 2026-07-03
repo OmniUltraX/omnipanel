@@ -34,7 +34,7 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
         ? pickerPreselectedProtocol
         : fallback;
     setSelectedProtocol(protocol);
-    setSessionName(defaultProtocolSessionName(protocol, t));
+    setSessionName(defaultProtocolSessionName(protocol, t as (key: string) => string));
     setNameError(null);
     nameTouchedRef.current = false;
   }, [menuItems, pickerPreselectedProtocol, t]);
@@ -48,7 +48,7 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
     (protocol: ProtocolTabKey) => {
       setSelectedProtocol(protocol);
       if (!nameTouchedRef.current) {
-        setSessionName(defaultProtocolSessionName(protocol, t));
+        setSessionName(defaultProtocolSessionName(protocol, t as (key: string) => string));
       }
       setNameError(null);
     },

@@ -237,7 +237,6 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
   if (rawNorm.startsWith(sentNorm) && rawNorm.length - sentNorm.length < 48) return true;
 
   const rawLines = rawNorm.split(" ").length;
-  const sentLines = sentNorm.split(" ").length;
   if (rawLines > 12 && sentNorm.length > 40 && rawNorm.includes(sentNorm.slice(0, 48))) {
     return true;
   }

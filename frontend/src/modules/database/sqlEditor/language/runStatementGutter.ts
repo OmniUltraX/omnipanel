@@ -42,12 +42,19 @@ function maxSeverity(diagnostics: Diagnostic[]): Diagnostic["severity"] {
 }
 
 class RunButtonMarker extends GutterMarker {
+  private readonly sql: string;
+  private readonly getOnRun: () => ((sql: string) => void) | undefined;
+  private readonly getReadOnly: () => boolean;
+
   constructor(
-    private readonly sql: string,
-    private readonly getOnRun: () => ((sql: string) => void) | undefined,
-    private readonly getReadOnly: () => boolean,
+    sql: string,
+    getOnRun: () => ((sql: string) => void) | undefined,
+    getReadOnly: () => boolean,
   ) {
     super();
+    this.sql = sql;
+    this.getOnRun = getOnRun;
+    this.getReadOnly = getReadOnly;
   }
 
   eq(other: RunButtonMarker): boolean {
@@ -80,8 +87,11 @@ class RunButtonMarker extends GutterMarker {
 class SqlLintGutterMarker extends GutterMarker {
   readonly severity: Diagnostic["severity"];
 
-  constructor(readonly diagnostics: Diagnostic[]) {
+  diagnostics: Diagnostic[];
+
+  constructor(diagnostics: Diagnostic[]) {
     super();
+    this.diagnostics = diagnostics;
     this.severity = maxSeverity(diagnostics);
   }
 
@@ -101,11 +111,16 @@ class SqlLintGutterMarker extends GutterMarker {
 }
 
 class SqlLintRunGutterMarker extends GutterMarker {
+  private readonly run: RunButtonMarker | null;
+  private readonly lint: SqlLintGutterMarker | null;
+
   constructor(
-    private readonly run: RunButtonMarker | null,
-    private readonly lint: SqlLintGutterMarker | null,
+    run: RunButtonMarker | null,
+    lint: SqlLintGutterMarker | null,
   ) {
     super();
+    this.run = run;
+    this.lint = lint;
   }
 
   eq(other: SqlLintRunGutterMarker): boolean {
@@ -121,7 +136,7 @@ class SqlLintRunGutterMarker extends GutterMarker {
     return runEq && lintEq;
   }
 
-  toDOM(view: EditorViewType): HTMLElement {
+  toDOM(_view: EditorViewType): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-sql-lint-run-cell";
     if (this.run) {

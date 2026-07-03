@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { commands } from "../../../ipc/bindings";
 import { join, tempDir } from "@tauri-apps/api/path";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
@@ -658,8 +659,11 @@ export function DatabaseConnectionInfoPanel({
         configTempPath,
         512 * 1024,
       );
-      if (res.status !== "ok" || !res.data) {
+      if (res.status !== "ok") {
         throw new Error(res.error?.message ?? "读取临时文件失败");
+      }
+      if (!res.data) {
+        throw new Error("读取临时文件失败");
       }
       const content = new TextDecoder("utf-8", { fatal: false }).decode(
         new Uint8Array(res.data),

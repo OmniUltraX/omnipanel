@@ -12,6 +12,7 @@ import { columnTypeTagClassName } from "./columnTypeTag";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import type { DbColumnMeta } from "../api";
+import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
 import type { CellOverlayAnchor } from "./tableCellPreview";
 import { resolvePreviewRowKey } from "../workspace/dbWorkspaceState";
 

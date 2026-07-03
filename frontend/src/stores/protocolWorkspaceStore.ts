@@ -115,7 +115,7 @@ export const useProtocolWorkspaceStore = create<ProtocolWorkspaceState>()(
         activeTabId: state.activeTabId,
         savedLayout: state.savedLayout,
       }),
-      migrate: (persisted, version) => {
+      migrate: (persisted, _version) => {
         const state = persisted as Partial<ProtocolWorkspaceState> | undefined;
         if (!state?.tabs) return persisted;
         return {
