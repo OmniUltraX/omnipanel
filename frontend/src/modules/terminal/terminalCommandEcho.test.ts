@@ -59,4 +59,28 @@ describe("extractCommandOutput compound auto-ls", () => {
     ].join("\r\n");
     expect(extractCommandOutput(raw, cmd)).toBe("");
   });
+
+  it("剥离 POSIX cd && ls 回显与 Unix 提示符", () => {
+    const cmd = "cd '/root/workspace' && ls";
+    const raw = [
+      `${cmd}`,
+      "",
+      "root@iZm5ebvnbwyqc9newzlcdmZ:~/workspace# ",
+    ].join("\r\n");
+    expect(extractCommandOutput(raw, cmd)).toBe("");
+    expect(extractCommandOutput(`${cmd} root@iZm5ebvnbwyqc9newzlcdmZ:~/workspace#`, cmd)).toBe("");
+    expect(isEchoOnlyTerminalOutput(raw, cmd)).toBe(true);
+  });
+
+  it("cd && ls 后有真实列表时保留列表", () => {
+    const cmd = "cd '/root/workspace' && ls";
+    const raw = [
+      cmd,
+      "readme.txt  workspace",
+      "root@host:~/workspace# ",
+    ].join("\r\n");
+    const cleaned = extractCommandOutput(raw, cmd);
+    expect(cleaned).toContain("readme.txt");
+    expect(cleaned).not.toContain("cd '/root/workspace'");
+  });
 });

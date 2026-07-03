@@ -164,11 +164,15 @@ export function extractCommandOutput(raw: string, command: string): string {
 
   for (const line of lines) {
     if (PROMPT_LINE_RE.test(line)) continue;
+    if (/^[^\s]+@[^\s]+:[^\s]*[$#]\s*$/.test(line)) continue;
 
     const withoutPrompt = line.replace(PROMPT_WITH_CMD_RE, "").trim();
     const lineNorm = withoutPrompt.replace(/\s+/g, " ");
 
     if (looksLikeShellCommandEchoLine(withoutPrompt || line)) continue;
+    if (/^\s*cd\b/i.test(withoutPrompt || line) && /\s&&\s*(?:ls|dir|ll|la|l)\b/i.test(withoutPrompt || line)) {
+      continue;
+    }
 
     if (variantNorms.some((variant) => variant === lineNorm) || line.replace(/\s+/g, " ") === sentNorm) {
       continue;

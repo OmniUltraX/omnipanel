@@ -22,7 +22,6 @@ import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
 import {
   decodeTerminalBytesRaw,
   extractCommandOutput,
-  isEchoOnlyTerminalOutput,
   normalizeBlockCommand,
   resolveBlockStatus,
   stripTerminalControlSequences,
@@ -54,7 +53,6 @@ import {
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
 import {
   unregisterTerminalAutoLsSession,
-  isCdNavigationCommand,
   getAdaptedAutoLsCommandForSession,
   isTerminalAutoLsEnabled,
 } from "../modules/terminal/terminalAutoLs";
@@ -65,6 +63,7 @@ import {
 } from "../modules/terminal/terminalSessionResume";
 import { isWarpDisplay } from "../modules/terminal/terminalDisplayMode";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
+import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
 import { useModuleVisibility } from "../lib/moduleVisibility";
 
 const TERMINAL_THEME: ITheme = {
@@ -644,12 +643,15 @@ export function useTerminal(
             }
             case "D": {
               const exitCode = parseInt(parts[1] || "0", 10);
-              if (pendingBlock?.blockId) {
-                const blockId = pendingBlock.blockId;
+              const blockId =
+                pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
+              if (blockId) {
                 clearFeedBlockIdleComplete(blockId);
                 const endLine = t.buffer.active.cursorY + t.buffer.active.baseY;
                 const existing = useBlocksStore.getState().findBlockById(blockId);
-                const cmd = normalizeBlockCommand(existing?.command ?? pendingBlock.command);
+                const cmd = normalizeBlockCommand(
+                  existing?.command ?? pendingBlock?.command ?? "",
+                );
                 const cleaned =
                   existing && cmd
                     ? extractCommandOutput(existing.output, cmd)
@@ -662,7 +664,8 @@ export function useTerminal(
                     currentCwd ||
                     resolveShellOutputCwd(existing?.output ?? "") ||
                     existing?.cwd ||
-                    pendingBlock.cwd,
+                    pendingBlock?.cwd ||
+                    currentCwd,
                   ...(cleaned ? { output: cleaned } : {}),
                 });
                 const finishedBlock = useBlocksStore.getState().findBlockById(blockId);
@@ -714,9 +717,6 @@ export function useTerminal(
           const block = useBlocksStore.getState().findBlockById(blockId);
           if (!block || block.kind === "ai" || block.status !== "running") return;
           const cmd = normalizeBlockCommand(block.command);
-          const isCdNav = Boolean(cmd && isCdNavigationCommand(cmd));
-          if (!block.output.trim() && !isCdNav) return;
-          if (cmd && isEchoOnlyTerminalOutput(block.output, cmd) && !isCdNav) return;
           const cleaned = cmd ? extractCommandOutput(block.output, cmd) : block.output.trim();
           const resolvedCwd =
             currentCwd ||
@@ -1047,9 +1047,15 @@ export function useTerminal(
           });
         }
 
-        if (onBlockRightClickRef.current) {
-          contextmenuHandler = (e: MouseEvent) => {
-            if (!term || destroyed) return;
+        contextmenuHandler = (e: MouseEvent) => {
+          if (!term || destroyed) return;
+          void copyTerminalSelectionOnContextMenu(e, container, {
+            hasSelection: () => term!.hasSelection(),
+            getSelection: () => term!.getSelection(),
+            clearSelection: () => term!.clearSelection(),
+          }).then((copied) => {
+            if (copied || !onBlockRightClickRef.current || !term || destroyed) return;
+
             const rect = container!.getBoundingClientRect();
             const cellHeight = rect.height / term.rows;
             const clickedRow = Math.floor(e.offsetY / cellHeight);
@@ -1057,16 +1063,16 @@ export function useTerminal(
 
             const blocks = useBlocksStore.getState().getBlocks(sessionId);
             const clickedBlock = blocks.find(
-              (b) => b.startLine <= absoluteLine && (b.endLine === -1 || b.endLine >= absoluteLine)
+              (b) => b.startLine <= absoluteLine && (b.endLine === -1 || b.endLine >= absoluteLine),
             );
 
             if (clickedBlock) {
               e.preventDefault();
               onBlockRightClickRef.current?.(clickedBlock, { x: e.clientX, y: e.clientY });
             }
-          };
-          container!.addEventListener("contextmenu", contextmenuHandler);
-        }
+          });
+        };
+        container!.addEventListener("contextmenu", contextmenuHandler);
 
         if (sendRef) {
           sendRef.current = sendCommandRef.current;

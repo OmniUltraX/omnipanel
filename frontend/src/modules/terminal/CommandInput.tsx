@@ -40,9 +40,13 @@ import { useTerminalUiStore } from "./terminalUiStore";
 import { shouldRouteInputToAi } from "./commandInputRouting";
 import { TerminalToolCallDock } from "./TerminalToolCallDock";
 import { TerminalCommandBarControls } from "./TerminalCommandBarControls";
+import { useBlocksStore } from "../../stores/blocksStore";
+import { blockContextLabel } from "./formatTerminalBlockForAiContext";
+import { useTerminalAiInputContextStore } from "./terminalAiInputContextStore";
 
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
+const EMPTY_ATTACHED_BLOCK_IDS: string[] = [];
 
 const INTERACTIVE_COMMAND_HINT = /^(vim|vi|nano|top|htop|less|more|python|node|ssh)\b/i;
 
@@ -53,6 +57,11 @@ function syncCommandInputHeight(element: HTMLTextAreaElement) {
     return;
   }
   element.style.height = `${Math.min(element.scrollHeight, CMD_INPUT_MAX_HEIGHT_PX)}px`;
+}
+
+function formatAttachedChipLabel(block: TerminalBlock): string {
+  const label = blockContextLabel(block);
+  return label.length > 40 ? `${label.slice(0, 40)}…` : label;
 }
 
 export type CommandInputHandle = {
@@ -104,6 +113,32 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       (state) => state.expandedAiBlockIds[sessionId] ?? null,
     );
     const followUpBlockId = expandedAiBlockId;
+    const attachedBlockIds = useTerminalAiInputContextStore(
+      (state) => state.attachedBlockIds[sessionId] ?? EMPTY_ATTACHED_BLOCK_IDS,
+    );
+    const detachBlock = useTerminalAiInputContextStore((state) => state.detachBlock);
+    const clearAttached = useTerminalAiInputContextStore((state) => state.clearAttached);
+    const attachedBlocks = useMemo(() => {
+      if (attachedBlockIds.length === 0) return [];
+      const findBlockById = useBlocksStore.getState().findBlockById;
+      return attachedBlockIds
+        .map((blockId) => findBlockById(blockId))
+        .filter((block): block is TerminalBlock => block !== null);
+    }, [attachedBlockIds]);
+
+    const submitInlineAi = useCallback(
+      (query: string) => {
+        const blockContext = useTerminalAiInputContextStore
+          .getState()
+          .consumeAttachedContext(sessionId);
+        if (followUpBlockId) {
+          void submitInlineFollowUp(sessionId, followUpBlockId, query, cwd, { blockContext });
+        } else {
+          void submitInlineNaturalLanguage(sessionId, query, cwd, { blockContext });
+        }
+      },
+      [cwd, followUpBlockId, sessionId],
+    );
 
     const completionCtx = useMemo<TerminalCompletionContext | null>(() => {
       if (disabled || value.startsWith("#")) return null;
@@ -239,11 +274,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
           ? trimmed.slice(1).trim()
           : trimmed.slice("/agent ".length).trim();
         if (query) {
-          if (followUpBlockId) {
-            void submitInlineFollowUp(sessionId, followUpBlockId, query, cwd);
-          } else {
-            void submitInlineNaturalLanguage(sessionId, query, cwd);
-          }
+          submitInlineAi(query);
         }
         setValue("");
         closeCompletion();
@@ -262,11 +293,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       }
 
       if (shouldRouteInputToAi(trimmed)) {
-        if (followUpBlockId) {
-          void submitInlineFollowUp(sessionId, followUpBlockId, trimmed, cwd);
-        } else {
-          void submitInlineNaturalLanguage(sessionId, trimmed, cwd);
-        }
+        submitInlineAi(trimmed);
         setValue("");
         closeCompletion();
         closeHistory();
@@ -284,7 +311,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
         requestAnimationFrame(() => onRequestNativeMode());
       }
       return;
-    }, [closeCompletion, closeHistory, cwd, followUpBlockId, onRequestNativeMode, onSend, resetBrowse, sessionId, value]);
+    }, [closeCompletion, closeHistory, cwd, onRequestNativeMode, onSend, resetBrowse, submitInlineAi, value]);
 
     useLayoutEffect(() => {
       const element = textareaRef.current;
@@ -443,6 +470,42 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
             >
               {t("terminal.command.saveWorkflow")}
             </Button>
+          </div>
+        ) : null}
+
+        {attachedBlocks.length > 0 ? (
+          <div className="term-cmd-context-bar">
+            <div className="term-cmd-context-chips">
+              {attachedBlocks.map((block) => (
+                <div key={block.id} className="term-cmd-context-chip">
+                  <span
+                    className="term-cmd-context-chip__label"
+                    title={blockContextLabel(block)}
+                  >
+                    {t("terminal.command.attachedContext", {
+                      label: formatAttachedChipLabel(block),
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    className="term-cmd-context-chip__remove"
+                    aria-label={t("terminal.command.detachAttachedContext")}
+                    onClick={() => detachBlock(sessionId, block.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            {attachedBlocks.length > 1 ? (
+              <button
+                type="button"
+                className="term-cmd-context-chips__clear"
+                onClick={() => clearAttached(sessionId)}
+              >
+                {t("terminal.command.clearAllAttachedContext")}
+              </button>
+            ) : null}
           </div>
         ) : null}
 

@@ -19,6 +19,7 @@ import { useTerminalSessionStats } from "./useTerminalSessionStats";
 import { useTerminalUiStore } from "./terminalUiStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { Button } from "../../components/ui/Button";
+import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -162,6 +163,7 @@ function PaneViewBody(
   ref: React.ForwardedRef<TerminalPaneViewHandle>,
 ) {
   const cmdRef = useRef<CommandInputHandle>(null);
+  const feedPressRef = useRef<{ x: number; y: number } | null>(null);
   const [blockMenu, setBlockMenu] = useState<{
     block: TerminalBlock;
     position: { x: number; y: number };
@@ -224,15 +226,31 @@ function PaneViewBody(
         tabIndex={-1}
         onMouseDownCapture={(event) => {
           onActivate();
-          if (inputMode === "external") {
-            event.preventDefault();
-            focusCommandInput();
+          if (inputMode !== "external") return;
+          const target = event.target as HTMLElement;
+          if (target.closest(".term-warp-feed")) {
+            feedPressRef.current = { x: event.clientX, y: event.clientY };
+            return;
           }
+          feedPressRef.current = null;
+          event.preventDefault();
+          focusCommandInput();
         }}
-        onClick={() => {
-          if (inputMode === "external") {
-            focusCommandInput();
+        onMouseUpCapture={(event) => {
+          if (inputMode !== "external") return;
+          const target = event.target as HTMLElement;
+          if (!target.closest(".term-warp-feed")) return;
+
+          const press = feedPressRef.current;
+          feedPressRef.current = null;
+          if (!press || !isSimplePointerClick(press, { x: event.clientX, y: event.clientY })) {
+            return;
           }
+
+          requestAnimationFrame(() => {
+            if (hasDomTextSelection()) return;
+            focusCommandInput();
+          });
         }}
       >
         {inputMode === "external" ? (
@@ -243,6 +261,7 @@ function PaneViewBody(
             onRunCommand={onSendCommand}
             sessionType={session.type}
             sessionUser={sessionUser}
+            onFocusInput={focusCommandInput}
           />
         ) : null}
         <TerminalView

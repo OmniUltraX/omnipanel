@@ -273,6 +273,9 @@ function isGridNoiseToken(token: string): boolean {
   if (/^-{3,}$/.test(token)) return true;
   if (/^(Mode|LastWriteTime|Length|Name|Directory:|Directory)$/i.test(token)) return true;
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(token)) return true;
+  if (/^&&$/.test(token) || /^\|\|$/.test(token)) return true;
+  if (/^cd$/i.test(token)) return true;
+  if (/^[^\s]+@[^\s]+:/.test(token)) return true;
   return false;
 }
 
@@ -445,7 +448,10 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
   if (tokens.length < 1) return null;
 
   const invalid = tokens.some(
-    (token) => token.length > 260 || token.includes("=") && token.includes("error"),
+    (token) =>
+      token.length > 260 ||
+      (token.includes("=") && token.includes("error")) ||
+      /^[^\s]+@[^\s]+:/.test(token),
   );
   if (invalid) return null;
 

@@ -94,9 +94,10 @@ export async function submitInlineNaturalLanguage(
   sessionId: string,
   query: string,
   cwd = "",
+  options?: { blockContext?: string },
 ): Promise<string> {
   const blockId = beginAiBlock(sessionId, query, cwd);
-  const prompt = buildNaturalLanguagePrompt(query, cwd);
+  const prompt = buildNaturalLanguagePrompt(query, cwd, options?.blockContext);
 
   try {
     await submitAiPrompt(prompt, {
@@ -117,6 +118,7 @@ export async function submitInlineFollowUp(
   blockId: string,
   query: string,
   cwd = "",
+  options?: { blockContext?: string },
 ): Promise<void> {
   const trimmed = query.trim();
   if (!trimmed) return;
@@ -131,7 +133,7 @@ export async function submitInlineFollowUp(
   });
   useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
 
-  const prompt = buildNaturalLanguagePrompt(trimmed, cwd);
+  const prompt = buildNaturalLanguagePrompt(trimmed, cwd, options?.blockContext);
   try {
     await submitAiPrompt(prompt, {
       inline: { sessionId, blockId, continueThread: true },

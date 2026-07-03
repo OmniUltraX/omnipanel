@@ -26,16 +26,16 @@ import {
   IconChevronRight,
   IconClipboard,
   IconCopy,
-  IconQuote,
 } from "../../components/ui/Icons";
 import { showToast } from "../../stores/toastStore";
-import { useCommandBarDraftStore } from "./commandBarDraftStore";
+import { BlockAttachToAiButton } from "./BlockAttachToAiButton";
 import type { TerminalSessionType } from "../../stores/terminalStore";
 import { groupFeedBlocksIntoSegments, type FeedAiRunSegment } from "./terminalFeedSegments";
 import {
   FOLLOW_OUTPUT_PIN_THRESHOLD_PX,
   isScrollPinnedToBottom,
 } from "./useFollowOutputScroll";
+import { useTerminalCopyContextMenu } from "./terminalTextSelection";
 
 type TerminalBlockFeedProps = {
   sessionId: string;
@@ -44,6 +44,7 @@ type TerminalBlockFeedProps = {
   onRunCommand?: (command: string) => void;
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
+  onFocusInput?: () => void;
 };
 
 function blockTitle(block: TerminalBlock): string {
@@ -157,6 +158,68 @@ function AiBlockStopButton({
   );
 }
 
+function AiBlockHeaderActions({
+  block,
+  sessionId,
+  expanded,
+  onToggle,
+  onFocusInput,
+}: {
+  block: TerminalBlock;
+  sessionId: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onFocusInput?: () => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className="term-warp-block__header-actions">
+      <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
+      <button
+        type="button"
+        className="term-warp-block__toolbar-btn term-warp-block__toggle"
+        aria-label={expanded ? t("terminal.ai.collapse") : t("terminal.ai.expand")}
+        title={expanded ? t("terminal.ai.collapse") : t("terminal.ai.expand")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <IconChevronRight
+          size={14}
+          className={`term-warp-block__chevron${expanded ? " term-warp-block__chevron--open" : ""}`}
+        />
+      </button>
+      <AiBlockStopButton block={block} sessionId={sessionId} />
+    </div>
+  );
+}
+
+function AiBlockSummary({
+  block,
+  expanded,
+  onToggle,
+}: {
+  block: TerminalBlock;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`term-warp-block__summary${expanded ? " term-warp-block__summary--open" : ""}`}
+      onClick={onToggle}
+    >
+      <span className="term-warp-ai-mark" aria-hidden>
+        AI
+      </span>
+      <AiStatusIcon block={block} />
+      <span className="term-warp-block__title">{blockTitle(block)}</span>
+    </button>
+  );
+}
+
 function AiStatusIcon({ block }: { block: TerminalBlock }) {
   if (block.status === "running") {
     return <span className="term-warp-block__status term-warp-block__status--running" aria-hidden />;
@@ -176,6 +239,7 @@ function AiBlockCard({
   isStickyCandidate,
   feedScrollRef,
   feedPinnedToBottom,
+  onFocusInput,
 }: {
   block: TerminalBlock;
   sessionId: string;
@@ -185,6 +249,7 @@ function AiBlockCard({
   isStickyCandidate?: boolean;
   feedScrollRef: RefObject<HTMLElement | null>;
   feedPinnedToBottom: boolean;
+  onFocusInput?: () => void;
 }) {
   const [sentinelEl, setSentinelEl] = useState<HTMLDivElement | null>(null);
   const isStickyActive = useStickyActive(
@@ -309,17 +374,14 @@ function AiBlockCard({
           className="term-warp-block term-warp-block--ai term-warp-block--collapsed"
           data-block-id={block.id}
         >
-          <button type="button" className="term-warp-block__summary" onClick={onToggle}>
-            <span className="term-warp-ai-mark" aria-hidden>
-              AI
-            </span>
-            <AiStatusIcon block={block} />
-            <span className="term-warp-block__title">{blockTitle(block)}</span>
-            <span className="term-warp-block__chevron" aria-hidden>
-              ›
-            </span>
-          </button>
-          <AiBlockStopButton block={block} sessionId={sessionId} />
+          <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
+          <AiBlockHeaderActions
+            block={block}
+            sessionId={sessionId}
+            expanded={false}
+            onToggle={onToggle}
+            onFocusInput={onFocusInput}
+          />
         </article>
       );
     }
@@ -330,22 +392,15 @@ function AiBlockCard({
         data-block-id={block.id}
       >
         <header className="term-warp-block__header">
-          <button
-            type="button"
-            className="term-warp-block__summary term-warp-block__summary--open"
-            onClick={onToggle}
-          >
-            <span className="term-warp-ai-mark" aria-hidden>
-              AI
-            </span>
-            <AiStatusIcon block={block} />
-            <span className="term-warp-block__title">{blockTitle(block)}</span>
-            <span className="term-warp-block__chevron term-warp-block__chevron--open" aria-hidden>
-              ›
-            </span>
-          </button>
-          <AiBlockStopButton block={block} sessionId={sessionId} />
+          <AiBlockSummary block={block} expanded onToggle={onToggle} />
           <span className="term-warp-block__badge">助手</span>
+          <AiBlockHeaderActions
+            block={block}
+            sessionId={sessionId}
+            expanded
+            onToggle={onToggle}
+            onFocusInput={onFocusInput}
+          />
         </header>
         <TerminalAiThreadView blockId={block.id} />
       </article>
@@ -369,17 +424,14 @@ function AiBlockCard({
         <article
           className={`term-warp-block term-warp-block--ai term-warp-block--collapsed${stickyCollapsedClass}`}
         >
-          <button type="button" className="term-warp-block__summary" onClick={onToggle}>
-            <span className="term-warp-ai-mark" aria-hidden>
-              AI
-            </span>
-            <AiStatusIcon block={block} />
-            <span className="term-warp-block__title">{blockTitle(block)}</span>
-            <span className="term-warp-block__chevron" aria-hidden>
-              ›
-            </span>
-          </button>
-          <AiBlockStopButton block={block} sessionId={sessionId} />
+          <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
+          <AiBlockHeaderActions
+            block={block}
+            sessionId={sessionId}
+            expanded={false}
+            onToggle={onToggle}
+            onFocusInput={onFocusInput}
+          />
         </article>
       </>
     );
@@ -392,22 +444,15 @@ function AiBlockCard({
       }`}
     >
       <header className="term-warp-block__header">
-        <button
-          type="button"
-          className="term-warp-block__summary term-warp-block__summary--open"
-          onClick={onToggle}
-        >
-          <span className="term-warp-ai-mark" aria-hidden>
-            AI
-          </span>
-          <AiStatusIcon block={block} />
-          <span className="term-warp-block__title">{blockTitle(block)}</span>
-          <span className="term-warp-block__chevron term-warp-block__chevron--open" aria-hidden>
-            ›
-          </span>
-        </button>
+        <AiBlockSummary block={block} expanded onToggle={onToggle} />
         <span className="term-warp-block__badge">助手</span>
-        <AiBlockStopButton block={block} sessionId={sessionId} />
+        <AiBlockHeaderActions
+          block={block}
+          sessionId={sessionId}
+          expanded
+          onToggle={onToggle}
+          onFocusInput={onFocusInput}
+        />
       </header>
       <TerminalAiThreadView blockId={block.id} dockedAutoScroll={dockAutoScroll} />
     </article>
@@ -445,6 +490,7 @@ function ShellBlockCard({
   onRunCommand,
   sessionType = "remote",
   sessionUser,
+  onFocusInput,
 }: {
   block: TerminalBlock;
   sessionId: string;
@@ -453,6 +499,7 @@ function ShellBlockCard({
   onRunCommand?: (command: string) => void;
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
+  onFocusInput?: () => void;
 }) {
   const output = shellOutput(block);
   const duration = formatDuration(block);
@@ -496,15 +543,6 @@ function ShellBlockCard({
     }
   };
 
-  const handleQuote = () => {
-    const reference = cmd || normalizeBlockCommand(block.command);
-    if (!reference.trim()) {
-      showToast("没有可引用的命令");
-      return;
-    }
-    useCommandBarDraftStore.getState().setDraft(sessionId, reference);
-    showToast("已引用命令到输入框");
-  };
 
   return (
     <article className="term-warp-block term-warp-block--shell" data-block-id={block.id}>
@@ -520,15 +558,7 @@ function ShellBlockCard({
             {outputCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
           </button>
         ) : null}
-        <button
-          type="button"
-          className="term-warp-block__toolbar-btn"
-          title="引用命令"
-          aria-label="引用命令"
-          onClick={handleQuote}
-        >
-          <IconQuote size={14} />
-        </button>
+        <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
         <button
           type="button"
           className="term-warp-block__toolbar-btn"
@@ -633,6 +663,7 @@ function FeedAiRunSegmentView({
   onRunCommand,
   sessionType,
   sessionUser,
+  onFocusInput,
 }: {
   segment: FeedAiRunSegment;
   sessionId: string;
@@ -646,6 +677,7 @@ function FeedAiRunSegmentView({
   onRunCommand?: (command: string) => void;
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
+  onFocusInput?: () => void;
 }) {
   const { ai, shells } = segment;
   const expanded = resolveAiExpanded(ai, expandedAiBlockId);
@@ -669,6 +701,7 @@ function FeedAiRunSegmentView({
         isStickyCandidate={isStickyCandidate}
         feedScrollRef={feedScrollRef}
         feedPinnedToBottom={feedPinnedToBottom}
+        onFocusInput={onFocusInput}
       />
       {shells.map((shell) => (
         <MemoShellBlockCard
@@ -680,6 +713,7 @@ function FeedAiRunSegmentView({
           onRunCommand={onRunCommand}
           sessionType={sessionType}
           sessionUser={sessionUser}
+          onFocusInput={onFocusInput}
         />
       ))}
     </div>
@@ -694,6 +728,7 @@ export function TerminalBlockFeed({
   onRunCommand,
   sessionType = "remote",
   sessionUser,
+  onFocusInput,
 }: TerminalBlockFeedProps) {
   const blocks = useBlocksStore((state) => state.blocks[sessionId] ?? EMPTY_TERMINAL_BLOCKS);
   const expandedAiBlockId = useTerminalUiStore((state) => state.expandedAiBlockIds[sessionId] ?? null);
@@ -708,6 +743,8 @@ export function TerminalBlockFeed({
   const prevActivitySignatureRef = useRef("");
   const prevShellSignatureRef = useRef("");
   const feedScrollRafRef = useRef(0);
+
+  useTerminalCopyContextMenu(scrollRef);
 
   const visibleBlocks = blocks.filter(shouldRenderBlock);
   const feedSegments = useMemo(
@@ -829,6 +866,7 @@ export function TerminalBlockFeed({
                 onRunCommand={onRunCommand}
                 sessionType={sessionType}
                 sessionUser={sessionUser}
+                onFocusInput={onFocusInput}
               />
             ));
           }
@@ -848,6 +886,7 @@ export function TerminalBlockFeed({
               onRunCommand={onRunCommand}
               sessionType={sessionType}
               sessionUser={sessionUser}
+              onFocusInput={onFocusInput}
             />
           );
         })}
