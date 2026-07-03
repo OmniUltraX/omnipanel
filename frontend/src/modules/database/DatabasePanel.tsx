@@ -16,6 +16,7 @@ import {
 } from "./ai";
 import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoPanel";
+import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
@@ -35,6 +36,8 @@ import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
@@ -93,9 +96,11 @@ import {
   findTabIdForTable,
   findTabIdForDesigner,
   findTabIdForRedisQuery,
+  findTabIdForSlowQueryLog,
   findPreviewDockTab,
   makeDesignerTabId,
   makeConnectionInfoTabId,
+  makeSlowQueryLogTabId,
   makeRedisQueryTabId,
   isModuleDockTab,
   isToolboxTab,
@@ -106,6 +111,7 @@ import {
   makeSqlTabLabel,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
+  type SlowQueryLogWorkspaceTab,
   type DbWorkspaceTab,
   type RedisQueryWorkspaceTab,
   type SqlWorkspaceTab,
@@ -150,6 +156,11 @@ import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
 import { buildSelectAllFromTableSql, formatFilterWhere } from "./grid/tablePreviewFilter";
+import {
+  probeSlowLogAvailability,
+  resolveSlowLogAvailabilitySync,
+  type SlowLogAvailability,
+} from "./mysqlSlowQueryLog";
 import type { RuleGroupType } from "react-querybuilder";
 import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
@@ -497,6 +508,14 @@ export function DatabasePanel() {
 
   const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const sshConnections = useConnectionStore(
+    useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
+  );
+  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
+  const [slowLogAvailabilityByConnId, setSlowLogAvailabilityByConnId] = useState<
+    Record<string, SlowLogAvailability>
+  >({});
+  const slowLogProbeGenRef = useRef(0);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
 
   const setActiveConnIdIfChanged = useCallback((connId: string | null) => {
@@ -1004,6 +1023,69 @@ export function DatabasePanel() {
   useEffect(() => {
     void refreshConnections();
   }, [schemaRefreshToken, refreshConnections]);
+
+  const resolveSlowLogDisabledReason = useCallback(
+    (availability: SlowLogAvailability): string => {
+      switch (availability.reason) {
+        case "not_mysql":
+          return t("database.contextMenu.slowQueryLogDisabled.notMysql");
+        case "no_ssh":
+          return t("database.contextMenu.slowQueryLogDisabled.noSsh");
+        case "ssh_not_connected":
+          return t("database.contextMenu.slowQueryLogDisabled.sshNotConnected");
+        case "connection_disabled":
+          return t("database.contextMenu.slowQueryLogDisabled.connectionDisabled");
+        case "checking":
+          return t("database.contextMenu.slowQueryLogDisabled.checking");
+        case "slow_log_off":
+          return t("database.contextMenu.slowQueryLogDisabled.slowLogOff");
+        case "slow_log_file_missing":
+          return t("database.contextMenu.slowQueryLogDisabled.slowLogFileMissing");
+        default:
+          return t("database.contextMenu.slowQueryLogDisabled.probeFailed");
+      }
+    },
+    [t],
+  );
+
+  useEffect(() => {
+    const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
+    if (mysqlConnections.length === 0) {
+      setSlowLogAvailabilityByConnId({});
+      return;
+    }
+
+    const gen = ++slowLogProbeGenRef.current;
+    const syncMap: Record<string, SlowLogAvailability> = {};
+    for (const conn of mysqlConnections) {
+      syncMap[conn.id] = resolveSlowLogAvailabilitySync(conn, sshConnections);
+    }
+    setSlowLogAvailabilityByConnId(syncMap);
+
+    void (async () => {
+      for (const conn of mysqlConnections) {
+        const sync = syncMap[conn.id];
+        if (!sync || sync.reason !== "checking") {
+          continue;
+        }
+        if (!isConnectionEnabled(conn)) {
+          if (slowLogProbeGenRef.current !== gen) return;
+          setSlowLogAvailabilityByConnId((prev) => ({
+            ...prev,
+            [conn.id]: {
+              enabled: false,
+              reason: "connection_disabled",
+              sshConnectionId: sync.sshConnectionId,
+            },
+          }));
+          continue;
+        }
+        const result = await probeSlowLogAvailability(conn, sshConnections);
+        if (slowLogProbeGenRef.current !== gen) return;
+        setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
+      }
+    })();
+  }, [connections, sshConnections, sshSessionActiveMap]);
 
   useEffect(() => {
     const bootstrapWorkspace = () => {
@@ -2083,6 +2165,15 @@ export function DatabasePanel() {
         }
       }
 
+      if (tab.kind === "slow-query") {
+        const existing = findTabIdForSlowQueryLog(workspaceTabsRef.current, tab.connId);
+        if (existing) {
+          activateWorkspaceTab(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
       if (tab.kind === "designer") {
         const existing = findTabIdForDesigner(
           workspaceTabsRef.current,
@@ -2841,6 +2932,35 @@ export function DatabasePanel() {
     [activateWorkspaceTab, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
   );
 
+  const openSlowQueryLogTab = useCallback(
+    (connection: DbConnectionConfig, availability: SlowLogAvailability) => {
+      if (!availability.enabled || !availability.sshConnectionId || !availability.logFilePath) {
+        return;
+      }
+      setActiveConnIdIfChanged(connection.id);
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForSlowQueryLog(moduleTabs, connection.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeSlowQueryLogTabId();
+      const tab: SlowQueryLogWorkspaceTab = {
+        id: tabId,
+        kind: "slow-query",
+        label: `${connection.name}-SlowQuery`,
+        connId: connection.id,
+        sshConnectionId: availability.sshConnectionId,
+        logFilePath: availability.logFilePath,
+        deploymentKind: availability.deploymentKind,
+        containerId: availability.containerId,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
+  );
+
   const buildSchemaContextMenuItems = useCallback(
     (item: SchemaTreeItem, context: SchemaContextMenuContext): ContextMenuItem[] => {
       const copyIcon = (
@@ -2886,6 +3006,12 @@ export function DatabasePanel() {
           <path d="M3 4l.7 9.1a1 1 0 0 0 1 .9h6.6a1 1 0 0 0 1-.9L13 4" />
         </svg>
       );
+      const slowLogIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="M8 5v3l2 2" />
+        </svg>
+      );
 
       if (item.type === "table" && context.tableSelection) {
         const selection = context.tableSelection;
@@ -2926,6 +3052,26 @@ export function DatabasePanel() {
       if (item.type === "connection" && context.connection) {
         const connection = context.connection;
         const connEnabled = isConnectionEnabled(connection);
+        const slowLogItems: ContextMenuItem[] = [];
+        if (isMysqlConnectionInfoCapable(connection)) {
+          const availability =
+            slowLogAvailabilityByConnId[connection.id] ??
+            resolveSlowLogAvailabilitySync(connection, sshConnections);
+          slowLogItems.push({
+            id: "slow-query-log",
+            label: t("database.contextMenu.slowQueryLog"),
+            icon: slowLogIcon,
+            disabled: !availability.enabled,
+            disabledReason: !availability.enabled
+              ? resolveSlowLogDisabledReason(availability)
+              : undefined,
+            onClick: () => {
+              const latest =
+                slowLogAvailabilityByConnId[connection.id] ?? availability;
+              openSlowQueryLogTab(connection, latest);
+            },
+          });
+        }
         return [
           {
             id: connEnabled ? "disable-connection" : "enable-connection",
@@ -2937,6 +3083,7 @@ export function DatabasePanel() {
               void toggleConnectionEnabled(connection.id, !connEnabled);
             },
           },
+          ...slowLogItems,
           {
             id: "edit-connection",
             label: t("database.contextMenu.editConnection"),
@@ -2973,6 +3120,10 @@ export function DatabasePanel() {
       copyNameForTable,
       handleDesignTable,
       handleDeleteConnection,
+      openSlowQueryLogTab,
+      resolveSlowLogDisabledReason,
+      slowLogAvailabilityByConnId,
+      sshConnections,
       t,
       toggleConnectionEnabled,
     ],
@@ -4085,6 +4236,17 @@ export function DatabasePanel() {
               preview,
             };
           }
+          if (tab.kind === "slow-query") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database",
+              icon: "database" as const,
+              tooltip: t("database.slowQueryLog.tabTooltip", { name: tab.label }),
+              closable: true,
+              preview,
+            };
+          }
           if (tab.kind === "toolbox") {
             return {
               id: tab.id,
@@ -4192,6 +4354,25 @@ export function DatabasePanel() {
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane">
                 <RedisQueryPanel connection={connection} fixedDbName={tab.dbName} />
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
+        );
+      }
+
+      if (tab.kind === "slow-query") {
+        return (
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane db-workspace-pane--slow-log">
+                <DatabaseSlowQueryLogPanel
+                  connection={connection}
+                  sshConnectionId={tab.sshConnectionId}
+                  logFilePath={tab.logFilePath}
+                  deploymentKind={tab.deploymentKind}
+                  containerId={tab.containerId}
+                  active={tab.id === activeWorkspaceTabId}
+                />
               </div>
             )}
           </ConnectionResolvedDockPane>

@@ -8504,6 +8504,17 @@ a {
         min-width: 140px;
     }
 
+    .omni-select.settings-ai-scenario-select {
+        flex-shrink: 0;
+        width: min(420px, 46vw);
+        min-width: 280px;
+    }
+
+    .omni-select.settings-ai-scenario-select .omni-select-trigger {
+        width: 100%;
+        min-width: 0;
+    }
+
     .setting-input {
         padding: 4px 8px;
         background: var(--bg-deeper);
@@ -10724,9 +10735,17 @@ a {
     }
 
     .ai-model-select {
-        flex: 1;
-        min-width: 0;
-        max-width: 280px;
+        flex: 0 1 auto;
+        min-width: 120px;
+        max-width: min(240px, 36vw);
+    }
+
+    .aui-composer-action-wrapper .ai-model-select {
+        max-width: min(220px, 34vw);
+    }
+
+    .aui-composer-action-wrapper .ai-model-select .omni-select-trigger {
+        max-width: 100%;
     }
 
     .ai-model-select-empty {
@@ -13457,7 +13476,7 @@ a {
         position: fixed;
         inset: 0;
         background: rgba(0, 0, 0, 0.5);
-        z-index: 200;
+        z-index: var(--z-dialog);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -13962,6 +13981,19 @@ a {
 .context-menu-item:disabled {
     opacity: 0.4;
     cursor: default;
+}
+
+.context-menu-item__hint {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding-left: var(--sp-2);
+    color: var(--meta);
+    cursor: help;
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .context-menu-sep {

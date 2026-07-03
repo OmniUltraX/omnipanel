@@ -2,6 +2,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { WorkspaceContextSnapshot } from "./workspaceStore";
 import { useWorkspaceStore } from "./workspaceStore";
+import {
+  parseModelSelectionId,
+  resolveModelSelection,
+  useAiModelsStore,
+} from "./aiModelsStore";
+import { useSettingsStore } from "./settingsStore";
+import { resolveScenarioModelSelectionId } from "../lib/aiScenarioModels";
 
 export interface ToolCallState {
   id: string;
@@ -39,6 +46,8 @@ export interface AiConversation {
   messages: AiMessage[];
   provider: string;
   model: string;
+  /** 当前会话选用的模型（aiModelsStore selectionId 或 cli/acp backend id） */
+  modelSelectionId?: string | null;
   createdAt: number;
   updatedAt: number;
   context?: { type: string; label: string }[];
@@ -103,6 +112,7 @@ interface AiStore {
   toggleConversationList: () => void;
   setConversationListOpen: (open: boolean) => void;
   setConversationListWidth: (width: number) => void;
+  setConversationModelSelectionId: (conversationId: string, selectionId: string) => void;
   replaceConversationMessages: (conversationId: string, messages: AiMessage[]) => void;
 }
 
@@ -138,12 +148,23 @@ export const useAiStore = create<AiStore>()(
         const id = genId("conv");
         const state = get();
         const snapshot = useWorkspaceStore.getState().getSnapshot();
+        const providers = useAiModelsStore.getState().providers;
+        const modelSelectionId = resolveScenarioModelSelectionId(
+          providers,
+          state.currentModelSelectionId ??
+            useSettingsStore.getState().aiScenarioAssistantModelSelectionId,
+        );
+        const parsed = modelSelectionId ? parseModelSelectionId(modelSelectionId) : null;
+        const resolved = modelSelectionId
+          ? resolveModelSelection(providers, modelSelectionId)
+          : null;
         const conv: AiConversation = {
           id,
           title: "新的对话",
           messages: [],
-          provider: provider || state.currentProvider,
-          model: model || state.currentModel,
+          provider: provider || parsed?.providerId || state.currentProvider,
+          model: model || parsed?.modelName || resolved?.name || state.currentModel,
+          modelSelectionId,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           contextSnapshot: snapshot,
@@ -161,7 +182,15 @@ export const useAiStore = create<AiStore>()(
         return id;
       },
 
-      setActiveConversation: (id) => set({ activeConversationId: id }),
+      setActiveConversation: (id) => {
+        const conversation = get().conversations.find((c) => c.id === id);
+        set({
+          activeConversationId: id,
+          ...(conversation?.modelSelectionId
+            ? { currentModelSelectionId: conversation.modelSelectionId }
+            : {}),
+        });
+      },
 
       renameConversation: (id, title) =>
         set((state) => ({
@@ -314,6 +343,25 @@ export const useAiStore = create<AiStore>()(
 
       setConversationListWidth: (width) =>
         set({ conversationListWidth: Math.max(180, Math.min(420, width)) }),
+
+      setConversationModelSelectionId: (conversationId, selectionId) => {
+        const providers = useAiModelsStore.getState().providers;
+        const parsed = parseModelSelectionId(selectionId);
+        const resolved = resolveModelSelection(providers, selectionId);
+        set((state) => ({
+          currentModelSelectionId: selectionId,
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              modelSelectionId: selectionId,
+              provider: parsed?.providerId ?? c.provider,
+              model: parsed?.modelName ?? resolved?.name ?? c.model,
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+      },
 
       replaceConversationMessages: (conversationId, messages) =>
         set((state) => ({

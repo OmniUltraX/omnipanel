@@ -14,6 +14,7 @@ import {
   displayDetailValue,
   formatTableDataSummary,
 } from "./databaseTablesPanelFormat";
+import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
@@ -74,18 +75,6 @@ function compareTableData(
     return direction === "asc" ? cmp : -cmp;
   }
   return compareTableNames(a, b, "asc");
-}
-
-function sortHeaderClass(
-  column: TablesPanelSortColumn,
-  sort: TablesPanelSortState,
-): string {
-  if (sort.column !== column) {
-    return " db-tables-panel-grid__sortable";
-  }
-  return sort.direction === "asc"
-    ? " db-tables-panel-grid__sortable db-tables-panel-grid__sort-asc"
-    : " db-tables-panel-grid__sortable db-tables-panel-grid__sort-desc";
 }
 
 const DETAILS_FETCH_CONCURRENCY = 4;
@@ -327,6 +316,140 @@ export function DatabaseTablesPanel({
   const tableCount = tables.length;
   const loadingLabel = t("database.tablesPanel.detailsLoading");
 
+  const tableColumns = useMemo((): DbTablesPanelGridColumn<string>[] => {
+    const cols: DbTablesPanelGridColumn<string>[] = [
+      {
+        id: "name",
+        header: t("database.tablesPanel.columns.name"),
+        sortable: true,
+        nameCell: true,
+        render: (tableName) => tableName,
+        getTitle: (tableName) => tableName,
+      },
+      {
+        id: "comment",
+        header: t("database.tablesPanel.details.comment"),
+        render: (tableName) => {
+          const entry = detailsByTable[tableName];
+          const fallbackComment = tableComments.get(tableName);
+          if (entry?.status === "loaded") {
+            return displayDetailValue(entry.details.comment ?? fallbackComment ?? null);
+          }
+          if (entry?.status === "loading") {
+            return loadingLabel;
+          }
+          return displayDetailValue(fallbackComment);
+        },
+        getTitle: (tableName) => {
+          const entry = detailsByTable[tableName];
+          const fallbackComment = tableComments.get(tableName);
+          if (entry?.status === "loaded") {
+            return displayDetailValue(entry.details.comment ?? fallbackComment ?? null);
+          }
+          if (entry?.status === "loading") {
+            return loadingLabel;
+          }
+          return displayDetailValue(fallbackComment);
+        },
+      },
+      {
+        id: "engine",
+        header: t("database.tablesPanel.details.engine"),
+        render: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.engine ?? null),
+            loadingLabel,
+          ),
+        getCopyValue: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.engine ?? null),
+            loadingLabel,
+          ),
+      },
+      {
+        id: "data",
+        header: t("database.tablesPanel.details.data"),
+        sortable: true,
+        render: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) =>
+              formatTableDataSummary(details.rowCount ?? null, details.dataLength ?? null),
+            loadingLabel,
+          ),
+        getCopyValue: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) =>
+              formatTableDataSummary(details.rowCount ?? null, details.dataLength ?? null),
+            loadingLabel,
+          ),
+      },
+      {
+        id: "rowFormat",
+        header: t("database.tablesPanel.details.rowFormat"),
+        render: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.rowFormat ?? null),
+            loadingLabel,
+          ),
+        getCopyValue: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.rowFormat ?? null),
+            loadingLabel,
+          ),
+      },
+      {
+        id: "collation",
+        header: t("database.tablesPanel.details.collation"),
+        render: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.collation ?? null),
+            loadingLabel,
+          ),
+        getCopyValue: (tableName) =>
+          resolveDetailCell(
+            detailsByTable[tableName],
+            (details) => displayDetailValue(details.collation ?? null),
+            loadingLabel,
+          ),
+      },
+    ];
+
+    if (canDesign) {
+      cols.push({
+        id: "design",
+        variant: "actions",
+        header: null,
+        headerAriaLabel: t("database.contextMenu.designTable"),
+        render: (tableName) => (
+          <button
+            type="button"
+            className="btn-icon db-tables-panel-design-btn"
+            title={t("database.contextMenu.designTable")}
+            aria-label={t("database.contextMenu.designTable")}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDesignTable(tableName);
+            }}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+              <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+              <path d="M5 8h6M8 5v6" />
+            </svg>
+          </button>
+        ),
+      });
+    }
+
+    return cols;
+  }, [canDesign, detailsByTable, handleDesignTable, loadingLabel, t, tableComments]);
+
   return (
     <ScopedSearch
       className="db-tables-panel db-tables-panel--dock"
@@ -345,135 +468,16 @@ export function DatabaseTablesPanel({
                 <div className="db-tables-panel-empty">{t("database.sidebar.noTables")}</div>
               )}
               {cacheReady && tableCount > 0 && (
-                <table className="db-tables-panel-grid">
-                  <thead>
-                    <tr>
-                      <th
-                        className={sortHeaderClass("name", sort).trim()}
-                        onClick={() => toggleSort("name")}
-                        aria-sort={
-                          sort.column === "name"
-                            ? sort.direction === "asc"
-                              ? "ascending"
-                              : "descending"
-                            : "none"
-                        }
-                      >
-                        <span className="db-tables-panel-grid__th-label">
-                          {t("database.tablesPanel.columns.name")}
-                          {sort.column === "name" ? (
-                            <span className="db-tables-panel-grid__sort-mark" aria-hidden>
-                              {sort.direction === "asc" ? "↑" : "↓"}
-                            </span>
-                          ) : null}
-                        </span>
-                      </th>
-                      <th>{t("database.tablesPanel.details.comment")}</th>
-                      <th>{t("database.tablesPanel.details.engine")}</th>
-                      <th
-                        className={sortHeaderClass("data", sort).trim()}
-                        onClick={() => toggleSort("data")}
-                        aria-sort={
-                          sort.column === "data"
-                            ? sort.direction === "asc"
-                              ? "ascending"
-                              : "descending"
-                            : "none"
-                        }
-                      >
-                        <span className="db-tables-panel-grid__th-label">
-                          {t("database.tablesPanel.details.data")}
-                          {sort.column === "data" ? (
-                            <span className="db-tables-panel-grid__sort-mark" aria-hidden>
-                              {sort.direction === "asc" ? "↑" : "↓"}
-                            </span>
-                          ) : null}
-                        </span>
-                      </th>
-                      <th>{t("database.tablesPanel.details.rowFormat")}</th>
-                      <th>{t("database.tablesPanel.details.collation")}</th>
-                      {canDesign ? <th className="db-tables-panel-grid__actions-col" aria-label={t("database.contextMenu.designTable")} /> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedTables.map((tableName) => {
-                      const entry = detailsByTable[tableName];
-                      const fallbackComment = tableComments.get(tableName);
-                      const selected = selectedTableName === tableName;
-                      const comment =
-                        entry?.status === "loaded"
-                          ? displayDetailValue(
-                              entry.details.comment ?? fallbackComment ?? null,
-                            )
-                          : entry?.status === "loading"
-                            ? loadingLabel
-                            : displayDetailValue(fallbackComment);
-                      return (
-                        <tr
-                          key={tableName}
-                          className={selected ? "is-selected" : undefined}
-                          onClick={() => setSelectedTableName(tableName)}
-                        >
-                          <td className="db-tables-panel-grid__name" title={tableName}>
-                            {tableName}
-                          </td>
-                          <td title={comment}>{comment}</td>
-                          <td>
-                            {resolveDetailCell(
-                              entry,
-                              (details) => displayDetailValue(details.engine ?? null),
-                              loadingLabel,
-                            )}
-                          </td>
-                          <td>
-                            {resolveDetailCell(
-                              entry,
-                              (details) =>
-                                formatTableDataSummary(
-                                  details.rowCount ?? null,
-                                  details.dataLength ?? null,
-                                ),
-                              loadingLabel,
-                            )}
-                          </td>
-                          <td>
-                            {resolveDetailCell(
-                              entry,
-                              (details) => displayDetailValue(details.rowFormat ?? null),
-                              loadingLabel,
-                            )}
-                          </td>
-                          <td>
-                            {resolveDetailCell(
-                              entry,
-                              (details) => displayDetailValue(details.collation ?? null),
-                              loadingLabel,
-                            )}
-                          </td>
-                          {canDesign ? (
-                            <td className="db-tables-panel-grid__actions-col">
-                              <button
-                                type="button"
-                                className="btn-icon db-tables-panel-design-btn"
-                                title={t("database.contextMenu.designTable")}
-                                aria-label={t("database.contextMenu.designTable")}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDesignTable(tableName);
-                                }}
-                              >
-                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                                  <path d="M5 8h6M8 5v6" />
-                                </svg>
-                              </button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <DbTablesPanelGrid
+                  columns={tableColumns}
+                  rows={sortedTables}
+                  rowKey={(tableName) => tableName}
+                  sortColumnId={sort.column}
+                  sortDirection={sort.direction}
+                  onSortColumn={(columnId) => toggleSort(columnId as TablesPanelSortColumn)}
+                  selectedRowKey={selectedTableName}
+                  onRowClick={setSelectedTableName}
+                />
               )}
               {cacheReady && tableCount > 0 && filteredTables.length === 0 && (
                 <div className="db-tables-panel-empty">{t("database.tablesPanel.noResults")}</div>

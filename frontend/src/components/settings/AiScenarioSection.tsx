@@ -62,6 +62,7 @@ export function AiScenarioSection() {
             <Select
               className="setting-select settings-ai-scenario-select"
               size="sm"
+              panelMinWidth={420}
               value={resolveSelectValue(options, formFillModelId)}
               onChange={(next) =>
                 setAiScenarioSettings({ aiScenarioFormFillModelSelectionId: next })
@@ -80,6 +81,7 @@ export function AiScenarioSection() {
             <Select
               className="setting-select settings-ai-scenario-select"
               size="sm"
+              panelMinWidth={420}
               value={resolveSelectValue(options, assistantModelId)}
               onChange={(next) =>
                 setAiScenarioSettings({ aiScenarioAssistantModelSelectionId: next })

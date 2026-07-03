@@ -211,11 +211,21 @@ async fn build_http_provider(
     snapshot: &HttpProviderSnapshot,
 ) -> Result<Box<dyn AiProvider>, String> {
     let proxy_config = state.proxy_config.lock().await.clone();
-    let client = crate::commands::proxy::build_proxy_client(&proxy_config);
     let provider_id = snapshot.provider_id.trim();
     if provider_id.is_empty() {
         return Err("http_provider.provider_id 不能为空".to_string());
     }
+
+    let base_url = snapshot.base_url.trim();
+    if base_url.is_empty() {
+        return Err("http_provider.base_url 不能为空".to_string());
+    }
+
+    let client = crate::commands::proxy::build_http_client_for_url(
+        base_url,
+        &proxy_config,
+        Duration::from_secs(300),
+    )?;
 
     let api_key = if snapshot.api_key.trim().is_empty() {
         "sk-none".to_string()

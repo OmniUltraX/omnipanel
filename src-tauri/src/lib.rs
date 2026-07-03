@@ -225,6 +225,7 @@ fn export_ipc_bindings() {
         commands::knowledge_vector::knowledge_list_chunks,
         commands::knowledge_vector::knowledge_delete_chunks,
         commands::knowledge_vector::knowledge_recall_test,
+        commands::knowledge_vector::knowledge_query_document,
         commands::workflow::workflow_list,
         commands::workflow::workflow_get,
         commands::workflow::workflow_save,
@@ -755,6 +756,7 @@ pub fn run() {
             commands::knowledge_vector::knowledge_list_chunks,
         commands::knowledge_vector::knowledge_delete_chunks,
         commands::knowledge_vector::knowledge_recall_test,
+        commands::knowledge_vector::knowledge_query_document,
             // Workflow（工作流）
             commands::workflow::workflow_list,
             commands::workflow::workflow_get,

@@ -14,12 +14,11 @@ import {
   deleteKnowledgeChunks,
   KNOWLEDGE_CHUNK_PAGE_SIZE,
   KNOWLEDGE_VECTORIZED_EVENT,
-  loadKnowledgeChunksPage,
+  loadKnowledgeChunks,
   loadKnowledgeVectorStatus,
   type KnowledgeChunkPreview,
 } from "./knowledgeVectorize";
 import { isKnowledgeFolder } from "./knowledgeTree";
-import { KnowledgeChunksPagination } from "./KnowledgeChunksPagination";
 import { KnowledgeRecallTestSubWindow } from "./KnowledgeRecallTestSubWindow";
 
 interface KnowledgeChunksPanelProps {
@@ -53,93 +52,120 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
 
   const [chunks, setChunks] = useState<KnowledgeChunkPreview[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [embeddedAt, setEmbeddedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
   const [recallOpen, setRecallOpen] = useState(false);
   const anchorIdRef = useRef<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
+
+  const hasMore = chunks.length < total;
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     anchorIdRef.current = null;
   }, []);
 
-  const loadPage = useCallback(
-    async (targetPage: number) => {
-      if (!entry || isKnowledgeFolder(entry)) {
-        setChunks([]);
-        setTotal(0);
-        setLoading(false);
-        return;
-      }
+  const loadInitial = useCallback(async () => {
+    if (!entry || isKnowledgeFolder(entry)) {
+      setChunks([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
 
-      setLoading(true);
-      setError(null);
-      try {
-        const [status, result] = await Promise.all([
-          loadKnowledgeVectorStatus(entry.id),
-          loadKnowledgeChunksPage(entry.id, targetPage),
-        ]);
-        setEmbeddedAt(status?.embeddedAt ?? null);
+    setLoading(true);
+    setError(null);
+    try {
+      const [status, result] = await Promise.all([
+        loadKnowledgeVectorStatus(entry.id),
+        loadKnowledgeChunks(entry.id, 0),
+      ]);
+      setEmbeddedAt(status?.embeddedAt ?? null);
+      setTotal(result.total ?? 0);
+      setChunks(result.chunks);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setChunks([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [entry]);
 
-        const resultTotal = result.total ?? 0;
-        const totalPages = Math.max(1, Math.ceil(resultTotal / KNOWLEDGE_CHUNK_PAGE_SIZE));
-        const safePage = Math.min(Math.max(1, targetPage), totalPages);
+  const loadMore = useCallback(async () => {
+    if (!entry || isKnowledgeFolder(entry) || loadingMoreRef.current) {
+      return;
+    }
 
-        if (safePage !== targetPage && resultTotal > 0) {
-          const corrected = await loadKnowledgeChunksPage(entry.id, safePage);
-          setTotal(corrected.total ?? 0);
-          setChunks(corrected.chunks);
-        } else {
-          setTotal(resultTotal);
-          setChunks(result.chunks);
-        }
-        setPage(safePage);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setChunks([]);
-        setTotal(0);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [entry],
-  );
+    const offset = chunks.length;
+    if (offset >= total) {
+      return;
+    }
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const result = await loadKnowledgeChunks(entry.id, offset);
+      setTotal(result.total ?? total);
+      setChunks((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const appended = result.chunks.filter((item) => !existingIds.has(item.id));
+        return appended.length > 0 ? [...prev, ...appended] : prev;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [chunks.length, entry, total]);
+
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
 
   useEffect(() => {
-    setPage(1);
     clearSelection();
-    void loadPage(1);
-  }, [entry?.id, loadPage, clearSelection]);
-
-  useEffect(() => {
-    clearSelection();
-  }, [page, clearSelection]);
+    void loadInitial();
+  }, [entry?.id, loadInitial, clearSelection]);
 
   useEffect(() => {
     if (!entry || isKnowledgeFolder(entry)) return;
     const onVectorized = (event: Event) => {
       const detail = (event as CustomEvent<{ entryId: string }>).detail;
       if (detail?.entryId === entry.id) {
-        setPage(1);
         clearSelection();
-        void loadPage(1);
+        void loadInitial();
       }
     };
     window.addEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
     return () => window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
-  }, [entry, loadPage, clearSelection]);
+  }, [entry, loadInitial, clearSelection]);
 
-  const handlePageChange = useCallback(
-    (nextPage: number) => {
-      void loadPage(nextPage);
-    },
-    [loadPage],
-  );
+  useEffect(() => {
+    const root = gridRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || !hasMore) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreRef.current();
+        }
+      },
+      { root, rootMargin: "120px", threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, chunks.length, loading, loadingMore]);
 
   const handleDeleteChunks = useCallback(
     async (chunkIds: string[]) => {
@@ -158,19 +184,16 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
         if (result.remaining <= 0) {
           setTotal(0);
           setChunks([]);
-          setPage(1);
           return;
         }
-        const totalPages = Math.max(1, Math.ceil(result.remaining / KNOWLEDGE_CHUNK_PAGE_SIZE));
-        const targetPage = Math.min(page, totalPages);
-        await loadPage(targetPage);
+        await loadInitial();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setDeleting(false);
       }
     },
-    [clearSelection, deleting, entry, loadPage, page, t],
+    [clearSelection, deleting, entry, loadInitial, t],
   );
 
   const handleChunkClick = useCallback(
@@ -296,7 +319,8 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
       </header>
 
       <div
-        className={`knowledge-chunks-panel__grid${loading || deleting ? " knowledge-chunks-panel__grid--loading" : ""}`}
+        ref={gridRef}
+        className={`knowledge-chunks-panel__grid${deleting ? " knowledge-chunks-panel__grid--loading" : ""}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest(".knowledge-chunk-card")) return;
           clearSelection();
@@ -337,14 +361,16 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
             </article>
           );
         })}
+        {hasMore ? (
+          <div
+            ref={sentinelRef}
+            className="knowledge-chunks-panel__load-more"
+            aria-live="polite"
+          >
+            {loadingMore ? t("knowledge.chunks.loadingMore") : null}
+          </div>
+        ) : null}
       </div>
-
-      <KnowledgeChunksPagination
-        page={page}
-        total={total}
-        pageSize={KNOWLEDGE_CHUNK_PAGE_SIZE}
-        onPageChange={handlePageChange}
-      />
 
       <KnowledgeRecallTestSubWindow
         open={recallOpen}

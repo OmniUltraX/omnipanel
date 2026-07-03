@@ -10,6 +10,22 @@ use crate::ir::{StopReason, StreamEvent};
 use crate::provider::AiProvider;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo, Role, ToolDef, Usage};
 
+fn format_http_request_error(err: reqwest::Error, url: &str) -> anyhow::Error {
+    let mut hint = String::new();
+    if err.is_connect() {
+        hint.push_str("网络连接失败，请检查：① 本机网络 ② 设置中的代理是否已开启但不可用 ③ Base URL 是否正确");
+    } else if err.is_timeout() {
+        hint.push_str("请求超时，请稍后重试或检查网络/代理");
+    } else if err.is_request() {
+        hint.push_str("请求发送失败，请检查代理设置与 API 地址");
+    }
+    if hint.is_empty() {
+        anyhow::anyhow!("请求失败 ({url}): {err}")
+    } else {
+        anyhow::anyhow!("请求失败 ({url}): {err}。{hint}")
+    }
+}
+
 /// OpenAI-compatible provider. Works with:
 /// - OpenAI API (api.openai.com)
 /// - Ollama (localhost:11434, OpenAI-compat mode)
@@ -182,14 +198,16 @@ impl AiProvider for OpenAiProvider {
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
         };
 
+        let url = format!("{}/chat/completions", self.base_url);
         let resp = self
             .client
-            .post(format!("{}/chat/completions", self.base_url))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| format_http_request_error(e, &url))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -236,14 +254,16 @@ impl AiProvider for OpenAiProvider {
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
         };
 
+        let url = format!("{}/chat/completions", self.base_url);
         let resp = self
             .client
-            .post(format!("{}/chat/completions", self.base_url))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| format_http_request_error(e, &url))?;
 
         if !resp.status().is_success() {
             let status = resp.status();

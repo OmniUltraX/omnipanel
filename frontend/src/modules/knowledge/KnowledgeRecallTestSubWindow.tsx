@@ -4,7 +4,7 @@ import { SubWindow } from "../../components/ui/SubWindow";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import type { KnowledgeRecallHit } from "../../ipc/bindings";
-import { recallKnowledgeEntry } from "./knowledgeVectorize";
+import { recallKnowledgeEntry, KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT, KNOWLEDGE_RECALL_DEFAULT_TOP_K, KNOWLEDGE_RECALL_TOP_K_MAX, KNOWLEDGE_RECALL_TOP_K_MIN } from "./knowledgeVectorize";
 
 interface KnowledgeRecallTestSubWindowProps {
   open: boolean;
@@ -23,6 +23,20 @@ function scoreBarWidth(score: number): string {
   return `${pct}%`;
 }
 
+function clampTopK(value: number): number {
+  if (!Number.isFinite(value)) {
+    return KNOWLEDGE_RECALL_DEFAULT_TOP_K;
+  }
+  return Math.min(KNOWLEDGE_RECALL_TOP_K_MAX, Math.max(KNOWLEDGE_RECALL_TOP_K_MIN, Math.round(value)));
+}
+
+function clampMinScorePercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
 export function KnowledgeRecallTestSubWindow({
   open,
   entryId,
@@ -33,6 +47,8 @@ export function KnowledgeRecallTestSubWindow({
   const embeddingProvider = useKnowledgeEmbeddingProviderConfig();
 
   const [query, setQuery] = useState("");
+  const [topK, setTopK] = useState(KNOWLEDGE_RECALL_DEFAULT_TOP_K);
+  const [minScorePercent, setMinScorePercent] = useState(KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT);
   const [results, setResults] = useState<KnowledgeRecallHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +57,8 @@ export function KnowledgeRecallTestSubWindow({
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setTopK(KNOWLEDGE_RECALL_DEFAULT_TOP_K);
+    setMinScorePercent(KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT);
     setResults([]);
     setError(null);
     setHasSearched(false);
@@ -62,7 +80,10 @@ export function KnowledgeRecallTestSubWindow({
     setError(null);
     setHasSearched(true);
     try {
-      const hits = await recallKnowledgeEntry(entryId, trimmed, embeddingProvider);
+      const hits = await recallKnowledgeEntry(entryId, trimmed, embeddingProvider, {
+        topK: clampTopK(topK),
+        minScore: clampMinScorePercent(minScorePercent) / 100,
+      });
       setResults(hits);
     } catch (e) {
       setResults([]);
@@ -70,7 +91,7 @@ export function KnowledgeRecallTestSubWindow({
     } finally {
       setLoading(false);
     }
-  }, [embeddingProvider, entryId, query, t]);
+  }, [embeddingProvider, entryId, minScorePercent, query, topK, t]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -103,6 +124,47 @@ export function KnowledgeRecallTestSubWindow({
             rows={4}
             disabled={loading}
           />
+          <div className="knowledge-recall-panel__params">
+            <label className="knowledge-recall-panel__param">
+              <span className="knowledge-recall-panel__param-label">
+                {t("knowledge.chunks.recall.topK")}
+              </span>
+              <input
+                type="number"
+                className="knowledge-recall-panel__param-input"
+                min={KNOWLEDGE_RECALL_TOP_K_MIN}
+                max={KNOWLEDGE_RECALL_TOP_K_MAX}
+                step={1}
+                value={topK}
+                disabled={loading}
+                title={t("knowledge.chunks.recall.topKHint")}
+                onChange={(event) => setTopK(clampTopK(Number(event.target.value)))}
+              />
+            </label>
+            <label className="knowledge-recall-panel__param">
+              <span className="knowledge-recall-panel__param-label">
+                {t("knowledge.chunks.recall.minScore")}
+              </span>
+              <div className="knowledge-recall-panel__param-with-suffix">
+                <input
+                  type="number"
+                  className="knowledge-recall-panel__param-input"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={minScorePercent}
+                  disabled={loading}
+                  title={t("knowledge.chunks.recall.minScoreHint")}
+                  onChange={(event) =>
+                    setMinScorePercent(clampMinScorePercent(Number(event.target.value)))
+                  }
+                />
+                <span className="knowledge-recall-panel__param-suffix" aria-hidden>
+                  %
+                </span>
+              </div>
+            </label>
+          </div>
           <div className="knowledge-recall-panel__actions">
             <span className="knowledge-recall-panel__hint">
               {t("knowledge.chunks.recall.runHint")}
@@ -128,11 +190,11 @@ export function KnowledgeRecallTestSubWindow({
           ) : hasSearched && results.length === 0 && !error ? (
             <div className="knowledge-recall-panel__empty">{t("knowledge.chunks.recall.noResults")}</div>
           ) : results.length > 0 ? (
-            <ul className="knowledge-recall-panel__list">
+            <div className="knowledge-chunks-panel__grid knowledge-recall-panel__grid">
               {results.map((hit) => (
-                <li key={hit.id} className="knowledge-recall-panel__item">
-                  <div className="knowledge-recall-panel__item-head">
-                    <span className="knowledge-recall-panel__item-index">
+                <article key={hit.id} className="knowledge-chunk-card knowledge-chunk-card--recall">
+                  <div className="knowledge-chunk-card__head">
+                    <span className="knowledge-chunk-card__index">
                       {t("knowledge.chunks.blockIndex", { index: (hit.chunkIndex ?? 0) + 1 })}
                     </span>
                     <div className="knowledge-recall-panel__score-wrap">
@@ -150,10 +212,10 @@ export function KnowledgeRecallTestSubWindow({
                       </div>
                     </div>
                   </div>
-                  <pre className="knowledge-recall-panel__item-body">{hit.content}</pre>
-                </li>
+                  <pre className="knowledge-chunk-card__body">{hit.content}</pre>
+                </article>
               ))}
-            </ul>
+            </div>
           ) : (
             <div className="knowledge-recall-panel__empty">{t("knowledge.chunks.recall.intro")}</div>
           )}

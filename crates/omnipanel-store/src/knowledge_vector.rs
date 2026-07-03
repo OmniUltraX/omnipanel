@@ -59,6 +59,7 @@ pub struct KnowledgeChunkListResult {
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeVectorHit {
     pub entry_id: String,
+    #[specta(type = f64)]
     pub chunk_index: i64,
     pub content: String,
     pub score: f64,
@@ -332,11 +333,13 @@ impl Storage {
         Ok(hits)
     }
 
-    /// 对单篇文档的全部文本块计算与 query 向量的相似度（按分数降序）。
+    /// 对单篇文档的文本块计算与 query 向量的相似度（按分数降序，支持 top_k 与最低分过滤）。
     pub fn recall_knowledge_entry_vectors(
         &self,
         entry_id: &str,
         query_embedding: &[f32],
+        top_k: usize,
+        min_score: f64,
     ) -> OmniResult<Vec<KnowledgeRecallHit>> {
         if query_embedding.is_empty() {
             return Ok(Vec::new());
@@ -382,6 +385,12 @@ impl Storage {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        if min_score > 0.0 {
+            hits.retain(|hit| hit.score >= min_score);
+        }
+        if top_k > 0 {
+            hits.truncate(top_k);
+        }
         Ok(hits)
     }
 }

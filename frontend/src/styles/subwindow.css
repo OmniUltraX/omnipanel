@@ -323,23 +323,6 @@
     justify-content: flex-end;
 }
 
-.ai-subwindow-header-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    width: 100%;
-    min-width: 0;
-}
-
-.ai-subwindow-header-toolbar .ai-panel-header-left {
-    flex-shrink: 1;
-}
-
-.ai-subwindow-header-toolbar .ai-panel-header-right {
-    flex-shrink: 0;
-}
-
 .ai-subwindow .subwindow-title.ai-conversation-title,
 .ai-subwindow h2.subwindow-title.ai-conversation-title {
     flex: 1;
@@ -427,7 +410,7 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    max-width: min(320px, 42vw);
+    max-width: min(420px, 48vw);
 }
 
 .ai-subwindow-model-label {

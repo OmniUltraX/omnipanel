@@ -1,23 +1,54 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { join, tempDir } from "@tauri-apps/api/path";
+import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
 import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/Button";
 import { ScopedSearch } from "../../../components/ui/ScopedSearch";
+import { useConnectionStore } from "../../../stores/connectionStore";
+import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
+import type { Connection, FileEntry } from "../../../ipc/bindings";
+import { FilePreviewSubWindow } from "../../files/FilePreviewSubWindow";
+import { LOCAL_CONNECTION_ID } from "../../files/utils";
 import { isMysqlConnectionInfoCapable, type DbConnectionConfig } from "../api";
+import {
+  probeMysqlDeployment,
+  type MysqlDeploymentInfo,
+} from "../mysqlDeploymentDetect";
+import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+import {
+  readMysqlDeploymentCache,
+  writeMysqlDeploymentCache,
+} from "../mysqlDeploymentCache";
 import { makeQueryRunId } from "../sql/queryRun";
 import { displayDetailValue } from "./databaseTablesPanelFormat";
+import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
+import {
+  findMysqlConfigPath,
+  readMysqlConfig,
+  writeMysqlConfig,
+} from "../mysqlConfigEditor";
 
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
+const VARIABLES_SQL = "SHOW VARIABLES;";
+
+type ConnectionInfoSubTab = "connections" | "status";
 
 type ProcessSortColumn = "user" | "host" | "db" | "time";
 type ProcessSortDirection = "asc" | "desc";
+type VariablesSortColumn = "name" | "value";
 
 interface ProcessSortState {
   column: ProcessSortColumn;
+  direction: ProcessSortDirection;
+}
+
+interface VariablesSortState {
+  column: VariablesSortColumn;
   direction: ProcessSortDirection;
 }
 
@@ -29,6 +60,9 @@ const SORTABLE_COLUMN_CANDIDATES: Record<ProcessSortColumn, string[]> = {
 };
 
 const ID_COLUMN_CANDIDATES = ["Id", "ID", "id"];
+
+const VARIABLE_NAME_COLUMNS = ["Variable_name", "variable_name"];
+const VARIABLE_VALUE_COLUMNS = ["Value", "value"];
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
@@ -78,15 +112,6 @@ function rowMatchesSearch(row: Record<string, unknown>, query: string): boolean 
   });
 }
 
-function sortHeaderClass(column: ProcessSortColumn, sort: ProcessSortState): string {
-  if (sort.column !== column) {
-    return " db-tables-panel-grid__sortable";
-  }
-  return sort.direction === "asc"
-    ? " db-tables-panel-grid__sortable db-tables-panel-grid__sort-asc"
-    : " db-tables-panel-grid__sortable db-tables-panel-grid__sort-desc";
-}
-
 function compareProcessRows(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
@@ -123,97 +148,384 @@ function resolveSortColumn(column: string, sortColumnKeys: Record<ProcessSortCol
   return null;
 }
 
+function compareVariableRows(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  nameKey: string,
+  valueKey: string,
+  column: VariablesSortColumn,
+  direction: ProcessSortDirection,
+): number {
+  const key = column === "name" ? nameKey : valueKey;
+  const cmp = formatProcessCell(a[key]).localeCompare(
+    formatProcessCell(b[key]),
+    undefined,
+    { sensitivity: "base", numeric: true },
+  );
+  return direction === "asc" ? cmp : -cmp;
+}
+
+function resolveVariablesSortColumn(
+  column: string,
+  nameKey: string | null,
+  valueKey: string | null,
+): VariablesSortColumn | null {
+  if (nameKey && column === nameKey) {
+    return "name";
+  }
+  if (valueKey && column === valueKey) {
+    return "value";
+  }
+  return null;
+}
+
+function DeploymentNavTag({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="db-mysql-deploy-tag db-mysql-deploy-tag--nav"
+      title={`${label}: ${value}`}
+      disabled
+    >
+      {value}
+    </button>
+  );
+}
+
+function MysqlDeploymentTags({
+  loading,
+  deployment,
+  connection,
+  sshConnections,
+}: {
+  loading: boolean;
+  deployment: MysqlDeploymentInfo | null;
+  connection: DbConnectionConfig;
+  sshConnections: Connection[];
+}) {
+  const { t } = useI18n();
+
+  const serverName = useMemo(() => {
+    if (deployment?.serverName?.trim()) {
+      return deployment.serverName.trim();
+    }
+    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+    return ssh?.name?.trim() ?? "";
+  }, [connection.host, deployment?.serverName, sshConnections]);
+
+  if (loading) {
+    return (
+      <span className="db-mysql-deploy-tag db-mysql-deploy-tag--checking">
+        {t("database.connectionInfo.deployment.detecting")}
+      </span>
+    );
+  }
+
+  const kind = deployment?.kind ?? "unknown";
+  const locationTag = deployment?.locationTag?.trim();
+  const containerName =
+    deployment?.containerName?.trim() || (kind === "docker" ? locationTag : "");
+
+  return (
+    <>
+      <span className={`db-mysql-deploy-tag db-mysql-deploy-tag--${kind}`}>
+        {t(`database.connectionInfo.deployment.kind.${kind}`)}
+      </span>
+      {kind === "host" && locationTag ? (
+        <DeploymentNavTag
+          label={t("database.connectionInfo.deployment.hostLocation")}
+          value={locationTag}
+        />
+      ) : null}
+      {kind === "docker" ? (
+        <>
+          {serverName ? (
+            <DeploymentNavTag
+              label={t("database.connectionInfo.deployment.server")}
+              value={serverName}
+            />
+          ) : null}
+          {containerName ? (
+            <DeploymentNavTag
+              label={t("database.connectionInfo.deployment.dockerContainer")}
+              value={containerName}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+}
+
 export function DatabaseConnectionInfoPanel({
   connection,
   active = true,
 }: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
   const capable = isMysqlConnectionInfoCapable(connection);
+  const sshConnections = useConnectionStore(
+    useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
+  );
+  useSshConnectionStore((state) => state.sessionActiveMap);
+  const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("connections");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(capable);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<QueryResult | null>(null);
-  const [sort, setSort] = useState<ProcessSortState>({ column: "time", direction: "desc" });
+  const [connectionsLoading, setConnectionsLoading] = useState(capable);
+  const [variablesLoading, setVariablesLoading] = useState(false);
+  const [deploymentLoading, setDeploymentLoading] = useState(false);
+  const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(() =>
+    capable ? readMysqlDeploymentCache(connection) : null,
+  );
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
+  const [variablesError, setVariablesError] = useState<string | null>(null);
+  const [connectionsResult, setConnectionsResult] = useState<QueryResult | null>(null);
+  const [variablesResult, setVariablesResult] = useState<QueryResult | null>(null);
+  const [processSort, setProcessSort] = useState<ProcessSortState>({
+    column: "time",
+    direction: "desc",
+  });
+  const [variablesSort, setVariablesSort] = useState<VariablesSortState>({
+    column: "name",
+    direction: "asc",
+  });
   const [killingId, setKillingId] = useState<number | null>(null);
+  const [editingVarName, setEditingVarName] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingVarName, setSavingVarName] = useState<string | null>(null);
+  const [configFileEntry, setConfigFileEntry] = useState<FileEntry | null>(null);
+  const [configTempPath, setConfigTempPath] = useState<string | null>(null);
+  const [configOriginalPath, setConfigOriginalPath] = useState<string | null>(null);
 
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+  const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
       return;
     }
 
     const silent = options?.silent ?? false;
     if (!silent) {
-      setLoading(true);
-      setResult(null);
+      setConnectionsLoading(true);
+      setConnectionsResult(null);
     }
-    setError(null);
+    setConnectionsError(null);
     try {
       const queryResult = await invoke<QueryResult>("db_execute_query", {
         connection,
         sql: PROCESSLIST_SQL,
         runId: makeQueryRunId(),
       });
-      setResult(queryResult);
+      setConnectionsResult(queryResult);
     } catch (e) {
-      setError(typeof e === "string" ? e : JSON.stringify(e));
+      setConnectionsError(typeof e === "string" ? e : JSON.stringify(e));
     } finally {
       if (!silent) {
-        setLoading(false);
+        setConnectionsLoading(false);
       }
     }
   }, [capable, connection]);
 
+  const refreshVariables = useCallback(async (options?: { silent?: boolean }) => {
+    if (!capable) {
+      return;
+    }
+
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setVariablesLoading(true);
+      setVariablesResult(null);
+    }
+    setVariablesError(null);
+    try {
+      const queryResult = await invoke<QueryResult>("db_execute_query", {
+        connection,
+        sql: VARIABLES_SQL,
+        runId: makeQueryRunId(),
+      });
+      setVariablesResult(queryResult);
+    } catch (e) {
+      setVariablesError(typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      if (!silent) {
+        setVariablesLoading(false);
+      }
+    }
+  }, [capable, connection]);
+
+  const refreshDeployment = useCallback(async () => {
+    if (!capable) {
+      setDeployment(null);
+      setDeploymentLoading(false);
+      return;
+    }
+
+    setDeploymentLoading(true);
+    try {
+      const info = await probeMysqlDeployment(connection, sshConnections);
+      writeMysqlDeploymentCache(connection, info);
+      setDeployment(info);
+    } catch {
+      const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
+      writeMysqlDeploymentCache(connection, fallback);
+      setDeployment(fallback);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  }, [capable, connection, sshConnections]);
+
+  const refreshActiveTab = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (subTab === "connections") {
+        await refreshConnections(options);
+      } else {
+        await refreshVariables(options);
+      }
+    },
+    [refreshConnections, refreshVariables, subTab],
+  );
+
   useEffect(() => {
+    setSubTab("connections");
     setSearch("");
-    setSort({ column: "time", direction: "desc" });
-  }, [connection.id]);
+    setProcessSort({ column: "time", direction: "desc" });
+    setVariablesSort({ column: "name", direction: "asc" });
+    setDeployment(readMysqlDeploymentCache(connection));
+    setDeploymentLoading(false);
+    setConnectionsResult(null);
+    setVariablesResult(null);
+    setConnectionsError(null);
+    setVariablesError(null);
+  }, [connection.id, connection.host, connection.port, connection.db_type]);
 
   useEffect(() => {
     if (!active || !capable) {
       return;
     }
-    void refresh();
-  }, [active, capable, connection.id, refresh]);
+    void refreshConnections();
+  }, [active, capable, connection.id, refreshConnections]);
 
-  const columns = result?.columns ?? [];
-  const rows = useMemo(
-    () => (result && columns.length > 0 ? rowsToRecord(columns, result.rows) : []),
-    [columns, result],
+  useEffect(() => {
+    if (!active || !capable || subTab !== "status") {
+      return;
+    }
+    if (variablesResult == null && !variablesLoading && variablesError == null) {
+      void refreshVariables();
+    }
+  }, [
+    active,
+    capable,
+    subTab,
+    variablesResult,
+    variablesLoading,
+    variablesError,
+    refreshVariables,
+  ]);
+
+  const processColumns = connectionsResult?.columns ?? [];
+  const processRows = useMemo(
+    () =>
+      connectionsResult && processColumns.length > 0
+        ? rowsToRecord(processColumns, connectionsResult.rows)
+        : [],
+    [connectionsResult, processColumns],
   );
 
-  const sortColumnKeys = useMemo(
+  const variablesColumns = variablesResult?.columns ?? [];
+  const variablesRows = useMemo(
+    () =>
+      variablesResult && variablesColumns.length > 0
+        ? rowsToRecord(variablesColumns, variablesResult.rows)
+        : [],
+    [variablesResult, variablesColumns],
+  );
+
+  const processSortColumnKeys = useMemo(
     () =>
       ({
-        user: resolveColumnName(columns, SORTABLE_COLUMN_CANDIDATES.user),
-        host: resolveColumnName(columns, SORTABLE_COLUMN_CANDIDATES.host),
-        db: resolveColumnName(columns, SORTABLE_COLUMN_CANDIDATES.db),
-        time: resolveColumnName(columns, SORTABLE_COLUMN_CANDIDATES.time),
+        user: resolveColumnName(processColumns, SORTABLE_COLUMN_CANDIDATES.user),
+        host: resolveColumnName(processColumns, SORTABLE_COLUMN_CANDIDATES.host),
+        db: resolveColumnName(processColumns, SORTABLE_COLUMN_CANDIDATES.db),
+        time: resolveColumnName(processColumns, SORTABLE_COLUMN_CANDIDATES.time),
       }) satisfies Record<ProcessSortColumn, string | null>,
-    [columns],
+    [processColumns],
   );
 
-  const idColumn = useMemo(() => resolveColumnName(columns, ID_COLUMN_CANDIDATES), [columns]);
+  const idColumn = useMemo(
+    () => resolveColumnName(processColumns, ID_COLUMN_CANDIDATES),
+    [processColumns],
+  );
 
-  const filteredRows = useMemo(() => {
+  const variableNameColumn = useMemo(
+    () => resolveColumnName(variablesColumns, VARIABLE_NAME_COLUMNS),
+    [variablesColumns],
+  );
+
+  const variableValueColumn = useMemo(
+    () => resolveColumnName(variablesColumns, VARIABLE_VALUE_COLUMNS),
+    [variablesColumns],
+  );
+
+  const filteredProcessRows = useMemo(() => {
     const q = search.trim();
     if (!q) {
-      return rows;
+      return processRows;
     }
-    return rows.filter((row) => rowMatchesSearch(row, q));
-  }, [rows, search]);
+    return processRows.filter((row) => rowMatchesSearch(row, q));
+  }, [processRows, search]);
 
-  const sortedRows = useMemo(() => {
-    const sortKey = sortColumnKeys[sort.column];
+  const sortedProcessRows = useMemo(() => {
+    const sortKey = processSortColumnKeys[processSort.column];
     if (!sortKey) {
-      return filteredRows;
+      return filteredProcessRows;
     }
-    const list = [...filteredRows];
-    list.sort((a, b) => compareProcessRows(a, b, sortKey, sort.column, sort.direction));
+    const list = [...filteredProcessRows];
+    list.sort((a, b) =>
+      compareProcessRows(a, b, sortKey, processSort.column, processSort.direction),
+    );
     return list;
-  }, [filteredRows, sort, sortColumnKeys]);
+  }, [filteredProcessRows, processSort, processSortColumnKeys]);
 
-  const toggleSort = useCallback((column: ProcessSortColumn) => {
-    setSort((prev) => {
+  const filteredVariableRows = useMemo(() => {
+    const q = search.trim();
+    if (!q) {
+      return variablesRows;
+    }
+    return variablesRows.filter((row) => rowMatchesSearch(row, q));
+  }, [variablesRows, search]);
+
+  const sortedVariableRows = useMemo(() => {
+    if (!variableNameColumn || !variableValueColumn) {
+      return filteredVariableRows;
+    }
+    const list = [...filteredVariableRows];
+    list.sort((a, b) =>
+      compareVariableRows(
+        a,
+        b,
+        variableNameColumn,
+        variableValueColumn,
+        variablesSort.column,
+        variablesSort.direction,
+      ),
+    );
+    return list;
+  }, [
+    filteredVariableRows,
+    variableNameColumn,
+    variableValueColumn,
+    variablesSort.column,
+    variablesSort.direction,
+  ]);
+
+  const tabLoading = subTab === "connections" ? connectionsLoading : variablesLoading;
+  const tabCount =
+    subTab === "connections" ? sortedProcessRows.length : sortedVariableRows.length;
+
+  const toggleProcessSort = useCallback((column: ProcessSortColumn) => {
+    setProcessSort((prev) => {
       if (prev.column === column) {
         return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
       }
@@ -224,6 +536,15 @@ export function DatabaseConnectionInfoPanel({
     });
   }, []);
 
+  const toggleVariablesSort = useCallback((column: VariablesSortColumn) => {
+    setVariablesSort((prev) => {
+      if (prev.column === column) {
+        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      return { column, direction: "asc" };
+    });
+  }, []);
+
   const handleKill = useCallback(
     async (row: Record<string, unknown>) => {
       const id = resolveProcessId(row, idColumn);
@@ -231,8 +552,8 @@ export function DatabaseConnectionInfoPanel({
         return;
       }
 
-      const user = formatProcessCell(row[sortColumnKeys.user ?? "User"]);
-      const host = formatProcessCell(row[sortColumnKeys.host ?? "Host"]);
+      const user = formatProcessCell(row[processSortColumnKeys.user ?? "User"]);
+      const host = formatProcessCell(row[processSortColumnKeys.host ?? "Host"]);
       const confirmed = await appConfirm(
         t("database.connectionInfo.killConfirm", { id: String(id), user, host }),
         t("database.connectionInfo.killConfirmTitle"),
@@ -249,7 +570,7 @@ export function DatabaseConnectionInfoPanel({
           sql: `KILL ${id};`,
           runId: makeQueryRunId(),
         });
-        await refresh({ silent: true });
+        await refreshConnections({ silent: true });
       } catch (e) {
         const message = typeof e === "string" ? e : JSON.stringify(e);
         void appAlert(message, t("database.connectionInfo.killFailed"));
@@ -257,144 +578,463 @@ export function DatabaseConnectionInfoPanel({
         setKillingId(null);
       }
     },
-    [connection, idColumn, killingId, refresh, sortColumnKeys.host, sortColumnKeys.user, t],
+    [
+      connection,
+      idColumn,
+      killingId,
+      processSortColumnKeys.host,
+      processSortColumnKeys.user,
+      refreshConnections,
+      t,
+    ],
   );
+
+  const handleVariableSave = useCallback(
+    async (varName: string, value: string, scope: "SESSION" | "GLOBAL") => {
+      if (savingVarName !== null) {
+        return;
+      }
+      setSavingVarName(varName);
+      try {
+        const safeValue = value.replace(/'/g, "\\'");
+        await invoke<QueryResult>("db_execute_query", {
+          connection,
+          sql: `SET ${scope} \`${varName}\` = '${safeValue}'`,
+          runId: makeQueryRunId(),
+        });
+        await refreshVariables({ silent: true });
+        setEditingVarName(null);
+      } catch (e) {
+        const message = typeof e === "string" ? e : JSON.stringify(e);
+        void appAlert(
+          message,
+          t("database.connectionInfo.variablesSaveFailed"),
+        );
+      } finally {
+        setSavingVarName(null);
+      }
+    },
+    [connection, refreshVariables, savingVarName, t],
+  );
+
+  const handleOpenConfig = useCallback(async () => {
+    if (!deployment) {
+      return;
+    }
+    try {
+      const path = await findMysqlConfigPath(deployment);
+      if (!path) {
+        void appAlert(t("database.connectionInfo.configEditor.notFound"));
+        return;
+      }
+      const content = await readMysqlConfig(path, deployment);
+      const tmpDir = await tempDir();
+      const tmpPath = await join(tmpDir, `omnipanel_mysql_cfg_${Date.now()}.cnf`);
+      const writeRes = await commands.writeTextFile(tmpPath, content);
+      if (writeRes.status !== "ok") {
+        throw new Error(writeRes.error ?? "写入临时文件失败");
+      }
+      setConfigOriginalPath(path);
+      setConfigTempPath(tmpPath);
+      setConfigFileEntry({
+        name: path.split("/").pop() ?? "my.cnf",
+        path: tmpPath,
+        kind: "file",
+        size: content.length,
+        modified: null,
+        permissions: null,
+      });
+    } catch (e) {
+      const message = typeof e === "string" ? e : JSON.stringify(e);
+      void appAlert(message, t("database.connectionInfo.configEditor.saveFailed"));
+    }
+  }, [deployment, t]);
+
+  const handleConfigSaved = useCallback(async () => {
+    if (!configTempPath || !configOriginalPath || !deployment) return;
+    try {
+      const res = await commands.fileReadFile(
+        LOCAL_CONNECTION_ID,
+        configTempPath,
+        512 * 1024,
+      );
+      if (res.status !== "ok" || !res.data) {
+        throw new Error(res.error?.message ?? "读取临时文件失败");
+      }
+      const content = new TextDecoder("utf-8", { fatal: false }).decode(
+        new Uint8Array(res.data),
+      );
+      await writeMysqlConfig(configOriginalPath, content, deployment);
+    } catch (e) {
+      const message = typeof e === "string" ? e : JSON.stringify(e);
+      void appAlert(message, t("database.connectionInfo.configEditor.saveFailed"));
+    }
+  }, [configOriginalPath, configTempPath, deployment, t]);
+
+  const handleCloseConfig = useCallback(() => {
+    setConfigFileEntry(null);
+    if (configTempPath) {
+      commands
+        .fileDelete(LOCAL_CONNECTION_ID, configTempPath, "file")
+        .catch(() => {});
+    }
+    setConfigTempPath(null);
+    setConfigOriginalPath(null);
+  }, [configTempPath]);
+
+  const processGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
+    const dataColumns = processColumns.map((column, index) => {
+      const sortColumn = resolveSortColumn(column, processSortColumnKeys);
+      return {
+        id: column,
+        sortId: sortColumn ?? undefined,
+        header: column,
+        sortable: sortColumn != null,
+        nameCell: index === 0,
+        render: (row: Record<string, unknown>) => formatProcessCell(row[column]),
+        getTitle: (row: Record<string, unknown>) => formatProcessCell(row[column]),
+        getCopyValue: (row: Record<string, unknown>) => formatProcessCell(row[column]),
+      };
+    });
+
+    return [
+      ...dataColumns,
+      {
+        id: "__actions",
+        variant: "actionsSticky" as const,
+        header: t("database.connectionInfo.actions"),
+        headerAriaLabel: t("database.connectionInfo.actions"),
+        render: (row: Record<string, unknown>) => {
+          const processId = resolveProcessId(row, idColumn);
+          const isKilling = processId != null && killingId === processId;
+          return (
+            <Button
+              variant="danger"
+              size="xs"
+              disabled={processId == null || killingId != null}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleKill(row);
+              }}
+            >
+              {isKilling ? t("database.connectionInfo.killing") : t("database.connectionInfo.kill")}
+            </Button>
+          );
+        },
+      },
+    ];
+  }, [handleKill, idColumn, killingId, processColumns, processSortColumnKeys, t]);
+
+  const variablesGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
+    const dataColumns = variablesColumns.map((column, index) => {
+      const sortColumn = resolveVariablesSortColumn(
+        column,
+        variableNameColumn,
+        variableValueColumn,
+      );
+      const isValueColumn = !!variableValueColumn && column === variableValueColumn;
+      return {
+        id: column,
+        sortId: sortColumn ?? undefined,
+        header: column,
+        sortable: sortColumn != null,
+        nameCell: index === 0,
+        render: (row: Record<string, unknown>) => {
+          if (!isValueColumn || !variableNameColumn) {
+            return formatProcessCell(row[column]);
+          }
+          const varName = String(row[variableNameColumn] ?? "");
+          if (editingVarName === varName) {
+            return (
+              <input
+                type="text"
+                className="db-variables-edit-input"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setEditingVarName(null);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (!e.relatedTarget?.closest(".db-variables-actions")) {
+                    setEditingVarName(null);
+                  }
+                }}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            );
+          }
+          return (
+            <span
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingVarName(varName);
+                setEditValue(String(row[variableValueColumn] ?? ""));
+              }}
+            >
+              {formatProcessCell(row[column])}
+            </span>
+          );
+        },
+        getTitle: (row: Record<string, unknown>) => formatProcessCell(row[column]),
+        getCopyValue: isValueColumn
+          ? (row: Record<string, unknown>) => {
+              if (!variableValueColumn) return undefined;
+              return String(row[variableValueColumn] ?? "");
+            }
+          : (row: Record<string, unknown>) => formatProcessCell(row[column]),
+      };
+    });
+
+    return [
+      ...dataColumns,
+      {
+        id: "__variables_actions",
+        variant: "actionsSticky" as const,
+        header: t("database.connectionInfo.variablesActions"),
+        headerAriaLabel: t("database.connectionInfo.variablesActions"),
+        cellClassName: "db-variables-actions-col",
+        render: (row: Record<string, unknown>) => {
+          const varName = String(variableNameColumn ? row[variableNameColumn] ?? "" : "");
+          const isEditing = variableNameColumn && editingVarName === varName;
+          const isSaving = savingVarName === varName;
+          return (
+            <div className="db-variables-actions">
+              <Button
+                variant="secondary"
+                size="xs"
+                disabled={!isEditing || isSaving}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (isEditing) {
+                    void handleVariableSave(varName, editValue, "SESSION");
+                  }
+                }}
+              >
+                {t("database.connectionInfo.variablesSessionSave")}
+              </Button>
+              <Button
+                variant="secondary"
+                size="xs"
+                disabled={!isEditing || isSaving}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (isEditing) {
+                    void handleVariableSave(varName, editValue, "GLOBAL");
+                  }
+                }}
+              >
+                {t("database.connectionInfo.variablesGlobalSave")}
+              </Button>
+            </div>
+          );
+        },
+      },
+    ];
+  }, [
+    editingVarName,
+    editValue,
+    handleVariableSave,
+    savingVarName,
+    variableNameColumn,
+    variableValueColumn,
+    variablesColumns,
+    t,
+  ]);
+
+  const renderConnectionsTable = () => {
+    if (connectionsLoading) {
+      return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
+    }
+    if (connectionsError) {
+      return <div className="db-tables-panel-error">{connectionsError}</div>;
+    }
+    if (processColumns.length === 0 || processRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.empty")}</div>;
+    }
+    if (sortedProcessRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.noResults")}</div>;
+    }
+
+    return (
+      <DbTablesPanelGrid
+        variant="processlist"
+        columns={processGridColumns}
+        rows={sortedProcessRows}
+        rowKey={(row, rowIndex) => resolveProcessId(row, idColumn) ?? rowIndex}
+        sortColumnId={processSort.column}
+        sortDirection={processSort.direction}
+        onSortColumn={(columnId) => toggleProcessSort(columnId as ProcessSortColumn)}
+      />
+    );
+  };
+
+  const renderVariablesTable = () => {
+    if (variablesLoading) {
+      return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
+    }
+    if (variablesError) {
+      return <div className="db-tables-panel-error">{variablesError}</div>;
+    }
+    if (variablesColumns.length === 0 || variablesRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.empty")}</div>;
+    }
+    if (sortedVariableRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.noResults")}</div>;
+    }
+
+    return (
+      <DbTablesPanelGrid
+        variant="variables"
+        columns={variablesGridColumns}
+        rows={sortedVariableRows}
+        rowKey={(_row, rowIndex) => rowIndex}
+        sortColumnId={variablesSort.column}
+        sortDirection={variablesSort.direction}
+        onSortColumn={(columnId) => toggleVariablesSort(columnId as VariablesSortColumn)}
+      />
+    );
+  };
 
   const panelBody = (content: ReactNode) => (
     <ScopedSearch
       className="db-tables-panel db-tables-panel--dock"
       value={search}
       onChange={setSearch}
-      placeholder={t("database.connectionInfo.search")}
+      placeholder={
+        subTab === "connections"
+          ? t("database.connectionInfo.search")
+          : t("database.connectionInfo.variablesSearch")
+      }
       enabled={capable}
     >
-      <div className="db-tables-panel-body">
+      {capable ? (
+        <div className="db-connection-info-deploy">
+          <span className="db-connection-info-deploy-label">
+            {t("database.connectionInfo.deployment.label")}
+          </span>
+          <div className="db-connection-info-deploy-tags">
+            <MysqlDeploymentTags
+              loading={deploymentLoading}
+              deployment={deployment}
+              connection={connection}
+              sshConnections={sshConnections}
+            />
+          </div>
+          <button
+            type="button"
+            className="db-mysql-config-btn"
+            title={t("database.connectionInfo.configEditor.open")}
+            onClick={() => void handleOpenConfig()}
+            disabled={!deployment || deploymentLoading || !!configFileEntry}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+      {capable ? (
+        <div className="db-connection-info-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "connections" ? " active" : ""}`}
+            aria-selected={subTab === "connections"}
+            onClick={() => {
+              setSubTab("connections");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.connections")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "status" ? " active" : ""}`}
+            aria-selected={subTab === "status"}
+            onClick={() => {
+              setSubTab("status");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.variables")}
+          </button>
+        </div>
+      ) : null}
+      <div
+        className="db-tables-panel-body"
+        role="tabpanel"
+        aria-label={
+          subTab === "connections"
+            ? t("database.connectionInfo.tabs.connections")
+            : t("database.connectionInfo.tabs.variables")
+        }
+      >
         <div className="db-tables-panel-grid-wrap">{content}</div>
       </div>
       <div className="db-tables-panel-meta">
-        <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loading || !capable}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            void refreshActiveTab();
+            void refreshDeployment();
+          }}
+          disabled={tabLoading || deploymentLoading || !capable}
+        >
           {t("database.sidebar.refresh")}
         </Button>
         <span className="db-tables-panel-meta-text">
-          {loading
+          {tabLoading
             ? t("common.loading")
-            : t("database.connectionInfo.count", { count: sortedRows.length })}
+            : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>
     </ScopedSearch>
   );
 
   if (!capable) {
-    return panelBody(
-      <div className="db-tables-panel-empty">
-        {t("database.connectionInfo.unsupportedEngine", { engine: connection.db_type })}
-      </div>,
+    return (
+      <>
+        {panelBody(
+          <div className="db-tables-panel-empty">
+            {t("database.connectionInfo.unsupportedEngine", { engine: connection.db_type })}
+          </div>,
+        )}
+        <FilePreviewSubWindow
+          open={configFileEntry !== null}
+          entry={configFileEntry}
+          connectionId={LOCAL_CONNECTION_ID}
+          onClose={handleCloseConfig}
+          onSaved={handleConfigSaved}
+        />
+      </>
     );
   }
 
-  if (loading) {
-    return panelBody(<div className="db-tables-panel-empty">{t("common.loading")}</div>);
-  }
-
-  if (error) {
-    return panelBody(<div className="db-tables-panel-error">{error}</div>);
-  }
-
-  if (columns.length === 0 || rows.length === 0) {
-    return panelBody(
-      <div className="db-tables-panel-empty">{t("database.connectionInfo.empty")}</div>,
-    );
-  }
-
-  return panelBody(
+  return (
     <>
-      {sortedRows.length === 0 ? (
-        <div className="db-tables-panel-empty">{t("database.connectionInfo.noResults")}</div>
-      ) : (
-        <table className="db-tables-panel-grid db-tables-panel-grid--processlist">
-          <thead>
-            <tr>
-              {columns.map((column, index) => {
-                const sortColumn = resolveSortColumn(column, sortColumnKeys);
-                const sortable = sortColumn != null;
-                return (
-                  <th
-                    key={column}
-                    className={[
-                      index === 0 ? "db-tables-panel-grid__name-col" : "",
-                      sortable && sortColumn ? sortHeaderClass(sortColumn, sort).trim() : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={sortable && sortColumn ? () => toggleSort(sortColumn) : undefined}
-                    aria-sort={
-                      sortable && sortColumn && sort.column === sortColumn
-                        ? sort.direction === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
-                  >
-                    {sortable && sortColumn ? (
-                      <span className="db-tables-panel-grid__th-label">
-                        {column}
-                        {sort.column === sortColumn ? (
-                          <span className="db-tables-panel-grid__sort-mark" aria-hidden>
-                            {sort.direction === "asc" ? "↑" : "↓"}
-                          </span>
-                        ) : null}
-                      </span>
-                    ) : (
-                      column
-                    )}
-                  </th>
-                );
-              })}
-              <th
-                className="db-tables-panel-grid__actions-col db-tables-panel-grid__actions-col--sticky"
-                aria-label={t("database.connectionInfo.actions")}
-              >
-                {t("database.connectionInfo.actions")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRows.map((row, rowIndex) => {
-              const processId = resolveProcessId(row, idColumn);
-              const isKilling = processId != null && killingId === processId;
-              return (
-                <tr key={processId ?? rowIndex}>
-                  {columns.map((column, columnIndex) => {
-                    const value = formatProcessCell(row[column]);
-                    return (
-                      <td
-                        key={column}
-                        className={columnIndex === 0 ? "db-tables-panel-grid__name" : undefined}
-                        title={value}
-                      >
-                        {value}
-                      </td>
-                    );
-                  })}
-                  <td className="db-tables-panel-grid__actions-col db-tables-panel-grid__actions-col--sticky">
-                    <Button
-                      variant="danger"
-                      size="xs"
-                      disabled={processId == null || killingId != null}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleKill(row);
-                      }}
-                    >
-                      {isKilling ? t("database.connectionInfo.killing") : t("database.connectionInfo.kill")}
-                    </Button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </>,
+      {panelBody(subTab === "connections" ? renderConnectionsTable() : renderVariablesTable())}
+      <FilePreviewSubWindow
+        open={configFileEntry !== null}
+        entry={configFileEntry}
+        connectionId={LOCAL_CONNECTION_ID}
+        onClose={handleCloseConfig}
+        onSaved={handleConfigSaved}
+      />
+    </>
   );
 }

@@ -241,7 +241,7 @@ export function resolveConnIdForWorkspaceTab(
   if (!tab) {
     return null;
   }
-  if (tab.kind === "table" || tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query") {
+  if (tab.kind === "table" || tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query" || tab.kind === "slow-query") {
     return tab.connId;
   }
   if (tab.kind === "sql") {

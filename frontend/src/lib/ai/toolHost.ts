@@ -5,6 +5,7 @@ import {
 import type { McpToolRegistration } from "./context/types";
 import { TERMINAL_MODULE_MCP_TOOLS } from "../../modules/terminal/ai/mcpTools";
 import { DATABASE_MODULE_MCP_TOOLS } from "../../modules/database/ai/mcpTools";
+import { KNOWLEDGE_MODULE_MCP_TOOLS } from "../../modules/knowledge/ai/mcpTools";
 
 type ToolHandler = McpToolRegistration["handler"];
 
@@ -28,6 +29,7 @@ export function registerToolHandlers(): void {
   TOOL_HANDLERS.clear();
   registerHandlers(TERMINAL_MODULE_MCP_TOOLS);
   registerHandlers(DATABASE_MODULE_MCP_TOOLS);
+  registerHandlers(KNOWLEDGE_MODULE_MCP_TOOLS);
 }
 
 export function getToolHandler(toolName: string): ToolHandler | undefined {

@@ -1,48 +1,59 @@
-import { useMemo } from "react";
-import { ObjectView } from "react-obj-view";
-import { themeGitHubLight, themeOneDark } from "react-obj-view";
-import "react-obj-view/dist/react-obj-view.css";
+import { useCallback } from "react";
+import { JsonView } from "react-json-view-lite";
+import type { StyleProps } from "react-json-view-lite/dist/DataRenderer";
+import "react-json-view-lite/dist/index.css";
+import "./VirtualJsonView.css";
 import { cn } from "../../lib/utils";
-import { useSettingsStore } from "../../stores/settingsStore";
-
-/** 与 CSS `--bigobjview-fontsize` / 行高保持一致，避免虚拟滚动错位 */
-const VIRTUAL_JSON_LINE_HEIGHT = 20;
-const VIRTUAL_JSON_ARRAY_GROUP = 1000;
-const VIRTUAL_JSON_OBJECT_GROUP = 100;
 
 export interface VirtualJsonViewProps {
   value: object;
   className?: string;
-  /** 初始展开层级，默认仅展开根节点 */
   expandLevel?: number;
 }
 
-/** 大体积 JSON 虚拟树预览（react-obj-view） */
+const customStyles: StyleProps = {
+  container: "json-view-container",
+  basicChildStyle: "json-view-child",
+  label: "json-view-label",
+  clickableLabel: "json-view-label-clickable",
+  nullValue: "json-view-null",
+  undefinedValue: "json-view-undefined",
+  numberValue: "json-view-number",
+  stringValue: "json-view-string",
+  booleanValue: "json-view-boolean",
+  otherValue: "json-view-other",
+  punctuation: "json-view-punctuation",
+  expandIcon: "json-view-expand-icon",
+  collapseIcon: "json-view-collapse-icon",
+  collapsedContent: "json-view-collapsed-content",
+  childFieldsContainer: "json-view-child-fields",
+  ariaLables: {
+    collapseJson: "Collapse JSON",
+    expandJson: "Expand JSON",
+  },
+  noQuotesForStringValues: false,
+  quotesForFieldNames: true,
+  stringifyStringValues: false,
+};
+
 export function VirtualJsonView({
   value,
   className,
   expandLevel = 1,
 }: VirtualJsonViewProps) {
-  const resolvedTheme = useSettingsStore((s) => s.resolved);
-  const valueGetter = useMemo(() => () => value, [value]);
-  const preset = resolvedTheme === "dark" ? themeOneDark : themeGitHubLight;
+  const shouldExpandNode = useCallback(
+    (level: number) => level < expandLevel,
+    [expandLevel],
+  );
 
   return (
-    <ObjectView
-      valueGetter={valueGetter}
-      expandLevel={expandLevel}
-      arrayGroupSize={VIRTUAL_JSON_ARRAY_GROUP}
-      objectGroupSize={VIRTUAL_JSON_OBJECT_GROUP}
-      lineHeight={VIRTUAL_JSON_LINE_HEIGHT}
-      highlightUpdate={false}
-      stickyPathHeaders
-      preview
-      style={{
-        ...preset,
-        fontSize: 12,
-        fontFamily: "var(--font-mono, ui-monospace, monospace)",
-      }}
-      className={cn("virtual-json-view", className)}
-    />
+    <div className={cn("virtual-json-view", className)}>
+      <JsonView
+        data={value}
+        style={customStyles}
+        shouldExpandNode={shouldExpandNode}
+        clickToExpandNode
+      />
+    </div>
   );
 }

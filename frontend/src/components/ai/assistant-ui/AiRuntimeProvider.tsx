@@ -12,6 +12,7 @@ import { commands } from "../../../ipc/bindings";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat } from "../../../lib/ai/orchestrator";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -112,12 +113,55 @@ function buildInlineHistoryJson(
   return JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content })));
 }
 
-function resolveBackendForGeneration(inline?: InlineTerminalAiTarget) {
+/** 内联 AI 卡片的会话 id：每张卡片（blockId）独立，避免跨终端/跨卡片串上下文。 */
+// function inlineConversationId(blockId: string): string {
+//   return `term-${blockId}`;
+// }
+
+/**
+ * 内联卡片的历史仅取「本卡片」线程内的既往轮次（不含当前进行中的 assistant 轮与当前 user 问题），
+ * 从根本上隔离不同终端 / 不同卡片的上下文。
+ */
+// function buildInlineHistoryJson(
+//   blockId: string,
+//   assistantTurnId?: string,
+// ): string | undefined {
+//   const block = useBlocksStore.getState().findBlockById(blockId);
+//   if (!block) return undefined;
+//   const msgs = getResolvedAiThread(block)
+//     .filter(isAiThreadMessage)
+//     .filter((m) => m.id !== assistantTurnId)
+//     .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim());
+//   // 去掉末尾当前 user 问题（userText 已单独传给后端）
+//   if (msgs.length > 0 && msgs[msgs.length - 1].role === "user") {
+//     msgs.pop();
+//   }
+//   if (msgs.length === 0) return undefined;
+//   return JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content })));
+// }
+
+function resolveBackendForGeneration(
+  inline?: InlineTerminalAiTarget,
+  conversationId?: string | null,
+) {
   const providers = useAiModelsStore.getState().providers;
-  const selectionId = inline
-    ? resolveTerminalModelSelectionId(providers)
-    : useSettingsStore.getState().aiScenarioAssistantModelSelectionId ??
-      resolveTerminalModelSelectionId(providers);
+  const assistantDefaultId =
+    useSettingsStore.getState().aiScenarioAssistantModelSelectionId;
+  let selectionId: string | null;
+  if (inline) {
+    selectionId = resolveTerminalModelSelectionId(providers);
+  } else {
+    const conversation = conversationId
+      ? useAiStore.getState().conversations.find((c) => c.id === conversationId)
+      : undefined;
+    const draftSelectionId = useAiStore.getState().currentModelSelectionId;
+    selectionId = resolveConversationModelSelectionId(
+      providers,
+      conversation,
+      assistantDefaultId,
+      draftSelectionId,
+    );
+  }
   return resolveBackendFromSelection(providers, selectionId);
 }
 
@@ -505,7 +549,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-        const backend = resolveBackendForGeneration(inline);
+        const backend = resolveBackendForGeneration(inline, convId);
         if (!backend) {
           throw new Error("请先在设置中配置并选择 AI 模型或 Agent");
         }

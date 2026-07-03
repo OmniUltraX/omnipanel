@@ -84,6 +84,10 @@ export function buildDatabasePanelContentKeysByTab(params: {
       keys[tab.id] = [connectionsFingerprint, tab.connId, tab.dbName ?? ""].join(":");
       continue;
     }
+    if (tab.kind === "slow-query") {
+      keys[tab.id] = [connectionsFingerprint, tab.connId, tab.sshConnectionId, tab.logFilePath].join(":");
+      continue;
+    }
     if (tab.kind === "designer") {
       keys[tab.id] = [
         connectionsFingerprint,

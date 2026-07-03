@@ -33,6 +33,7 @@ import { useI18n } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
+import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -320,9 +321,10 @@ const ComposerAction: FC = () => {
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 min-w-0">
         <ComposerAddAttachment />
         <ContextBar />
+        <AiConversationModelSelect />
       </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
