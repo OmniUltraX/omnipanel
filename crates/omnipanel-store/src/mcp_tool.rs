@@ -8,55 +8,6 @@ use super::app_module::{AppModuleStatus, DEFAULT_APP_MODULES};
 use super::mcp_tool_spec::BUILTIN_TOOL_SPECS;
 use super::storage::{Storage, map_sqlite};
 
-/// 默认 MCP 工具清单：(tool_name, module_key, description)
-pub const DEFAULT_MCP_TOOLS: &[(&str, &str, &str)] = &[
-    (
-        "omni_terminal_run_terminal_command",
-        "terminal",
-        "在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
-    ),
-    (
-        "omni_database_get_databases_from_connection",
-        "database",
-        "根据连接名获取该连接下的数据库列表，可选关键字过滤。",
-    ),
-    (
-        "omni_database_get_tables_from_database",
-        "database",
-        "根据连接名和数据库名获取表列表，可选关键字过滤。",
-    ),
-    (
-        "omni_database_get_table_info",
-        "database",
-        "根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。",
-    ),
-    (
-        "omni_database_execute_sql",
-        "database",
-        "在指定连接和数据库上执行 SQL。SELECT 结果最多返回 500 行；DML 返回影响行数。",
-    ),
-    (
-        "omni_knowledge_create_document",
-        "knowledge",
-        "在知识库中创建文档。",
-    ),
-    (
-        "omni_knowledge_remove_document",
-        "knowledge",
-        "按 ID 删除知识库文档。",
-    ),
-    (
-        "omni_knowledge_list_documents",
-        "knowledge",
-        "列出知识库文档，可按类型或标签过滤。",
-    ),
-    (
-        "omni_knowledge_query_document",
-        "knowledge",
-        "使用向量匹配在知识库中语义检索文档片段。传入查询关键字，返回最相关的文本块及其来源文档标题。",
-    ),
-];
-
 /// 持久化的 MCP 工具条目。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct McpToolRecord {

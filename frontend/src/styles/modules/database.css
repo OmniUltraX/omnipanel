@@ -634,6 +634,34 @@
         min-width: 0;
     }
 
+    .db-mysql-config-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        border-radius: var(--r-sm, 3px);
+        background: transparent;
+        color: var(--meta);
+        cursor: pointer;
+        flex-shrink: 0;
+        opacity: 0.5;
+        transition: opacity 0.15s;
+    }
+
+    .db-mysql-config-btn:hover:not(:disabled) {
+        opacity: 1;
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .db-mysql-config-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.25;
+    }
+
     .db-mysql-deploy-tag {
         flex-shrink: 0;
         max-width: min(100%, 320px);
@@ -920,6 +948,32 @@
 
     .db-tables-panel-grid--processlist tbody tr:hover .db-tables-panel-grid__actions-col--sticky {
         background: var(--surface-hover, rgba(255, 255, 255, 0.03));
+    }
+
+    .db-tables-panel-grid--variables .db-variables-actions-col {
+        width: 140px;
+        min-width: 140px;
+        max-width: 140px;
+    }
+
+    .db-variables-actions {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+    }
+
+    .db-variables-edit-input {
+        margin: -6px -8px;
+        width: calc(100% + 16px);
+        box-sizing: border-box;
+        padding: 6px 8px;
+        font-size: 11px;
+        font-family: var(--font-mono);
+        background: var(--bg);
+        color: var(--fg);
+        border: 1px solid var(--accent);
+        border-radius: 0;
+        outline: none;
     }
 
     .db-tables-panel-grid .db-tables-panel-design-btn {

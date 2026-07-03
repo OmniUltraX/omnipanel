@@ -1011,7 +1011,7 @@ export const zhCN = {
       subtitle: "进程列表",
       tabs: {
         connections: "连接",
-        status: "状态",
+        variables: "参数",
       },
       search: "搜索进程…",
       variablesSearch: "搜索变量…",
@@ -1025,6 +1025,16 @@ export const zhCN = {
       killFailed: "终止连接失败",
       unsupportedEngine: "当前引擎（{engine}）不支持连接信息查询，仅 MySQL / MariaDB 可用",
       empty: "无结果",
+      variablesActions: "操作",
+      variablesSessionSave: "临时保存",
+      variablesGlobalSave: "全局保存",
+      variablesSaveFailed: "保存失败：{message}",
+      configEditor: {
+        open: "编辑 MySQL 配置文件",
+        title: "MySQL 配置文件",
+        notFound: "未找到 MySQL 配置文件",
+        saveFailed: "保存配置文件失败：{message}",
+      },
       deployment: {
         label: "部署方式",
         detecting: "检测中…",
