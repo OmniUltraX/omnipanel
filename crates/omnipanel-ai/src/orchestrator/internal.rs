@@ -69,7 +69,6 @@ impl InternalOrchestrator {
                 .map_err(|e| e.to_string())?;
 
             let mut accumulated_tool_calls: Vec<(String, String, String)> = Vec::new();
-            let mut stop_reason = StopReason::EndTurn;
             let mut assistant_content = String::new();
             let mut pending_done: Option<StreamEvent> = None;
 
@@ -98,8 +97,7 @@ impl InternalOrchestrator {
                                 }
                             }
                         }
-                        StreamEvent::Done { stop_reason: sr } => {
-                            stop_reason = sr.clone();
+                        StreamEvent::Done { .. } => {
                             pending_done = Some(evt);
                         }
                         StreamEvent::ContentDelta { text } => {

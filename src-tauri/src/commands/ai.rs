@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tauri::{ipc::Channel, State};
+use tauri::{State, ipc::Channel};
 
 use crate::state::AppState;
 use futures::StreamExt;
-use omnipanel_ai::ir::{StopReason, StreamEvent, ToolStatus};
+use omnipanel_ai::ir::{StreamEvent, ToolStatus};
 use omnipanel_ai::types::{
     ChatMessage, ChatRequest, FunctionCall, FunctionDef, ModelInfo, Role, ToolCall, ToolDef,
 };
@@ -442,7 +442,6 @@ pub async fn ai_send_message(
 
         // Collect tool calls and content from this streaming turn
         let mut accumulated_tool_calls: Vec<(String, String, String)> = Vec::new(); // (id, name, args)
-        let mut stop_reason = StopReason::EndTurn;
         let mut assistant_content = String::new();
         let mut pending_done: Option<StreamEvent> = None;
 
@@ -472,8 +471,7 @@ pub async fn ai_send_message(
                             // Forward to frontend
                             let _ = on_event.send(evt);
                         }
-                        StreamEvent::Done { stop_reason: sr } => {
-                            stop_reason = sr.clone();
+                        StreamEvent::Done { .. } => {
                             // Buffer the done event; only forward if it's the final one
                             pending_done = Some(evt);
                         }
@@ -708,10 +706,7 @@ pub async fn ai_http_stream_post(
         match chunk {
             Ok(bytes) => {
                 let data = String::from_utf8_lossy(&bytes).into_owned();
-                if on_event
-                    .send(AiHttpStreamEvent::Chunk { data })
-                    .is_err()
-                {
+                if on_event.send(AiHttpStreamEvent::Chunk { data }).is_err() {
                     break;
                 }
             }

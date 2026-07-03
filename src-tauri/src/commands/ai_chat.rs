@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use omnipanel_ai::RenamedProvider;
 use omnipanel_ai::ir::StreamEvent;
 use omnipanel_ai::orchestrator::{
     AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
@@ -13,12 +14,11 @@ use omnipanel_ai::providers::anthropic::AnthropicProvider;
 use omnipanel_ai::providers::openai::OpenAiProvider;
 use omnipanel_ai::routing::BackendKind;
 use omnipanel_ai::types::ChatMessage;
-use omnipanel_ai::RenamedProvider;
-use omnipanel_mcp::{external, ToolRegistry};
+use omnipanel_mcp::{ToolRegistry, external};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{ipc::Channel, AppHandle, State};
-use tokio::sync::{oneshot, Mutex};
+use tauri::{AppHandle, State, ipc::Channel};
+use tokio::sync::{Mutex, oneshot};
 
 use crate::state::AppState;
 
@@ -159,9 +159,7 @@ pub struct HttpProviderSnapshotDto {
 #[serde(rename_all = "camelCase")]
 pub enum InternalToolsModeDto {
     None,
-    DirectInject {
-        module_filter: Option<String>,
-    },
+    DirectInject { module_filter: Option<String> },
 }
 
 impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
@@ -277,12 +275,8 @@ pub async fn ai_chat_stream(
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
     let mut internal = InternalChatRequest::try_from(request)?;
-    if matches!(
-        internal.tools_mode,
-        InternalToolsMode::DirectInject { .. }
-    ) {
-        let skills_text = crate::commands::skills::build_skills_system_append()
-            .unwrap_or_default();
+    if matches!(internal.tools_mode, InternalToolsMode::DirectInject { .. }) {
+        let skills_text = crate::commands::skills::build_skills_system_append().unwrap_or_default();
         if !skills_text.is_empty() {
             internal.system_append = Some(skills_text);
         }
@@ -425,7 +419,11 @@ pub async fn ai_chat_tool_result(
     approved: bool,
 ) -> Result<(), String> {
     let key = format!("{conversation_id}:{tool_call_id}");
-    let sender = state.pending_internal_tool_results.lock().await.remove(&key);
+    let sender = state
+        .pending_internal_tool_results
+        .lock()
+        .await
+        .remove(&key);
     match sender {
         Some(tx) => {
             if tx.send((result.clone(), approved)).is_err() {
@@ -459,16 +457,11 @@ async fn wait_internal_tool_result(
     use std::time::Duration;
 
     let key = format!("{conversation_id}:{tool_id}");
-    if let Some(result) = state
-        .early_internal_tool_results
-        .lock()
-        .await
-        .remove(&key)
-    {
+    if let Some(result) = state.early_internal_tool_results.lock().await.remove(&key) {
         return Ok(result);
     }
 
-    let state_poll = state.clone();
+    let state_poll = state;
     let key_poll = key.clone();
     let poll_early = async move {
         loop {
@@ -519,14 +512,18 @@ async fn register_acp_pending_tool(
     conversation_id: &str,
     tool_id: &str,
     tool_name: &str,
-    pending_tools: &Arc<Mutex<Vec<(String, String, tokio::sync::oneshot::Receiver<(String, bool)>)>>>,
+    pending_tools: &Arc<
+        Mutex<
+            Vec<(
+                String,
+                String,
+                tokio::sync::oneshot::Receiver<(String, bool)>,
+            )>,
+        >,
+    >,
 ) {
     let key = format!("{conversation_id}:{tool_id}");
-    let tool_rx = if let Some(result) = state
-        .early_internal_tool_results
-        .lock()
-        .await
-        .remove(&key)
+    let tool_rx = if let Some(result) = state.early_internal_tool_results.lock().await.remove(&key)
     {
         let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
         let _ = tool_tx.send(result);
@@ -555,12 +552,12 @@ async fn run_acp_internal_turn(
     model_id: Option<String>,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
+    use omnipanel_ai::ToolStatus;
     use omnipanel_ai::providers::acp::{
         PromptOptions, build_client_tools_prompt, build_incremental_client_tools_prompt,
         format_client_tool_results_prompt, looks_like_pending_tool_calls_json,
         parse_client_tool_calls,
     };
-    use omnipanel_ai::ToolStatus;
 
     let backend_id = internal.backend_id.clone();
 
@@ -584,12 +581,7 @@ async fn run_acp_internal_turn(
 
     let mcp_servers: Vec<serde_json::Value> = Vec::new();
     let session_id = manager
-        .ensure_session(
-            conversation_id,
-            &cwd,
-            mcp_servers,
-            model_id.as_deref(),
-        )
+        .ensure_session(conversation_id, &cwd, mcp_servers, model_id.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -662,7 +654,11 @@ async fn run_acp_internal_turn(
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
         // 收集本轮所有并行 tool_call（模型一次可返回多个），逐个等待结果后合并回下一轮 prompt。
         // 元组：(tool_id, tool_name, 结果接收端)
-        type PendingTool = (String, String, tokio::sync::oneshot::Receiver<(String, bool)>);
+        type PendingTool = (
+            String,
+            String,
+            tokio::sync::oneshot::Receiver<(String, bool)>,
+        );
         let pending_tools: Arc<Mutex<Vec<PendingTool>>> = Arc::new(Mutex::new(Vec::new()));
 
         let manager_bg = manager.clone();
@@ -684,29 +680,22 @@ async fn run_acp_internal_turn(
 
         while let Some(event) = rx.recv().await {
             if client_tools {
-                if let StreamEvent::ToolCall { id, name, arguments } = &event {
+                if let StreamEvent::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } = &event
+                {
                     if acp_tool_names.contains(name) {
-                        register_acp_pending_tool(
-                            state,
-                            conversation_id,
-                            id,
-                            name,
-                            &pending_tools,
-                        )
-                        .await;
+                        register_acp_pending_tool(state, conversation_id, id, name, &pending_tools)
+                            .await;
                         let _ = arguments;
                     }
                 }
             }
 
             if matches!(&event, StreamEvent::Error { .. }) {
-                record_internal_trace(
-                    state,
-                    conversation_id,
-                    &backend_id,
-                    turn_index,
-                    &event,
-                );
+                record_internal_trace(state, conversation_id, &backend_id, turn_index, &event);
                 let _ = on_event.send(event);
                 break;
             }
@@ -805,8 +794,7 @@ async fn run_acp_internal_turn(
                 tokio::task::yield_now().await;
                 let mut results: Vec<(String, String, bool)> = Vec::new();
                 for (tool_id, tool_name, tool_rx) in pending {
-                    match wait_internal_tool_result(state, conversation_id, &tool_id, tool_rx)
-                        .await
+                    match wait_internal_tool_result(state, conversation_id, &tool_id, tool_rx).await
                     {
                         Ok((result, approved)) => {
                             let update = StreamEvent::ToolCallUpdate {
@@ -844,9 +832,7 @@ async fn run_acp_internal_turn(
             }
         }
 
-        let done = StreamEvent::Done {
-            stop_reason: stop,
-        };
+        let done = StreamEvent::Done { stop_reason: stop };
         record_internal_trace(state, conversation_id, &backend_id, turn_index, &done);
         let _ = on_event.send(done);
         return Ok(());
@@ -855,13 +841,7 @@ async fn run_acp_internal_turn(
     let err = StreamEvent::Error {
         message: "ACP 工具调用轮次超过上限".to_string(),
     };
-    record_internal_trace(
-        state,
-        conversation_id,
-        &backend_id,
-        turn_index,
-        &err,
-    );
+    record_internal_trace(state, conversation_id, &backend_id, turn_index, &err);
     let _ = on_event.send(err);
     Ok(())
 }
@@ -909,7 +889,10 @@ pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendI
                 id: format!("cli:{}::{}", provider.id, model),
                 label: format!("{}/{}", provider.display_name, model),
                 kind: "cli".to_string(),
-                installed: provider.binary.as_deref().is_some_and(|b| !b.trim().is_empty()),
+                installed: provider
+                    .binary
+                    .as_deref()
+                    .is_some_and(|b| !b.trim().is_empty()),
             });
         }
     }
@@ -1008,10 +991,7 @@ fn flush_held_content(
 ) {
     use omnipanel_ai::providers::acp::looks_like_pending_tool_calls_json;
 
-    let text = content_buffer
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
+    let text = content_buffer.lock().map(|g| g.clone()).unwrap_or_default();
     if text.trim().is_empty() || looks_like_pending_tool_calls_json(&text) {
         return;
     }
@@ -1056,9 +1036,10 @@ pub async fn ai_gateway_configure(
     bind_lan: bool,
     mcp_external_require_approval: bool,
 ) -> Result<(), String> {
-    state
-        .mcp_external_require_approval
-        .store(mcp_external_require_approval, std::sync::atomic::Ordering::Relaxed);
+    state.mcp_external_require_approval.store(
+        mcp_external_require_approval,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     // 先停掉旧实例并等待端口释放，避免重绑同端口时 EADDRINUSE。
     let old = state.gateway_handle.lock().await.take();
     if let Some(handle) = old {
