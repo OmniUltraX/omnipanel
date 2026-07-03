@@ -3874,6 +3874,12 @@ a {
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
+    -webkit-app-region: no-drag;
+}
+
+.dockable-workspace.dock-window-control .dv-tab,
+.dockable-workspace.dock-window-control .dv-default-tab {
+    -webkit-app-region: no-drag;
 }
 
 .dockable-workspace.dock-window-control .dv-tabs-container::-webkit-scrollbar {

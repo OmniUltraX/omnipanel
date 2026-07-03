@@ -678,6 +678,134 @@
         padding: var(--sp-2);
     }
 
+    .db-tables-panel-grid-wrap {
+        height: 100%;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .db-tables-panel-grid {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 11px;
+        table-layout: auto;
+    }
+
+    .db-tables-panel-grid thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 6px 8px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--meta);
+        background: var(--bg-deeper);
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+    }
+
+    .db-tables-panel-grid__sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .db-tables-panel-grid__sortable:hover {
+        color: var(--fg);
+    }
+
+    .db-tables-panel-grid__sort-asc,
+    .db-tables-panel-grid__sort-desc {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg-deeper));
+    }
+
+    .db-tables-panel-grid__th-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .db-tables-panel-grid__sort-mark {
+        font-size: 10px;
+        line-height: 1;
+        opacity: 0.85;
+    }
+
+    .db-tables-panel-grid tbody td {
+        padding: 6px 8px;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+        color: var(--fg-2);
+        vertical-align: middle;
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .db-tables-panel-grid tbody tr {
+        cursor: pointer;
+    }
+
+    .db-tables-panel-grid tbody tr:hover {
+        background: var(--surface-hover, rgba(255, 255, 255, 0.03));
+    }
+
+    .db-tables-panel-grid tbody tr.is-selected {
+        background: var(--accent-soft);
+    }
+
+    .db-tables-panel-grid tbody tr.is-selected td {
+        color: var(--fg);
+    }
+
+    .db-tables-panel-grid__name {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        color: var(--fg);
+        max-width: 180px;
+    }
+
+    .db-tables-panel-grid__actions-col {
+        width: 36px;
+        min-width: 36px;
+        max-width: 36px;
+        text-align: center;
+        padding-inline: 4px !important;
+    }
+
+    .db-tables-panel-grid__actions-col--sticky {
+        position: sticky;
+        right: 0;
+        z-index: 2;
+        width: 72px;
+        min-width: 72px;
+        max-width: 72px;
+        background: var(--bg-deeper);
+        box-shadow: -1px 0 0 var(--border);
+    }
+
+    .db-tables-panel-grid thead .db-tables-panel-grid__actions-col--sticky {
+        z-index: 3;
+    }
+
+    .db-tables-panel-grid--processlist tbody tr {
+        cursor: default;
+    }
+
+    .db-tables-panel-grid--processlist tbody tr:hover .db-tables-panel-grid__actions-col--sticky {
+        background: var(--surface-hover, rgba(255, 255, 255, 0.03));
+    }
+
+    .db-tables-panel-grid .db-tables-panel-design-btn {
+        opacity: 0.55;
+    }
+
+    .db-tables-panel-grid tbody tr:hover .db-tables-panel-design-btn,
+    .db-tables-panel-grid tbody tr.is-selected .db-tables-panel-design-btn {
+        opacity: 1;
+    }
+
     .db-tables-panel-ddl {
         height: 100%;
         min-width: 0;
@@ -3633,11 +3761,52 @@
         line-height: 1.3;
         font-family: var(--font-mono);
         letter-spacing: 0.01em;
-        color: var(--meta);
-        background: color-mix(in srgb, var(--meta) 14%, var(--surface));
-        border: 1px solid color-mix(in srgb, var(--meta) 28%, var(--border));
         border-radius: var(--r-sm);
         padding: 0 4px;
+        border: 1px solid transparent;
+    }
+
+    .db-data-table-th-header__type-tag--text {
+        color: var(--meta);
+        background: color-mix(in srgb, var(--meta) 14%, var(--surface));
+        border-color: color-mix(in srgb, var(--meta) 28%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--number {
+        color: color-mix(in srgb, var(--accent) 88%, var(--fg));
+        background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+        border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--boolean {
+        color: color-mix(in srgb, #a855f7 88%, var(--fg));
+        background: color-mix(in srgb, #a855f7 14%, var(--surface));
+        border-color: color-mix(in srgb, #a855f7 30%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--date,
+    .db-data-table-th-header__type-tag--time {
+        color: color-mix(in srgb, var(--warning) 88%, var(--fg));
+        background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+        border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--datetime {
+        color: color-mix(in srgb, #f97316 88%, var(--fg));
+        background: color-mix(in srgb, #f97316 14%, var(--surface));
+        border-color: color-mix(in srgb, #f97316 30%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--json {
+        color: color-mix(in srgb, #14b8a6 88%, var(--fg));
+        background: color-mix(in srgb, #14b8a6 14%, var(--surface));
+        border-color: color-mix(in srgb, #14b8a6 30%, var(--border));
+    }
+
+    .db-data-table-th-header__type-tag--binary {
+        color: color-mix(in srgb, var(--danger) 88%, var(--fg));
+        background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+        border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
     }
 
     .db-data-table-th-label-wrap {
@@ -4225,6 +4394,22 @@
         min-width: 0;
     }
 
+    .db-pagination-quick-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-shrink: 0;
+        margin-left: auto;
+        padding-left: var(--sp-2);
+        border-left: 1px solid var(--border);
+    }
+
+    .db-pagination-quick-actions+.db-pagination-controls {
+        margin-left: var(--sp-2);
+        padding-left: var(--sp-2);
+        border-left: 1px solid var(--border);
+    }
+
     .db-sql-results-footer.db-pagination {
         justify-content: flex-end;
     }
@@ -4553,81 +4738,6 @@
         color: var(--danger);
         white-space: pre-wrap;
         text-align: center;
-    }
-
-    .db-connection-info-panel {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        overflow: hidden;
-    }
-
-    .db-connection-info-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: var(--sp-4);
-        padding: var(--sp-4);
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-    }
-
-    .db-connection-info-title {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-    }
-
-    .db-connection-info-subtitle {
-        margin: var(--sp-1) 0 0;
-        font-size: 12px;
-        color: var(--meta);
-    }
-
-    .db-connection-info-sections {
-        flex: 1;
-        min-height: 0;
-        overflow: hidden;
-        padding: var(--sp-4);
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-6);
-    }
-
-    .db-connection-info-section {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        min-height: 0;
-    }
-
-    .db-connection-info-section-head {
-        flex-shrink: 0;
-        padding: var(--sp-2) var(--sp-3);
-        background: var(--bg-deeper);
-        border-bottom: 1px solid var(--border);
-    }
-
-    .db-connection-info-section .db-data-table-panel {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    .db-connection-info-section .db-data-table-wrap {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-    }
-
-    .db-connection-info-sql {
-        font-size: 11px;
-        color: var(--meta);
     }
 
     .redis-query-panel {

@@ -2,6 +2,7 @@ pub mod acp;
 pub mod ai_chat;
 pub mod bg_task;
 pub mod agents;
+#[allow(dead_code)]
 pub mod ai;
 pub mod app_module;
 pub mod mcp_tool;

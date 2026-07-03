@@ -236,3 +236,9 @@ export function buildTablePreviewSql({
       : "*";
   return `SELECT ${selectSql} FROM ${tableRef}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
 }
+
+/** 为当前表生成简单的 SELECT * 语句（SQL 查询 Tab 预填用） */
+export function buildSelectAllFromTableSql(dbType: string, tableName: string): string {
+  const tableRef = quoteSqlIdentifier(tableName, dbType);
+  return `SELECT * FROM ${tableRef};`;
+}

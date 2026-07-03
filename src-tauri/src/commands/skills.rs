@@ -395,7 +395,7 @@ pub async fn skill_import(
     };
 
     let raw = fs::read_to_string(&skill_md).map_err(|e| e.to_string())?;
-    let parsed = parse_skill_md(&raw)?;
+    let _parsed = parse_skill_md(&raw)?;
     let id = if source.is_dir() {
         source
             .file_name()

@@ -42,15 +42,28 @@ import {
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import {
+  buildDatabaseTreeItem,
+  buildConnectionTreeItem,
+  buildFolderTreeItem,
   buildTableTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
 import {
   buildDropColumnSql,
+  buildDropDatabaseSql,
   buildDropIndexSql,
-  isSchemaDropSqlSupported,
+  buildDropTableSql,
+  buildDropUserSql,
+  buildDropViewSql,
+  isSchemaNodeDropSupported,
 } from "./schemaTreeDropSql";
-import { isSchemaNodeDeletable, isSchemaNodeRefreshable } from "./schemaTreeNodeActions";
+import {
+  isSchemaNodeDeletable,
+  isSchemaNodeRefreshable,
+  schemaNodeDeleteActionKey,
+  schemaNodeDeleteConfirmKey,
+  schemaNodeDeleteLabelKey,
+} from "./schemaTreeNodeActions";
 import {
   nextSchemaChildLimit,
 } from "./schemaTreePagination";
@@ -64,7 +77,10 @@ import {
 } from "./schemaCacheStatusLog";
 import type { SchemaCacheSnapshot } from "./schemaCache";
 import {
+  connectionUsersFolderId,
+  parseDatabaseNodeId,
   parseTableNodeId,
+  parseUserNodeId,
   parseViewNodeId,
 } from "./schemaTreeIds";
 import {
@@ -452,20 +468,8 @@ function TreeNode({
                 <button
                   type="button"
                   className={`tree-action-btn tree-action-btn--danger${deleteDisabled ? " tree-action-btn--busy" : ""}`}
-                  title={
-                    item.type === "column"
-                      ? t("database.schemaTree.deleteColumn")
-                      : item.type === "index"
-                        ? t("database.schemaTree.deleteIndex")
-                        : t("database.queryFiles.delete")
-                  }
-                  aria-label={
-                    item.type === "column"
-                      ? t("database.schemaTree.deleteColumn")
-                      : item.type === "index"
-                        ? t("database.schemaTree.deleteIndex")
-                        : t("database.queryFiles.delete")
-                  }
+                  title={t(schemaNodeDeleteLabelKey(item.type))}
+                  aria-label={t(schemaNodeDeleteLabelKey(item.type))}
                   disabled={deleteDisabled}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -712,51 +716,98 @@ export function SchemaBrowser({
       if (!isSchemaNodeDeletable(item.type)) {
         return;
       }
-      const dbName = item.dbName?.trim();
-      const tableName = item.tableName?.trim();
-      if (!dbName || !tableName) {
+      if (!isSchemaNodeDropSupported(connection.db_type, item.type)) {
+        void appAlert(t("database.schemaTree.dropUnsupported"));
         return;
       }
-      const objectName =
-        item.type === "column"
-          ? (item.columnName ?? item.label).trim()
-          : (item.indexName ?? item.label).trim();
+
+      const dbName = item.dbName?.trim();
+      const tableName = item.tableName?.trim();
+      let objectName = item.label.trim();
+      let confirmParams: Record<string, string> = { name: objectName };
+
+      if (item.type === "column") {
+        if (!dbName || !tableName) return;
+        objectName = (item.columnName ?? item.label).trim();
+        confirmParams = { name: objectName, table: tableName };
+      } else if (item.type === "index") {
+        if (!dbName || !tableName) return;
+        objectName = (item.indexName ?? item.label).trim();
+        confirmParams = { name: objectName, table: tableName };
+      } else if (item.type === "database") {
+        const parsed = parseDatabaseNodeId(item.id);
+        const resolvedDbName = parsed?.dbName ?? dbName;
+        if (!resolvedDbName) return;
+        objectName = resolvedDbName;
+        confirmParams = { name: objectName };
+      } else if (item.type === "table" || item.type === "view") {
+        const parsed =
+          item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
+        const resolvedDbName = parsed?.dbName ?? dbName;
+        const resolvedObjectName =
+          item.type === "view"
+            ? (parsed?.tableName ?? item.tableName ?? item.label).trim()
+            : (parsed?.tableName ?? tableName ?? item.label).trim();
+        if (!resolvedDbName || !resolvedObjectName) return;
+        objectName = resolvedObjectName;
+        confirmParams = { name: objectName, database: resolvedDbName };
+      } else if (item.type === "user") {
+        const parsed = parseUserNodeId(item.id);
+        if (!parsed) return;
+        objectName = parsed.host ? `${parsed.name}@${parsed.host}` : parsed.name;
+        confirmParams = { name: objectName };
+      }
+
       const confirmed = await appConfirm(
-        item.type === "column"
-          ? t("database.schemaTree.confirmDeleteColumn", {
-              name: objectName,
-              table: tableName,
-            })
-          : t("database.schemaTree.confirmDeleteIndex", {
-              name: objectName,
-              table: tableName,
-            }),
+        t(schemaNodeDeleteConfirmKey(item.type), confirmParams),
         t("database.schemaTree.confirmDeleteTitle"),
       );
       if (!confirmed) {
         return;
       }
-      if (!isSchemaDropSqlSupported(connection.db_type)) {
-        void appAlert(t("database.schemaTree.dropUnsupported"));
-        return;
+
+      let sql: string | null = null;
+      if (item.type === "column" && dbName && tableName) {
+        sql = buildDropColumnSql(connection.db_type, dbName, tableName, objectName);
+      } else if (item.type === "index" && dbName && tableName) {
+        sql = buildDropIndexSql(connection.db_type, dbName, tableName, objectName);
+      } else if (item.type === "database") {
+        const resolvedDbName = parseDatabaseNodeId(item.id)?.dbName ?? dbName;
+        if (resolvedDbName) {
+          sql = buildDropDatabaseSql(connection.db_type, resolvedDbName);
+        }
+      } else if (item.type === "table") {
+        const parsed = parseTableNodeId(item.id);
+        const resolvedDbName = parsed?.dbName ?? dbName;
+        const resolvedTableName = parsed?.tableName ?? tableName;
+        if (resolvedDbName && resolvedTableName) {
+          sql = buildDropTableSql(connection.db_type, resolvedDbName, resolvedTableName);
+        }
+      } else if (item.type === "view") {
+        const parsed = parseViewNodeId(item.id);
+        const resolvedDbName = parsed?.dbName ?? dbName;
+        const resolvedViewName = parsed?.tableName ?? item.tableName ?? item.label;
+        if (resolvedDbName && resolvedViewName) {
+          sql = buildDropViewSql(connection.db_type, resolvedDbName, resolvedViewName);
+        }
+      } else if (item.type === "user") {
+        const parsed = parseUserNodeId(item.id);
+        if (parsed) {
+          sql = buildDropUserSql(connection.db_type, parsed.name, parsed.host);
+        }
       }
-      const sql =
-        item.type === "column"
-          ? buildDropColumnSql(connection.db_type, dbName, tableName, objectName)
-          : buildDropIndexSql(connection.db_type, dbName, tableName, objectName);
+
       if (!sql) {
         void appAlert(t("database.schemaTree.dropUnsupported"));
         return;
       }
+
       setDeletingNodeIds((prev) => ({ ...prev, [item.id]: true }));
       try {
         enqueueAction({
           type: "sql",
-          title:
-            item.type === "column"
-              ? t("database.schemaTree.deleteColumn")
-              : t("database.schemaTree.deleteIndex"),
-          description: `${connection.name} · ${tableName}.${objectName}`,
+          title: t(schemaNodeDeleteActionKey(item.type)),
+          description: `${connection.name} · ${objectName}`,
           command: sql,
           resourceId: connection.id,
           source: "用户",
@@ -768,11 +819,34 @@ export function SchemaBrowser({
           limit: 1,
           offset: 0,
         });
-        await refreshAndApplySchemaTreeNode(
-          connection,
-          buildTableTreeItem(connection.id, dbName, tableName),
-          schemaRefreshHooks,
-        );
+
+        let refreshItem: SchemaTreeItem;
+        if (item.type === "database") {
+          refreshItem = buildConnectionTreeItem(
+            connection.id,
+            connection.name,
+            connection.db_type,
+          );
+        } else if (item.type === "user") {
+          refreshItem = buildFolderTreeItem(
+            connectionUsersFolderId(connection.id),
+            t("database.sidebar.users"),
+            connection.id,
+          );
+        } else if (item.type === "table" || item.type === "view") {
+          const parsed =
+            item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
+          const resolvedDbName = parsed?.dbName ?? dbName;
+          if (!resolvedDbName) return;
+          refreshItem = buildDatabaseTreeItem(connection.id, resolvedDbName);
+        } else {
+          const resolvedDbName = dbName;
+          const resolvedTableName = tableName;
+          if (!resolvedDbName || !resolvedTableName) return;
+          refreshItem = buildTableTreeItem(connection.id, resolvedDbName, resolvedTableName);
+        }
+
+        await refreshAndApplySchemaTreeNode(connection, refreshItem, schemaRefreshHooks);
       } catch (err) {
         void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
       } finally {
@@ -801,16 +875,9 @@ export function SchemaBrowser({
         props.refreshDisabled =
           !isConnectionEnabled(connection) || Boolean(refreshingNodeIds[item.id]);
       }
-      if (isSchemaNodeDeletable(item.type)) {
-        props.onDelete = () => {
-          void handleDeleteSchemaNode(connection, item);
-        };
-        props.deleteDisabled =
-          !isConnectionEnabled(connection) || Boolean(deletingNodeIds[item.id]);
-      }
       return props;
     },
-    [deletingNodeIds, handleDeleteSchemaNode, handleRefreshSchemaNode, refreshingNodeIds],
+    [handleRefreshSchemaNode, refreshingNodeIds],
   );
 
   const schemaCacheReporter = useMemo(
@@ -1136,13 +1203,12 @@ export function SchemaBrowser({
       connection && isSchemaNodeDeletable(item.type)
         ? {
             id: "delete-schema-node",
-            label:
-              item.type === "column"
-                ? t("database.schemaTree.deleteColumn")
-                : t("database.schemaTree.deleteIndex"),
+            label: t(schemaNodeDeleteLabelKey(item.type)),
             icon: deleteIcon,
             danger: true,
-            disabled: Boolean(deletingNodeIds[item.id]),
+            disabled:
+              Boolean(deletingNodeIds[item.id]) ||
+              !isSchemaNodeDropSupported(connection.db_type, item.type),
             onClick: () => {
               void handleDeleteSchemaNode(connection, item);
             },

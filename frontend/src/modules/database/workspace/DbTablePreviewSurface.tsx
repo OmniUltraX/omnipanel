@@ -21,6 +21,7 @@ import {
 } from "./dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
 import { connectionHasTableSchemaChildren } from "../api";
+import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
@@ -225,6 +226,32 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     setCellEditorCollapsed(collapsed);
   }, []);
 
+  const handleCreateTableQuery = useCallback(() => {
+    if (!previewConnection || !canRefresh) {
+      return;
+    }
+    ws.openTableQuery({
+      connId: tab.connId,
+      dbName: tab.dbName,
+      tableName: tab.tableName,
+      connection: previewConnection,
+    });
+  }, [canRefresh, previewConnection, tab.connId, tab.dbName, tab.tableName, ws]);
+
+  const handleOpenTableDesign = useCallback(() => {
+    if (!previewConnection || !canRefresh) {
+      return;
+    }
+    ws.openTableDesigner({
+      connId: tab.connId,
+      dbName: tab.dbName,
+      tableName: tab.tableName,
+      connection: previewConnection,
+    });
+  }, [canRefresh, previewConnection, tab.connId, tab.dbName, tab.tableName, ws]);
+
+  const canDesignTable = Boolean(previewConnection && supportsTableDesign(previewConnection));
+
   const showPreviewGrid = Boolean(
     preview?.data && canRefresh && !preview.loading && !preview.error,
   );
@@ -357,6 +384,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       cellEditorCollapsed={cellEditorCollapsed}
       onCellEditorCollapsedChange={handleCellEditorCollapsedChange}
       onCellEditorFocusRequest={handleCellEditorFocusRequest}
+      onOpenTableDesign={handleOpenTableDesign}
+      canOpenTableDesign={canDesignTable}
+      onCreateTableQuery={handleCreateTableQuery}
+      canCreateTableQuery={Boolean(canRefresh && previewConnection)}
     />
   ) : null;
 

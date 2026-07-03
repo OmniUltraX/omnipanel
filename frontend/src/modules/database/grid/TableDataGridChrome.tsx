@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { TextInput } from "../../../components/ui/TextInput";
-import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
+import { columnTypeTagClassName } from "./columnTypeTag";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import type { DbColumnMeta } from "../api";
@@ -122,7 +122,7 @@ export function ColumnHeaderLabel({
         ) : null}
       </span>
       {typeLabel ? (
-        <span className="db-data-table-th-header__type-tag" title={typeLabel}>
+        <span className={columnTypeTagClassName(typeLabel)} title={typeLabel}>
           {typeLabel}
         </span>
       ) : null}

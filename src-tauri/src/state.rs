@@ -55,7 +55,9 @@ pub struct AppState {
     pub terminal_sessions: Arc<Mutex<HashMap<String, Terminal>>>,
     pub app_handle: AppHandle,
     pub ai_registry: Arc<Mutex<AiProviderRegistry>>,
+    #[allow(dead_code)]
     pub current_provider: Arc<Mutex<Option<String>>>,
+    #[allow(dead_code)]
     pub current_model: Arc<Mutex<Option<String>>>,
     pub db_connections: DatabaseConnectionStore,
     /// 本地元数据存储（连接、审计等）。

@@ -589,12 +589,19 @@ export function DockableWorkspace({
       root
         .querySelectorAll<HTMLElement>(".dv-default-tab .dv-default-tab-action")
         .forEach((el: HTMLElement) => el.classList.add("drag-ignore"));
+      if (windowControl) {
+        root
+          .querySelectorAll<HTMLElement>(".dv-default-tab[data-dock-tab-id]")
+          .forEach((el) => {
+            el.setAttribute("data-tauri-drag-region", "false");
+          });
+      }
     };
     handle();
     const observer = new MutationObserver(handle);
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [tabs.length]);
+  }, [tabs.length, windowControl]);
 
   // windowControl：tab 与窗口按钮之间的 void 区域用于拖拽移动窗口（仅限本层 dock，不含嵌套 DockableWorkspace）
   useEffect(() => {
@@ -669,6 +676,34 @@ export function DockableWorkspace({
       root.removeEventListener("click", onCaptureClick, true);
     };
   }, [onTabClick, tabs.length]);
+
+  // Tab 双击：拦截冒泡，避免触发无边框窗口 drag-region 最大化；具体行为由 onTabDoubleClick 决定
+  useEffect(() => {
+    const root = wrapperRef.current;
+    if (!root) return;
+
+    const findTabHeader = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return null;
+      const tabHeader = target.closest<HTMLElement>(
+        ".dv-default-tab[data-dock-tab-id]",
+      );
+      return tabHeader && root.contains(tabHeader) ? tabHeader : null;
+    };
+
+    const onCaptureDoubleClick = (event: MouseEvent) => {
+      const tabHeader = findTabHeader(event.target);
+      const tabId = tabHeader?.dataset.dockTabId;
+      if (!tabId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onTabDoubleClickRef.current?.(tabId);
+    };
+
+    root.addEventListener("dblclick", onCaptureDoubleClick, true);
+    return () => {
+      root.removeEventListener("dblclick", onCaptureDoubleClick, true);
+    };
+  }, [tabs.length]);
 
   // 加载初始布局（在 onReady 中执行）
   const applyInitialLayout = useCallback((api: DockviewApi) => {

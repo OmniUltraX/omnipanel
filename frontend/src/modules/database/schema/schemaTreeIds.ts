@@ -62,6 +62,22 @@ export function userNodeId(connId: string, name: string, host?: string | null) {
   return `user:${connId}:${host ?? ""}:${name}`;
 }
 
+export function parseUserNodeId(
+  id: string,
+): { connId: string; host: string; name: string } | null {
+  if (!id.startsWith("user:")) {
+    return null;
+  }
+  const parts = id.slice(5).split(":");
+  if (parts.length < 3) {
+    return null;
+  }
+  const connId = parts[0]!;
+  const name = parts[parts.length - 1]!;
+  const host = parts.slice(1, -1).join(":");
+  return { connId, host, name };
+}
+
 export function databaseTablesFolderId(connId: string, dbName: string) {
   return `tbls:${connId}:${dbName}`;
 }

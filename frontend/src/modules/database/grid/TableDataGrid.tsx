@@ -160,6 +160,12 @@ export type TableDataGridProps = {
   ) => void;
   /** 当前选中的单个数据单元格（用于底栏编辑器等） */
   onActiveCellChange?: (cell: TableDataGridActiveCell | null) => void;
+  /** 快速打开表设计器（表预览底栏） */
+  onOpenTableDesign?: () => void;
+  canOpenTableDesign?: boolean;
+  /** 快速新建以当前表为上下文的 SQL 查询 */
+  onCreateTableQuery?: () => void;
+  canCreateTableQuery?: boolean;
 };
 
 export const TableDataGrid = memo(function TableDataGrid({
@@ -198,6 +204,10 @@ export const TableDataGrid = memo(function TableDataGrid({
   onRowPaste,
   onDeleteSelectedRows,
   onActiveCellChange,
+  onOpenTableDesign,
+  canOpenTableDesign = true,
+  onCreateTableQuery,
+  canCreateTableQuery = true,
 }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
@@ -1887,6 +1897,40 @@ export const TableDataGrid = memo(function TableDataGrid({
             />
           </svg>
         </Button>
+      ) : null}
+      {(onOpenTableDesign || onCreateTableQuery) ? (
+        <div className="db-pagination-quick-actions">
+          {onOpenTableDesign ? (
+            <Button
+              variant="icon"
+              size="icon-sm"
+              disabled={!canOpenTableDesign || loading}
+              title={t("database.contextMenu.designTable")}
+              aria-label={t("database.contextMenu.designTable")}
+              onClick={onOpenTableDesign}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                <path d="M5 8h6M8 5v6" />
+              </svg>
+            </Button>
+          ) : null}
+          {onCreateTableQuery ? (
+            <Button
+              variant="icon"
+              size="icon-sm"
+              disabled={!canCreateTableQuery || loading}
+              title={t("database.workspace.newQuery")}
+              aria-label={t("database.workspace.newQuery")}
+              onClick={onCreateTableQuery}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
+                <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <div className="db-pagination-controls">
         <Button

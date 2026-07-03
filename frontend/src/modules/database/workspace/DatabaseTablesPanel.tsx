@@ -8,175 +8,121 @@ import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver
 import { formatSqlDdl } from "../sql/formatSqlDdl";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "../schema/SchemaBrowser";
 import { TableDdlViewer } from "../table/TableDdlViewer";
-import { TableDetailsSummary } from "../table/TableDetailsSummary";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
-import {
-  buildTableNameTree,
-  collectTableTreeFolderKeys,
-  countTableTreeLeaves,
-  filterTableNameTree,
-  type TableNameTreeNode,
-} from "../schema/buildTableNameTree";
 import { getCachedTableCommentMap, getCachedTableNames } from "../schema/schemaCacheMerge";
+import {
+  displayDetailValue,
+  formatTableDataSummary,
+} from "./databaseTablesPanelFormat";
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
   onDesignTable?: (selection: SchemaTableSelection) => void;
 }
 
-type TablesPanelViewMode = "tree" | "list";
+type TableDetailEntry =
+  | { status: "loading" }
+  | { status: "loaded"; details: DbTableDetails }
+  | { status: "error" };
 
-const VIEW_MODE_STORAGE_KEY = "database-tables-panel-view";
+type TablesPanelSortColumn = "name" | "data";
+type TablesPanelSortDirection = "asc" | "desc";
 
-function readStoredViewMode(): TablesPanelViewMode {
-  try {
-    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-    if (stored === "tree" || stored === "list") {
-      return stored;
+interface TablesPanelSortState {
+  column: TablesPanelSortColumn;
+  direction: TablesPanelSortDirection;
+}
+
+function resolveTableDataSortKey(entry: TableDetailEntry | undefined): number | null {
+  if (!entry || entry.status !== "loaded") {
+    return null;
+  }
+  const { rowCount, dataLength } = entry.details;
+  if (dataLength != null && dataLength >= 0) {
+    return dataLength;
+  }
+  if (rowCount != null && rowCount >= 0) {
+    return rowCount;
+  }
+  return null;
+}
+
+function compareTableNames(a: string, b: string, direction: TablesPanelSortDirection): number {
+  const cmp = a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  return direction === "asc" ? cmp : -cmp;
+}
+
+function compareTableData(
+  a: string,
+  b: string,
+  detailsByTable: Record<string, TableDetailEntry>,
+  direction: TablesPanelSortDirection,
+): number {
+  const aKey = resolveTableDataSortKey(detailsByTable[a]);
+  const bKey = resolveTableDataSortKey(detailsByTable[b]);
+  if (aKey == null && bKey == null) {
+    return compareTableNames(a, b, "asc");
+  }
+  if (aKey == null) {
+    return 1;
+  }
+  if (bKey == null) {
+    return -1;
+  }
+  if (aKey !== bKey) {
+    const cmp = aKey - bKey;
+    return direction === "asc" ? cmp : -cmp;
+  }
+  return compareTableNames(a, b, "asc");
+}
+
+function sortHeaderClass(
+  column: TablesPanelSortColumn,
+  sort: TablesPanelSortState,
+): string {
+  if (sort.column !== column) {
+    return " db-tables-panel-grid__sortable";
+  }
+  return sort.direction === "asc"
+    ? " db-tables-panel-grid__sortable db-tables-panel-grid__sort-asc"
+    : " db-tables-panel-grid__sortable db-tables-panel-grid__sort-desc";
+}
+
+const DETAILS_FETCH_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!);
     }
-  } catch {
-    // ignore storage errors
-  }
-  return "tree";
+  });
+  await Promise.all(workers);
+  return results;
 }
 
-function TableNameRow({
-  tableName,
-  depth,
-  selected,
-  onPreviewTable,
-  onDesignTable,
-  canDesign,
-  tableComments,
-}: {
-  tableName: string;
-  depth: number;
-  selected: boolean;
-  onPreviewTable: (tableName: string) => void;
-  onDesignTable: (tableName: string) => void;
-  canDesign: boolean;
-  tableComments: ReadonlyMap<string, string>;
-}) {
-  const { t } = useI18n();
-  const comment = tableComments.get(tableName);
-  return (
-    <div
-      className={`db-tables-panel-item${selected ? " is-selected" : ""}`}
-      style={{ paddingLeft: depth * 16 + 8 }}
-    >
-      <button
-        type="button"
-        className="db-tables-panel-item-main"
-        onClick={() => onPreviewTable(tableName)}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M3 9h18M3 15h18M9 3v18" />
-        </svg>
-        <span
-          className="db-tables-panel-item-name"
-          title={comment ? `${tableName} — ${comment}` : tableName}
-        >
-          {tableName}
-          {comment ? (
-            <span className="db-tables-panel-item-comment" title={comment}>
-              {comment}
-            </span>
-          ) : null}
-        </span>
-      </button>
-      {canDesign && (
-        <button
-          type="button"
-          className="btn-icon db-tables-panel-design-btn"
-          title={t("database.contextMenu.designTable")}
-          aria-label={t("database.contextMenu.designTable")}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDesignTable(tableName);
-          }}
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-            <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-            <path d="M5 8h6M8 5v6" />
-          </svg>
-        </button>
-      )}
-    </div>
-  );
-}
-
-function TableNameTreeBranch({
-  node,
-  depth,
-  expandedFolders,
-  onToggleFolder,
-  previewTableName,
-  onPreviewTable,
-  onDesignTable,
-  canDesign,
-  tableComments,
-}: {
-  node: TableNameTreeNode;
-  depth: number;
-  expandedFolders: Set<string>;
-  onToggleFolder: (key: string) => void;
-  previewTableName: string | null;
-  onPreviewTable: (tableName: string) => void;
-  onDesignTable: (tableName: string) => void;
-  canDesign: boolean;
-  tableComments: ReadonlyMap<string, string>;
-}) {
-  if (node.kind === "folder") {
-    const expanded = expandedFolders.has(node.key);
-    const childCount = countTableTreeLeaves(node);
-    return (
-      <>
-        <button
-          type="button"
-          className="db-tables-panel-tree-folder"
-          style={{ paddingLeft: depth * 16 + 8 }}
-          onClick={() => onToggleFolder(node.key)}
-        >
-          <span className={`tree-arrow${expanded ? " tree-arrow--open" : ""}`}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </span>
-          <span className="db-tables-panel-tree-folder-name">{node.segment}</span>
-          <span className="db-tables-panel-tree-folder-count">{childCount}</span>
-        </button>
-        {expanded &&
-          node.children.map((child) => (
-            <TableNameTreeBranch
-              key={child.key}
-              node={child}
-              depth={depth + 1}
-              expandedFolders={expandedFolders}
-              onToggleFolder={onToggleFolder}
-              previewTableName={previewTableName}
-              onPreviewTable={onPreviewTable}
-              onDesignTable={onDesignTable}
-              canDesign={canDesign}
-              tableComments={tableComments}
-            />
-          ))}
-      </>
-    );
+function resolveDetailCell(
+  entry: TableDetailEntry | undefined,
+  render: (details: DbTableDetails) => string,
+  loadingLabel: string,
+): string {
+  if (!entry || entry.status === "error") {
+    return "—";
   }
-
-  const selected = previewTableName === node.tableName;
-  return (
-    <TableNameRow
-      tableName={node.tableName}
-      depth={depth}
-      selected={selected}
-      onPreviewTable={onPreviewTable}
-      onDesignTable={onDesignTable}
-      canDesign={canDesign}
-      tableComments={tableComments}
-    />
-  );
+  if (entry.status === "loading") {
+    return loadingLabel;
+  }
+  return render(entry.details);
 }
 
 export function DatabaseTablesPanel({
@@ -188,15 +134,12 @@ export function DatabaseTablesPanel({
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<TablesPanelViewMode>(readStoredViewMode);
-  const [previewTableName, setPreviewTableName] = useState<string | null>(null);
-  const [tableDetails, setTableDetails] = useState<DbTableDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [selectedTableName, setSelectedTableName] = useState<string | null>(null);
+  const [detailsByTable, setDetailsByTable] = useState<Record<string, TableDetailEntry>>({});
   const [ddl, setDdl] = useState("");
   const [ddlLoading, setDdlLoading] = useState(false);
   const [ddlError, setDdlError] = useState<string | null>(null);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
+  const [sort, setSort] = useState<TablesPanelSortState>({ column: "name", direction: "asc" });
 
   useEffect(() => {
     if (!cacheHydrated) {
@@ -205,21 +148,12 @@ export function DatabaseTablesPanel({
   }, [cacheHydrated, hydrateSchemaCache]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
-    } catch {
-      // ignore storage errors
-    }
-  }, [viewMode]);
-
-  useEffect(() => {
     setSearch("");
-    setPreviewTableName(null);
-    setTableDetails(null);
-    setDetailsError(null);
+    setSelectedTableName(null);
+    setDetailsByTable({});
     setDdl("");
     setDdlError(null);
-    setExpandedFolders(new Set());
+    setSort({ column: "name", direction: "asc" });
   }, [selection.connId, selection.dbName]);
 
   const tables = useMemo(
@@ -231,11 +165,6 @@ export function DatabaseTablesPanel({
     () => getCachedTableCommentMap(schemaSnapshot, selection.connId, selection.dbName),
     [schemaSnapshot, selection.connId, selection.dbName],
   );
-
-  const filteredTree = useMemo(() => {
-    const tree = buildTableNameTree(tables);
-    return filterTableNameTree(tree, search, tableComments);
-  }, [search, tables, tableComments]);
 
   const filteredTables = useMemo(() => {
     const q = search.trim();
@@ -251,18 +180,70 @@ export function DatabaseTablesPanel({
     });
   }, [search, tables, tableComments]);
 
-  useEffect(() => {
-    if (!search.trim() || viewMode !== "tree") {
-      return;
-    }
-    setExpandedFolders(new Set(collectTableTreeFolderKeys(filteredTree)));
-  }, [search, filteredTree, viewMode]);
+  const sortedTables = useMemo(() => {
+    const list = [...filteredTables];
+    list.sort((a, b) => {
+      if (sort.column === "name") {
+        return compareTableNames(a, b, sort.direction);
+      }
+      return compareTableData(a, b, detailsByTable, sort.direction);
+    });
+    return list;
+  }, [detailsByTable, filteredTables, sort]);
+
+  const toggleSort = useCallback((column: TablesPanelSortColumn) => {
+    setSort((prev) => {
+      if (prev.column === column) {
+        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      return {
+        column,
+        direction: column === "name" ? "asc" : "desc",
+      };
+    });
+  }, []);
 
   useEffect(() => {
-    if (!previewTableName) {
-      setTableDetails(null);
-      setDetailsError(null);
-      setDetailsLoading(false);
+    let cancelled = false;
+    const tableNames = filteredTables;
+    setDetailsByTable(() => {
+      const next: Record<string, TableDetailEntry> = {};
+      for (const name of tableNames) {
+        next[name] = { status: "loading" };
+      }
+      return next;
+    });
+
+    void mapWithConcurrency(tableNames, DETAILS_FETCH_CONCURRENCY, async (tableName) => {
+      try {
+        const details = await fetchTableDetails(
+          selection.connection,
+          selection.dbName,
+          tableName,
+        );
+        if (!cancelled) {
+          setDetailsByTable((prev) => ({
+            ...prev,
+            [tableName]: { status: "loaded", details },
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setDetailsByTable((prev) => ({
+            ...prev,
+            [tableName]: { status: "error" },
+          }));
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredTables, selection.connection, selection.dbName]);
+
+  useEffect(() => {
+    if (!selectedTableName) {
       setDdl("");
       setDdlError(null);
       setDdlLoading(false);
@@ -270,31 +251,11 @@ export function DatabaseTablesPanel({
     }
 
     let cancelled = false;
-    setDetailsLoading(true);
-    setDetailsError(null);
-    setTableDetails(null);
     setDdlLoading(true);
     setDdlError(null);
     setDdl("");
 
-    void fetchTableDetails(selection.connection, selection.dbName, previewTableName)
-      .then((details) => {
-        if (!cancelled) {
-          setTableDetails(details);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setDetailsError(String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDetailsLoading(false);
-        }
-      });
-
-    void fetchTableDdl(selection.connection, selection.dbName, previewTableName)
+    void fetchTableDdl(selection.connection, selection.dbName, selectedTableName)
       .then((raw) => {
         if (cancelled) {
           return;
@@ -316,11 +277,7 @@ export function DatabaseTablesPanel({
     return () => {
       cancelled = true;
     };
-  }, [previewTableName, selection.connection, selection.dbName]);
-
-  const handlePreviewTable = useCallback((tableName: string) => {
-    setPreviewTableName(tableName);
-  }, []);
+  }, [selectedTableName, selection.connection, selection.dbName]);
 
   const handleDesignTable = useCallback(
     (tableName: string) => {
@@ -335,18 +292,6 @@ export function DatabaseTablesPanel({
   );
 
   const canDesign = Boolean(onDesignTable) && supportsTableDesign(selection.connection);
-
-  const toggleFolder = useCallback((key: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, []);
 
   const handleCopyDdl = useCallback(async () => {
     if (!ddl || ddlLoading || ddlError) {
@@ -380,6 +325,7 @@ export function DatabaseTablesPanel({
   const canCopyDdl = Boolean(ddl && !ddlLoading && !ddlError);
   const cacheReady = cacheHydrated && Boolean(schemaSnapshot.connections[selection.connId]);
   const tableCount = tables.length;
+  const loadingLabel = t("database.tablesPanel.detailsLoading");
 
   return (
     <ScopedSearch
@@ -390,57 +336,161 @@ export function DatabaseTablesPanel({
     >
       <div className="db-tables-panel-body">
         <DockLayout direction="horizontal" className="db-tables-panel-split">
-          <DockPanel defaultSize="40%" minSize="20%" maxSize="75%" className="db-tables-panel-list-pane">
-            <div className="db-tables-panel-list">
+          <DockPanel defaultSize="70%" minSize="30%" maxSize="80%" className="db-tables-panel-list-pane">
+            <div className="db-tables-panel-grid-wrap">
               {!cacheReady && (
                 <div className="db-tables-panel-empty">{t("database.tablesPanel.cacheEmptyHint")}</div>
               )}
               {cacheReady && tableCount === 0 && (
                 <div className="db-tables-panel-empty">{t("database.sidebar.noTables")}</div>
               )}
-              {cacheReady &&
-                viewMode === "tree" &&
-                filteredTree.map((node) => (
-                  <TableNameTreeBranch
-                    key={node.key}
-                    node={node}
-                    depth={0}
-                    expandedFolders={expandedFolders}
-                    onToggleFolder={toggleFolder}
-                    previewTableName={previewTableName}
-                    onPreviewTable={handlePreviewTable}
-                    onDesignTable={handleDesignTable}
-                    canDesign={canDesign}
-                    tableComments={tableComments}
-                  />
-                ))}
-              {cacheReady &&
-                viewMode === "list" &&
-                filteredTables.map((tableName) => (
-                  <TableNameRow
-                    key={tableName}
-                    tableName={tableName}
-                    depth={0}
-                    selected={previewTableName === tableName}
-                    onPreviewTable={handlePreviewTable}
-                    onDesignTable={handleDesignTable}
-                    canDesign={canDesign}
-                    tableComments={tableComments}
-                  />
-                ))}
+              {cacheReady && tableCount > 0 && (
+                <table className="db-tables-panel-grid">
+                  <thead>
+                    <tr>
+                      <th
+                        className={sortHeaderClass("name", sort).trim()}
+                        onClick={() => toggleSort("name")}
+                        aria-sort={
+                          sort.column === "name"
+                            ? sort.direction === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        <span className="db-tables-panel-grid__th-label">
+                          {t("database.tablesPanel.columns.name")}
+                          {sort.column === "name" ? (
+                            <span className="db-tables-panel-grid__sort-mark" aria-hidden>
+                              {sort.direction === "asc" ? "↑" : "↓"}
+                            </span>
+                          ) : null}
+                        </span>
+                      </th>
+                      <th>{t("database.tablesPanel.details.comment")}</th>
+                      <th>{t("database.tablesPanel.details.engine")}</th>
+                      <th
+                        className={sortHeaderClass("data", sort).trim()}
+                        onClick={() => toggleSort("data")}
+                        aria-sort={
+                          sort.column === "data"
+                            ? sort.direction === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        <span className="db-tables-panel-grid__th-label">
+                          {t("database.tablesPanel.details.data")}
+                          {sort.column === "data" ? (
+                            <span className="db-tables-panel-grid__sort-mark" aria-hidden>
+                              {sort.direction === "asc" ? "↑" : "↓"}
+                            </span>
+                          ) : null}
+                        </span>
+                      </th>
+                      <th>{t("database.tablesPanel.details.rowFormat")}</th>
+                      <th>{t("database.tablesPanel.details.collation")}</th>
+                      {canDesign ? <th className="db-tables-panel-grid__actions-col" aria-label={t("database.contextMenu.designTable")} /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedTables.map((tableName) => {
+                      const entry = detailsByTable[tableName];
+                      const fallbackComment = tableComments.get(tableName);
+                      const selected = selectedTableName === tableName;
+                      const comment =
+                        entry?.status === "loaded"
+                          ? displayDetailValue(
+                              entry.details.comment ?? fallbackComment ?? null,
+                            )
+                          : entry?.status === "loading"
+                            ? loadingLabel
+                            : displayDetailValue(fallbackComment);
+                      return (
+                        <tr
+                          key={tableName}
+                          className={selected ? "is-selected" : undefined}
+                          onClick={() => setSelectedTableName(tableName)}
+                        >
+                          <td className="db-tables-panel-grid__name" title={tableName}>
+                            {tableName}
+                          </td>
+                          <td title={comment}>{comment}</td>
+                          <td>
+                            {resolveDetailCell(
+                              entry,
+                              (details) => displayDetailValue(details.engine ?? null),
+                              loadingLabel,
+                            )}
+                          </td>
+                          <td>
+                            {resolveDetailCell(
+                              entry,
+                              (details) =>
+                                formatTableDataSummary(
+                                  details.rowCount ?? null,
+                                  details.dataLength ?? null,
+                                ),
+                              loadingLabel,
+                            )}
+                          </td>
+                          <td>
+                            {resolveDetailCell(
+                              entry,
+                              (details) => displayDetailValue(details.rowFormat ?? null),
+                              loadingLabel,
+                            )}
+                          </td>
+                          <td>
+                            {resolveDetailCell(
+                              entry,
+                              (details) => displayDetailValue(details.collation ?? null),
+                              loadingLabel,
+                            )}
+                          </td>
+                          {canDesign ? (
+                            <td className="db-tables-panel-grid__actions-col">
+                              <button
+                                type="button"
+                                className="btn-icon db-tables-panel-design-btn"
+                                title={t("database.contextMenu.designTable")}
+                                aria-label={t("database.contextMenu.designTable")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDesignTable(tableName);
+                                }}
+                              >
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                                  <path d="M5 8h6M8 5v6" />
+                                </svg>
+                              </button>
+                            </td>
+                          ) : null}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+              {cacheReady && tableCount > 0 && filteredTables.length === 0 && (
+                <div className="db-tables-panel-empty">{t("database.tablesPanel.noResults")}</div>
+              )}
             </div>
           </DockPanel>
           <DockHandle direction="horizontal" />
-          <DockPanel defaultSize="60%" minSize="25%" className="db-tables-panel-ddl-pane">
+          <DockPanel defaultSize="30%" minSize="20%" className="db-tables-panel-ddl-pane">
             <div className="db-tables-panel-ddl">
-              {!previewTableName ? (
+              {!selectedTableName ? (
                 <div className="db-tables-panel-ddl-empty">
                   {t("database.tablesPanel.ddlEmpty")}
                 </div>
               ) : (
                 <>
                   <div className="db-tables-panel-ddl-header">
-                    <span className="db-tables-panel-ddl-title">{previewTableName}</span>
+                    <span className="db-tables-panel-ddl-title">{selectedTableName}</span>
                     <button
                       type="button"
                       className="btn-icon db-tables-panel-ddl-copy"
@@ -455,12 +505,6 @@ export function DatabaseTablesPanel({
                       </svg>
                     </button>
                   </div>
-                  <TableDetailsSummary
-                    details={tableDetails}
-                    loading={detailsLoading}
-                    error={detailsError}
-                    fallbackComment={tableComments.get(previewTableName)}
-                  />
                   <div className="db-tables-panel-ddl-content">
                     {ddlLoading && (
                       <div className="db-tables-panel-ddl-status">{t("database.tablesPanel.ddlLoading")}</div>
@@ -480,30 +524,6 @@ export function DatabaseTablesPanel({
       </div>
 
       <div className="db-tables-panel-meta">
-        <div className="db-tables-panel-view-toggle" role="group" aria-label={t("database.tablesPanel.viewMode")}>
-          <button
-            type="button"
-            className={`db-tables-panel-view-btn${viewMode === "tree" ? " is-active" : ""}`}
-            title={t("database.tablesPanel.viewTree")}
-            aria-pressed={viewMode === "tree"}
-            onClick={() => setViewMode("tree")}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-              <path d="M2 3h12M2 8h8M2 13h10" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className={`db-tables-panel-view-btn${viewMode === "list" ? " is-active" : ""}`}
-            title={t("database.tablesPanel.viewList")}
-            aria-pressed={viewMode === "list"}
-            onClick={() => setViewMode("list")}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-              <path d="M2 4h12M2 8h12M2 12h12" />
-            </svg>
-          </button>
-        </div>
         <span className="db-tables-panel-meta-text">
           {!cacheReady
             ? t("database.tablesPanel.cacheEmpty")

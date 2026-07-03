@@ -103,6 +103,7 @@ import {
   findTabIdForSyncTask,
   syncTaskDockTabId,
   makeTableDesignerTabLabel,
+  makeSqlTabLabel,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
   type DbWorkspaceTab,
@@ -148,7 +149,7 @@ import {
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
-import { formatFilterWhere } from "./grid/tablePreviewFilter";
+import { buildSelectAllFromTableSql, formatFilterWhere } from "./grid/tablePreviewFilter";
 import type { RuleGroupType } from "react-querybuilder";
 import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
@@ -2812,6 +2813,34 @@ export function DatabasePanel() {
     [workspaceTabs],
   );
 
+  const openTableQuery = useCallback(
+    (selection: SchemaTableSelection) => {
+      const { connId, dbName, tableName, connection } = selection;
+      const sql = buildSelectAllFromTableSql(connection.db_type, tableName);
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const tabId = makeSqlTabId();
+      const sqlTabCount = moduleTabs.filter((item) => item.kind === "sql").length + 1;
+      const tab: SqlWorkspaceTab = {
+        id: tabId,
+        kind: "sql",
+        label: makeSqlTabLabel(sqlTabCount),
+      };
+      setSqlTabStates((prev) => ({
+        ...prev,
+        [tabId]: {
+          ...createDefaultSqlTabState(dbName, connId),
+          sql,
+          cursorOffset: sql.length,
+        },
+      }));
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+      setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
+      setActiveConnIdIfChanged(connId);
+    },
+    [activateWorkspaceTab, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
+  );
+
   const buildSchemaContextMenuItems = useCallback(
     (item: SchemaTreeItem, context: SchemaContextMenuContext): ContextMenuItem[] => {
       const copyIcon = (
@@ -3904,6 +3933,8 @@ export function DatabasePanel() {
         resolveConnection,
         connectionsLoading,
         selectTable: handleSelectTable,
+        openTableDesigner: handleDesignTable,
+        openTableQuery,
         setTabMode: (id: string, mode: "data" | "sql") =>
           useDbWorkspaceTabStore.getState().setTabMode(id, mode),
         commitTabDirty,
@@ -3945,6 +3976,8 @@ export function DatabasePanel() {
     resolveConnection,
     connectionsLoading,
     handleSelectTable,
+    handleDesignTable,
+    openTableQuery,
     commitTabDirty,
     sqlConnections,
     groupConnections,

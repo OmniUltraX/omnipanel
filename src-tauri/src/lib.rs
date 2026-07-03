@@ -423,7 +423,6 @@ pub fn run() {
             let pool_storage = app_state.storage.clone();
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();
-            let app_handle = app.handle().clone();
             app.manage(app_state);
 
             // Try to auto-register Ollama provider (silent skip if unavailable)

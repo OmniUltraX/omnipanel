@@ -89,13 +89,3 @@ fn find_agent_status(agent_kind: &str) -> Result<AgentInstallStatus, String> {
         .find(|s| agent_kind_key(s.kind) == key)
         .ok_or_else(|| format!("未找到 Agent: {agent_kind}"))
 }
-
-pub fn agent_kind_label(kind: &str) -> String {
-    match kind.to_ascii_lowercase().as_str() {
-        "cursor" => "Cursor Agent".to_string(),
-        "opencode" => "OpenCode".to_string(),
-        "qwen" => "Qwen Code".to_string(),
-        "omniagent" => "OmniAgent".to_string(),
-        other => other.to_string(),
-    }
-}

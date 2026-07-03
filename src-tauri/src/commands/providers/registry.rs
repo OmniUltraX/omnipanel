@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
-use omnipanel_store::{Vault, ai_config_dir, ai_providers_path, cli_providers_path};
+use omnipanel_store::{ai_config_dir, ai_providers_path, cli_providers_path};
 
 use crate::commands::agents::{agent_kind_key, detect_all_agents_sync, AgentKind};
 use crate::state::AppState;
@@ -82,10 +82,6 @@ pub struct ProvidersFile {
 
 fn default_version() -> u32 {
     PROVIDERS_VERSION
-}
-
-fn api_key_ref(provider_id: &str) -> String {
-    format!("ai_provider:{provider_id}:api_key")
 }
 
 pub fn load_providers_file() -> Result<ProvidersFile, String> {
@@ -591,24 +587,6 @@ fn discover_models_cmd(command: &str, args: &[String]) -> Result<Vec<String>, St
     } else {
         Ok(from_stderr)
     }
-}
-
-pub fn http_provider_api_key(provider_id: &str) -> Result<Option<String>, String> {
-    let reference = api_key_ref(provider_id);
-    match Vault::get(&reference) {
-        Ok(key) if !key.trim().is_empty() => Ok(Some(key)),
-        Ok(_) => Ok(None),
-        Err(_) => Ok(None),
-    }
-}
-
-pub fn http_provider_set_api_key(provider_id: &str, api_key: &str) -> Result<(), String> {
-    let reference = api_key_ref(provider_id);
-    if api_key.trim().is_empty() {
-        let _ = Vault::delete(&reference);
-        return Ok(());
-    }
-    Vault::store(&reference, api_key).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
