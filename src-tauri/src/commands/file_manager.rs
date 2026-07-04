@@ -408,6 +408,7 @@ async fn ssh_config_from_file_conn(
         port,
         user: cfg.user.clone(),
         auth,
+        public_ip: None,
     })
 }
 
@@ -1678,4 +1679,12 @@ pub async fn file_local_quick_paths() -> Result<FileQuickPaths, OmniError> {
         documents: home.join("Documents").to_string_lossy().into_owned(),
         downloads: home.join("Downloads").to_string_lossy().into_owned(),
     })
+}
+
+/// 获取本机临时目录路径。
+#[tauri::command]
+#[specta::specta]
+pub async fn file_local_temp_dir() -> Result<String, OmniError> {
+    let temp_dir = std::env::temp_dir();
+    Ok(temp_dir.to_string_lossy().into_owned())
 }

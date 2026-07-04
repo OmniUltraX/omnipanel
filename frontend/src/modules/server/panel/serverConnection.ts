@@ -33,6 +33,7 @@ export interface SshConfigJson {
   user: string;
   auth: SshAuthJson;
   panelConnectionId?: string;
+  publicIp?: string;
 }
 
 export interface UnifiedServerFormData {
@@ -105,6 +106,7 @@ export function parseSshConfig(connection: Connection): SshConfigJson | null {
       user: cfg.user,
       auth,
       panelConnectionId: cfg.panelConnectionId,
+      publicIp: cfg.publicIp,
     };
   } catch {
     return null;

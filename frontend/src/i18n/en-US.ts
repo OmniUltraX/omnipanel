@@ -483,6 +483,7 @@ export const enUS: TranslationDict = {
       restore: "Restore",
       close: "Close",
       closeCurrent: "Close Current",
+      refresh: "Refresh",
       closeLeft: "Close Left",
       closeRight: "Close Right",
       closeOthers: "Close Others",

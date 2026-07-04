@@ -70,6 +70,8 @@ pub struct SshConfig {
     pub port: u16,
     pub user: String,
     pub auth: SshAuth,
+    #[serde(default)]
+    pub public_ip: Option<String>,
 }
 
 fn private_key_candidates_from_auth(

@@ -479,6 +479,7 @@ export const zhCN = {
       restore: "还原",
       close: "关闭",
       closeCurrent: "关闭当前",
+      refresh: "刷新",
       closeLeft: "关闭左侧",
       closeRight: "关闭右侧",
       closeOthers: "关闭其他",

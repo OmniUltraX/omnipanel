@@ -76,6 +76,13 @@ pub fn ssh_config_from_json(
         .unwrap_or("root")
         .to_string();
 
+    let public_ip = value
+        .get("publicIp")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string);
+
     if let Some(auth) = value.get("auth").filter(|a| a.is_object()) {
         if is_password_auth_intent(auth) {
             let password = password_from_auth_value(auth)
@@ -86,6 +93,7 @@ pub fn ssh_config_from_json(
                 port,
                 user,
                 auth: SshAuth::Password { password },
+                public_ip,
             });
         }
     }

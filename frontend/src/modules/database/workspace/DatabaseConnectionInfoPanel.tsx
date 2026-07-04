@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { join, tempDir } from "@tauri-apps/api/path";
+import { commands } from "../../ipc/bindings";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -628,8 +628,8 @@ export function DatabaseConnectionInfoPanel({
         return;
       }
       const content = await readMysqlConfig(path, deployment);
-      const tmpDir = await tempDir();
-      const tmpPath = await join(tmpDir, `omnipanel_mysql_cfg_${Date.now()}.cnf`);
+      const tmpDir = await commands.fileLocalTempDir();
+      const tmpPath = `${tmpDir}/omnipanel_mysql_cfg_${Date.now()}.cnf`;
       const writeRes = await commands.writeTextFile(tmpPath, content);
       if (writeRes.status !== "ok") {
         throw new Error(writeRes.error ?? "写入临时文件失败");

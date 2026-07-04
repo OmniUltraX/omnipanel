@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::future::join_all;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
@@ -14,6 +14,7 @@ use omnipanel_ssh::{
 use omnipanel_store::Connection;
 use omnipanel_store::{ConnectionKind, Storage, Vault};
 use serde::Serialize;
+use serde_json;
 use specta::Type;
 use tauri::Emitter;
 use tokio::sync::Mutex;
@@ -166,13 +167,14 @@ pub struct SshPool {
     ports_fill_inflight: Arc<Mutex<HashSet<String>>>,
     monitoring_subs: Arc<Mutex<HashMap<String, u32>>>,
     app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
+    storage: Arc<Mutex<Storage>>,
     log: LogStore,
     background_started: AtomicBool,
 }
 
 #[allow(dead_code)]
 impl SshPool {
-    pub fn new(log: LogStore, pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>) -> Self {
+    pub fn new(log: LogStore, pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>, storage: Arc<Mutex<Storage>>) -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
@@ -180,6 +182,7 @@ impl SshPool {
             ports_fill_inflight: Arc::new(Mutex::new(HashSet::new())),
             monitoring_subs: Arc::new(Mutex::new(HashMap::new())),
             app_handle: Arc::new(Mutex::new(None)),
+            storage,
             log,
             background_started: AtomicBool::new(false),
         }
@@ -253,6 +256,7 @@ impl SshPool {
                         auth: SshAuth::Password {
                             password: String::new(),
                         },
+                        public_ip: None,
                     },
                 },
             );
@@ -679,12 +683,30 @@ impl SshPool {
             }
         }
 
-        let (name, config) = self.resolve_connect_config(resource_id).await?;
+        let (name, mut config) = self.resolve_connect_config(resource_id).await?;
         self.log
             .log("ssh-pool", "info", &format!("正在建立 SSH 会话: {name}…"))
             .await;
 
-        let session = Arc::new(SshSession::connect_no_shell(config).await?);
+        let session = Arc::new(SshSession::connect_no_shell(config.clone()).await?);
+
+        if config.public_ip.is_none() {
+            match session.exec_command("curl -s sb.ip").await {
+                Ok(output) => {
+                    let public_ip = output.trim().to_string();
+                    if !public_ip.is_empty() && public_ip.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':') {
+                        config.public_ip = Some(public_ip.clone());
+                        self.log
+                            .log("ssh-pool", "info", &format!("获取公网 IP: {public_ip}"))
+                            .await;
+                        self.update_entry_public_ip(resource_id, Some(public_ip)).await;
+                    }
+                }
+                Err(e) => {
+                    warn!("获取公网 IP 失败: {e}");
+                }
+            }
+        }
 
         let mut pool = self.pool_sessions.lock().await;
         if let Some(existing) = pool.get(resource_id) {
@@ -696,6 +718,32 @@ impl SshPool {
             .await;
         self.emit_session(resource_id, true).await;
         Ok(session)
+    }
+
+    async fn update_entry_public_ip(&self, resource_id: &str, public_ip: Option<String>) {
+        let mut entries = self.entries.lock().await;
+        if let Some(entry) = entries.get_mut(resource_id) {
+            entry.config.public_ip = public_ip.clone();
+        }
+
+        let storage = self.storage.lock().await;
+        if let Ok(Some(mut conn)) = storage.get_connection(resource_id) {
+            if let Ok(mut config_json) = serde_json::from_str::<serde_json::Value>(&conn.config) {
+                if let Some(public_ip) = &public_ip {
+                    config_json["publicIp"] = serde_json::Value::String(public_ip.clone());
+                } else {
+                    config_json["publicIp"] = serde_json::Value::Null;
+                }
+                if let Ok(new_config) = serde_json::to_string(&config_json) {
+                    conn.config = new_config;
+                    conn.updated_at = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let _ = storage.save_connection(&conn);
+                }
+            }
+        }
     }
 
     /// 断开并移除连接池中的 SSH 会话。

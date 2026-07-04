@@ -131,7 +131,7 @@ impl AppState {
     ) -> Self {
         let log_store = LogStore::new(500);
         let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
-        let ssh_pool = Arc::new(SshPool::new(log_store.clone(), ssh_pool_sessions.clone()));
+        let ssh_pool = Arc::new(SshPool::new(log_store.clone(), ssh_pool_sessions.clone(), storage.clone()));
 
         let mut engine = ExecutionEngine::new();
         let shell = Arc::new(ShellExecutor);

@@ -546,6 +546,15 @@ export function TerminalPanel() {
         setCtxMenu(null);
         return;
       }
+      if (action === "refresh") {
+        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
+        if (sessionId) {
+          useTerminalStore.getState().setBackendSessionId(sessionId, null);
+          useTerminalStore.getState().setStatus(sessionId, "connecting");
+        }
+        setCtxMenu(null);
+        return;
+      }
       if (action === "close") {
         handleCloseTab(ctxMenu.tabId);
       } else if (action === "closeLeft") {
@@ -650,7 +659,7 @@ export function TerminalPanel() {
           visibleTabs.length,
           menuTabIndex >= 0 ? menuTabIndex : 0,
           handleContextAction,
-          { showWorkspaceActions: true },
+          { showWorkspaceActions: true, showRefresh: true },
         );
         const endSessionItem = {
           id: "tab-end-session",

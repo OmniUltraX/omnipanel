@@ -27,14 +27,19 @@ function normalizeHost(host: string): string {
   return host.trim().toLowerCase();
 }
 
-export function hostsMatch(dbHost: string, sshHost: string): boolean {
+export function hostsMatch(dbHost: string, sshHost: string, sshPublicIp?: string): boolean {
   const a = normalizeHost(dbHost);
   const b = normalizeHost(sshHost);
   if (a === b) return true;
-  return LOCALHOST_ALIASES.has(a) && LOCALHOST_ALIASES.has(b);
+  if (LOCALHOST_ALIASES.has(a) && LOCALHOST_ALIASES.has(b)) return true;
+  if (sshPublicIp) {
+    const publicIp = normalizeHost(sshPublicIp);
+    if (a === publicIp) return true;
+  }
+  return false;
 }
 
-/** 按数据库连接 host 查找匹配的 SSH 连接（同主机名 / localhost 等价）。 */
+/** 按数据库连接 host 查找匹配的 SSH 连接（同主机名 / localhost 等价 / publicIp）。 */
 export function findSshConnectionForDbHost(
   sshConnections: Connection[],
   dbHost: string,
@@ -42,7 +47,7 @@ export function findSshConnectionForDbHost(
   return sshConnections.find((conn) => {
     if (conn.kind !== "ssh") return false;
     const cfg = parseSshConfig(conn);
-    return cfg ? hostsMatch(dbHost, cfg.host) : false;
+    return cfg ? hostsMatch(dbHost, cfg.host, cfg.publicIp) : false;
   });
 }
 

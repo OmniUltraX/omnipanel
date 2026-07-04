@@ -395,6 +395,7 @@ pub fn ssh_config_to_connect_config(entry: &SshConfigEntry) -> OmniResult<crate:
             .clone()
             .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into())),
         auth,
+        public_ip: None,
     })
 }
 
