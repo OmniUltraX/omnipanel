@@ -40,3 +40,5 @@ warp/
 
 frontend/tauri-signing.key
 frontend/tauri-signing.key.pub
+
+/omnipanel-miniapp

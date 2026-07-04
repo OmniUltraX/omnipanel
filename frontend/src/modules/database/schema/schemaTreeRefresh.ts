@@ -10,6 +10,12 @@ import type { DbConnectionGroup } from "../../../stores/dbGroupStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";
 import { buildConnectionTreeItem, type SchemaTreeItem } from "./schemaTreeItem";
+import {
+  parseDatabaseNodeId,
+  parseTableNodeId,
+  parseUserNodeId,
+  parseViewNodeId,
+} from "./schemaTreeIds";
 
 export type SchemaNodeRefreshResult =
   | {
@@ -160,6 +166,90 @@ export async function applySchemaNodeRefreshResult(
     }
   }
 
+  return next;
+}
+
+/** 删除 Schema 节点后仅更新本地缓存，避免整连接重新 introspect。 */
+export async function applySchemaNodeDeleteToCache(
+  connId: string,
+  item: SchemaTreeItem,
+  hooks?: SchemaTreeRefreshHooks,
+): Promise<SchemaCacheConnectionEntry> {
+  const store = useDbSchemaCacheStore.getState();
+  const current = store.snapshot.connections[connId] ?? { databases: [] };
+  const refreshedAt = Date.now();
+  let next: SchemaCacheConnectionEntry;
+
+  if (item.type === "database") {
+    const parsed = parseDatabaseNodeId(item.id);
+    const dbName = parsed?.dbName ?? item.dbName?.trim();
+    if (!dbName) {
+      return current;
+    }
+    next = {
+      ...current,
+      databases: current.databases.filter((db) => db.name !== dbName),
+      refreshedAt,
+    };
+    hooks?.syncDatabaseFilter?.(connId, next.databases.map((db) => db.name));
+  } else if (item.type === "table") {
+    const parsed = parseTableNodeId(item.id);
+    const dbName = parsed?.dbName ?? item.dbName?.trim();
+    const tableName = parsed?.tableName ?? item.tableName?.trim();
+    if (!dbName || !tableName) {
+      return current;
+    }
+    next = {
+      ...current,
+      databases: current.databases.map((db) =>
+        db.name !== dbName
+          ? db
+          : { ...db, tables: db.tables.filter((table) => table.name !== tableName) },
+      ),
+      refreshedAt,
+    };
+    const db = next.databases.find((entry) => entry.name === dbName);
+    if (db) {
+      hooks?.syncTableFilter?.(connId, dbName, db.tables.map((table) => table.name));
+    }
+  } else if (item.type === "view") {
+    const parsed = parseViewNodeId(item.id);
+    const dbName = parsed?.dbName ?? item.dbName?.trim();
+    const viewName = parsed?.tableName ?? item.tableName?.trim() ?? item.label.trim();
+    if (!dbName || !viewName) {
+      return current;
+    }
+    next = {
+      ...current,
+      databases: current.databases.map((db) =>
+        db.name !== dbName
+          ? db
+          : { ...db, views: (db.views ?? []).filter((view) => view.name !== viewName) },
+      ),
+      refreshedAt,
+    };
+    const db = next.databases.find((entry) => entry.name === dbName);
+    if (db) {
+      hooks?.syncTableFilter?.(connId, dbName, (db.views ?? []).map((view) => view.name));
+    }
+  } else if (item.type === "user") {
+    const parsed = parseUserNodeId(item.id);
+    if (!parsed) {
+      return current;
+    }
+    next = {
+      ...current,
+      users: (current.users ?? []).filter(
+        (user) => !(user.name === parsed.name && (user.host ?? "") === parsed.host),
+      ),
+      refreshedAt,
+    };
+  } else {
+    return current;
+  }
+
+  await store.patchConnection(connId, next);
+  hooks?.onConnectionPatched?.(connId, next);
   return next;
 }
 

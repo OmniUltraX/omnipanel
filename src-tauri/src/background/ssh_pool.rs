@@ -29,60 +29,142 @@ const PROCESSES_CACHE_TTL: Duration = Duration::from_secs(30);
 const PORTS_CACHE_TTL: Duration = Duration::from_secs(60);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-const STATS_SCRIPT: &str = r#"/bin/bash -lc '
+const STATS_SCRIPT: &str = r#"/bin/bash -c '
+set +e
 sec() { echo "@SECTION $1"; }
+is_darwin() { [ "$(uname -s)" = "Darwin" ]; }
 
 sec load
-awk "{print \$1,\$2,\$3}" /proc/loadavg 2>/dev/null || echo "0 0 0"
+if is_darwin; then
+  sysctl -n vm.loadavg 2>/dev/null | tr -d "{}" || echo "0 0 0"
+else
+  awk "{print \$1,\$2,\$3}" /proc/loadavg 2>/dev/null || echo "0 0 0"
+fi
 
 sec cores
-nproc 2>/dev/null || echo 1
+if is_darwin; then
+  sysctl -n hw.ncpu 2>/dev/null || echo 1
+else
+  nproc 2>/dev/null || echo 1
+fi
 
 sec cpu_stat1
-grep -E "^cpu" /proc/stat 2>/dev/null || true
+if ! is_darwin; then
+  grep -E "^cpu" /proc/stat 2>/dev/null || true
+fi
 sleep 0.25
 sec cpu_stat2
-grep -E "^cpu" /proc/stat 2>/dev/null || true
+if ! is_darwin; then
+  grep -E "^cpu" /proc/stat 2>/dev/null || true
+fi
 
 sec mem
-awk "/^MemTotal:/ {t=\$2*1024} /^MemAvailable:/ {a=\$2*1024} END {u=t-a; if(u<0)u=0; print t,u,a}" /proc/meminfo 2>/dev/null || echo "0 0 0"
+if is_darwin; then
+  pages=$(sysctl -n hw.pagesize 2>/dev/null || echo 4096)
+  total=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+  vm=$(vm_stat 2>/dev/null)
+  free=$(echo "$vm" | awk "/Pages free/ {gsub(/\\./,\"\", \$3); print \$3+0}")
+  inactive=$(echo "$vm" | awk "/Pages inactive/ {gsub(/\\./,\"\", \$3); print \$3+0}")
+  speculative=$(echo "$vm" | awk "/Pages speculative/ {gsub(/\\./,\"\", \$3); print \$3+0}")
+  avail=$(( (free + inactive + speculative) * pages ))
+  used=$(( total - avail ))
+  if [ "$used" -lt 0 ]; then used=0; fi
+  echo "$total $used $avail"
+else
+  awk "/^MemTotal:/ {t=\$2*1024} /^MemAvailable:/ {a=\$2*1024} END {u=t-a; if(u<0)u=0; print t,u,a}" /proc/meminfo 2>/dev/null || echo "0 0 0"
+fi
 
 sec swap
-awk "/^SwapTotal:/ {t=\$2*1024} /^SwapFree:/ {f=\$2*1024} END {u=t-f; if(u<0)u=0; print t,u,f}" /proc/meminfo 2>/dev/null || echo "0 0 0"
+if is_darwin; then
+  sysctl -n vm.swapusage 2>/dev/null | awk "{
+    t=0; u=0; f=0
+    for(i=1;i<=NF;i++) {
+      if(\$i==\"total\") { gsub(/M/,\"\", \$(i+2)); t=\$(i+2)*1048576 }
+      if(\$i==\"used\") { gsub(/M/,\"\", \$(i+2)); u=\$(i+2)*1048576 }
+      if(\$i==\"free\") { gsub(/M/,\"\", \$(i+2)); f=\$(i+2)*1048576 }
+    }
+    print int(t), int(u), int(f)
+  }" || echo "0 0 0"
+else
+  awk "/^SwapTotal:/ {t=\$2*1024} /^SwapFree:/ {f=\$2*1024} END {u=t-f; if(u<0)u=0; print t,u,f}" /proc/meminfo 2>/dev/null || echo "0 0 0"
+fi
 
 sec disks
-df -B1 -P -T 2>/dev/null | awk "NR>1 {
-  dev=\$1; fs=\$2; total=\$3; used=\$4; avail=\$5;
-  mount=\$7; for(i=8;i<=NF;i++) mount=mount\" \"\$i;
-  print dev \"\\t\" mount \"\\t\" fs \"\\t\" total \"\\t\" used \"\\t\" avail
-}" || true
+if is_darwin; then
+  df -k 2>/dev/null | awk "NR>1 && \$1 ~ /^\// {
+    total=\$2*1024; used=\$3*1024; avail=\$4*1024;
+    if(total>0) print \$1 \"\\t\" \$NF \"\\tapfs\\t\" total \"\\t\" used \"\\t\" avail
+  }" || true
+else
+  df -B1 -P -T 2>/dev/null | awk "NR>1 {
+    dev=\$1; fs=\$2; total=\$3; used=\$4; avail=\$5;
+    mount=\$7; for(i=8;i<=NF;i++) mount=mount\" \"\$i;
+    print dev \"\\t\" mount \"\\t\" fs \"\\t\" total \"\\t\" used \"\\t\" avail
+  }" || true
+fi
 
 sec net
-awk "NR>2 {rx+=\$2; tx+=\$10} END{print rx, tx}" /proc/net/dev 2>/dev/null || echo "0 0"
+if is_darwin; then
+  netstat -ib 2>/dev/null | awk "NR>1 && \$1 != \"Name\" && \$1 !~ /^lo/ { rx+=\$7; tx+=\$10 } END { print rx+0, tx+0 }" || echo "0 0"
+else
+  awk "NR>2 {rx+=\$2; tx+=\$10} END{print rx, tx}" /proc/net/dev 2>/dev/null || echo "0 0"
+fi
 
 sec net_if
-awk "NR>2 && (\$2+\$10)>max {max=\$2+\$10; iface=\$1} END {gsub(/:/,\"\",iface); print iface}" /proc/net/dev 2>/dev/null || true
+if is_darwin; then
+  route -n get default 2>/dev/null | awk "/interface: / {print \$2; exit}" || true
+else
+  awk "NR>2 && (\$2+\$10)>max {max=\$2+\$10; iface=\$1} END {gsub(/:/,\"\",iface); print iface}" /proc/net/dev 2>/dev/null || true
+fi
 
 sec conn_count
-(ss -Htan state established 2>/dev/null || netstat -tan 2>/dev/null | grep ESTABLISHED) | wc -l | tr -d " " || echo 0
+(ss -Htan state established 2>/dev/null || netstat -an 2>/dev/null | grep ESTABLISHED) | wc -l | tr -d " " || echo 0
 
 sec uptime
-awk "{print int(\$1)}" /proc/uptime 2>/dev/null || echo 0
+if is_darwin; then
+  boot=$(sysctl -n kern.boottime 2>/dev/null | awk "{print \$4}")
+  now=$(date +%s 2>/dev/null)
+  if [ -n "$boot" ] && [ -n "$now" ]; then echo $((now - boot)); else echo 0; fi
+else
+  awk "{print int(\$1)}" /proc/uptime 2>/dev/null || echo 0
+fi
 
 sec mem_detail
-awk "/^Cached:/ {c=\$2*1024} /^Buffers:/ {b=\$2*1024} END {print c+0,b+0}" /proc/meminfo 2>/dev/null || echo "0 0"
+if is_darwin; then
+  echo "0 0"
+else
+  awk "/^Cached:/ {c=\$2*1024} /^Buffers:/ {b=\$2*1024} END {print c+0,b+0}" /proc/meminfo 2>/dev/null || echo "0 0"
+fi
 
 sec diskio
-awk "NR>2 {r+=\$6; w+=\$10} END {print r*512, w*512}" /proc/diskstats 2>/dev/null || echo "0 0"
+if is_darwin; then
+  echo "0 0"
+else
+  awk "NR>2 {r+=\$6; w+=\$10} END {print r*512, w*512}" /proc/diskstats 2>/dev/null || echo "0 0"
+fi
 
 sec cpu_freq
-awk -F: "/cpu MHz/ {gsub(/ /,\"\",\$2); print \$2; exit}" /proc/cpuinfo 2>/dev/null || true
+if ! is_darwin; then
+  awk -F: "/cpu MHz/ {gsub(/ /,\"\",\$2); print \$2; exit}" /proc/cpuinfo 2>/dev/null || true
+fi
 
 sec cpu_temp
-if [ -r /sys/class/thermal/thermal_zone0/temp ]; then awk "{printf \"%.0f\\n\", \$1/1000}" /sys/class/thermal/thermal_zone0/temp; fi
+if ! is_darwin && [ -r /sys/class/thermal/thermal_zone0/temp ]; then
+  awk "{printf \"%.0f\\n\", \$1/1000}" /sys/class/thermal/thermal_zone0/temp
+fi
 
 sec os
-grep "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d\" -f2 || uname -sr
+if is_darwin; then
+  pn=$(sw_vers -productName 2>/dev/null)
+  pv=$(sw_vers -productVersion 2>/dev/null)
+  if [ -n "$pn" ] && [ -n "$pv" ]; then
+    echo "$pn $pv"
+  else
+    uname -sr
+  fi
+else
+  grep "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d\" -f2 || uname -sr
+fi
 
 sec gpu_nvidia
 if command -v nvidia-smi >/dev/null 2>&1; then
@@ -98,6 +180,8 @@ sec gpu_intel
 if command -v lspci >/dev/null 2>&1; then
   lspci 2>/dev/null | grep -iE "VGA|3D|Display" | grep -i intel || true
 fi
+
+exit 0
 '"#;
 
 // ── Status event ─────────────────────────────────────────────────────────

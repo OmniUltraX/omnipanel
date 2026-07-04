@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import type { DbConnectionConfig } from "../api";
 import {
@@ -6,7 +6,7 @@ import {
   readMysqlSlowLogTail,
 } from "../mysqlSlowQueryLog";
 
-const SLOW_LOG_CHUNK = 4 * 1024;
+const SLOW_LOG_CHUNK = 16 * 1024;
 const SLOW_LOG_MAX_CHUNKS = 100;
 const SLOW_LOG_MAX_BYTES = SLOW_LOG_CHUNK * SLOW_LOG_MAX_CHUNKS;
 
@@ -228,12 +228,26 @@ export function DatabaseSlowQueryLogPanel({
   const [loadedBytes, setLoadedBytes] = useState(0);
   const loadedBytesRef = useRef(0);
   const loadingRef = useRef(false);
+  const scrollRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const cacheKey = `${sshConnectionId}::${logFilePath}`;
 
   const loadTail = useCallback(
-    async (bytesFromEnd: number) => {
+    async (bytesFromEnd: number, options?: { resetScroll?: boolean }) => {
       if (loadingRef.current) return;
+      const el = bodyRef.current;
+      const previousLoadedBytes = loadedBytesRef.current;
+      const isLoadMore = previousLoadedBytes > 0 && bytesFromEnd > previousLoadedBytes;
+      if (isLoadMore && el && !options?.resetScroll) {
+        scrollRestoreRef.current = {
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+        };
+      } else {
+        scrollRestoreRef.current = null;
+      }
+
       loadingRef.current = true;
       setLoading(true);
       setError(null);
@@ -291,11 +305,14 @@ export function DatabaseSlowQueryLogPanel({
   // 刷新：清除缓存并重新加载初始块
   const handleRefresh = useCallback(() => {
     slowLogCache.delete(cacheKey);
-    void loadTail(SLOW_LOG_CHUNK);
+    scrollRestoreRef.current = null;
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
+    }
+    void loadTail(SLOW_LOG_CHUNK, { resetScroll: true });
   }, [cacheKey, loadTail]);
 
   // 无限滚动加载
-  const bodyRef = useRef<HTMLDivElement>(null);
   const canLoadMore = fileSize !== null && loadedBytes < fileSize && loadedBytes < SLOW_LOG_MAX_BYTES;
 
   const handleScroll = useCallback(() => {
@@ -318,6 +335,17 @@ export function DatabaseSlowQueryLogPanel({
     const parsed = parseSlowQueryLog(text);
     return mergeConsecutiveEntries(parsed.reverse());
   }, [text]);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    const anchor = scrollRestoreRef.current;
+    if (!el || !anchor) return;
+    scrollRestoreRef.current = null;
+    el.scrollTop = anchor.scrollTop;
+  }, [text, entries.length]);
+
+  const showInitialLoading = loading && entries.length === 0;
+  const showLoadMoreLoading = loading && entries.length > 0;
 
   const footer = (
     <span className="db-slow-log-panel__meta">
@@ -355,15 +383,21 @@ export function DatabaseSlowQueryLogPanel({
         onScroll={handleScroll}
       >
         <div className="db-slow-log-panel__list">
-          {loading && (
+          {showInitialLoading && (
             <div className="db-slow-log-panel__loading">{t("database.slowQueryLog.loading")}</div>
           )}
           {error && <div className="db-slow-log-panel__error">{error}</div>}
-          {!loading && !error && entries.length === 0 && (
+          {!showInitialLoading && !error && entries.length === 0 && (
             <div className="db-slow-log-panel__empty">{t("database.slowQueryLog.empty")}</div>
           )}
-          {!loading &&
-            entries.map((entry, idx) => <SlowQueryCard key={idx} entry={entry} />)}
+          {entries.map((entry, idx) => (
+            <SlowQueryCard key={`${entry.time}:${entry.sql.slice(0, 48)}:${idx}`} entry={entry} />
+          ))}
+          {showLoadMoreLoading && (
+            <div className="db-slow-log-panel__loading db-slow-log-panel__loading--more">
+              {t("database.slowQueryLog.loading")}
+            </div>
+          )}
         </div>
       </div>
 

@@ -3,6 +3,7 @@ import { commands } from "../../ipc/bindings";
 import type { Connection } from "../../ipc/bindings";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { useSshConnectionStore } from "../../stores/sshConnectionStore";
+import { forceReleaseSshPoolSession } from "../../stores/sshPoolSessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import type { DbConnectionConfig } from "./api";
 import { isMysqlConnectionInfoCapable } from "./api";
@@ -34,6 +35,7 @@ function isDomainName(host: string): boolean {
   return /[a-zA-Z]/.test(h);
 }
 
+/** 第一步：直接匹配 SSH Host 或 PublicIP（含 localhost 别名互通）。 */
 export function hostsMatch(dbHost: string, sshHost: string, sshPublicIp?: string): boolean {
   const a = normalizeHost(dbHost);
   const b = normalizeHost(sshHost);
@@ -46,7 +48,7 @@ export function hostsMatch(dbHost: string, sshHost: string, sshPublicIp?: string
   return false;
 }
 
-/** 同步的快速匹配（不解析域名），用于无法 await 的上下文。 */
+/** 同步的快速匹配（仅第一步，不解析域名），用于无法 await 的上下文。 */
 export function findSshConnectionForDbHostSync(
   sshConnections: Connection[],
   dbHost: string,
@@ -58,7 +60,33 @@ export function findSshConnectionForDbHostSync(
   });
 }
 
-/** 按数据库 host 查找匹配的 SSH 连接。先做直接匹配，失败时自动解析域名后重试。 */
+/** 同步匹配并返回对应 SSH 连接的 Host（未匹配时返回 undefined）。 */
+export function getMatchedSshHostSync(
+  sshConnections: Connection[],
+  dbHost: string,
+): string | undefined {
+  const ssh = findSshConnectionForDbHostSync(sshConnections, dbHost);
+  if (!ssh) return undefined;
+  return parseSshConfig(ssh)?.host;
+}
+
+async function resolveHostAddresses(host: string, cache: Map<string, string[]>): Promise<string[]> {
+  const cached = cache.get(host);
+  if (cached) return cached;
+  try {
+    const addrs = await invoke<string[]>("resolve_host", { host });
+    cache.set(host, addrs);
+    return addrs;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 按数据库 host 查找匹配的 SSH 连接：
+ * 1. 直接匹配 SSH Host 或 PublicIP
+ * 2. 未命中时，解析 SSH Host 为域名的项，用其 IP 与数据库 host 比对
+ */
 export async function findSshConnectionForDbHost(
   sshConnections: Connection[],
   dbHost: string,
@@ -66,44 +94,59 @@ export async function findSshConnectionForDbHost(
   const matched = findSshConnectionForDbHostSync(sshConnections, dbHost);
   if (matched) return matched;
 
-  const needResolve = (h: string) => isDomainName(h) && !LOCALHOST_ALIASES.has(normalizeHost(h));
+  const normalizedDbHost = normalizeHost(dbHost);
   const resolvedCache = new Map<string, string[]>();
-
-  async function resolve(h: string): Promise<string[]> {
-    const cached = resolvedCache.get(h);
-    if (cached) return cached;
-    try {
-      const addrs = await invoke<string[]>("resolve_host", { host: h });
-      resolvedCache.set(h, addrs);
-      return addrs;
-    } catch {
-      return [];
-    }
-  }
-
-  const dbResolved: string[] = needResolve(dbHost) ? await resolve(dbHost) : [normalizeHost(dbHost)];
 
   for (const conn of sshConnections) {
     if (conn.kind !== "ssh") continue;
     const cfg = parseSshConfig(conn);
-    if (!cfg) continue;
-    let sshCandidates: string[] = [normalizeHost(cfg.host)];
-    if (cfg.publicIp) {
-      sshCandidates.push(normalizeHost(cfg.publicIp));
-    }
-    if (needResolve(cfg.host)) {
-      sshCandidates = [...sshCandidates, ...(await resolve(cfg.host))];
-    }
-    sshCandidates = [...new Set(sshCandidates)];
+    if (!cfg || !isDomainName(cfg.host)) continue;
 
-    for (const a of dbResolved) {
-      for (const b of sshCandidates) {
-        if (a === b) return conn;
+    const resolved = await resolveHostAddresses(cfg.host, resolvedCache);
+    for (const addr of resolved) {
+      if (normalizeHost(addr) === normalizedDbHost) {
+        return conn;
       }
     }
   }
 
   return undefined;
+}
+
+function isRemoteDbConnection(connection: Pick<DbConnectionConfig, "host" | "db_type" | "enabled">): boolean {
+  if (connection.enabled === false) return false;
+  const dbType = connection.db_type.toLowerCase();
+  if (dbType === "sqlite" || dbType === "sqlite3") return false;
+  const host = connection.host.trim();
+  if (!host || LOCALHOST_ALIASES.has(host.toLowerCase())) return false;
+  return true;
+}
+
+/** 刷新本地缓存前，释放并重新建立与数据库 host 对应的 SSH 连接池会话。 */
+export async function reestablishSshForDbConnection(
+  connection: Pick<DbConnectionConfig, "host" | "db_type" | "enabled">,
+  sshConnections: Connection[],
+): Promise<void> {
+  if (!isRemoteDbConnection(connection)) return;
+
+  const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
+  if (!ssh) return;
+
+  forceReleaseSshPoolSession(ssh.id);
+  try {
+    await commands.sshPoolRelease(ssh.id);
+  } catch {
+    // 忽略释放失败，后续仍会尝试重建
+  }
+
+  try {
+    const res = await commands.sshPoolFetchStats(ssh.id);
+    if (res.status !== "ok") {
+      throw new Error(res.error.message);
+    }
+  } catch {
+    await commands.sshConnectConnection(ssh.id, 80, 24).catch(() => {});
+  }
 }
 
 function remotePaneConnected(resourceId: string): boolean {
@@ -142,13 +185,54 @@ async function queryMysqlVariables(
     runId: makeQueryRunId(),
   });
   const rows = rowsToRecord(queryResult.columns, queryResult.rows);
-  const slowLog = String(rows.find((row) => row.Variable_name === "slow_query_log")?.Value ?? "");
-  const logFile = String(rows.find((row) => row.Variable_name === "slow_query_log_file")?.Value ?? "");
-  const slowLogOn = slowLog === "ON" || slowLog === "1" || slowLog.toLowerCase() === "yes";
-  return { slowLogOn, logFilePath: logFile.trim() };
+  const read = (name: string) =>
+    String(rows.find((row) => row.Variable_name === name)?.Value ?? "").trim();
+  const rawSlowLog = read("slow_query_log");
+  const rawLogFile = read("slow_query_log_file");
+  const slowLogOn =
+    rawSlowLog === "ON" ||
+    rawSlowLog === "1" ||
+    rawSlowLog.toLowerCase() === "yes" ||
+    rawSlowLog.toLowerCase() === "true";
+  return { slowLogOn, logFilePath: rawLogFile };
 }
 
-/** 同步部分：仅根据 MySQL 类型、SSH 匹配与会话状态判断（不含慢日志开关探测）。 */
+async function ensureSshSessionForSlowLog(
+  _connection: DbConnectionConfig,
+  _sshConnections: Connection[],
+  sshConnectionId: string,
+): Promise<boolean> {
+  if (isSshConnectionEstablished(sshConnectionId)) {
+    return true;
+  }
+
+  try {
+    const res = await commands.sshPoolFetchStats(sshConnectionId);
+    if (res.status === "ok") {
+      return true;
+    }
+  } catch {
+    // 回退终端连接
+  }
+
+  try {
+    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24);
+    if (res.status === "ok") {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  return isSshConnectionEstablished(sshConnectionId);
+}
+
+function isRemoteMysqlHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return Boolean(normalized) && !LOCALHOST_ALIASES.has(normalized);
+}
+
+/** 同步部分：MySQL 远程连接在异步 SSH 解析完成前返回 checking。 */
 export function resolveSlowLogAvailabilitySync(
   connection: DbConnectionConfig,
   sshConnections: Connection[],
@@ -156,13 +240,15 @@ export function resolveSlowLogAvailabilitySync(
   if (!isMysqlConnectionInfoCapable(connection)) {
     return { enabled: false, reason: "not_mysql" };
   }
+
   const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
   if (!ssh) {
+    if (isRemoteMysqlHost(connection.host)) {
+      return { enabled: false, reason: "checking" };
+    }
     return { enabled: false, reason: "no_ssh" };
   }
-  if (!isSshConnectionEstablished(ssh.id)) {
-    return { enabled: false, reason: "ssh_not_connected", sshConnectionId: ssh.id };
-  }
+
   return { enabled: false, reason: "checking", sshConnectionId: ssh.id };
 }
 
@@ -171,41 +257,45 @@ export async function probeSlowLogAvailability(
   connection: DbConnectionConfig,
   sshConnections: Connection[],
 ): Promise<SlowLogAvailability> {
-  console.log(`[probeSlowLogAvailability] 开始: ${connection.name} (${connection.host}:${connection.port})`);
-  const sync = resolveSlowLogAvailabilitySync(connection, sshConnections);
-  if (sync.reason === "not_mysql" || sync.reason === "no_ssh" || sync.reason === "ssh_not_connected") {
-    console.log(`[probeSlowLogAvailability] 同步检查不通过: ${sync.reason}`);
-    return sync;
+  if (!isMysqlConnectionInfoCapable(connection)) {
+    return { enabled: false, reason: "not_mysql" };
   }
-  const sshId = sync.sshConnectionId;
-  if (!sshId) {
-    console.warn(`[probeSlowLogAvailability] 无 sshConnectionId`);
+
+  if (!isConnectionEnabledForProbe(connection)) {
+    return { enabled: false, reason: "connection_disabled" };
+  }
+
+  const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
+  if (!ssh) {
     return { enabled: false, reason: "no_ssh" };
   }
-  if (!isConnectionEnabledForProbe(connection)) {
-    console.log(`[probeSlowLogAvailability] 连接未启用`);
-    return { enabled: false, reason: "connection_disabled", sshConnectionId: sshId };
+
+  const sshId = ssh.id;
+  const sshReady = await ensureSshSessionForSlowLog(connection, sshConnections, sshId);
+  if (!sshReady) {
+    return { enabled: false, reason: "ssh_not_connected", sshConnectionId: sshId };
   }
+
   try {
     const { slowLogOn, logFilePath } = await queryMysqlVariables(connection);
-    console.log(`[probeSlowLogAvailability] MySQL 变量: slow_log=${slowLogOn}, log_file=${logFilePath}`);
     if (!slowLogOn) {
-      console.warn(`[probeSlowLogAvailability] 慢查询日志未开启`);
       return { enabled: false, reason: "slow_log_off", sshConnectionId: sshId };
     }
     if (!logFilePath) {
-      console.warn(`[probeSlowLogAvailability] 慢查询日志路径为空`);
       return { enabled: false, reason: "slow_log_file_missing", sshConnectionId: sshId };
     }
-    // 探测部署方式（主机 / Docker），决定如何读取日志文件
-    console.log(`[probeSlowLogAvailability] 开始探测部署方式...`);
+
     const deployment = await probeMysqlDeployment(connection, sshConnections);
-    console.log(`[probeSlowLogAvailability] 部署方式: ${deployment.kind}`, deployment);
     const deploymentKind = deployment.kind === "docker" ? "docker" as const : "host" as const;
     const containerId = deployment.kind === "docker" ? deployment.containerId : undefined;
-    return { enabled: true, sshConnectionId: sshId, logFilePath, deploymentKind, containerId };
-  } catch (err) {
-    console.warn(`[probeSlowLogAvailability] 探测异常:`, err);
+    return {
+      enabled: true,
+      sshConnectionId: sshId,
+      logFilePath,
+      deploymentKind,
+      containerId,
+    };
+  } catch {
     return { enabled: false, reason: "probe_failed", sshConnectionId: sshId };
   }
 }

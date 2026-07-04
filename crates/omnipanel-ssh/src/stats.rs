@@ -588,5 +588,29 @@ Ubuntu 22.04
         assert_eq!(stats.memory.swap_total, 2000);
         assert_eq!(stats.disk.disks.len(), 1);
         assert_eq!(stats.network.rx_bytes, 1000);
+        assert_eq!(stats.os_info, "Ubuntu 22.04");
+    }
+
+    #[test]
+    fn parse_remote_macos_os_section() {
+        let output = r#"
+@SECTION load
+1.20 1.10 1.00
+@SECTION cores
+8
+@SECTION cpu_stat1
+
+@SECTION cpu_stat2
+
+@SECTION mem
+17179869184 8589934592 8589934592
+@SECTION swap
+0 0 0
+@SECTION os
+macOS 15.2
+"#;
+        let stats = parse_remote_stats_output("ssh-1", "host", output, &[]).expect("stats");
+        assert_eq!(stats.os_info, "macOS 15.2");
+        assert_eq!(stats.cpu_cores, 8);
     }
 }

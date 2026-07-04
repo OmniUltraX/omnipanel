@@ -1,8 +1,10 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -31,20 +33,68 @@ export interface ContextMenuItem {
 }
 
 function ContextMenuDisabledHint({ reason }: { reason: string }) {
+  const [visible, setVisible] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>({});
+
+  const updateTooltipPosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    setTooltipStyle({
+      position: "fixed",
+      left: rect.right + 8,
+      top: rect.top + rect.height / 2,
+      transform: "translateY(-50%)",
+      zIndex: 100001,
+    });
+  }, []);
+
+  const showTooltip = () => {
+    updateTooltipPosition();
+    setVisible(true);
+  };
+
+  const hideTooltip = () => {
+    setVisible(false);
+  };
+
   return (
-    <span
-      className="context-menu-item__hint"
-      title={reason}
-      aria-label={reason}
-      onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-        <circle cx="8" cy="8" r="6.25" />
-        <path d="M6.2 6.1a1.8 1.8 0 0 1 3.5.7c0 1.2-1.7 1.3-1.7 2.4" />
-        <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
-      </svg>
-    </span>
+    <>
+      <span
+        ref={anchorRef}
+        className="context-menu-item__hint"
+        aria-label={reason}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
+        onFocus={showTooltip}
+        onBlur={hideTooltip}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+          <circle cx="8" cy="8" r="6.25" />
+          <path d="M6.2 6.1a1.8 1.8 0 0 1 3.5.7c0 1.2-1.7 1.3-1.7 2.4" />
+          <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
+      {visible
+        ? createPortal(
+            <div className="context-menu-item__hint-tooltip" style={tooltipStyle} role="tooltip">
+              {reason}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function ContextMenuDisabledHintSlot({ reason }: { reason: string }) {
+  return (
+    <div className="context-menu-item__hint-slot">
+      <ContextMenuDisabledHint reason={reason} />
+    </div>
   );
 }
 
@@ -109,23 +159,24 @@ function ContextMenuSubmenuList({
         item.separator ? (
           <div key={item.id} className="context-menu-sep" role="separator" />
         ) : (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            className="context-menu-item"
-            disabled={item.disabled}
-            onClick={() => runItemAction(item, onClose)}
-          >
-            {item.icon ? <span className="context-menu-item__icon">{item.icon}</span> : null}
-            <span className="context-menu-item__label">{item.label}</span>
-            {item.shortcut ? (
-              <span className="context-menu-item__shortcut">{item.shortcut}</span>
-            ) : null}
+          <div key={item.id} className="context-menu-row context-menu-row--with-hint">
+            <button
+              type="button"
+              role="menuitem"
+              className="context-menu-item"
+              disabled={item.disabled}
+              onClick={() => runItemAction(item, onClose)}
+            >
+              {item.icon ? <span className="context-menu-item__icon">{item.icon}</span> : null}
+              <span className="context-menu-item__label">{item.label}</span>
+              {item.shortcut ? (
+                <span className="context-menu-item__shortcut">{item.shortcut}</span>
+              ) : null}
+            </button>
             {item.disabled && item.disabledReason && item.disabledReasonIcon !== false ? (
-              <ContextMenuDisabledHint reason={item.disabledReason} />
+              <ContextMenuDisabledHintSlot reason={item.disabledReason} />
             ) : null}
-          </button>
+          </div>
         ),
       )}
     </div>
@@ -172,6 +223,8 @@ function ContextMenuPanel({
         }
 
         const hasChildren = (item.children?.length ?? 0) > 0;
+        const showDisabledHint =
+          item.disabled && item.disabledReason && item.disabledReasonIcon !== false;
         return (
           <div
             key={item.id}
@@ -179,7 +232,7 @@ function ContextMenuPanel({
               if (el) rowRefs.current.set(item.id, el);
               else rowRefs.current.delete(item.id);
             }}
-            className={`context-menu-row${hasChildren ? " context-menu-row--submenu" : ""}`}
+            className={`context-menu-row${hasChildren ? " context-menu-row--submenu" : ""}${showDisabledHint ? " context-menu-row--with-hint" : ""}`}
             onMouseEnter={() => hasChildren && openSubmenu(item.id)}
             onMouseLeave={() => hasChildren && scheduleCloseSubmenu()}
           >
@@ -197,15 +250,15 @@ function ContextMenuPanel({
               {item.shortcut ? (
                 <span className="context-menu-item__shortcut">{item.shortcut}</span>
               ) : null}
-              {item.disabled && item.disabledReason && item.disabledReasonIcon !== false ? (
-                <ContextMenuDisabledHint reason={item.disabledReason} />
-              ) : null}
               {hasChildren && (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" aria-hidden>
                   <path d="M9 18l6-6-6-6" />
                 </svg>
               )}
             </button>
+            {showDisabledHint ? (
+              <ContextMenuDisabledHintSlot reason={item.disabledReason!} />
+            ) : null}
             {hasChildren && openSubmenuId === item.id && (
               <ContextMenuSubmenuList
                 items={item.children!}

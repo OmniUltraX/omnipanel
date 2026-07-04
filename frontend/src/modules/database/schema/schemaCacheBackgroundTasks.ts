@@ -1,7 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { isConnectionEnabled, listConnections } from "../api";
+import { reestablishSshForDbConnection } from "../mysqlSlowQueryLog";
 import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schemaCache";
 import type { SchemaCacheRefreshReporter } from "./schemaCacheRefresh";
+import { useConnectionStore } from "../../../stores/connectionStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
 import { submitDbSchemaCacheRefresh } from "../../../stores/backgroundTaskStore";
@@ -167,6 +169,19 @@ export function initSchemaCacheBackgroundTasks() {
   }
 }
 
+async function reestablishSshForSchemaCacheTargets(targetIds: string[]): Promise<void> {
+  const [dbConnections, sshConnections] = await Promise.all([
+    listConnections(),
+    Promise.resolve(useConnectionStore.getState().connections.filter((conn) => conn.kind === "ssh")),
+  ]);
+  const targets = dbConnections.filter(
+    (conn) => targetIds.includes(conn.id) && isConnectionEnabled(conn),
+  );
+  await Promise.allSettled(
+    targets.map((conn) => reestablishSshForDbConnection(conn, sshConnections)),
+  );
+}
+
 /** 提交 Schema 缓存刷新后台任务，立即返回 taskId。 */
 export async function submitSchemaCacheRefresh(
   connectionIds?: string[],
@@ -176,6 +191,8 @@ export async function submitSchemaCacheRefresh(
   if (targetIds.length === 0) {
     return "";
   }
+
+  await reestablishSshForSchemaCacheTargets(targetIds);
 
   reporter?.onStart?.({ connectionCount: targetIds.length });
 

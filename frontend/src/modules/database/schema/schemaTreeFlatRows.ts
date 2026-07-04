@@ -71,6 +71,8 @@ export interface SchemaNodeFlatRow {
   isPk?: boolean;
   isFk?: boolean;
   labelComment?: string;
+  /** 连接节点：匹配到的 SSH Host tag */
+  sshHostTag?: string;
   connectionEnabled?: boolean;
   iconUrl?: string | null;
   pinActive?: boolean;
@@ -114,6 +116,7 @@ export interface SchemaFlatRowsParams {
   searchQuery?: string;
   layoutFolders?: SchemaConnectionFolder[];
   connectionParents?: Record<string, string | null>;
+  sshHostByConnId?: Record<string, string>;
 }
 
 function routineTypeLabel(t: SchemaFlatRowsParams["t"], routineType: string): string {
@@ -460,6 +463,7 @@ function appendConnectionSchemaRows(
       active: activeConnId === conn.config.id,
       connectionEnabled: connEnabled,
       iconUrl: engineIconUrl,
+      sshHostTag: params.sshHostByConnId?.[conn.config.id],
       labelClickKind: "connection",
       labelClickConnId: conn.config.id,
       meta: !connEnabled

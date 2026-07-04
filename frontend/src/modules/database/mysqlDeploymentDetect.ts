@@ -145,41 +145,31 @@ export async function probeMysqlDeployment(
   connection: DbConnectionConfig,
   sshConnections: Connection[],
 ): Promise<MysqlDeploymentInfo> {
-  console.log(`[probeMysqlDeployment] 开始探测: ${connection.name} (${connection.host}:${connection.port})`);
-
   if (!isMysqlConnectionInfoCapable(connection)) {
-    console.warn(`[probeMysqlDeployment] 非 MySQL 连接，跳过`);
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   let variables: MysqlDeployVariables;
   try {
     variables = await queryMysqlDeployVariables(connection);
-    console.log(`[probeMysqlDeployment] 查询到变量: pid_file=${variables.pidFile}, basedir=${variables.basedir}, datadir=${variables.datadir}`);
   } catch {
-    console.warn(`[probeMysqlDeployment] 查询 MySQL 变量失败`);
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   const { pidFile, basedir, datadir } = variables;
   if (!pidFile) {
-    console.warn(`[probeMysqlDeployment] pid_file 为空`);
     return { kind: "unknown", reason: "no_pid_file" };
   }
 
   const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
-    console.warn(`[probeMysqlDeployment] 未匹配到 SSH 连接 (host=${connection.host})`);
     return { kind: "unknown", reason: "no_ssh", pidFile };
   }
-  console.log(`[probeMysqlDeployment] 匹配到 SSH: ${ssh.name} (${ssh.id})`);
 
   if (!isSshConnectionEstablished(ssh.id)) {
-    console.log(`[probeMysqlDeployment] SSH 未连接，尝试自动连接: ${ssh.name}`);
     try {
       const res = await commands.sshConnectConnection(ssh.id, 80, 24);
       if (res.status !== "ok") {
-        console.warn(`[probeMysqlDeployment] SSH 自动连接失败: ${res.error.message}`);
         return {
           kind: "unknown",
           reason: "ssh_not_connected",
@@ -188,9 +178,7 @@ export async function probeMysqlDeployment(
           serverName: ssh.name,
         };
       }
-      console.log(`[probeMysqlDeployment] SSH 自动连接成功: ${ssh.name}`);
-    } catch (err) {
-      console.warn(`[probeMysqlDeployment] SSH 自动连接异常:`, err);
+    } catch {
       return {
         kind: "unknown",
         reason: "ssh_not_connected",
@@ -200,16 +188,13 @@ export async function probeMysqlDeployment(
       };
     }
   }
-  console.log(`[probeMysqlDeployment] SSH 已连接: ${ssh.name}`);
 
   const sshMeta = { sshConnectionId: ssh.id, serverName: ssh.name };
 
   try {
     const hostExists = await remoteFileExists(ssh.id, pidFile);
-    console.log(`[probeMysqlDeployment] 主机上检测 pid_file: ${pidFile} → ${hostExists}`);
     if (hostExists) {
       const location = resolveHostInstallLocation(basedir, datadir, pidFile);
-      console.log(`[probeMysqlDeployment] → 判定: 主机部署 (location=${location})`);
       return {
         kind: "host",
         pidFile,
@@ -220,15 +205,11 @@ export async function probeMysqlDeployment(
 
     const container = await findDockerContainerByPort(ssh.id, connection.port);
     if (!container) {
-      console.warn(`[probeMysqlDeployment] 未找到映射端口 ${connection.port} 的 Docker 容器 → 判定: 未知`);
       return { kind: "unknown", reason: "no_container", pidFile, ...sshMeta };
     }
-    console.log(`[probeMysqlDeployment] 匹配到容器: ${container.name} (${container.id})`);
 
     const inContainer = await dockerContainerFileExists(ssh.id, container.id, pidFile);
-    console.log(`[probeMysqlDeployment] 容器内检测 pid_file: ${pidFile} → ${inContainer}`);
     if (inContainer) {
-      console.log(`[probeMysqlDeployment] → 判定: Docker 部署 (container=${container.name})`);
       return {
         kind: "docker",
         pidFile,
@@ -239,7 +220,6 @@ export async function probeMysqlDeployment(
       };
     }
 
-    console.warn(`[probeMysqlDeployment] pid_file 不在容器内 → 判定: 未知`);
     return {
       kind: "unknown",
       reason: "pid_not_in_container",
@@ -248,8 +228,7 @@ export async function probeMysqlDeployment(
       containerName: container.name,
       ...sshMeta,
     };
-  } catch (err) {
-    console.warn(`[probeMysqlDeployment] 探测过程异常:`, err);
+  } catch {
     return { kind: "unknown", reason: "probe_failed", pidFile, ...sshMeta };
   }
 }

@@ -15,6 +15,8 @@ import { appConfirm } from "../../../lib/appConfirm";
 import { appAlert } from "../../../lib/appAlert";
 import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
+import { useConnectionStore } from "../../../stores/connectionStore";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "../../../components/ui/Button";
 import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
 import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/ScopedSearch";
@@ -42,9 +44,6 @@ import {
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import {
-  buildDatabaseTreeItem,
-  buildConnectionTreeItem,
-  buildFolderTreeItem,
   buildTableTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
@@ -77,7 +76,6 @@ import {
 } from "./schemaCacheStatusLog";
 import type { SchemaCacheSnapshot } from "./schemaCache";
 import {
-  connectionUsersFolderId,
   parseDatabaseNodeId,
   parseTableNodeId,
   parseUserNodeId,
@@ -96,6 +94,7 @@ import {
 } from "./schemaTreeFlatRows";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
+import { useDbSshHostTags } from "../useDbSshHostTags";
 import {
   buildPaginationPatchesForScrollTarget,
   collectExpandedIdsForScrollTarget,
@@ -111,6 +110,7 @@ import {
   type SchemaLayoutDragPayload,
 } from "./schemaLayoutPointerDnD";
 import {
+  applySchemaNodeDeleteToCache,
   refreshAndApplySchemaTreeNode,
   type SchemaTreeRefreshHooks,
 } from "./schemaTreeRefresh";
@@ -163,6 +163,8 @@ interface TreeNodeProps {
   onPinToggle?: () => void;
   /** 表节点：名称后显示的灰色注释 */
   labelComment?: string;
+  /** 连接节点：匹配到的 SSH Host tag */
+  labelTag?: string;
   /** 连接节点：是否启用（禁用与树折叠无关） */
   connectionEnabled?: boolean;
   onRefresh?: () => void;
@@ -223,6 +225,7 @@ function TreeNode({
   pinActive,
   onPinToggle,
   labelComment,
+  labelTag,
   connectionEnabled = true,
   onRefresh,
   refreshing = false,
@@ -416,6 +419,11 @@ function TreeNode({
       )}
       <span className="tree-label">
         <span className="tree-label-name">{label}</span>
+        {labelTag ? (
+          <span className="tree-label-tag" title={labelTag}>
+            {labelTag}
+          </span>
+        ) : null}
         {labelComment ? (
           <span className="tree-label-comment" title={labelComment}>
             {labelComment}
@@ -671,6 +679,15 @@ export function SchemaBrowser({
   const connections = useExternalConnections ? (externalConnections ?? []) : internalConnections;
   const loading = useExternalConnections ? externalConnections === null : internalLoading;
 
+  const sshConnections = useConnectionStore(
+    useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
+  );
+  const dbConnectionConfigs = useMemo(
+    () => connections.map((conn) => conn.config),
+    [connections],
+  );
+  const sshHostByConnId = useDbSshHostTags(dbConnectionConfigs, sshConnections);
+
   const syncDatabaseFilter = useCallback((connId: string, names: string[]) => {
     setDatabaseFilters((prev) => ({
       ...prev,
@@ -820,33 +837,19 @@ export function SchemaBrowser({
           offset: 0,
         });
 
-        let refreshItem: SchemaTreeItem;
-        if (item.type === "database") {
-          refreshItem = buildConnectionTreeItem(
-            connection.id,
-            connection.name,
-            connection.db_type,
-          );
-        } else if (item.type === "user") {
-          refreshItem = buildFolderTreeItem(
-            connectionUsersFolderId(connection.id),
-            t("database.sidebar.users"),
-            connection.id,
-          );
-        } else if (item.type === "table" || item.type === "view") {
-          const parsed =
-            item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
-          const resolvedDbName = parsed?.dbName ?? dbName;
-          if (!resolvedDbName) return;
-          refreshItem = buildDatabaseTreeItem(connection.id, resolvedDbName);
-        } else {
+        if (item.type === "column" || item.type === "index") {
           const resolvedDbName = dbName;
           const resolvedTableName = tableName;
           if (!resolvedDbName || !resolvedTableName) return;
-          refreshItem = buildTableTreeItem(connection.id, resolvedDbName, resolvedTableName);
+          const refreshItem = buildTableTreeItem(
+            connection.id,
+            resolvedDbName,
+            resolvedTableName,
+          );
+          await refreshAndApplySchemaTreeNode(connection, refreshItem, schemaRefreshHooks);
+        } else {
+          await applySchemaNodeDeleteToCache(connection.id, item, schemaRefreshHooks);
         }
-
-        await refreshAndApplySchemaTreeNode(connection, refreshItem, schemaRefreshHooks);
       } catch (err) {
         void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
       } finally {
@@ -1426,6 +1429,7 @@ export function SchemaBrowser({
         searchQuery: search,
         layoutFolders,
         connectionParents,
+        sshHostByConnId,
       }),
     [
       t,
@@ -1443,6 +1447,7 @@ export function SchemaBrowser({
       search,
       layoutFolders,
       connectionParents,
+      sshHostByConnId,
     ],
   );
 
@@ -1735,6 +1740,7 @@ export function SchemaBrowser({
           isPk={row.isPk}
           isFk={row.isFk}
           labelComment={row.labelComment}
+          labelTag={row.sshHostTag}
           connectionEnabled={row.connectionEnabled}
           iconUrl={row.iconUrl}
           pinActive={row.pinActive}
