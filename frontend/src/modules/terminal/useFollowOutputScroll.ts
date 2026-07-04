@@ -101,22 +101,33 @@ export function useFollowOutputScroll(
     const container = containerRef.current;
     if (!container) return;
 
-    const content =
-      container.querySelector<HTMLElement>(".aui_message-group") ??
-      container.querySelector<HTMLElement>(".term-warp-ai-thread-root") ??
-      (container.firstElementChild instanceof HTMLElement
-        ? container.firstElementChild
-        : null);
+    let observed: HTMLElement | null = null;
+    let observer: ResizeObserver | null = null;
 
-    if (!content) return;
+    const attachObserver = () => {
+      const content =
+        container.querySelector<HTMLElement>(".aui_message-group") ??
+        container.querySelector<HTMLElement>(".term-warp-ai-thread-root") ??
+        (container.firstElementChild instanceof HTMLElement ? container.firstElementChild : null);
+      if (!content || content === observed) return;
+      observer?.disconnect();
+      observed = content;
+      observer = new ResizeObserver(() => {
+        if (!followRef.current) return;
+        scheduleScrollToEnd();
+      });
+      observer.observe(content);
+    };
 
-    const observer = new ResizeObserver(() => {
-      if (!followRef.current) return;
-      scheduleScrollToEnd();
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [containerRef, enabled, scheduleScrollToEnd, contentSignature]);
+    attachObserver();
+    const mutation = new MutationObserver(attachObserver);
+    mutation.observe(container, { childList: true, subtree: true });
+
+    return () => {
+      mutation.disconnect();
+      observer?.disconnect();
+    };
+  }, [containerRef, enabled, scheduleScrollToEnd]);
 
   useEffect(
     () => () => {

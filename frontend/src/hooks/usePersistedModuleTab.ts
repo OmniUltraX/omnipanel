@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { type Dispatch, type SetStateAction, useCallback } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -36,7 +36,7 @@ export function usePersistedModuleTab<T extends string>(
   moduleKey: string,
   defaultTab: T,
   validTabs?: readonly T[],
-): [T, (tab: T) => void] {
+): [T, Dispatch<SetStateAction<T>>] {
   const stored = useModuleTabStore((s) => s.byModule[moduleKey]);
   const tab =
     stored && (!validTabs || validTabs.includes(stored as T))
@@ -44,10 +44,14 @@ export function usePersistedModuleTab<T extends string>(
       : defaultTab;
 
   const setTab = useCallback(
-    (next: T) => {
-      useModuleTabStore.getState().setTab(moduleKey, next);
+    (next: SetStateAction<T>) => {
+      const resolved =
+        typeof next === "function" ? (next as (prev: T) => T)(tab) : next;
+      const safeTab =
+        validTabs && !validTabs.includes(resolved as T) ? defaultTab : resolved;
+      useModuleTabStore.getState().setTab(moduleKey, safeTab);
     },
-    [moduleKey],
+    [defaultTab, moduleKey, tab, validTabs],
   );
 
   return [tab, setTab];

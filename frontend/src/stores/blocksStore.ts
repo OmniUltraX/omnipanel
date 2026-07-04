@@ -93,6 +93,13 @@ interface BlocksState {
     field: "content" | "reasoning",
     chunk: string,
   ) => void;
+  /** 同步写入 AI 线程字段（流式缓冲 flush 时使用） */
+  appendAiThreadMessageFieldSync: (
+    blockId: string,
+    messageId: string,
+    field: "content" | "reasoning",
+    chunk: string,
+  ) => void;
   /** @deprecated 使用 pushAiThreadItem */
   pushAiThreadTurn: (
     blockId: string,
@@ -152,6 +159,54 @@ function mapBlockThread(
   return blocks.map((b) =>
     b.id === blockId ? { ...b, aiThread: mapper(b.aiThread ?? []) } : b,
   );
+}
+
+function findSessionIdForBlock(
+  blocks: Record<string, TerminalBlock[]>,
+  blockId: string,
+): string | null {
+  for (const [sessionId, sessionBlocks] of Object.entries(blocks)) {
+    if (sessionBlocks.some((block) => block.id === blockId)) {
+      return sessionId;
+    }
+  }
+  return null;
+}
+
+function patchSessionBlockThread(
+  blocks: Record<string, TerminalBlock[]>,
+  blockId: string,
+  mapper: (thread: AiThreadItem[]) => AiThreadItem[],
+): Record<string, TerminalBlock[]> | null {
+  const sessionId = findSessionIdForBlock(blocks, blockId);
+  if (!sessionId) return null;
+  return {
+    ...blocks,
+    [sessionId]: mapBlockThread(blocks[sessionId], blockId, mapper),
+  };
+}
+
+function appendAiThreadMessageFieldToThread(
+  thread: AiThreadItem[],
+  messageId: string,
+  field: "content" | "reasoning",
+  chunk: string,
+): AiThreadItem[] {
+  return thread.map((item) => {
+    if (item.id !== messageId || item.kind !== "message") return item;
+    if (field === "content") {
+      let content = item.content + chunk;
+      if (content.length > MAX_BLOCK_OUTPUT_CHARS) {
+        content = `…[输出已截断]\n${content.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
+      }
+      return { ...item, content };
+    }
+    let reasoning = (item.reasoning ?? "") + chunk;
+    if (reasoning.length > MAX_BLOCK_OUTPUT_CHARS) {
+      reasoning = `…[推理已截断]\n${reasoning.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
+    }
+    return { ...item, reasoning };
+  });
 }
 
 export const useBlocksStore = create<BlocksState>((set, get) => ({
@@ -249,57 +304,41 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
       timestamp: item.timestamp ?? Date.now(),
     } as AiThreadItem;
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = mapBlockThread(blocks, blockId, (thread) => [
-          ...thread,
-          fullItem,
-        ]);
-      }
-      return { blocks: newBlocks };
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) => [
+        ...thread,
+        fullItem,
+      ]);
+      if (!nextBlocks) return state;
+      return { blocks: nextBlocks };
     });
     return itemId;
   },
 
   updateAiThreadItem: (blockId, itemId, patch) => {
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = mapBlockThread(blocks, blockId, (thread) =>
-          thread.map((item) =>
-            item.id === itemId ? ({ ...item, ...patch } as AiThreadItem) : item,
-          ),
-        );
-      }
-      return { blocks: newBlocks };
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        thread.map((item) =>
+          item.id === itemId ? ({ ...item, ...patch } as AiThreadItem) : item,
+        ),
+      );
+      if (!nextBlocks) return state;
+      return { blocks: nextBlocks };
+    });
+  },
+
+  appendAiThreadMessageFieldSync: (blockId, messageId, field, chunk) => {
+    if (!chunk) return;
+    set((state) => {
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        appendAiThreadMessageFieldToThread(thread, messageId, field, chunk),
+      );
+      if (!nextBlocks) return state;
+      return { blocks: nextBlocks };
     });
   },
 
   appendAiThreadMessageField: (blockId, messageId, field, chunk) => {
-    if (!chunk) return;
-    set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = mapBlockThread(blocks, blockId, (thread) =>
-          thread.map((item) => {
-            if (item.id !== messageId || item.kind !== "message") return item;
-            if (field === "content") {
-              let content = item.content + chunk;
-              if (content.length > MAX_BLOCK_OUTPUT_CHARS) {
-                content = `…[输出已截断]\n${content.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
-              }
-              return { ...item, content };
-            }
-            let reasoning = (item.reasoning ?? "") + chunk;
-            if (reasoning.length > MAX_BLOCK_OUTPUT_CHARS) {
-              reasoning = `…[推理已截断]\n${reasoning.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
-            }
-            return { ...item, reasoning };
-          }),
-        );
-      }
-      return { blocks: newBlocks };
-    });
+    get().appendAiThreadMessageFieldSync(blockId, messageId, field, chunk);
   },
 
   pushAiThreadTurn: (blockId, turn) =>

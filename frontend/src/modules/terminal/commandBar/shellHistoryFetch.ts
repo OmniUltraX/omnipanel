@@ -76,8 +76,8 @@ async function readLocalHistoryFile(path: string): Promise<string | null> {
       path,
       LOCAL_HISTORY_MAX_BYTES,
     );
-    if (!bytes?.length) return null;
-    return new TextDecoder().decode(new Uint8Array(bytes));
+    if (bytes.status !== "ok" || !bytes.data?.length) return null;
+    return new TextDecoder().decode(new Uint8Array(bytes.data));
   } catch {
     return null;
   }

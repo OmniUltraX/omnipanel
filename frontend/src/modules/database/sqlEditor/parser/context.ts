@@ -1,7 +1,7 @@
 import type { DatabaseSchema, TableSchema } from "../../types";
 import type { Catalog } from "../catalog";
 import { Catalog as CatalogClass } from "../catalog";
-import { analyzeStatement, analyzeStatementAtOffset, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
+import { analyzeStatementAtOffset, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
 import { sliceStatementAtOffset, statementOffsetAtPos } from "./ast";
 
 export type SqlCompletionContext =

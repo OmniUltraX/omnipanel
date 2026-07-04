@@ -308,9 +308,8 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
           }
 
-          const message =
-
-            typeof res.error === "string" ? res.error : (res.error?.message ?? "刷新模型列表失败");
+          const err = (res as { error: string | { message?: string } }).error;
+          const message = typeof err === "string" ? err : err?.message ?? "刷新模型列表失败";
 
           throw new Error(message);
 

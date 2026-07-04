@@ -114,6 +114,8 @@ pub struct AppState {
     /// 统一通道：终端与数据库等所有 UiDelegated 工具都挂在这里，由前端 dispatchTool 回传。
     pub pending_internal_tool_results:
         Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<(String, bool)>>>>,
+    /// 前端先于 `execute()` 注册 oneshot 时暂存的工具结果（同 key 格式）。
+    pub early_internal_tool_results: Arc<Mutex<HashMap<String, (String, bool)>>>,
     /// Agent Router 句柄（可选）。
     pub gateway_handle: Arc<Mutex<Option<omnipanel_gateway::GatewayHandle>>>,
     /// 外部 MCP 工具调用是否需用户审批（由设置同步）。
@@ -179,6 +181,7 @@ impl AppState {
             agent_registry: Arc::new(AgentRegistry::default()),
             worker_pool: Arc::new(BackgroundWorkerPool::new(default_worker_count())),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
+            early_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             gateway_handle: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }

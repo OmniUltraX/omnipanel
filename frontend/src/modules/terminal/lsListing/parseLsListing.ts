@@ -414,7 +414,12 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
   const listingCommand = resolveListingCommandForBlock(command);
   if (!listingCommand) return null;
 
-  const text = output.trim().replace(/\r/g, "\n");
+  // 兼容 shell 已 strip 或未 strip 的两种情况；这里再保险 strip 一次避免 ANSI
+  // 颜色码（\[0m、\[1;34m 等）污染 entry.name 匹配。
+  const stripped = output
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+  const text = stripped.trim().replace(/\r/g, "\n");
   if (!text) return null;
 
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);

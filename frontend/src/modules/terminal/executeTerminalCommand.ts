@@ -4,12 +4,18 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import {
   extractCommandOutput,
   isEchoOnlyTerminalOutput,
+  isLikelyCommandEchoAsOutput,
   isMeaningfulTerminalBlock,
   normalizeBlockCommand,
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
-import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete, isCdNavigationCommand } from "./terminalAutoLs";
+import {
+  prepareShellForAiTool,
+  recoverShellAfterAiTool,
+} from "./terminalShellRecovery";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete } from "./terminalAutoLs";
+import { isCdNavigationCommand } from "./terminalAutoLsPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 
@@ -23,6 +29,7 @@ const pendingExecutions = new Map<
   {
     tabId: string;
     command: string;
+    source: WorkspaceAction["source"];
     waitForBlock?: boolean;
     resolveBlock?: (block: TerminalBlock) => void;
     rejectBlock?: (err: Error) => void;
@@ -247,7 +254,11 @@ function finishOutputWatch(sessionId: string): void {
   const watch = outputWatches.get(sessionId);
   if (!watch) return;
   const cleaned = extractCommandOutput(watch.output, watch.command);
-  if (!cleaned && isEchoOnlyTerminalOutput(watch.output, watch.command)) {
+  if (
+    !cleaned &&
+    (isEchoOnlyTerminalOutput(watch.output, watch.command) ||
+      isLikelyCommandEchoAsOutput(watch.output, watch.command))
+  ) {
     if (watch.idleTimer) clearTimeout(watch.idleTimer);
     watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), OUTPUT_IDLE_MS);
     return;
@@ -256,7 +267,11 @@ function finishOutputWatch(sessionId: string): void {
   clearTimeout(watch.hardTimer);
   outputWatches.delete(sessionId);
   const output = cleaned || watch.output.trim();
-  if (output && !isEchoOnlyTerminalOutput(output, watch.command)) {
+  if (
+    output &&
+    !isEchoOnlyTerminalOutput(output, watch.command) &&
+    !isLikelyCommandEchoAsOutput(output, watch.command)
+  ) {
     watch.resolve(
       buildSyntheticBlock(sessionId, watch.command, watch.cwd, output),
     );
@@ -412,6 +427,7 @@ export function requestTerminalExecution(
   pendingExecutions.set(action.id, {
     tabId: request.tabId,
     command: request.command,
+    source: request.source,
     waitForBlock: request.waitForBlock,
   });
 
@@ -442,42 +458,51 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
   const sender = terminalPaneSenders[pending.tabId];
   if (!sender) return false;
 
-  const run = () => {
-    const command = maybeAppendAutoLsToCommand(pending.command, pending.tabId);
+  const run = async () => {
+    const displayCommand = maybeAppendAutoLsToCommand(pending.command, pending.tabId);
+    const isAiSource = pending.source === "AI";
+
+    if (isAiSource) {
+      await prepareShellForAiTool(pending.tabId);
+    }
 
     if (pending.waitForBlock) {
       if (isWarpDisplay(pending.tabId)) {
-        armFeedCapture(pending.tabId, command);
+        armFeedCapture(pending.tabId, displayCommand);
       }
-      const resultPromise = waitForCommandResult(pending.tabId, command);
-      sender(command);
-      return resultPromise
-        .then((block) => {
-          const stored = isWarpDisplay(pending.tabId)
-            ? ensureShellBlockInStore(pending.tabId, block)
-            : block;
-          pending.resolveBlock?.(stored);
-        })
-        .catch((err) => {
-          pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
-        })
-        .finally(() => {
-          clearOutputWatch(pending.tabId);
-          releaseFeedCapture(pending.tabId);
-          pendingExecutions.delete(action.id);
-        });
+      const resultPromise = waitForCommandResult(pending.tabId, displayCommand);
+      sender(displayCommand);
+      try {
+        const block = await resultPromise;
+        const stored = isWarpDisplay(pending.tabId)
+          ? ensureShellBlockInStore(pending.tabId, block)
+          : block;
+        pending.resolveBlock?.(stored);
+      } catch (err) {
+        pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        clearOutputWatch(pending.tabId);
+        releaseFeedCapture(pending.tabId);
+        pendingExecutions.delete(action.id);
+        if (isAiSource) {
+          await recoverShellAfterAiTool(pending.tabId);
+        }
+      }
+      return;
     }
 
     if (isWarpDisplay(pending.tabId)) {
-      const blockId = armFeedCapture(pending.tabId, command);
+      const blockId = armFeedCapture(pending.tabId, displayCommand);
       scheduleShellBlockFallbackComplete(pending.tabId, blockId);
-      if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(command)) {
+      if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(displayCommand)) {
         scheduleCdBlockFallbackComplete(pending.tabId, blockId);
       }
     }
-    sender(command);
+    sender(displayCommand);
     pendingExecutions.delete(action.id);
-    return Promise.resolve();
+    if (isAiSource) {
+      await recoverShellAfterAiTool(pending.tabId);
+    }
   };
 
   void enqueueSessionExecution(pending.tabId, () => run());

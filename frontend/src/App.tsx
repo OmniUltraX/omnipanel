@@ -104,7 +104,7 @@ function TopbarPageActions() {
             <path d="M12 15V3" />
           </svg>
         </Button>
-        <Button variant="primary" size="sm" onClick={requestNewTabPicker}>
+        <Button variant="primary" size="sm" onClick={() => requestNewTabPicker()}>
           {t("protocol.actions.newTab")}
         </Button>
       </>

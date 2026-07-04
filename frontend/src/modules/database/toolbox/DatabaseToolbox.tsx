@@ -1005,7 +1005,7 @@ export function DatabaseToolbox({
     [sourceSelected],
   );
 
-  const sourceSelectedInTarget = useMemo(
+  void useMemo(
     () => sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
     [sourceSelectedTableNames, targetTableNames],
   );
@@ -1157,7 +1157,7 @@ export function DatabaseToolbox({
     setSchemaAnalyzing(false);
 
     const analyzedTables = Object.keys(diffs).filter(
-      (name) => sourceSelected.has(name) || diffs[name]?.status === "targetOnly",
+      (name) => sourceSelected.has(name) || (diffs[name]?.status as string) === "targetOnly",
     );
     const tableNames =
       analyzedTables.length > 0
@@ -1547,8 +1547,7 @@ export function DatabaseToolbox({
     prevDataAnalysisBusyRef.current = syncAnalysisBusy;
   }, [tab, syncAnalysisBusy, tableAnalysis, analysisConfigKey, syncTaskId, addAnalysisRecord, t]);
 
-  const syncCompareBusy =
-    (tab === "dataSync" && syncAnalysisBusy) || (tab === "schemaSync" && schemaSyncBusy);
+  void ((tab === "dataSync" && syncAnalysisBusy) || (tab === "schemaSync" && schemaSyncBusy));
 
   // 勾选即触发逐条比对：仅在 dataSync tab 下，对源侧新勾选且目标库中存在的表做处理。
   useEffect(() => {

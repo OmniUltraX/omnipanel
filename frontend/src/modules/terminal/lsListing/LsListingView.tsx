@@ -56,6 +56,8 @@ type LsListingViewProps = {
   listing: LsListing;
   listingDirectory: string;
   onRunCommand?: (command: string) => void;
+  /** 点击"文件"项时触发（kind 非 directory/symlink 等 navigable 项时） */
+  onOpenFile?: (entry: LsEntry) => void;
 };
 
 const KIND_CLASS: Record<LsEntry["kind"], string> = {
@@ -79,23 +81,29 @@ function LsEntryName({
   className,
   title,
   onRunCommand,
+  onOpenFile,
   cdCommand,
 }: {
   entry: LsEntry;
   className: string;
   title: string;
   onRunCommand?: (command: string) => void;
+  onOpenFile?: (entry: LsEntry) => void;
   cdCommand: string;
 }) {
   const navigable = isLsEntryNavigable(entry);
   const displayName = lsEntryDisplayName(entry);
 
   const handleClick = useCallback(() => {
-    if (!navigable || !onRunCommand) return;
-    onRunCommand(cdCommand);
-  }, [navigable, onRunCommand, cdCommand]);
+    if (navigable) {
+      onRunCommand?.(cdCommand);
+    } else {
+      onOpenFile?.(entry);
+    }
+  }, [navigable, onRunCommand, onOpenFile, cdCommand, entry]);
 
-  if (navigable) {
+  // 目录/可导航的项走 cd；其他文件走预览——两者都是可点击的 button
+  if (navigable || onOpenFile) {
     return (
       <button type="button" className={className} title={title} onClick={handleClick}>
         {displayName}
@@ -117,6 +125,7 @@ function LsLongRow({
   fieldFormat,
   legacyWidths,
   onRunCommand,
+  onOpenFile,
 }: {
   entry: LsEntry;
   listingDirectory: string;
@@ -124,9 +133,10 @@ function LsLongRow({
   fieldFormat: LongFieldFormat;
   legacyWidths: LongColumnWidths;
   onRunCommand?: (command: string) => void;
+  onOpenFile?: (entry: LsEntry) => void;
 }) {
   const navigable = isLsEntryNavigable(entry);
-  const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}`;
+  const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}${!navigable && onOpenFile ? " term-ls-entry--openable" : ""}`;
   const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
   const cdCommand = terminalCdCommand(absolutePath);
 
@@ -134,8 +144,9 @@ function LsLongRow({
     <LsEntryName
       entry={entry}
       className={className}
-      title={navigable ? cdCommand : entry.name}
+      title={navigable ? cdCommand : `打开文件：${entry.name}`}
       onRunCommand={onRunCommand}
+      onOpenFile={onOpenFile}
       cdCommand={cdCommand}
     />
   );
@@ -207,10 +218,12 @@ function LsGridColumnView({
   column,
   listingDirectory,
   onRunCommand,
+  onOpenFile,
 }: {
   column: { entries: LsEntry[]; width: number };
   listingDirectory: string;
   onRunCommand?: (command: string) => void;
+  onOpenFile?: (entry: LsEntry) => void;
 }) {
   return (
     <div
@@ -219,7 +232,7 @@ function LsGridColumnView({
     >
       {column.entries.map((entry, rowIndex) => {
         const navigable = isLsEntryNavigable(entry);
-        const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}`;
+        const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}${!navigable && onOpenFile ? " term-ls-entry--openable" : ""}`;
         const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
         const cdCommand = terminalCdCommand(absolutePath);
 
@@ -228,8 +241,9 @@ function LsGridColumnView({
             <LsEntryName
               entry={entry}
               className={className}
-              title={navigable ? cdCommand : entry.name}
+              title={navigable ? cdCommand : `打开文件：${entry.name}`}
               onRunCommand={onRunCommand}
+              onOpenFile={onOpenFile}
               cdCommand={cdCommand}
             />
           </div>
@@ -239,7 +253,7 @@ function LsGridColumnView({
   );
 }
 
-function LsListingViewInner({ listing, listingDirectory, onRunCommand }: LsListingViewProps) {
+function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFile }: LsListingViewProps) {
   const isGrid = listing.layout === "grid";
   const { containerRef, widthCh } = useLsGridTerminalWidth(isGrid);
 
@@ -289,6 +303,7 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand }: LsListi
             column={column}
             listingDirectory={listingDirectory}
             onRunCommand={onRunCommand}
+            onOpenFile={onOpenFile}
           />
         ))}
       </div>
@@ -311,6 +326,7 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand }: LsListi
           fieldFormat={longFieldFormat}
           legacyWidths={legacyWidths ?? computeLongColumnWidths([entry])}
           onRunCommand={onRunCommand}
+          onOpenFile={onOpenFile}
         />
       ))}
     </div>

@@ -154,7 +154,7 @@ export function ModuleWorkspaceLayout({
       leftPreset={leftPreset}
       leftSizePx={leftSizePx}
       leftMinPx={leftMinPx}
-      leftMaxPx={leftMaxPx}
+      leftMaxPx={leftMaxPx as number | undefined}
       leftPanelRef={leftPanelRef}
       leftHandleClassName={resolvedHandleClassName}
       onLeftResize={handleLeftResize}

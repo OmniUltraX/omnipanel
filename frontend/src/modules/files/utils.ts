@@ -79,6 +79,38 @@ export function exceedsPreviewThreshold(
   return fileSize != null && fileSize > thresholdBytes;
 }
 
+/**
+ * 大文件策略分级：
+ *  - `normal`: <= 1MB —— 直接读完整渲染
+ *  - `truncated`: 1MB - 10MB —— 读前 1MB 截断预览，banner 提示 + 强制按钮
+ *  - `blocked`: > 10MB —— 阻止预览，banner 提示用户用外部工具
+ *  - `unknown`: fileSize 未知 —— normal
+ */
+export type LargeFileStrategy = "normal" | "truncated" | "blocked" | "unknown";
+
+/** 强制预览的"完整读"上限：读整个 10MB 文件（不切分） */
+export const FORCE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
+
+export function classifyLargeFile(
+  fileSize: number | null | undefined,
+  thresholdBytes: number,
+): LargeFileStrategy {
+  if (fileSize == null) return "unknown";
+  if (fileSize > FORCE_PREVIEW_MAX_BYTES) return "blocked";
+  if (fileSize > thresholdBytes) return "truncated";
+  return "normal";
+}
+
+/** 计算预览文本中行数；用于截断 banner 显示 "文件前 X 行已加载" */
+export function countPreviewLines(text: string | null | undefined): number {
+  if (!text) return 0;
+  let count = 1;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) count++;
+  }
+  return count;
+}
+
 export function formatFileTime(ts: number | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts * 1000);

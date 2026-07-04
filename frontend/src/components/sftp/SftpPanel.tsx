@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../ui/Button";
@@ -14,6 +14,7 @@ import {
   sftpEntryNameClass,
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
+import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
 
 export type SftpPanelProps = {
   resourceId: string | null;
@@ -69,6 +70,18 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
   const handledSftpNonceRef = useRef<number | null>(null);
   const pendingSftp = useSshDetailNavigationStore((s) => s.pendingSftp);
   resourceIdRef.current = resourceId;
+
+  // 双击文件预览：仅预览非目录；目录走 navigateTo
+  const [previewEntry, setPreviewEntry] = useState<SftpEntry | null>(null);
+  const fullPathOf = useCallback(
+    (entry: SftpEntry) => (path === "/" ? `/${entry.name}` : `${path}/${entry.name}`),
+    [path],
+  );
+  const openPreview = useCallback((entry: SftpEntry) => {
+    if (entry.isDir) return;
+    setPreviewEntry(entry);
+  }, []);
+  const closePreview = useCallback(() => setPreviewEntry(null), []);
 
   const loadDir = async (
     dir: string,
@@ -395,7 +408,13 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
                         selected ? "sftp-row-selected" : "",
                       ].filter(Boolean).join(" ")}
                       onClick={() => setSelectedName(entry.name)}
-                      onDoubleClick={() => entry.isDir && navigateTo(entry)}
+                      onDoubleClick={() => {
+                        if (entry.isDir) {
+                          navigateTo(entry);
+                        } else {
+                          openPreview(entry);
+                        }
+                      }}
                       onContextMenu={(e) => handleContextMenu(e, entry)}
                     >
                       <td className="sftp-col-name">
@@ -485,6 +504,44 @@ export function SftpPanel({ resourceId }: SftpPanelProps) {
           </button>
         </div>
       )}
+      <FilePreviewSubWindow
+        open={previewEntry != null}
+        entry={
+          previewEntry
+            ? {
+                name: previewEntry.name,
+                path: fullPathOf(previewEntry),
+                kind: previewEntry.isDir ? "dir" : "file",
+                size: previewEntry.size ?? null,
+                modified: null,
+                permissions: null,
+              }
+            : null
+        }
+        connectionId={resourceId ?? ""}
+        onClose={closePreview}
+        customIO={
+          previewEntry && resourceId
+            ? {
+                readBytes: (path, maxBytes) =>
+                  commands.sftpDownload(resourceId, path).then((result) => {
+                    if (result.status !== "ok") {
+                      throw new Error(result.error.message || "download failed");
+                    }
+                    // maxBytes 是预览的字节上限，超过部分按需 truncate（多数 ssh 客户端已读全）
+                    const bytes = result.data;
+                    return maxBytes > 0 && bytes.length > maxBytes ? bytes.slice(0, maxBytes) : bytes;
+                  }),
+                writeBytes: (path, bytes) =>
+                  commands.sftpUpload(resourceId, path, Array.from(bytes)).then((result) => {
+                    if (result.status !== "ok") {
+                      throw new Error(result.error.message || "upload failed");
+                    }
+                  }),
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

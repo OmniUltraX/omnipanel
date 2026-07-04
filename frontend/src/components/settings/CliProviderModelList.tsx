@@ -199,7 +199,7 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
                   ) : (
                     <div className="ai-provider-model-item-actions">
                       <ModelToggle
-                        enabled={enabled && provider.enabled}
+                        enabled={Boolean(enabled && provider.enabled)}
                         label={t("settings.aiModels.modelList.toggleModel", { name: modelName })}
                         onChange={(next) => {
                           if (!provider.enabled) return;

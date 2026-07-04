@@ -110,7 +110,6 @@ export function AiGatewaySettings() {
             </div>
             <div className="setting-control setting-control--narrow">
               <TextInput
-                type="number"
                 size="sm"
                 value={String(aiGatewayPort)}
                 onChange={(v) =>

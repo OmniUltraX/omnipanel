@@ -220,6 +220,29 @@ function stripPsDirectoryHeaderOnly(text: string): string {
   return withoutHeaders.join("\n");
 }
 
+/** 多行命令被 PTY 整段回显、尚未产生真实 stdout 时，output 与 command 高度重合 */
+export function isLikelyCommandEchoAsOutput(raw: string, command: string): boolean {
+  const sent = normalizeBlockCommand(command);
+  if (!sent || !raw.trim()) return false;
+
+  const cleaned = extractCommandOutput(raw, command);
+  if (cleaned.length > 0 && !isEchoOnlyTerminalOutput(cleaned, command)) {
+    return false;
+  }
+
+  const rawNorm = stripTerminalControlSequences(raw).replace(/\s+/g, " ").trim();
+  const sentNorm = sent.replace(/\s+/g, " ").trim();
+  if (!rawNorm || !sentNorm) return false;
+  if (rawNorm === sentNorm) return true;
+  if (rawNorm.startsWith(sentNorm) && rawNorm.length - sentNorm.length < 48) return true;
+
+  const rawLines = rawNorm.split(" ").length;
+  if (rawLines > 12 && sentNorm.length > 40 && rawNorm.includes(sentNorm.slice(0, 48))) {
+    return true;
+  }
+  return false;
+}
+
 /** 判断采集到的输出是否仅为 PTY 命令回显（尚未产生真实结果） */
 export function isEchoOnlyTerminalOutput(raw: string, command: string): boolean {
   const sent = normalizeBlockCommand(command);
@@ -253,7 +276,11 @@ export function isMeaningfulTerminalBlock(
     blockCmd.length > 0 && (blockCmd === sent || blockCmd.includes(sent) || sent.includes(blockCmd));
 
   if (block.output.trim().length > 0) {
-    if (isEchoOnlyTerminalOutput(block.output, block.command || command)) {
+    const blockCmd = block.command || command;
+    if (isLikelyCommandEchoAsOutput(block.output, blockCmd)) {
+      return false;
+    }
+    if (isEchoOnlyTerminalOutput(block.output, blockCmd)) {
       return block.status !== "running";
     }
     return true;

@@ -202,12 +202,12 @@ export function KnowledgeRecallTestSubWindow({
                         {t("knowledge.chunks.recall.score")}
                       </span>
                       <span className="knowledge-recall-panel__score-value">
-                        {formatScore(hit.score)}
+                        {formatScore(hit.score ?? 0)}
                       </span>
                       <div className="knowledge-recall-panel__score-bar" aria-hidden>
                         <span
                           className="knowledge-recall-panel__score-bar-fill"
-                          style={{ width: scoreBarWidth(hit.score) }}
+                          style={{ width: scoreBarWidth(hit.score ?? 0) }}
                         />
                       </div>
                     </div>

@@ -1694,6 +1694,10 @@ export const enUS: TranslationDict = {
       thinking: "Thinking…",
       stalled: "AI response timed out. Check model settings or network and retry.",
     },
+    feed: {
+      scrollToTop: "Scroll to top",
+      scrollToBottom: "Scroll to bottom",
+    },
     newSession: {
       local: "Local Terminal",
       localDesc: "Open a new local PTY panel",
@@ -1711,6 +1715,8 @@ export const enUS: TranslationDict = {
       reorderConnection: "Drag to reorder connection",
       workspaceEmpty: "No terminal view open",
       workspaceEmptyHint: "Open a session from the sidebar or click + to create one",
+      open: "Open",
+      copy: "Copy session",
     },
     pane: {
       server: "Target server",
@@ -2489,6 +2495,18 @@ export const enUS: TranslationDict = {
       desc: "Display language for OmniPanel",
       zhCN: "中文（简体）",
       enUS: "English",
+    },
+    skills: {
+      desc: "Skills loads full content on demand via system prompt summary + load_skill tool.",
+      import: "Import",
+      create: "New Skill",
+      edit: "Edit Skill",
+      id: "ID",
+      name: "Name",
+      description: "Description",
+      body: "Body (SKILL.md)",
+      loading: "Loading Skills…",
+      empty: "No Skills yet. Import or create one",
     },
     uiScale: {
       label: "UI scale",

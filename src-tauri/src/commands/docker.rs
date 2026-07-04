@@ -192,29 +192,29 @@ async fn invalidate_docker_ssh(state: &AppState, connection_id: &str) {
 }
 
 fn is_ssh_session_recoverable(err: &OmniError) -> bool {
-    let msg = err.message.as_str();
-    if msg.contains("SSH exec")
-        || msg.contains("SSH PTY")
-        || msg.contains("SFTP")
-        || msg.contains("PTY")
-        || msg.contains("exec")
-        || msg.contains("??")
-        || msg.contains("??")
-        || msg.contains("??")
-    {
-        return true;
+    match err.code {
+        ErrorCode::Ssh | ErrorCode::Connection | ErrorCode::Terminal => true,
+        ErrorCode::Auth => false,
+        _ => {
+            let msg = err.message.to_lowercase();
+            let cause = err.cause.as_deref().unwrap_or("").to_lowercase();
+
+            let recoverable_patterns = [
+                "too many open sessions",
+                "channel open failure",
+                "connection reset",
+                "connection closed",
+                "connection is closed",
+                "broken pipe",
+                "input device is not a tty",
+                "not a tty",
+            ];
+
+            recoverable_patterns
+                .iter()
+                .any(|pattern| msg.contains(pattern) || cause.contains(pattern))
+        }
     }
-    err.cause
-        .as_deref()
-        .map(|c| {
-            c.contains("Too many open sessions")
-                || c.contains("channel open failure")
-                || c.contains("Connection reset")
-                || c.contains("connection is closed")
-                || c.contains("broken pipe")
-                || c.contains("input device is not a TTY")
-        })
-        .unwrap_or(false)
 }
 
 async fn with_adapter<T, F, Fut>(
@@ -1869,4 +1869,91 @@ pub async fn docker_stack_services(
         .await?
         .stack_services(&name)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_error_is_recoverable() {
+        let err = OmniError::new(ErrorCode::Ssh, "SSH exec 通道失败");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Ssh, "PTY 请求失败");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Ssh, "SFTP 通道失败");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn connection_error_is_recoverable() {
+        let err = OmniError::new(ErrorCode::Connection, "SSH 连接失败");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Connection, "连接被重置");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn terminal_error_is_recoverable() {
+        let err = OmniError::new(ErrorCode::Terminal, "终端错误");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn auth_error_is_not_recoverable() {
+        let err = OmniError::new(ErrorCode::Auth, "认证失败");
+        assert!(!is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Auth, "密码错误");
+        assert!(!is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn internal_error_with_recoverable_pattern_is_recoverable() {
+        let err = OmniError::new(ErrorCode::Internal, "something wrong")
+            .with_cause("Too many open sessions");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "channel open failure");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "Connection reset by peer");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "connection is closed");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "broken pipe error");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "input device is not a TTY");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn internal_error_without_recoverable_pattern_is_not_recoverable() {
+        let err = OmniError::new(ErrorCode::Internal, "some random error");
+        assert!(!is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "permission denied");
+        assert!(!is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn case_insensitive_pattern_matching() {
+        let err = OmniError::new(ErrorCode::Internal, "CONNECTION RESET");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "Broken Pipe");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn not_found_error_is_not_recoverable() {
+        let err = OmniError::new(ErrorCode::NotFound, "resource not found");
+        assert!(!is_ssh_session_recoverable(&err));
+    }
 }

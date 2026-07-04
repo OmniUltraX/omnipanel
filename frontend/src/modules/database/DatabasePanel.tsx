@@ -5,7 +5,6 @@ import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
-import { Button } from "../../components/ui/Button";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
@@ -639,14 +638,9 @@ export function DatabasePanel() {
       if (!existing) {
         const tab = makeSyncTaskWorkspaceTab(task);
         setWorkspaceTabs((prev) => (prev.some((item) => item.id === tab.id) ? prev : [...prev, tab]));
-      } else if (existing.label !== task.name || existing.toolboxTab !== task.kind) {
-        setWorkspaceTabs((prev) =>
-          prev.map((item) =>
-            item.id === tabId
-              ? { ...item, label: task.name, toolboxTab: task.kind }
-              : item,
-          ),
-        );
+      } else if (existing.kind === "toolbox" && (existing.label !== task.name || existing.toolboxTab !== task.kind)) {
+        const nextTab = { ...existing, label: task.name, toolboxTab: task.kind };
+        setWorkspaceTabs((prev) => prev.map((item) => (item.id === tabId ? nextTab : item)));
       }
       activateWorkspaceTab(tabId);
       useDbSyncTaskStore.getState().setActiveTaskId(task.id);

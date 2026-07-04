@@ -80,7 +80,7 @@ export function SidebarWorkspace({
       leftPreset={preset}
       leftSizePx={sidebarSizePx}
       leftMinPx={sidebarMinPx ?? SIDEBAR_MIN_BY_PRESET[preset]}
-      leftMaxPx={sidebarMaxPx}
+      leftMaxPx={sidebarMaxPx as number | undefined}
       onLeftResize={handleLeftResize}
       onLeftLayoutChanged={handleLeftLayoutChanged}
       className={className}

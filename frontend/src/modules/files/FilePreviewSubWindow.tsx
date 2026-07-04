@@ -24,6 +24,8 @@ export interface FilePreviewSubWindowProps {
   onClose: () => void;
   onDownload?: (entry: FileEntry) => void;
   onSaved?: (entry: FileEntry) => void;
+  /** 自定义 IO 适配器（终端场景用，绕开 file_manager.connectionId） */
+  customIO?: import("./FilePreviewContent").FilePreviewIO;
 }
 
 export function FilePreviewSubWindow({
@@ -33,6 +35,7 @@ export function FilePreviewSubWindow({
   onClose,
   onDownload,
   onSaved,
+  customIO,
 }: FilePreviewSubWindowProps) {
   const { t } = useI18n();
   const contentRef = useRef<FilePreviewContentHandle>(null);
@@ -197,6 +200,7 @@ export function FilePreviewSubWindow({
           editable={entry.kind === "file"}
           onDirtyChange={setDirty}
           onTextPreviewMetaChange={setTextPreviewMeta}
+          customIO={customIO}
         />
       ) : null}
     </SubWindow>

@@ -1,6 +1,6 @@
-import { HighlightStyle, syntaxHighlighting, type Extension } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { sql } from "@codemirror/lang-sql";
 import { resolveSqlDialect } from "../sqlIntel/sqlDialect";

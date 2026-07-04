@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import { resolveResourceById } from "../../stores/connectionStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
@@ -11,6 +10,7 @@ import type { TerminalConnectionStatus } from "../../stores/terminalTypes";
 import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { Button } from "../../components/ui/Button";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import {
   mergeConnectionOrder,
   moveConnectionInOrder,
@@ -127,6 +127,7 @@ function SessionRow({
   status,
   onSelect,
   onEnd,
+  onContextMenu,
 }: {
   session: TerminalSession;
   activityAt: number;
@@ -134,11 +135,17 @@ function SessionRow({
   status: TopbarTabDef["status"];
   onSelect: () => void;
   onEnd: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
   const { t } = useI18n();
   return (
     <div className={`term-session-tree__session${isActive ? " is-active" : ""}`}>
-      <button type="button" className="term-session-tree__session-btn" onClick={onSelect}>
+      <button
+        type="button"
+        className="term-session-tree__session-btn"
+        onClick={onSelect}
+        onContextMenu={onContextMenu}
+      >
         <span
           className={`topbar-tab-dot ${sessionStatusDotClass(status)}`}
           aria-hidden
@@ -175,6 +182,7 @@ function ConnectionGroupBlock({
   onSelectSession,
   onCreateSession,
   onEndSession,
+  onSessionContextMenu,
   onConnectionPointerDown,
 }: {
   group: ConnectionGroup;
@@ -188,6 +196,10 @@ function ConnectionGroupBlock({
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
   onEndSession: (sessionId: string) => void;
+  onSessionContextMenu: (
+    event: React.MouseEvent,
+    sessionId: string,
+  ) => void;
   onConnectionPointerDown: (
     event: ReactPointerEvent<HTMLDivElement>,
     resourceId: string,
@@ -248,6 +260,7 @@ function ConnectionGroupBlock({
               status={sessionStatusById.get(session.id) ?? "idle"}
               onSelect={() => onSelectSession(session.id)}
               onEnd={() => onEndSession(session.id)}
+              onContextMenu={(event) => onSessionContextMenu(event, session.id)}
             />
           ))}
         </div>
@@ -299,6 +312,18 @@ export function TerminalSessionSidebar({
   const [dropTarget, setDropTarget] = useState<{
     resourceId: string;
     position: "before" | "after";
+  } | null>(null);
+  // 会话右键菜单
+  const [sessionCtxMenu, setSessionCtxMenu] = useState<{
+    x: number;
+    y: number;
+    session: TerminalSession;
+  } | null>(null);
+  // 会话重命名 prompt
+  const [renameTarget, setRenameTarget] = useState<{
+    sessionId: string;
+    currentTitle: string;
+    value: string;
   } | null>(null);
   const treeBodyRef = useRef<HTMLDivElement>(null);
   const connectionGroupsRef = useRef<ConnectionGroup[]>([]);
@@ -377,6 +402,54 @@ export function TerminalSessionSidebar({
     },
     [expandedMap, setExpanded],
   );
+
+  const handleSessionContextMenu = useCallback(
+    (event: React.MouseEvent, sessionId: string) => {
+      event.preventDefault();
+      const session = sessions.find((s) => s.id === sessionId);
+      if (!session) return;
+      setSessionCtxMenu({ x: event.clientX, y: event.clientY, session });
+    },
+    [sessions],
+  );
+
+  const handleRenameSession = useCallback(
+    (session: TerminalSession) => {
+      setSessionCtxMenu(null);
+      setRenameTarget({
+        sessionId: session.id,
+        currentTitle: session.title,
+        value: session.title,
+      });
+    },
+    [],
+  );
+
+  const handleCopySession = useCallback(
+    (session: TerminalSession) => {
+      setSessionCtxMenu(null);
+      // 复制会话：clone session info，附加 "(副本)" 后缀，挂回原 resource 下
+      const copyTitle = `${session.title} (副本)`;
+      const newId = `sess-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      useTerminalStore
+        .getState()
+        .createSession(copyTitle, session.session, newId);
+    },
+    [],
+  );
+
+  const commitSessionRename = useCallback(() => {
+    if (!renameTarget) return;
+    const trimmed = renameTarget.value.trim();
+    if (!trimmed) {
+      setRenameTarget(null);
+      return;
+    }
+    if (trimmed !== renameTarget.currentTitle) {
+      useTerminalStore.getState().renameSession(renameTarget.sessionId, trimmed);
+    }
+    setRenameTarget(null);
+  }, [renameTarget]);
 
   const cleanupPointerDrag = useCallback(() => {
     pointerDragRef.current = null;
@@ -530,11 +603,99 @@ export function TerminalSessionSidebar({
               onSelectSession={onSelectSession}
               onCreateSession={onCreateSession}
               onEndSession={onEndSession}
+              onSessionContextMenu={handleSessionContextMenu}
               onConnectionPointerDown={handleConnectionPointerDown}
             />
           ))
         )}
       </div>
+      {sessionCtxMenu && (() => {
+        const items: ContextMenuItem[] = [
+          {
+            id: "session-open",
+            label: t("terminal.sessions.open"),
+            onClick: () => {
+              onSelectSession(sessionCtxMenu.session.id);
+              setSessionCtxMenu(null);
+            },
+          },
+          {
+            id: "session-rename",
+            label: t("shell.topbar.rename"),
+            onClick: () => handleRenameSession(sessionCtxMenu.session),
+          },
+          {
+            id: "session-copy",
+            label: t("terminal.sessions.copy"),
+            onClick: () => handleCopySession(sessionCtxMenu.session),
+          },
+          { id: "session-sep-1", separator: true, label: "" },
+          {
+            id: "session-end",
+            label: t("terminal.sessions.end"),
+            danger: true,
+            onClick: () => {
+              onEndSession(sessionCtxMenu.session.id);
+              setSessionCtxMenu(null);
+            },
+          },
+        ];
+        return (
+          <ContextMenu
+            items={items}
+            position={{ x: sessionCtxMenu.x, y: sessionCtxMenu.y }}
+            onClose={() => setSessionCtxMenu(null)}
+          />
+        );
+      })()}
+      {renameTarget && (
+        <div
+          className="rename-prompt-backdrop"
+          onClick={() => setRenameTarget(null)}
+          role="dialog"
+          aria-label={t("shell.topbar.rename")}
+        >
+          <div
+            className="rename-prompt-dialog"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitSessionRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setRenameTarget(null);
+              }
+            }}
+          >
+            <div className="rename-prompt-label">{t("shell.topbar.rename")}</div>
+            <div className="rename-prompt-current">{renameTarget.currentTitle}</div>
+            <input
+              type="text"
+              className="rename-prompt-input"
+              value={renameTarget.value}
+              autoFocus
+              onChange={(e) => setRenameTarget({ ...renameTarget, value: e.target.value })}
+            />
+            <div className="rename-prompt-actions">
+              <button
+                type="button"
+                className="rename-prompt-btn"
+                onClick={() => setRenameTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="rename-prompt-btn rename-prompt-btn--primary"
+                onClick={commitSessionRename}
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

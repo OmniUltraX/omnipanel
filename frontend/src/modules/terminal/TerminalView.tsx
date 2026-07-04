@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { useTerminal, type TerminalInputMode } from "../../hooks/useTerminal";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
@@ -51,6 +51,32 @@ export function TerminalView({
   const moduleSuspended = useModuleSuspended();
   const terminalSuspended = !isTauriRuntime || moduleSuspended;
 
+  // 终端文件链接：cwd / sessionType 从 store 拿
+  // 注意：避免在 selector 中返回新对象（zustand 默认 Object.is 比较，会触发 re-render）
+  // 拆成两个 selector，分别只取 string（cwd）和 string（sessionType），都是稳定引用
+  const paneCwd = useTerminalStore((state) => {
+    const pane = findTerminalPane(sessionId);
+    if (pane) return pane.cwd || "/";
+    const tab = state.tabs.find((item) => item.id === sessionId);
+    return tab?.session?.cwd || "/";
+  });
+  const paneType = useTerminalStore((state) => {
+    const pane = findTerminalPane(sessionId);
+    if (pane) return pane.type;
+    const tab = state.tabs.find((item) => item.id === sessionId);
+    return tab?.session?.type ?? "local";
+  });
+  const composedFileLink = useMemo(
+    () => ({
+      sessionType: paneType,
+      resourceId: resource?.id ?? null,
+      remoteHome: null,
+      cwd: paneCwd,
+      paneId: sessionId,
+    }),
+    [paneType, paneCwd, resource, sessionId],
+  );
+
   useTerminal(
     sessionId,
     containerRef,
@@ -63,6 +89,7 @@ export function TerminalView({
       sendRef,
       active: active && !moduleSuspended,
       reconnectKey,
+      fileLink: composedFileLink,
     },
   );
 

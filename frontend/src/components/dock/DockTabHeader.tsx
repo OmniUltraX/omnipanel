@@ -68,6 +68,9 @@ export function DockTabHeader({
     <div ref={rootRef} className="dock-tab-header-root">
       <DockTabChrome
       api={props.api}
+      containerApi={props.containerApi}
+      params={props.params}
+      tabLocation={props.tabLocation}
       closable={closable}
       tooltip={tooltip}
       isPreview={preview}

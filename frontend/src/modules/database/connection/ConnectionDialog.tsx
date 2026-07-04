@@ -192,7 +192,7 @@ export function ConnectionDialog({
       // 保存成功后，若为远程数据库且尚无对应 SSH 连接，自动创建一个
       const dbHost = form.host.trim();
       if (dbHost && form.engine !== "sqlite" && !LOCALHOST_ALIASES.has(dbHost.toLowerCase())) {
-        const existingSsh = findSshConnectionForDbHost(
+        const existingSsh = await findSshConnectionForDbHost(
           useConnectionStore.getState().connections,
           dbHost,
         );

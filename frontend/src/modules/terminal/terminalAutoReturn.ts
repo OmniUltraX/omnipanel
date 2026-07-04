@@ -4,7 +4,6 @@ import { useTerminalUiStore } from "./terminalUiStore";
 /** top/vim/less 等 TUI 进入/退出 alternate screen 的 CSI 序列 */
 const ALT_SCREEN_ENTER_RE = /\x1b\[\?(?:1049|1047|47)h/g;
 const ALT_SCREEN_EXIT_RE = /\x1b\[\?(?:1049|1047|47)l/g;
-const ALT_SCREEN_COMMAND_RE = /^(vim|vi|nano|top|htop|less|more)\b/i;
 
 const AUTO_RETURN_GRACE_MS = 600;
 
@@ -70,10 +69,27 @@ export function trackTerminalOutputForAutoReturn(
   }
 }
 
-/** OSC 133 命令结束时的兜底（无 alternate screen 的交互命令，如 python） */
+/** 通过 xterm.js buffer 切换事件检测 TUI 进入/退出（备用路径） */
+export function notifyAltScreenChange(
+  sessionId: string,
+  isAlternate: boolean,
+): void {
+  if (!armedAt.has(sessionId)) return;
+
+  if (isAlternate) {
+    sawAltEnter.set(sessionId, true);
+    altScreenActive.set(sessionId, true);
+  } else {
+    if (!sawAltEnter.get(sessionId)) return;
+    altScreenActive.set(sessionId, false);
+    scheduleAutoReturn(sessionId);
+  }
+}
+
+/** OSC 133 命令结束时的兜底（无 alternate screen 的交互命令，如 python、top 等） */
 export function tryAutoReturnAfterBlockEnd(
   sessionId: string,
-  blockId: string,
+  blockId?: string | null,
 ): void {
   if (!shouldWatch(sessionId)) return;
   if (altScreenActive.get(sessionId)) return;
@@ -81,15 +97,12 @@ export function tryAutoReturnAfterBlockEnd(
   const armed = armedAt.get(sessionId);
   if (!armed) return;
 
-  const block = useBlocksStore
-    .getState()
-    .getBlocks(sessionId)
-    .find((item) => item.id === blockId);
-  if (!block || block.timestamp < armed - 50) return;
-
-  const command = block.command.trim();
-  if (ALT_SCREEN_COMMAND_RE.test(command) && !sawAltEnter.get(sessionId)) {
-    return;
+  if (blockId) {
+    const block = useBlocksStore
+      .getState()
+      .getBlocks(sessionId)
+      .find((item) => item.id === blockId);
+    if (block && block.timestamp < armed - 50) return;
   }
 
   scheduleAutoReturn(sessionId);

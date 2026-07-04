@@ -5,8 +5,23 @@ export type FilePreviewKind = "json" | "text" | "image" | "unsupported";
 const JSON_EXTENSIONS = new Set(["json", "jsonc", "json5", "geojson"]);
 
 const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "json", "jsonc", "json5", "geojson", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
-  "js", "ts", "tsx", "jsx", "css", "html", "rs", "go", "py", "sh", "sql", "log",
+  // 纯文本
+  "txt", "md", "rst", "log", "env", "csv", "tsv",
+  // 配置 / 数据
+  "json", "jsonc", "json5", "geojson", "xml", "yaml", "yml", "toml",
+  "ini", "cfg", "conf", "properties", "lock",
+  // 脚本 / shell
+  "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "dockerfile", "makefile",
+  // Web / 前端
+  "js", "mjs", "cjs", "ts", "tsx", "jsx", "css", "scss", "sass", "less", "html", "htm", "svg", "vue", "svelte",
+  // 编程语言
+  "py", "rb", "pl", "lua", "rs", "go", "java", "kt", "scala", "swift",
+  "c", "h", "cpp", "cxx", "hpp", "hxx", "cc", "m", "mm",
+  "cs", "fs", "vb", "php", "dart", "r", "jl", "ex", "exs", "clj", "cljs", "elm",
+  // 数据库 / 查询
+  "sql",
+  // 构建 / 项目
+  "gradle", "cmake", "ninja", "sbt",
 ]);
 
 export function isJsonPreviewFile(name: string): boolean {
@@ -19,11 +34,142 @@ export function isTextPreviewFile(name: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
+/**
+ * 文件是否有"明显"的扩展名：有点号且最后一段为非空字母数字
+ * （用于在无扩展名匹配时按文本尝试，但太特殊的二进制名（无点）仍判为 unsupported）
+ */
+function hasRecognizableExtension(name: string): boolean {
+  const idx = name.lastIndexOf(".");
+  if (idx <= 0 || idx === name.length - 1) return false;
+  const ext = name.slice(idx + 1);
+  return /^[A-Za-z0-9]{1,8}$/.test(ext);
+}
+
+/** 常见无扩展名但确实是文本的约定文件名（Dockerfile、Makefile、README、LICENSE 等） */
+const TEXT_FILENAMES = new Set([
+  "dockerfile", "containerfile", "makefile", "rakefile", "gemfile", "procfile",
+  "vagrantfile", "brewfile", "podfile", "fastfile", "justfile",
+  "readme", "license", "licence", "changelog", "authors", "contributors",
+  "todo", "notice", "copying", "install", "news", "thanks",
+  "cmakelists", "manifest", "pipfile", "poetry", "go.mod", "go.sum",
+  "cargo.lock", "yarn.lock", "pnpm-lock", "composer.lock", "gemfile.lock",
+  ".bashrc", ".zshrc", ".profile", ".bash_profile", ".vimrc", ".gitconfig",
+  ".gitignore", ".dockerignore", ".editorconfig", ".eslintrc", ".prettierrc",
+  ".npmrc", ".yarnrc",
+]);
+
+function isKnownTextFilename(name: string): boolean {
+  return TEXT_FILENAMES.has(name.toLowerCase());
+}
+
 export function resolveFilePreviewKind(name: string): FilePreviewKind {
   if (isGridImageFile(name)) return "image";
   if (isJsonPreviewFile(name)) return "json";
   if (isTextPreviewFile(name)) return "text";
+  // 常见无扩展名约定文件名：按文本预览
+  if (isKnownTextFilename(name)) return "text";
+  // 无扩展名且不是已知二进制文件：默认按文本预览（/etc 下几乎都是文本配置）
+  if (!hasRecognizableExtension(name) && !isKnownBinaryFilename(name)) return "text";
+  // 兜底：有任何可识别的扩展名（且不在 image/json/text 白名单）也按文本尝试预览
+  // —— 真实是二进制时由 FilePreviewContent 加载后根据内容回退（detectPreviewKindFromBytes）
+  if (hasRecognizableExtension(name)) return "text";
   return "unsupported";
+}
+
+/** 已知二进制文件（无扩展名）—— 避免按文本乱码预览 */
+const BINARY_FILENAMES = new Set([
+  // 设备/虚拟文件
+  "core", "core.dump",
+  // 内核
+  "vmlinuz", "vmlinux", "initrd", "initramfs",
+  // swap
+  "swap",
+  // 常见二进制包
+  "system.map",
+  // 字体
+]);
+
+function isKnownBinaryFilename(name: string): boolean {
+  return BINARY_FILENAMES.has(name.toLowerCase());
+}
+
+/**
+ * 通过首字节魔术签名（magic bytes）检测内容类型。
+ * 适用于无扩展名 / 扩展名被剥掉 / 扩展名错配的文件。
+ * 返回 null 表示无法判定（调用方按默认 text 走）。
+ */
+export function detectPreviewKindFromBytes(bytes: Uint8Array | number[]): FilePreviewKind | null {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (view.length === 0) return null;
+
+  // 8-byte 头部匹配（最常见文件格式）
+  const head8 = view.subarray(0, Math.min(8, view.length));
+  const head16 = view.subarray(0, Math.min(16, view.length));
+
+  // 图片
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (head8.length >= 8 && head8[0] === 0x89 && head8[1] === 0x50 && head8[2] === 0x4e && head8[3] === 0x47) return "image";
+  // JPEG: FF D8 FF
+  if (head8.length >= 3 && head8[0] === 0xff && head8[1] === 0xd8 && head8[2] === 0xff) return "image";
+  // GIF: 47 49 46 38
+  if (head8.length >= 4 && head8[0] === 0x47 && head8[1] === 0x49 && head8[2] === 0x46 && head8[3] === 0x38) return "image";
+  // WebP: 52 49 46 46 ?? ?? ?? ?? 57 45 42 50
+  if (
+    head16.length >= 12 &&
+    head16[0] === 0x52 && head16[1] === 0x49 && head16[2] === 0x46 && head16[3] === 0x46 &&
+    head16[8] === 0x57 && head16[9] === 0x45 && head16[10] === 0x42 && head16[11] === 0x50
+  ) return "image";
+  // BMP: 42 4D
+  if (head8.length >= 2 && head8[0] === 0x42 && head8[1] === 0x4d) return "image";
+
+  // 文本类格式的魔术字节
+  // gzip: 1F 8B
+  const isGzip = head8.length >= 2 && head8[0] === 0x1f && head8[1] === 0x8b;
+  // PDF: 25 50 44 46
+  const isPdf = head8.length >= 4 && head8[0] === 0x25 && head8[1] === 0x50 && head8[2] === 0x44 && head8[3] === 0x46;
+
+  // 二进制启发式：含 NUL 字节 → binary（不按文本预览）
+  if (containsNulByte(view, 256)) return "unsupported";
+  // 已经判定为压缩/二进制格式（未实现具体解码） → unsupported
+  if (isGzip || isPdf) return "unsupported";
+
+  // 文本格式魔术字节
+  // SVG: 包含 <svg 或 <?xml
+  const ascii = head8ToAscii(head8);
+  if (ascii) {
+    const trimmed = ascii.trimStart();
+    if (trimmed.startsWith("<?xml") || trimmed.startsWith("<svg") || /^\s*<\?xml/.test(trimmed)) {
+      // XML/SVG 用 image kind（FilePreviewContent 会按 image 渲染）—— 但只对真 svg
+      if (trimmed.includes("<svg") || /<svg[\s>]/i.test(ascii)) return "image";
+    }
+    // HTML
+    if (/^\s*<!doctype\s+html/i.test(trimmed) || /^\s*<html[\s>]/i.test(trimmed)) return "text";
+    // shebang → 文本
+    if (trimmed.startsWith("#!")) return "text";
+    // JSON 启发式
+    const firstNonWs = ascii.trimStart();
+    if (firstNonWs.startsWith("{") || firstNonWs.startsWith("[")) {
+      // 用完整 bytes 试解析 JSON
+      const text = decodePreviewBytes(Array.from(view));
+      if (parsePreviewJsonText(text) != null) return "json";
+    }
+  }
+
+  return null;
+}
+
+function head8ToAscii(view: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < view.length; i++) s += String.fromCharCode(view[i]!);
+  return s;
+}
+
+function containsNulByte(view: Uint8Array, scanLimit: number): boolean {
+  const limit = Math.min(view.length, scanLimit);
+  for (let i = 0; i < limit; i++) {
+    if (view[i] === 0) return true;
+  }
+  return false;
 }
 
 /** 解析 JSON 文件文本；对象/数组返回结构化值，解析失败或非对象返回 null。 */

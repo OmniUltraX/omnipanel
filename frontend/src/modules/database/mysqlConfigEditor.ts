@@ -78,13 +78,13 @@ export async function readMysqlConfig(
   if (sshId) {
     const res = await commands.sftpDownload(sshId, path);
     if (res.status !== "ok" || !res.data) {
-      throw new Error(res.error?.message ?? "读取配置文件失败");
+      throw new Error((res as any).error?.message ?? "读取配置文件失败");
     }
     return bytesToString(res.data);
   }
   const res = await commands.fileReadFile(LOCAL_CONNECTION_ID, path, MAX_CONFIG_BYTES);
   if (res.status !== "ok" || !res.data) {
-    throw new Error(res.error?.message ?? "读取配置文件失败");
+    throw new Error((res as any).error?.message ?? "读取配置文件失败");
   }
   return bytesToString(res.data);
 }

@@ -209,7 +209,7 @@
         display: flex;
         align-items: flex-start;
         gap: 8px;
-        padding: 6px var(--sp-3) 0;
+        padding: 6px var(--sp-3) var(--sp-2);
     }
 
     .term-cmd-context-chips {
@@ -1357,6 +1357,54 @@
         gap: var(--sp-3);
     }
 
+    .term-warp-feed__scroll-controls {
+        position: sticky;
+        bottom: var(--sp-3);
+        margin-left: auto;
+        width: max-content;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .term-warp-feed__scroll-controls.is-visible {
+        opacity: 1;
+    }
+
+    .term-warp-feed__scroll-btn {
+        pointer-events: none;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--surface) 92%, transparent);
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+    }
+
+    .term-warp-feed__scroll-btn.is-shown {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+    }
+
+    .term-warp-feed__scroll-btn.is-shown:hover {
+        background: var(--surface);
+        color: var(--text);
+    }
+
     /* 吸顶布局态：由视口解析出的「当前展示内容上方」最后一条 AI（见 useStickyAiBlockId） */
     .term-warp-block--ai-sticky {
         position: sticky;
@@ -1364,67 +1412,14 @@
         z-index: 20;
     }
 
-    .term-warp-block--ai-sticky.term-warp-block--collapsed {
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-    }
-
-    .term-warp-block--ai-sticky.term-warp-block--expanded:not(.term-warp-block--ai-sticky-docked) {
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-        background: #1a1717;
-    }
-
-    .term-warp-ai-sticky-sentinel {
-        height: 1px;
-        margin: 0;
-        flex-shrink: 0;
-        pointer-events: none;
-    }
-
-    .term-warp-sticky-segment {
+    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked {
         display: flex;
         flex-direction: column;
-        gap: var(--sp-3);
-        flex-shrink: 0;
-    }
-
-    .term-warp-ai-sticky-flow-spacer {
-        flex-shrink: 0;
-        pointer-events: none;
-        overflow-anchor: none;
-        /* 排到 segment 末尾（命令 shell 之后），让 dock 下方紧跟命令输出、无空白；
-           占位仍在文档流补足 host 塌缩量，保持 scrollHeight 恒定防闪。 */
-        order: 10;
-    }
-
-    .term-warp-ai-sticky-host {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .term-warp-ai-sticky-host--active {
         min-height: 0;
-        border-radius: var(--r-md);
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-        background: #1a1717;
         overflow: hidden;
     }
 
-    .term-warp-ai-sticky-host--active .term-warp-block--ai-sticky-docked {
-        flex: 1 1 auto;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
-        background: transparent;
-    }
-
-    .term-warp-ai-sticky-host--active .term-warp-ai-thread {
+    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
@@ -1432,6 +1427,13 @@
         overflow-anchor: none;
         scroll-behavior: auto;
         padding: 0 4px 8px;
+    }
+
+    .term-warp-sticky-segment {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        flex-shrink: 0;
     }
 
     .term-warp-ai-dock__resize {
@@ -1652,6 +1654,24 @@
         outline: none;
     }
 
+    /* 文件项可"打开预览"：区别于目录的 cd 行为，悬停给不同的高亮色 */
+    .term-ls-entry--openable {
+        cursor: pointer;
+        text-decoration: none;
+        border-radius: 3px;
+        padding: 0;
+        transition: background 0.12s ease, color 0.12s ease;
+        border: 0;
+        background: transparent;
+        font: inherit;
+    }
+
+    .term-ls-entry--openable:hover,
+    .term-ls-entry--openable:focus-visible {
+        background: color-mix(in srgb, #74c0fc 18%, transparent);
+        outline: none;
+    }
+
     .term-ls-entry--dir {
         color: #74c0fc;
         font-weight: 600;
@@ -1765,16 +1785,12 @@
         margin-left: 0;
     }
 
-    /* AI 卡片：明显区分 */
+    /* AI 卡片：统一深色面板，避免吸顶候选切换时渐变背景闪烁 */
     .term-warp-block--ai {
-        border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+        border: 1px solid color-mix(in srgb, var(--meta) 22%, #1a1717);
         border-radius: var(--r-md);
-        background: linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--accent) 14%, #1a1717) 0%,
-            color-mix(in srgb, #7c6af0 10%, #1a1717) 100%
-        );
-        box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 12%, transparent);
+        background: #1a1717;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
     }
 
     .term-warp-block--ai.term-warp-block--collapsed {
@@ -1870,6 +1886,11 @@
     .term-warp-block--collapsed:hover {
         border-color: color-mix(in srgb, var(--accent) 55%, var(--border-soft));
         background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+    }
+
+    .term-warp-block--ai.term-warp-block--collapsed:hover {
+        background: #1a1717;
+        border-color: color-mix(in srgb, var(--accent) 45%, #1a1717);
     }
 
     .term-warp-block__summary {

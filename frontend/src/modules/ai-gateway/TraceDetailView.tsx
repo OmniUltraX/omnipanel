@@ -51,7 +51,7 @@ export function TraceDetailView({ sessionId }: { sessionId: string }) {
             <div className="ai-trace-event-head">
               <span>{traceEventLabel(trace.eventType)}</span>
               <span className="section-desc">
-                turn {trace.turnIndex} · {new Date(trace.ts).toLocaleString()}
+                turn {trace.turnIndex} · {new Date(trace.ts ?? 0).toLocaleString()}
               </span>
             </div>
             <pre className="settings-code-block ai-trace-payload">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { commands } from "../../ipc/bindings";
+import { commands } from "../../../ipc/bindings";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -18,7 +18,7 @@ import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
 } from "../mysqlDeploymentDetect";
-import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
@@ -215,7 +215,7 @@ function MysqlDeploymentTags({
     if (deployment?.serverName?.trim()) {
       return deployment.serverName.trim();
     }
-    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 
@@ -658,8 +658,11 @@ export function DatabaseConnectionInfoPanel({
         configTempPath,
         512 * 1024,
       );
-      if (res.status !== "ok" || !res.data) {
+      if (res.status !== "ok") {
         throw new Error(res.error?.message ?? "读取临时文件失败");
+      }
+      if (!res.data) {
+        throw new Error("读取临时文件失败");
       }
       const content = new TextDecoder("utf-8", { fatal: false }).decode(
         new Uint8Array(res.data),

@@ -107,6 +107,11 @@ pub fn default_file_index_storage_dir() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::FILES)?.join("index"))
 }
 
+/// 域名→IP 解析缓存：`~/.omnipd/database/host-resolve-cache.json`。
+pub fn database_host_resolve_cache_path() -> OmniResult<PathBuf> {
+    Ok(module_dir(modules::DATABASE)?.join("host-resolve-cache.json"))
+}
+
 pub(crate) fn map_io(err: std::io::Error) -> OmniError {
     OmniError::new(ErrorCode::Io, "读写应用数据目录失败").with_cause(err.to_string())
 }

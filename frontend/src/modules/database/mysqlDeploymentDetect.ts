@@ -167,7 +167,7 @@ export async function probeMysqlDeployment(
     return { kind: "unknown", reason: "no_pid_file" };
   }
 
-  const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+  const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
     console.warn(`[probeMysqlDeployment] 未匹配到 SSH 连接 (host=${connection.host})`);
     return { kind: "unknown", reason: "no_ssh", pidFile };

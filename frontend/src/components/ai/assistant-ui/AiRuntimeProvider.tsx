@@ -27,6 +27,10 @@ import {
 } from "../../../modules/terminal/aiThreadBridge";
 import { buildTerminalAiContextAppend } from "../../../modules/terminal/buildTerminalAiContext";
 import { cancelPendingInlineTools } from "../../../modules/terminal/inlineToolBridge";
+import {
+  appendInlineAiStreamChunk,
+  flushInlineAiStream,
+} from "../../../modules/terminal/inlineAiStreamBuffer";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
 
@@ -231,10 +235,21 @@ function inlineHasAssistantContent(blockId: string): boolean {
   );
 }
 
+function inlineHasOutstandingTools(blockId: string): boolean {
+  const block = useBlocksStore.getState().findBlockById(blockId);
+  if (!block) return false;
+  return getResolvedAiThread(block).some(
+    (item) =>
+      item.kind === "tool_call" &&
+      (item.status === "pending" || item.status === "running"),
+  );
+}
+
 function finalizeInlineBlock(
   inline: InlineTerminalAiTarget,
   options: { failed: boolean; aborted?: boolean; reason?: string },
 ): void {
+  flushInlineAiStream(inline.blockId, inline.assistantTurnId);
   if (options.aborted) {
     cancelPendingInlineTools(inline.blockId);
   }
@@ -330,9 +345,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   runGenerationRef.current = async (convId, assistantMsgId, userText, inline) => {
     const appendText = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        useBlocksStore
-          .getState()
-          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "content", chunk);
+        appendInlineAiStreamChunk(inline.blockId, inline.assistantTurnId, "content", chunk);
       } else if (assistantMsgId) {
         appendStreamContent(convId, assistantMsgId, chunk);
       }
@@ -340,9 +353,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const appendReasoning = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        useBlocksStore
-          .getState()
-          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
+        appendInlineAiStreamChunk(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
       } else if (assistantMsgId) {
         appendStreamReasoning(convId, assistantMsgId, chunk);
       }
@@ -373,6 +384,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const upsertToolCall = (id: string, name: string, args: string) => {
       if (!name.trim()) return;
+      if (inline?.assistantTurnId) {
+        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
+      }
       toolMetaRef.current.set(id, { name, args });
       if (inline) {
         const block = useBlocksStore.getState().findBlockById(inline.blockId);
@@ -396,8 +410,20 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             status: "running",
           });
         }
+        // 内联路径不在流式 tool_call 阶段派发：后端 execute() 尚未注册 oneshot，
+        // 过早 ai_chat_tool_result 会丢失，导致 orchestrator 挂起至超时。
         if (waitingToolDispatchRef.current.has(id)) {
           tryDispatchTool(id);
+        } else if (parseTerminalCommand(args)) {
+          const blockAfter = useBlocksStore.getState().findBlockById(inline.blockId);
+          const toolItem = blockAfter
+            ? getResolvedAiThread(blockAfter).find(
+                (item) => item.kind === "tool_call" && item.id === id,
+              )
+            : undefined;
+          if (toolItem && "status" in toolItem && toolItem.status === "pending") {
+            tryDispatchTool(id);
+          }
         }
         return;
       }
@@ -491,6 +517,24 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const finishGeneration = (failed = false, aborted = false) => {
       if (inline) {
+        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
+        if (!failed && !aborted && inlineHasOutstandingTools(inline.blockId)) {
+          // 流已结束但 tool call 仍停在 running/pending：补一次派发，保持卡片 running。
+          for (const item of getResolvedAiThread(
+            useBlocksStore.getState().findBlockById(inline.blockId)!,
+          )) {
+            if (
+              item.kind === "tool_call" &&
+              (item.status === "pending" || item.status === "running")
+            ) {
+              const meta = toolMetaRef.current.get(item.id);
+              if (meta && isTerminalClientTool(meta.name) && parseTerminalCommand(meta.args)) {
+                tryDispatchTool(item.id);
+              }
+            }
+          }
+          return;
+        }
         if (aborted) {
           finalizeInlineBlock(inline, { failed: true, aborted: true, reason: "已停止" });
         } else {

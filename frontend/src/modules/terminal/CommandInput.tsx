@@ -302,14 +302,14 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       }
 
       const isInteractive = INTERACTIVE_COMMAND_HINT.test(trimmed);
+      if (isInteractive && onRequestNativeMode) {
+        onRequestNativeMode();
+      }
       onSend(trimmed);
       setValue("");
       closeCompletion();
       closeHistory();
       resetBrowse();
-      if (isInteractive && onRequestNativeMode) {
-        requestAnimationFrame(() => onRequestNativeMode());
-      }
       return;
     }, [closeCompletion, closeHistory, cwd, onRequestNativeMode, onSend, resetBrowse, submitInlineAi, value]);
 
