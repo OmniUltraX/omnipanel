@@ -115,7 +115,7 @@ export interface ContentPreviewViewProps {
   /** 内容切换时重置文本模式 */
   contentResetKey?: string;
   className?: string;
-  /** 允许编辑文本内容（代码/纯文本模式） */
+  /** 允许编辑文本内容（普通文本 / 代码 / JSON / Markdown 模式） */
   editable?: boolean;
   onTextChange?: (text: string) => void;
 }
@@ -191,10 +191,10 @@ export function ContentPreviewView({
   }, [textMode, webPreviewUrl, setTextMode]);
 
   useEffect(() => {
-    if (textMode === "json" && content?.kind === "text" && !parsedJsonFromText) {
+    if (textMode === "json" && content?.kind === "text" && !parsedJsonFromText && !editable) {
       setTextMode("plain");
     }
-  }, [textMode, content, parsedJsonFromText, setTextMode]);
+  }, [textMode, content, parsedJsonFromText, setTextMode, editable]);
 
   useEffect(() => {
     if (textMode === "markdown" && content?.kind === "json") {
@@ -241,17 +241,31 @@ export function ContentPreviewView({
   }
 
   const jsonStructuredValue =
-    content.kind === "json" && textMode === "json"
+    !editable &&
+    (content.kind === "json" && textMode === "json"
       ? content.value
       : content.kind === "text" && textMode === "json" && parsedJsonFromText
         ? parsedJsonFromText
-        : null;
+        : null);
 
   const sourceText =
     content.kind === "json" ? jsonSourceText(content.value) : content.kind === "text" ? content.text : "";
 
   const editorLanguage: CodeEditorLanguage | undefined =
     content.kind === "json" || textMode === "json" ? "json" : codeLanguage;
+
+  const renderEditableCodeEditor = (language: CodeEditorLanguage, extraClassName?: string) => (
+    <div className={cn("content-preview-code", extraClassName)}>
+      <CodeEditor
+        value={sourceText}
+        onChange={(next) => onTextChange?.(next)}
+        readOnly={false}
+        language={language}
+        height="100%"
+        className="content-preview-code-editor"
+      />
+    </div>
+  );
 
   const renderTextBody = () => {
     if (textMode === "web" && webPreviewUrl) {
@@ -269,7 +283,14 @@ export function ContentPreviewView({
       );
     }
 
+    if (textMode === "json" && editable) {
+      return renderEditableCodeEditor("json", "content-preview-code--json");
+    }
+
     if (textMode === "markdown") {
+      if (editable) {
+        return renderEditableCodeEditor("text", "content-preview-code--markdown");
+      }
       return (
         <div className="content-preview-markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{sourceText}</ReactMarkdown>
@@ -333,7 +354,7 @@ export function ContentPreviewView({
         <div className="content-preview-json content-preview-json--virtual">
           <VirtualJsonView value={jsonStructuredValue} />
         </div>
-      ) : content.kind === "text" && textMode === "json" ? (
+      ) : content.kind === "text" && textMode === "json" && !editable ? (
         <ModuleEmptyState preset="folder" title={t("contentPreview.empty")} desc={emptyHint} />
       ) : (
         renderTextBody()

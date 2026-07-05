@@ -324,7 +324,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (target instanceof Element) {
         if (
           target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel",
+            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-editor-panel, .dock-panel-bottom, .dock-handle, .db-pagination",
           )
         ) {
           return;
