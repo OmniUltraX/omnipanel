@@ -1,6 +1,5 @@
 /** Schema 树节点类型，与 TreeNode 渲染类型一致。 */
 export type SchemaTreeItemType =
-  | "group"
   | "connection"
   | "connection-folder"
   | "database"
@@ -17,7 +16,6 @@ export interface SchemaTreeItem {
   type: SchemaTreeItemType;
   id: string;
   label: string;
-  groupId?: string;
   connId?: string;
   dbName?: string;
   tableName?: string;
@@ -25,10 +23,6 @@ export interface SchemaTreeItem {
   indexName?: string;
   columnType?: string;
   dbType?: string;
-}
-
-export function buildGroupTreeItem(groupId: string, label: string): SchemaTreeItem {
-  return { type: "group", id: `grp:${groupId}`, label, groupId };
 }
 
 export function buildConnectionFolderTreeItem(folderId: string, label: string): SchemaTreeItem {

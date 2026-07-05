@@ -51,8 +51,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
         <div className="db-workspace-pane db-dock-pane">
           {isConnectionInfoTab(tab) ? (
             (() => {
-              const connection =
-                overriddenCtx.groupConnections.find((item) => item.id === tab.connId) ?? null;
+              const connection = overriddenCtx.resolveConnection(tab.connId);
               if (!connection) {
                 return null;
               }
@@ -60,8 +59,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
             })()
           ) : isDatabaseListTab(tab) ? (
             (() => {
-              const connection =
-                overriddenCtx.groupConnections.find((item) => item.id === tab.connId) ?? null;
+              const connection = overriddenCtx.resolveConnection(tab.connId);
               if (!connection) {
                 return null;
               }
@@ -79,8 +77,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
             <DbTablePreviewSurface tab={tab} />
           ) : isSlowQueryLogTab(tab) ? (
             (() => {
-              const connection =
-                overriddenCtx.groupConnections.find((item) => item.id === tab.connId) ?? null;
+              const connection = overriddenCtx.resolveConnection(tab.connId);
               if (!connection) {
                 return null;
               }

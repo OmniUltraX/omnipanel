@@ -22,7 +22,6 @@ export class DatabaseModuleContextProvider extends ModuleContextProvider<Databas
         `- 地址：${conn.host}:${conn.port}`,
         `- 用户：${conn.user}`,
         `- 默认库：${conn.defaultDatabase || "（未指定）"}`,
-        `- 分组：${conn.group}`,
         `- SSL：${conn.ssl ? "是" : "否"}`,
         `- 状态：${conn.status}`,
         `- 启用：${conn.enabled ? "是" : "否"}`,

@@ -9,7 +9,6 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import type { Connection } from "../../../ipc/bindings";
 import type { FormFillFieldDef, FormFillValue } from "../../../components/ai/simple/formFill";
-import type { DbConnectionGroup } from "../../../stores/dbGroupStore";
 import type { DbConnectionConfig } from "../api";
 import {
   type ConnectionFormData,
@@ -72,15 +71,12 @@ const EMPTY_FORM: ConnectionFormData = {
   username: "",
   password: "",
   ssl: false,
-  group: "默认",
 };
 
 interface ConnectionDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved?: () => void;
-  defaultGroup?: string;
-  groups?: DbConnectionGroup[];
   /** 传入已有连接表示编辑模式，表单会回显该连接数据。 */
   initialConnection?: DbConnectionConfig | null;
 }
@@ -89,13 +85,11 @@ export function ConnectionDialog({
   open,
   onClose,
   onSaved,
-  defaultGroup = "默认",
-  groups = [],
   initialConnection,
 }: ConnectionDialogProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
-  const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM, group: defaultGroup });
+  const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM });
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
     null
   );
@@ -113,12 +107,12 @@ export function ConnectionDialog({
     setForm(
       initialConnection
         ? connectionToForm(initialConnection)
-        : { ...EMPTY_FORM, group: defaultGroup }
+        : { ...EMPTY_FORM }
     );
     setStatus(null);
     setTesting(false);
     setSaving(false);
-  }, [open, defaultGroup, initialConnection]);
+  }, [open, initialConnection]);
 
   const update = <K extends keyof ConnectionFormData>(key: K, value: ConnectionFormData[K]) => {
     setStatus(null);
@@ -147,9 +141,6 @@ export function ConnectionDialog({
       }
     } else if (!form.host.trim()) {
       return t("database.dialog.hostRequired");
-    }
-    if (!form.group.trim()) {
-      return t("database.dialog.groupRequired");
     }
     return null;
   };
@@ -201,7 +192,7 @@ export function ConnectionDialog({
             id: "",
             kind: "ssh",
             name: `${dbHost} (SSH)`,
-            group: form.group.trim() || "默认",
+            group: "默认",
             envTag: "unknown",
             tags: [],
             config: JSON.stringify({
@@ -273,7 +264,6 @@ export function ConnectionDialog({
       { key: "database", label: t("database.dialog.database") },
       { key: "username", label: t("database.dialog.username") },
       { key: "password", label: t("database.dialog.password") },
-      { key: "group", label: t("database.dialog.group") },
     ],
     [t],
   );
@@ -379,21 +369,6 @@ export function ConnectionDialog({
               placeholder={t("database.dialog.namePlaceholder")}
               value={form.name}
               onChange={(value) => update("name", value)}
-            />
-          </FormField>
-
-          <FormField
-            label={t("database.dialog.group")}
-            htmlFor="db-conn-group"
-            description={t("database.dialog.groupDescription")}
-          >
-            <Select
-              className="input"
-              value={form.group}
-              onChange={(v) => update("group", v)}
-              style={{ width: "100%" }}
-              searchable={false}
-              options={groups.map((group) => ({ value: group.name, label: group.name }))}
             />
           </FormField>
 

@@ -19,7 +19,6 @@ export function toDatabaseConnectionContext(
     user: connection.user,
     defaultDatabase: connection.database,
     ssl: connection.ssl,
-    group: connection.group,
     status: connection.status,
     enabled: isConnectionEnabled(connection),
   };

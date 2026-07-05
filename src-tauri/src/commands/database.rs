@@ -1965,7 +1965,6 @@ pub async fn db_refresh_schema_node(
             )
             .await?))
         }
-        "group" => Err("分组节点请在前端刷新其下连接".to_string()),
         _ => Err(format!("不支持的节点类型：{kind}")),
     }
 }

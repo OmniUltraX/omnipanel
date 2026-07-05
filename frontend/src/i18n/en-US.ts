@@ -928,6 +928,7 @@ export const enUS: TranslationDict = {
       selectAllImportable: "Select importable ({count})",
       columnSelect: "Select",
       columnName: "Name",
+      namePlaceholder: "Connection name",
       columnEngine: "Type",
       columnHost: "Host",
       columnUser: "User",

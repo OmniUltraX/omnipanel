@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { FormDialog } from "../../../components/ui/FormDialog";
-import { Select } from "../../../components/ui/Select";
+import { TextInput } from "../../../components/ui/TextInput";
+import { useResizableTableColumns } from "../../../components/ui/useResizableTableColumns";
 import { useI18n } from "../../../i18n";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import type { DbConnectionGroup } from "../../../stores/dbGroupStore";
+import type { DbConnectionConfig } from "../api";
 import { getEngineIconByType } from "./engineIcons";
-import { previewItemToConnection } from "../navicatImport/buildImportPreview";
+import {
+  computeImportPreviewRowState,
+  previewItemToConnection,
+  resolveImportConnectionName,
+} from "../navicatImport/buildImportPreview";
 import type { NavicatImportIssue, NavicatImportPreviewItem } from "../navicatImport/types";
 import { saveConnection } from "../api";
 
@@ -13,8 +18,7 @@ interface ConnectionImportPreviewDialogProps {
   open: boolean;
   fileName: string;
   items: NavicatImportPreviewItem[];
-  groups: DbConnectionGroup[];
-  defaultGroup?: string;
+  existingConnections: DbConnectionConfig[];
   onClose: () => void;
   onImported: () => void;
 }
@@ -39,41 +43,141 @@ function issueLabel(
   }
 }
 
+const IMPORT_PREVIEW_COLUMNS = [
+  { id: "select", defaultWidth: 40, minWidth: 36, resizable: false as const },
+  { id: "name", defaultWidth: 180, minWidth: 120 },
+  { id: "engine", defaultWidth: 100, minWidth: 72 },
+  { id: "host", defaultWidth: 160, minWidth: 100 },
+  { id: "user", defaultWidth: 100, minWidth: 72 },
+  { id: "database", defaultWidth: 120, minWidth: 80 },
+  { id: "status", defaultWidth: 140, minWidth: 96 },
+] as const;
+
+const IMPORT_PREVIEW_COLUMN_STORAGE_KEY = "omnipanel-db-import-preview-col-widths";
+
 export function ConnectionImportPreviewDialog({
   open,
   fileName,
   items,
-  groups,
-  defaultGroup = "默认",
+  existingConnections,
   onClose,
   onImported,
 }: ConnectionImportPreviewDialogProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [targetGroup, setTargetGroup] = useState(defaultGroup);
+  const [customNames, setCustomNames] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState(false);
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
     null,
+  );
+  const {
+    tableRef,
+    resizingColumnId,
+    getColumnStyle,
+    startColumnResize,
+    isColumnResizable,
+  } = useResizableTableColumns([...IMPORT_PREVIEW_COLUMNS], {
+    storageKey: IMPORT_PREVIEW_COLUMN_STORAGE_KEY,
+  });
+
+  const columnLabels = useMemo(
+    () => ({
+      select: t("database.import.columnSelect"),
+      name: t("database.import.columnName"),
+      engine: t("database.import.columnEngine"),
+      host: t("database.import.columnHost"),
+      user: t("database.import.columnUser"),
+      database: t("database.import.columnDatabase"),
+      status: t("database.import.columnStatus"),
+    }),
+    [t],
+  );
+
+  const renderHeaderCell = (columnId: (typeof IMPORT_PREVIEW_COLUMNS)[number]["id"]) => (
+    <th
+      key={columnId}
+      data-col-id={columnId}
+      style={getColumnStyle(columnId)}
+      className={resizingColumnId === columnId ? "db-import-preview-th--resizing" : undefined}
+      aria-label={columnId === "select" ? columnLabels.select : undefined}
+    >
+      {columnId === "select" ? null : columnLabels[columnId]}
+      {isColumnResizable(columnId) ? (
+        <div
+          className="db-import-preview-col-resize"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            startColumnResize(columnId, event.clientX);
+          }}
+        />
+      ) : null}
+    </th>
+  );
+
+  const renderBodyCell = (
+    columnId: (typeof IMPORT_PREVIEW_COLUMNS)[number]["id"],
+    content: ReactNode,
+    className?: string,
+  ) => (
+    <td
+      key={columnId}
+      data-col-id={columnId}
+      style={getColumnStyle(columnId)}
+      className={className}
+      title={typeof content === "string" ? content : undefined}
+    >
+      {content}
+    </td>
+  );
+
+  const rowStates = useMemo(() => {
+    const namesForCompare = items.map((item) => ({
+      id: item.id,
+      name: resolveImportConnectionName(item, customNames[item.id]),
+    }));
+    const states = new Map<
+      string,
+      ReturnType<typeof computeImportPreviewRowState>
+    >();
+    for (const item of items) {
+      states.set(
+        item.id,
+        computeImportPreviewRowState(
+          item,
+          customNames[item.id],
+          existingConnections,
+          namesForCompare,
+        ),
+      );
+    }
+    return states;
+  }, [items, customNames, existingConnections]);
+
+  const importableItems = useMemo(
+    () => items.filter((item) => rowStates.get(item.id)?.importable),
+    [items, rowStates],
   );
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    setSelectedIds(
-      new Set(items.filter((item) => item.importable).map((item) => item.id)),
-    );
-    setTargetGroup(defaultGroup);
+    setCustomNames({});
+    setSelectedIds(new Set(items.filter((item) => item.importable).map((item) => item.id)));
     setImporting(false);
     setStatus(null);
-  }, [open, items, defaultGroup]);
+  }, [open, items]);
 
-  const importableItems = useMemo(() => items.filter((item) => item.importable), [items]);
   const selectedCount = useMemo(
     () => importableItems.filter((item) => selectedIds.has(item.id)).length,
     [importableItems, selectedIds],
   );
+
+  const updateCustomName = useCallback((id: string, value: string) => {
+    setCustomNames((prev) => ({ ...prev, [id]: value }));
+  }, []);
 
   const toggleItem = useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -109,7 +213,7 @@ export function ConnectionImportPreviewDialog({
     let failed = 0;
     for (const item of toImport) {
       try {
-        await saveConnection(previewItemToConnection(item, targetGroup));
+        await saveConnection(previewItemToConnection(item, customNames[item.id]));
         success += 1;
       } catch {
         failed += 1;
@@ -135,15 +239,7 @@ export function ConnectionImportPreviewDialog({
     setImporting(false);
     onImported();
     onClose();
-  }, [importableItems, onClose, onImported, selectedIds, t, targetGroup]);
-
-  const groupOptions = useMemo(() => {
-    const names = groups.map((group) => group.name);
-    if (!names.includes(targetGroup)) {
-      return [targetGroup, ...names];
-    }
-    return names.length > 0 ? names : [targetGroup];
-  }, [groups, targetGroup]);
+  }, [customNames, importableItems, onClose, onImported, selectedIds, t]);
 
   return (
     <FormDialog
@@ -165,15 +261,6 @@ export function ConnectionImportPreviewDialog({
       }}
     >
       <div className="db-import-preview-toolbar">
-        <label className="db-import-preview-group">
-          <span>{t("database.import.targetGroup")}</span>
-          <Select
-            value={targetGroup}
-            onChange={setTargetGroup}
-            options={groupOptions}
-            disabled={importing}
-          />
-        </label>
         <label className="db-import-preview-select-all">
           <input
             type="checkbox"
@@ -185,39 +272,61 @@ export function ConnectionImportPreviewDialog({
         </label>
       </div>
 
-      <div className="db-import-preview-table-wrap">
-        <table className="db-import-preview-table">
+      <div
+        className={`db-import-preview-table-wrap${resizingColumnId ? " db-import-preview-table-wrap--col-resizing" : ""}`}
+      >
+        <table
+          ref={tableRef}
+          className={`db-import-preview-table${resizingColumnId ? " db-import-preview-table--resizing" : ""}`}
+        >
+          <colgroup>
+            {IMPORT_PREVIEW_COLUMNS.map((column) => (
+              <col key={column.id} data-col-id={column.id} style={getColumnStyle(column.id)} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th aria-label={t("database.import.columnSelect")} />
-              <th>{t("database.import.columnName")}</th>
-              <th>{t("database.import.columnEngine")}</th>
-              <th>{t("database.import.columnHost")}</th>
-              <th>{t("database.import.columnUser")}</th>
-              <th>{t("database.import.columnDatabase")}</th>
-              <th>{t("database.import.columnStatus")}</th>
+              {IMPORT_PREVIEW_COLUMNS.map((column) => renderHeaderCell(column.id))}
             </tr>
           </thead>
           <tbody>
             {items.map((item) => {
+              const rowState = rowStates.get(item.id);
+              const importable = rowState?.importable ?? false;
+              const issues = rowState?.issues ?? item.issues;
               const iconUrl = item.engine
                 ? getEngineIconByType(item.engine, resolvedTheme)
                 : null;
+              const displayName = customNames[item.id] ?? item.raw.name;
+              const hostText = `${item.raw.host || "—"}${item.raw.port ? `:${item.raw.port}` : ""}`;
               return (
                 <tr
                   key={item.id}
-                  className={`db-import-preview-row${item.importable ? "" : " db-import-preview-row--disabled"}`}
+                  className={`db-import-preview-row${importable ? "" : " db-import-preview-row--disabled"}`}
                 >
-                  <td>
+                  {renderBodyCell(
+                    "select",
                     <input
                       type="checkbox"
                       checked={selectedIds.has(item.id)}
-                      disabled={!item.importable || importing}
+                      disabled={!importable || importing}
                       onChange={(event) => toggleItem(item.id, event.target.checked)}
-                    />
-                  </td>
-                  <td className="db-import-preview-name">{item.raw.name || "—"}</td>
-                  <td>
+                    />,
+                    "db-import-preview-cell--select",
+                  )}
+                  {renderBodyCell(
+                    "name",
+                    <TextInput
+                      className="db-import-preview-name-input input"
+                      value={displayName}
+                      placeholder={t("database.import.namePlaceholder")}
+                      disabled={importing}
+                      onChange={(value) => updateCustomName(item.id, value)}
+                    />,
+                    "db-import-preview-name",
+                  )}
+                  {renderBodyCell(
+                    "engine",
                     <span className="db-import-preview-engine">
                       {iconUrl ? (
                         <img
@@ -229,22 +338,20 @@ export function ConnectionImportPreviewDialog({
                         />
                       ) : null}
                       <span>{item.raw.connType || "—"}</span>
-                    </span>
-                  </td>
-                  <td>
-                    {item.raw.host || "—"}
-                    {item.raw.port ? `:${item.raw.port}` : ""}
-                  </td>
-                  <td>{item.raw.user || "—"}</td>
-                  <td>{item.raw.database || "—"}</td>
-                  <td>
-                    {item.issues.length === 0 ? (
+                    </span>,
+                  )}
+                  {renderBodyCell("host", hostText)}
+                  {renderBodyCell("user", item.raw.user || "—")}
+                  {renderBodyCell("database", item.raw.database || "—")}
+                  {renderBodyCell(
+                    "status",
+                    issues.length === 0 ? (
                       <span className="db-import-preview-status db-import-preview-status--ready">
                         {t("database.import.statusReady")}
                       </span>
                     ) : (
                       <div className="db-import-preview-issues">
-                        {item.issues.map((issue) => (
+                        {issues.map((issue) => (
                           <span
                             key={issue}
                             className="db-import-preview-status db-import-preview-status--warn"
@@ -253,8 +360,9 @@ export function ConnectionImportPreviewDialog({
                           </span>
                         ))}
                       </div>
-                    )}
-                  </td>
+                    ),
+                    "db-import-preview-cell--status",
+                  )}
                 </tr>
               );
             })}

@@ -30,7 +30,6 @@ import { TextInput } from "../../components/ui/TextInput";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
@@ -46,8 +45,6 @@ import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
-  connectionMatchesGroup,
-  normalizeConnectionGroup,
   countTable,
   createDatabase,
   fetchTableDdl,
@@ -493,10 +490,6 @@ export function DatabasePanel() {
     }
   }, [setModuleTab]);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
-  const groups = useDbGroupStore((s) => s.groups);
-  const activeGroupId = useDbGroupStore((s) => s.activeGroupId);
-  const setActiveGroupId = useDbGroupStore((s) => s.setActiveGroupId);
-  const getGroupName = useDbGroupStore((s) => s.getGroupName);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{
     fileName: string;
@@ -745,16 +738,6 @@ export function DatabasePanel() {
     ],
   );
 
-  const activeGroupNameFromStore = useMemo(
-    () => getGroupName(activeGroupId),
-    [activeGroupId, getGroupName],
-  );
-
-  const groupConnections = useMemo(
-    () => connections.filter((conn) => connectionMatchesGroup(conn, activeGroupNameFromStore)),
-    [connections, activeGroupNameFromStore],
-  );
-
   const sqlConnections = useMemo(
     () =>
       connections.filter(
@@ -772,21 +755,13 @@ export function DatabasePanel() {
   );
 
   const activeConn = useMemo(
-    () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
-    [groupConnections, activeConnId],
+    () => connections.find((c) => c.id === activeConnId) ?? connections[0] ?? null,
+    [connections, activeConnId],
   );
 
   const dbPoolKind: PoolKind =
     activeConn?.db_type?.toLowerCase() === "redis" ? "redis" : "database";
   usePoolConnectionRegistration(dbPoolKind, moduleLive ? activeConn?.id ?? null : null);
-
-  const activeGroupName = useMemo(
-    () =>
-      activeConn
-        ? normalizeConnectionGroup(activeConn.group)
-        : activeGroupNameFromStore,
-    [activeConn, activeGroupNameFromStore],
-  );
 
   const activeWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
@@ -978,25 +953,21 @@ export function DatabasePanel() {
       const list = await listConnections();
       setConnections(list);
       setActiveConnId((prev) => {
-        const pickEnabled = (items: DbConnectionConfig[]) =>
-          items.find((item) => isConnectionEnabled(item));
         if (prev) {
           const current = list.find((item) => item.id === prev);
           if (current && isConnectionEnabled(current)) {
             return prev;
           }
         }
-        const inGroup = list.find(
-          (item) => connectionMatchesGroup(item, activeGroupName) && isConnectionEnabled(item),
-        );
-        return inGroup?.id ?? pickEnabled(list)?.id ?? null;
+        const enabled = list.find((item) => isConnectionEnabled(item));
+        return enabled?.id ?? null;
       });
     } catch {
-      // 连接列表加载失败时保留当前状??
+      // 连接列表加载失败时保留当前状态
     } finally {
       setConnectionsLoading(false);
     }
-  }, [activeGroupName]);
+  }, []);
 
   const handleImportConnections = useCallback(async () => {
     try {
@@ -1364,12 +1335,12 @@ export function DatabasePanel() {
 
   useEffect(() => {
     setActiveConnId((prev) => {
-      if (prev && groupConnections.some((item) => item.id === prev)) {
+      if (prev && connections.some((item) => item.id === prev)) {
         return prev;
       }
-      return groupConnections[0]?.id ?? null;
+      return connections.find((item) => isConnectionEnabled(item))?.id ?? connections[0]?.id ?? null;
     });
-  }, [activeGroupId, groupConnections]);
+  }, [connections]);
 
   const activeSqlTabId =
     activeWorkspaceTab?.kind === "sql" ? activeWorkspaceTab.id : null;
@@ -3691,11 +3662,6 @@ export function DatabasePanel() {
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
-      const normalized = normalizeConnectionGroup(conn.group);
-      const group = groups.find((item) => item.name === normalized);
-      if (group) {
-        setActiveGroupId(group.id);
-      }
 
       if (isRedisConnection(conn)) {
         openRedisQueryTab(connId, undefined, conn.name, mode);
@@ -3747,7 +3713,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
     },
-    [connections, groups, setActiveGroupId, openRedisQueryTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [connections, openRedisQueryTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
   );
 
   const runQuery = useCallback(async (
@@ -4086,7 +4052,7 @@ export function DatabasePanel() {
         openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
           setExportMenu({ x, y, tabId, sessionId }),
         sqlConnections,
-        groupConnections,
+        connections,
         databasesByConnId,
         schemaByKey,
         schemaLoadingKey,
@@ -4125,7 +4091,7 @@ export function DatabasePanel() {
     openTableQuery,
     commitTabDirty,
     sqlConnections,
-    groupConnections,
+    connections,
     databasesByConnId,
     schemaByKey,
     schemaLoadingKey,
@@ -4519,12 +4485,11 @@ export function DatabasePanel() {
 
   const schemaContextValue = useMemo(
     () => ({
-      groupConnections,
       databasesByConnId,
       schemaByKey,
       schemaLoadingKey,
     }),
-    [groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey],
+    [databasesByConnId, schemaByKey, schemaLoadingKey],
   );
 
   const databaseModuleContext = useMemo(() => {
@@ -4630,16 +4595,13 @@ export function DatabasePanel() {
         setSchemaRefreshToken((token) => token + 1);
         setEditingConnection(null);
       }}
-      defaultGroup={activeGroupName}
-      groups={groups}
       initialConnection={editingConnection}
     />
     <ConnectionImportPreviewDialog
       open={importPreview !== null}
       fileName={importPreview?.fileName ?? ""}
       items={importPreview?.items ?? []}
-      groups={groups}
-      defaultGroup={activeGroupName}
+      existingConnections={connections}
       onClose={() => setImportPreview(null)}
       onImported={() => {
         setSchemaRefreshToken((token) => token + 1);

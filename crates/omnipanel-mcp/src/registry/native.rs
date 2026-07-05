@@ -64,7 +64,6 @@ struct DbConnectionSummary {
     port: u16,
     user: String,
     database: String,
-    group: String,
     enabled: bool,
 }
 
@@ -82,7 +81,6 @@ async fn list_database_connections(arguments: Value) -> Result<(String, bool), S
             port: c.port,
             user: c.user,
             database: c.database,
-            group: c.group,
             enabled: c.enabled,
         })
         .collect();

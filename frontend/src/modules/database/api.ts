@@ -13,7 +13,6 @@ export interface DbConnectionConfig {
   password: string;
   database: string;
   ssl: boolean;
-  group: string;
   status: string;
   /** 是否启用；`false` 时连接在侧栏显示为已关闭且不可展开查询 */
   enabled?: boolean;
@@ -33,17 +32,6 @@ const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
   mongodb: 27017,
 };
 
-export function normalizeConnectionGroup(group: string): string {
-  if (!group.trim() || group === "default") {
-    return "默认";
-  }
-  return group.trim();
-}
-
-export function connectionMatchesGroup(connection: DbConnectionConfig, groupName: string): boolean {
-  return normalizeConnectionGroup(connection.group) === groupName;
-}
-
 export interface ConnectionFormData {
   engine: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb";
   name: string;
@@ -53,7 +41,6 @@ export interface ConnectionFormData {
   username: string;
   password: string;
   ssl: boolean;
-  group: string;
 }
 
 export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
@@ -80,7 +67,6 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     password: form.password,
     database,
     ssl: form.ssl,
-    group: form.group.trim() || "默认",
     status: "unknown",
     enabled: true,
   };
@@ -101,7 +87,6 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     username: conn.user,
     password: conn.password,
     ssl: conn.ssl,
-    group: conn.group,
   };
 }
 

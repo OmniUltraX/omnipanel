@@ -9,7 +9,6 @@ export interface DatabaseConnectionContext {
   /** 连接配置中的默认库 */
   defaultDatabase: string;
   ssl: boolean;
-  group: string;
   status: string;
   enabled: boolean;
 }

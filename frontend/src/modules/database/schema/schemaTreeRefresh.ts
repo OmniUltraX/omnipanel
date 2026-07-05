@@ -1,15 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
-  connectionMatchesGroup,
   isConnectionEnabled,
   type DbConnectionConfig,
   type DbTableSchema,
   type DbUserMeta,
 } from "../api";
-import type { DbConnectionGroup } from "../../../stores/dbGroupStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";
-import { buildConnectionTreeItem, type SchemaTreeItem } from "./schemaTreeItem";
+import type { SchemaTreeItem } from "./schemaTreeItem";
 import {
   parseDatabaseNodeId,
   parseTableNodeId,
@@ -268,29 +266,5 @@ export async function refreshAndApplySchemaTreeNode(
     await applySchemaNodeRefreshResult(connection.id, result, hooks);
   } finally {
     store.setNodeRefreshing(item.id, false);
-  }
-}
-
-export async function refreshSchemaGroupNode(
-  group: DbConnectionGroup,
-  connections: DbConnectionConfig[],
-  hooks?: SchemaTreeRefreshHooks,
-): Promise<void> {
-  const groupNodeId = `grp:${group.id}`;
-  const store = useDbSchemaCacheStore.getState();
-  store.setNodeRefreshing(groupNodeId, true);
-  try {
-    const targets = connections.filter(
-      (conn) => isConnectionEnabled(conn) && connectionMatchesGroup(conn, group.name),
-    );
-    for (const connection of targets) {
-      await refreshAndApplySchemaTreeNode(
-        connection,
-        buildConnectionTreeItem(connection.id, connection.name, connection.db_type),
-        hooks,
-      );
-    }
-  } finally {
-    store.setNodeRefreshing(groupNodeId, false);
   }
 }

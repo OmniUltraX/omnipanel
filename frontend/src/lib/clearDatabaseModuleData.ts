@@ -1,6 +1,5 @@
 import { commands } from "../ipc/bindings";
 import { emptySchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
-import { BUILTIN_DB_GROUPS, useDbGroupStore } from "../stores/dbGroupStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useDbSchemaCacheStore } from "../stores/dbSchemaCacheStore";
 import { useDbSchemaFilterStore } from "../stores/dbSchemaFilterStore";
@@ -52,10 +51,6 @@ export async function clearDatabaseModuleData(): Promise<void> {
     hydrated: true,
   });
   useDbSqlFileStore.setState({ nodes: [], dirtyFileIds: [] });
-  useDbGroupStore.setState({
-    groups: BUILTIN_DB_GROUPS,
-    activeGroupId: "default",
-  });
   useDbDockLayoutStore.getState().reset();
 
   try {

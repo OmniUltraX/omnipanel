@@ -389,7 +389,7 @@ function TreeNode({
             <path d="M8 18h8" />
           </svg>
         )}
-        {(type === "folder" || type === "group" || type === "connection-folder") && (
+        {(type === "folder" || type === "connection-folder") && (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
           </svg>

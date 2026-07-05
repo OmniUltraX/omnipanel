@@ -1,10 +1,8 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { DbConnectionConfig } from "../api";
 import type { DatabaseSchema } from "../types";
 
 /** 只读 Schema 上下文（连接列表、缓存 schema），与 Tab 写状态分离。 */
 export interface DbSchemaContextValue {
-  groupConnections: DbConnectionConfig[];
   databasesByConnId: Record<string, string[]>;
   schemaByKey: Record<string, DatabaseSchema>;
   schemaLoadingKey: string | null;

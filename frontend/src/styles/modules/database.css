@@ -6409,7 +6409,9 @@
 }
 
 .db-import-preview-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 12px;
 }
@@ -6420,15 +6422,49 @@
     border-bottom: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .db-import-preview-table th {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 2;
     background: var(--surface);
     color: var(--muted);
     font-weight: 600;
+}
+
+.db-import-preview-th--resizing {
+    color: var(--fg);
+}
+
+.db-import-preview-col-resize {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 3;
+    transform: translateX(50%);
+}
+
+.db-import-preview-col-resize:hover,
+.db-import-preview-col-resize:active {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.db-import-preview-table-wrap--col-resizing,
+.db-import-preview-table--resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.db-import-preview-table--resizing .db-import-preview-name-input {
+    pointer-events: none;
 }
 
 .db-import-preview-row--disabled {
@@ -6436,7 +6472,22 @@
 }
 
 .db-import-preview-name {
-    font-weight: 500;
+    min-width: 140px;
+    white-space: normal;
+}
+
+.db-import-preview-name-input {
+    width: 100%;
+    min-width: 0;
+    font-weight: 400;
+}
+
+.db-import-preview-cell--select {
+    text-align: center;
+}
+
+.db-import-preview-cell--status {
+    white-space: normal;
 }
 
 .db-import-preview-engine {

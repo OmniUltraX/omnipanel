@@ -924,6 +924,7 @@ export const zhCN = {
       selectAllImportable: "全选可导入（{count}）",
       columnSelect: "选择",
       columnName: "连接名",
+      namePlaceholder: "输入连接名称",
       columnEngine: "类型",
       columnHost: "主机",
       columnUser: "用户名",
