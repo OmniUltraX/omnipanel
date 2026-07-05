@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-} from "../../../components/ui/VerticalSplitSidebar";
+} from "../../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../../i18n";
 import { useDbSidebarLinkage } from "./DbSidebarLinkageContext";
 import { SchemaBrowser, type SchemaBrowserProps } from "./SchemaBrowser";

@@ -7,7 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { QueryBuilder, type RuleGroupType } from "react-querybuilder";
-import { Button } from "../../../components/ui/Button";
+import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
 import type { DbColumnMeta } from "../api";
 import { createTableQueryBuilderControlElements } from "../sql/QueryBuilderSelectControls";

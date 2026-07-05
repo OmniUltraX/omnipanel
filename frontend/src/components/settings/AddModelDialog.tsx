@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { FormDialog } from "../ui/FormDialog";
-import { PasswordInput } from "../ui/PasswordInput";
-import { TextInput } from "../ui/TextInput";
+import { FormDialog } from "../ui/form/FormDialog";
+import { PasswordInput } from "../ui/form/PasswordInput";
+import { TextInput } from "../ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import {
   fetchProviderModelList,

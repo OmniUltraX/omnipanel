@@ -5,8 +5,8 @@ import {
   useDbTabWorkspaceSliceOrMirror,
 } from "../../../contexts/DbWorkspaceContext";
 import type { TablePreviewWorkspaceTab } from "./workspaceTabs";
-import { Button } from "../../../components/ui/Button";
-import { IconPlus } from "../../../components/ui/Icons";
+import { Button } from "../../../components/ui/primitives/Button";
+import { IconPlus } from "../../../components/ui/icons/Icons";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { TableDataGrid, type TableDataGridActiveCell } from "../grid/TableDataGrid";
 import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";

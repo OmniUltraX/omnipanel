@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import type { DockerConnectionInfo } from "../../ipc/bindings";

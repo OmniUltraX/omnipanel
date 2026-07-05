@@ -3,7 +3,7 @@ import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../../components/ui/VerticalSplitSidebar";
+} from "../../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../../i18n";
 import { HostListPanel } from "../../../components/workspace/HostListPanel";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";

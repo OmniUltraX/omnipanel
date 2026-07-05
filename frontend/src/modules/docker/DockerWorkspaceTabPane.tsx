@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DockerExecTerminal } from "./DockerExecTerminal";
 import { useContainerLogStream } from "./useDockerWorkspace";
-import { LogViewer } from "../../components/ui/LogViewer";
+import { LogViewer } from "../../components/ui/content/LogViewer";
 import { useI18n } from "../../i18n";
 import type { DockerTabSnapshot } from "../../stores/workspaceTabStore";
 import {

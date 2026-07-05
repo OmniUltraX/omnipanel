@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { commands } from "../../../../ipc/bindings";
 import type { SshKeyInfo } from "../../../../ipc/bindings";
-import { Select } from "../../../../components/ui/Select";
-import { PasswordInput } from "../../../../components/ui/PasswordInput";
-import { TextInput } from "../../../../components/ui/TextInput";
+import { Select } from "../../../../components/ui/form/Select";
+import { PasswordInput } from "../../../../components/ui/form/PasswordInput";
+import { TextInput } from "../../../../components/ui/form/TextInput";
 import { useI18n } from "../../../../i18n";
 
 export function KeysModuleView() {

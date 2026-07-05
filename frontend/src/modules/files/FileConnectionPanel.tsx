@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
-import { TextInput } from "../../components/ui/TextInput";
-import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { FileEntry, FileIndexStatus, FileLocalSystemInfo, FileManagerConnectionInfo } from "../../ipc/bindings";

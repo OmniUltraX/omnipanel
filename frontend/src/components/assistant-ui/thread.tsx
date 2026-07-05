@@ -18,7 +18,7 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/primitives/Button";
 import { cn } from "@/lib/utils";
 import {
   SelectRoot,

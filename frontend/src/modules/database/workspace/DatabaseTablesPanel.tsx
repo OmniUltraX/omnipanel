@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { ScopedSearch } from "../../../components/ui/ScopedSearch";
+import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { fetchTableDdl, fetchTableDetails, type DbTableDetails } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";

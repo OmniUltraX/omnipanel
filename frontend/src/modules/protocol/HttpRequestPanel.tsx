@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import { ModuleSegmentDock } from "../../components/dock";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";

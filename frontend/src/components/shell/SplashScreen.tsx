@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AppLogo } from "../ui/AppLogo";
+import { AppLogo } from "../ui/layout/AppLogo";
 import { useI18n } from "../../i18n";
 
 export interface SplashScreenProps {

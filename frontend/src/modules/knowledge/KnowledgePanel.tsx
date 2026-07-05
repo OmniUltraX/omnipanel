@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { collectPanelIds } from "../../components/dock/dockViewLayout";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";

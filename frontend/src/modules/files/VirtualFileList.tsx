@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
+import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import { fileTypeLabel, formatFileSize, formatFileTime } from "./utils";

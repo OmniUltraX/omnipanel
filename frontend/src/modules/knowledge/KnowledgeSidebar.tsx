@@ -8,14 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { ScopedSearch } from "../../components/ui/ScopedSearch";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
-import { Button } from "../../components/ui/Button";
+import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { Button } from "../../components/ui/primitives/Button";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useKnowledgeEmbeddingProviderConfig } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";

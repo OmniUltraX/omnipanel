@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TextInput } from "../../components/ui/TextInput";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { KnowledgeTodoList } from "../../ipc/bindings";

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "../../../components/ui/Button";
+import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
-import { DataLoading } from "../../../components/ui/DataLoading";
+import { DataLoading } from "../../../components/ui/feedback/DataLoading";
 import type { DbColumnMeta, DbConnectionConfig } from "../api";
 import { fetchAllTableRowDiffs } from "./rowDiff";
 import type { DataAnalysisResult, TableRowDiff } from "./types";

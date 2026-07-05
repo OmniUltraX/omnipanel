@@ -7,16 +7,16 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import {
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
   usePersistedVerticalSplitSections,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
 import { useI18n } from "../../i18n";
-import { IconFolder } from "../../components/ui/Icons";
+import { IconFolder } from "../../components/ui/icons/Icons";
 import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
 import {
   useProtocolHttpLayoutStore,

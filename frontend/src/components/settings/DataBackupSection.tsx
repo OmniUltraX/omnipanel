@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useI18n } from "../../i18n";
 import { clearAppLayoutCache, clearAppUserData } from "../../lib/appDataReset";
 import { appConfirm } from "../../lib/appConfirm";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/primitives/Button";
 
 export function DataBackupSection() {
   const { t } = useI18n();

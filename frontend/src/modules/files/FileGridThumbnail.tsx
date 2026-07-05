@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
+import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import type { FileEntry } from "../../ipc/bindings";
 import {
   getCachedThumbnailUrl,

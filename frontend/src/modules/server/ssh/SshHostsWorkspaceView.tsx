@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { ModuleWorkspaceLayout } from "../../../components/workspace";
-import { WorkspaceEmptyPage } from "../../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import { HostDetailPanel } from "./components/HostDetailPanel";

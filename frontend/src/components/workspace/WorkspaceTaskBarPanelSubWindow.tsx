@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { SubWindow } from "../ui/SubWindow";
+import { SubWindow } from "../ui/window/SubWindow";
 import {
   resolveWorkspaceTabPreview,
   stripWorkspaceTabCopySuffix,

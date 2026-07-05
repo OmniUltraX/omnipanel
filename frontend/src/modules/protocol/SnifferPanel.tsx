@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 
 /* ── Types ── */
 

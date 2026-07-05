@@ -1,6 +1,6 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { ModuleWorkspaceLayout } from "../../../components/workspace";
-import { WorkspaceEmptyPage } from "../../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
 import type { ServerEntry } from "./serverConnection";
 import type { useServerPanelWorkspace } from "./hooks/useServerPanelWorkspace";

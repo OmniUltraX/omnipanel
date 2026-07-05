@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { commands } from "../../ipc/bindings";
-import { Button } from "../ui/Button";
-import { TextInput } from "../ui/TextInput";
-import { FileEntryIcon } from "../ui/FileEntryIcon";
+import { Button } from "../ui/primitives/Button";
+import { TextInput } from "../ui/form/TextInput";
+import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
 import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../i18n";
 import { pathToRemoteDir } from "../../modules/server/ssh/utils/parseCommandPaths";

@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "../../../i18n";
-import { Button } from "../../../components/ui/Button";
-import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/ScopedSearch";
-import { ContextMenu } from "../../../components/ui/ContextMenu";
+import { Button } from "../../../components/ui/primitives/Button";
+import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search/ScopedSearch";
+import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
 import { quickInput } from "../../../lib/quickInput";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { useDbSqlFileStore, getSqlFileChildren, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";

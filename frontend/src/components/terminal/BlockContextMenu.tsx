@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
 import { useAiStore } from "../../stores/aiStore";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { getAiBlockTextForContext, getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";

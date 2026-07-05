@@ -2,7 +2,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { AiAssistantBody } from "./assistant-ui/AiAssistantBody";
 import { AiAssistantHeaderToolbar } from "./assistant-ui/AiAssistantHeaderActions";
 import { AiConversationTitle } from "./assistant-ui/AiConversationTitle";
-import { SubWindow } from "../ui/SubWindow";
+import { SubWindow } from "../ui/window/SubWindow";
 
 export function AiDrawer() {
   const drawerOpen = useAiStore((s) => s.drawerOpen);

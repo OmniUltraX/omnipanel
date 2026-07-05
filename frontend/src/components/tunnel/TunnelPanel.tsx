@@ -3,9 +3,9 @@ import { commands } from "../../ipc/bindings";
 import type { SshTunnelInfo } from "../../ipc/bindings";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/Button";
-import { Select } from "../ui/Select";
-import { TextInput } from "../ui/TextInput";
+import { Button } from "../ui/primitives/Button";
+import { Select } from "../ui/form/Select";
+import { TextInput } from "../ui/form/TextInput";
 import { TunnelFlowList } from "../../modules/server/ssh/components/TunnelFlowList";
 
 export type TunnelPanelProps = {

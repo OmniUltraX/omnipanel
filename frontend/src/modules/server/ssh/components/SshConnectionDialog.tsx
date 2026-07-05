@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { FormDialog } from "../../../../components/ui/FormDialog";
-import { ResourceTagEditor } from "../../../../components/ui/ResourceTagEditor";
-import { PasswordInput } from "../../../../components/ui/PasswordInput";
-import { Select } from "../../../../components/ui/Select";
-import { TextInput } from "../../../../components/ui/TextInput";
+import { FormDialog } from "../../../../components/ui/form/FormDialog";
+import { ResourceTagEditor } from "../../../../components/ui/tags/ResourceTagEditor";
+import { PasswordInput } from "../../../../components/ui/form/PasswordInput";
+import { Select } from "../../../../components/ui/form/Select";
+import { TextInput } from "../../../../components/ui/form/TextInput";
 import { useI18n } from "../../../../i18n";
 import { commands, type Connection, type SshKeyInfo } from "../../../../ipc/bindings";
 import { collectSshGroupSuggestions } from "../../../../lib/sshGroups";

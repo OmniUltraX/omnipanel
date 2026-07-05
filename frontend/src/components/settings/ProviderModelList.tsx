@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../ui/Button";
-import { TextInput } from "../ui/TextInput";
+import { Button } from "../ui/primitives/Button";
+import { TextInput } from "../ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import {
   countEnabledModels,

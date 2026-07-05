@@ -19,7 +19,7 @@ import {
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
-import { Button } from "../../../components/ui/Button";
+import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
 import { type DbColumnMeta } from "../api";
 import { resolvePreviewRowKey, type SortState } from "../workspace/dbWorkspaceState";

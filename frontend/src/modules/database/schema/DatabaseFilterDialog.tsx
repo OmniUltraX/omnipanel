@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
-import { FormDialog } from "../../../components/ui/FormDialog";
-import { TextInput } from "../../../components/ui/TextInput";
+import { FormDialog } from "../../../components/ui/form/FormDialog";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { rankByFuzzy } from "../../../lib/fuzzyMatch";
 
 export interface SchemaFilterState {

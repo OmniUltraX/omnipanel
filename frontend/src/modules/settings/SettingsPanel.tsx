@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { appConfirm } from "../../lib/appConfirm";
 import { clearTerminalHistoryData, useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { FontFamilySelect } from "../../components/settings/FontFamilySelect";
-import { PasswordInput } from "../../components/ui/PasswordInput";
-import { TextInput } from "../../components/ui/TextInput";
+import { PasswordInput } from "../../components/ui/form/PasswordInput";
+import { TextInput } from "../../components/ui/form/TextInput";
 import {
   countEnabledModels,
   useAiModelsStore,
@@ -45,7 +45,7 @@ import {
   getShortcutKeys,
   type ShortcutCategory,
 } from "../../stores/shortcutsStore";
-import { SidebarWorkspace } from "../../components/ui/SidebarWorkspace";
+import { SidebarWorkspace } from "../../components/ui/sidebar/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
@@ -56,9 +56,9 @@ import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
-import { Button } from "../../components/ui/Button";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { Select } from "../../components/ui/Select";
+import { Button } from "../../components/ui/primitives/Button";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { Select } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import { invoke } from "@tauri-apps/api/core";

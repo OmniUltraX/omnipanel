@@ -5,7 +5,7 @@ import { useBackendSelectOptions } from "../../lib/ai/backendSelectOptions";
 import { useAiModelsStore } from "../../stores/aiModelsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTerminalModelSelectionId } from "../../lib/terminalScenarioModels";
-import { Select } from "../../components/ui/Select";
+import { Select } from "../../components/ui/form/Select";
 import type { TerminalApprovalMode } from "./terminalApprovalPolicy";
 import { useTerminalApprovalMode } from "./terminalApprovalSettings";
 

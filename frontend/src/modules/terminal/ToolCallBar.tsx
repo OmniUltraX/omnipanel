@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { TextInput } from "../../components/ui/TextInput";
+import { TextInput } from "../../components/ui/form/TextInput";
 import type { AiThreadToolCall } from "../../stores/blocksStore";
 import {
   approveInlineTerminalTool,

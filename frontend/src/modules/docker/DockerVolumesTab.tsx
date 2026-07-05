@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { Button } from "../../components/ui/Button";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { TextInput } from "../../components/ui/TextInput";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { Button } from "../../components/ui/primitives/Button";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { TextInput } from "../../components/ui/form/TextInput";
 import type { DockerVolumeSummary, DockerCreateVolumeRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import { TrashIcon } from "./icons";

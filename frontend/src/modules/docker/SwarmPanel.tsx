@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { TextInput } from "../../components/ui/TextInput";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { appConfirm } from "../../lib/appConfirm";
 
 interface SwarmNode {

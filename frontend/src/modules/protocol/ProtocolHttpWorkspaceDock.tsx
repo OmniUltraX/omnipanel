@@ -1,7 +1,7 @@
 import type { MouseEvent, ReactNode } from "react";
 import type { SerializedDockview } from "dockview-core";
 import { DockableWorkspace, type DockableTab } from "../../components/dock";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 
 export interface ProtocolHttpWorkspaceDockProps {

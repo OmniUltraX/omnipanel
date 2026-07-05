@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useKnowledgeEmbeddingProviderConfig } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
-import { SubWindow } from "../../components/ui/SubWindow";
-import { Button } from "../../components/ui/Button";
+import { SubWindow } from "../../components/ui/window/SubWindow";
+import { Button } from "../../components/ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import type { KnowledgeRecallHit } from "../../ipc/bindings";
 import { recallKnowledgeEntry, KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT, KNOWLEDGE_RECALL_DEFAULT_TOP_K, KNOWLEDGE_RECALL_TOP_K_MAX, KNOWLEDGE_RECALL_TOP_K_MIN } from "./knowledgeVectorize";

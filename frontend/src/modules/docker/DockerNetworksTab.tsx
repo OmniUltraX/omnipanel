@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { Button } from "../../components/ui/Button";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { Button } from "../../components/ui/primitives/Button";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 import type { DockerNetworkSummary, DockerCreateNetworkRequest } from "../../ipc/bindings";
 import type { DockerActionResult } from "./useDockerWorkspace";
 import { formatDockerTime } from "./format";

@@ -3,9 +3,9 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import { useI18n } from "../../i18n";
 import { commands, type SkillRecord } from "../../ipc/bindings";
-import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/ModuleEmptyState";
-import { TextInput } from "../ui/TextInput";
+import { Button } from "../ui/primitives/Button";
+import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
+import { TextInput } from "../ui/form/TextInput";
 
 function SettingToggle({
   value,

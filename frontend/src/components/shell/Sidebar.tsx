@@ -5,7 +5,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
-import { AppLogo } from "../ui/AppLogo";
+import { AppLogo } from "../ui/layout/AppLogo";
 import {
   navigateToFeature,
   toggleWorkspaceFromChromeIcon,

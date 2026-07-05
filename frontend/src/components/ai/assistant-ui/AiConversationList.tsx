@@ -3,8 +3,8 @@ import { useCallback } from "react";
 import { appConfirm } from "../../../lib/appConfirm";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
-import { Button } from "../../ui/Button";
-import { IconPlus, IconXCircle } from "../../ui/Icons";
+import { Button } from "../../ui/primitives/Button";
+import { IconPlus, IconXCircle } from "../../ui/icons/Icons";
 
 function formatConversationTime(ts: number, t: (key: string, params?: Record<string, string | number>) => string): string {
   const diff = Date.now() - ts;

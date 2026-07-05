@@ -1,5 +1,5 @@
 import { useI18n } from "../../../../i18n";
-import { ResourceTags } from "../../../../components/ui/ResourceTags";
+import { ResourceTags } from "../../../../components/ui/tags/ResourceTags";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { normalizeSshGroup, sshGroupLabel } from "../../../../lib/sshGroups";
 import { DETAIL_TABS } from "../constants";

@@ -1,4 +1,4 @@
-import type { FileEntryType } from "../ui/FileEntryIcon";
+import type { FileEntryType } from "../ui/icons/FileEntryIcon";
 import type { SftpEntry } from "./sftpUtils";
 
 export function sftpEntryIconType(entry: SftpEntry): FileEntryType {

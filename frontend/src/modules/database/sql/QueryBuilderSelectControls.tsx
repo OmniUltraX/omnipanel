@@ -8,9 +8,9 @@ import type {
   ValueSelectorProps,
 } from "react-querybuilder";
 import type { Option, OptionGroup } from "@react-querybuilder/core";
-import { Button } from "../../../components/ui/Button";
-import { Select, type SelectOption } from "../../../components/ui/Select";
-import { TextInput } from "../../../components/ui/TextInput";
+import { Button } from "../../../components/ui/primitives/Button";
+import { Select, type SelectOption } from "../../../components/ui/form/Select";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { cn } from "../../../lib/utils";
 
 function isOptionGroup(option: Option | OptionGroup): option is OptionGroup {

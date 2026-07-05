@@ -30,7 +30,7 @@ import { isDashboardPath } from "../../lib/paths";
 import { appConfirm } from "../../lib/appConfirm";
 
 import { useI18n } from "../../i18n";
-import { TextInput } from "../ui/TextInput";
+import { TextInput } from "../ui/form/TextInput";
 
 
 

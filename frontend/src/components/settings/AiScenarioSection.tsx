@@ -7,7 +7,7 @@ import {
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { Select } from "../ui/Select";
+import { Select } from "../ui/form/Select";
 
 function useModelSelectOptions() {
   const providers = useAiModelsStore((s) => s.providers);

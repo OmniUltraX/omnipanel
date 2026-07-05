@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/Button";
+import { Button } from "../../components/ui/primitives/Button";
 import { DockerStatsBar } from "./DockerStatCards";
 import type {
   DockerComposeProject,

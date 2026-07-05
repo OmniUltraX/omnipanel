@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/Button";
-import { DetailPanelModeToggle, DetailPanelShell } from "@/components/ui/DetailPanelShell";
+import { Button } from "@/components/ui/primitives/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "@/components/ui/layout/DetailPanelShell";
 import { useI18n } from "@/i18n";
 import {
   commands,

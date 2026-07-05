@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { KnowledgeKindIcon } from "../ui/KnowledgeKindIcon";
-import { IconBook } from "../ui/Icons";
+import { KnowledgeKindIcon } from "../ui/icons/KnowledgeKindIcon";
+import { IconBook } from "../ui/icons/Icons";
 
 /** Parsed knowledge search result item from the AI tool call result JSON. */
 interface KnowledgeRefItem {

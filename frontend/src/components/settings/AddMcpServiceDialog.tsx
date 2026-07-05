@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { FormDialog, FormField } from "../ui/FormDialog";
-import { TextInput } from "../ui/TextInput";
-import { Button } from "../ui/Button";
+import { FormDialog, FormField } from "../ui/form/FormDialog";
+import { TextInput } from "../ui/form/TextInput";
+import { Button } from "../ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import { parseMcpConfigJson } from "../../lib/mcp/parseMcpConfigJson";
 import type { McpServiceView, UpsertMcpServiceInput } from "../../stores/mcpServicesStore";

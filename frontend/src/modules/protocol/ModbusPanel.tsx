@@ -1,8 +1,8 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
-import { IconClipboard, IconPencil } from "../../components/ui/Icons";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { IconClipboard, IconPencil } from "../../components/ui/icons/Icons";
 
 type RegisterType = "coils" | "discrete_inputs" | "holding_registers" | "input_registers";
 

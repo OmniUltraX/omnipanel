@@ -1,10 +1,10 @@
 import { useEffect, useMemo, type MouseEvent } from "react";
-import { Button } from "../../components/ui/Button";
+import { Button } from "../../components/ui/primitives/Button";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileProtocol } from "./FileConnectionDialog";

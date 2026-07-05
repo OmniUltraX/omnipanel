@@ -9,8 +9,8 @@ import {
   toUpsertMcpServiceInput,
   type ParsedMcpServerConfig,
 } from "../../lib/mcp/parseMcpConfigJson";
-import { FormDialog } from "../ui/FormDialog";
-import { Button } from "../ui/Button";
+import { FormDialog } from "../ui/form/FormDialog";
+import { Button } from "../ui/primitives/Button";
 
 interface ImportMcpJsonDialogProps {
   open: boolean;

@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ContentPreviewTextModeToolbar,
   type ContentPreviewTextMode,
-} from "../../components/ui/ContentPreviewView";
+} from "../../components/ui/content/ContentPreviewView";
 import { useTextEditorSubWindowActions } from "../../components/textEditor/useTextEditorSubWindowActions";
 import { isPreviewWebUrl, normalizePreviewWebUrl } from "../../lib/contentPreview";
-import { SubWindow } from "../../components/ui/SubWindow";
+import { SubWindow } from "../../components/ui/window/SubWindow";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import {

@@ -9,8 +9,8 @@ import {
 import { AddMcpServiceDialog } from "./AddMcpServiceDialog";
 import { ImportMcpJsonDialog } from "./ImportMcpJsonDialog";
 import { McpServiceToolList } from "./McpServiceToolList";
-import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/ModuleEmptyState";
+import { Button } from "../ui/primitives/Button";
+import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 
 export interface McpServicesSectionProps {
   /** 嵌入 Agent 卡片内时使用更紧凑的标题样式 */

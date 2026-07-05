@@ -7,9 +7,9 @@ import {
 } from "../../../contexts/DbWorkspaceContext";
 import type { SqlWorkspaceTab } from "./workspaceTabs";
 import { DockLayout, DockHandle, DockPanel } from "../../../components/dock";
-import { ToolbarMenuButton } from "../../../components/ui/ToolbarMenuButton";
-import { Button } from "../../../components/ui/Button";
-import { Select } from "../../../components/ui/Select";
+import { ToolbarMenuButton } from "../../../components/ui/menu/ToolbarMenuButton";
+import { Button } from "../../../components/ui/primitives/Button";
+import { Select } from "../../../components/ui/form/Select";
 import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "../sql/SqlEditor";
 import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
 import { useI18n } from "../../../i18n";

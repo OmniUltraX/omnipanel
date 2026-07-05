@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FormDialog, FormField } from "../../../components/ui/FormDialog";
-import { TextInput } from "../../../components/ui/TextInput";
+import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
 import type { SchemaTableNameCase, ToolboxTabId } from "./types";
 

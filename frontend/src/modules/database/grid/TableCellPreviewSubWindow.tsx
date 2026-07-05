@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CodeEditorLanguage } from "../../../components/ui/CodeEditor";
+import type { CodeEditorLanguage } from "../../../components/ui/content/CodeEditor";
 import {
   ContentPreviewView,
   ContentPreviewTextModeToolbar,
   useContentPreviewTextModes,
   type ContentPreviewTextMode,
-} from "../../../components/ui/ContentPreviewView";
-import { SubWindow } from "../../../components/ui/SubWindow";
+} from "../../../components/ui/content/ContentPreviewView";
+import { SubWindow } from "../../../components/ui/window/SubWindow";
 import { useI18n } from "../../../i18n";
 import {
   resolveCellPreviewCodeLanguage,

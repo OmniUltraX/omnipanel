@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FormDialog, FormField } from "../../components/ui/FormDialog";
-import { TextInput } from "../../components/ui/TextInput";
+import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";

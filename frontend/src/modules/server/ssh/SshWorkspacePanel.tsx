@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { WorkspaceEmptyPage } from "../../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
 import { useSshHostResources } from "../../../stores/connectionStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";

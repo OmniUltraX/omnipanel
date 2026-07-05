@@ -1,4 +1,4 @@
-import { Select, type SelectOption } from "../../components/ui/Select";
+import { Select, type SelectOption } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
 
 export type PaneServerOption = SelectOption;

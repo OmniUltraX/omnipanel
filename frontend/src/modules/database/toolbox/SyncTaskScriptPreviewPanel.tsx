@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DataLoading } from "../../../components/ui/DataLoading";
+import { DataLoading } from "../../../components/ui/feedback/DataLoading";
 import { TableDdlViewer } from "../table/TableDdlViewer";
 import { buildSyncTaskSqlPreview, type SyncTaskSqlPreviewInput } from "./syncTaskSqlPreview";
 

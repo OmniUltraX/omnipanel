@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { Button } from "../../../components/ui/Button";
-import { MultiSelect } from "../../../components/ui/MultiSelect";
+import { Button } from "../../../components/ui/primitives/Button";
+import { MultiSelect } from "../../../components/ui/form/MultiSelect";
 import { useI18n } from "../../../i18n";
-import { DataLoading, type DataLoadingProps } from "../../../components/ui/DataLoading";
-import { Select } from "../../../components/ui/Select";
-import { TextInput } from "../../../components/ui/TextInput";
+import { DataLoading, type DataLoadingProps } from "../../../components/ui/feedback/DataLoading";
+import { Select } from "../../../components/ui/form/Select";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type {
   DataAnalysisResult,

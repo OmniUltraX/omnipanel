@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { FormDialog } from "@/components/ui/FormDialog";
-import { Select } from "@/components/ui/Select";
-import { TextInput } from "@/components/ui/TextInput";
+import { FormDialog } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
+import { TextInput } from "@/components/ui/form/TextInput";
 import { useI18n } from "@/i18n";
 import { commands } from "@/ipc/bindings";
 

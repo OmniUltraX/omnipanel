@@ -12,8 +12,8 @@ import {
   useCliProvidersStore,
 } from "../../stores/cliProvidersStore";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
-import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/ModuleEmptyState";
+import { Button } from "../ui/primitives/Button";
+import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { CliProviderModelList } from "./CliProviderModelList";
 
 function SettingToggle({

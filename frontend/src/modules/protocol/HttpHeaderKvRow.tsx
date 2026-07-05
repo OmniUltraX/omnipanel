@@ -1,6 +1,6 @@
 import { useId, useMemo } from "react";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import type { HttpKvPair } from "./ProtocolHttpContext";
 import { headerKeyOptions, headerValueOptions } from "./httpHeaderPresets";

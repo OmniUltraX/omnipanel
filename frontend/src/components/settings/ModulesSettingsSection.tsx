@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
-import { Select } from "../ui/Select";
+import { Select } from "../ui/form/Select";
 import type { ModuleKey } from "../../lib/paths";
 import {
   type UserAppModuleStatus,

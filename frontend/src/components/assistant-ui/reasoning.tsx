@@ -23,7 +23,7 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+} from "@/components/ui/primitives/collapsible";
 import { cn } from "@/lib/utils";
 
 const ANIMATION_DURATION = 200;

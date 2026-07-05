@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Button } from "../../ui/Button";
+import { Button } from "../../ui/primitives/Button";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../../ui/dialog";
+} from "../../ui/primitives/dialog";
 import type { AcpStreamEvent } from "../../../lib/acp/acpStream";
 import { respondAcpPermission } from "../../../lib/acp/acpStream";
 

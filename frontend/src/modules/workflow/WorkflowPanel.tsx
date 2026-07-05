@@ -6,8 +6,8 @@ import { useI18n } from "../../i18n";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 import type {
   Workflow,
   WorkflowDetail,

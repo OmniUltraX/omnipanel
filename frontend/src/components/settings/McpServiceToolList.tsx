@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/primitives/Button";
 import { useI18n } from "../../i18n";
-import { TextInput } from "../ui/TextInput";
+import { TextInput } from "../ui/form/TextInput";
 import { commands, type McpToolInfo } from "../../ipc/bindings";
 import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleMcpCatalog";
 import {

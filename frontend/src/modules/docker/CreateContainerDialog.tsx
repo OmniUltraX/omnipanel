@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { commands } from "../../ipc/bindings";
 import type { DockerCreateContainerRequest } from "../../ipc/bindings";
 

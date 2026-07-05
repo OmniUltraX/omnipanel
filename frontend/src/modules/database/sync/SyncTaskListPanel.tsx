@@ -1,7 +1,7 @@
 import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "../../../i18n";
-import { Button } from "../../../components/ui/Button";
-import { ContextMenu } from "../../../components/ui/ContextMenu";
+import { Button } from "../../../components/ui/primitives/Button";
+import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
 import { appConfirm } from "../../../lib/appConfirm";
 import { quickInput } from "../../../lib/quickInput";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";

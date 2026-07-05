@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/primitives/Button";
 import { useI18n } from "@/i18n";
 import type { OverviewPhase } from "@/modules/server/ssh/hooks/useSshOverview";
 import type { HostSystemStats } from "@/stores/sshStatsStore";

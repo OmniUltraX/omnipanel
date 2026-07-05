@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import { TextInput } from "../../../components/ui/TextInput";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
 import type { CompletionCandidate } from "./types";
 

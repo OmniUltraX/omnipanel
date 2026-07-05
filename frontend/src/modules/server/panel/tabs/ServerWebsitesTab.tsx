@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../../i18n";
-import { Button } from "../../../../components/ui/Button";
+import { Button } from "../../../../components/ui/primitives/Button";
 import type { ServerEntry } from "../serverConnection";
 import { createOnePanelClient } from "../../../../lib/onepanel";
 import { createBtPanelClient } from "../../../../lib/btpanel";

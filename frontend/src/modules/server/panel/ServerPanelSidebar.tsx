@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-} from "../../../components/ui/VerticalSplitSidebar";
+} from "../../../components/ui/sidebar/VerticalSplitSidebar";
 import { ServerSidebar } from "../../../components/workspace/ServerSidebar";
 import { useI18n } from "../../../i18n";
 import type { ServerEntry } from "./serverConnection";

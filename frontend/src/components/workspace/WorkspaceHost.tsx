@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { WorkspacePreview } from "../ui/WorkspacePreview";
+import { WorkspacePreview } from "../ui/workspace/WorkspacePreview";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { workspaceShellState } from "../../lib/workspaceMode";
 

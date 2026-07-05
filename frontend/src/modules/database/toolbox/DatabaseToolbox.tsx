@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../../i18n";
-import { Button } from "../../../components/ui/Button";
-import { IconSettings, IconClock, IconFile } from "../../../components/ui/Icons";
-import { useDataLoading } from "../../../components/ui/DataLoading";
-import { SubWindow } from "../../../components/ui/SubWindow";
+import { Button } from "../../../components/ui/primitives/Button";
+import { IconSettings, IconClock, IconFile } from "../../../components/ui/icons/Icons";
+import { useDataLoading } from "../../../components/ui/feedback/DataLoading";
+import { SubWindow } from "../../../components/ui/window/SubWindow";
 import { appConfirm } from "../../../lib/appConfirm";
 import {
   cancelDbBackgroundTask,
@@ -47,7 +47,7 @@ import {
   pickPersistableTableAnalysis,
 } from "./syncTaskAnalysisCache";
 import { DbToolboxSplitLayout } from "./DbToolboxSplitLayout";
-import { ModuleEmptyState } from "../../../components/ui/ModuleEmptyState";
+import { ModuleEmptyState } from "../../../components/ui/feedback/ModuleEmptyState";
 import {
   buildNewTableDiff,
   sourceTableSchemaSignature,

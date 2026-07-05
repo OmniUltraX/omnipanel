@@ -2,9 +2,9 @@ import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/Button";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { Button } from "../../components/ui/primitives/Button";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 
 type WsStatus = "disconnected" | "connecting" | "connected";
 type WsMsgFormat = "JSON" | "Text" | "Binary";

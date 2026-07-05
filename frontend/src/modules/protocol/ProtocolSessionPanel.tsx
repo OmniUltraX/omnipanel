@@ -1,5 +1,5 @@
 import { useI18n } from "../../i18n";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import { GrpcPanel } from "./GrpcPanel";
 import { ModbusPanel } from "./ModbusPanel";

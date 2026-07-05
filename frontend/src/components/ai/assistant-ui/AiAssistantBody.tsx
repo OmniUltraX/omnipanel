@@ -1,6 +1,6 @@
 import { useAiStore } from "../../../stores/aiStore";
 import { Thread } from "../../assistant-ui/thread";
-import { ResizableSidePanel } from "../../ui/ResizableSidePanel";
+import { ResizableSidePanel } from "../../ui/sidebar/ResizableSidePanel";
 import { AiConversationList } from "./AiConversationList";
 
 /** AI 助手主内容区：对话线程 + 可折叠会话列表 */

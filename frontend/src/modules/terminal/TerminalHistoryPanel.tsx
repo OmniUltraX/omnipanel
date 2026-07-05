@@ -5,8 +5,8 @@ import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { useI18n } from "../../i18n";
 import { extractCommandOutput } from "./terminalOutputText";
 import { appConfirm } from "../../lib/appConfirm";
-import { Button } from "../../components/ui/Button";
-import { TextInput } from "../../components/ui/TextInput";
+import { Button } from "../../components/ui/primitives/Button";
+import { TextInput } from "../../components/ui/form/TextInput";
 
 type HistoryFilter = "all" | "shell" | "ai";
 

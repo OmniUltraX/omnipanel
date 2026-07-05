@@ -17,9 +17,9 @@ import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useShallow } from "zustand/react/shallow";
-import { Button } from "../../../components/ui/Button";
-import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
-import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/ScopedSearch";
+import { Button } from "../../../components/ui/primitives/Button";
+import { IconDropdownButton } from "../../../components/ui/menu/IconDropdownButton";
+import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search/ScopedSearch";
 import {
   type DbConnectionConfig,
   listConnections,
@@ -100,7 +100,7 @@ import {
   collectExpandedIdsForScrollTarget,
   resolveSchemaTreeScrollTarget,
 } from "./schemaTreeSidebarLinkage";
-import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import {
   createLayoutDragGhost,

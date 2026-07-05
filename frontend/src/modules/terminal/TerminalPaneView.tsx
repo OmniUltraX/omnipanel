@@ -18,7 +18,7 @@ import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
 import { useTerminalSessionStats } from "./useTerminalSessionStats";
 import { useTerminalUiStore } from "./terminalUiStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
-import { Button } from "../../components/ui/Button";
+import { Button } from "../../components/ui/primitives/Button";
 import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
 
 export type TerminalPaneViewHandle = {

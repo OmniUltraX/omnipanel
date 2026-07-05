@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from "react";
 import { useI18n } from "../../i18n";
-import { SubWindow } from "../ui/SubWindow";
-import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/ModuleEmptyState";
-import { IconClock } from "../ui/Icons";
+import { SubWindow } from "../ui/window/SubWindow";
+import { Button } from "../ui/primitives/Button";
+import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
+import { IconClock } from "../ui/icons/Icons";
 import {
   cancelAllRunningBackgroundTasks,
   cancelBackgroundTask,

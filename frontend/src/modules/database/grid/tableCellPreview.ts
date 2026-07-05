@@ -1,5 +1,5 @@
 import type { CellEditorKind } from "../cell_editor/types";
-import type { CodeEditorLanguage } from "../../../components/ui/CodeEditor";
+import type { CodeEditorLanguage } from "../../../components/ui/content/CodeEditor";
 
 import {
 

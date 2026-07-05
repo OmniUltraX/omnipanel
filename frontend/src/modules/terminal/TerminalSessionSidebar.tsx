@@ -9,8 +9,8 @@ import {
 import type { TerminalConnectionStatus } from "../../stores/terminalTypes";
 import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
-import { Button } from "../../components/ui/Button";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { Button } from "../../components/ui/primitives/Button";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import {
   mergeConnectionOrder,
   moveConnectionInOrder,

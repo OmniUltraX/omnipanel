@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { TextInput } from "../../components/ui/TextInput";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";

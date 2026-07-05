@@ -7,7 +7,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
-import type { ContextMenuItem } from "../../components/ui/ContextMenu";
+import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
 import {
   DatabaseModuleContextBridge,
@@ -21,13 +21,13 @@ import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPa
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
 import { ConnectionDialog } from "./connection/ConnectionDialog";
 import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
-import { ContextMenu } from "../../components/ui/ContextMenu";
+import { ContextMenu } from "../../components/ui/menu/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
-import { FormDialog, FormField } from "../../components/ui/FormDialog";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
-import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
+import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";

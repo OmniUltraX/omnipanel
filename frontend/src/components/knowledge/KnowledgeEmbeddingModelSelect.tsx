@@ -18,9 +18,9 @@ import {
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { Button } from "../ui/Button";
-import { Select } from "../ui/Select";
-import { TextInput } from "../ui/TextInput";
+import { Button } from "../ui/primitives/Button";
+import { Select } from "../ui/form/Select";
+import { TextInput } from "../ui/form/TextInput";
 
 export interface KnowledgeEmbeddingModelSelectProps {
   disabled?: boolean;

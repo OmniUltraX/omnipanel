@@ -4,7 +4,7 @@ import {
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
   usePersistedVerticalSplitSections,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { ProtocolHttpSidebar } from "./ProtocolHttpSidebar";
 import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
 import { MQTT_TOPIC_PRESETS, useMqtt } from "./MqttContext";

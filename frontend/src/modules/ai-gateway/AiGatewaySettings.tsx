@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 
 import { useI18n } from "../../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { Button } from "../../components/ui/Button";
-import { TextInput } from "../../components/ui/TextInput";
-import { PasswordInput } from "../../components/ui/PasswordInput";
+import { Button } from "../../components/ui/primitives/Button";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TraceListView } from "./TraceListView";
 import { OmniMcpToolsExposureSection } from "../../components/settings/OmniMcpToolsExposureSection";
 import { McpServiceToolList } from "../../components/settings/McpServiceToolList";

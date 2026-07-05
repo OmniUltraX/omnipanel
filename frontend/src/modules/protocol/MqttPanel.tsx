@@ -1,9 +1,9 @@
 import { useRef, useEffect } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/Button";
-import { PasswordInput } from "../../components/ui/PasswordInput";
-import { TextInput } from "../../components/ui/TextInput";
-import { Select } from "../../components/ui/Select";
+import { Button } from "../../components/ui/primitives/Button";
+import { PasswordInput } from "../../components/ui/form/PasswordInput";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { Select } from "../../components/ui/form/Select";
 import { useMqtt, type MqttQos } from "./MqttContext";
 
 const QOS_OPTIONS = [

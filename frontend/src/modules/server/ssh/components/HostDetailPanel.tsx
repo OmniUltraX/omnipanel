@@ -4,7 +4,7 @@ import { useI18n } from "../../../../i18n";
 import { useConnectionStore, useSshHostResources } from "../../../../stores/connectionStore";
 import { usePersistedModuleTab } from "../../../../hooks/usePersistedModuleTab";
 import { parseSshConfig } from "../../panel/serverConnection";
-import { WorkspaceEmptyPage } from "../../../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../../../components/ui/workspace/WorkspaceEmptyPage";
 import { DETAIL_TABS } from "../constants";
 import { useSshHostContext } from "../hooks/useSshHostContext";
 import { useSshHostActions } from "../hooks/useSshHostActions";

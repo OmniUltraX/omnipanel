@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { SearchAddon } from "@xterm/addon-search";
-import { TextInput } from "../ui/TextInput";
+import { TextInput } from "../ui/form/TextInput";
 
 interface Props {
   terminal: Terminal | null;

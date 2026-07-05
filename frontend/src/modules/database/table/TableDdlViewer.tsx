@@ -1,4 +1,4 @@
-import { useScopedSearchQuery } from "../../../components/ui/ScopedSearch";
+import { useScopedSearchQuery } from "../../../components/ui/search/ScopedSearch";
 import { SqlEditor } from "../sql/SqlEditor";
 
 interface TableDdlViewerProps {

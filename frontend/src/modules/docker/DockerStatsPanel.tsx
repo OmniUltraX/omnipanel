@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
-import { Button } from "../../components/ui/Button";
-import { DetailPanelModeToggle } from "../../components/ui/DetailPanelShell";
+import { Button } from "../../components/ui/primitives/Button";
+import { DetailPanelModeToggle } from "../../components/ui/layout/DetailPanelShell";
 import { CloseIcon } from "./icons";
 
 interface ContainerStats {

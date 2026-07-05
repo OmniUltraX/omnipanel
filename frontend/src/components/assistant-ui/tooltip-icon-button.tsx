@@ -8,8 +8,8 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/Button";
+} from "@/components/ui/primitives/tooltip";
+import { Button } from "@/components/ui/primitives/Button";
 import { cn } from "@/lib/utils";
 
 export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {

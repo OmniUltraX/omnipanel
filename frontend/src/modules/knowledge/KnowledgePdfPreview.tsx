@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { readRemotePreview } from "../files/fileApi";
 import { LOCAL_CONNECTION_ID } from "../files/utils";

@@ -3,7 +3,7 @@ import { useTopbarStore } from "../../stores/topbarStore";
 import { useI18n } from "../../i18n";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useCallback } from "react";
-import { TopbarTabs } from "../ui/TopbarTabs";
+import { TopbarTabs } from "../ui/layout/TopbarTabs";
 import { WinControls } from "./WinControls";
 
 interface TopbarProps {

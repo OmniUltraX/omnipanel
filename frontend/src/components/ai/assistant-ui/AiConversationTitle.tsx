@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { TextInput } from "@/components/ui/TextInput";
+import { TextInput } from "@/components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
 

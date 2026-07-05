@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/primitives/Button";
 
 type Tone = "danger" | "warn" | "success" | "accent";
 type IconToken = "alert" | "server" | "activity" | "check" | "boxes" | "clipboard" | "zap";

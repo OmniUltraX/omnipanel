@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { PasswordInput } from "../../components/ui/PasswordInput";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { PasswordInput } from "../../components/ui/form/PasswordInput";
+import { Select } from "../../components/ui/form/Select";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";

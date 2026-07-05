@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import { Button } from "../../components/ui/Button";
+import { Button } from "../../components/ui/primitives/Button";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import {
   deleteKnowledgeChunks,

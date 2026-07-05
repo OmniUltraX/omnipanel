@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CellEditDialog } from "../../../components/ui/CellEditDialog";
-import { TextInput } from "../../../components/ui/TextInput";
+import { CellEditDialog } from "../../../components/ui/content/CellEditDialog";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
 import type { DbColumnMeta } from "../api";
 import { BooleanEditor } from "./BooleanEditor";

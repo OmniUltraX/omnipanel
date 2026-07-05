@@ -1,6 +1,6 @@
-import { ContentPreviewView, type ContentPreviewTextMode } from "../ui/ContentPreviewView";
+import { ContentPreviewView, type ContentPreviewTextMode } from "../ui/content/ContentPreviewView";
 import { useI18n } from "../../i18n";
-import type { CodeEditorLanguage } from "../ui/CodeEditor";
+import type { CodeEditorLanguage } from "../ui/content/CodeEditor";
 import type { TextEditorPanelStatus } from "./types";
 
 export interface TextEditorViewProps {

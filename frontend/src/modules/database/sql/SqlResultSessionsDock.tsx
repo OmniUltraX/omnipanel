@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { DockableWorkspace, type DockableTab } from "../../../components/dock";
-import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import { useI18n } from "../../../i18n";
 import {
   makeSqlResultSessionLabel,

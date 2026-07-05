@@ -5,8 +5,8 @@ import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
 import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { Button } from "../../../components/ui/Button";
-import { ScopedSearch } from "../../../components/ui/ScopedSearch";
+import { Button } from "../../../components/ui/primitives/Button";
+import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { TextEditorSubWindow } from "../../../components/textEditor";
 import {
   createMysqlConfigTextIO,

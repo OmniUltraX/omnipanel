@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button } from "../../components/ui/Button";
-import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/DetailPanelShell";
+import { Button } from "../../components/ui/primitives/Button";
+import { DetailPanelModeToggle, DetailPanelShell } from "../../components/ui/layout/DetailPanelShell";
 import type { DockerVolumeDetail } from "../../ipc/bindings";
 import { formatDockerTime } from "./format";
 import type { DockerActionResult } from "./useDockerWorkspace";

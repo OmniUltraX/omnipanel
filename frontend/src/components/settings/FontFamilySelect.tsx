@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Select, type SelectOption } from "../ui/Select";
+import { Select, type SelectOption } from "../ui/form/Select";
 import {
   clearSystemFontCache,
   detectAllSystemFonts,

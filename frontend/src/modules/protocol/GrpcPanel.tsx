@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { IconCheckCircle, IconXCircle } from "../../components/ui/Icons";
-import { TextInput } from "../../components/ui/TextInput";
+import { IconCheckCircle, IconXCircle } from "../../components/ui/icons/Icons";
+import { TextInput } from "../../components/ui/form/TextInput";
 
 interface GrpcCallResponse {
   response_json: string;

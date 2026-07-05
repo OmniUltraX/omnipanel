@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { LogViewer } from "../../../components/ui/LogViewer";
-import { SubWindow } from "../../../components/ui/SubWindow";
-import { Button } from "../../../components/ui/Button";
+import { LogViewer } from "../../../components/ui/content/LogViewer";
+import { SubWindow } from "../../../components/ui/window/SubWindow";
+import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
 import type { ServerEntry } from "./serverConnection";
 import { formatAppPorts } from "./appCard";

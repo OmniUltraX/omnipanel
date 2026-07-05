@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/ModuleEmptyState";
+import { Button } from "../ui/primitives/Button";
+import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import {
   useThirdPartyAccountsStore,
   type ThirdPartyAccount,

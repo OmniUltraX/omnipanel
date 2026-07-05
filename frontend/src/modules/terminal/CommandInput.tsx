@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/Button";
+import { Button } from "../../components/ui/primitives/Button";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { CommandCompletionPopover } from "./commandBar/CommandCompletionPopover";
 import { CommandHistoryPopover } from "./commandBar/CommandHistoryPopover";

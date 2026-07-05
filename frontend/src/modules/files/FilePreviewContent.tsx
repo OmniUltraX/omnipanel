@@ -7,14 +7,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { codeEditorLanguageFromPath } from "../../components/ui/CodeEditor";
+import { codeEditorLanguageFromPath } from "../../components/ui/content/CodeEditor";
 import { TextEditorView } from "../../components/textEditor/TextEditorView";
 import { createFilePathTextIO } from "../../components/textEditor/io/filePathIO";
 import type { TextEditorBytesIO } from "../../components/textEditor/types";
 import {
   ContentPreviewView,
   type ContentPreviewTextMode,
-} from "../../components/ui/ContentPreviewView";
+} from "../../components/ui/content/ContentPreviewView";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import { useSettingsStore } from "../../stores/settingsStore";

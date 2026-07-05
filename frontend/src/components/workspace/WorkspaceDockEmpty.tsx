@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useI18n } from "../../i18n";
-import { WorkspaceEmptyPage } from "../ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../ui/workspace/WorkspaceEmptyPage";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import {

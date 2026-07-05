@@ -8,7 +8,7 @@ import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../
 import { MODULE_PATHS } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useI18n } from "../../i18n";
-import { TextInput } from "../ui/TextInput";
+import { TextInput } from "../ui/form/TextInput";
 import {
   formatShortcut,
   matchesShortcut,

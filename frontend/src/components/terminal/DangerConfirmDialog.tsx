@@ -1,6 +1,6 @@
 import type { DangerCheckResult, DangerLevel } from "../../lib/commandGuard";
-import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { Modal } from "../ui/overlay/Modal";
+import { Button } from "../ui/primitives/Button";
 
 interface Props {
   command: string;

@@ -1,4 +1,4 @@
 export {
   VerticalSplitSidebarSection as SchemaSidebarSection,
   type VerticalSplitSidebarSectionConfig as SchemaSidebarSectionConfig,
-} from "../../../components/ui/VerticalSplitSidebar";
+} from "../../../components/ui/sidebar/VerticalSplitSidebar";

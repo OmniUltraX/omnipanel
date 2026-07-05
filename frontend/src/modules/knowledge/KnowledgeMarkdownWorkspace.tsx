@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../../components/ui/Button";
-import { TextInput } from "../../components/ui/TextInput";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { Button } from "../../components/ui/primitives/Button";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { KnowledgeCrepeEditor } from "./KnowledgeCrepeEditor";

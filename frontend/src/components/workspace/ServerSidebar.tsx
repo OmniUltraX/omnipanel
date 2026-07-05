@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
-import { Button } from "../ui/Button";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
+import { Button } from "../ui/primitives/Button";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "../ui/VerticalSplitSidebar";
+} from "../ui/sidebar/VerticalSplitSidebar";
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
 

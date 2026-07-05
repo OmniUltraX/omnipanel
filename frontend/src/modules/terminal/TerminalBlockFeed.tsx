@@ -25,7 +25,7 @@ import {
   IconChevronRight,
   IconClipboard,
   IconCopy,
-} from "../../components/ui/Icons";
+} from "../../components/ui/icons/Icons";
 import { showToast } from "../../stores/toastStore";
 import { BlockAttachToAiButton } from "./BlockAttachToAiButton";
 import type { TerminalSessionType } from "../../stores/terminalStore";

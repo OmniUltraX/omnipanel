@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Select } from "../../components/ui/Select";
-import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
-import { FileEntryIcon } from "../../components/ui/FileEntryIcon";
+import { Select } from "../../components/ui/form/Select";
+import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import type { DockerContainerSummary, DockerFileEntry } from "../../ipc/bindings";
 
 interface DockerFilesTabProps {

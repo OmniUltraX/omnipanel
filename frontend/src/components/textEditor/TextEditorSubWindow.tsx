@@ -2,10 +2,10 @@ import { useRef, useState, type ReactNode } from "react";
 import {
   ContentPreviewTextModeToolbar,
   type ContentPreviewTextMode,
-} from "../ui/ContentPreviewView";
-import { SubWindow } from "../ui/SubWindow";
+} from "../ui/content/ContentPreviewView";
+import { SubWindow } from "../ui/window/SubWindow";
 import { useI18n } from "../../i18n";
-import type { CodeEditorLanguage } from "../ui/CodeEditor";
+import type { CodeEditorLanguage } from "../ui/content/CodeEditor";
 import { TextEditorPanel } from "./TextEditorPanel";
 import type { TextEditorHandle, TextEditorIO } from "./types";
 import { useTextEditorSubWindowActions } from "./useTextEditorSubWindowActions";

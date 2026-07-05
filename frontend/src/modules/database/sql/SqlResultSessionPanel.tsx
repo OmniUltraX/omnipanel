@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo } from "react";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
-import { Button } from "../../../components/ui/Button";
+import { Button } from "../../../components/ui/primitives/Button";
 import { TableDataGrid } from "../grid/TableDataGrid";
 import { useI18n } from "../../../i18n";
 import { estimateSqlResultTotalRows, type SqlResultSession } from "../workspace/dbWorkspaceState";

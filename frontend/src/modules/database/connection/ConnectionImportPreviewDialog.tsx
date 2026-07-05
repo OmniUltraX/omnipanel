@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { FormDialog } from "../../../components/ui/FormDialog";
-import { TextInput } from "../../../components/ui/TextInput";
-import { useResizableTableColumns } from "../../../components/ui/useResizableTableColumns";
+import { FormDialog } from "../../../components/ui/form/FormDialog";
+import { TextInput } from "../../../components/ui/form/TextInput";
+import { useResizableTableColumns } from "../../../components/ui/table/useResizableTableColumns";
 import { useI18n } from "../../../i18n";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import type { DbConnectionConfig } from "../api";

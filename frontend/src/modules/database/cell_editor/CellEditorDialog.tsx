@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { CellEditDialog } from "../../../components/ui/CellEditDialog";
+import { CellEditDialog } from "../../../components/ui/content/CellEditDialog";
 import {
   detectCellEditorKind,
   formatCellValue,

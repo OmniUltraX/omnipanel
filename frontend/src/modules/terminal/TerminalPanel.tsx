@@ -36,11 +36,11 @@ import {
   removeTabFromTerminalLayout,
   useTerminalDockLayoutStore,
 } from "../../stores/terminalDockLayoutStore";
-import { ContextMenu } from "../../components/ui/ContextMenu";
+import { ContextMenu } from "../../components/ui/menu/ContextMenu";
 import {
   buildTabCloseMenuItems,
   type TabContextMenuAction,
-} from "../../components/ui/contextMenuItems";
+} from "../../components/ui/menu/contextMenuItems";
 import { TerminalSessionsWorkspaceView } from "./TerminalSessionsWorkspaceView";
 import { useTerminalSessionsChrome } from "./TerminalSessionsChromeContext";
 import {

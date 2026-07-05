@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/primitives/Button";
 import {
   eventToKeyTokens,
   findShortcutConflict,

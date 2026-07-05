@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../i18n";
-import { FormDialog } from "../../../components/ui/FormDialog";
-import { PasswordInput } from "../../../components/ui/PasswordInput";
-import { Select } from "../../../components/ui/Select";
-import { TextInput } from "../../../components/ui/TextInput";
+import { FormDialog } from "../../../components/ui/form/FormDialog";
+import { PasswordInput } from "../../../components/ui/form/PasswordInput";
+import { Select } from "../../../components/ui/form/Select";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { collectSshGroupSuggestions, sanitizeSshGroupInput } from "../../../lib/sshGroups";
 import { createBtPanelClient } from "../../../lib/btpanel";

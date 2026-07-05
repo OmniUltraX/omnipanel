@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/CodeEditor";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/content/CodeEditor";
 import type { DockerActionResult } from "./useDockerWorkspace";
 
 /* eslint-disable react-hooks/set-state-in-effect -- controlled form state reset */

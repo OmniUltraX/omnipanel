@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FormDialog, FormField } from "../../../components/ui/FormDialog";
-import { TextInput } from "../../../components/ui/TextInput";
-import { Select } from "../../../components/ui/Select";
+import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
+import { TextInput } from "../../../components/ui/form/TextInput";
+import { Select } from "../../../components/ui/form/Select";
 import { useI18n } from "../../../i18n";
 import type { SyncTask, SyncTaskConfig, ToolboxTabId } from "../toolbox/types";
 

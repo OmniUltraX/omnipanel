@@ -1,6 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useI18n } from "../../../i18n";
-import { TextInput } from "../../../components/ui/TextInput";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import type { CommandHistoryEntry } from "./commandHistory";
 
 type CommandHistoryPopoverProps = {

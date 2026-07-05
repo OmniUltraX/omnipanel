@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { FormDialog, FormField } from "../ui/FormDialog";
-import { TextInput } from "../ui/TextInput";
-import { PasswordInput } from "../ui/PasswordInput";
-import { Select } from "../ui/Select";
+import { FormDialog, FormField } from "../ui/form/FormDialog";
+import { TextInput } from "../ui/form/TextInput";
+import { PasswordInput } from "../ui/form/PasswordInput";
+import { Select } from "../ui/form/Select";
 import { useI18n } from "../../i18n";
 import type {
   ThirdPartyAccount,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useLocation } from "react-router-dom";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import {
   ModuleSegmentDock,
   type DockableTab,
@@ -10,7 +10,7 @@ import {
   ModuleModeIconRail,
   ModuleWorkspaceLayout,
 } from "../../components/workspace";
-import { WorkspaceEmptyPage } from "../../components/ui/WorkspaceEmptyPage";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { migrateLayoutStorage } from "../../lib/layoutMigration";
 import { appConfirm } from "../../lib/appConfirm";

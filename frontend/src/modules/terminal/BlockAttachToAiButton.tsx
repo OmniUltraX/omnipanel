@@ -1,4 +1,4 @@
-import { IconQuote } from "../../components/ui/Icons";
+import { IconQuote } from "../../components/ui/icons/Icons";
 import { useI18n } from "../../i18n";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";

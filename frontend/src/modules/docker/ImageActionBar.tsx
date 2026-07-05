@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Button } from "../../components/ui/Button";
-import { FormDialog } from "../../components/ui/FormDialog";
-import { TextInput } from "../../components/ui/TextInput";
+import { Button } from "../../components/ui/primitives/Button";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { TextInput } from "../../components/ui/form/TextInput";
 import type { DockerImageProgress } from "./useDockerWorkspace";
 
 interface ImageActionBarProps {

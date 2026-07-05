@@ -1,4 +1,4 @@
-import { SubWindow } from "../ui/SubWindow";
+import { SubWindow } from "../ui/window/SubWindow";
 import { SettingsPanel } from "../../modules/settings/SettingsPanel";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { useI18n } from "../../i18n";
