@@ -153,6 +153,43 @@ pub fn prune_connection_cache(snapshot: &mut SchemaCacheSnapshot, conn_id: &str)
     snapshot.connections.remove(conn_id);
 }
 
+const SCHEMA_CACHE_BLOAT_TABLE_THRESHOLD: usize = 500;
+
+fn database_has_bloated_object_list(db: &SchemaCacheDatabase) -> bool {
+    db.tables.len() > SCHEMA_CACHE_BLOAT_TABLE_THRESHOLD
+        || db.views.len() > SCHEMA_CACHE_BLOAT_TABLE_THRESHOLD
+}
+
+fn strip_database_object_lists(db: &mut SchemaCacheDatabase) -> bool {
+    let had_objects = !db.tables.is_empty() || !db.views.is_empty() || !db.routines.is_empty();
+    db.tables.clear();
+    db.views.clear();
+    db.routines.clear();
+    had_objects
+}
+
+/// Redis 连接：清空各逻辑库下的 key 列表，仅保留库名元信息。
+pub fn sanitize_redis_schema_cache_entry(entry: &mut SchemaCacheConnection) -> bool {
+    let mut changed = false;
+    for db in &mut entry.databases {
+        if strip_database_object_lists(db) {
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// 清除异常膨胀的对象列表（如历史 Redis KEYS 全量缓存）。
+pub fn sanitize_bloated_schema_cache_entry(entry: &mut SchemaCacheConnection) -> bool {
+    let mut changed = false;
+    for db in &mut entry.databases {
+        if database_has_bloated_object_list(db) && strip_database_object_lists(db) {
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +229,55 @@ mod tests {
 
         prune_connection_cache(&mut snapshot, "c1");
         assert!(!snapshot.connections.contains_key("c1"));
+    }
+
+    #[test]
+    fn sanitize_redis_and_bloated_entries() {
+        let mut entry = SchemaCacheConnection {
+            databases: vec![
+                SchemaCacheDatabase {
+                    name: "0".into(),
+                    tables: vec![SchemaCacheTable {
+                        name: "user:1".into(),
+                        columns: vec![],
+                        indexes: vec![],
+                        comment: None,
+                    }],
+                    views: vec![],
+                    routines: vec![],
+                    load_error: None,
+                },
+                SchemaCacheDatabase {
+                    name: "11".into(),
+                    tables: (0..600)
+                        .map(|i| SchemaCacheTable {
+                            name: format!("key_{i}"),
+                            columns: vec![],
+                            indexes: vec![],
+                            comment: None,
+                        })
+                        .collect(),
+                    views: vec![],
+                    routines: vec![],
+                    load_error: None,
+                },
+            ],
+            users: vec![],
+            refreshed_at: Some(1),
+            error: None,
+        };
+        assert!(sanitize_redis_schema_cache_entry(&mut entry));
+        assert!(entry.databases.iter().all(|db| db.tables.is_empty()));
+
+        entry.databases[1].tables = (0..600)
+            .map(|i| SchemaCacheTable {
+                name: format!("key_{i}"),
+                columns: vec![],
+                indexes: vec![],
+                comment: None,
+            })
+            .collect();
+        assert!(sanitize_bloated_schema_cache_entry(&mut entry));
+        assert!(entry.databases[1].tables.is_empty());
     }
 }

@@ -16457,25 +16457,20 @@ a {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* react-obj-view 向上查找 overflow:auto|scroll 的祖先作为虚拟滚动容器 */
     overflow: auto;
-    padding: 0;
+    padding: var(--sp-3) var(--sp-4);
 }
 
 .content-preview-json--virtual .virtual-json-view {
-    display: block;
+    flex: 1;
+    min-height: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
 }
 
-.content-preview-json--virtual .big-objview-container {
-    min-height: 100%;
-}
-
-.content-preview-json--virtual .big-objview-root {
-    min-height: 100%;
-    height: auto !important;
+.content-preview-json--virtual .virtual-json-view > div {
     background: transparent !important;
-    padding: var(--sp-3) var(--sp-4);
-    box-sizing: border-box;
 }
 
 .content-preview-text {

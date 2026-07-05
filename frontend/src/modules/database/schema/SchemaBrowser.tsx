@@ -577,6 +577,7 @@ export interface SchemaBrowserProps {
     item: SchemaTreeItem,
     context: SchemaContextMenuContext,
   ) => ContextMenuItem[];
+  onConnectionContextMenu?: (connection: DbConnectionConfig) => void;
   onSchemaCacheConnectionPatched?: (connId: string, entry: SchemaCacheConnectionEntry) => void;
   activeTableKey?: string | null;
   activeDatabaseKey?: string | null;
@@ -595,6 +596,7 @@ export function SchemaBrowser({
   onSelectTable,
   onSelectDatabase,
   buildSchemaContextMenuItems,
+  onConnectionContextMenu,
   onSchemaCacheConnectionPatched,
   activeTableKey = null,
   activeDatabaseKey = null,
@@ -921,8 +923,11 @@ export function SchemaBrowser({
         connection,
         tableSelection,
       });
+      if (item.type === "connection" && connection) {
+        onConnectionContextMenu?.(connection);
+      }
     },
-    [],
+    [onConnectionContextMenu],
   );
 
   const handleContextLayoutRoot = useCallback((event: ReactMouseEvent) => {

@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use omnipanel_db::{DbParams, QueryResult, RedisKeyEntry, mysql_connect_options};
+use omnipanel_db::{DbParams, QueryResult, RedisSearchKeysResult, mysql_connect_options, postgres_connect_options};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
     SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_cache, load_schema_filters,
     load_schema_tree_expanded, prune_connection_cache, prune_connection_expanded,
-    prune_connection_filters, save_schema_cache, save_schema_filters, save_schema_tree_expanded,
+    prune_connection_filters, sanitize_bloated_schema_cache_entry, sanitize_redis_schema_cache_entry,
+    save_schema_cache, save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -462,13 +463,18 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
 }
 
 async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
-    let p = to_params(connection);
-    let opts = sqlx::postgres::PgConnectOptions::new()
-        .host(&p.host)
-        .port(p.port)
-        .username(&p.user)
-        .password(&p.password)
-        .database(&p.database);
+    pg_pool_for_database(connection, None).await
+}
+
+async fn pg_pool_for_database(
+    connection: &DbConnectionConfig,
+    database: Option<&str>,
+) -> Result<PgPool, String> {
+    let mut p = to_params(connection);
+    if let Some(db) = database.filter(|name| !name.trim().is_empty()) {
+        p.database = db.trim().to_string();
+    }
+    let opts = postgres_connect_options(&p);
     PgPoolOptions::new()
         .max_connections(1)
         .connect_with(opts)
@@ -575,8 +581,31 @@ pub async fn db_save_schema_tree_expanded(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn db_load_schema_cache() -> Result<SchemaCacheSnapshot, String> {
-    load_schema_cache().map_err(|e| e.to_string())
+pub async fn db_load_schema_cache(
+    state: State<'_, AppState>,
+) -> Result<SchemaCacheSnapshot, String> {
+    let mut snapshot = load_schema_cache().map_err(|e| e.to_string())?;
+    let connections = db_list_connections(state).await?;
+    let mut dirty = false;
+    for conn in &connections {
+        if !is_redis_db_type(&conn.db_type) {
+            continue;
+        }
+        if let Some(entry) = snapshot.connections.get_mut(&conn.id) {
+            if sanitize_redis_schema_cache_entry(entry) {
+                dirty = true;
+            }
+        }
+    }
+    for entry in snapshot.connections.values_mut() {
+        if sanitize_bloated_schema_cache_entry(entry) {
+            dirty = true;
+        }
+    }
+    if dirty {
+        let _ = save_schema_cache(&snapshot);
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -620,6 +649,23 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             }
             // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
             Ok((0..16).map(|n| n.to_string()).collect())
+        }
+        "postgresql" | "postgres" | "pg" => {
+            let pool = pg_pool_for_database(&connection, None).await?;
+            let rows = sqlx::query(
+                "SELECT datname FROM pg_database \
+                 WHERE datistemplate = false \
+                 ORDER BY datname",
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Query failed: {e}"))?;
+            let databases: Vec<String> = rows
+                .iter()
+                .filter_map(|row| row.try_get::<String, _>(0).ok())
+                .collect();
+            pool.close().await;
+            Ok(databases)
         }
         _ if !connection.database.trim().is_empty() => {
             // SQLite 等单文件数据库：显示文件名而非完整路径
@@ -753,6 +799,21 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 None => String::new(),
             };
             let sql = format!("CREATE DATABASE `{escaped_name}`{charset_clause}{collation_clause}");
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(|e| format!("创建数据库失败：{e}"))?;
+            pool.close().await;
+            Ok(name)
+        }
+        "postgresql" | "postgres" | "pg" => {
+            const PG_RESERVED: &[&str] = &["template0", "template1"];
+            if PG_RESERVED.iter().any(|r| r.eq_ignore_ascii_case(&name)) {
+                return Err(format!("`{name}` 是系统保留库名，请使用其他名称"));
+            }
+            let pool = pg_pool_for_database(&args.connection, None).await?;
+            let escaped_name = name.replace('"', "\"\"");
+            let sql = format!("CREATE DATABASE \"{escaped_name}\"");
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
@@ -968,12 +1029,8 @@ async fn pg_table_details(
     db_name: &str,
     table_name: &str,
 ) -> Result<DbTableDetails, String> {
-    let pool = pg_pool(connection).await?;
-    let schema = if db_name.trim().is_empty() {
-        "public".to_string()
-    } else {
-        db_name.to_string()
-    };
+    let pool = pg_pool_for_database(connection, Some(db_name)).await?;
+    const PG_DEFAULT_SCHEMA: &str = "public";
 
     let row = sqlx::query(
         "SELECT c.reltuples::bigint, pg_relation_size(c.oid)::bigint, \
@@ -987,7 +1044,7 @@ async fn pg_table_details(
          WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p') \
          LIMIT 1",
     )
-    .bind(&schema)
+    .bind(PG_DEFAULT_SCHEMA)
     .bind(table_name)
     .fetch_optional(&pool)
     .await
@@ -1107,10 +1164,10 @@ async fn mysql_table_ddl(
 /// PostgreSQL: 拼接标准 DDL（PG 没有原生 `SHOW CREATE TABLE`）。
 async fn pg_table_ddl(
     connection: &DbConnectionConfig,
-    _db_name: &str,
+    db_name: &str,
     table_name: &str,
 ) -> Result<String, String> {
-    let pool = pg_pool(connection).await?;
+    let pool = pg_pool_for_database(connection, Some(db_name)).await?;
     let ddl = pg_build_ddl(&pool, table_name).await?;
     pool.close().await;
     Ok(ddl)
@@ -1602,16 +1659,22 @@ pub struct RedisSearchKeysArgs {
     pub types: Vec<String>,
     #[serde(default = "default_redis_search_limit")]
     pub limit: u32,
+    #[serde(default)]
+    pub cursor: u64,
+    #[serde(default)]
+    pub include_value_preview: bool,
 }
 
 fn default_redis_search_limit() -> u32 {
-    500
+    100
 }
 
-/// Redis 键搜索：SCAN + 类型过滤 + 值预览。
+/// Redis 键搜索：SCAN + 类型过滤；值预览与游标分页可选。
 #[tauri::command]
 #[specta::specta]
-pub async fn db_redis_search_keys(args: RedisSearchKeysArgs) -> Result<Vec<RedisKeyEntry>, String> {
+pub async fn db_redis_search_keys(
+    args: RedisSearchKeysArgs,
+) -> Result<RedisSearchKeysResult, String> {
     if args.connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持键搜索".to_string());
     }
@@ -1620,6 +1683,8 @@ pub async fn db_redis_search_keys(args: RedisSearchKeysArgs) -> Result<Vec<Redis
         &args.pattern,
         &args.types,
         args.limit as usize,
+        args.cursor,
+        args.include_value_preview,
     )
     .await
     .map_err(err_msg)
@@ -1714,10 +1779,24 @@ fn table_key_from_details_folder(id: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn is_redis_db_type(db_type: &str) -> bool {
+    db_type.eq_ignore_ascii_case("redis")
+}
+
+/// Redis key 体量大，Schema 缓存仅保留逻辑库名；key 通过 SCAN 按需加载。
 async fn refresh_database_payload(
     connection: &DbConnectionConfig,
     db_name: &str,
 ) -> Result<SchemaCacheDatabasePayload, String> {
+    if is_redis_db_type(&connection.db_type) {
+        return Ok(SchemaCacheDatabasePayload {
+            name: db_name.to_string(),
+            tables: Vec::new(),
+            views: Vec::new(),
+            routines: Vec::new(),
+            load_error: None,
+        });
+    }
     let result = db_introspect_schema(connection.clone(), Some(db_name.to_string())).await?;
     Ok(SchemaCacheDatabasePayload {
         name: result.database,
@@ -1995,7 +2074,7 @@ async fn introspect_pg_schema(
     connection: &DbConnectionConfig,
     db_name: &str,
 ) -> Result<DbIntrospectResult, String> {
-    let pool = pg_pool(connection).await?;
+    let pool = pg_pool_for_database(connection, Some(db_name)).await?;
 
     let col_rows = sqlx::query(
         "SELECT c.table_name, c.column_name, c.data_type, \
@@ -2115,10 +2194,10 @@ async fn introspect_pg_schema(
 
 async fn introspect_pg_table(
     connection: &DbConnectionConfig,
-    _db_name: &str,
+    db_name: &str,
     table_name: &str,
 ) -> Result<DbTableSchema, String> {
-    let pool = pg_pool(connection).await?;
+    let pool = pg_pool_for_database(connection, Some(db_name)).await?;
 
     let col_rows = sqlx::query(
         "SELECT c.column_name, c.data_type, \

@@ -15,7 +15,8 @@ mod redis;
 mod sqlite;
 
 pub use mysql::mysql_connect_options;
-pub use redis::{RedisDriver, RedisKeyEntry};
+pub use postgres::postgres_connect_options;
+pub use redis::{RedisDriver, RedisKeyEntry, RedisSearchKeysResult};
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
@@ -27,7 +28,7 @@ pub struct DbParams {
     pub password: String,
     /// 网络数据库为库名；SQLite 为文件路径。
     pub database: String,
-    /// 是否启用 SSL（MySQL）。
+    /// 是否启用 SSL（MySQL / PostgreSQL）。
     pub ssl: bool,
 }
 
@@ -131,15 +132,19 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
     }
 }
 
-/// Redis 键搜索（SCAN + TYPE + 值预览）。
+/// Redis 键搜索（SCAN + TYPE；值预览可选）。
 pub async fn redis_search_keys(
     params: &DbParams,
     pattern: &str,
     types: &[String],
     limit: usize,
-) -> OmniResult<Vec<RedisKeyEntry>> {
+    cursor: u64,
+    include_value_preview: bool,
+) -> OmniResult<RedisSearchKeysResult> {
     let driver = RedisDriver::connect(params).await?;
-    driver.search_keys(pattern, types, limit).await
+    driver
+        .search_keys(pattern, types, limit, cursor, include_value_preview)
+        .await
 }
 
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。

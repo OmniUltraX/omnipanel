@@ -62,7 +62,8 @@ pub use paths::{
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
     SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser, load_schema_cache,
-    prune_connection_cache, save_schema_cache,
+    prune_connection_cache, sanitize_bloated_schema_cache_entry, sanitize_redis_schema_cache_entry,
+    save_schema_cache,
 };
 pub use schema_filters::{
     SchemaFilterRecord, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,

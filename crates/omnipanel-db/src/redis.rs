@@ -15,7 +15,26 @@ pub struct RedisKeyEntry {
     pub value: String,
 }
 
+/// 分页 SCAN 搜索结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSearchKeysResult {
+    pub entries: Vec<RedisKeyEntry>,
+    /// 下次请求传入的 SCAN 游标；0 表示当前模式已扫完。
+    pub next_cursor: u64,
+    pub has_more: bool,
+    /// 单次请求扫描的 key 数量达到上限，需缩小模式或继续加载。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scan_limit_hit: bool,
+}
+
 const DEFAULT_REDIS_PORT: u16 = 6379;
+const SCAN_BATCH_COUNT: u64 = 500;
+const TYPE_BATCH_SIZE: usize = 64;
+/// 单次请求最多从 SCAN 见到的 key 数（含被类型过滤掉的）。
+const MAX_SCAN_VISITS_PER_REQUEST: usize = 8_000;
+/// 单次请求最多执行的 SCAN 轮次，避免无匹配时在整库上长时间阻塞。
+const MAX_SCAN_ROUNDS_PER_REQUEST: usize = 64;
 
 pub struct RedisDriver {
     conn: MultiplexedConnection,
@@ -67,13 +86,15 @@ impl RedisDriver {
         Ok(Self { conn })
     }
 
-    /// 使用 SCAN 按模式搜索键，并按类型过滤；值为简要预览。
+    /// 使用 SCAN 按模式搜索键，并按类型过滤；值预览可选。
     pub async fn search_keys(
         &self,
         pattern: &str,
         types: &[String],
         limit: usize,
-    ) -> OmniResult<Vec<RedisKeyEntry>> {
+        cursor: u64,
+        include_value_preview: bool,
+    ) -> OmniResult<RedisSearchKeysResult> {
         let pattern = {
             let trimmed = pattern.trim();
             if trimmed.is_empty() {
@@ -88,49 +109,99 @@ impl RedisDriver {
         let filter_types = !type_filter.is_empty();
 
         let mut conn = self.conn.clone();
-        let mut cursor: u64 = 0;
+        let mut scan_cursor = cursor;
         let mut entries = Vec::new();
+        let mut scanned = 0usize;
+        let mut scan_rounds = 0usize;
+        let mut scan_limit_hit = false;
 
         loop {
+            scan_rounds += 1;
+            if scan_rounds > MAX_SCAN_ROUNDS_PER_REQUEST {
+                scan_limit_hit = true;
+                return Ok(RedisSearchKeysResult {
+                    entries,
+                    next_cursor: scan_cursor,
+                    has_more: true,
+                    scan_limit_hit,
+                });
+            }
+
             let (next, keys): (u64, Vec<redis::Value>) = redis::cmd("SCAN")
-                .arg(cursor)
+                .arg(scan_cursor)
                 .arg("MATCH")
                 .arg(pattern)
                 .arg("COUNT")
-                .arg(200)
+                .arg(SCAN_BATCH_COUNT)
                 .query_async(&mut conn)
                 .await
                 .map_err(map_redis_err)?;
 
-            for key_val in keys {
-                if entries.len() >= limit {
-                    return Ok(entries);
+            let key_names: Vec<String> = keys.into_iter().map(redis_value_to_string).collect();
+            scanned += key_names.len();
+
+            for chunk in key_names.chunks(TYPE_BATCH_SIZE) {
+                let types_batch = batch_key_types(&mut conn, chunk).await?;
+                for (key, key_type) in chunk.iter().zip(types_batch.iter()) {
+                    if filter_types && !type_filter.contains(key_type) {
+                        continue;
+                    }
+                    let value = if include_value_preview {
+                        preview_redis_value(&mut conn, key, key_type).await?
+                    } else {
+                        String::new()
+                    };
+                    entries.push(RedisKeyEntry {
+                        key: key.clone(),
+                        key_type: key_type.clone(),
+                        value,
+                    });
+                    if entries.len() >= limit {
+                        return Ok(RedisSearchKeysResult {
+                            entries,
+                            next_cursor: if next == 0 { 0 } else { next },
+                            has_more: next != 0 || scan_limit_hit,
+                            scan_limit_hit,
+                        });
+                    }
                 }
-                let key = redis_value_to_string(key_val);
-                let key_type: String = redis::cmd("TYPE")
-                    .arg(&key)
-                    .query_async(&mut conn)
-                    .await
-                    .map_err(map_redis_err)?;
-                if filter_types && !type_filter.contains(&key_type) {
-                    continue;
-                }
-                let value = preview_redis_value(&mut conn, &key, &key_type).await?;
-                entries.push(RedisKeyEntry {
-                    key,
-                    key_type,
-                    value,
+            }
+
+            scan_cursor = next;
+            if scan_cursor == 0 {
+                return Ok(RedisSearchKeysResult {
+                    entries,
+                    next_cursor: 0,
+                    has_more: false,
+                    scan_limit_hit,
                 });
             }
-
-            cursor = next;
-            if cursor == 0 {
-                break;
+            if scanned >= MAX_SCAN_VISITS_PER_REQUEST {
+                scan_limit_hit = true;
+                return Ok(RedisSearchKeysResult {
+                    entries,
+                    next_cursor: scan_cursor,
+                    has_more: true,
+                    scan_limit_hit,
+                });
             }
         }
-
-        Ok(entries)
     }
+}
+
+async fn batch_key_types(
+    conn: &mut MultiplexedConnection,
+    keys: &[String],
+) -> OmniResult<Vec<String>> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut pipe = redis::pipe();
+    for key in keys {
+        pipe.cmd("TYPE").arg(key);
+    }
+    let values: Vec<redis::Value> = pipe.query_async(conn).await.map_err(map_redis_err)?;
+    Ok(values.into_iter().map(redis_value_to_string).collect())
 }
 
 #[async_trait]
@@ -322,23 +393,22 @@ async fn preview_redis_value(
         }
         "hash" => {
             let len: i64 = conn.hlen(key).await.map_err(map_redis_err)?;
-            let fields: std::collections::HashMap<Vec<u8>, Vec<u8>> =
-                conn.hgetall(key).await.map_err(map_redis_err)?;
-            if fields.is_empty() {
+            let field_names: Vec<Vec<u8>> = conn.hkeys(key).await.map_err(map_redis_err)?;
+            if field_names.is_empty() {
                 return Ok(format!("[hash len={len}]"));
             }
-            let preview: String = fields
-                .into_iter()
-                .take(2)
-                .map(|(k, v)| {
-                    format!(
+            let preview_fields: Vec<Vec<u8>> = field_names.into_iter().take(2).collect();
+            let mut preview_parts = Vec::new();
+            for field in &preview_fields {
+                if let Some(value) = conn.hget::<_, _, Option<Vec<u8>>>(key, field).await.map_err(map_redis_err)? {
+                    preview_parts.push(format!(
                         "{}={}",
-                        bytes_to_display(&k),
-                        truncate_display(bytes_to_display(&v), 40)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+                        bytes_to_display(field),
+                        truncate_display(bytes_to_display(&value), 40),
+                    ));
+                }
+            }
+            let preview = preview_parts.join(", ");
             let suffix = if len > 2 { ", …" } else { "" };
             Ok(format!("[hash len={len}] {preview}{suffix}"))
         }

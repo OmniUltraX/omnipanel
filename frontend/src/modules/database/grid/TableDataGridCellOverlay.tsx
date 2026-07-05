@@ -2,20 +2,17 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ContentPreviewView } from "../../../components/ui/ContentPreviewView";
 import {
   clampCellOverlayPosition,
   CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
   CELL_OVERLAY_VIEWPORT_MARGIN,
   computeCellOverlayDisplayWidth,
   computeCellOverlayMaxWidth,
-  resolveCellPreviewContent,
   type CellOverlayState,
 } from "./tableCellPreview";
 
@@ -56,14 +53,9 @@ export function TableDataGridCellOverlay({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
 
-  const previewContent = useMemo(() => {
-    if (!overlay || overlay.mode !== "preview") return null;
-    return resolveCellPreviewContent(overlay.value, overlay.columnType);
-  }, [overlay]);
-
   const layoutOverlay = useCallback(() => {
     const host = hostRef.current;
-    if (!host || !overlay) return;
+    if (!host || !overlay || overlay.mode !== "edit") return;
 
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
@@ -85,24 +77,19 @@ export function TableDataGridCellOverlay({
     host.style.minWidth = `${overlay.width}px`;
     host.style.left = `${overlay.left}px`;
     host.style.top = `${overlay.top}px`;
+    host.style.minHeight = `${Math.max(overlay.height, INLINE_EDITOR_MIN_HEIGHT)}px`;
+    host.style.maxHeight = `${CELL_OVERLAY_PREVIEW_MAX_HEIGHT}px`;
 
-    if (overlay.mode === "preview") {
-      host.style.minHeight = `${overlay.height}px`;
-      host.style.maxHeight = `${CELL_OVERLAY_PREVIEW_MAX_HEIGHT}px`;
-    } else {
-      host.style.minHeight = `${Math.max(overlay.height, INLINE_EDITOR_MIN_HEIGHT)}px`;
-      host.style.maxHeight = `${CELL_OVERLAY_PREVIEW_MAX_HEIGHT}px`;
-      const textarea = textareaRef.current;
-      if (textarea) {
-        const maxHeight = Math.min(
-          CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
-          Math.max(
-            overlay.height,
-            viewportH - CELL_OVERLAY_VIEWPORT_MARGIN - overlay.top,
-          ),
-        );
-        syncTextareaHeight(textarea, overlay, maxHeight);
-      }
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const maxHeight = Math.min(
+        CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
+        Math.max(
+          overlay.height,
+          viewportH - CELL_OVERLAY_VIEWPORT_MARGIN - overlay.top,
+        ),
+      );
+      syncTextareaHeight(textarea, overlay, maxHeight);
     }
 
     const hostRect = host.getBoundingClientRect();
@@ -115,38 +102,33 @@ export function TableDataGridCellOverlay({
     host.style.left = `${clamped.left}px`;
     host.style.top = `${clamped.top}px`;
 
-    if (overlay.mode === "edit") {
-      const textarea = textareaRef.current;
-      if (textarea) {
-        const maxHeight = Math.min(
-          CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
-          Math.max(
-            overlay.height,
-            viewportH - CELL_OVERLAY_VIEWPORT_MARGIN - clamped.top,
-          ),
-        );
-        syncTextareaHeight(textarea, overlay, maxHeight);
-      }
+    if (textarea) {
+      const maxHeight = Math.min(
+        CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
+        Math.max(
+          overlay.height,
+          viewportH - CELL_OVERLAY_VIEWPORT_MARGIN - clamped.top,
+        ),
+      );
+      syncTextareaHeight(textarea, overlay, maxHeight);
     }
   }, [overlay]);
 
   useLayoutEffect(() => {
     layoutOverlay();
-  }, [layoutOverlay, overlay?.mode, overlay?.editText, previewContent]);
+  }, [layoutOverlay, overlay?.editText]);
 
   useEffect(() => {
-    if (!overlay) return;
+    if (!overlay || overlay.mode !== "edit") return;
     const scrollEl = document.querySelector(".db-data-table-wrap");
     const relayout = () => layoutOverlay();
     scrollEl?.addEventListener("scroll", relayout, { passive: true });
     window.addEventListener("resize", relayout);
 
-    if (overlay.mode === "edit") {
-      const control = overlay.editKind === "boolean" ? selectRef.current : textareaRef.current;
-      control?.focus();
-      if (control instanceof HTMLTextAreaElement) {
-        control.select();
-      }
+    const control = overlay.editKind === "boolean" ? selectRef.current : textareaRef.current;
+    control?.focus();
+    if (control instanceof HTMLTextAreaElement) {
+      control.select();
     }
 
     return () => {
@@ -193,30 +175,19 @@ export function TableDataGridCellOverlay({
     onDoubleClick: (event: MouseEvent) => event.stopPropagation(),
   };
 
-  if (!overlay) return null;
+  if (!overlay || overlay.mode !== "edit") return null;
 
   const maxWidth = computeCellOverlayMaxWidth();
 
   return createPortal(
     <div
       ref={hostRef}
-      className={`db-data-table-cell-overlay db-data-table-cell-overlay--${overlay.mode}`}
+      className="db-data-table-cell-overlay db-data-table-cell-overlay--edit"
       style={{ maxWidth }}
-      role={overlay.mode === "preview" ? "tooltip" : "dialog"}
+      role="dialog"
       aria-label={overlay.column}
     >
-      {overlay.mode === "preview" && previewContent ? (
-        <div className="db-data-table-cell-overlay-preview">
-          <ContentPreviewView
-            status="ready"
-            content={previewContent}
-            showTextModeToolbar={false}
-            className="content-preview-view--embedded db-data-table-cell-overlay-preview-view"
-            contentResetKey={`${overlay.column}|${overlay.rowIndex}|${overlay.mode}`}
-          />
-        </div>
-      ) : null}
-      {overlay.mode === "edit" && overlay.editKind === "boolean" ? (
+      {overlay.editKind === "boolean" ? (
         <select
           ref={selectRef}
           className="db-data-table-inline-editor db-data-table-inline-editor--select"
@@ -235,8 +206,7 @@ export function TableDataGridCellOverlay({
           <option value="true">true</option>
           <option value="false">false</option>
         </select>
-      ) : null}
-      {overlay.mode === "edit" && overlay.editKind !== "boolean" ? (
+      ) : (
         <textarea
           ref={textareaRef}
           className="db-data-table-inline-editor db-data-table-inline-editor--textarea"
@@ -251,7 +221,7 @@ export function TableDataGridCellOverlay({
           onBlur={onEditCommit}
           {...stopMouse}
         />
-      ) : null}
+      )}
     </div>,
     document.body,
   );

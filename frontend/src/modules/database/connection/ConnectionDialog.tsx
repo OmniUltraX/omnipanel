@@ -331,7 +331,9 @@ export function ConnectionDialog({
     >
           <FormField label={t("database.dialog.engine")} description={t("database.dialog.engineDescription")}>
             <div className="engine-grid">
-              {(Object.keys(ENGINE_DEFAULTS) as DbEngine[]).map((engine) => {
+              {(Object.keys(ENGINE_DEFAULTS) as DbEngine[])
+                .filter(isSupportedEngine)
+                .map((engine) => {
                 const iconUrl = getEngineIcon(engine, resolvedTheme);
                 return (
                   <button

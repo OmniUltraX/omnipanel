@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n";
 import {
   isPreviewWebUrl,
   normalizePreviewWebUrl,
+  parsePreviewJsonText,
   type ContentPreviewPayload,
   type ContentPreviewStatus,
   type ContentPreviewTextMode,
@@ -24,6 +25,8 @@ export interface ContentPreviewTextModeToolbarProps {
   mode: ContentPreviewTextMode;
   onModeChange: (mode: ContentPreviewTextMode) => void;
   showCodeMode?: boolean;
+  showJsonMode?: boolean;
+  showMarkdownMode?: boolean;
   showWebMode?: boolean;
   className?: string;
 }
@@ -32,6 +35,8 @@ export function ContentPreviewTextModeToolbar({
   mode,
   onModeChange,
   showCodeMode = false,
+  showJsonMode = false,
+  showMarkdownMode = true,
   showWebMode = false,
   className,
 }: ContentPreviewTextModeToolbarProps) {
@@ -50,6 +55,16 @@ export function ContentPreviewTextModeToolbar({
       >
         {t("contentPreview.modePlain")}
       </button>
+      {showJsonMode ? (
+        <button
+          type="button"
+          className={cn("content-preview-text-mode-btn", mode === "json" && "is-active")}
+          aria-pressed={mode === "json"}
+          onClick={() => onModeChange("json")}
+        >
+          {t("contentPreview.modeJson")}
+        </button>
+      ) : null}
       {showCodeMode ? (
         <button
           type="button"
@@ -60,14 +75,16 @@ export function ContentPreviewTextModeToolbar({
           {t("contentPreview.modeCode")}
         </button>
       ) : null}
-      <button
-        type="button"
-        className={cn("content-preview-text-mode-btn", mode === "markdown" && "is-active")}
-        aria-pressed={mode === "markdown"}
-        onClick={() => onModeChange("markdown")}
-      >
-        {t("contentPreview.modeMarkdown")}
-      </button>
+      {showMarkdownMode ? (
+        <button
+          type="button"
+          className={cn("content-preview-text-mode-btn", mode === "markdown" && "is-active")}
+          aria-pressed={mode === "markdown"}
+          onClick={() => onModeChange("markdown")}
+        >
+          {t("contentPreview.modeMarkdown")}
+        </button>
+      ) : null}
       {showWebMode ? (
         <button
           type="button"
@@ -103,11 +120,19 @@ export interface ContentPreviewViewProps {
   onTextChange?: (text: string) => void;
 }
 
+function jsonSourceText(value: object): string {
+  return JSON.stringify(value, null, 2);
+}
+
 function resolveDefaultTextMode(
   codeLanguage: CodeEditorLanguage | undefined,
   preferred: ContentPreviewTextMode | undefined,
+  content?: ContentPreviewPayload,
 ): ContentPreviewTextMode {
   if (preferred) return preferred;
+  if (content?.kind === "json") return "json";
+  if (content?.kind === "text" && parsePreviewJsonText(content.text)) return "json";
+  if (codeLanguage === "json") return "json";
   return codeLanguage ? "code" : "plain";
 }
 
@@ -130,20 +155,34 @@ export function ContentPreviewView({
 }: ContentPreviewViewProps) {
   const { t } = useI18n();
   const [internalTextMode, setInternalTextMode] = useState<ContentPreviewTextMode>(() =>
-    resolveDefaultTextMode(codeLanguage, defaultTextMode),
+    resolveDefaultTextMode(codeLanguage, defaultTextMode, content),
   );
 
   const textMode = controlledTextMode ?? internalTextMode;
   const setTextMode = onTextModeChange ?? setInternalTextMode;
 
   useEffect(() => {
-    setInternalTextMode(resolveDefaultTextMode(codeLanguage, defaultTextMode));
-  }, [contentResetKey, codeLanguage, defaultTextMode]);
+    setInternalTextMode(resolveDefaultTextMode(codeLanguage, defaultTextMode, content));
+  }, [contentResetKey, codeLanguage, defaultTextMode, content]);
+
+  const parsedJsonFromText = useMemo(
+    () => (content?.kind === "text" ? parsePreviewJsonText(content.text) : null),
+    [content],
+  );
 
   const webPreviewUrl =
     content?.kind === "text" && isPreviewWebUrl(content.text)
       ? normalizePreviewWebUrl(content.text)
       : null;
+
+  const showJsonMode = content?.kind === "json" || parsedJsonFromText != null;
+  const showCodeMode =
+    Boolean(codeLanguage) || content?.kind === "json" || parsedJsonFromText != null;
+  const showMarkdownMode = content?.kind !== "json";
+  const showToolbar =
+    showTextModeToolbar &&
+    status === "ready" &&
+    (content?.kind === "text" || content?.kind === "json");
 
   useEffect(() => {
     if (textMode === "web" && !webPreviewUrl) {
@@ -151,7 +190,17 @@ export function ContentPreviewView({
     }
   }, [textMode, webPreviewUrl, setTextMode]);
 
-  const showToolbar = showTextModeToolbar && status === "ready" && content?.kind === "text";
+  useEffect(() => {
+    if (textMode === "json" && content?.kind === "text" && !parsedJsonFromText) {
+      setTextMode("plain");
+    }
+  }, [textMode, content, parsedJsonFromText, setTextMode]);
+
+  useEffect(() => {
+    if (textMode === "markdown" && content?.kind === "json") {
+      setTextMode("json");
+    }
+  }, [textMode, content, setTextMode]);
 
   const bodyClassName = cn(
     "content-preview-view",
@@ -191,32 +240,22 @@ export function ContentPreviewView({
     );
   }
 
-  return (
-    <div className={bodyClassName}>
-      {showToolbar ? (
-        <div className="content-preview-view-toolbar-slot">
-          <ContentPreviewTextModeToolbar
-            mode={textMode}
-            onModeChange={setTextMode}
-            showCodeMode={Boolean(codeLanguage)}
-            showWebMode={webPreviewUrl != null}
-          />
-        </div>
-      ) : null}
-      {content.kind === "json" ? (
-        <div className="content-preview-json content-preview-json--virtual">
-          <VirtualJsonView value={content.value} />
-        </div>
-      ) : content.kind === "image" ? (
-        <div className="content-preview-image-wrap">
-          <img
-            className="content-preview-image"
-            src={content.url}
-            alt={content.alt ?? ""}
-            decoding="async"
-          />
-        </div>
-      ) : textMode === "web" && webPreviewUrl ? (
+  const jsonStructuredValue =
+    content.kind === "json" && textMode === "json"
+      ? content.value
+      : content.kind === "text" && textMode === "json" && parsedJsonFromText
+        ? parsedJsonFromText
+        : null;
+
+  const sourceText =
+    content.kind === "json" ? jsonSourceText(content.value) : content.kind === "text" ? content.text : "";
+
+  const editorLanguage: CodeEditorLanguage | undefined =
+    content.kind === "json" || textMode === "json" ? "json" : codeLanguage;
+
+  const renderTextBody = () => {
+    if (textMode === "web" && webPreviewUrl) {
+      return (
         <div className="content-preview-web">
           <iframe
             key={webPreviewUrl}
@@ -227,30 +266,77 @@ export function ContentPreviewView({
             referrerPolicy="no-referrer"
           />
         </div>
-      ) : textMode === "markdown" ? (
+      );
+    }
+
+    if (textMode === "markdown") {
+      return (
         <div className="content-preview-markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{sourceText}</ReactMarkdown>
         </div>
-      ) : textMode === "code" && codeLanguage ? (
+      );
+    }
+
+    if (textMode === "code" && editorLanguage) {
+      return (
         <div className="content-preview-code">
           <CodeEditor
-            value={content.text}
+            value={sourceText}
             onChange={(next) => onTextChange?.(next)}
             readOnly={!editable}
-            language={codeLanguage}
+            language={editorLanguage}
             height="100%"
             className="content-preview-code-editor"
           />
         </div>
-      ) : editable && textMode === "plain" ? (
+      );
+    }
+
+    if (editable && textMode === "plain") {
+      return (
         <textarea
           className="content-preview-text content-preview-text--editable"
-          value={content.text}
+          value={sourceText}
           onChange={(e) => onTextChange?.(e.target.value)}
           spellCheck={false}
         />
+      );
+    }
+
+    return <pre className="content-preview-text">{sourceText}</pre>;
+  };
+
+  return (
+    <div className={bodyClassName}>
+      {showToolbar ? (
+        <div className="content-preview-view-toolbar-slot">
+          <ContentPreviewTextModeToolbar
+            mode={textMode}
+            onModeChange={setTextMode}
+            showCodeMode={showCodeMode}
+            showJsonMode={showJsonMode}
+            showMarkdownMode={showMarkdownMode}
+            showWebMode={webPreviewUrl != null}
+          />
+        </div>
+      ) : null}
+      {content.kind === "image" ? (
+        <div className="content-preview-image-wrap">
+          <img
+            className="content-preview-image"
+            src={content.url}
+            alt={content.alt ?? ""}
+            decoding="async"
+          />
+        </div>
+      ) : jsonStructuredValue ? (
+        <div className="content-preview-json content-preview-json--virtual">
+          <VirtualJsonView value={jsonStructuredValue} />
+        </div>
+      ) : content.kind === "text" && textMode === "json" ? (
+        <ModuleEmptyState preset="folder" title={t("contentPreview.empty")} desc={emptyHint} />
       ) : (
-        <pre className="content-preview-text">{content.text}</pre>
+        renderTextBody()
       )}
     </div>
   );
@@ -260,14 +346,25 @@ export function ContentPreviewView({
 export function useContentPreviewTextModes(
   text: string | undefined,
   codeLanguage?: CodeEditorLanguage,
-): { webPreviewUrl: string | null; showCodeMode: boolean; showWebMode: boolean } {
+  contentKind?: ContentPreviewPayload["kind"],
+): {
+  webPreviewUrl: string | null;
+  showCodeMode: boolean;
+  showJsonMode: boolean;
+  showMarkdownMode: boolean;
+  showWebMode: boolean;
+} {
   return useMemo(() => {
     const webPreviewUrl =
       text && isPreviewWebUrl(text) ? normalizePreviewWebUrl(text) : null;
+    const showJsonMode =
+      contentKind === "json" || (text != null && parsePreviewJsonText(text) != null);
     return {
       webPreviewUrl,
-      showCodeMode: Boolean(codeLanguage),
+      showCodeMode: Boolean(codeLanguage) || showJsonMode,
+      showJsonMode,
+      showMarkdownMode: contentKind !== "json",
       showWebMode: webPreviewUrl != null,
     };
-  }, [text, codeLanguage]);
+  }, [text, codeLanguage, contentKind]);
 }

@@ -1058,12 +1058,17 @@ export const enUS: TranslationDict = {
     redisQuery: {
       database: "Database",
       pattern: "Key pattern",
-      patternPlaceholder: "Key pattern, e.g. user:* (empty = *)",
+      patternPlaceholder: "Prefix or pattern, e.g. user:* (avoid * alone)",
       search: "Search",
       searching: "Searching…",
       types: "Types",
+      valuePreview: "Load value preview (slower)",
+      broadPatternHint: "Pattern * scans the entire database and is slow at scale; prefer a prefix such as session:*",
       empty: "No matching keys. Enter a pattern and press Enter or click Search",
       truncated: "Results truncated — only the first {limit} keys were loaded (narrow your pattern)",
+      scanLimitHit: "Scan limit reached for this request. Click Load more to continue, or narrow your pattern",
+      loadMore: "Load more",
+      loadingMore: "Loading…",
       unsupportedEngine: "Engine {engine} does not support Redis key search",
     },
     tableDesigner: {

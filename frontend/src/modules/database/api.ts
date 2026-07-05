@@ -72,12 +72,23 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
   };
 }
 
+export function normalizeDbEngineType(dbType: string): string {
+  const engine = dbType.trim().toLowerCase();
+  if (engine === "postgres" || engine === "pg") {
+    return "postgresql";
+  }
+  if (engine === "mariadb") {
+    return "mysql";
+  }
+  if (engine === "sqlite3") {
+    return "sqlite";
+  }
+  return engine;
+}
+
 export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
-  const rawType = conn.db_type.toLowerCase();
-  const engine: ConnectionFormData["engine"] =
-    rawType === "sqlite3"
-      ? "sqlite"
-      : (conn.db_type as ConnectionFormData["engine"]);
+  const rawType = normalizeDbEngineType(conn.db_type);
+  const engine = rawType as ConnectionFormData["engine"];
   return {
     engine,
     name: conn.name,
@@ -127,6 +138,13 @@ export function isToolboxCapableConnection(
   );
 }
 
+export function isPostgresConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = normalizeDbEngineType(connection.db_type);
+  return engine === "postgresql";
+}
+
 /** 连接信息面板支持的连接（MySQL / MariaDB 专有 STATUS / PROCESSLIST）。 */
 export function isMysqlConnectionInfoCapable(
   connection: Pick<DbConnectionConfig, "db_type">,
@@ -148,22 +166,46 @@ export interface RedisKeyEntry {
   value: string;
 }
 
+export interface RedisSearchKeysResult {
+  entries: RedisKeyEntry[];
+  nextCursor: number;
+  hasMore: boolean;
+  scanLimitHit?: boolean;
+}
+
 export interface RedisSearchKeysArgs {
   connection: DbConnectionConfig;
   pattern: string;
   types: string[];
   limit?: number;
+  cursor?: number;
+  includeValuePreview?: boolean;
 }
 
-export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisKeyEntry[]> {
-  return invoke<RedisKeyEntry[]>("db_redis_search_keys", {
+export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisSearchKeysResult> {
+  const raw = await invoke<RedisSearchKeysResult | RedisKeyEntry[]>("db_redis_search_keys", {
     args: {
       connection: args.connection,
       pattern: args.pattern,
       types: args.types,
-      limit: args.limit ?? 500,
+      limit: args.limit ?? 100,
+      cursor: args.cursor ?? 0,
+      includeValuePreview: args.includeValuePreview ?? false,
     },
   });
+  if (Array.isArray(raw)) {
+    return {
+      entries: raw,
+      nextCursor: 0,
+      hasMore: false,
+    };
+  }
+  return {
+    entries: raw.entries ?? [],
+    nextCursor: raw.nextCursor ?? 0,
+    hasMore: raw.hasMore ?? false,
+    scanLimitHit: raw.scanLimitHit,
+  };
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {

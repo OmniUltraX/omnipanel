@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/Button";
 import { Select } from "../../../components/ui/Select";
@@ -17,11 +17,10 @@ const REDIS_KEY_TYPES = ["string", "list", "set", "zset", "hash", "stream"] as c
 
 const RESULT_COLUMNS = ["key", "type", "value"] as const;
 
-/** 表格每页展示行数（仅渲染当前页，避免大量 DOM 卡死） */
-const REDIS_QUERY_PAGE_SIZE = 100;
+/** 单次 SCAN 请求拉取的匹配键数量 */
+const REDIS_SEARCH_FETCH_LIMIT = 100;
 
-/** 单次从 Redis 拉取的最大键数量（后端 SCAN 上限 2000） */
-const REDIS_SEARCH_FETCH_LIMIT = 500;
+const SCROLL_LOAD_THRESHOLD_PX = 64;
 
 interface RedisQueryPanelProps {
   connection: DbConnectionConfig;
@@ -39,12 +38,26 @@ function resolveInitialDb(fixedDbName: string | undefined, connection: DbConnect
   return "0";
 }
 
-function entryToRow(entry: RedisKeyEntry): Record<string, unknown> {
+function isBroadPattern(pattern: string): boolean {
+  const trimmed = pattern.trim();
+  return trimmed === "" || trimmed === "*";
+}
+
+function entryToRow(entry: RedisKeyEntry, showValuePreview: boolean): Record<string, unknown> {
   return {
     key: entry.key,
     type: entry.keyType,
-    value: entry.value,
+    value: showValuePreview ? entry.value : "—",
   };
+}
+
+function getResultsScrollWrap(): HTMLElement | null {
+  const wrap = document.querySelector(".redis-query-results .db-data-table-wrap");
+  return wrap instanceof HTMLElement ? wrap : null;
+}
+
+function isScrollNearBottom(wrap: HTMLElement, threshold = SCROLL_LOAD_THRESHOLD_PX): boolean {
+  return wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= threshold;
 }
 
 export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProps) {
@@ -53,18 +66,35 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
 
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDb, setSelectedDb] = useState(() => resolveInitialDb(fixedDbName, connection));
-  const [pattern, setPattern] = useState("*");
+  const [pattern, setPattern] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
     () => new Set(REDIS_KEY_TYPES),
   );
-  const [loading, setLoading] = useState(false);
+  const [includeValuePreview, setIncludeValuePreview] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadingDbs, setLoadingDbs] = useState(!fixedDbName);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RedisKeyEntry[]>([]);
-  const [page, setPage] = useState(0);
-  const [hitFetchLimit, setHitFetchLimit] = useState(false);
+  const [scanCursor, setScanCursor] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [scanLimitHit, setScanLimitHit] = useState(false);
+
+  const searchRequestIdRef = useRef(0);
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  const searchingRef = useRef(searching);
+  const scanCursorRef = useRef(scanCursor);
+
+  hasMoreRef.current = hasMore;
+  loadingMoreRef.current = loadingMore;
+  searchingRef.current = searching;
+  scanCursorRef.current = scanCursor;
 
   const activeDb = fixedDbName ?? selectedDb;
+  const broadPattern = isBroadPattern(pattern);
+  const hasResults = entries.length > 0;
+  const busy = searching || loadingMore;
 
   const scopedConnection = useMemo(
     () => connectionWithDatabase(connection, activeDb),
@@ -112,30 +142,99 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     });
   }, []);
 
-  const runSearch = useCallback(async () => {
-    if (!capable) {
+  const fetchKeys = useCallback(
+    async (options: { cursor: number; append: boolean }) => {
+      if (!capable) {
+        return;
+      }
+
+      const requestId = options.append ? searchRequestIdRef.current : ++searchRequestIdRef.current;
+
+      if (options.append) {
+        setLoadingMore(true);
+      } else {
+        setSearching(true);
+        setError(null);
+      }
+
+      try {
+        const result = await redisSearchKeys({
+          connection: scopedConnection,
+          pattern,
+          types: [...selectedTypes],
+          limit: REDIS_SEARCH_FETCH_LIMIT,
+          cursor: options.cursor,
+          includeValuePreview,
+        });
+
+        if (!options.append && requestId !== searchRequestIdRef.current) {
+          return;
+        }
+
+        const batch = result.entries ?? [];
+        setEntries((prev) => (options.append ? [...prev, ...batch] : batch));
+        setScanCursor(result.nextCursor);
+        setHasMore(result.hasMore);
+        setScanLimitHit(Boolean(result.scanLimitHit));
+      } catch (e) {
+        if (!options.append && requestId !== searchRequestIdRef.current) {
+          return;
+        }
+        if (!options.append) {
+          setEntries([]);
+          setScanCursor(0);
+          setHasMore(false);
+          setScanLimitHit(false);
+        }
+        setError(typeof e === "string" ? e : JSON.stringify(e));
+      } finally {
+        if (options.append) {
+          setLoadingMore(false);
+        } else if (requestId === searchRequestIdRef.current) {
+          setSearching(false);
+        }
+      }
+    },
+    [capable, scopedConnection, pattern, selectedTypes, includeValuePreview],
+  );
+
+  const loadMore = useCallback(() => {
+    if (!hasMoreRef.current || searchingRef.current || loadingMoreRef.current) {
       return;
     }
-    setLoading(true);
-    setError(null);
-    setPage(0);
-    try {
-      const result = await redisSearchKeys({
-        connection: scopedConnection,
-        pattern,
-        types: [...selectedTypes],
-        limit: REDIS_SEARCH_FETCH_LIMIT,
-      });
-      setEntries(result);
-      setHitFetchLimit(result.length >= REDIS_SEARCH_FETCH_LIMIT);
-    } catch (e) {
-      setEntries([]);
-      setHitFetchLimit(false);
-      setError(typeof e === "string" ? e : JSON.stringify(e));
-    } finally {
-      setLoading(false);
+    void fetchKeys({ cursor: scanCursorRef.current, append: true });
+  }, [fetchKeys]);
+
+  const tryFillViewport = useCallback(() => {
+    if (!hasMoreRef.current || searchingRef.current || loadingMoreRef.current) {
+      return;
     }
-  }, [capable, scopedConnection, pattern, selectedTypes]);
+    const wrap = getResultsScrollWrap();
+    if (!wrap) {
+      return;
+    }
+    if (isScrollNearBottom(wrap)) {
+      loadMore();
+    }
+  }, [loadMore]);
+
+  const runSearch = useCallback(() => {
+    void fetchKeys({ cursor: 0, append: false });
+  }, [fetchKeys]);
+
+  const handleNearScrollBottom = useCallback(() => {
+    loadMore();
+  }, [loadMore]);
+
+  useEffect(() => {
+    if (!hasResults || !hasMore || searching || loadingMore) {
+      return;
+    }
+    const raf = requestAnimationFrame(() => {
+      tryFillViewport();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [hasResults, hasMore, searching, loadingMore, entries.length, tryFillViewport]);
 
   const handleSearchKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -147,14 +246,10 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     [runSearch],
   );
 
-  const pagedRows = useMemo(() => {
-    const start = page * REDIS_QUERY_PAGE_SIZE;
-    return entries.slice(start, start + REDIS_QUERY_PAGE_SIZE).map(entryToRow);
-  }, [entries, page]);
-
-  const handlePageChange = useCallback((nextPage: number) => {
-    setPage(nextPage);
-  }, []);
+  const gridRows = useMemo(
+    () => entries.map((entry) => entryToRow(entry, includeValuePreview)),
+    [entries, includeValuePreview],
+  );
 
   if (!capable) {
     return (
@@ -174,7 +269,7 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             className="redis-query-db-select"
             value={selectedDb}
             onChange={(value) => setSelectedDb(value)}
-            disabled={loadingDbs || loading}
+            disabled={loadingDbs || busy}
             options={databases.map((name) => ({ value: name, label: `DB ${name}` }))}
             placeholder={t("database.redisQuery.database")}
           />
@@ -186,7 +281,7 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
           onChange={setPattern}
           onKeyDown={handleSearchKeyDown}
           placeholder={t("database.redisQuery.patternPlaceholder")}
-          disabled={loading}
+          disabled={busy}
           spellCheck={false}
           aria-label={t("database.redisQuery.pattern")}
         />
@@ -194,9 +289,9 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
           variant="primary"
           size="sm"
           onClick={() => void runSearch()}
-          disabled={loading || loadingDbs || selectedTypes.size === 0}
+          disabled={busy || loadingDbs || selectedTypes.size === 0}
         >
-          {loading ? t("database.redisQuery.searching") : t("database.redisQuery.search")}
+          {searching ? t("database.redisQuery.searching") : t("database.redisQuery.search")}
         </Button>
       </div>
 
@@ -208,35 +303,59 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
               type="checkbox"
               checked={selectedTypes.has(type)}
               onChange={() => toggleType(type)}
-              disabled={loading}
+              disabled={busy}
             />
             <span>{type}</span>
           </label>
         ))}
+        <label className="redis-query-type-option redis-query-preview-option">
+          <input
+            type="checkbox"
+            checked={includeValuePreview}
+            onChange={(e) => setIncludeValuePreview(e.target.checked)}
+            disabled={busy}
+          />
+          <span>{t("database.redisQuery.valuePreview")}</span>
+        </label>
       </div>
+
+      {broadPattern ? (
+        <div className="redis-query-hint db-exec-stats-truncated">
+          {t("database.redisQuery.broadPatternHint")}
+        </div>
+      ) : null}
 
       <div className="redis-query-results">
         {error ? (
           <div className="db-table-designer-state db-table-designer-state--error">{error}</div>
-        ) : loading ? (
+        ) : searching && !hasResults ? (
           <div className="db-table-designer-state">{t("common.loading")}</div>
-        ) : entries.length > 0 ? (
-          <>
-            {hitFetchLimit ? (
+        ) : hasResults ? (
+          <div className="redis-query-results-body">
+            {scanLimitHit ? (
               <div className="redis-query-truncated db-exec-stats-truncated">
-                {t("database.redisQuery.truncated", { limit: REDIS_SEARCH_FETCH_LIMIT })}
+                {t("database.redisQuery.scanLimitHit")}
               </div>
+            ) : null}
+            {searching ? (
+              <div className="redis-query-results-overlay">{t("common.loading")}</div>
             ) : null}
             <TableDataGrid
               columns={[...RESULT_COLUMNS]}
-              rows={pagedRows}
+              rows={gridRows}
               totalRows={entries.length}
-              page={page}
-              pageSize={REDIS_QUERY_PAGE_SIZE}
+              page={0}
+              pageSize={Math.max(entries.length, 1)}
               loading={false}
-              onPageChange={handlePageChange}
+              onPageChange={() => {}}
+              onNearScrollBottom={hasMore ? handleNearScrollBottom : undefined}
+              footerExtra={
+                loadingMore ? (
+                  <span className="redis-query-scroll-loading">{t("database.redisQuery.loadingMore")}</span>
+                ) : null
+              }
             />
-          </>
+          </div>
         ) : (
           <div className="db-table-designer-state">{t("database.redisQuery.empty")}</div>
         )}

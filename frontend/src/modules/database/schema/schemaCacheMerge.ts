@@ -145,23 +145,17 @@ function mapCachedDatabaseWithReuse(
     routines?: { name: string; routineType: string }[];
   },
 ): CachedDatabase {
-  const prevTables = prev?.tables ?? [];
-  const prevViews = prev?.views ?? [];
-  const prevRoutines = prev?.routines ?? [];
+  const prevTableByName = new Map((prev?.tables ?? []).map((table) => [table.name, table]));
+  const prevViewByName = new Map((prev?.views ?? []).map((view) => [view.name, view]));
+  const prevRoutineByName = new Map((prev?.routines ?? []).map((routine) => [routine.name, routine]));
   const tables = db.tables.map((table) =>
-    mapCachedTableWithReuse(
-      prevTables.find((item) => item.name === table.name),
-      table,
-    ),
+    mapCachedTableWithReuse(prevTableByName.get(table.name), table),
   );
   const views = (db.views ?? []).map((view) =>
-    mapCachedTableWithReuse(
-      prevViews.find((item) => item.name === view.name),
-      view,
-    ),
+    mapCachedTableWithReuse(prevViewByName.get(view.name), view),
   );
   const routines = (db.routines ?? []).map((routine) => {
-    const prevRoutine = prevRoutines.find((item) => item.name === routine.name);
+    const prevRoutine = prevRoutineByName.get(routine.name);
     if (
       prevRoutine &&
       prevRoutine.name === routine.name &&
@@ -196,21 +190,23 @@ export function mergeConnectionsWithCache(
   snapshot: SchemaCacheSnapshot,
   previous?: CachedConnection[] | null,
 ): CachedConnection[] {
+  const prevByConnId = previous
+    ? new Map(previous.map((item) => [item.config.id, item]))
+    : null;
+
   return configs.map((config) => {
     const entry = snapshot.connections[config.id];
-    const prev = previous?.find((item) => item.config.id === config.id);
+    const prev = prevByConnId?.get(config.id);
     if (!entry) {
       return prev?.config === config ? prev : { config };
     }
+    const prevDbByName = new Map((prev?.databases ?? []).map((db) => [db.name, db]));
     const users = (entry.users ?? []).map((user) => ({
       name: user.name,
       host: user.host ?? undefined,
     }));
     const databases = entry.databases.map((db) =>
-      mapCachedDatabaseWithReuse(
-        prev?.databases?.find((item) => item.name === db.name),
-        db,
-      ),
+      mapCachedDatabaseWithReuse(prevDbByName.get(db.name), db),
     );
     const next: CachedConnection = {
       config,

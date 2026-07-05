@@ -1,11 +1,40 @@
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode};
 use sqlx::types::Json;
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
+
+const DEFAULT_PG_PORT: u16 = 5432;
+
+pub fn postgres_connect_options(params: &DbParams) -> PgConnectOptions {
+    let port = if params.port == 0 {
+        DEFAULT_PG_PORT
+    } else {
+        params.port
+    };
+    let database = if params.database.trim().is_empty() {
+        "postgres"
+    } else {
+        params.database.trim()
+    };
+    let ssl_mode = if params.ssl {
+        PgSslMode::Require
+    } else {
+        // 默认 Prefer 会先发送 SSLRequest；瀚高/部分 PG 兼容库不支持 SSL 握手会报错。
+        PgSslMode::Disable
+    };
+
+    PgConnectOptions::new()
+        .host(&params.host)
+        .port(port)
+        .username(&params.user)
+        .password(&params.password)
+        .database(database)
+        .ssl_mode(ssl_mode)
+}
 
 pub struct PgDriver {
     pool: PgPool,
@@ -13,12 +42,7 @@ pub struct PgDriver {
 
 impl PgDriver {
     pub async fn connect(params: &DbParams) -> OmniResult<Self> {
-        let opts = PgConnectOptions::new()
-            .host(&params.host)
-            .port(params.port)
-            .username(&params.user)
-            .password(&params.password)
-            .database(&params.database);
+        let opts = postgres_connect_options(params);
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect_with(opts)

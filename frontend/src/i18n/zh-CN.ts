@@ -1054,12 +1054,17 @@ export const zhCN = {
     redisQuery: {
       database: "数据库",
       pattern: "键模式",
-      patternPlaceholder: "键模式，如 user:*（留空为 *）",
+      patternPlaceholder: "键前缀或模式，如 user:*（避免单独使用 *）",
       search: "搜索",
       searching: "搜索中…",
       types: "类型",
+      valuePreview: "加载值预览（较慢）",
+      broadPatternHint: "匹配 * 会扫描整个库，数据量大时很慢；请尽量使用前缀，如 session:*",
       empty: "无匹配键，输入模式后按 Enter 或点击搜索",
       truncated: "结果已截断，仅加载前 {limit} 条键（请缩小匹配模式）",
+      scanLimitHit: "本次扫描已达上限，可点击「加载更多」继续，或缩小匹配模式",
+      loadMore: "加载更多",
+      loadingMore: "加载中…",
       unsupportedEngine: "当前引擎（{engine}）不支持 Redis 键查询",
     },
     tableDesigner: {

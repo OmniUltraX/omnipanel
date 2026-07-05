@@ -1,4 +1,5 @@
 import type { CellEditorKind } from "../cell_editor/types";
+import type { CodeEditorLanguage } from "../../../components/ui/CodeEditor";
 
 import {
 
@@ -162,6 +163,32 @@ export function clampCellOverlayPosition(
 
 
 
+export type CellPreviewState = {
+  column: string;
+  rowIndex: number;
+  row: Record<string, unknown>;
+  value: unknown;
+  columnType?: string;
+};
+
+export function buildCellPreviewState(
+  cell: {
+    column: string;
+    rowIndex: number;
+    row: Record<string, unknown>;
+    value: unknown;
+    columnType?: string;
+  },
+): CellPreviewState {
+  return {
+    column: cell.column,
+    rowIndex: cell.rowIndex,
+    row: cell.row,
+    value: cell.value,
+    columnType: cell.columnType,
+  };
+}
+
 export function buildCellPreviewOverlay(
 
   anchor: CellOverlayAnchor,
@@ -267,81 +294,74 @@ export type CellPreviewContent =
 
 
 export function isJsonColumnType(columnType?: string): boolean {
-
   if (!columnType) return false;
-
   const lower = columnType.toLowerCase();
-
   return lower === "json" || lower === "jsonb" || lower.includes("json");
-
 }
 
+/** text / longtext / mediumtext / char / varchar 等按纯文本预览，不做 JSON 结构推断 */
+export function isPlainTextColumnType(columnType?: string): boolean {
+  if (!columnType) return false;
+  if (isJsonColumnType(columnType)) return false;
+  const lower = columnType.toLowerCase();
+  return (
+    lower.includes("text") ||
+    lower.includes("char") ||
+    lower.includes("clob") ||
+    lower.includes("string") ||
+    lower === "uuid" ||
+    lower.includes("enum")
+  );
+}
 
+export function resolveCellPreviewCodeLanguage(
+  columnType: string | undefined,
+  content: CellPreviewContent,
+): CodeEditorLanguage | undefined {
+  if (content.kind === "json") return "json";
+  if (content.kind !== "text") return undefined;
+  if (isJsonColumnType(columnType)) return "json";
+  if (isPlainTextColumnType(columnType)) return "text";
+  const trimmed = content.text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json";
+  return "text";
+}
 
 /** 解析单元格预览内容：JSON 对象/数组用 JsonView，其余用纯文本。 */
-
 export function resolveCellPreviewContent(
-
   value: unknown,
-
   columnType?: string,
-
 ): CellPreviewContent {
-
   if (value === null || value === undefined) {
-
     return { kind: "text", text: "NULL" };
-
   }
-
-
 
   if (typeof value === "object") {
-
     return { kind: "json", value: value as object };
-
   }
 
-
-
   if (typeof value === "string") {
-
     const trimmed = value.trim();
-
-    const tryJson = isJsonColumnType(columnType)
-
-      || trimmed.startsWith("{")
-
-      || trimmed.startsWith("[");
+    const tryJson =
+      isJsonColumnType(columnType) ||
+      (!isPlainTextColumnType(columnType) &&
+        (trimmed.startsWith("{") || trimmed.startsWith("[")));
 
     if (tryJson && trimmed.length > 0) {
-
       try {
-
         const parsed: unknown = JSON.parse(trimmed);
-
         if (parsed !== null && typeof parsed === "object") {
-
           return { kind: "json", value: parsed as object };
-
         }
-
       } catch {
-
         // 非合法 JSON 字符串，按文本展示
-
       }
-
     }
 
     return { kind: "text", text: value };
-
   }
 
-
-
   return { kind: "text", text: String(value) };
-
 }
 
 const CELL_OVERLAY_FONT =

@@ -35,7 +35,6 @@ import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedS
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
@@ -57,6 +56,7 @@ import {
   loadSchemaFilters,
   loadSchemaTreeExpanded,
   isMysqlConnectionInfoCapable,
+  normalizeDbEngineType,
   previewTable,
   saveConnection,
   isConnectionEnabled,
@@ -274,8 +274,23 @@ interface CreateDatabaseDialogProps {
   onCreated: (name: string) => void;
 }
 
-const RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
+const MYSQL_RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
+const POSTGRES_RESERVED_DB_NAMES = ["template0", "template1"];
 const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
+
+function reservedDbNamesForConnection(connection: DbConnectionConfig | null): string[] {
+  if (!connection) {
+    return [];
+  }
+  const engine = normalizeDbEngineType(connection.db_type);
+  if (engine === "postgresql") {
+    return POSTGRES_RESERVED_DB_NAMES;
+  }
+  if (engine === "mysql") {
+    return MYSQL_RESERVED_DB_NAMES;
+  }
+  return [];
+}
 
 function CreateDatabaseDialog({
   open,
@@ -336,7 +351,7 @@ function CreateDatabaseDialog({
     if (!trimmed) return t("database.createDatabase.nameRequired");
     if (trimmed.length > 64) return t("database.createDatabase.nameTooLong");
     if (!DB_NAME_RE.test(trimmed)) return t("database.createDatabase.nameInvalid");
-    if (RESERVED_DB_NAMES.some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
+    if (reservedDbNamesForConnection(connection).some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
       return t("database.createDatabase.nameReserved", { name: trimmed });
     }
     return null;
@@ -503,11 +518,12 @@ export function DatabasePanel() {
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
-  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
   const [slowLogAvailabilityByConnId, setSlowLogAvailabilityByConnId] = useState<
     Record<string, SlowLogAvailability>
   >({});
-  const slowLogProbeGenRef = useRef(0);
+  const slowLogAvailabilityRef = useRef(slowLogAvailabilityByConnId);
+  slowLogAvailabilityRef.current = slowLogAvailabilityByConnId;
+  const slowLogProbingConnIdsRef = useRef<Set<string>>(new Set());
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
 
   const setActiveConnIdIfChanged = useCallback((connId: string | null) => {
@@ -1013,44 +1029,50 @@ export function DatabasePanel() {
     [t],
   );
 
-  useEffect(() => {
-    const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
-    if (mysqlConnections.length === 0) {
-      setSlowLogAvailabilityByConnId({});
-      return;
-    }
-
-    const gen = ++slowLogProbeGenRef.current;
-    const syncMap: Record<string, SlowLogAvailability> = {};
-    for (const conn of mysqlConnections) {
-      syncMap[conn.id] = resolveSlowLogAvailabilitySync(conn, sshConnections);
-    }
-    setSlowLogAvailabilityByConnId(syncMap);
-
-    void (async () => {
-      for (const conn of mysqlConnections) {
-        const sync = syncMap[conn.id];
-        if (!sync || sync.reason !== "checking") {
-          continue;
-        }
-        if (!isConnectionEnabled(conn)) {
-          if (slowLogProbeGenRef.current !== gen) return;
-          setSlowLogAvailabilityByConnId((prev) => ({
-            ...prev,
-            [conn.id]: {
-              enabled: false,
-              reason: "connection_disabled",
-              sshConnectionId: sync.sshConnectionId,
-            },
-          }));
-          continue;
-        }
-        const result = await probeSlowLogAvailability(conn, sshConnections);
-        if (slowLogProbeGenRef.current !== gen) return;
-        setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
+  const probeSlowLogForConnection = useCallback(
+    (connection: DbConnectionConfig) => {
+      if (!isMysqlConnectionInfoCapable(connection)) {
+        return;
       }
-    })();
-  }, [connections, sshConnections, sshSessionActiveMap]);
+      const connId = connection.id;
+      const existing = slowLogAvailabilityRef.current[connId];
+      if (existing && existing.reason !== "checking") {
+        return;
+      }
+      if (slowLogProbingConnIdsRef.current.has(connId)) {
+        return;
+      }
+
+      const sync = resolveSlowLogAvailabilitySync(connection, sshConnections);
+      setSlowLogAvailabilityByConnId((prev) =>
+        prev[connId]?.reason === sync.reason ? prev : { ...prev, [connId]: sync },
+      );
+      if (sync.reason !== "checking") {
+        return;
+      }
+      if (!isConnectionEnabled(connection)) {
+        setSlowLogAvailabilityByConnId((prev) => ({
+          ...prev,
+          [connId]: {
+            enabled: false,
+            reason: "connection_disabled",
+            sshConnectionId: sync.sshConnectionId,
+          },
+        }));
+        return;
+      }
+
+      slowLogProbingConnIdsRef.current.add(connId);
+      void probeSlowLogAvailability(connection, sshConnections)
+        .then((result) => {
+          setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [connId]: result }));
+        })
+        .finally(() => {
+          slowLogProbingConnIdsRef.current.delete(connId);
+        });
+    },
+    [sshConnections],
+  );
 
   useEffect(() => {
     const bootstrapWorkspace = () => {
@@ -4537,6 +4559,7 @@ export function DatabasePanel() {
             onSelectTable={handleSelectTable}
             onSelectDatabase={handleSelectDatabase}
             buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+            onConnectionContextMenu={probeSlowLogForConnection}
             onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
             refreshToken={schemaRefreshToken}
             connectionConfigs={connections}

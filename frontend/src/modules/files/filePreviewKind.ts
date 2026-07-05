@@ -1,4 +1,7 @@
 import { isGridImageFile } from "./utils";
+import { parsePreviewJsonText } from "../../lib/contentPreview";
+
+export { parsePreviewJsonText };
 
 export type FilePreviewKind = "json" | "text" | "image" | "unsupported";
 
@@ -170,21 +173,6 @@ function containsNulByte(view: Uint8Array, scanLimit: number): boolean {
     if (view[i] === 0) return true;
   }
   return false;
-}
-
-/** 解析 JSON 文件文本；对象/数组返回结构化值，解析失败或非对象返回 null。 */
-export function parsePreviewJsonText(text: string): object | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (parsed !== null && typeof parsed === "object") {
-      return parsed as object;
-    }
-  } catch {
-    // 非合法 JSON，由调用方回退为文本预览
-  }
-  return null;
 }
 
 export function decodePreviewBytes(bytes: number[]): string {

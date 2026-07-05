@@ -16,7 +16,7 @@ import {
   type ColumnDef,
   type ColumnSizingState,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
 import { Button } from "../../../components/ui/Button";
@@ -34,11 +34,13 @@ import {
 } from "../cell_editor";
 import { TableDataGridFilterPopover } from "./TableDataGridOverlays";
 import { TableDataGridCellOverlay } from "./TableDataGridCellOverlay";
+import { TableCellPreviewSubWindow } from "./TableCellPreviewSubWindow";
 import {
   buildCellEditOverlay,
-  buildCellPreviewOverlay,
+  buildCellPreviewState,
   type CellOverlayAnchor,
   type CellOverlayState,
+  type CellPreviewState,
 } from "./tableCellPreview";
 import {
   ColumnFilterButton,
@@ -166,6 +168,9 @@ export type TableDataGridProps = {
   /** 快速新建以当前表为上下文的 SQL 查询 */
   onCreateTableQuery?: () => void;
   canCreateTableQuery?: boolean;
+  /** 滚动接近底部时回调（用于无限加载） */
+  onNearScrollBottom?: () => void;
+  nearScrollBottomThreshold?: number;
 };
 
 export const TableDataGrid = memo(function TableDataGrid({
@@ -208,6 +213,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   canOpenTableDesign = true,
   onCreateTableQuery,
   canCreateTableQuery = true,
+  onNearScrollBottom,
+  nearScrollBottomThreshold = 64,
 }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
@@ -255,7 +262,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const [cellOverlay, setCellOverlay] = useState<CellOverlayState | null>(null);
   const cellOverlayRef = useRef(cellOverlay);
   cellOverlayRef.current = cellOverlay;
-  const pinnedPreviewRef = useRef(false);
+  const [cellPreview, setCellPreview] = useState<CellPreviewState | null>(null);
   const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
   const [navigatedColumnId, setNavigatedColumnId] = useState<string | null>(null);
   const pendingColumnFocusRef = useRef<string | null>(null);
@@ -314,24 +321,17 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (!wrap) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (wrap.contains(target)) return;
       if (target instanceof Element) {
         if (
           target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay",
+            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel",
           )
         ) {
           return;
         }
       }
-      if (
-        pinnedPreviewRef.current &&
-        cellOverlayRef.current?.mode === "preview" &&
-        target instanceof Element &&
-        !target.closest(".db-data-table-cell-overlay")
-      ) {
-        pinnedPreviewRef.current = false;
-        setCellOverlay(null);
+      if (wrap.contains(target)) {
+        return;
       }
       clearGridSelection();
     };
@@ -342,6 +342,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   useEffect(() => {
     if (loading) {
       setCellOverlay(null);
+      setCellPreview(null);
       hoverResetPendingRef.current = true;
       return;
     }
@@ -424,23 +425,15 @@ export const TableDataGrid = memo(function TableDataGrid({
       row: Record<string, unknown>;
       value: unknown;
       columnType?: string;
-      anchor?: CellOverlayAnchor;
     }) => {
-      const resolvedAnchor = info.anchor ?? {
-        left: window.innerWidth / 2 - 140,
-        top: window.innerHeight / 2 - 80,
-        width: 280,
-        height: 32,
-      };
-      pinnedPreviewRef.current = true;
-      setCellOverlay(
-        buildCellPreviewOverlay(resolvedAnchor, {
+      setCellPreview(
+        buildCellPreviewState({
           column: info.column,
           rowIndex: info.rowIndex,
           row: info.row,
           value: info.value,
           columnType: info.columnType,
-        }, { pinned: true }),
+        }),
       );
     },
     [],
@@ -568,6 +561,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     setCellOverlay(null);
   }, []);
 
+  const dismissCellPreview = useCallback(() => {
+    setCellPreview(null);
+  }, []);
+
   const commitCellOverlayEdit = useCallback(() => {
     const current = cellOverlayRef.current;
     if (!current || current.mode !== "edit" || !onCellCommit) {
@@ -603,7 +600,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (cellOverlayRef.current?.mode === "edit") {
         commitCellOverlayEdit();
       }
-      pinnedPreviewRef.current = false;
       const rowKey = resolvePreviewRowKey(target.row, pkCols);
       const overrides = rowKey ? displayCellOverrides?.[rowKey] : undefined;
       const raw =
@@ -979,6 +975,24 @@ export const TableDataGrid = memo(function TableDataGrid({
     return () => ro.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!onNearScrollBottom) {
+      return;
+    }
+    const wrap = wrapRef.current;
+    if (!wrap) {
+      return;
+    }
+    const onScroll = () => {
+      const distance = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+      if (distance <= nearScrollBottomThreshold) {
+        onNearScrollBottom();
+      }
+    };
+    wrap.addEventListener("scroll", onScroll, { passive: true });
+    return () => wrap.removeEventListener("scroll", onScroll);
+  }, [onNearScrollBottom, nearScrollBottomThreshold, rows.length, loading]);
+
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -1157,7 +1171,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     getScrollElement: () => wrapRef.current,
     estimateSize: getRowHeight,
     overscan: 12,
-    getItemKey: (index) => tableRows[index]?.id ?? String(index),
+    getItemKey: (index: number) => tableRows[index]?.id ?? String(index),
   });
 
   useLayoutEffect(() => {
@@ -1421,10 +1435,38 @@ export const TableDataGrid = memo(function TableDataGrid({
     ],
   );
 
+  const resolveCellPreviewTarget = useCallback(
+    (ctx: GridBodyCellInteractionContext) => {
+      let previewColumn = ctx.columnId;
+      let rowIndex = ctx.rowIndex;
+      let row = ctx.row;
+      let value = ctx.rawValue;
+      let columnType = ctx.columnType;
+
+      if (transposed) {
+        if (ctx.isFieldCol) {
+          previewColumn = ctx.fieldName;
+          value = ctx.fieldName;
+          columnType = columnMetaMap?.[ctx.fieldName]?.type;
+        } else {
+          const mapped = resolveTransposedDataCellContext(ctx.columnId, ctx.row, rows);
+          if (mapped) {
+            previewColumn = mapped.fieldColumn;
+            rowIndex = mapped.originalRowIndex;
+            row = mapped.originalRow;
+            columnType = columnMetaMap?.[mapped.fieldColumn]?.type;
+          }
+        }
+      }
+
+      return { column: previewColumn, rowIndex, row, value, columnType };
+    },
+    [transposed, rows, columnMetaMap],
+  );
+
   const handleDataCellMouseDown = useCallback(
     (ctx: GridBodyCellInteractionContext, event: ReactMouseEvent) => {
       if (event.button !== 0) return;
-      pinnedPreviewRef.current = false;
       if (event.shiftKey && cellAnchorRef.current) {
         event.preventDefault();
         event.stopPropagation();
@@ -1444,6 +1486,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         cellAnchorRef.current = anchor;
         rowAnchorRef.current = ctx.rowIndex;
         setCellRange({ start: anchor, end: anchor });
+        openCellPreview(resolveCellPreviewTarget(ctx));
         return;
       }
       event.preventDefault();
@@ -1457,7 +1500,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         end: { row: ctx.rowIndex, col: ctx.colIndex },
       });
     },
-    [transposed, rows],
+    [openCellPreview, resolveCellPreviewTarget],
   );
 
   const handleDataCellDoubleClick = useCallback(
@@ -1472,37 +1515,23 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const handleDataCellContextMenu = useCallback(
     (ctx: GridBodyCellInteractionContext, event: ReactMouseEvent) => {
-      let previewColumn = ctx.columnId;
-      let menuRowIndex = ctx.rowIndex;
-      let menuRow = ctx.row;
-      let menuValue = ctx.rawValue;
+      const target = resolveCellPreviewTarget(ctx);
       let rowActionsEnabled = true;
-      if (transposed) {
-        if (ctx.isFieldCol) {
-          previewColumn = ctx.fieldName;
-          menuValue = ctx.fieldName;
-          rowActionsEnabled = false;
-        } else {
-          const mapped = resolveTransposedDataCellContext(ctx.columnId, ctx.row, rows);
-          if (mapped) {
-            previewColumn = mapped.fieldColumn;
-            menuRowIndex = mapped.originalRowIndex;
-            menuRow = mapped.originalRow;
-          }
-        }
+      if (transposed && ctx.isFieldCol) {
+        rowActionsEnabled = false;
       }
       cellMenuOpenRef.current({
         x: event.clientX,
         y: event.clientY,
-        rowIndex: menuRowIndex,
-        column: previewColumn,
-        row: menuRow,
-        value: menuValue,
-        columnType: columnMetaMap?.[previewColumn]?.type,
+        rowIndex: target.rowIndex,
+        column: target.column,
+        row: target.row,
+        value: target.value,
+        columnType: target.columnType,
         rowActionsEnabled,
       });
     },
-    [transposed, rows, columnMetaMap],
+    [resolveCellPreviewTarget, transposed],
   );
 
   bodyActionsRef.current = {
@@ -1556,7 +1585,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     virtualRows.length > 0
       ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
       : 0;
-  const virtualRowIndices = virtualRows.map((virtualRow) => virtualRow.index);
+  const virtualRowIndices = virtualRows.map((virtualRow: VirtualItem) => virtualRow.index);
   return (
     <div className="db-data-table-panel">
     <div className="db-data-table-body">
@@ -1713,6 +1742,11 @@ export const TableDataGrid = memo(function TableDataGrid({
       />
     </div>
     )}
+    <TableCellPreviewSubWindow
+      open={cellPreview != null}
+      preview={cellPreview}
+      onClose={dismissCellPreview}
+    />
     {!allColumnsHidden && (
       <TableDataGridCellContextMenu
         menuOpenRef={cellMenuOpenRef}
@@ -1741,7 +1775,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             : t("database.results.columnVisibilityCollapse")
         }
         aria-expanded={!colSidebarCollapsed}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e: ReactMouseEvent<HTMLButtonElement>) => e.stopPropagation()}
         onClick={() => setColSidebarCollapsed((prev) => !prev)}
       >
         <svg
@@ -1875,7 +1909,7 @@ export const TableDataGrid = memo(function TableDataGrid({
               : t("database.results.cellEditorCollapse")
           }
           aria-expanded={!cellEditorCollapsed}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e: ReactMouseEvent<HTMLButtonElement>) => e.stopPropagation()}
           onClick={onCellEditorCollapsedChange}
         >
           <svg
