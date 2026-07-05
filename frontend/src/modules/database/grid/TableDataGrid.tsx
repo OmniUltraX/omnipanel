@@ -70,8 +70,15 @@ import {
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   ROW_NUM_COL_ID,
+  ROW_VIRTUALIZE_OVERSCAN,
   TRANSPOSE_FIELD_COL,
+  COLUMN_VIRTUALIZE_OVERSCAN,
 } from "./tableDataGridConstants";
+import {
+  buildColumnVirtualizationLayout,
+  buildVirtualizableColumnIndices,
+  shouldVirtualizeGridColumns,
+} from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
   applyColumnWidthDom,
@@ -542,6 +549,10 @@ export const TableDataGrid = memo(function TableDataGrid({
   const displayRows = transposed ? transposedData!.rows : rows;
   const displayDirtyRowKeys = transposed ? transposedDirty!.dirtyRowKeys : dirtyRowKeys;
   const displayCellOverrides = transposed ? transposedDirty!.cellOverrides : cellOverrides;
+  const displayCellOverridesRef = useRef(displayCellOverrides);
+  displayCellOverridesRef.current = displayCellOverrides;
+  const pkColsRef = useRef(pkCols);
+  pkColsRef.current = pkCols;
 
   useLayoutEffect(() => {
     if (loading || !hoverResetPendingRef.current) return;
@@ -761,8 +772,8 @@ export const TableDataGrid = memo(function TableDataGrid({
               : columnMetaMap?.[column.id];
             const rowKey = transposed
               ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
-              : resolvePreviewRowKey(row.original, pkCols);
-            const overrideForRow = rowKey ? displayCellOverrides?.[rowKey] : undefined;
+              : resolvePreviewRowKey(row.original, pkColsRef.current);
+            const overrideForRow = rowKey ? displayCellOverridesRef.current?.[rowKey] : undefined;
             const resolvedValue =
               overrideForRow?.[column.id] !== undefined
                 ? overrideForRow[column.id]
@@ -800,7 +811,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return defs;
     },
-    [displayColumns, transposed, columnMetaMap, t, page, pageSize, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
+    [displayColumns, transposed, columnMetaMap, t, page, pageSize, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCount, autoIncrementPlaceholder],
   );
 
   const table = useReactTable({
@@ -964,6 +975,37 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta > 0 && columnId === lastColumnId ? baseSize + fillDelta : baseSize,
     [fillDelta, lastColumnId],
   );
+
+  const enableColumnVirtualization = shouldVirtualizeGridColumns(leafColumns.length);
+  const virtualizableColumnIndices = useMemo(
+    () =>
+      enableColumnVirtualization
+        ? buildVirtualizableColumnIndices(leafColumns, transposed)
+        : [],
+    [enableColumnVirtualization, leafColumns, transposed],
+  );
+  const getVirtualColumnWidth = useCallback(
+    (virtualIndex: number) => {
+      const columnIndex = virtualizableColumnIndices[virtualIndex];
+      const column = columnIndex != null ? leafColumns[columnIndex] : undefined;
+      if (!column) return COLUMN_MIN_WIDTH;
+      return resolveColumnWidth(column.id, column.getSize());
+    },
+    [leafColumns, virtualizableColumnIndices, resolveColumnWidth],
+  );
+  const columnVirtualizer = useVirtualizer({
+    count: virtualizableColumnIndices.length,
+    horizontal: true,
+    getScrollElement: () => wrapRef.current,
+    estimateSize: getVirtualColumnWidth,
+    overscan: COLUMN_VIRTUALIZE_OVERSCAN,
+    getItemKey: (index) => leafColumns[virtualizableColumnIndices[index]!]?.id ?? String(index),
+  });
+
+  useLayoutEffect(() => {
+    if (!enableColumnVirtualization) return;
+    columnVirtualizer.measure();
+  }, [columnSizing, leafColumns.length, transposed, enableColumnVirtualization, columnVirtualizer]);
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -1170,7 +1212,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     count: tableRows.length,
     getScrollElement: () => wrapRef.current,
     estimateSize: getRowHeight,
-    overscan: 12,
+    overscan: ROW_VIRTUALIZE_OVERSCAN,
     getItemKey: (index: number) => tableRows[index]?.id ?? String(index),
   });
 
@@ -1346,6 +1388,19 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
+  const virtualColumnItems = columnVirtualizer.getVirtualItems();
+  const columnLayout = useMemo(
+    () =>
+      buildColumnVirtualizationLayout(
+        leafColumns,
+        transposed,
+        virtualColumnItems,
+        virtualizableColumnIndices,
+        columnVirtualizer.getTotalSize(),
+      ),
+    [leafColumns, transposed, virtualColumnItems, virtualizableColumnIndices, columnVirtualizer],
+  );
+
   const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
     return {
       transposed,
@@ -1360,6 +1415,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta,
       leafColumnCount,
       columnSizedIds,
+      columnLayout,
     };
   }, [
     transposed,
@@ -1374,6 +1430,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     fillDelta,
     leafColumnCount,
     columnSizedIds,
+    columnLayout,
   ]);
 
   const resolveBodyCellContext = useCallback(
@@ -1586,6 +1643,104 @@ export const TableDataGrid = memo(function TableDataGrid({
       ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
       : 0;
   const virtualRowIndices = virtualRows.map((virtualRow: VirtualItem) => virtualRow.index);
+  const visibleCellCount = columnLayout.visibleCellCount;
+
+  const headerGroup = table.getHeaderGroups()[0];
+  const renderHeaderCell = (headerColIdx: number) => {
+    const header = headerGroup?.headers[headerColIdx];
+    if (!header) return null;
+    const baseSize = header.getSize();
+    const colId = header.column.id;
+    const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
+    const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
+    const canSort = enableSort && !transposed && colId !== ROW_NUM_COL_ID;
+    const sortActive = canSort && sort?.column === colId;
+    const sortDirection = sortActive ? sort!.direction : null;
+    const sortClass = sortActive
+      ? sortDirection === "asc"
+        ? " db-data-table-th--sort-asc"
+        : " db-data-table-th--sort-desc"
+      : "";
+    const filterClass =
+      canFilter && !transposed && filterColumnNames.has(colId)
+        ? " db-data-table-th--filtered"
+        : "";
+    const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
+    const colMeta =
+      !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
+        ? columnMetaMap?.[colId]
+        : undefined;
+    const headerTitle = isSelectAllHeader
+      ? t("database.results.selectAll")
+      : colMeta
+        ? buildColumnHeaderTooltip(colMeta, colId, t)
+        : colId !== ROW_NUM_COL_ID
+          ? colId
+          : undefined;
+    return (
+      <th
+        key={header.id}
+        data-col-id={colId}
+        style={buildColumnCellStyle(colId, baseSize, lastColumnId, fillDelta)}
+        className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}`}
+        onClick={isSelectAllHeader ? handleSelectAll : () => handleColumnSelect(colId)}
+        title={headerTitle}
+      >
+        {header.isPlaceholder ? null : (
+          <span className="db-data-table-th-inner">
+            <span className="db-data-table-th-label">
+              {flexRender(header.column.columnDef.header, header.getContext())}
+            </span>
+            {(canSort || (canFilter && colId !== ROW_NUM_COL_ID && !transposed)) && (
+              <span className="db-data-table-th-actions">
+                {canSort && (
+                  <ColumnSortIndicator
+                    active={sortActive}
+                    direction={sortActive ? sortDirection : null}
+                    title={t("database.results.sortHint")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleHeaderClick(colId);
+                    }}
+                  />
+                )}
+                {canFilter && colId !== ROW_NUM_COL_ID && !transposed && (
+                  <ColumnFilterButton
+                    columnName={colId}
+                    active={filterColumnNames.has(colId)}
+                    onOpen={openFilterPopover}
+                  />
+                )}
+              </span>
+            )}
+          </span>
+        )}
+        {header.column.getCanResize() && (
+          <div
+            className="db-col-resize-handle"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const startWidth = header.getSize();
+              colResizeRef.current = {
+                columnId: colId,
+                startX: e.clientX,
+                startWidth,
+                lastWidth: startWidth,
+              };
+              wrapRef.current?.classList.add("db-data-table-wrap--col-resizing");
+              wrapRef.current
+                ?.querySelector(`th[data-col-id="${CSS.escape(colId)}"]`)
+                ?.classList.add("db-data-table-th-resizing");
+            }}
+            onDoubleClick={() => header.column.resetSize()}
+            title="Drag to resize"
+          />
+        )}
+      </th>
+    );
+  };
+
   return (
     <div className="db-data-table-panel">
     <div className="db-data-table-body">
@@ -1623,110 +1778,49 @@ export const TableDataGrid = memo(function TableDataGrid({
           ))}
         </colgroup>
         <thead>
-                {table.getHeaderGroups().map((headerGroup) => (
+          {headerGroup ? (
             <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header, headerColIdx) => {
-                const baseSize = header.getSize();
-                const colId = header.column.id;
-                const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
-                const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
-                const canSort = enableSort && !transposed && colId !== ROW_NUM_COL_ID;
-                const sortActive = canSort && sort?.column === colId;
-                const sortDirection = sortActive ? sort!.direction : null;
-                const sortClass = sortActive
-                  ? sortDirection === "asc"
-                    ? " db-data-table-th--sort-asc"
-                    : " db-data-table-th--sort-desc"
-                  : "";
-                const filterClass =
-                  canFilter && !transposed && filterColumnNames.has(colId)
-                    ? " db-data-table-th--filtered"
-                    : "";
-                const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
-                const colMeta = !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
-                  ? columnMetaMap?.[colId]
-                  : undefined;
-                const headerTitle = isSelectAllHeader
-                  ? t("database.results.selectAll")
-                  : colMeta
-                    ? buildColumnHeaderTooltip(colMeta, colId, t)
-                    : colId !== ROW_NUM_COL_ID
-                      ? colId
-                      : undefined;
-                return (
-                <th
-                  key={header.id}
-                  data-col-id={colId}
-                  style={buildColumnCellStyle(colId, baseSize, lastColumnId, fillDelta)}
-                  className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}`}
-                  onClick={
-                    isSelectAllHeader
-                      ? handleSelectAll
-                      : () => handleColumnSelect(colId)
-                  }
-                  title={headerTitle}
-                >
-                  {header.isPlaceholder ? null : (
-                    <span className="db-data-table-th-inner">
-                      <span className="db-data-table-th-label">
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                      </span>
-                      {(canSort || (canFilter && colId !== ROW_NUM_COL_ID && !transposed)) && (
-                        <span className="db-data-table-th-actions">
-                          {canSort && (
-                            <ColumnSortIndicator
-                              active={sortActive}
-                              direction={sortActive ? sortDirection : null}
-                              title={t("database.results.sortHint")}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleHeaderClick(colId);
-                              }}
-                            />
-                          )}
-                          {canFilter && colId !== ROW_NUM_COL_ID && !transposed && (
-                            <ColumnFilterButton
-                              columnName={colId}
-                              active={filterColumnNames.has(colId)}
-                              onOpen={openFilterPopover}
-                            />
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  {header.column.getCanResize() && (
-                    <div
-                      className="db-col-resize-handle"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const startWidth = header.getSize();
-                        colResizeRef.current = {
-                          columnId: colId,
-                          startX: e.clientX,
-                          startWidth,
-                          lastWidth: startWidth,
-                        };
-                        wrapRef.current?.classList.add("db-data-table-wrap--col-resizing");
-                        wrapRef.current
-                          ?.querySelector(`th[data-col-id="${CSS.escape(colId)}"]`)
-                          ?.classList.add("db-data-table-th-resizing");
+              {columnLayout.enabled ? (
+                <>
+                  {columnLayout.pinnedIndices.map((headerColIdx) => renderHeaderCell(headerColIdx))}
+                  {columnLayout.paddingLeft > 0 ? (
+                    <th
+                      className="db-data-table-spacer-col"
+                      aria-hidden
+                      style={{
+                        width: columnLayout.paddingLeft,
+                        minWidth: columnLayout.paddingLeft,
+                        maxWidth: columnLayout.paddingLeft,
+                        padding: 0,
+                        border: "none",
                       }}
-                      onDoubleClick={() => header.column.resetSize()}
-                      title="Drag to resize"
                     />
-                  )}
-                </th>
-              );
-            })}
+                  ) : null}
+                  {columnLayout.virtualIndices.map((headerColIdx) => renderHeaderCell(headerColIdx))}
+                  {columnLayout.paddingRight > 0 ? (
+                    <th
+                      className="db-data-table-spacer-col"
+                      aria-hidden
+                      style={{
+                        width: columnLayout.paddingRight,
+                        minWidth: columnLayout.paddingRight,
+                        maxWidth: columnLayout.paddingRight,
+                        padding: 0,
+                        border: "none",
+                      }}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                headerGroup.headers.map((_, headerColIdx) => renderHeaderCell(headerColIdx))
+              )}
             </tr>
-          ))}
+          ) : null}
         </thead>
         <TableDataGridVirtualBody
           virtualPaddingTop={virtualPaddingTop}
           virtualPaddingBottom={virtualPaddingBottom}
-          leafColumnCount={leafColumnCount}
+          visibleCellCount={visibleCellCount}
           virtualRowIndices={virtualRowIndices}
           tableRows={tableRows}
           buildRowProps={buildGridBodyRowProps}

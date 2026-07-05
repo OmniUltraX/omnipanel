@@ -4,11 +4,14 @@ import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { ModuleWorkspaceLayout } from "../../components/workspace";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
-import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
+import { DatabasePanelWorkspaceView } from "./DatabasePanelWorkspaceView";
+import {
+  useDatabaseActiveTabContextValue,
+  useDatabaseWorkspaceContextValue,
+} from "./useDatabaseWorkspaceContextValue";
 import {
   DatabaseModuleContextBridge,
   resolveDatabaseModuleContext,
@@ -18,7 +21,6 @@ import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoP
 import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
-import { DbSchemaProvider } from "./schema/DbSchemaContext";
 import { ConnectionDialog } from "./connection/ConnectionDialog";
 import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
 import { ContextMenu } from "../../components/ui/menu/ContextMenu";
@@ -142,7 +144,6 @@ import {
   type QueryResult,
   resolveConnIdForWorkspaceTab,
 } from "./workspace/dbWorkspaceState";
-import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import {
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
@@ -162,7 +163,6 @@ import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
 import type {
   DbWorkspaceMirrorContextValue,
-  DbWorkspaceSharedContextValue,
 } from "../../contexts/DbWorkspaceContext.types";
 import { useDbDockLayoutStore, removeTabFromLayout } from "../../stores/dbDockLayoutStore";
 import {
@@ -4041,97 +4041,57 @@ export function DatabasePanel() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isActiveRoute, activeWorkspaceTabId, saveSqlTab]);
 
-  const workspaceStateValue: DbWorkspaceSharedContextValue = useMemo(
-    () => ({
-        tabs: workspaceTabs,
-        closeTab: (tabId: string) => requestTabAction({ kind: "close", tabId }),
-        runQuery,
-        cancelQuery,
-        goToQueryResultPage,
-        updateSqlTabState,
-        closeSqlResultSession,
-        setSqlResultSessionPinned,
-        refreshTablePreview,
-        goToPage,
-        requestTabAction,
-        setTableSort,
-        setTableFilter,
-        setTableGridView,
-        handleCellCommit,
-        handleRowEdit,
-        handleCellSetNull,
-        handleRowNew,
-        handleRowPaste,
-        handleRowsDelete,
-        resolveConnection,
-        connectionsLoading,
-        selectTable: handleSelectTable,
-        openTableDesigner: handleDesignTable,
-        openTableQuery,
-        setTabMode: (id: string, mode: "data" | "sql") =>
-          useDbWorkspaceTabStore.getState().setTabMode(id, mode),
-        commitTabDirty,
-        openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
-          setExportMenu({ x, y, tabId, sessionId }),
-        sqlConnections,
-        connections,
-        databasesByConnId,
-        schemaByKey,
-        schemaLoadingKey,
-        resolveSqlTabConnection,
-        getSqlTabDatabases,
-        getSqlCompletionSchemas,
-        connectionForSqlTab,
-        setSqlTabConnection,
-        rowsToRecord,
-        tabModeToEditorOpenMode,
-        saveSqlTab,
-        isSqlTabDirty,
-    }),
-    [
-    workspaceTabs,
-    requestTabAction,
-    runQuery,
-    cancelQuery,
-    updateSqlTabState,
-    closeSqlResultSession,
-    setSqlResultSessionPinned,
-    refreshTablePreview,
-    goToPage,
-    setTableFilter,
-    setTableGridView,
-    handleCellCommit,
-    handleRowEdit,
-    handleCellSetNull,
-    handleRowNew,
-    handleRowPaste,
-    handleRowsDelete,
-    resolveConnection,
-    connectionsLoading,
-    handleSelectTable,
-    handleDesignTable,
-    openTableQuery,
-    commitTabDirty,
-    sqlConnections,
-    connections,
-    databasesByConnId,
-    schemaByKey,
-    schemaLoadingKey,
-    resolveSqlTabConnection,
-    getSqlTabDatabases,
-    getSqlCompletionSchemas,
-    connectionForSqlTab,
-    setSqlTabConnection,
-    saveSqlTab,
-    isSqlTabDirty,
-  ]);
+  const workspaceStateValue = useDatabaseWorkspaceContextValue(
+    {
+      workspaceTabs,
+      connectionsLoading,
+      sqlConnections,
+      connections,
+      databasesByConnId,
+      schemaByKey,
+      schemaLoadingKey,
+    },
+    {
+      requestTabAction,
+      runQuery,
+      cancelQuery,
+      goToQueryResultPage,
+      updateSqlTabState,
+      closeSqlResultSession,
+      setSqlResultSessionPinned,
+      refreshTablePreview,
+      goToPage,
+      setTableSort,
+      setTableFilter,
+      setTableGridView,
+      handleCellCommit,
+      handleRowEdit,
+      handleCellSetNull,
+      handleRowNew,
+      handleRowPaste,
+      handleRowsDelete,
+      resolveConnection,
+      handleSelectTable,
+      handleDesignTable,
+      openTableQuery,
+      commitTabDirty,
+      openExportMenu: (x, y, tabId, sessionId) =>
+        setExportMenu({ x, y, tabId, sessionId }),
+      resolveSqlTabConnection,
+      getSqlTabDatabases,
+      getSqlCompletionSchemas,
+      connectionForSqlTab,
+      setSqlTabConnection,
+      rowsToRecord,
+      tabModeToEditorOpenMode,
+      saveSqlTab,
+      isSqlTabDirty,
+    },
+  );
 
-  const activeTabContextValue = useMemo(
-    () => ({
-      activeTabId: activeWorkspaceTabId,
-      setActiveTabId: activateWorkspaceTab,
-    }),
-    [activeWorkspaceTabId, activateWorkspaceTab],
+  const activeTabContextValue = useDatabaseActiveTabContextValue(
+    activeWorkspaceTabId,
+    activateWorkspaceTab,
   );
 
   const workspaceStateValueRef = useRef(workspaceStateValue);
@@ -4322,7 +4282,7 @@ export function DatabasePanel() {
               <div className="db-workspace-pane db-dock-pane">
                 <DatabaseConnectionInfoPanel
                   connection={connection}
-                  active={tab.id === activeWorkspaceTabId}
+                  tabId={tab.id}
                 />
               </div>
             )}
@@ -4353,7 +4313,7 @@ export function DatabasePanel() {
                   logFilePath={tab.logFilePath}
                   deploymentKind={tab.deploymentKind}
                   containerId={tab.containerId}
-                  active={tab.id === activeWorkspaceTabId}
+                  tabId={tab.id}
                 />
               </div>
             )}
@@ -4410,7 +4370,7 @@ export function DatabasePanel() {
         return (
           <div className="db-workspace-pane db-dock-pane db-module-transfer">
             <DatabaseToolbox
-              active={tab.id === activeWorkspaceTabId}
+              tabId={tab.id}
               syncTaskId={tab.syncTaskId}
               tab={tab.toolboxTab}
               connections={toolboxConnections}
@@ -4539,58 +4499,41 @@ export function DatabasePanel() {
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
     <DbSidebarLinkageProvider value={sidebarLinkageValue}>
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
-    <ModuleWorkspaceLayout
-      layoutKey="database"
-      className="db-module-layout"
-      leftColumnTitle={t("routes.database")}
-      leftPreset="schema"
-      leftSidebar={
-        <DbSchemaProvider value={schemaContextValue}>
-          <DatabaseSchemaSidebar
-            onCreateConnection={() => {
-              setEditingConnection(null);
-              setDialogOpen(true);
-            }}
-            onImportNavicat={() => void handleImportConnections()}
-            onSelectConnection={handleSelectConnection}
-            onOpenSqlFile={openSqlFile}
-            onOpenSyncTask={handleOpenSyncTask}
-            onRunSyncTask={handleRunSyncTask}
-            onSelectTable={handleSelectTable}
-            onSelectDatabase={handleSelectDatabase}
-            buildSchemaContextMenuItems={buildSchemaContextMenuItems}
-            onConnectionContextMenu={probeSlowLogForConnection}
-            onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
-            refreshToken={schemaRefreshToken}
-            connectionConfigs={connections}
-            connectionsReady={!connectionsLoading || connections.length > 0}
-          />
-        </DbSchemaProvider>
-      }
-    >
-      <div className="db-workspace-drop-zone">
-        {!workspaceInitialized ? null : (
-          <DatabaseWorkspaceDock
-            workspaceInitialized={workspaceInitialized}
-            dockTabs={dockTabs}
-            moduleTitle={t("routes.database")}
-            enabled={moduleLive}
-            windowControl
-            onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
-            dockLayout={dockLayout}
-            onDockLayoutChange={setDockLayout}
-            renderDockPanel={renderDockPanel}
-            softRefreshKey={moduleSoftRefreshKey}
-            panelContentKeysByTab={panelContentKeysByTab}
-            onTabContextMenu={handleDockTabContextMenu}
-            onTabDoubleClick={handleDockTabDoubleClick}
-            recentClosedActionItems={recentClosedActionItems}
-            emptyPrompt={t("database.workspace.emptyTabs")}
-            recentClosedTitle={t("database.workspace.recentClosed")}
-          />
-        )}
-      </div>
-    </ModuleWorkspaceLayout>
+    <DatabasePanelWorkspaceView
+      moduleTitle={t("routes.database")}
+      schemaContextValue={schemaContextValue}
+      connections={connections}
+      connectionsLoading={connectionsLoading}
+      schemaRefreshToken={schemaRefreshToken}
+      workspaceInitialized={workspaceInitialized}
+      dockTabs={dockTabs}
+      moduleLive={moduleLive}
+      dockLayout={dockLayout}
+      panelContentKeysByTab={panelContentKeysByTab}
+      moduleSoftRefreshKey={moduleSoftRefreshKey}
+      emptyPrompt={t("database.workspace.emptyTabs")}
+      recentClosedTitle={t("database.workspace.recentClosed")}
+      recentClosedActionItems={recentClosedActionItems}
+      onCreateConnection={() => {
+        setEditingConnection(null);
+        setDialogOpen(true);
+      }}
+      onImportNavicat={() => void handleImportConnections()}
+      onSelectConnection={handleSelectConnection}
+      onOpenSqlFile={openSqlFile}
+      onOpenSyncTask={handleOpenSyncTask}
+      onRunSyncTask={handleRunSyncTask}
+      onSelectTable={handleSelectTable}
+      onSelectDatabase={handleSelectDatabase}
+      buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+      onConnectionContextMenu={probeSlowLogForConnection}
+      onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
+      onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+      onDockLayoutChange={setDockLayout}
+      renderDockPanel={renderDockPanel}
+      onTabContextMenu={handleDockTabContextMenu}
+      onTabDoubleClick={handleDockTabDoubleClick}
+    />
     <CreateDatabaseDialog
       open={createDbDialog !== null}
       connection={

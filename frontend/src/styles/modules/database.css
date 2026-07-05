@@ -632,6 +632,22 @@
         flex-wrap: wrap;
         gap: 4px;
         min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .db-connection-info-deploy-reason {
+        flex: 1 1 120px;
+        min-width: 0;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--meta);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        white-space: normal;
+        word-break: break-word;
     }
 
     .db-mysql-config-btn {
@@ -885,6 +901,7 @@
     .db-tables-panel-grid-host {
         height: 100%;
         min-height: 0;
+        overflow: auto;
         outline: none;
     }
 

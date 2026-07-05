@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import type { DbColumnMeta } from "../api";
 import { ColumnFilterButton, ColumnSortIndicator } from "./TableDataGridChrome";
 import { formatCellDisplayText, isNullCellValue } from "./tableDataGridFormat";
@@ -5,7 +7,7 @@ import { ROW_NUM_COL_ID } from "./tableDataGridConstants";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-export function TableDataGridTransposeFieldCell({
+export const TableDataGridTransposeFieldCell = memo(function TableDataGridTransposeFieldCell({
   fieldName,
   fieldMeta,
   canFilter,
@@ -63,9 +65,9 @@ export function TableDataGridTransposeFieldCell({
       ) : null}
     </span>
   );
-}
+});
 
-export function TableDataGridCellContent({
+export const TableDataGridCellContent = memo(function TableDataGridCellContent({
   value,
   row,
   columnId,
@@ -114,4 +116,4 @@ export function TableDataGridCellContent({
       {displayText}
     </span>
   );
-}
+});

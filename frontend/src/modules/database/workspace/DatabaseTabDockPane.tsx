@@ -55,7 +55,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
               if (!connection) {
                 return null;
               }
-              return <DatabaseConnectionInfoPanel connection={connection} active={_isActive} />;
+              return <DatabaseConnectionInfoPanel connection={connection} tabId={tabId} />;
             })()
           ) : isDatabaseListTab(tab) ? (
             (() => {
@@ -86,7 +86,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                   connection={connection}
                   sshConnectionId={tab.sshConnectionId}
                   logFilePath={tab.logFilePath}
-                  active={_isActive}
+                  tabId={tabId}
                 />
               );
             })()

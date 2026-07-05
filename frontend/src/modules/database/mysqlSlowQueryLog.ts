@@ -139,14 +139,41 @@ export async function reestablishSshForDbConnection(
     // 忽略释放失败，后续仍会尝试重建
   }
 
+  // 仅重建连接池会话（exec 通道），不打开交互式终端。
+  await commands.sshPoolFetchStats(ssh.id).catch(() => {});
+}
+
+const SSH_EXEC_PROBE = "echo 1";
+
+async function probeSshPoolExec(sshConnectionId: string): Promise<boolean> {
   try {
-    const res = await commands.sshPoolFetchStats(ssh.id);
+    const res = await commands.sshPoolExecCommand(sshConnectionId, SSH_EXEC_PROBE);
     if (res.status !== "ok") {
-      throw new Error(res.error.message);
+      return false;
     }
+    return res.data.stdout.trim() === "1";
   } catch {
-    await commands.sshConnectConnection(ssh.id, 80, 24).catch(() => {});
+    return false;
   }
+}
+
+/** 确保 SSH 连接池 exec 通道可用（探测 + 必要时重建会话后重试）。 */
+export async function ensureSshExecReady(
+  sshConnectionId: string,
+  connection: Pick<DbConnectionConfig, "host" | "db_type" | "enabled">,
+  sshConnections: Connection[],
+): Promise<boolean> {
+  if (await probeSshPoolExec(sshConnectionId)) {
+    return true;
+  }
+
+  await reestablishSshForDbConnection(connection, sshConnections);
+
+  if (await probeSshPoolExec(sshConnectionId)) {
+    return true;
+  }
+
+  return false;
 }
 
 function remotePaneConnected(resourceId: string): boolean {
@@ -225,11 +252,11 @@ async function queryMysqlVariables(
 }
 
 async function ensureSshSessionForSlowLog(
-  _connection: DbConnectionConfig,
-  _sshConnections: Connection[],
+  connection: DbConnectionConfig,
+  sshConnections: Connection[],
   sshConnectionId: string,
 ): Promise<boolean> {
-  return ensureSshReady(sshConnectionId);
+  return ensureSshExecReady(sshConnectionId, connection, sshConnections);
 }
 
 function isRemoteMysqlHost(host: string): boolean {

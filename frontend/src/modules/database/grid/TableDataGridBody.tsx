@@ -14,6 +14,7 @@ import {
   ROW_NUM_COL_ID,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
+import type { ColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnCellStyle, isNearRowBottom } from "./tableDataGridLayout";
 import {
   isCellSelected,
@@ -111,6 +112,16 @@ const GridBodyCell = memo(
     prev.cell === next.cell,
 );
 
+function ColumnSpacerCell({ width }: { width: number }) {
+  return (
+    <td
+      className="db-data-table-spacer-col"
+      aria-hidden
+      style={{ width, minWidth: width, maxWidth: width, padding: 0, border: "none" }}
+    />
+  );
+}
+
 export type GridBodyStaticConfig = {
   transposed: boolean;
   columnMetaMap: Record<string, DbColumnMeta> | null;
@@ -124,6 +135,7 @@ export type GridBodyStaticConfig = {
   fillDelta: number;
   leafColumnCount: number;
   columnSizedIds: ReadonlySet<string>;
+  columnLayout: ColumnVirtualizationLayout;
 };
 
 export type GridBodyRowProps = {
@@ -136,6 +148,88 @@ export type GridBodyRowProps = {
   staticConfig: GridBodyStaticConfig;
 };
 
+function renderBodyCell(
+  cellIdx: number,
+  cells: Cell<Record<string, unknown>, unknown>[],
+  row: Row<Record<string, unknown>>,
+  staticConfig: GridBodyStaticConfig,
+  overrideForRow: Record<string, unknown> | undefined,
+  rowDirty: boolean,
+  cellRange: CellRange | null,
+  selectedRows: ReadonlySet<number>,
+  transposedFieldName: string,
+  isCustomHeight: boolean,
+) {
+  const cell = cells[cellIdx];
+  if (!cell) return null;
+
+  const {
+    transposed,
+    columnMetaMap,
+    canFilter,
+    filterColumnNames,
+    enableSort,
+    sortColumn,
+    sortDirection,
+    hasCellEdit,
+    lastColumnId,
+    fillDelta,
+    leafColumnCount,
+    columnSizedIds,
+  } = staticConfig;
+
+  const isRowNum = cell.column.id === ROW_NUM_COL_ID;
+  const isFieldCol = transposed && cell.column.id === TRANSPOSE_FIELD_COL;
+  const fieldName = transposedFieldName;
+  const fieldFiltered = isFieldCol && canFilter && filterColumnNames.has(fieldName);
+  const isRowSelector = isRowNum || isFieldCol;
+  const colMeta =
+    isRowNum || isFieldCol
+      ? undefined
+      : transposed
+        ? columnMetaMap?.[transposedFieldName]
+        : columnMetaMap?.[cell.column.id];
+  const canEdit = !isRowSelector && hasCellEdit && Boolean(colMeta);
+  const overrideValue = isRowSelector ? undefined : overrideForRow?.[cell.column.id];
+  const cellDirty = !isRowSelector && overrideValue !== undefined && rowDirty;
+  const fieldSortActive = isFieldCol && enableSort && sortColumn === fieldName;
+  const fieldSortClass = fieldSortActive
+    ? sortDirection === "asc"
+      ? " db-data-table-cell--sort-asc"
+      : " db-data-table-cell--sort-desc"
+    : "";
+  const isSelected =
+    !isRowSelector &&
+    isCellSelected(row.index, cellIdx, cellRange, selectedRows, leafColumnCount);
+  const baseSize = cell.column.getSize();
+  const columnSized = columnSizedIds.has(cell.column.id);
+  const cellContentKey = isRowSelector
+    ? ""
+    : `${overrideValue ?? cell.getValue()}:${cellDirty}:${canEdit}`;
+
+  return (
+    <GridBodyCell
+      key={cell.id}
+      colIndex={cellIdx}
+      columnId={cell.column.id}
+      isRowNum={isRowNum}
+      isFieldCol={isFieldCol}
+      isSelected={isSelected}
+      isDirty={cellDirty}
+      canEdit={canEdit}
+      fieldSortClass={fieldSortClass}
+      fieldFiltered={fieldFiltered}
+      isCustomHeight={isCustomHeight}
+      columnSized={columnSized}
+      baseSize={baseSize}
+      lastColumnId={lastColumnId}
+      fillDelta={fillDelta}
+      cellContentKey={cellContentKey}
+      cell={cell}
+    />
+  );
+}
+
 const GridBodyRow = memo(
   function GridBodyRow({
     row,
@@ -146,23 +240,12 @@ const GridBodyRow = memo(
     selectedRows,
     staticConfig,
   }: GridBodyRowProps) {
-    const {
-      transposed,
-      columnMetaMap,
-      canFilter,
-      filterColumnNames,
-      enableSort,
-      sortColumn,
-      sortDirection,
-      hasCellEdit,
-      lastColumnId,
-      fillDelta,
-      leafColumnCount,
-      columnSizedIds,
-    } = staticConfig;
-
+    const { columnLayout } = staticConfig;
     const isCustomHeight = rowHeight !== undefined;
-    const transposedFieldName = transposed ? String(row.original[TRANSPOSE_FIELD_COL] ?? "") : "";
+    const transposedFieldName = staticConfig.transposed
+      ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
+      : "";
+    const cells = row.getVisibleCells();
 
     return (
       <tr
@@ -170,58 +253,59 @@ const GridBodyRow = memo(
         className={`db-data-table-row${Math.floor(row.index / 2) % 2 === 1 ? " db-data-table-row--striped" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
         style={isCustomHeight ? { height: rowHeight } : undefined}
       >
-        {row.getVisibleCells().map((cell, cellIdx) => {
-          const isRowNum = cell.column.id === ROW_NUM_COL_ID;
-          const isFieldCol = transposed && cell.column.id === TRANSPOSE_FIELD_COL;
-          const fieldName = transposedFieldName;
-          const fieldFiltered = isFieldCol && canFilter && filterColumnNames.has(fieldName);
-          const isRowSelector = isRowNum || isFieldCol;
-          const colMeta =
-            isRowNum || isFieldCol
-              ? undefined
-              : transposed
-                ? columnMetaMap?.[transposedFieldName]
-                : columnMetaMap?.[cell.column.id];
-          const canEdit = !isRowSelector && hasCellEdit && Boolean(colMeta);
-          const overrideValue = isRowSelector ? undefined : overrideForRow?.[cell.column.id];
-          const cellDirty = !isRowSelector && overrideValue !== undefined && rowDirty;
-          const fieldSortActive = isFieldCol && enableSort && sortColumn === fieldName;
-          const fieldSortClass = fieldSortActive
-            ? sortDirection === "asc"
-              ? " db-data-table-cell--sort-asc"
-              : " db-data-table-cell--sort-desc"
-            : "";
-          const isSelected =
-            !isRowSelector &&
-            isCellSelected(row.index, cellIdx, cellRange, selectedRows, leafColumnCount);
-          const baseSize = cell.column.getSize();
-          const columnSized = columnSizedIds.has(cell.column.id);
-          const cellContentKey = isRowSelector
-            ? ""
-            : `${overrideValue ?? cell.getValue()}:${cellDirty}:${canEdit}`;
-
-          return (
-            <GridBodyCell
-              key={cell.id}
-              colIndex={cellIdx}
-              columnId={cell.column.id}
-              isRowNum={isRowNum}
-              isFieldCol={isFieldCol}
-              isSelected={isSelected}
-              isDirty={cellDirty}
-              canEdit={canEdit}
-              fieldSortClass={fieldSortClass}
-              fieldFiltered={fieldFiltered}
-              isCustomHeight={isCustomHeight}
-              columnSized={columnSized}
-              baseSize={baseSize}
-              lastColumnId={lastColumnId}
-              fillDelta={fillDelta}
-              cellContentKey={cellContentKey}
-              cell={cell}
-            />
-          );
-        })}
+        {columnLayout.enabled ? (
+          <>
+            {columnLayout.pinnedIndices.map((cellIdx) =>
+              renderBodyCell(
+                cellIdx,
+                cells,
+                row,
+                staticConfig,
+                overrideForRow,
+                rowDirty,
+                cellRange,
+                selectedRows,
+                transposedFieldName,
+                isCustomHeight,
+              ),
+            )}
+            {columnLayout.paddingLeft > 0 ? (
+              <ColumnSpacerCell width={columnLayout.paddingLeft} />
+            ) : null}
+            {columnLayout.virtualIndices.map((cellIdx) =>
+              renderBodyCell(
+                cellIdx,
+                cells,
+                row,
+                staticConfig,
+                overrideForRow,
+                rowDirty,
+                cellRange,
+                selectedRows,
+                transposedFieldName,
+                isCustomHeight,
+              ),
+            )}
+            {columnLayout.paddingRight > 0 ? (
+              <ColumnSpacerCell width={columnLayout.paddingRight} />
+            ) : null}
+          </>
+        ) : (
+          cells.map((_, cellIdx) =>
+            renderBodyCell(
+              cellIdx,
+              cells,
+              row,
+              staticConfig,
+              overrideForRow,
+              rowDirty,
+              cellRange,
+              selectedRows,
+              transposedFieldName,
+              isCustomHeight,
+            ),
+          )
+        )}
       </tr>
     );
   },
@@ -257,7 +341,7 @@ function resolveCellFromTarget(target: EventTarget | null) {
 export type TableDataGridVirtualBodyProps = {
   virtualPaddingTop: number;
   virtualPaddingBottom: number;
-  leafColumnCount: number;
+  visibleCellCount: number;
   virtualRowIndices: number[];
   tableRows: Row<Record<string, unknown>>[];
   buildRowProps: (rowIndex: number) => Omit<GridBodyRowProps, "row"> | null;
@@ -271,7 +355,7 @@ export type TableDataGridVirtualBodyProps = {
 export function TableDataGridVirtualBody({
   virtualPaddingTop,
   virtualPaddingBottom,
-  leafColumnCount,
+  visibleCellCount,
   virtualRowIndices,
   tableRows,
   buildRowProps,
@@ -367,7 +451,7 @@ export function TableDataGridVirtualBody({
     >
       {virtualPaddingTop > 0 ? (
         <tr className="db-data-table-spacer-row" aria-hidden>
-          <td colSpan={leafColumnCount} style={{ height: virtualPaddingTop }} />
+          <td colSpan={visibleCellCount} style={{ height: virtualPaddingTop }} />
         </tr>
       ) : null}
       {virtualRowIndices.map((rowIndex) => {
@@ -378,7 +462,7 @@ export function TableDataGridVirtualBody({
       })}
       {virtualPaddingBottom > 0 ? (
         <tr className="db-data-table-spacer-row" aria-hidden>
-          <td colSpan={leafColumnCount} style={{ height: virtualPaddingBottom }} />
+          <td colSpan={visibleCellCount} style={{ height: virtualPaddingBottom }} />
         </tr>
       ) : null}
     </tbody>

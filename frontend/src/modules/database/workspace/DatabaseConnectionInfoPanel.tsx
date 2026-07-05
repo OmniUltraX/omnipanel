@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
@@ -8,6 +8,7 @@ import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { TextEditorSubWindow } from "../../../components/textEditor";
+import { codeEditorLanguageFromPath } from "../../../components/ui/content/CodeEditor";
 import {
   createMysqlConfigTextIO,
   findMysqlConfigPath,
@@ -20,6 +21,7 @@ import { isMysqlConnectionInfoCapable, type DbConnectionConfig } from "../api";
 import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
+  type MysqlDeploymentReason,
 } from "../mysqlDeploymentDetect";
 import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
@@ -27,6 +29,7 @@ import {
   writeMysqlDeploymentCache,
 } from "../mysqlDeploymentCache";
 import { makeQueryRunId } from "../sql/queryRun";
+import { useDbDockTabActive } from "../useDbDockTabActive";
 import { displayDetailValue } from "./databaseTablesPanelFormat";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
@@ -64,8 +67,8 @@ const VARIABLE_VALUE_COLUMNS = ["Value", "value"];
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
-  /** 当前 Tab 是否处于激活态；激活时自动拉取一次进程列表。 */
-  active?: boolean;
+  /** Dock Tab ID，用于从 Context 读取激活态（避免 renderPanel 闭包过期）。 */
+  tabId: string;
 }
 
 function resolveColumnName(columns: string[], candidates: string[]): string | null {
@@ -196,6 +199,22 @@ function DeploymentNavTag({
   );
 }
 
+function resolveDeploymentUnknownReason(
+  deployment: MysqlDeploymentInfo | null | undefined,
+  t: (key: string) => string,
+): string | null {
+  if (!deployment || deployment.kind !== "unknown") {
+    return null;
+  }
+  const reason: MysqlDeploymentReason = deployment.reason ?? "probe_failed";
+  const base = t(`database.connectionInfo.deployment.reason.${reason}`);
+  const detail = deployment.detail?.trim();
+  if (!detail || base.includes(detail)) {
+    return base;
+  }
+  return `${base}：${detail}`;
+}
+
 function MysqlDeploymentTags({
   loading,
   deployment,
@@ -229,12 +248,18 @@ function MysqlDeploymentTags({
   const locationTag = deployment?.locationTag?.trim();
   const containerName =
     deployment?.containerName?.trim() || (kind === "docker" ? locationTag : "");
+  const unknownReason = resolveDeploymentUnknownReason(deployment, t);
 
   return (
     <>
       <span className={`db-mysql-deploy-tag db-mysql-deploy-tag--${kind}`}>
         {t(`database.connectionInfo.deployment.kind.${kind}`)}
       </span>
+      {kind === "unknown" && unknownReason ? (
+        <span className="db-connection-info-deploy-reason" title={unknownReason}>
+          {unknownReason}
+        </span>
+      ) : null}
       {kind === "host" && locationTag ? (
         <DeploymentNavTag
           label={t("database.connectionInfo.deployment.hostLocation")}
@@ -263,9 +288,10 @@ function MysqlDeploymentTags({
 
 export function DatabaseConnectionInfoPanel({
   connection,
-  active = true,
+  tabId,
 }: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
+  const active = useDbDockTabActive(tabId);
   const capable = isMysqlConnectionInfoCapable(connection);
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
@@ -277,7 +303,7 @@ export function DatabaseConnectionInfoPanel({
   const [variablesLoading, setVariablesLoading] = useState(false);
   const initialDeployment = capable ? readMysqlDeploymentCache(connection) : null;
   const [deploymentLoading, setDeploymentLoading] = useState(
-    () => capable && initialDeployment == null,
+    () => capable && active && initialDeployment == null,
   );
   const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(
     () => initialDeployment,
@@ -373,8 +399,12 @@ export function DatabaseConnectionInfoPanel({
         writeMysqlDeploymentCache(connection, info);
         setDeployment(info);
         return info;
-      } catch {
-        const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
+      } catch (error) {
+        const fallback: MysqlDeploymentInfo = {
+          kind: "unknown",
+          reason: "probe_failed",
+          detail: typeof error === "string" ? error : error instanceof Error ? error.message : undefined,
+        };
         writeMysqlDeploymentCache(connection, fallback);
         setDeployment(fallback);
         return fallback;
@@ -405,12 +435,12 @@ export function DatabaseConnectionInfoPanel({
     setVariablesSort({ column: "name", direction: "asc" });
     const cached = readMysqlDeploymentCache(connection);
     setDeployment(cached);
-    setDeploymentLoading(cached == null && isMysqlConnectionInfoCapable(connection));
+    setDeploymentLoading(cached == null && isMysqlConnectionInfoCapable(connection) && active);
     setConnectionsResult(null);
     setVariablesResult(null);
     setConnectionsError(null);
     setVariablesError(null);
-  }, [connection.id, connection.host, connection.port, connection.db_type]);
+  }, [active, connection.id, connection.host, connection.port, connection.db_type]);
 
   useEffect(() => {
     if (!active || !capable) {
@@ -714,7 +744,7 @@ export function DatabaseConnectionInfoPanel({
               variant="danger"
               size="xs"
               disabled={processId == null || killingId != null}
-              onClick={(event) => {
+              onClick={(event: MouseEvent<HTMLButtonElement>) => {
                 event.stopPropagation();
                 void handleKill(row);
               }}
@@ -808,7 +838,7 @@ export function DatabaseConnectionInfoPanel({
                 variant="secondary"
                 size="xs"
                 disabled={!isEditing || isSaving}
-                onClick={(event) => {
+                onClick={(event: MouseEvent<HTMLButtonElement>) => {
                   event.stopPropagation();
                   if (isEditing) {
                     void handleVariableSave(varName, editValue, "SESSION");
@@ -821,7 +851,7 @@ export function DatabaseConnectionInfoPanel({
                 variant="secondary"
                 size="xs"
                 disabled={!isEditing || isSaving}
-                onClick={(event) => {
+                onClick={(event: MouseEvent<HTMLButtonElement>) => {
                   event.stopPropagation();
                   if (isEditing) {
                     void handleVariableSave(varName, editValue, "GLOBAL");
@@ -1021,7 +1051,7 @@ export function DatabaseConnectionInfoPanel({
           title={configEditor?.path.split("/").pop() ?? "my.cnf"}
           subtitle={configEditor?.path}
           io={configEditor?.io ?? null}
-          language="text"
+          language={configEditor ? codeEditorLanguageFromPath(configEditor.path) : "text"}
           onClose={handleCloseConfig}
         />
       </>
@@ -1036,7 +1066,7 @@ export function DatabaseConnectionInfoPanel({
         title={configEditor?.path.split("/").pop() ?? "my.cnf"}
         subtitle={configEditor?.path}
         io={configEditor?.io ?? null}
-        language="text"
+        language={configEditor ? codeEditorLanguageFromPath(configEditor.path) : "text"}
         onClose={handleCloseConfig}
       />
     </>

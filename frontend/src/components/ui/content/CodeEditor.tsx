@@ -10,10 +10,15 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
 import { sql } from "@codemirror/lang-sql";
+import { StreamLanguage } from "@codemirror/language";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
-export type CodeEditorLanguage = "text" | "sql" | "json" | "yaml" | "shell" | "dockerfile";
+/** MySQL .cnf / .ini ??????legacy properties ????? [section]?# ???= ???? */
+const iniLanguage = StreamLanguage.define(properties);
+
+export type CodeEditorLanguage = "text" | "sql" | "json" | "yaml" | "shell" | "dockerfile" | "ini";
 
 interface CodeEditorProps {
   value: string;
@@ -30,6 +35,8 @@ function languageExtension(language: CodeEditorLanguage): Extension {
       return sql();
     case "json":
       return json();
+    case "ini":
+      return iniLanguage;
     default:
       return [];
   }
@@ -39,6 +46,9 @@ function languageFromFilePath(filePath: string | null | undefined): CodeEditorLa
   if (!filePath) return "text";
   if (filePath.endsWith(".sql")) return "sql";
   if (filePath.endsWith(".json")) return "json";
+  if (filePath.endsWith(".cnf") || filePath.endsWith(".ini") || filePath.endsWith(".conf")) {
+    return "ini";
+  }
   if (filePath.endsWith(".yaml") || filePath.endsWith(".yml")) return "yaml";
   if (filePath.endsWith(".sh")) return "shell";
   return "dockerfile";
@@ -48,7 +58,7 @@ export function codeEditorLanguageFromPath(filePath: string): CodeEditorLanguage
   return languageFromFilePath(filePath);
 }
 
-/** 轻量 CodeMirror 编辑器，用于�?SQL 场景的简单文本编辑�?*/
+/** ?? CodeMirror ??????�?SQL ?????????�?*/
 export function CodeEditor({
   value,
   onChange,

@@ -5,6 +5,7 @@ import {
   readMysqlSlowLogFileSize,
   readMysqlSlowLogTail,
 } from "../mysqlSlowQueryLog";
+import { useDbDockTabActive } from "../useDbDockTabActive";
 
 const SLOW_LOG_CHUNK = 16 * 1024;
 const SLOW_LOG_MAX_CHUNKS = 100;
@@ -209,7 +210,7 @@ interface DatabaseSlowQueryLogPanelProps {
   logFilePath: string;
   deploymentKind?: "host" | "docker";
   containerId?: string;
-  active: boolean;
+  tabId: string;
 }
 
 export function DatabaseSlowQueryLogPanel({
@@ -218,8 +219,9 @@ export function DatabaseSlowQueryLogPanel({
   logFilePath,
   deploymentKind,
   containerId,
-  active,
+  tabId,
 }: DatabaseSlowQueryLogPanelProps) {
+  const active = useDbDockTabActive(tabId);
   const { t } = useI18n();
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);

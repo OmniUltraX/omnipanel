@@ -23,6 +23,7 @@
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.1",
+    "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.9",

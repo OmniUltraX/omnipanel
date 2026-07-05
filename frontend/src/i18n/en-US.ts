@@ -1053,6 +1053,16 @@ export const enUS: TranslationDict = {
         hostLocation: "Install location",
         dockerContainer: "Container",
         server: "Server",
+        reason: {
+          no_ssh: "No SSH connection matches the database host",
+          ssh_not_connected: "SSH connection matched but session is not established",
+          no_pid_file: "Could not read pid_file from MySQL",
+          no_container: "pid file is not on the host and no matching Docker container was found",
+          pid_not_in_container: "Container found but pid file is not inside the container",
+          db_query_failed: "Failed to query MySQL deployment variables",
+          ssh_command_failed: "SSH remote command execution failed",
+          probe_failed: "Deployment probe failed",
+        },
       },
     },
     redisQuery: {

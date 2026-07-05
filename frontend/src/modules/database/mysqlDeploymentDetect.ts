@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { exists } from "@tauri-apps/plugin-fs";
 import { commands } from "../../ipc/bindings";
 import type { Connection } from "../../ipc/bindings";
 import type { DbConnectionConfig } from "./api";
 import { isMysqlConnectionInfoCapable } from "./api";
 import {
   findSshConnectionForDbHost,
-  ensureSshReady,
+  ensureSshExecReady,
 } from "./mysqlSlowQueryLog";
 import { makeQueryRunId } from "./sql/queryRun";
 import type { QueryResult } from "./workspace/dbWorkspaceState";
@@ -19,6 +20,8 @@ export type MysqlDeploymentReason =
   | "no_pid_file"
   | "no_container"
   | "pid_not_in_container"
+  | "db_query_failed"
+  | "ssh_command_failed"
   | "probe_failed";
 
 export interface MysqlDeploymentInfo {
@@ -32,12 +35,64 @@ export interface MysqlDeploymentInfo {
   /** 匹配到的 SSH 连接名称（服务器） */
   serverName?: string;
   reason?: MysqlDeploymentReason;
+  /** 失败时的补充细节（错误信息、路径等） */
+  detail?: string;
 }
 
 interface MysqlDeployVariables {
   pidFile: string;
   basedir: string;
   datadir: string;
+}
+
+const LOCALHOST_ALIASES = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isLocalDbHost(host: string): boolean {
+  return LOCALHOST_ALIASES.has(host.trim().toLowerCase());
+}
+
+function formatProbeError(error: unknown): string {
+  if (typeof error === "string") {
+    return error.trim();
+  }
+  if (error instanceof Error) {
+    return error.message.trim();
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function readMysqlVariable(rows: Record<string, unknown>[], name: string): string {
+  const target = name.toLowerCase();
+  for (const row of rows) {
+    const nameKey = Object.keys(row).find((key) => {
+      const lower = key.toLowerCase();
+      return lower === "variable_name" || lower === "name";
+    });
+    const valueKey = Object.keys(row).find((key) => key.toLowerCase() === "value");
+    if (!nameKey || !valueKey) {
+      continue;
+    }
+    if (String(row[nameKey] ?? "").trim().toLowerCase() === target) {
+      return String(row[valueKey] ?? "").trim();
+    }
+  }
+  return "";
+}
+
+async function localFileExists(filePath: string): Promise<boolean> {
+  const normalized = filePath.trim();
+  if (!normalized) {
+    return false;
+  }
+  try {
+    return await exists(normalized);
+  } catch {
+    return false;
+  }
 }
 
 function shellQuote(value: string): string {
@@ -50,7 +105,9 @@ async function sshExec(
 ): Promise<{ stdout: string; stderr: string }> {
   const res = await commands.sshPoolExecCommand(sshConnectionId, command);
   if (res.status !== "ok") {
-    throw new Error(res.error.message);
+    const err = res.error;
+    const detail = "cause" in err && err.cause ? `${err.message}：${err.cause}` : err.message;
+    throw new Error(detail);
   }
   return { stdout: res.data.stdout, stderr: res.data.stderr };
 }
@@ -64,12 +121,10 @@ async function queryMysqlDeployVariables(
     runId: makeQueryRunId(),
   });
   const rows = rowsToRecord(queryResult.columns, queryResult.rows);
-  const read = (name: string) =>
-    String(rows.find((row) => row.Variable_name === name)?.Value ?? "").trim();
   return {
-    pidFile: read("pid_file"),
-    basedir: read("basedir"),
-    datadir: read("datadir"),
+    pidFile: readMysqlVariable(rows, "pid_file"),
+    basedir: readMysqlVariable(rows, "basedir"),
+    datadir: readMysqlVariable(rows, "datadir"),
   };
 }
 
@@ -238,8 +293,12 @@ export async function probeMysqlDeployment(
   let variables: MysqlDeployVariables;
   try {
     variables = await queryMysqlDeployVariables(connection);
-  } catch {
-    return { kind: "unknown", reason: "probe_failed" };
+  } catch (error) {
+    return {
+      kind: "unknown",
+      reason: "db_query_failed",
+      detail: formatProbeError(error),
+    };
   }
 
   const { pidFile, basedir, datadir } = variables;
@@ -247,12 +306,31 @@ export async function probeMysqlDeployment(
     return { kind: "unknown", reason: "no_pid_file" };
   }
 
+  if (isLocalDbHost(connection.host)) {
+    const localExists = await localFileExists(pidFile);
+    if (localExists) {
+      return {
+        kind: "host",
+        pidFile,
+        locationTag: resolveHostInstallLocation(basedir, datadir, pidFile),
+      };
+    }
+  }
+
   const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
+    if (isLocalDbHost(connection.host)) {
+      return {
+        kind: "unknown",
+        reason: "no_container",
+        pidFile,
+        detail: pidFile,
+      };
+    }
     return { kind: "unknown", reason: "no_ssh", pidFile };
   }
 
-  if (!(await ensureSshReady(ssh.id))) {
+  if (!(await ensureSshExecReady(ssh.id, connection, sshConnections))) {
     return {
       kind: "unknown",
       reason: "ssh_not_connected",
@@ -301,7 +379,13 @@ export async function probeMysqlDeployment(
       containerName: container.name,
       ...sshMeta,
     };
-  } catch {
-    return { kind: "unknown", reason: "probe_failed", pidFile, ...sshMeta };
+  } catch (error) {
+    return {
+      kind: "unknown",
+      reason: "ssh_command_failed",
+      pidFile,
+      ...sshMeta,
+      detail: formatProbeError(error),
+    };
   }
 }

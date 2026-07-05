@@ -71,6 +71,7 @@ import {
   normalizeSchemaTargetStatusFilters,
   isSchemaTargetStatusFilterShowAll,
 } from "./types";
+import { useDbDockTabActive } from "../useDbDockTabActive";
 
 const EMPTY_SNAPSHOT: SyncSideSnapshot = { tables: [], loading: false, error: null };
 
@@ -89,8 +90,8 @@ interface DatabaseToolboxProps {
   /** 打开工具箱时默认源库连接 */
   initialSourceConnectionId?: string | null;
   initialSourceDatabase?: string;
-  /** 为 false 时不发起任何库连接请求（分段 Tab 未激活时由父级传入） */
-  active?: boolean;
+  /** Dock Tab ID，用于从 Context 读取激活态。 */
+  tabId: string;
 }
 
 export function DatabaseToolbox({
@@ -99,8 +100,9 @@ export function DatabaseToolbox({
   syncTaskId,
   initialSourceConnectionId,
   initialSourceDatabase = "",
-  active = true,
+  tabId,
 }: DatabaseToolboxProps) {
+  const active = useDbDockTabActive(tabId);
   const { t } = useI18n();
   const {
     total: loadTotal,

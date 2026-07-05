@@ -1049,6 +1049,16 @@ export const zhCN = {
         hostLocation: "安装位置",
         dockerContainer: "容器",
         server: "服务器",
+        reason: {
+          no_ssh: "未匹配到与数据库主机对应的 SSH 连接",
+          ssh_not_connected: "已匹配 SSH 连接，但会话未建立",
+          no_pid_file: "无法从 MySQL 读取 pid_file 变量",
+          no_container: "pid 文件不在宿主机上，且未找到对应的 Docker 容器",
+          pid_not_in_container: "已找到容器，但 pid 文件不在容器内",
+          db_query_failed: "查询 MySQL 部署变量失败",
+          ssh_command_failed: "SSH 远程命令执行失败",
+          probe_failed: "部署探测失败",
+        },
       },
     },
     redisQuery: {
