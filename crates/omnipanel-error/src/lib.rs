@@ -67,6 +67,17 @@ impl OmniError {
         self
     }
 
+    /// 用更具体的上下文替换 message，但保留原有的 cause 不变。
+    /// 用于在 retry 包装层之上覆盖默认的 "打开 SSH 通道失败" 文案，
+    /// 以便调用方拿到贴合场景的提示。
+    pub fn or_ssh_context(self, context: impl Into<String>) -> Self {
+        Self {
+            code: self.code,
+            message: context.into(),
+            cause: self.cause.or_else(|| Some(self.message)),
+        }
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::Internal, message)
     }
@@ -205,5 +216,21 @@ mod tests {
         assert!(json.contains("\"code\":\"database\""));
         assert!(json.contains("\"message\":\"query failed\""));
         assert!(json.contains("\"cause\":\"syntax error\""));
+    }
+
+    #[test]
+    fn or_ssh_context_replaces_message_and_keeps_cause() {
+        let err = OmniError::ssh("打开 SSH 通道失败").with_cause("channel eof");
+        let err = err.or_ssh_context("打开 SSH exec 通道失败");
+        assert_eq!(err.message, "打开 SSH exec 通道失败");
+        assert_eq!(err.cause.as_deref(), Some("channel eof"));
+    }
+
+    #[test]
+    fn or_ssh_context_falls_back_to_old_message_when_no_cause() {
+        let err = OmniError::ssh("打开 SSH 通道失败");
+        let err = err.or_ssh_context("打开 SSH exec 通道失败");
+        assert_eq!(err.message, "打开 SSH exec 通道失败");
+        assert_eq!(err.cause.as_deref(), Some("打开 SSH 通道失败"));
     }
 }

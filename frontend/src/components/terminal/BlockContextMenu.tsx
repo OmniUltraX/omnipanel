@@ -3,15 +3,18 @@ import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
 import { useAiStore } from "../../stores/aiStore";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { getAiBlockTextForContext, getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";
+import { useI18n } from "../../i18n";
 
 interface Props {
   block: TerminalBlock;
   position: { x: number; y: number };
   onClose: () => void;
   onRunCommand?: (command: string) => void;
+  onReconnect?: () => void;
 }
 
-export function BlockContextMenu({ block, position, onClose, onRunCommand }: Props) {
+export function BlockContextMenu({ block, position, onClose, onRunCommand, onReconnect }: Props) {
+  const { t } = useI18n();
   const createConversation = useAiStore((s) => s.createConversation);
   const addMessage = useAiStore((s) => s.addMessage);
   const openDrawer = useAiStore((s) => s.openDrawer);
@@ -153,6 +156,28 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
       );
     }
 
+    if (onReconnect) {
+      menu.push(
+        { id: "sep-reconnect", separator: true, label: "" },
+        {
+          id: "reconnect",
+          label: t("terminal.reconnect.menu"),
+          icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12a9 9 0 0115.5-6.36L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 01-15.5 6.36L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+          ),
+          onClick: () => {
+            onReconnect();
+            onClose();
+          },
+        },
+      );
+    }
+
     menu.push({
       id: "copy-command",
       label: "复制命令",
@@ -169,7 +194,7 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand }: Pro
     });
 
     return menu;
-  }, [block, hasError, hasOutput, isAiBlock, aiContext, onClose, onRunCommand, sendToAI]);
+  }, [block, hasError, hasOutput, isAiBlock, aiContext, onClose, onRunCommand, onReconnect, sendToAI, t]);
 
   return (
     <ContextMenu

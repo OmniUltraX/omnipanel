@@ -537,6 +537,62 @@ async fn wait_stop(stop: &AtomicBool) {
     }
 }
 
+/// 打开一个新 exec/SFTP channel，并对 `channel_open_session` 短暂失败做有限重试。
+///
+/// `russh` 的 `channel_open_session` 在底层 TCP/SSH 出现瞬时抖动时会偶发返回
+/// `Eof` / `ConnectionReset` / `ChannelOpenFailure`，绝大多数情况下短暂等待后
+/// 再次调用即可成功。这里最多重试 `attempts` 次（默认 3），退避 100/200/400ms。
+/// 若仍然失败，把最后一次的原始错误透传给调用方。
+async fn open_session_channel_retry(
+    session: &client::Handle<Client>,
+    attempts: u32,
+) -> OmniResult<Channel<russh::client::Msg>> {
+    let mut last_err: Option<String> = None;
+    for attempt in 0..attempts {
+        match session.channel_open_session().await {
+            Ok(channel) => return Ok(channel),
+            Err(e) => {
+                last_err = Some(e.to_string());
+                if attempt + 1 < attempts {
+                    let delay = Duration::from_millis(100u64 << attempt);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    Err(OmniError::new(ErrorCode::Ssh, "打开 SSH 通道失败")
+        .with_cause(last_err.unwrap_or_else(|| "未知错误".into())))
+}
+
+const CHANNEL_OPEN_ATTEMPTS: u32 = 3;
+
+#[cfg(test)]
+/// 同步「指数退避 + 有限重试」辅助：调用 `op` 最多 `attempts` 次，
+/// 第一次成功立刻返回 `Ok(Some(value))`；若中途一直失败，返回最后一次的
+/// 错误。仅适用于返回 `Result<T, E>` 的同步闭包，async 版本用
+/// `open_session_channel_retry` 之类的专用包装。
+async fn retry_with_backoff<T, E, F>(op: &mut F, attempts: u32) -> OmniResult<Option<T>>
+where
+    E: std::fmt::Display,
+    F: FnMut() -> Result<T, E>,
+{
+    let mut last_err: Option<String> = None;
+    for attempt in 0..attempts {
+        match op() {
+            Ok(value) => return Ok(Some(value)),
+            Err(e) => {
+                last_err = Some(e.to_string());
+                if attempt + 1 < attempts {
+                    let delay = Duration::from_millis(100u64 << attempt);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    Err(OmniError::new(ErrorCode::Ssh, "操作重试耗尽")
+        .with_cause(last_err.unwrap_or_else(|| "未知错误".into())))
+}
+
 /// 接受任意服务器公钥的 handler（MVP；后续应接入 known_hosts 校验）。
 struct Client;
 
@@ -603,9 +659,7 @@ impl SshSession {
             }
         }
 
-        let mut channel = session.channel_open_session().await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "打开 SSH 会话通道失败").with_cause(e.to_string())
-        })?;
+        let mut channel = open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS).await?;
         channel
             .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
@@ -791,9 +845,9 @@ impl SshSession {
             .await
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
-        })?;
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+            .await
+            .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
         if let Err(e) = channel.exec(true, command).await {
             close_exec_channel(&mut channel).await;
             return Err(
@@ -838,9 +892,9 @@ impl SshSession {
         })?
         .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "打开 SSH PTY 通道失败").with_cause(e.to_string())
-        })?;
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+            .await
+            .map_err(|e| e.or_ssh_context("打开 SSH PTY 通道失败"))?;
         if let Err(e) = channel
             .request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
@@ -1132,6 +1186,7 @@ mod tests {
             host: "example.com".into(),
             port: 22,
             user: "deploy".into(),
+            public_ip: None,
             auth: SshAuth::Password {
                 password: "secret".into(),
             },
@@ -1149,5 +1204,45 @@ mod tests {
         let cfg: SshConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.port, 2222);
         assert!(matches!(cfg.auth, SshAuth::PrivateKey { .. }));
+    }
+
+    #[tokio::test]
+    async fn retry_returns_immediately_on_first_success() {
+        let mut calls = 0;
+        let mut op = || -> Result<&'static str, String> {
+            calls += 1;
+            Ok("ok")
+        };
+        let result = retry_with_backoff(&mut op, 3).await;
+        assert_eq!(calls, 1);
+        assert_eq!(result.unwrap(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn retry_recovers_after_transient_failures() {
+        let mut calls = 0;
+        let mut op = || -> Result<&'static str, String> {
+            calls += 1;
+            if calls < 3 {
+                Err(format!("transient #{calls}"))
+            } else {
+                Ok("recovered")
+            }
+        };
+        let result = retry_with_backoff(&mut op, 3).await;
+        assert_eq!(calls, 3);
+        assert_eq!(result.unwrap(), Some("recovered"));
+    }
+
+    #[tokio::test]
+    async fn retry_exhausts_and_surfaces_last_error() {
+        let mut calls = 0;
+        let mut op = || -> Result<&'static str, String> {
+            calls += 1;
+            Err(format!("always-fail #{calls}"))
+        };
+        let err = retry_with_backoff(&mut op, 3).await.unwrap_err();
+        assert_eq!(calls, 3);
+        assert!(err.cause.as_deref().unwrap_or("").contains("always-fail #3"));
     }
 }

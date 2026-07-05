@@ -168,6 +168,7 @@ function PaneViewBody(
     block: TerminalBlock;
     position: { x: number; y: number };
   } | null>(null);
+  const [reconnectKey, setReconnectKey] = useState(0);
   const inputMode = useTerminalUiStore(
     (state) => state.inputModes[paneId] ?? "external",
   );
@@ -206,6 +207,10 @@ function PaneViewBody(
   const toggleInputMode = useCallback(() => {
     setInputMode(paneId, inputMode === "external" ? "interactive" : "external");
   }, [inputMode, paneId, setInputMode]);
+
+  const handleReconnect = useCallback(() => {
+    setReconnectKey((value) => value + 1);
+  }, []);
 
   return (
     <div
@@ -273,6 +278,7 @@ function PaneViewBody(
           inputMode={inputMode}
           onSenderChange={onSenderChange}
           onBlockRightClick={handleBlockRightClick}
+          reconnectKey={reconnectKey}
         />
       </div>
       {inputMode === "external" ? (
@@ -296,6 +302,7 @@ function PaneViewBody(
           position={blockMenu.position}
           onClose={() => setBlockMenu(null)}
           onRunCommand={onSendCommand}
+          onReconnect={handleReconnect}
         />
       ) : null}
     </div>

@@ -55,6 +55,11 @@ interface TerminalState {
   /** Tab 关闭后保留的后端连接，供再次打开时 attach */
   detachedRuntime: Record<string, TerminalDetachedRuntime>;
   embeddedPanes: Record<string, TerminalPane>;
+  /**
+   * 每个会话的「重新连接」版本号：自增时强制 useTerminal 重新挂载并重建后端会话。
+   * Tab 右键菜单的"重新连接"动作会调用 `bumpReconnect` 触发完整重连。
+   */
+  reconnectVersions: Record<string, number>;
 
   getSession: (sessionId: string) => TerminalSession | undefined;
   listSessionsForResource: (resourceId: string) => TerminalSession[];
@@ -88,6 +93,8 @@ interface TerminalState {
   openOrFocusLocalTab: (title?: string) => string;
   addLocalTerminalTab: (title?: string, workspaceId?: string) => string;
   addSshTerminalTab: (hostId: string, title: string, workspaceId?: string) => string;
+  /** 自增指定会话的 reconnect 版本号，触发 useTerminal 重建后端会话 */
+  bumpReconnect: (sessionId: string) => void;
 }
 
 function updateTabById(
@@ -248,6 +255,7 @@ export const useTerminalStore = create<TerminalState>()(
       activeSessionId: null,
       detachedRuntime: {},
       embeddedPanes: {},
+      reconnectVersions: {},
 
       getSession: (sessionId) => get().sessions.find((s) => s.id === sessionId),
 
@@ -633,6 +641,15 @@ export const useTerminalStore = create<TerminalState>()(
           workspaceId,
           session: defaultSessionInfo(hostId, "remote"),
         });
+      },
+
+      bumpReconnect: (sessionId) => {
+        set((state) => ({
+          reconnectVersions: {
+            ...state.reconnectVersions,
+            [sessionId]: (state.reconnectVersions[sessionId] ?? 0) + 1,
+          },
+        }));
       },
     }),
     {

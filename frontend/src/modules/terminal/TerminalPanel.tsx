@@ -508,7 +508,7 @@ export function TerminalPanel() {
   );
 
   const handleContextAction = useCallback(
-    (action: TabContextMenuAction | "endSession") => {
+    (action: TabContextMenuAction | "endSession" | "reconnect") => {
       if (!ctxMenu) return;
       const dockVisibleTabs = useTerminalStore
         .getState()
@@ -530,6 +530,21 @@ export function TerminalPanel() {
       if (action === "endSession") {
         const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
         if (sessionId) handleEndSession(sessionId);
+        setCtxMenu(null);
+        return;
+      }
+      if (action === "reconnect") {
+        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
+        if (sessionId) {
+          // 先关后端会话（释放 PTY/SSH），再自增 reconnect 版本号，
+          // 触发 useTerminal 重建后端会话并把 UI 切到「重新连接中」。
+          clearTerminalPaneSender(sessionId);
+          clearPaneBackendPending(sessionId);
+          disposeSessionBackend(sessionId);
+          useTerminalStore.getState().setBackendSessionId(sessionId, null);
+          useTerminalStore.getState().setStatus(sessionId, "connecting");
+          useTerminalStore.getState().bumpReconnect(sessionId);
+        }
         setCtxMenu(null);
         return;
       }
@@ -564,8 +579,13 @@ export function TerminalPanel() {
       if (action === "refresh") {
         const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
         if (sessionId) {
+          // 真正的「重新连接」：关后端会话 + 自增版本号让 useTerminal 重建。
+          clearTerminalPaneSender(sessionId);
+          clearPaneBackendPending(sessionId);
+          disposeSessionBackend(sessionId);
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           useTerminalStore.getState().setStatus(sessionId, "connecting");
+          useTerminalStore.getState().bumpReconnect(sessionId);
         }
         setCtxMenu(null);
         return;
@@ -691,12 +711,27 @@ export function TerminalPanel() {
           handleContextAction,
 { showWorkspaceActions: true, showRefresh: true, showRename: true },
         );
+        const reconnectItem = {
+          id: "tab-reconnect",
+          label: t("terminal.reconnect.menu"),
+          icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12a9 9 0 0115.5-6.36L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 01-15.5 6.36L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+          ),
+          onClick: () => handleContextAction("reconnect"),
+        };
         const endSessionItem = {
           id: "tab-end-session",
           label: t("terminal.sessions.end"),
           onClick: () => handleContextAction("endSession"),
         };
         const items = [
+          reconnectItem,
+          { id: "tab-sep-reconnect", separator: true, label: "" },
           endSessionItem,
           { id: "tab-sep-end", separator: true, label: "" },
           ...closeItems,

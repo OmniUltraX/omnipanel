@@ -77,6 +77,17 @@ export function TerminalView({
     [paneType, paneCwd, resource, sessionId],
   );
 
+  const paneStatus = useTerminalStore((state) => {
+    const pane = findTerminalPane(sessionId);
+    if (pane) return pane.status;
+    return state.tabs.find((item) => item.id === sessionId)?.status;
+  });
+
+  const storeReconnectVersion = useTerminalStore(
+    (state) => state.reconnectVersions[sessionId] ?? 0,
+  );
+  const effectiveReconnectKey = (reconnectKey ?? 0) + storeReconnectVersion;
+
   useTerminal(
     sessionId,
     containerRef,
@@ -88,16 +99,10 @@ export function TerminalView({
       inputMode,
       sendRef,
       active: active && !moduleSuspended,
-      reconnectKey,
+      reconnectKey: effectiveReconnectKey,
       fileLink: composedFileLink,
     },
   );
-
-  const paneStatus = useTerminalStore((state) => {
-    const pane = findTerminalPane(sessionId);
-    if (pane) return pane.status;
-    return state.tabs.find((item) => item.id === sessionId)?.status;
-  });
 
   useEffect(() => {
     if (!isTauriRuntime) return;
