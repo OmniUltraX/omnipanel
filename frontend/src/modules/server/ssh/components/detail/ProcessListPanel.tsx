@@ -244,6 +244,7 @@ export type ProcessListPanelProps = {
   loading: boolean;
   refreshing: boolean;
   updatedAt: number | null;
+  error?: string | null;
   onRefresh: () => void;
   /** @deprecated terminal/sftp Tab 已移除，此 prop 已无效，保留仅为兼容 */
   setDetailTab?: (tab: DetailTab) => void;
@@ -257,6 +258,7 @@ export function ProcessListPanel({
   loading,
   refreshing: _refreshing,
   updatedAt,
+  error,
   onRefresh,
   setDetailTab: _setDetailTab,
   enableTunnels = true,
@@ -460,7 +462,10 @@ export function ProcessListPanel({
           </button>
         </div>
       </div>
-      {paged.length === 0 && !loading && (
+      {error && !loading ? (
+        <div className="proc-empty proc-error">{error}</div>
+      ) : null}
+      {paged.length === 0 && !loading && !error && (
         <div className="proc-empty">{t("ssh.processList.empty")}</div>
       )}
       <div className="proc-table-wrap">

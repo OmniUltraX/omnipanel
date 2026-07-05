@@ -5,7 +5,7 @@ import type { DbConnectionConfig } from "./api";
 import { isMysqlConnectionInfoCapable } from "./api";
 import {
   findSshConnectionForDbHost,
-  isSshConnectionEstablished,
+  ensureSshReady,
 } from "./mysqlSlowQueryLog";
 import { makeQueryRunId } from "./sql/queryRun";
 import type { QueryResult } from "./workspace/dbWorkspaceState";
@@ -101,29 +101,115 @@ function resolveHostInstallLocation(
   return pidFile;
 }
 
-function parseDockerPsLine(line: string): { id: string; name: string } | null {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length < 2) {
-    return null;
-  }
-  return { id: parts[0], name: parts[1] };
+interface DockerContainerRef {
+  id: string;
+  name: string;
+  ports: string;
 }
 
-async function findDockerContainerByPort(
+async function listRunningContainers(
   sshConnectionId: string,
-  port: number,
-): Promise<{ id: string; name: string } | null> {
-  const portNeedle = `:${port}`;
-  const quotedNeedle = shellQuote(portNeedle);
+): Promise<DockerContainerRef[]> {
   const { stdout } = await sshExec(
     sshConnectionId,
-    `docker ps 2>/dev/null | grep ${quotedNeedle} | head -1`,
+    `docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null`,
   );
-  return parseDockerPsLine(stdout.split("\n")[0] ?? "");
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id, names, ports = ""] = line.split("\t");
+      const name = (names?.split(",")[0] ?? names ?? id ?? "").trim();
+      return { id: id?.trim() ?? "", name, ports: ports.trim() };
+    })
+    .filter((item) => item.id.length > 0);
+}
+
+/** 宿主机端口是否映射到容器（如 0.0.0.0:3306->3306/tcp）。 */
+function hostPortPublished(ports: string, port: number): boolean {
+  if (!ports) {
+    return false;
+  }
+  return (
+    new RegExp(`(^|[,\\[])[^\\s]*:${port}->`).test(ports) ||
+    new RegExp(`\\b:${port}->`).test(ports)
+  );
+}
+
+/** 容器是否暴露指定端口（含仅 expose、无 publish 的情况）。 */
+function containerPortExposed(ports: string, port: number): boolean {
+  if (!ports) {
+    return false;
+  }
+  return (
+    hostPortPublished(ports, port) ||
+    new RegExp(`->${port}/(?:tcp|udp)`).test(ports) ||
+    new RegExp(`(^|, )${port}/(?:tcp|udp)`).test(ports)
+  );
+}
+
+async function findDockerContainerByPidFile(
+  sshConnectionId: string,
+  pidFile: string,
+  containers: DockerContainerRef[],
+): Promise<DockerContainerRef | null> {
+  for (const container of containers) {
+    const exists = await dockerContainerFileExists(sshConnectionId, container.id, pidFile);
+    if (exists) {
+      return container;
+    }
+  }
+  return null;
+}
+
+async function findDockerContainer(
+  sshConnectionId: string,
+  port: number,
+  pidFile: string,
+): Promise<{ id: string; name: string } | null> {
+  for (const filter of [
+    `publish=${port}`,
+    `publish=${port}/tcp`,
+    `publish=${port}/udp`,
+    `expose=${port}`,
+  ]) {
+    try {
+      const { stdout } = await sshExec(
+        sshConnectionId,
+        `docker ps --format '{{.ID}}\t{{.Names}}' --filter "${filter}" 2>/dev/null | head -1`,
+      );
+      const line = stdout.trim();
+      if (!line) {
+        continue;
+      }
+      const [id, names] = line.split("\t");
+      if (id?.trim()) {
+        return { id: id.trim(), name: (names?.split(",")[0] ?? id).trim() };
+      }
+    } catch {
+      // try next filter
+    }
+  }
+
+  const containers = await listRunningContainers(sshConnectionId);
+
+  const byHostPort = containers.find((item) => hostPortPublished(item.ports, port));
+  if (byHostPort) {
+    return { id: byHostPort.id, name: byHostPort.name };
+  }
+
+  const byExpose = containers.find((item) => containerPortExposed(item.ports, port));
+  if (byExpose) {
+    return { id: byExpose.id, name: byExpose.name };
+  }
+
+  const byPidFile = await findDockerContainerByPidFile(sshConnectionId, pidFile, containers);
+  if (byPidFile) {
+    return { id: byPidFile.id, name: byPidFile.name };
+  }
+
+  return null;
 }
 
 async function dockerContainerFileExists(
@@ -166,27 +252,14 @@ export async function probeMysqlDeployment(
     return { kind: "unknown", reason: "no_ssh", pidFile };
   }
 
-  if (!isSshConnectionEstablished(ssh.id)) {
-    try {
-      const res = await commands.sshConnectConnection(ssh.id, 80, 24);
-      if (res.status !== "ok") {
-        return {
-          kind: "unknown",
-          reason: "ssh_not_connected",
-          pidFile,
-          sshConnectionId: ssh.id,
-          serverName: ssh.name,
-        };
-      }
-    } catch {
-      return {
-        kind: "unknown",
-        reason: "ssh_not_connected",
-        pidFile,
-        sshConnectionId: ssh.id,
-        serverName: ssh.name,
-      };
-    }
+  if (!(await ensureSshReady(ssh.id))) {
+    return {
+      kind: "unknown",
+      reason: "ssh_not_connected",
+      pidFile,
+      sshConnectionId: ssh.id,
+      serverName: ssh.name,
+    };
   }
 
   const sshMeta = { sshConnectionId: ssh.id, serverName: ssh.name };
@@ -203,7 +276,7 @@ export async function probeMysqlDeployment(
       };
     }
 
-    const container = await findDockerContainerByPort(ssh.id, connection.port);
+    const container = await findDockerContainer(ssh.id, connection.port, pidFile);
     if (!container) {
       return { kind: "unknown", reason: "no_container", pidFile, ...sshMeta };
     }

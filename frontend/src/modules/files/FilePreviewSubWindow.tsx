@@ -3,6 +3,7 @@ import {
   ContentPreviewTextModeToolbar,
   type ContentPreviewTextMode,
 } from "../../components/ui/ContentPreviewView";
+import { useTextEditorSubWindowActions } from "../../components/textEditor/useTextEditorSubWindowActions";
 import { isPreviewWebUrl, normalizePreviewWebUrl } from "../../lib/contentPreview";
 import { SubWindow } from "../../components/ui/SubWindow";
 import { useI18n } from "../../i18n";
@@ -14,7 +15,7 @@ import {
   type FileTextPreviewMeta,
 } from "./FilePreviewContent";
 import { IconDownload } from "./FilesPanelIcons";
-import { fmtError, formatFileSize } from "./utils";
+import { formatFileSize } from "./utils";
 import { cn } from "../../lib/utils";
 
 export interface FilePreviewSubWindowProps {
@@ -42,53 +43,21 @@ export function FilePreviewSubWindow({
   const [textMode, setTextMode] = useState<ContentPreviewTextMode>("code");
   const [jsonViewMode, setJsonViewMode] = useState<FileJsonViewMode>("structured");
   const [textPreviewMeta, setTextPreviewMeta] = useState<FileTextPreviewMeta | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+
+  const { dirty, setDirty, saving, saveNotice, handleSave } = useTextEditorSubWindowActions(
+    contentRef,
+    {
+      open,
+      onSaved: entry ? () => onSaved?.(entry) : undefined,
+    },
+  );
 
   useEffect(() => {
     setTextMode("code");
     setJsonViewMode("structured");
     setTextPreviewMeta(null);
     setDirty(false);
-    setSaveNotice(null);
-  }, [entry?.path]);
-
-  const handleSave = useCallback(async () => {
-    const handle = contentRef.current;
-    if (!handle?.canSave() || saving) return;
-    setSaving(true);
-    setSaveNotice(null);
-    try {
-      await handle.save();
-      if (entry) onSaved?.(entry);
-      setSaveNotice(t("files.preview.saveSuccess"));
-    } catch (e) {
-      setSaveNotice(t("files.preview.saveFailed", { message: fmtError(e) }));
-    } finally {
-      setSaving(false);
-    }
-  }, [entry, onSaved, saving, t]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
-      if (event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void handleSave();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [handleSave, open]);
-
-  useEffect(() => {
-    if (!saveNotice) return;
-    const timer = window.setTimeout(() => setSaveNotice(null), 2400);
-    return () => window.clearTimeout(timer);
-  }, [saveNotice]);
+  }, [entry?.path, setDirty]);
 
   const webPreviewUrl =
     textPreviewMeta && isPreviewWebUrl(textPreviewMeta.text)

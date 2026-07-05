@@ -8,6 +8,9 @@ import {
   useState,
 } from "react";
 import { codeEditorLanguageFromPath } from "../../components/ui/CodeEditor";
+import { TextEditorView } from "../../components/textEditor/TextEditorView";
+import { createFilePathTextIO } from "../../components/textEditor/io/filePathIO";
+import type { TextEditorBytesIO } from "../../components/textEditor/types";
 import {
   ContentPreviewView,
   type ContentPreviewTextMode,
@@ -15,7 +18,7 @@ import {
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { readRemotePreview, uploadRemote } from "./fileApi";
+import { readRemotePreview } from "./fileApi";
 import {
   decodePreviewBytes,
   detectPreviewKindFromBytes,
@@ -50,12 +53,7 @@ export type FilePreviewContentHandle = {
   save: () => Promise<void>;
 };
 
-export interface FilePreviewIO {
-  /** 读取最多 maxBytes 字节，路径不存在时抛错 */
-  readBytes(path: string, maxBytes: number): Promise<number[]>;
-  /** 写文件（覆盖） */
-  writeBytes(path: string, bytes: number[]): Promise<void>;
-}
+export interface FilePreviewIO extends TextEditorBytesIO {}
 
 export interface FilePreviewContentProps {
   connectionId: string;
@@ -75,10 +73,6 @@ export interface FilePreviewContentProps {
    *  必须用 SSH 资源 id 走 sftp_download/sftp_upload 通道）。
    */
   customIO?: FilePreviewIO;
-}
-
-function encodeUtf8(text: string): number[] {
-  return Array.from(new TextEncoder().encode(text));
 }
 
 function isEditablePreviewKind(kind: FilePreviewKind): boolean {
@@ -191,9 +185,16 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       const text = draftText;
       if (text == null || text === savedTextRef.current) return;
 
-      await (customIO
-        ? customIO.writeBytes(entry.path, encodeUtf8(text))
-        : uploadRemote(connectionId, entry.path, encodeUtf8(text)));
+      const readMaxBytes = isTruncatedRead
+        ? thresholdBytes
+        : resolvePreviewReadMaxBytes(entry.size, thresholdBytes);
+      const textIO = createFilePathTextIO({
+        connectionId,
+        path: entry.path,
+        maxBytes: readMaxBytes,
+        bytesIO: customIO,
+      });
+      await textIO.writeText(text);
       savedTextRef.current = text;
       onDirtyChange?.(false);
 
@@ -210,10 +211,13 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       draftText,
       editable,
       entry.path,
+      entry.size,
+      isTruncatedRead,
       notifyMeta,
       onDirtyChange,
       previewKind,
       t,
+      thresholdBytes,
     ]);
 
     useImperativeHandle(
@@ -420,14 +424,14 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
     if ((previewKind === "json" || previewKind === "text") && draftText != null) {
       const inner = (
-        <ContentPreviewView
+        <TextEditorView
           status="ready"
-          content={{ kind: "text", text: draftText }}
-          codeLanguage={codeLanguage ?? (previewKind === "json" ? "json" : undefined)}
+          text={draftText}
+          language={codeLanguage ?? (previewKind === "json" ? "json" : undefined)}
           defaultTextMode="code"
           textMode={textMode}
           onTextModeChange={onTextModeChange}
-          showTextModeToolbar={showInlineTextModeToolbar}
+          showInlineTextModeToolbar={showInlineTextModeToolbar}
           contentResetKey={entry.path}
           editable={editable}
           onTextChange={handleTextChange}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { commands } from "../../../ipc/bindings";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -8,11 +7,15 @@ import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/Button";
 import { ScopedSearch } from "../../../components/ui/ScopedSearch";
+import { TextEditorSubWindow } from "../../../components/textEditor";
+import {
+  createMysqlConfigTextIO,
+  findMysqlConfigPath,
+} from "../../../components/textEditor/io/mysqlConfigIO";
+import type { TextEditorIO } from "../../../components/textEditor/types";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
-import type { Connection, FileEntry } from "../../../ipc/bindings";
-import { FilePreviewSubWindow } from "../../files/FilePreviewSubWindow";
-import { LOCAL_CONNECTION_ID } from "../../files/utils";
+import type { Connection } from "../../../ipc/bindings";
 import { isMysqlConnectionInfoCapable, type DbConnectionConfig } from "../api";
 import {
   probeMysqlDeployment,
@@ -27,11 +30,6 @@ import { makeQueryRunId } from "../sql/queryRun";
 import { displayDetailValue } from "./databaseTablesPanelFormat";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
-import {
-  findMysqlConfigPath,
-  readMysqlConfig,
-  writeMysqlConfig,
-} from "../mysqlConfigEditor";
 
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 const VARIABLES_SQL = "SHOW VARIABLES;";
@@ -277,9 +275,12 @@ export function DatabaseConnectionInfoPanel({
   const [search, setSearch] = useState("");
   const [connectionsLoading, setConnectionsLoading] = useState(capable);
   const [variablesLoading, setVariablesLoading] = useState(false);
-  const [deploymentLoading, setDeploymentLoading] = useState(false);
-  const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(() =>
-    capable ? readMysqlDeploymentCache(connection) : null,
+  const initialDeployment = capable ? readMysqlDeploymentCache(connection) : null;
+  const [deploymentLoading, setDeploymentLoading] = useState(
+    () => capable && initialDeployment == null,
+  );
+  const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(
+    () => initialDeployment,
   );
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [variablesError, setVariablesError] = useState<string | null>(null);
@@ -297,9 +298,10 @@ export function DatabaseConnectionInfoPanel({
   const [editingVarName, setEditingVarName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingVarName, setSavingVarName] = useState<string | null>(null);
-  const [configFileEntry, setConfigFileEntry] = useState<FileEntry | null>(null);
-  const [configTempPath, setConfigTempPath] = useState<string | null>(null);
-  const [configOriginalPath, setConfigOriginalPath] = useState<string | null>(null);
+  const [configEditor, setConfigEditor] = useState<{
+    path: string;
+    io: TextEditorIO;
+  } | null>(null);
 
   const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
@@ -355,26 +357,35 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [capable, connection]);
 
-  const refreshDeployment = useCallback(async () => {
-    if (!capable) {
-      setDeployment(null);
-      setDeploymentLoading(false);
-      return;
-    }
+  const refreshDeployment = useCallback(
+    async (options?: { silent?: boolean }): Promise<MysqlDeploymentInfo | null> => {
+      if (!capable) {
+        setDeployment(null);
+        setDeploymentLoading(false);
+        return null;
+      }
 
-    setDeploymentLoading(true);
-    try {
-      const info = await probeMysqlDeployment(connection, sshConnections);
-      writeMysqlDeploymentCache(connection, info);
-      setDeployment(info);
-    } catch {
-      const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
-      writeMysqlDeploymentCache(connection, fallback);
-      setDeployment(fallback);
-    } finally {
-      setDeploymentLoading(false);
-    }
-  }, [capable, connection, sshConnections]);
+      if (!options?.silent) {
+        setDeploymentLoading(true);
+      }
+      try {
+        const info = await probeMysqlDeployment(connection, sshConnections);
+        writeMysqlDeploymentCache(connection, info);
+        setDeployment(info);
+        return info;
+      } catch {
+        const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
+        writeMysqlDeploymentCache(connection, fallback);
+        setDeployment(fallback);
+        return fallback;
+      } finally {
+        if (!options?.silent) {
+          setDeploymentLoading(false);
+        }
+      }
+    },
+    [capable, connection, sshConnections],
+  );
 
   const refreshActiveTab = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -392,8 +403,9 @@ export function DatabaseConnectionInfoPanel({
     setSearch("");
     setProcessSort({ column: "time", direction: "desc" });
     setVariablesSort({ column: "name", direction: "asc" });
-    setDeployment(readMysqlDeploymentCache(connection));
-    setDeploymentLoading(false);
+    const cached = readMysqlDeploymentCache(connection);
+    setDeployment(cached);
+    setDeploymentLoading(cached == null && isMysqlConnectionInfoCapable(connection));
     setConnectionsResult(null);
     setVariablesResult(null);
     setConnectionsError(null);
@@ -406,6 +418,14 @@ export function DatabaseConnectionInfoPanel({
     }
     void refreshConnections();
   }, [active, capable, connection.id, refreshConnections]);
+
+  useEffect(() => {
+    if (!active || !capable) {
+      return;
+    }
+    const cached = readMysqlDeploymentCache(connection);
+    void refreshDeployment({ silent: cached != null });
+  }, [active, capable, connection.id, connection.host, connection.port, refreshDeployment]);
 
   useEffect(() => {
     if (!active || !capable || subTab !== "status") {
@@ -618,72 +638,51 @@ export function DatabaseConnectionInfoPanel({
   );
 
   const handleOpenConfig = useCallback(async () => {
-    if (!deployment) {
-      return;
-    }
     try {
-      const path = await findMysqlConfigPath(deployment);
+      let activeDeployment = deployment;
+      const needsRefresh =
+        !activeDeployment ||
+        (activeDeployment.kind === "docker" && !activeDeployment.containerId) ||
+        (activeDeployment.kind === "unknown" &&
+          activeDeployment.reason !== "no_ssh" &&
+          !activeDeployment.sshConnectionId);
+      if (needsRefresh) {
+        activeDeployment = await refreshDeployment();
+      }
+      if (!activeDeployment) {
+        return;
+      }
+
+      const host = connection.host.trim().toLowerCase();
+      const isLocalHost =
+        host === "localhost" || host === "127.0.0.1" || host === "::1";
+      if (
+        !activeDeployment.sshConnectionId &&
+        activeDeployment.reason === "no_ssh" &&
+        !isLocalHost
+      ) {
+        void appAlert(t("database.connectionInfo.configEditor.noSsh"));
+        return;
+      }
+
+      const path = await findMysqlConfigPath(activeDeployment);
       if (!path) {
         void appAlert(t("database.connectionInfo.configEditor.notFound"));
         return;
       }
-      const content = await readMysqlConfig(path, deployment);
-      const tmpDir = await commands.fileLocalTempDir();
-      const tmpPath = `${tmpDir}/omnipanel_mysql_cfg_${Date.now()}.cnf`;
-      const writeRes = await commands.writeTextFile(tmpPath, content);
-      if (writeRes.status !== "ok") {
-        throw new Error(writeRes.error ?? "写入临时文件失败");
-      }
-      setConfigOriginalPath(path);
-      setConfigTempPath(tmpPath);
-      setConfigFileEntry({
-        name: path.split("/").pop() ?? "my.cnf",
-        path: tmpPath,
-        kind: "file",
-        size: content.length,
-        modified: null,
-        permissions: null,
+      setConfigEditor({
+        path,
+        io: createMysqlConfigTextIO(path, activeDeployment),
       });
     } catch (e) {
       const message = typeof e === "string" ? e : JSON.stringify(e);
       void appAlert(message, t("database.connectionInfo.configEditor.saveFailed"));
     }
-  }, [deployment, t]);
-
-  const handleConfigSaved = useCallback(async () => {
-    if (!configTempPath || !configOriginalPath || !deployment) return;
-    try {
-      const res = await commands.fileReadFile(
-        LOCAL_CONNECTION_ID,
-        configTempPath,
-        512 * 1024,
-      );
-      if (res.status !== "ok") {
-        throw new Error(res.error?.message ?? "读取临时文件失败");
-      }
-      if (!res.data) {
-        throw new Error("读取临时文件失败");
-      }
-      const content = new TextDecoder("utf-8", { fatal: false }).decode(
-        new Uint8Array(res.data),
-      );
-      await writeMysqlConfig(configOriginalPath, content, deployment);
-    } catch (e) {
-      const message = typeof e === "string" ? e : JSON.stringify(e);
-      void appAlert(message, t("database.connectionInfo.configEditor.saveFailed"));
-    }
-  }, [configOriginalPath, configTempPath, deployment, t]);
+  }, [connection, deployment, refreshDeployment, t]);
 
   const handleCloseConfig = useCallback(() => {
-    setConfigFileEntry(null);
-    if (configTempPath) {
-      commands
-        .fileDelete(LOCAL_CONNECTION_ID, configTempPath, "file")
-        .catch(() => {});
-    }
-    setConfigTempPath(null);
-    setConfigOriginalPath(null);
-  }, [configTempPath]);
+    setConfigEditor(null);
+  }, []);
 
   const processGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
     const dataColumns = processColumns.map((column, index) => {
@@ -931,7 +930,7 @@ export function DatabaseConnectionInfoPanel({
             className="db-mysql-config-btn"
             title={t("database.connectionInfo.configEditor.open")}
             onClick={() => void handleOpenConfig()}
-            disabled={!deployment || deploymentLoading || !!configFileEntry}
+            disabled={deploymentLoading || !!configEditor}
           >
             <svg
               width="14"
@@ -1017,12 +1016,13 @@ export function DatabaseConnectionInfoPanel({
             {t("database.connectionInfo.unsupportedEngine", { engine: connection.db_type })}
           </div>,
         )}
-        <FilePreviewSubWindow
-          open={configFileEntry !== null}
-          entry={configFileEntry}
-          connectionId={LOCAL_CONNECTION_ID}
+        <TextEditorSubWindow
+          open={configEditor !== null}
+          title={configEditor?.path.split("/").pop() ?? "my.cnf"}
+          subtitle={configEditor?.path}
+          io={configEditor?.io ?? null}
+          language="text"
           onClose={handleCloseConfig}
-          onSaved={handleConfigSaved}
         />
       </>
     );
@@ -1031,12 +1031,13 @@ export function DatabaseConnectionInfoPanel({
   return (
     <>
       {panelBody(subTab === "connections" ? renderConnectionsTable() : renderVariablesTable())}
-      <FilePreviewSubWindow
-        open={configFileEntry !== null}
-        entry={configFileEntry}
-        connectionId={LOCAL_CONNECTION_ID}
+      <TextEditorSubWindow
+        open={configEditor !== null}
+        title={configEditor?.path.split("/").pop() ?? "my.cnf"}
+        subtitle={configEditor?.path}
+        io={configEditor?.io ?? null}
+        language="text"
         onClose={handleCloseConfig}
-        onSaved={handleConfigSaved}
       />
     </>
   );

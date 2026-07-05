@@ -20,6 +20,7 @@ mod schema_filters;
 mod schema_tree_expanded;
 mod storage;
 mod task;
+mod third_party_account;
 mod vault;
 mod workflow;
 
@@ -73,6 +74,9 @@ pub use schema_tree_expanded::{
 };
 pub use storage::{AuditEntry, Storage};
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
+pub use third_party_account::{
+    ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
+};
 pub use vault::Vault;
 pub use workflow::{
     ExecutionStatus, RiskLevel, SaveStepRequest, SaveWorkflowRequest, StepStatus, StepType,

@@ -311,6 +311,10 @@ fn export_ipc_bindings() {
         commands::skills::skill_remove,
         commands::skills::skill_set_enabled,
         commands::skills::skill_import,
+        // 第三方账户
+        commands::third_party_account::third_party_account_list,
+        commands::third_party_account::third_party_account_upsert,
+        commands::third_party_account::third_party_account_delete,
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
@@ -821,6 +825,10 @@ pub fn run() {
             commands::skills::skill_remove,
             commands::skills::skill_set_enabled,
             commands::skills::skill_import,
+            // 第三方账户
+            commands::third_party_account::third_party_account_list,
+            commands::third_party_account::third_party_account_upsert,
+            commands::third_party_account::third_party_account_delete,
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,

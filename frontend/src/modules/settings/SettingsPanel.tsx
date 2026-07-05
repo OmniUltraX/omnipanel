@@ -54,6 +54,7 @@ import { ModulesSettingsSection } from "../../components/settings/ModulesSetting
 import { AiToolsSection } from "../../components/settings/AiToolsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
+import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/Button";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
@@ -65,7 +66,7 @@ import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
 
-type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "aiTools" | "aiServices" | "security" | "terminal" | "database" | "files" | "protocol" | "knowledge" | "data";
+type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "aiTools" | "aiServices" | "security" | "accounts" | "terminal" | "database" | "files" | "protocol" | "knowledge" | "data";
 
 interface NavItem {
   id: Section;
@@ -150,6 +151,16 @@ const NAV_ITEMS: NavItem[] = [
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
+  {
+    id: "accounts",
+    label: "账户管理",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
       </svg>
     ),
   },
@@ -1412,6 +1423,13 @@ export function SettingsPanel() {
                 <Toggle value={sensitiveMask} onChange={setSensitiveMask} />
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Accounts */}
+        {activeSection === "accounts" && (
+          <div className="settings-panel active">
+            <ThirdPartyAccountsSection />
           </div>
         )}
 

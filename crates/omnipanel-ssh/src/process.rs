@@ -61,6 +61,44 @@ pub struct SshProcessDetail {
 pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null";
 pub const PS_AUX_CMD: &str =
     "COLUMNS=4096 ps aux --no-headers 2>/dev/null || COLUMNS=4096 ps aux | tail -n +2";
+/// 跨 Linux / macOS / BusyBox 的统一进程列表采集脚本（与系统指标脚本一致走 bash）。
+pub const PS_LIST_SCRIPT: &str = r#"/bin/bash -c '
+set +e
+is_darwin() { [ "$(uname -s)" = "Darwin" ]; }
+ps_bin() {
+  if command -v ps >/dev/null 2>&1; then command -v ps
+  elif [ -x /bin/ps ]; then echo /bin/ps
+  elif [ -x /usr/bin/ps ]; then echo /usr/bin/ps
+  else echo ps
+  fi
+}
+PS=$(ps_bin)
+if is_darwin; then
+  COLUMNS=4096 "$PS" aux 2>/dev/null | awk "NR>1"
+  exit 0
+fi
+out=$(COLUMNS=4096 "$PS" -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null)
+if [ -n "$out" ]; then
+  echo "$out"
+  exit 0
+fi
+out=$(COLUMNS=4096 "$PS" aux 2>/dev/null | awk "NR>1")
+if [ -n "$out" ]; then
+  echo "$out"
+  exit 0
+fi
+out=$(COLUMNS=4096 "$PS" -ef 2>/dev/null | awk "NR>1")
+if [ -n "$out" ]; then
+  echo "$out"
+  exit 0
+fi
+out=$(COLUMNS=4096 "$PS" w 2>/dev/null | awk "NR>1")
+if [ -n "$out" ]; then
+  echo "$out"
+  exit 0
+fi
+exit 1
+'"#;
 pub const SS_CMD: &str = "ss -H -lntipe 2>/dev/null";
 pub const SS_CMD_NO_HEADER: &str = "ss -lntipe 2>/dev/null | tail -n +2";
 pub const NETSTAT_CMD: &str = "netstat -tunlp 2>/dev/null || netstat -anp 2>/dev/null";
@@ -236,6 +274,37 @@ pub fn parse_ps_eo_line(line: &str) -> Option<SshProcessInfo> {
     })
 }
 
+/// 解析 `ps -ef` 单行（USER PID PPID C STIME TTY TIME CMD）。
+pub fn parse_ps_ef_line(line: &str) -> Option<SshProcessInfo> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.len() < 8 {
+        return None;
+    }
+    let command = fields[7..].join(" ");
+    if command.is_empty() {
+        return None;
+    }
+    let pid: u32 = fields[1].parse().ok()?;
+    Some(SshProcessInfo {
+        user: fields[0].to_string(),
+        pid,
+        cpu: 0.0,
+        mem: 0.0,
+        vsz: 0,
+        rss: 0,
+        stat: fields[4].to_string(),
+        start: fields[5].to_string(),
+        time: fields[6].to_string(),
+        command,
+        ports: Vec::new(),
+        gpu_usage: None,
+    })
+}
+
 /// 解析 `ps aux` 单行。
 pub fn parse_ps_aux_line(line: &str) -> Option<SshProcessInfo> {
     let line = line.trim();
@@ -283,9 +352,17 @@ pub fn parse_ps_output(output: &str) -> Vec<SshProcessInfo> {
         return eo;
     }
 
-    non_empty
+    let aux: Vec<SshProcessInfo> = non_empty
         .iter()
         .filter_map(|line| parse_ps_aux_line(line))
+        .collect();
+    if !aux.is_empty() {
+        return aux;
+    }
+
+    non_empty
+        .iter()
+        .filter_map(|line| parse_ps_ef_line(line))
         .collect()
 }
 

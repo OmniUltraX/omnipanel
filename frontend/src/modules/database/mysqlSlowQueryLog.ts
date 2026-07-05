@@ -172,6 +172,33 @@ export function isSshConnectionEstablished(sshConnectionId: string): boolean {
   return remotePaneConnected(sshConnectionId);
 }
 
+/** 确保 SSH 连接池或终端会话可用于远程命令执行。 */
+export async function ensureSshReady(sshConnectionId: string): Promise<boolean> {
+  if (isSshConnectionEstablished(sshConnectionId)) {
+    return true;
+  }
+
+  try {
+    const res = await commands.sshPoolFetchStats(sshConnectionId);
+    if (res.status === "ok") {
+      return true;
+    }
+  } catch {
+    // 回退终端连接
+  }
+
+  try {
+    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24);
+    if (res.status === "ok") {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  return isSshConnectionEstablished(sshConnectionId);
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -202,29 +229,7 @@ async function ensureSshSessionForSlowLog(
   _sshConnections: Connection[],
   sshConnectionId: string,
 ): Promise<boolean> {
-  if (isSshConnectionEstablished(sshConnectionId)) {
-    return true;
-  }
-
-  try {
-    const res = await commands.sshPoolFetchStats(sshConnectionId);
-    if (res.status === "ok") {
-      return true;
-    }
-  } catch {
-    // 回退终端连接
-  }
-
-  try {
-    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24);
-    if (res.status === "ok") {
-      return true;
-    }
-  } catch {
-    // ignore
-  }
-
-  return isSshConnectionEstablished(sshConnectionId);
+  return ensureSshReady(sshConnectionId);
 }
 
 function isRemoteMysqlHost(host: string): boolean {

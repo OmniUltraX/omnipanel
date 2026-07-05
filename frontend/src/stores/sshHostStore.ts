@@ -11,6 +11,7 @@ export type HostOverviewState = {
   stats: HostSystemStats | null;
   processes: SshProcessInfo[];
   error: string | null;
+  processError: string | null;
   updatedAt: number | null;
   refreshing: boolean;
 };
@@ -33,6 +34,7 @@ const emptyOverview = (): HostOverviewState => ({
   stats: null,
   processes: [],
   error: null,
+  processError: null,
   updatedAt: null,
   refreshing: false,
 });

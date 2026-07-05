@@ -355,6 +355,21 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE mcp_tools ADD COLUMN external_exposed INTEGER NOT NULL DEFAULT 1;
     UPDATE mcp_tools SET internal_enabled = enabled WHERE internal_enabled IS NULL OR internal_enabled = enabled;
     "#,
+    // v17 — 第三方账户（平台 + 验证方式，凭据存钥匙串）
+    r#"
+    CREATE TABLE IF NOT EXISTS third_party_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        auth_method TEXT NOT NULL,
+        username TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        credential_ref TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_third_party_accounts_platform ON third_party_accounts(platform);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -242,7 +242,7 @@ export async function initAcpServicesStore(): Promise<void> {
     }));
 
   useAcpServicesStore.setState({ services });
-  await useAcpServicesStore.getState().refreshDetection();
+  // 启动时不自动检测本地 CLI Agent，进入设置页或手动刷新时再检测
 }
 
 export function getEnabledAcpServices(services: AcpService[]): AcpService[] {

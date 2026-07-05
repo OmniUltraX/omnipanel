@@ -1033,16 +1033,25 @@ impl SshSession {
 
     /// 仅拉取进程列表（不采集端口，用于快速刷新）。
     pub async fn process_list_fast(&self) -> OmniResult<Vec<SshProcessInfo>> {
-        use crate::process::{PS_AUX_CMD, PS_EO_CMD, parse_ps_output};
+        use crate::process::{parse_ps_output, PS_LIST_SCRIPT, PS_AUX_CMD, PS_EO_CMD};
 
-        let ps_output = match self.exec_command(PS_EO_CMD).await {
-            Ok(out) if !out.trim().is_empty() => out,
-            _ => self.exec_command(PS_AUX_CMD).await.map_err(|e| {
-                OmniError::new(ErrorCode::Ssh, "获取进程列表失败").with_cause(e.to_string())
-            })?,
-        };
+        if let Ok(output) = self.exec_capture(PS_LIST_SCRIPT).await {
+            if !output.stdout.trim().is_empty() {
+                return Ok(parse_ps_output(&output.stdout));
+            }
+        }
 
-        Ok(parse_ps_output(&ps_output))
+        for cmd in [PS_EO_CMD, PS_AUX_CMD] {
+            match self.exec_capture(cmd).await {
+                Ok(output) if !output.stdout.trim().is_empty() => {
+                    return Ok(parse_ps_output(&output.stdout));
+                }
+                _ => continue,
+            }
+        }
+
+        Err(OmniError::new(ErrorCode::Ssh, "获取进程列表失败")
+            .with_cause("远程 ps 命令无输出或不可用"))
     }
 
     /// 通过 `/proc/<pid>` 深入查询启动命令、工作目录、可执行文件和打开文件。

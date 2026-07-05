@@ -34,6 +34,7 @@ export function AdvanceTerminalMonitorStack({
     stats,
     processes,
     error,
+    processError,
     updatedAt,
     refreshing,
     refreshProcesses,
@@ -74,6 +75,7 @@ export function AdvanceTerminalMonitorStack({
           loading={refreshing}
           refreshing={refreshing}
           updatedAt={updatedAt}
+          error={processError ?? error}
           setDetailTab={handleDetailTab}
           onRefresh={refreshProcesses}
           enableTunnels={enableTunnels}

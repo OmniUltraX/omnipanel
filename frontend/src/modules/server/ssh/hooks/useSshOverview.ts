@@ -31,14 +31,21 @@ export function useSshOverview(resourceId: string | null) {
           if (result.status === "ok") {
             setOverview(resourceId, {
               processes: result.data,
+              processError: null,
               updatedAt: Date.now(),
               refreshing: false,
             });
           } else {
-            setOverview(resourceId, { refreshing: false });
+            setOverview(resourceId, {
+              processError: result.error?.message ?? "加载进程列表失败",
+              refreshing: false,
+            });
           }
-        } catch {
-          setOverview(resourceId, { refreshing: false });
+        } catch (e) {
+          setOverview(resourceId, {
+            processError: e instanceof Error ? e.message : String(e),
+            refreshing: false,
+          });
         }
         return;
       }
@@ -57,12 +64,21 @@ export function useSshOverview(resourceId: string | null) {
 
         const processResult = await processesPromise;
         const processOk = processResult.status === "ok";
+        const processErrorMsg = processOk
+          ? null
+          : (processResult.error?.message ?? "加载进程列表失败");
+
         if (processOk) {
           setOverview(resourceId, {
             phase: "ready",
             processes: processResult.data,
-            error: null,
+            processError: null,
             updatedAt: Date.now(),
+            refreshing: true,
+          });
+        } else {
+          setOverview(resourceId, {
+            processError: processErrorMsg,
             refreshing: true,
           });
         }
@@ -82,16 +98,22 @@ export function useSshOverview(resourceId: string | null) {
             phase: "ready",
             stats: statsResult.data,
             error: null,
+            processError: processOk ? null : processErrorMsg,
             updatedAt: Date.now(),
             refreshing: false,
           });
         } else if (processOk) {
-          setOverview(resourceId, { phase: "ready", refreshing: false });
+          setOverview(resourceId, {
+            phase: "ready",
+            processError: null,
+            refreshing: false,
+          });
         } else {
           setOverview(resourceId, {
             error: hasCache
               ? null
-              : (processResult.error?.message ?? statsResult.error?.message ?? "加载概览失败"),
+              : (statsResult.error?.message ?? processErrorMsg ?? "加载概览失败"),
+            processError: processErrorMsg,
             phase: hasCache ? "ready" : "error",
             refreshing: false,
           });
@@ -169,6 +191,7 @@ export function useSshOverview(resourceId: string | null) {
     stats: overview.stats,
     processes: overview.processes,
     error: overview.error,
+    processError: overview.processError,
     updatedAt: overview.updatedAt,
     refreshing: overview.refreshing,
     refresh: () => load(),
