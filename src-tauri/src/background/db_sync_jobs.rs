@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::background::worker_pool::default_worker_count;
 use crate::commands::database::{self, DbColumnMeta, DbIndexMeta};
+use crate::commands::db_sync_diff_cache::{build_row_diff_cache_id, save_row_diff_cache};
 
 const PAGE_SIZE: i64 = 500;
 const MAX_DIFF_DETAIL_ROWS: usize = 100;
@@ -25,7 +26,7 @@ pub struct DbSyncTableSpec {
     pub indexes: Vec<DbIndexMeta>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TableRowDiffPayload {
     pub row_key: String,
@@ -34,8 +35,10 @@ pub struct TableRowDiffPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changed_fields: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(skip)]
     pub source_row: Option<HashMap<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(skip)]
     pub target_row: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -50,6 +53,8 @@ pub struct TableRowCompareEvent {
     pub diffs: Vec<TableRowDiffPayload>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_cache_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -240,6 +245,7 @@ async fn fetch_all_rows(
 }
 
 async fn compare_table_rows(
+    app: &AppHandle,
     source: &DbConnectionConfig,
     target: &DbConnectionConfig,
     table_name: &str,
@@ -294,6 +300,7 @@ async fn compare_table_rows(
                     diff_rows: None,
                     diffs: Vec::new(),
                     truncated: None,
+                    diff_cache_id: None,
                     error: Some("cancelled".to_string()),
                 };
             }
@@ -303,6 +310,7 @@ async fn compare_table_rows(
                 diff_rows: None,
                 diffs: Vec::new(),
                 truncated: None,
+                diff_cache_id: None,
                 error: Some(e),
             };
         }
@@ -315,6 +323,7 @@ async fn compare_table_rows(
             diff_rows: None,
             diffs: Vec::new(),
             truncated: None,
+            diff_cache_id: None,
             error: Some("cancelled".to_string()),
         };
     }
@@ -337,6 +346,7 @@ async fn compare_table_rows(
                 diff_rows: None,
                 diffs: Vec::new(),
                 truncated: None,
+                diff_cache_id: None,
                 error: Some(e),
             };
         }
@@ -356,8 +366,7 @@ async fn compare_table_rows(
         target_map.insert(key, row);
     }
 
-    let mut diffs: Vec<TableRowDiffPayload> = Vec::new();
-    let mut diff_count = 0u32;
+    let mut all_diffs: Vec<TableRowDiffPayload> = Vec::new();
 
     for (key, source_row) in &source_map {
         if cancel.load(Ordering::Relaxed) {
@@ -367,22 +376,20 @@ async fn compare_table_rows(
                 diff_rows: None,
                 diffs: Vec::new(),
                 truncated: None,
+                diff_cache_id: None,
                 error: Some("cancelled".to_string()),
             };
         }
         match target_map.get(key) {
             None => {
-                diff_count += 1;
-                if diffs.len() < MAX_DIFF_DETAIL_ROWS {
-                    diffs.push(TableRowDiffPayload {
-                        row_key: key.clone(),
-                        display_key: format_row_display_key(source_row, &pk_columns, &all_column_names),
-                        kind: "sourceOnly".to_string(),
-                        changed_fields: None,
-                        source_row: Some(source_row.clone()),
-                        target_row: None,
-                    });
-                }
+                all_diffs.push(TableRowDiffPayload {
+                    row_key: key.clone(),
+                    display_key: format_row_display_key(source_row, &pk_columns, &all_column_names),
+                    kind: "sourceOnly".to_string(),
+                    changed_fields: None,
+                    source_row: Some(source_row.clone()),
+                    target_row: None,
+                });
             }
             Some(target_row) => {
                 let mut changed: Vec<String> = Vec::new();
@@ -394,21 +401,18 @@ async fn compare_table_rows(
                     }
                 }
                 if !changed.is_empty() {
-                    diff_count += 1;
-                    if diffs.len() < MAX_DIFF_DETAIL_ROWS {
-                        diffs.push(TableRowDiffPayload {
-                            row_key: key.clone(),
-                            display_key: format_row_display_key(
-                                source_row,
-                                &pk_columns,
-                                &all_column_names,
-                            ),
-                            kind: "changed".to_string(),
-                            changed_fields: Some(changed),
-                            source_row: Some(source_row.clone()),
-                            target_row: Some(target_row.clone()),
-                        });
-                    }
+                    all_diffs.push(TableRowDiffPayload {
+                        row_key: key.clone(),
+                        display_key: format_row_display_key(
+                            source_row,
+                            &pk_columns,
+                            &all_column_names,
+                        ),
+                        kind: "changed".to_string(),
+                        changed_fields: Some(changed),
+                        source_row: Some(source_row.clone()),
+                        target_row: Some(target_row.clone()),
+                    });
                 }
             }
         }
@@ -422,24 +426,24 @@ async fn compare_table_rows(
                 diff_rows: None,
                 diffs: Vec::new(),
                 truncated: None,
+                diff_cache_id: None,
                 error: Some("cancelled".to_string()),
             };
         }
         if source_map.contains_key(key) {
             continue;
         }
-        diff_count += 1;
-        if diffs.len() < MAX_DIFF_DETAIL_ROWS {
-            diffs.push(TableRowDiffPayload {
-                row_key: key.clone(),
-                display_key: format_row_display_key(target_row, &pk_columns, &all_column_names),
-                kind: "targetOnly".to_string(),
-                changed_fields: None,
-                source_row: None,
-                target_row: Some(target_row.clone()),
-            });
-        }
+        all_diffs.push(TableRowDiffPayload {
+            row_key: key.clone(),
+            display_key: format_row_display_key(target_row, &pk_columns, &all_column_names),
+            kind: "targetOnly".to_string(),
+            changed_fields: None,
+            source_row: None,
+            target_row: Some(target_row.clone()),
+        });
     }
+
+    let diff_count = all_diffs.len() as u32;
 
     if diff_count == 0 {
         report_rows(row_total, row_total);
@@ -449,16 +453,31 @@ async fn compare_table_rows(
             diff_rows: Some(0),
             diffs: Vec::new(),
             truncated: None,
+            diff_cache_id: None,
             error: None,
         }
     } else {
         report_rows(row_total, row_total);
+        let cache_id = build_row_diff_cache_id(source, target, table_name);
+        let diff_cache_id = match save_row_diff_cache(app, &cache_id, table_name, &all_diffs) {
+            Ok(()) => Some(cache_id),
+            Err(e) => {
+                eprintln!("[db_sync] 保存行差异缓存失败: {e}");
+                None
+            }
+        };
+        let preview: Vec<TableRowDiffPayload> = all_diffs
+            .iter()
+            .take(MAX_DIFF_DETAIL_ROWS)
+            .cloned()
+            .collect();
         TableRowCompareEvent {
             table: table_name.to_string(),
             status: "diff".to_string(),
             diff_rows: Some(diff_count),
-            diffs,
+            diffs: preview,
             truncated: Some(diff_count as usize > MAX_DIFF_DETAIL_ROWS),
+            diff_cache_id,
             error: None,
         }
     }
@@ -688,6 +707,7 @@ pub async fn run_db_data_sync_analysis(
         );
 
         let row_result = compare_table_rows(
+            &app,
             &source,
             &target,
             &table,

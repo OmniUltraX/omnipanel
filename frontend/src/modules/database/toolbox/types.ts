@@ -63,6 +63,8 @@ export interface DataAnalysisResult {
   diffs?: TableRowDiff[];
   /** 差异行数超过展示上限时为 true */
   truncated?: boolean;
+  /** 本地差异缓存 ID（分析完成后写入 app_data，详情面板分页读取） */
+  diffCacheId?: string;
   /** 错误信息（status === "error" 时） */
   error?: string;
 }

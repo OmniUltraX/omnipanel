@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
@@ -23,6 +22,7 @@ import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
 import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
 import { DeploymentConfigEditorSubWindow } from "./DeploymentConfigEditorSubWindow";
 import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
+import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 
 type ConnectionInfoSubTab = "connections" | "status";
@@ -662,17 +662,13 @@ export function RedisConnectionInfoPanel({
         <div className="db-tables-panel-grid-wrap">{content}</div>
       </div>
       <div className="db-tables-panel-meta">
-        <Button
-          variant="secondary"
-          size="sm"
+        <DbPanelMetaRefreshButton
           onClick={() => {
             void refreshActiveTab();
             void refreshDeployment();
           }}
           disabled={tabLoading || deploymentLoading || !capable}
-        >
-          {t("database.sidebar.refresh")}
-        </Button>
+        />
         <span className="db-tables-panel-meta-text">
           {tabLoading
             ? t("common.loading")

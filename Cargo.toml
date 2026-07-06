@@ -43,7 +43,7 @@ thiserror = "2"
 async-trait = "0.1"
 
 # IPC type generation
-specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
 
 # Protocol Lab
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "cookies"], default-features = false }

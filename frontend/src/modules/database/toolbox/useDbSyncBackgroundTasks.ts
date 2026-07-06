@@ -37,6 +37,7 @@ export interface BgTaskDbEventPayload {
       targetRow?: Record<string, unknown> | null;
     }>;
     truncated?: boolean | null;
+    diffCacheId?: string | null;
     error?: string | null;
   } | null;
   schemaResult?: {
@@ -123,6 +124,7 @@ export function useDbSyncBackgroundTaskEvents({
             targetRow: d.targetRow ?? undefined,
           })),
           truncated: row.truncated ?? undefined,
+          diffCacheId: row.diffCacheId ?? undefined,
         });
         return;
       }

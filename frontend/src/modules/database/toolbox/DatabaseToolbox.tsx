@@ -2283,16 +2283,6 @@ export function DatabaseToolbox({
     schemaCreateMissingTables,
   ]);
 
-  const conflictDetailSourceConn = useMemo(() => {
-    const conn = connections.find((c) => c.id === sourceConnId);
-    return conn && sourceDb.trim() ? connectionWithDatabase(conn, sourceDb) : undefined;
-  }, [connections, sourceConnId, sourceDb]);
-
-  const conflictDetailTargetConn = useMemo(() => {
-    const conn = connections.find((c) => c.id === targetConnId);
-    return conn && targetDb.trim() ? connectionWithDatabase(conn, targetDb) : undefined;
-  }, [connections, targetConnId, targetDb]);
-
   useEffect(() => {
     if (!active || !canPersistTask) {
       return;
@@ -2728,8 +2718,6 @@ export function DatabaseToolbox({
             tableName={conflictDetailTable}
             analysis={tableAnalysis[conflictDetailTable]}
             columns={sourceTableColumns[conflictDetailTable] ?? []}
-            sourceConn={conflictDetailSourceConn}
-            targetConn={conflictDetailTargetConn}
           />
         ) : null}
       </SubWindow>

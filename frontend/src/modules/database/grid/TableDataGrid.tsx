@@ -70,6 +70,7 @@ import {
   ROW_NUM_COL_ID,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
+import { buildColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
   applyColumnWidthDom,
@@ -1332,6 +1333,11 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
+  const columnLayout = useMemo(
+    () => buildColumnVirtualizationLayout(leafColumns, transposed, [], [], 0),
+    [leafColumns, transposed],
+  );
+
   const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
     return {
       transposed,
@@ -1346,6 +1352,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta,
       leafColumnCount,
       columnSizedIds,
+      columnLayout,
     };
   }, [
     transposed,
@@ -1360,6 +1367,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     fillDelta,
     leafColumnCount,
     columnSizedIds,
+    columnLayout,
   ]);
 
   const resolveBodyCellContext = useCallback(

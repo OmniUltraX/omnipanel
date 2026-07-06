@@ -72,6 +72,8 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                     dbName: tab.dbName,
                     connection,
                   }}
+                  onDesignTable={overriddenCtx.openTableDesigner}
+                  onOpenTableData={overriddenCtx.selectTable}
                 />
               );
             })()

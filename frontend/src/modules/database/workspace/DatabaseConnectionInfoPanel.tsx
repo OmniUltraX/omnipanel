@@ -27,6 +27,7 @@ import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
 import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
 import { DeploymentConfigEditorSubWindow } from "./DeploymentConfigEditorSubWindow";
 import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
+import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
@@ -769,17 +770,13 @@ export function DatabaseConnectionInfoPanel({
         <div className="db-tables-panel-grid-wrap">{content}</div>
       </div>
       <div className="db-tables-panel-meta">
-        <Button
-          variant="secondary"
-          size="sm"
+        <DbPanelMetaRefreshButton
           onClick={() => {
             void refreshActiveTab();
             void refreshDeployment();
           }}
           disabled={tabLoading || deploymentLoading || !capable}
-        >
-          {t("database.sidebar.refresh")}
-        </Button>
+        />
         <span className="db-tables-panel-meta-text">
           {tabLoading
             ? t("common.loading")

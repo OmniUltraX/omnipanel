@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../../components/ui/Button";
 import { useI18n } from "../../../i18n";
 import { DataLoading } from "../../../components/ui/DataLoading";
-import type { DbColumnMeta, DbConnectionConfig } from "../api";
-import { fetchAllTableRowDiffs } from "./rowDiff";
+import type { DbColumnMeta } from "../api";
+import { fetchRowDiffPage } from "./rowDiffCache";
 import type { DataAnalysisResult, TableRowDiff } from "./types";
 
 const ROW_DIFF_PAGE_SIZE = 50;
@@ -32,113 +32,114 @@ function rowDiffKindLabel(
   return t("database.toolbox.side.rowDiffTargetOnly");
 }
 
-function needsFullDiffFetch(analysis: DataAnalysisResult): boolean {
-  const previewCount = analysis.diffs?.length ?? 0;
-  const total = analysis.diffRows ?? previewCount;
-  return Boolean(analysis.truncated) || total > previewCount;
+function useInlineDiffs(analysis: DataAnalysisResult | undefined): TableRowDiff[] {
+  return useMemo(() => {
+    if (analysis?.status !== "diff") {
+      return [];
+    }
+    if (analysis.diffCacheId) {
+      return [];
+    }
+    if (analysis.truncated) {
+      return [];
+    }
+    return analysis.diffs ?? [];
+  }, [analysis]);
 }
 
 export function TableRowDiffPanel({
   tableName,
   analysis,
   columns,
-  sourceConn,
-  targetConn,
 }: {
   tableName: string;
   analysis?: DataAnalysisResult;
   columns: DbColumnMeta[];
-  sourceConn?: DbConnectionConfig;
-  targetConn?: DbConnectionConfig;
 }) {
   const { t } = useI18n();
   const [page, setPage] = useState(0);
   const [kindFilters, setKindFilters] = useState<RowDiffKind[]>(ALL_ROW_DIFF_KINDS);
-  const [fullDiffs, setFullDiffs] = useState<TableRowDiff[] | null>(null);
-  const [fullDiffsLoading, setFullDiffsLoading] = useState(false);
-  const [fullDiffsError, setFullDiffsError] = useState<string | null>(null);
+  const [pageDiffs, setPageDiffs] = useState<TableRowDiff[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+
+  const cacheId = analysis?.diffCacheId;
+  const inlineDiffs = useInlineDiffs(analysis);
+  const useCache = Boolean(cacheId && analysis?.status === "diff");
 
   useEffect(() => {
     setPage(0);
     setKindFilters(ALL_ROW_DIFF_KINDS);
-    setFullDiffs(null);
-    setFullDiffsError(null);
-    setFullDiffsLoading(false);
-  }, [tableName, analysis?.diffs, analysis?.diffRows, analysis?.truncated]);
+    setPageDiffs([]);
+    setTotalRows(0);
+    setPageError(null);
+    setPageLoading(false);
+  }, [tableName, cacheId, analysis?.status, analysis?.diffRows]);
 
-  const columnKey = useMemo(() => columns.map((col) => col.name).join("\0"), [columns]);
-
-  const shouldFetchAll = useMemo(
-    () =>
-      analysis?.status === "diff" &&
-      needsFullDiffFetch(analysis) &&
-      Boolean(sourceConn && targetConn && columns.length > 0),
-    [analysis, sourceConn, targetConn, columns.length],
-  );
+  const kindFilterKey = kindFilters.slice().sort().join(",");
 
   useEffect(() => {
-    if (!shouldFetchAll || !sourceConn || !targetConn || columns.length === 0) {
-      setFullDiffsLoading(false);
+    if (!useCache || !cacheId) {
       return;
     }
 
     let cancelled = false;
-    setFullDiffsLoading(true);
-    setFullDiffsError(null);
+    setPageLoading(true);
+    setPageError(null);
 
-    void fetchAllTableRowDiffs(sourceConn, targetConn, tableName, columns)
+    const kinds =
+      kindFilters.length > 0 && kindFilters.length < ALL_ROW_DIFF_KINDS.length
+        ? kindFilters
+        : undefined;
+
+    void fetchRowDiffPage(cacheId, page * ROW_DIFF_PAGE_SIZE, ROW_DIFF_PAGE_SIZE, kinds)
       .then((result) => {
         if (cancelled) return;
-        if (result.status === "match") {
-          setFullDiffs([]);
-          return;
-        }
-        setFullDiffs(result.diffs);
+        setPageDiffs(result.diffs);
+        setTotalRows(result.total);
       })
       .catch((error) => {
         if (cancelled) return;
-        setFullDiffsError(String(error));
-        setFullDiffs(null);
+        setPageError(String(error));
+        setPageDiffs([]);
+        setTotalRows(0);
       })
       .finally(() => {
         if (!cancelled) {
-          setFullDiffsLoading(false);
+          setPageLoading(false);
         }
       });
 
     return () => {
       cancelled = true;
-      setFullDiffsLoading(false);
     };
-  }, [shouldFetchAll, sourceConn, targetConn, tableName, columnKey, columns]);
+  }, [useCache, cacheId, page, kindFilterKey, kindFilters]);
 
-  const allDiffs = useMemo(() => {
-    if (analysis?.status !== "diff") {
-      return [];
-    }
-    if (fullDiffs !== null) {
-      return fullDiffs;
-    }
-    if (shouldFetchAll) {
-      return [];
-    }
-    return analysis.diffs ?? [];
-  }, [analysis, fullDiffs, shouldFetchAll]);
-
-  const filteredDiffs = useMemo(() => {
+  const filteredInlineDiffs = useMemo(() => {
     if (kindFilters.length === 0) {
       return [];
     }
     if (kindFilters.length >= ALL_ROW_DIFF_KINDS.length) {
-      return allDiffs;
+      return inlineDiffs;
     }
     const allowed = new Set(kindFilters);
-    return allDiffs.filter((diff) => allowed.has(diff.kind));
-  }, [allDiffs, kindFilters]);
+    return inlineDiffs.filter((diff) => allowed.has(diff.kind));
+  }, [inlineDiffs, kindFilters]);
 
-  const totalRows = filteredDiffs.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / ROW_DIFF_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages - 1);
+  const inlineTotalRows = filteredInlineDiffs.length;
+  const inlineTotalPages = Math.max(1, Math.ceil(inlineTotalRows / ROW_DIFF_PAGE_SIZE));
+  const inlineSafePage = Math.min(page, inlineTotalPages - 1);
+
+  const inlinePageDiffs = useMemo(() => {
+    const start = inlineSafePage * ROW_DIFF_PAGE_SIZE;
+    return filteredInlineDiffs.slice(start, start + ROW_DIFF_PAGE_SIZE);
+  }, [filteredInlineDiffs, inlineSafePage]);
+
+  const displayDiffs = useCache ? pageDiffs : inlinePageDiffs;
+  const displayTotalRows = useCache ? totalRows : inlineTotalRows;
+  const totalPages = Math.max(1, Math.ceil(displayTotalRows / ROW_DIFF_PAGE_SIZE));
+  const safePage = useCache ? Math.min(page, totalPages - 1) : inlineSafePage;
 
   useEffect(() => {
     if (safePage !== page) {
@@ -146,13 +147,8 @@ export function TableRowDiffPanel({
     }
   }, [safePage, page]);
 
-  const pageDiffs = useMemo(() => {
-    const start = safePage * ROW_DIFF_PAGE_SIZE;
-    return filteredDiffs.slice(start, start + ROW_DIFF_PAGE_SIZE);
-  }, [filteredDiffs, safePage]);
-
-  const showingFrom = totalRows === 0 ? 0 : safePage * ROW_DIFF_PAGE_SIZE + 1;
-  const showingTo = Math.min((safePage + 1) * ROW_DIFF_PAGE_SIZE, totalRows);
+  const showingFrom = displayTotalRows === 0 ? 0 : safePage * ROW_DIFF_PAGE_SIZE + 1;
+  const showingTo = Math.min((safePage + 1) * ROW_DIFF_PAGE_SIZE, displayTotalRows);
 
   const toggleKindFilter = useCallback((kind: RowDiffKind) => {
     setKindFilters((prev) =>
@@ -169,18 +165,10 @@ export function TableRowDiffPanel({
     );
   }
 
-  if (analysis.status === "analyzing" || fullDiffsLoading) {
+  if (analysis.status === "analyzing") {
     return (
       <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--loading">
-        <DataLoading
-          total={1}
-          current={0}
-          message={
-            fullDiffsLoading
-              ? t("database.toolbox.side.rowDiffLoadingAll")
-              : t("database.toolbox.side.analysisAnalyzing")
-          }
-        />
+        <DataLoading total={1} current={0} message={t("database.toolbox.side.analysisAnalyzing")} />
       </div>
     );
   }
@@ -193,18 +181,30 @@ export function TableRowDiffPanel({
     );
   }
 
-  if (fullDiffsError) {
+  if (pageError) {
     return (
       <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--error">
-        {fullDiffsError}
+        {pageError}
       </div>
     );
   }
 
-  if (analysis.status === "match" || allDiffs.length === 0) {
+  const hasAnyDiff =
+    analysis.status === "diff" &&
+    ((analysis.diffRows ?? 0) > 0 || (analysis.diffs?.length ?? 0) > 0);
+
+  if (analysis.status === "match" || !hasAnyDiff) {
     return (
       <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--empty">
         {t("database.toolbox.side.rowDiffNoDetail", { table: tableName })}
+      </div>
+    );
+  }
+
+  if (analysis.truncated && !cacheId) {
+    return (
+      <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--empty">
+        {t("database.toolbox.side.rowDiffCacheMissing")}
       </div>
     );
   }
@@ -233,7 +233,11 @@ export function TableRowDiffPanel({
         </fieldset>
       </div>
 
-      {filteredDiffs.length === 0 ? (
+      {pageLoading ? (
+        <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--loading">
+          <DataLoading total={1} current={0} message={t("database.toolbox.side.rowDiffLoadingPage")} />
+        </div>
+      ) : displayTotalRows === 0 ? (
         <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--empty db-toolbox-row-diff-panel__filter-empty">
           {t("database.toolbox.side.rowDiffKindFilterNoMatch")}
         </div>
@@ -251,7 +255,7 @@ export function TableRowDiffPanel({
                 </tr>
               </thead>
               <tbody>
-                {pageDiffs.map((diff) => {
+                {displayDiffs.map((diff) => {
                   const kindLabel = rowDiffKindLabel(diff.kind, t);
 
                   return (
@@ -303,7 +307,7 @@ export function TableRowDiffPanel({
                 {t("database.toolbox.side.rowDiffPageInfo", {
                   from: showingFrom.toLocaleString(),
                   to: showingTo.toLocaleString(),
-                  total: totalRows.toLocaleString(),
+                  total: displayTotalRows.toLocaleString(),
                 })}
               </span>
             </div>
@@ -311,7 +315,7 @@ export function TableRowDiffPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={safePage <= 0}
+                disabled={safePage <= 0 || pageLoading}
                 onClick={() => setPage(0)}
                 title={t("database.results.paginationFirst")}
                 aria-label={t("database.results.paginationFirst")}
@@ -321,7 +325,7 @@ export function TableRowDiffPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={safePage <= 0}
+                disabled={safePage <= 0 || pageLoading}
                 onClick={() => setPage((prev) => Math.max(0, prev - 1))}
                 title={t("database.results.paginationPrev")}
                 aria-label={t("database.results.paginationPrev")}
@@ -334,7 +338,7 @@ export function TableRowDiffPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={safePage >= totalPages - 1}
+                disabled={safePage >= totalPages - 1 || pageLoading}
                 onClick={() => setPage((prev) => Math.min(totalPages - 1, prev + 1))}
                 title={t("database.results.paginationNext")}
                 aria-label={t("database.results.paginationNext")}
@@ -344,7 +348,7 @@ export function TableRowDiffPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={safePage >= totalPages - 1}
+                disabled={safePage >= totalPages - 1 || pageLoading}
                 onClick={() => setPage(totalPages - 1)}
                 title={t("database.results.paginationLast")}
                 aria-label={t("database.results.paginationLast")}

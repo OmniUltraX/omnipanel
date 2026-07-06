@@ -4357,6 +4357,9 @@ export function DatabasePanel() {
                   <DatabaseTablesPanel
                     selection={selection}
                     onDesignTable={handleDesignTable}
+                    onOpenTableData={(tableSelection) =>
+                      handleSelectTable(tableSelection, "preview")
+                    }
                   />
                 </div>
               );

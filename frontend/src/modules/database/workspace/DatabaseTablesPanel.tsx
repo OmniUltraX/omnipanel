@@ -15,16 +15,32 @@ import {
   formatTableDataSummary,
 } from "./databaseTablesPanelFormat";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
+import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
+import {
+  readTableDetailsCacheMap,
+  writeTableDetailsCache,
+} from "./tableDetailsCache";
+import {
+  clearTableDdlCacheForDatabase,
+  readTableDdlCache,
+  writeTableDdlCache,
+} from "./tableDdlCache";
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
   onDesignTable?: (selection: SchemaTableSelection) => void;
+  onOpenTableData?: (selection: SchemaTableSelection) => void;
 }
 
 type TableDetailEntry =
   | { status: "loading" }
   | { status: "loaded"; details: DbTableDetails }
   | { status: "error" };
+
+type TableDdlEntry =
+  | { status: "loading" }
+  | { status: "loaded"; ddl: string }
+  | { status: "error"; message: string };
 
 type TablesPanelSortColumn = "name" | "data";
 type TablesPanelSortDirection = "asc" | "desc";
@@ -117,18 +133,18 @@ function resolveDetailCell(
 export function DatabaseTablesPanel({
   selection,
   onDesignTable,
+  onOpenTableData,
 }: DatabaseTablesPanelProps) {
   const { t } = useI18n();
   const hydrateSchemaCache = useDbSchemaCacheStore((s) => s.hydrate);
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const [search, setSearch] = useState("");
-  const [selectedTableName, setSelectedTableName] = useState<string | null>(null);
   const [detailsByTable, setDetailsByTable] = useState<Record<string, TableDetailEntry>>({});
-  const [ddl, setDdl] = useState("");
-  const [ddlLoading, setDdlLoading] = useState(false);
-  const [ddlError, setDdlError] = useState<string | null>(null);
+  const [ddlByTable, setDdlByTable] = useState<Record<string, TableDdlEntry>>({});
+  const [selectedTableName, setSelectedTableName] = useState<string | null>(null);
   const [sort, setSort] = useState<TablesPanelSortState>({ column: "name", direction: "asc" });
+  const [detailsRefreshing, setDetailsRefreshing] = useState(false);
 
   useEffect(() => {
     if (!cacheHydrated) {
@@ -140,8 +156,7 @@ export function DatabaseTablesPanel({
     setSearch("");
     setSelectedTableName(null);
     setDetailsByTable({});
-    setDdl("");
-    setDdlError(null);
+    setDdlByTable({});
     setSort({ column: "name", direction: "asc" });
   }, [selection.connId, selection.dbName]);
 
@@ -192,81 +207,156 @@ export function DatabaseTablesPanel({
     });
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tableNames = filteredTables;
-    setDetailsByTable(() => {
-      const next: Record<string, TableDetailEntry> = {};
-      for (const name of tableNames) {
-        next[name] = { status: "loading" };
+  const loadTableDetails = useCallback(
+    async (tableNames: string[], options?: { force?: boolean }) => {
+      if (tableNames.length === 0) {
+        return;
       }
-      return next;
-    });
 
-    void mapWithConcurrency(tableNames, DETAILS_FETCH_CONCURRENCY, async (tableName) => {
-      try {
-        const details = await fetchTableDetails(
-          selection.connection,
-          selection.dbName,
-          tableName,
-        );
-        if (!cancelled) {
+      const force = options?.force ?? false;
+      const cachedMap = force
+        ? {}
+        : readTableDetailsCacheMap(
+            selection.connId,
+            selection.dbName,
+            tableNames,
+            selection.connection,
+          );
+
+      const toFetch = force
+        ? tableNames
+        : tableNames.filter((tableName) => !cachedMap[tableName]);
+
+      setDetailsByTable((prev) => {
+        const next = { ...prev };
+        for (const tableName of tableNames) {
+          const cached = cachedMap[tableName];
+          if (cached) {
+            next[tableName] = { status: "loaded", details: cached };
+          } else if (force || !next[tableName] || next[tableName].status !== "loaded") {
+            next[tableName] = { status: "loading" };
+          }
+        }
+        return next;
+      });
+
+      if (toFetch.length === 0) {
+        return;
+      }
+
+      await mapWithConcurrency(toFetch, DETAILS_FETCH_CONCURRENCY, async (tableName) => {
+        try {
+          const details = await fetchTableDetails(
+            selection.connection,
+            selection.dbName,
+            tableName,
+          );
+          writeTableDetailsCache(
+            selection.connId,
+            selection.dbName,
+            tableName,
+            selection.connection,
+            details,
+          );
           setDetailsByTable((prev) => ({
             ...prev,
             [tableName]: { status: "loaded", details },
           }));
-        }
-      } catch {
-        if (!cancelled) {
+        } catch {
           setDetailsByTable((prev) => ({
             ...prev,
             [tableName]: { status: "error" },
           }));
         }
-      }
-    });
+      });
+    },
+    [selection.connId, selection.connection, selection.dbName],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [filteredTables, selection.connection, selection.dbName]);
+  const loadTableDdl = useCallback(
+    async (tableName: string, options?: { force?: boolean }) => {
+      const force = options?.force ?? false;
+      if (!force) {
+        const cached = readTableDdlCache(
+          selection.connId,
+          selection.dbName,
+          tableName,
+          selection.connection,
+        );
+        if (cached) {
+          setDdlByTable((prev) => ({
+            ...prev,
+            [tableName]: { status: "loaded", ddl: cached },
+          }));
+          return;
+        }
+      }
+
+      setDdlByTable((prev) => ({
+        ...prev,
+        [tableName]: { status: "loading" },
+      }));
+
+      try {
+        const raw = await fetchTableDdl(selection.connection, selection.dbName, tableName);
+        const formatted = formatSqlDdl(raw, selection.connection.db_type);
+        writeTableDdlCache(
+          selection.connId,
+          selection.dbName,
+          tableName,
+          selection.connection,
+          formatted,
+        );
+        setDdlByTable((prev) => ({
+          ...prev,
+          [tableName]: { status: "loaded", ddl: formatted },
+        }));
+      } catch (err) {
+        setDdlByTable((prev) => ({
+          ...prev,
+          [tableName]: { status: "error", message: String(err) },
+        }));
+      }
+    },
+    [selection.connId, selection.connection, selection.dbName],
+  );
+
+  const handleRefreshDetails = useCallback(async () => {
+    if (tables.length === 0) {
+      return;
+    }
+    setDetailsRefreshing(true);
+    try {
+      clearTableDdlCacheForDatabase(selection.connId, selection.dbName);
+      setDdlByTable({});
+      await loadTableDetails(tables, { force: true });
+      if (selectedTableName) {
+        await loadTableDdl(selectedTableName, { force: true });
+      }
+    } finally {
+      setDetailsRefreshing(false);
+    }
+  }, [loadTableDetails, loadTableDdl, selectedTableName, selection.connId, selection.dbName, tables]);
+
+  useEffect(() => {
+    if (tables.length === 0) {
+      setDetailsByTable({});
+      return;
+    }
+    void loadTableDetails(tables);
+  }, [loadTableDetails, tables]);
 
   useEffect(() => {
     if (!selectedTableName) {
-      setDdl("");
-      setDdlError(null);
-      setDdlLoading(false);
       return;
     }
+    void loadTableDdl(selectedTableName);
+  }, [loadTableDdl, selectedTableName]);
 
-    let cancelled = false;
-    setDdlLoading(true);
-    setDdlError(null);
-    setDdl("");
-
-    void fetchTableDdl(selection.connection, selection.dbName, selectedTableName)
-      .then((raw) => {
-        if (cancelled) {
-          return;
-        }
-        setDdl(formatSqlDdl(raw, selection.connection.db_type));
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return;
-        }
-        setDdlError(String(err));
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDdlLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedTableName, selection.connection, selection.dbName]);
+  const selectedDdlEntry = selectedTableName ? ddlByTable[selectedTableName] : undefined;
+  const ddl = selectedDdlEntry?.status === "loaded" ? selectedDdlEntry.ddl : "";
+  const ddlLoading = selectedDdlEntry?.status === "loading";
+  const ddlError = selectedDdlEntry?.status === "error" ? selectedDdlEntry.message : null;
 
   const handleDesignTable = useCallback(
     (tableName: string) => {
@@ -280,7 +370,20 @@ export function DatabaseTablesPanel({
     [onDesignTable, selection.connId, selection.dbName, selection.connection],
   );
 
+  const handleOpenTableData = useCallback(
+    (tableName: string) => {
+      onOpenTableData?.({
+        connId: selection.connId,
+        dbName: selection.dbName,
+        tableName,
+        connection: selection.connection,
+      });
+    },
+    [onOpenTableData, selection.connId, selection.dbName, selection.connection],
+  );
+
   const canDesign = Boolean(onDesignTable) && supportsTableDesign(selection.connection);
+  const canOpenTableData = Boolean(onOpenTableData);
 
   const handleCopyDdl = useCallback(async () => {
     if (!ddl || ddlLoading || ddlError) {
@@ -421,34 +524,55 @@ export function DatabaseTablesPanel({
       },
     ];
 
-    if (canDesign) {
+    if (canDesign || canOpenTableData) {
       cols.push({
-        id: "design",
+        id: "actions",
         variant: "actions",
         header: null,
-        headerAriaLabel: t("database.contextMenu.designTable"),
+        headerAriaLabel: t("database.tablesPanel.actions"),
         render: (tableName) => (
-          <button
-            type="button"
-            className="btn-icon db-tables-panel-design-btn"
-            title={t("database.contextMenu.designTable")}
-            aria-label={t("database.contextMenu.designTable")}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleDesignTable(tableName);
-            }}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-              <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-              <path d="M5 8h6M8 5v6" />
-            </svg>
-          </button>
+          <div className="db-tables-panel-row-actions">
+            {canOpenTableData ? (
+              <button
+                type="button"
+                className="btn-icon db-tables-panel-data-btn"
+                title={t("database.contextMenu.viewTableData")}
+                aria-label={t("database.contextMenu.viewTableData")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenTableData(tableName);
+                }}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M2.5 6h11M2.5 9.5h11M6 2.5v11M10 2.5v11" />
+                </svg>
+              </button>
+            ) : null}
+            {canDesign ? (
+              <button
+                type="button"
+                className="btn-icon db-tables-panel-design-btn"
+                title={t("database.contextMenu.designTable")}
+                aria-label={t("database.contextMenu.designTable")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDesignTable(tableName);
+                }}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M5 8h6M8 5v6" />
+                </svg>
+              </button>
+            ) : null}
+          </div>
         ),
       });
     }
 
     return cols;
-  }, [canDesign, detailsByTable, handleDesignTable, loadingLabel, t, tableComments]);
+  }, [canDesign, canOpenTableData, detailsByTable, handleDesignTable, handleOpenTableData, loadingLabel, t, tableComments]);
 
   return (
     <ScopedSearch
@@ -528,10 +652,17 @@ export function DatabaseTablesPanel({
       </div>
 
       <div className="db-tables-panel-meta">
+        <DbPanelMetaRefreshButton
+          onClick={() => void handleRefreshDetails()}
+          disabled={!cacheReady || tables.length === 0}
+          busy={detailsRefreshing}
+        />
         <span className="db-tables-panel-meta-text">
           {!cacheReady
             ? t("database.tablesPanel.cacheEmpty")
-            : t("database.tablesPanel.count", { count: tableCount })}
+            : detailsRefreshing
+              ? t("common.loading")
+              : t("database.tablesPanel.count", { count: tableCount })}
         </span>
       </div>
     </ScopedSearch>

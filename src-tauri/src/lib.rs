@@ -291,6 +291,7 @@ fn export_ipc_bindings() {
         commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
+        commands::db_sync_diff_cache::db_sync_row_diff_page,
         commands::mcp_tool::mcp_tool_list,
         commands::mcp_tool::mcp_tool_set_enabled,
         commands::mcp_tool::mcp_tool_set_internal_enabled,
@@ -802,7 +803,7 @@ pub fn run() {
         commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
-            // MCP 工具配置
+            commands::db_sync_diff_cache::db_sync_row_diff_page,
             commands::mcp_tool::mcp_tool_list,
             commands::mcp_tool::mcp_tool_set_enabled,
             commands::mcp_tool::mcp_tool_set_internal_enabled,

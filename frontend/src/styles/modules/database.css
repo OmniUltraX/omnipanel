@@ -608,6 +608,15 @@
         text-align: right;
     }
 
+    .db-tables-panel-meta-refresh-btn {
+        flex-shrink: 0;
+        color: var(--meta);
+    }
+
+    .db-tables-panel-meta-refresh-btn:not(:disabled):hover {
+        color: var(--accent);
+    }
+
     .db-connection-info-deploy {
         display: flex;
         align-items: center;
@@ -941,13 +950,23 @@
         background: var(--surface-hover, rgba(255, 255, 255, 0.03));
     }
 
-    .db-tables-panel-grid .db-tables-panel-design-btn {
+    .db-tables-panel-grid .db-tables-panel-design-btn,
+    .db-tables-panel-grid .db-tables-panel-data-btn {
         opacity: 0.55;
     }
 
     .db-tables-panel-grid tbody tr:hover .db-tables-panel-design-btn,
-    .db-tables-panel-grid tbody tr.is-selected .db-tables-panel-design-btn {
+    .db-tables-panel-grid tbody tr:hover .db-tables-panel-data-btn,
+    .db-tables-panel-grid tbody tr.is-selected .db-tables-panel-design-btn,
+    .db-tables-panel-grid tbody tr.is-selected .db-tables-panel-data-btn {
         opacity: 1;
+    }
+
+    .db-tables-panel-row-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 2px;
     }
 
     .db-tables-panel-ddl {

@@ -173,19 +173,3 @@ export async function compareTableRows(
   );
   return buildTableRowDiffs(sourceMap, targetMap, pkColumns, allColumnNames, MAX_DIFF_DETAIL_ROWS);
 }
-
-/** 冲突详情：加载全部差异行（不截断） */
-export async function fetchAllTableRowDiffs(
-  sourceConn: DbConnectionConfig,
-  targetConn: DbConnectionConfig,
-  tableName: string,
-  columns: DbColumnMeta[],
-): Promise<TableRowCompareResult> {
-  const { sourceMap, targetMap, pkColumns, allColumnNames } = await loadTableRowCompareMaps(
-    sourceConn,
-    targetConn,
-    tableName,
-    columns,
-  );
-  return buildTableRowDiffs(sourceMap, targetMap, pkColumns, allColumnNames, null);
-}
