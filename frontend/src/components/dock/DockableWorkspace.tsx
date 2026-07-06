@@ -41,7 +41,7 @@ import {
   DockTabHeaderRuntimeContext,
   type DockTabHeaderRuntime,
 } from "./dockTabHeaderRuntime";
-import { TopbarTabAddButton } from "../ui/layout/TopbarTabAddButton";
+import { TopbarTabAddButton } from "../ui/TopbarTabAddButton";
 import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";

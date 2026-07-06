@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useNavigate } from "react-router-dom";
 import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
-import { Button } from "../ui/primitives/Button";
+import { Button } from "../ui/Button";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import {
   collectSshGroupSuggestions,
@@ -15,8 +15,8 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { quickInput } from "../../lib/quickInput";
-import { ScopedSearch } from "../ui/search/ScopedSearch";
-import { ResourceTags } from "../ui/tags/ResourceTags";
+import { ScopedSearch } from "../ui/ScopedSearch";
+import { ResourceTags } from "../ui/ResourceTags";
 import {
   syncFromOpenSshConfig,
   useConnectionStore,
@@ -24,7 +24,7 @@ import {
 import { HostStatusIndicator } from "../../modules/server/ssh/components/HostStatusIndicator";
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
 import { useSshHostStore } from "../../stores/sshHostStore";
-import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
 import {
   findPanelForSsh,

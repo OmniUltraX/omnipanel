@@ -364,7 +364,7 @@ function makeTooltip(dom: HTMLElement, destroy?: () => void): Tooltip {
         },
       };
     },
-  } as unknown as Tooltip;
+  };
 }
 
 function resolveQualifiedTable(

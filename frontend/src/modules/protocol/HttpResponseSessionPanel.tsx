@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { CodeEditor } from "../../components/ui/content/CodeEditor";
-import { ContentPreviewView } from "../../components/ui/content/ContentPreviewView";
-import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
-import { VirtualJsonView } from "../../components/ui/content/VirtualJsonView";
+import { CodeEditor } from "../../components/ui/CodeEditor";
+import { ContentPreviewView } from "../../components/ui/ContentPreviewView";
+import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
+import { VirtualJsonView } from "../../components/ui/VirtualJsonView";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import {

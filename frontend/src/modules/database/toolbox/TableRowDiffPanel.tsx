@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "../../../components/ui/primitives/Button";
+import { Button } from "../../../components/ui/Button";
 import { useI18n } from "../../../i18n";
-import { DataLoading } from "../../../components/ui/feedback/DataLoading";
+import { DataLoading } from "../../../components/ui/DataLoading";
 import type { DbColumnMeta, DbConnectionConfig } from "../api";
 import { fetchAllTableRowDiffs } from "./rowDiff";
 import type { DataAnalysisResult, TableRowDiff } from "./types";
@@ -226,7 +226,7 @@ export function TableRowDiffPanel({
                 onChange={() => toggleKindFilter(kind)}
               />
               <span className={`db-toolbox-row-diff-kind db-toolbox-row-diff-kind--${kind}`}>
-                {rowDiffKindLabel(kind, t as (key: string) => string)}
+                {rowDiffKindLabel(kind, t)}
               </span>
             </label>
           ))}
@@ -252,7 +252,7 @@ export function TableRowDiffPanel({
               </thead>
               <tbody>
                 {pageDiffs.map((diff) => {
-                  const kindLabel = rowDiffKindLabel(diff.kind, t as (key: string) => string);
+                  const kindLabel = rowDiffKindLabel(diff.kind, t);
 
                   return (
                     <tr

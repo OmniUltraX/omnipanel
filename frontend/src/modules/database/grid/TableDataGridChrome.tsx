@@ -7,12 +7,12 @@ import {
   type MutableRefObject,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { TextInput } from "../../../components/ui/form/TextInput";
+import { TextInput } from "../../../components/ui/TextInput";
 import { columnTypeTagClassName } from "./columnTypeTag";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import type { DbColumnMeta } from "../api";
-import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
+import type { CellOverlayAnchor } from "./tableCellPreview";
 import { resolvePreviewRowKey } from "../workspace/dbWorkspaceState";
 
 export type TableDataGridCellMenuState = {
@@ -139,13 +139,16 @@ export function TableDataGridCellContextMenu({
   cellOverrides,
 }: {
   menuOpenRef: MutableRefObject<(state: TableDataGridCellMenuState) => void>;
-  onPreview: (info: {
-    column: string;
-    rowIndex: number;
-    row: Record<string, unknown>;
-    value: unknown;
-    columnType?: string;
-  }) => void;
+  onPreview: (
+    info: {
+      column: string;
+      rowIndex: number;
+      row: Record<string, unknown>;
+      value: unknown;
+      columnType?: string;
+      anchor: CellOverlayAnchor;
+    },
+  ) => void;
   onRowEdit?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   onCellSetNull?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   columnMeta?: DbColumnMeta[];
@@ -169,6 +172,12 @@ export function TableDataGridCellContextMenu({
       row: menu.row,
       value: menu.value,
       columnType: menu.columnType,
+      anchor: {
+        left: menu.x,
+        top: menu.y,
+        width: 240,
+        height: 28,
+      },
     });
     setMenu(null);
   }, [menu, onPreview]);

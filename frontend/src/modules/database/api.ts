@@ -13,6 +13,7 @@ export interface DbConnectionConfig {
   password: string;
   database: string;
   ssl: boolean;
+  group: string;
   status: string;
   /** 是否启用；`false` 时连接在侧栏显示为已关闭且不可展开查询 */
   enabled?: boolean;
@@ -32,6 +33,17 @@ const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
   mongodb: 27017,
 };
 
+export function normalizeConnectionGroup(group: string | null | undefined): string {
+  if (!group || !group.trim() || group === "default") {
+    return "默认";
+  }
+  return group.trim();
+}
+
+export function connectionMatchesGroup(connection: DbConnectionConfig, groupName: string): boolean {
+  return normalizeConnectionGroup(connection.group) === groupName;
+}
+
 export interface ConnectionFormData {
   engine: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb";
   name: string;
@@ -41,6 +53,7 @@ export interface ConnectionFormData {
   username: string;
   password: string;
   ssl: boolean;
+  group: string;
 }
 
 export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
@@ -53,13 +66,9 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     form.engine === "sqlite" && database
       ? (database.split(/[/\\]/).pop() ?? database)
       : "";
-  let name = form.name.trim() || nameFromPath || host || "Untitled";
-  if (form.engine === "sqlite" && (/[/\\]/.test(name))) {
-    name = name.split(/[/\\]/).pop() ?? name;
-  }
   return {
     id,
-    name,
+    name: form.name.trim() || nameFromPath || host || "Untitled",
     db_type: form.engine,
     host,
     port,
@@ -67,28 +76,18 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     password: form.password,
     database,
     ssl: form.ssl,
+    group: form.group.trim() || "默认",
     status: "unknown",
     enabled: true,
   };
 }
 
-export function normalizeDbEngineType(dbType: string): string {
-  const engine = dbType.trim().toLowerCase();
-  if (engine === "postgres" || engine === "pg") {
-    return "postgresql";
-  }
-  if (engine === "mariadb") {
-    return "mysql";
-  }
-  if (engine === "sqlite3") {
-    return "sqlite";
-  }
-  return engine;
-}
-
 export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
-  const rawType = normalizeDbEngineType(conn.db_type);
-  const engine = rawType as ConnectionFormData["engine"];
+  const rawType = conn.db_type.toLowerCase();
+  const engine: ConnectionFormData["engine"] =
+    rawType === "sqlite3"
+      ? "sqlite"
+      : (conn.db_type as ConnectionFormData["engine"]);
   return {
     engine,
     name: conn.name,
@@ -98,6 +97,7 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     username: conn.user,
     password: conn.password,
     ssl: conn.ssl,
+    group: conn.group,
   };
 }
 
@@ -138,13 +138,6 @@ export function isToolboxCapableConnection(
   );
 }
 
-export function isPostgresConnection(
-  connection: Pick<DbConnectionConfig, "db_type">,
-): boolean {
-  const engine = normalizeDbEngineType(connection.db_type);
-  return engine === "postgresql";
-}
-
 /** 连接信息面板支持的连接（MySQL / MariaDB 专有 STATUS / PROCESSLIST）。 */
 export function isMysqlConnectionInfoCapable(
   connection: Pick<DbConnectionConfig, "db_type">,
@@ -166,13 +159,6 @@ export interface RedisKeyEntry {
   value: string;
 }
 
-export interface RedisSearchKeysResult {
-  entries: RedisKeyEntry[];
-  nextCursor: number;
-  hasMore: boolean;
-  scanLimitHit?: boolean;
-}
-
 export interface RedisSearchKeysArgs {
   connection: DbConnectionConfig;
   pattern: string;
@@ -182,30 +168,48 @@ export interface RedisSearchKeysArgs {
   includeValuePreview?: boolean;
 }
 
+export interface RedisSearchKeysResult {
+  entries: RedisKeyEntry[];
+  nextCursor: number;
+  hasMore: boolean;
+  scanLimitHit?: boolean;
+}
+
 export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisSearchKeysResult> {
-  const raw = await invoke<RedisSearchKeysResult | RedisKeyEntry[]>("db_redis_search_keys", {
+  return invoke<RedisSearchKeysResult>("db_redis_search_keys", {
     args: {
       connection: args.connection,
       pattern: args.pattern,
       types: args.types,
-      limit: args.limit ?? 100,
+      limit: args.limit ?? 500,
       cursor: args.cursor ?? 0,
       includeValuePreview: args.includeValuePreview ?? false,
     },
   });
-  if (Array.isArray(raw)) {
-    return {
-      entries: raw,
-      nextCursor: 0,
-      hasMore: false,
-    };
-  }
-  return {
-    entries: raw.entries ?? [],
-    nextCursor: raw.nextCursor ?? 0,
-    hasMore: raw.hasMore ?? false,
-    scanLimitHit: raw.scanLimitHit,
-  };
+}
+
+export async function redisConfigGet(
+  connection: DbConnectionConfig,
+  pattern: string,
+): Promise<Array<[string, string]>> {
+  return invoke<Array<[string, string]>>("db_redis_config_get_entries", {
+    connection,
+    pattern,
+  });
+}
+
+export async function redisGetConfigAll(connection: DbConnectionConfig): Promise<{
+  columns: string[];
+  rows: unknown[][];
+}> {
+  return invoke("db_redis_config_get", { connection });
+}
+
+export async function redisGetClientList(connection: DbConnectionConfig): Promise<{
+  columns: string[];
+  rows: unknown[][];
+}> {
+  return invoke("db_redis_client_list", { connection });
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {

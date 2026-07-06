@@ -236,6 +236,23 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     return () => cancelAnimationFrame(raf);
   }, [hasResults, hasMore, searching, loadingMore, entries.length, tryFillViewport]);
 
+  useEffect(() => {
+    if (!hasResults || !hasMore) {
+      return;
+    }
+    const wrap = getResultsScrollWrap();
+    if (!wrap) {
+      return;
+    }
+    const onScroll = () => {
+      if (isScrollNearBottom(wrap)) {
+        handleNearScrollBottom();
+      }
+    };
+    wrap.addEventListener("scroll", onScroll, { passive: true });
+    return () => wrap.removeEventListener("scroll", onScroll);
+  }, [hasResults, hasMore, handleNearScrollBottom, entries.length]);
+
   const handleSearchKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
@@ -348,7 +365,6 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
               pageSize={Math.max(entries.length, 1)}
               loading={false}
               onPageChange={() => {}}
-              onNearScrollBottom={hasMore ? handleNearScrollBottom : undefined}
               footerExtra={
                 loadingMore ? (
                   <span className="redis-query-scroll-loading">{t("database.redisQuery.loadingMore")}</span>

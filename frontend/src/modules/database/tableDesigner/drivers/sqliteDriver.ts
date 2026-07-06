@@ -1,4 +1,4 @@
-import type { TableDesignerDriver, TableDesignerTypeOption } from "../types";
+import type { TableDesignerTypeOption } from "../types";
 import { buildApplySqlSQLite } from "../applySql";
 import {
   createEmptyField,
@@ -20,7 +20,7 @@ function sqliteQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-export const sqliteTableDesignerDriver: TableDesignerDriver = {
+export const sqliteTableDesignerDriver = {
   ...createGenericDriver("sqlite", "SQLite"),
   createEmptyField: () => createEmptyField("INTEGER"),
   getTypeOptions: () => SQLITE_TYPES,

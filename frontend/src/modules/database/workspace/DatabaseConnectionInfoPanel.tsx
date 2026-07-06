@@ -7,13 +7,6 @@ import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
-import { TextEditorSubWindow } from "../../../components/textEditor";
-import { codeEditorLanguageFromPath } from "../../../components/ui/content/CodeEditor";
-import {
-  createMysqlConfigTextIO,
-  findMysqlConfigPath,
-} from "../../../components/textEditor/io/mysqlConfigIO";
-import type { TextEditorIO } from "../../../components/textEditor/types";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
 import type { Connection } from "../../../ipc/bindings";
@@ -21,18 +14,20 @@ import { isMysqlConnectionInfoCapable, type DbConnectionConfig } from "../api";
 import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
-  type MysqlDeploymentReason,
 } from "../mysqlDeploymentDetect";
-import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
+import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
 import {
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
 } from "../mysqlDeploymentCache";
 import { makeQueryRunId } from "../sql/queryRun";
-import { useDbDockTabActive } from "../useDbDockTabActive";
 import { displayDetailValue } from "./databaseTablesPanelFormat";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
+import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
+import { DeploymentConfigEditorSubWindow } from "./DeploymentConfigEditorSubWindow";
+import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
+import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 const VARIABLES_SQL = "SHOW VARIABLES;";
@@ -67,8 +62,8 @@ const VARIABLE_VALUE_COLUMNS = ["Value", "value"];
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
-  /** Dock Tab ID，用于从 Context 读取激活态（避免 renderPanel 闭包过期）。 */
-  tabId: string;
+  /** 当前 Tab 是否处于激活态；激活时自动拉取一次进程列表。 */
+  active?: boolean;
 }
 
 function resolveColumnName(columns: string[], candidates: string[]): string | null {
@@ -180,41 +175,6 @@ function resolveVariablesSortColumn(
   return null;
 }
 
-function DeploymentNavTag({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <button
-      type="button"
-      className="db-mysql-deploy-tag db-mysql-deploy-tag--nav"
-      title={`${label}: ${value}`}
-      disabled
-    >
-      {value}
-    </button>
-  );
-}
-
-function resolveDeploymentUnknownReason(
-  deployment: MysqlDeploymentInfo | null | undefined,
-  t: (key: string) => string,
-): string | null {
-  if (!deployment || deployment.kind !== "unknown") {
-    return null;
-  }
-  const reason: MysqlDeploymentReason = deployment.reason ?? "probe_failed";
-  const base = t(`database.connectionInfo.deployment.reason.${reason}`);
-  const detail = deployment.detail?.trim();
-  if (!detail || base.includes(detail)) {
-    return base;
-  }
-  return `${base}：${detail}`;
-}
-
 function MysqlDeploymentTags({
   loading,
   deployment,
@@ -232,7 +192,7 @@ function MysqlDeploymentTags({
     if (deployment?.serverName?.trim()) {
       return deployment.serverName.trim();
     }
-    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
+    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 
@@ -248,20 +208,14 @@ function MysqlDeploymentTags({
   const locationTag = deployment?.locationTag?.trim();
   const containerName =
     deployment?.containerName?.trim() || (kind === "docker" ? locationTag : "");
-  const unknownReason = resolveDeploymentUnknownReason(deployment, t);
 
   return (
     <>
       <span className={`db-mysql-deploy-tag db-mysql-deploy-tag--${kind}`}>
         {t(`database.connectionInfo.deployment.kind.${kind}`)}
       </span>
-      {kind === "unknown" && unknownReason ? (
-        <span className="db-connection-info-deploy-reason" title={unknownReason}>
-          {unknownReason}
-        </span>
-      ) : null}
       {kind === "host" && locationTag ? (
-        <DeploymentNavTag
+        <DbDeploymentNavTag
           label={t("database.connectionInfo.deployment.hostLocation")}
           value={locationTag}
         />
@@ -269,13 +223,13 @@ function MysqlDeploymentTags({
       {kind === "docker" ? (
         <>
           {serverName ? (
-            <DeploymentNavTag
+            <DbDeploymentNavTag
               label={t("database.connectionInfo.deployment.server")}
               value={serverName}
             />
           ) : null}
           {containerName ? (
-            <DeploymentNavTag
+            <DbDeploymentNavTag
               label={t("database.connectionInfo.deployment.dockerContainer")}
               value={containerName}
             />
@@ -288,10 +242,9 @@ function MysqlDeploymentTags({
 
 export function DatabaseConnectionInfoPanel({
   connection,
-  tabId,
+  active = true,
 }: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
-  const active = useDbDockTabActive(tabId);
   const capable = isMysqlConnectionInfoCapable(connection);
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
@@ -301,12 +254,9 @@ export function DatabaseConnectionInfoPanel({
   const [search, setSearch] = useState("");
   const [connectionsLoading, setConnectionsLoading] = useState(capable);
   const [variablesLoading, setVariablesLoading] = useState(false);
-  const initialDeployment = capable ? readMysqlDeploymentCache(connection) : null;
-  const [deploymentLoading, setDeploymentLoading] = useState(
-    () => capable && active && initialDeployment == null,
-  );
-  const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(
-    () => initialDeployment,
+  const [deploymentLoading, setDeploymentLoading] = useState(false);
+  const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(() =>
+    capable ? readMysqlDeploymentCache(connection) : null,
   );
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [variablesError, setVariablesError] = useState<string | null>(null);
@@ -321,13 +271,25 @@ export function DatabaseConnectionInfoPanel({
     direction: "asc",
   });
   const [killingId, setKillingId] = useState<number | null>(null);
-  const [editingVarName, setEditingVarName] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [savingVarName, setSavingVarName] = useState<string | null>(null);
-  const [configEditor, setConfigEditor] = useState<{
-    path: string;
-    io: TextEditorIO;
-  } | null>(null);
+
+  const connectionLabel = useMemo(() => {
+    const name = connection.name?.trim();
+    if (name) return name;
+    return `${connection.host}:${connection.port}`;
+  }, [connection.host, connection.name, connection.port]);
+
+  const {
+    open: configEditorOpen,
+    io: configEditorIo,
+    configPath,
+    opening: configOpening,
+    close: closeConfigEditor,
+    openMysqlConfig,
+  } = useDeploymentConfigEditor(connectionLabel);
+
+  const handleOpenMysqlConfig = useCallback(() => {
+    void openMysqlConfig(deployment);
+  }, [deployment, openMysqlConfig]);
 
   const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
@@ -383,39 +345,26 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [capable, connection]);
 
-  const refreshDeployment = useCallback(
-    async (options?: { silent?: boolean }): Promise<MysqlDeploymentInfo | null> => {
-      if (!capable) {
-        setDeployment(null);
-        setDeploymentLoading(false);
-        return null;
-      }
+  const refreshDeployment = useCallback(async () => {
+    if (!capable) {
+      setDeployment(null);
+      setDeploymentLoading(false);
+      return;
+    }
 
-      if (!options?.silent) {
-        setDeploymentLoading(true);
-      }
-      try {
-        const info = await probeMysqlDeployment(connection, sshConnections);
-        writeMysqlDeploymentCache(connection, info);
-        setDeployment(info);
-        return info;
-      } catch (error) {
-        const fallback: MysqlDeploymentInfo = {
-          kind: "unknown",
-          reason: "probe_failed",
-          detail: typeof error === "string" ? error : error instanceof Error ? error.message : undefined,
-        };
-        writeMysqlDeploymentCache(connection, fallback);
-        setDeployment(fallback);
-        return fallback;
-      } finally {
-        if (!options?.silent) {
-          setDeploymentLoading(false);
-        }
-      }
-    },
-    [capable, connection, sshConnections],
-  );
+    setDeploymentLoading(true);
+    try {
+      const info = await probeMysqlDeployment(connection, sshConnections);
+      writeMysqlDeploymentCache(connection, info);
+      setDeployment(info);
+    } catch {
+      const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
+      writeMysqlDeploymentCache(connection, fallback);
+      setDeployment(fallback);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  }, [capable, connection, sshConnections]);
 
   const refreshActiveTab = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -433,14 +382,13 @@ export function DatabaseConnectionInfoPanel({
     setSearch("");
     setProcessSort({ column: "time", direction: "desc" });
     setVariablesSort({ column: "name", direction: "asc" });
-    const cached = readMysqlDeploymentCache(connection);
-    setDeployment(cached);
-    setDeploymentLoading(cached == null && isMysqlConnectionInfoCapable(connection) && active);
+    setDeployment(readMysqlDeploymentCache(connection));
+    setDeploymentLoading(false);
     setConnectionsResult(null);
     setVariablesResult(null);
     setConnectionsError(null);
     setVariablesError(null);
-  }, [active, connection.id, connection.host, connection.port, connection.db_type]);
+  }, [connection.id, connection.host, connection.port, connection.db_type]);
 
   useEffect(() => {
     if (!active || !capable) {
@@ -448,14 +396,6 @@ export function DatabaseConnectionInfoPanel({
     }
     void refreshConnections();
   }, [active, capable, connection.id, refreshConnections]);
-
-  useEffect(() => {
-    if (!active || !capable) {
-      return;
-    }
-    const cached = readMysqlDeploymentCache(connection);
-    void refreshDeployment({ silent: cached != null });
-  }, [active, capable, connection.id, connection.host, connection.port, refreshDeployment]);
 
   useEffect(() => {
     if (!active || !capable || subTab !== "status") {
@@ -639,81 +579,6 @@ export function DatabaseConnectionInfoPanel({
     ],
   );
 
-  const handleVariableSave = useCallback(
-    async (varName: string, value: string, scope: "SESSION" | "GLOBAL") => {
-      if (savingVarName !== null) {
-        return;
-      }
-      setSavingVarName(varName);
-      try {
-        const safeValue = value.replace(/'/g, "\\'");
-        await invoke<QueryResult>("db_execute_query", {
-          connection,
-          sql: `SET ${scope} \`${varName}\` = '${safeValue}'`,
-          runId: makeQueryRunId(),
-        });
-        await refreshVariables({ silent: true });
-        setEditingVarName(null);
-      } catch (e) {
-        const message = typeof e === "string" ? e : JSON.stringify(e);
-        void appAlert(
-          message,
-          t("database.connectionInfo.variablesSaveFailed"),
-        );
-      } finally {
-        setSavingVarName(null);
-      }
-    },
-    [connection, refreshVariables, savingVarName, t],
-  );
-
-  const handleOpenConfig = useCallback(async () => {
-    try {
-      let activeDeployment = deployment;
-      const needsRefresh =
-        !activeDeployment ||
-        (activeDeployment.kind === "docker" && !activeDeployment.containerId) ||
-        (activeDeployment.kind === "unknown" &&
-          activeDeployment.reason !== "no_ssh" &&
-          !activeDeployment.sshConnectionId);
-      if (needsRefresh) {
-        activeDeployment = await refreshDeployment();
-      }
-      if (!activeDeployment) {
-        return;
-      }
-
-      const host = connection.host.trim().toLowerCase();
-      const isLocalHost =
-        host === "localhost" || host === "127.0.0.1" || host === "::1";
-      if (
-        !activeDeployment.sshConnectionId &&
-        activeDeployment.reason === "no_ssh" &&
-        !isLocalHost
-      ) {
-        void appAlert(t("database.connectionInfo.configEditor.noSsh"));
-        return;
-      }
-
-      const path = await findMysqlConfigPath(activeDeployment);
-      if (!path) {
-        void appAlert(t("database.connectionInfo.configEditor.notFound"));
-        return;
-      }
-      setConfigEditor({
-        path,
-        io: createMysqlConfigTextIO(path, activeDeployment),
-      });
-    } catch (e) {
-      const message = typeof e === "string" ? e : JSON.stringify(e);
-      void appAlert(message, t("database.connectionInfo.configEditor.saveFailed"));
-    }
-  }, [connection, deployment, refreshDeployment, t]);
-
-  const handleCloseConfig = useCallback(() => {
-    setConfigEditor(null);
-  }, []);
-
   const processGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
     const dataColumns = processColumns.map((column, index) => {
       const sortColumn = resolveSortColumn(column, processSortColumnKeys);
@@ -758,123 +623,24 @@ export function DatabaseConnectionInfoPanel({
   }, [handleKill, idColumn, killingId, processColumns, processSortColumnKeys, t]);
 
   const variablesGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
-    const dataColumns = variablesColumns.map((column, index) => {
+    return variablesColumns.map((column, index) => {
       const sortColumn = resolveVariablesSortColumn(
         column,
         variableNameColumn,
         variableValueColumn,
       );
-      const isValueColumn = !!variableValueColumn && column === variableValueColumn;
       return {
         id: column,
         sortId: sortColumn ?? undefined,
         header: column,
         sortable: sortColumn != null,
         nameCell: index === 0,
-        render: (row: Record<string, unknown>) => {
-          if (!isValueColumn || !variableNameColumn) {
-            return formatProcessCell(row[column]);
-          }
-          const varName = String(row[variableNameColumn] ?? "");
-          if (editingVarName === varName) {
-            return (
-              <input
-                type="text"
-                className="db-variables-edit-input"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setEditingVarName(null);
-                  }
-                }}
-                onBlur={(e) => {
-                  if (!e.relatedTarget?.closest(".db-variables-actions")) {
-                    setEditingVarName(null);
-                  }
-                }}
-                autoFocus
-                onClick={(e) => e.stopPropagation()}
-              />
-            );
-          }
-          return (
-            <span
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setEditingVarName(varName);
-                setEditValue(String(row[variableValueColumn] ?? ""));
-              }}
-            >
-              {formatProcessCell(row[column])}
-            </span>
-          );
-        },
+        render: (row: Record<string, unknown>) => formatProcessCell(row[column]),
         getTitle: (row: Record<string, unknown>) => formatProcessCell(row[column]),
-        getCopyValue: isValueColumn
-          ? (row: Record<string, unknown>) => {
-              if (!variableValueColumn) return undefined;
-              return String(row[variableValueColumn] ?? "");
-            }
-          : (row: Record<string, unknown>) => formatProcessCell(row[column]),
+        getCopyValue: (row: Record<string, unknown>) => formatProcessCell(row[column]),
       };
     });
-
-    return [
-      ...dataColumns,
-      {
-        id: "__variables_actions",
-        variant: "actionsSticky" as const,
-        header: t("database.connectionInfo.variablesActions"),
-        headerAriaLabel: t("database.connectionInfo.variablesActions"),
-        cellClassName: "db-variables-actions-col",
-        render: (row: Record<string, unknown>) => {
-          const varName = String(variableNameColumn ? row[variableNameColumn] ?? "" : "");
-          const isEditing = variableNameColumn && editingVarName === varName;
-          const isSaving = savingVarName === varName;
-          return (
-            <div className="db-variables-actions">
-              <Button
-                variant="secondary"
-                size="xs"
-                disabled={!isEditing || isSaving}
-                onClick={(event: MouseEvent<HTMLButtonElement>) => {
-                  event.stopPropagation();
-                  if (isEditing) {
-                    void handleVariableSave(varName, editValue, "SESSION");
-                  }
-                }}
-              >
-                {t("database.connectionInfo.variablesSessionSave")}
-              </Button>
-              <Button
-                variant="secondary"
-                size="xs"
-                disabled={!isEditing || isSaving}
-                onClick={(event: MouseEvent<HTMLButtonElement>) => {
-                  event.stopPropagation();
-                  if (isEditing) {
-                    void handleVariableSave(varName, editValue, "GLOBAL");
-                  }
-                }}
-              >
-                {t("database.connectionInfo.variablesGlobalSave")}
-              </Button>
-            </div>
-          );
-        },
-      },
-    ];
-  }, [
-    editingVarName,
-    editValue,
-    handleVariableSave,
-    savingVarName,
-    variableNameColumn,
-    variableValueColumn,
-    variablesColumns,
-    t,
-  ]);
+  }, [variableNameColumn, variableValueColumn, variablesColumns]);
 
   const renderConnectionsTable = () => {
     if (connectionsLoading) {
@@ -955,27 +721,12 @@ export function DatabaseConnectionInfoPanel({
               sshConnections={sshConnections}
             />
           </div>
-          <button
-            type="button"
-            className="db-mysql-config-btn"
-            title={t("database.connectionInfo.configEditor.open")}
-            onClick={() => void handleOpenConfig()}
-            disabled={deploymentLoading || !!configEditor}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
+          {deployment?.kind === "host" || deployment?.kind === "docker" ? (
+            <DeploymentConfigOpenButton
+              onClick={handleOpenMysqlConfig}
+              busy={configOpening}
+            />
+          ) : null}
         </div>
       ) : null}
       {capable ? (
@@ -1002,7 +753,7 @@ export function DatabaseConnectionInfoPanel({
               setSearch("");
             }}
           >
-            {t("database.connectionInfo.tabs.variables")}
+            {t("database.connectionInfo.tabs.status")}
           </button>
         </div>
       ) : null}
@@ -1012,7 +763,7 @@ export function DatabaseConnectionInfoPanel({
         aria-label={
           subTab === "connections"
             ? t("database.connectionInfo.tabs.connections")
-            : t("database.connectionInfo.tabs.variables")
+            : t("database.connectionInfo.tabs.status")
         }
       >
         <div className="db-tables-panel-grid-wrap">{content}</div>
@@ -1046,13 +797,12 @@ export function DatabaseConnectionInfoPanel({
             {t("database.connectionInfo.unsupportedEngine", { engine: connection.db_type })}
           </div>,
         )}
-        <TextEditorSubWindow
-          open={configEditor !== null}
-          title={configEditor?.path.split("/").pop() ?? "my.cnf"}
-          subtitle={configEditor?.path}
-          io={configEditor?.io ?? null}
-          language={configEditor ? codeEditorLanguageFromPath(configEditor.path) : "text"}
-          onClose={handleCloseConfig}
+        <DeploymentConfigEditorSubWindow
+          open={configEditorOpen}
+          io={configEditorIo}
+          configPath={configPath}
+          connectionLabel={connectionLabel}
+          onClose={closeConfigEditor}
         />
       </>
     );
@@ -1061,13 +811,12 @@ export function DatabaseConnectionInfoPanel({
   return (
     <>
       {panelBody(subTab === "connections" ? renderConnectionsTable() : renderVariablesTable())}
-      <TextEditorSubWindow
-        open={configEditor !== null}
-        title={configEditor?.path.split("/").pop() ?? "my.cnf"}
-        subtitle={configEditor?.path}
-        io={configEditor?.io ?? null}
-        language={configEditor ? codeEditorLanguageFromPath(configEditor.path) : "text"}
-        onClose={handleCloseConfig}
+      <DeploymentConfigEditorSubWindow
+        open={configEditorOpen}
+        io={configEditorIo}
+        configPath={configPath}
+        connectionLabel={connectionLabel}
+        onClose={closeConfigEditor}
       />
     </>
   );

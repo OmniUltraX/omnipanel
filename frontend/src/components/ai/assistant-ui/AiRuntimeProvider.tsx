@@ -27,10 +27,6 @@ import {
 } from "../../../modules/terminal/aiThreadBridge";
 import { buildTerminalAiContextAppend } from "../../../modules/terminal/buildTerminalAiContext";
 import { cancelPendingInlineTools } from "../../../modules/terminal/inlineToolBridge";
-import {
-  appendInlineAiStreamChunk,
-  flushInlineAiStream,
-} from "../../../modules/terminal/inlineAiStreamBuffer";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
 
@@ -85,60 +81,6 @@ function buildHistoryJson(convId: string): string | undefined {
     })),
   );
 }
-
-/** 内联 AI 卡片的会话 id：每张卡片（blockId）独立，避免跨终端/跨卡片串上下文。 */
-function inlineConversationId(blockId: string): string {
-  return `term-${blockId}`;
-}
-
-/**
- * 内联卡片的历史仅取「本卡片」线程内的既往轮次（不含当前进行中的 assistant 轮与当前 user 问题），
- * 从根本上隔离不同终端 / 不同卡片的上下文。
- */
-function buildInlineHistoryJson(
-  blockId: string,
-  assistantTurnId?: string,
-): string | undefined {
-  const block = useBlocksStore.getState().findBlockById(blockId);
-  if (!block) return undefined;
-  const msgs = getResolvedAiThread(block)
-    .filter(isAiThreadMessage)
-    .filter((m) => m.id !== assistantTurnId)
-    .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim());
-  // 去掉末尾当前 user 问题（userText 已单独传给后端）
-  if (msgs.length > 0 && msgs[msgs.length - 1].role === "user") {
-    msgs.pop();
-  }
-  if (msgs.length === 0) return undefined;
-  return JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content })));
-}
-
-/** 内联 AI 卡片的会话 id：每张卡片（blockId）独立，避免跨终端/跨卡片串上下文。 */
-// function inlineConversationId(blockId: string): string {
-//   return `term-${blockId}`;
-// }
-
-/**
- * 内联卡片的历史仅取「本卡片」线程内的既往轮次（不含当前进行中的 assistant 轮与当前 user 问题），
- * 从根本上隔离不同终端 / 不同卡片的上下文。
- */
-// function buildInlineHistoryJson(
-//   blockId: string,
-//   assistantTurnId?: string,
-// ): string | undefined {
-//   const block = useBlocksStore.getState().findBlockById(blockId);
-//   if (!block) return undefined;
-//   const msgs = getResolvedAiThread(block)
-//     .filter(isAiThreadMessage)
-//     .filter((m) => m.id !== assistantTurnId)
-//     .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim());
-//   // 去掉末尾当前 user 问题（userText 已单独传给后端）
-//   if (msgs.length > 0 && msgs[msgs.length - 1].role === "user") {
-//     msgs.pop();
-//   }
-//   if (msgs.length === 0) return undefined;
-//   return JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content })));
-// }
 
 function resolveBackendForGeneration(
   inline?: InlineTerminalAiTarget,
@@ -235,21 +177,10 @@ function inlineHasAssistantContent(blockId: string): boolean {
   );
 }
 
-function inlineHasOutstandingTools(blockId: string): boolean {
-  const block = useBlocksStore.getState().findBlockById(blockId);
-  if (!block) return false;
-  return getResolvedAiThread(block).some(
-    (item) =>
-      item.kind === "tool_call" &&
-      (item.status === "pending" || item.status === "running"),
-  );
-}
-
 function finalizeInlineBlock(
   inline: InlineTerminalAiTarget,
   options: { failed: boolean; aborted?: boolean; reason?: string },
 ): void {
-  flushInlineAiStream(inline.blockId, inline.assistantTurnId);
   if (options.aborted) {
     cancelPendingInlineTools(inline.blockId);
   }
@@ -345,7 +276,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   runGenerationRef.current = async (convId, assistantMsgId, userText, inline) => {
     const appendText = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        appendInlineAiStreamChunk(inline.blockId, inline.assistantTurnId, "content", chunk);
+        useBlocksStore
+          .getState()
+          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "content", chunk);
       } else if (assistantMsgId) {
         appendStreamContent(convId, assistantMsgId, chunk);
       }
@@ -353,7 +286,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const appendReasoning = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        appendInlineAiStreamChunk(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
+        useBlocksStore
+          .getState()
+          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
       } else if (assistantMsgId) {
         appendStreamReasoning(convId, assistantMsgId, chunk);
       }
@@ -384,9 +319,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const upsertToolCall = (id: string, name: string, args: string) => {
       if (!name.trim()) return;
-      if (inline?.assistantTurnId) {
-        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
-      }
       toolMetaRef.current.set(id, { name, args });
       if (inline) {
         const block = useBlocksStore.getState().findBlockById(inline.blockId);
@@ -410,20 +342,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             status: "running",
           });
         }
-        // 内联路径不在流式 tool_call 阶段派发：后端 execute() 尚未注册 oneshot，
-        // 过早 ai_chat_tool_result 会丢失，导致 orchestrator 挂起至超时。
         if (waitingToolDispatchRef.current.has(id)) {
           tryDispatchTool(id);
-        } else if (parseTerminalCommand(args)) {
-          const blockAfter = useBlocksStore.getState().findBlockById(inline.blockId);
-          const toolItem = blockAfter
-            ? getResolvedAiThread(blockAfter).find(
-                (item) => item.kind === "tool_call" && item.id === id,
-              )
-            : undefined;
-          if (toolItem && "status" in toolItem && toolItem.status === "pending") {
-            tryDispatchTool(id);
-          }
         }
         return;
       }
@@ -461,11 +381,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           } else {
             tryDispatchTool(id);
           }
-        } else {
-          // tool_call_update(pending) 可能先于 tool_call 到达（ACP 事件乱序），
-          // 此时 meta 尚未注册。标记等待，待 upsertToolCall 注册 meta 后补发派发，
-          // 否则工具将永不派发、后端 pending 挂起至超时（表现为“卡住”）。
-          waitingToolDispatchRef.current.add(id);
         }
       }
 
@@ -517,24 +432,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const finishGeneration = (failed = false, aborted = false) => {
       if (inline) {
-        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
-        if (!failed && !aborted && inlineHasOutstandingTools(inline.blockId)) {
-          // 流已结束但 tool call 仍停在 running/pending：补一次派发，保持卡片 running。
-          for (const item of getResolvedAiThread(
-            useBlocksStore.getState().findBlockById(inline.blockId)!,
-          )) {
-            if (
-              item.kind === "tool_call" &&
-              (item.status === "pending" || item.status === "running")
-            ) {
-              const meta = toolMetaRef.current.get(item.id);
-              if (meta && isTerminalClientTool(meta.name) && parseTerminalCommand(meta.args)) {
-                tryDispatchTool(item.id);
-              }
-            }
-          }
-          return;
-        }
         if (aborted) {
           finalizeInlineBlock(inline, { failed: true, aborted: true, reason: "已停止" });
         } else {
@@ -561,9 +458,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             backendId: backend.backendId,
             httpProvider: backend.kind === "http" ? backend.httpProvider : null,
             context: aiContext,
-            historyJson: inline
-              ? buildInlineHistoryJson(inline.blockId, inline.assistantTurnId)
-              : buildHistoryJson(convId),
+            historyJson: buildHistoryJson(convId),
             toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: "master" } } : "none",
           },
           signal,
@@ -634,9 +529,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 每张卡片独立会话（按 blockId 派生），不复用全局 activeConversationId，
-      // 也不写入侧栏会话列表 —— 彻底隔离不同终端 / 不同卡片的上下文。
-      const convId = inlineConversationId(blockId);
+      let convId = useAiStore.getState().activeConversationId ?? createConversation();
+      if (!useAiStore.getState().activeConversationId) {
+        useAiStore.getState().setActiveConversation(convId);
+      }
 
       const assistantTurnId = useBlocksStore.getState().pushAiThreadItem(blockId, {
         kind: "message",
@@ -646,6 +542,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       });
 
       useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
+
+      if (!continueThread) {
+        addMessage(convId, { role: "user", content: userText });
+      }
 
       const inlineTarget: InlineTerminalAiTarget = {
         sessionId,

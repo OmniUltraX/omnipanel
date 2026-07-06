@@ -62,6 +62,7 @@ fn export_ipc_bindings() {
         commands::connection::conn_save,
         commands::connection::conn_delete,
         commands::connection::conn_test,
+        commands::connection::resolve_host,
         commands::pool::pool_get_summary,
         commands::bg_task::bg_task_list,
         commands::bg_task::bg_task_cancel,
@@ -311,10 +312,6 @@ fn export_ipc_bindings() {
         commands::skills::skill_remove,
         commands::skills::skill_set_enabled,
         commands::skills::skill_import,
-        // 第三方账户
-        commands::third_party_account::third_party_account_list,
-        commands::third_party_account::third_party_account_upsert,
-        commands::third_party_account::third_party_account_delete,
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
@@ -581,14 +578,16 @@ pub fn run() {
             commands::database::db_count_tables,
             commands::database::db_execute_query,
             commands::database::db_cancel_query,
+            commands::database::db_redis_config_get,
+            commands::database::db_redis_config_get_entries,
+            commands::database::db_redis_client_list,
             commands::database::db_redis_search_keys,
             commands::database::db_refresh_schema_node,
             // Connections（统一连接模型）
             commands::connection::conn_list,
             commands::connection::conn_save,
             commands::connection::conn_delete,
-        commands::connection::conn_test,
-        commands::connection::resolve_host,
+            commands::connection::conn_test,
             commands::connection::resolve_host,
             commands::pool::pool_get_summary,
         commands::bg_task::bg_task_list,
@@ -825,10 +824,6 @@ pub fn run() {
             commands::skills::skill_remove,
             commands::skills::skill_set_enabled,
             commands::skills::skill_import,
-            // 第三方账户
-            commands::third_party_account::third_party_account_list,
-            commands::third_party_account::third_party_account_upsert,
-            commands::third_party_account::third_party_account_delete,
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,

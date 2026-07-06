@@ -631,51 +631,26 @@
         align-items: center;
         flex-wrap: wrap;
         gap: 4px;
-        min-width: 0;
         flex: 1 1 auto;
-    }
-
-    .db-connection-info-deploy-reason {
-        flex: 1 1 120px;
         min-width: 0;
-        font-size: 11px;
-        line-height: 1.35;
-        color: var(--meta);
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
-        white-space: normal;
-        word-break: break-word;
     }
 
-    .db-mysql-config-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        padding: 0;
-        border: none;
-        border-radius: var(--r-sm, 3px);
-        background: transparent;
-        color: var(--meta);
-        cursor: pointer;
+    .db-connection-info-deploy-config-btn {
+        margin-left: auto;
         flex-shrink: 0;
-        opacity: 0.5;
-        transition: opacity 0.15s;
+        color: var(--meta);
     }
 
-    .db-mysql-config-btn:hover:not(:disabled) {
-        opacity: 1;
-        color: var(--fg);
-        background: var(--surface-hover);
+    .db-connection-info-deploy-config-btn:not(:disabled):hover {
+        color: var(--accent);
     }
 
-    .db-mysql-config-btn:disabled {
-        cursor: not-allowed;
-        opacity: 0.25;
+    .db-connection-info-deploy-hint {
+        flex: 1 1 100%;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--meta);
+        margin-top: 2px;
     }
 
     .db-mysql-deploy-tag {
@@ -901,7 +876,6 @@
     .db-tables-panel-grid-host {
         height: 100%;
         min-height: 0;
-        overflow: auto;
         outline: none;
     }
 
@@ -965,32 +939,6 @@
 
     .db-tables-panel-grid--processlist tbody tr:hover .db-tables-panel-grid__actions-col--sticky {
         background: var(--surface-hover, rgba(255, 255, 255, 0.03));
-    }
-
-    .db-tables-panel-grid--variables .db-variables-actions-col {
-        width: 140px;
-        min-width: 140px;
-        max-width: 140px;
-    }
-
-    .db-variables-actions {
-        display: flex;
-        gap: 4px;
-        align-items: center;
-    }
-
-    .db-variables-edit-input {
-        margin: -6px -8px;
-        width: calc(100% + 16px);
-        box-sizing: border-box;
-        padding: 6px 8px;
-        font-size: 11px;
-        font-family: var(--font-mono);
-        background: var(--bg);
-        color: var(--fg);
-        border: 1px solid var(--accent);
-        border-radius: 0;
-        outline: none;
     }
 
     .db-tables-panel-grid .db-tables-panel-design-btn {
@@ -1373,31 +1321,8 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        flex: 0 1 auto;
-        flex-shrink: 1;
-    }
-
-    .tree-label-tag {
-        flex: 0 0 auto;
-        max-width: min(160px, 42%);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 10px;
-        font-weight: 600;
-        line-height: 1.2;
-        padding: 1px 5px;
-        border-radius: var(--r-sm);
-        color: var(--accent);
-        background: var(--accent-soft);
-        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-        letter-spacing: 0.01em;
-    }
-
-    @container vsplit-sidebar (max-width: 260px) {
-        .tree-label-tag {
-            display: none;
-        }
+        flex: 1 1 auto;
+        flex-shrink: 0;
     }
 
     @container vsplit-sidebar (max-width: 260px) {
@@ -2017,7 +1942,8 @@
         font-size: 12px;
     }
 
-    .db-workspace-pane--slow-log {
+    .db-workspace-pane--slow-log,
+    .db-slow-log-panel {
         flex: 1;
         min-height: 0;
         display: flex;
@@ -2025,60 +1951,9 @@
         overflow: hidden;
     }
 
-    .db-slow-log-panel {
+    .db-slow-log-panel__viewer {
         flex: 1;
         min-height: 0;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .db-slow-log-panel__toolbar {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .db-slow-log-panel__stats {
-        margin-left: auto;
-        font-size: 12px;
-        color: var(--meta);
-    }
-
-    .db-slow-log-panel__body {
-        flex: 1;
-        min-height: 0;
-        overflow-y: auto;
-    }
-
-    .db-slow-log-panel__list {
-        padding: 12px;
-    }
-
-    .db-slow-log-panel__list > * + * {
-        margin-top: 12px;
-    }
-
-    .db-slow-log-panel__loading,
-    .db-slow-log-panel__error,
-    .db-slow-log-panel__empty {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--meta);
-        font-size: 13px;
-        padding: 24px;
-        min-height: 120px;
-    }
-
-    .db-slow-log-panel__error {
-        color: var(--danger);
-    }
-
-    .db-slow-log-panel__footer {
-        padding: 2px 12px;
-        border-top: 1px solid var(--border);
     }
 
     .db-slow-log-panel__meta {
@@ -2087,185 +1962,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-    }
-
-    /* ---- Slow Query Card ---- */
-
-    .slow-query-card {
-        flex-shrink: 0;
-        background: var(--bg-deeper);
-        border: 1px solid var(--border);
-        border-radius: var(--r-md);
-        overflow: hidden;
-        transition: border-color 0.12s;
-    }
-
-    .slow-query-card:hover {
-        border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-    }
-
-    .slow-query-card__header {
-        display: flex;
-        align-items: center;
-        padding: 6px 12px;
-        background: var(--surface);
-        border-bottom: 1px solid var(--border);
-        font-size: 12px;
-        gap: 8px;
-    }
-
-    .slow-query-card__time {
-        color: var(--meta);
-        font-family: var(--mono);
-        font-size: 11px;
-    }
-
-    .slow-query-card__count-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 20px;
-        height: 18px;
-        padding: 0 5px;
-        border-radius: 9px;
-        background: var(--accent);
-        color: var(--accent-text, #fff);
-        font-size: 10px;
-        font-weight: 700;
-        line-height: 1;
-    }
-
-    .slow-query-card__user {
-        margin-left: auto;
-        color: var(--fg);
-        font-size: 11px;
-        opacity: 0.7;
-        text-align: right;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .slow-query-card__sql {
-        padding: 8px 12px;
-        overflow-x: auto;
-        position: relative;
-    }
-
-    .slow-query-card__sql-text {
-        margin: 0;
-        font-family: var(--mono);
-        font-size: 12px;
-        line-height: 1.5;
-        color: var(--fg);
-        white-space: pre-wrap;
-        word-break: break-all;
-    }
-
-    .slow-query-card__copy-btn {
-        position: absolute;
-        top: 4px;
-        right: 8px;
-        z-index: 1;
-        font-size: 10px;
-        padding: 2px 8px;
-        border: 1px solid var(--border);
-        border-radius: var(--r-sm);
-        background: var(--surface);
-        color: var(--meta);
-        cursor: pointer;
-        opacity: 0;
-        transition: opacity 0.12s, color 0.12s, border-color 0.12s;
-    }
-
-    .slow-query-card__sql:hover .slow-query-card__copy-btn,
-    .slow-query-card__copy-btn:focus-visible {
-        opacity: 1;
-    }
-
-    .slow-query-card__copy-btn:hover {
-        color: var(--accent);
-        border-color: var(--accent);
-    }
-
-    /* ---- SQL 语法高亮 ---- */
-
-    .sql-hl-keyword {
-        color: var(--accent);
-        font-weight: 600;
-    }
-
-    .sql-hl-string {
-        color: var(--success);
-    }
-
-    .sql-hl-number {
-        color: var(--warn);
-    }
-
-    .sql-hl-comment {
-        color: var(--meta);
-        font-style: italic;
-    }
-
-    /* ---- Tags ---- */
-
-    .slow-query-card__tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        padding: 6px 12px;
-        border-top: 1px solid var(--border);
-        background: var(--bg-deeper);
-    }
-
-    .slow-query-card__tag {
-        display: inline-flex;
-        align-items: center;
-        height: 22px;
-        padding: 0 8px;
-        border-radius: var(--r-sm);
-        background: var(--surface);
-        border: 1px solid var(--border);
-        font-family: var(--mono);
-        font-size: 11px;
-        color: var(--fg);
-        white-space: nowrap;
-    }
-
-    .slow-query-card__tag--danger {
-        color: var(--danger);
-        border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
-    }
-
-    .slow-query-card__tag--warn {
-        color: var(--warn);
-        border-color: color-mix(in srgb, var(--warn) 30%, var(--border));
-    }
-
-    .slow-query-card__tag--success {
-        color: var(--success);
-        border-color: color-mix(in srgb, var(--success) 30%, var(--border));
-    }
-
-    .slow-query-card__analyze {
-        margin-left: auto;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 22px;
-        height: 22px;
-        border-radius: var(--r-sm);
-        border: 1px solid var(--border);
-        background: var(--surface);
-        color: var(--meta);
-        cursor: pointer;
-        transition: color 0.12s, border-color 0.12s;
-    }
-
-    .slow-query-card__analyze:hover {
-        color: var(--accent);
-        border-color: var(--accent);
     }
 
     .log-subwindow .subwindow-body {
@@ -5288,41 +4984,6 @@
         flex-direction: column;
     }
 
-    .redis-query-results-body {
-        position: relative;
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    .redis-query-results-overlay {
-        position: absolute;
-        inset: 0;
-        z-index: 2;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: color-mix(in srgb, var(--surface) 72%, transparent);
-        font-size: 12px;
-        color: var(--text-muted);
-        pointer-events: none;
-    }
-
-    .redis-query-scroll-loading {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .redis-query-hint {
-      margin: 0 12px 8px;
-    }
-
-    .redis-query-preview-option {
-      margin-left: auto;
-    }
-
     .redis-query-truncated {
         flex-shrink: 0;
         padding: var(--sp-1) var(--sp-3);
@@ -6461,9 +6122,7 @@
 }
 
 .db-import-preview-table {
-    width: max-content;
-    min-width: 100%;
-    table-layout: fixed;
+    width: 100%;
     border-collapse: collapse;
     font-size: 12px;
 }
@@ -6474,49 +6133,15 @@
     border-bottom: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
-    box-sizing: border-box;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .db-import-preview-table th {
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 1;
     background: var(--surface);
     color: var(--muted);
     font-weight: 600;
-}
-
-.db-import-preview-th--resizing {
-    color: var(--fg);
-}
-
-.db-import-preview-col-resize {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 8px;
-    height: 100%;
-    cursor: col-resize;
-    z-index: 3;
-    transform: translateX(50%);
-}
-
-.db-import-preview-col-resize:hover,
-.db-import-preview-col-resize:active {
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-}
-
-.db-import-preview-table-wrap--col-resizing,
-.db-import-preview-table--resizing {
-    cursor: col-resize;
-    user-select: none;
-}
-
-.db-import-preview-table--resizing .db-import-preview-name-input {
-    pointer-events: none;
 }
 
 .db-import-preview-row--disabled {
@@ -6524,22 +6149,7 @@
 }
 
 .db-import-preview-name {
-    min-width: 140px;
-    white-space: normal;
-}
-
-.db-import-preview-name-input {
-    width: 100%;
-    min-width: 0;
-    font-weight: 400;
-}
-
-.db-import-preview-cell--select {
-    text-align: center;
-}
-
-.db-import-preview-cell--status {
-    white-space: normal;
+    font-weight: 500;
 }
 
 .db-import-preview-engine {

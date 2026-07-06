@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useI18n } from "../../../i18n";
 import { showToast } from "../../../stores/toastStore";
@@ -48,9 +47,6 @@ interface CellSelection {
   rowKey: string | number;
   columnId: string;
 }
-
-const GRID_ROW_HEIGHT = 32;
-const GRID_VIRTUAL_OVERSCAN = 10;
 
 function isActionColumn(column: DbTablesPanelGridColumn<unknown>): boolean {
   return column.variant === "actions" || column.variant === "actionsSticky";
@@ -167,86 +163,6 @@ function tableClassName(variant: DbTablesPanelGridVariant, className?: string): 
   return classes.join(" ");
 }
 
-type VirtualGridRowProps<T> = {
-  row: T;
-  rowIndex: number;
-  rowId: string | number;
-  columns: DbTablesPanelGridColumn<T>[];
-  selectedRowKey: string | number | null;
-  selectedCell: CellSelection | null;
-  rowClassName?: (row: T) => string | undefined;
-  onRowClick?: (row: T) => void;
-  onSelectCell: (selection: CellSelection) => void;
-  resolveCopyText: (row: T, column: DbTablesPanelGridColumn<T>) => string;
-  t: (key: string) => string;
-};
-
-const VirtualGridRow = memo(function VirtualGridRow<T>({
-  row,
-  rowIndex,
-  rowId,
-  columns,
-  selectedRowKey,
-  selectedCell,
-  rowClassName,
-  onRowClick,
-  onSelectCell,
-  resolveCopyText,
-  t,
-}: VirtualGridRowProps<T>) {
-  const selected = selectedRowKey != null && selectedRowKey === rowId;
-  const extraClass = rowClassName?.(row);
-
-  return (
-    <tr
-      className={[selected ? "is-selected" : "", extraClass ?? ""].filter(Boolean).join(" ") || undefined}
-      onClick={onRowClick ? () => onRowClick(row) : undefined}
-    >
-      {columns.map((column) => {
-        const title = column.getTitle?.(row);
-        const copyable = isColumnCopyable(column);
-        const cellSelected = selectedCell?.rowKey === rowId && selectedCell.columnId === column.id;
-        const cellClass = bodyCellClassName(
-          column as DbTablesPanelGridColumn<unknown>,
-          cellSelected,
-          copyable,
-        );
-        return (
-          <td
-            key={column.id}
-            className={cellClass || undefined}
-            title={title}
-            onClick={(event) => {
-              if (!copyable) {
-                return;
-              }
-              event.stopPropagation();
-              onSelectCell({ rowKey: rowId, columnId: column.id });
-              onRowClick?.(row);
-            }}
-            onDoubleClick={(event) => {
-              if (!copyable) {
-                return;
-              }
-              event.stopPropagation();
-              const text = resolveCopyText(row, column);
-              if (text) {
-                void writeToClipboard(text).then((ok) => {
-                  if (ok) {
-                    showToast(t("common.copied"));
-                  }
-                });
-              }
-            }}
-          >
-            {column.render(row, rowIndex)}
-          </td>
-        );
-      })}
-    </tr>
-  );
-}) as <T>(props: VirtualGridRowProps<T>) => React.ReactElement;
-
 /** 数据库侧栏/连接信息面板共用的对齐表格。 */
 export function DbTablesPanelGrid<T>({
   columns,
@@ -331,21 +247,6 @@ export function DbTablesPanelGrid<T>({
     }
   }, [rowKey, rows, selectedCell]);
 
-  const rowVirtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => hostRef.current,
-    estimateSize: () => GRID_ROW_HEIGHT,
-    overscan: GRID_VIRTUAL_OVERSCAN,
-    getItemKey: (index) => String(rowKey(rows[index]!, index)),
-  });
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
-  const paddingBottom =
-    virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
-      : 0;
-
   return (
     <div ref={hostRef} className="db-tables-panel-grid-host" tabIndex={-1}>
       <table className={tableClassName(variant, className)}>
@@ -390,38 +291,61 @@ export function DbTablesPanelGrid<T>({
           </tr>
         </thead>
         <tbody>
-          {paddingTop > 0 ? (
-            <tr aria-hidden>
-              <td colSpan={columns.length} style={{ height: paddingTop, padding: 0, border: "none" }} />
-            </tr>
-          ) : null}
-          {virtualRows.map((virtualRow) => {
-            const row = rows[virtualRow.index];
-            if (!row) return null;
-            const rowIndex = virtualRow.index;
+          {rows.map((row, rowIndex) => {
             const key = rowKey(row, rowIndex);
+            const selected = selectedRowKey != null && selectedRowKey === key;
+            const extraClass = rowClassName?.(row);
             return (
-              <VirtualGridRow
+              <tr
                 key={key}
-                row={row}
-                rowIndex={rowIndex}
-                rowId={key}
-                columns={columns}
-                selectedRowKey={selectedRowKey}
-                selectedCell={selectedCell}
-                rowClassName={rowClassName}
-                onRowClick={onRowClick}
-                onSelectCell={setSelectedCell}
-                resolveCopyText={resolveCopyText}
-                t={t}
-              />
+                className={[selected ? "is-selected" : "", extraClass ?? ""].filter(Boolean).join(" ") || undefined}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
+                {columns.map((column) => {
+                  const title = column.getTitle?.(row);
+                  const copyable = isColumnCopyable(column);
+                  const cellSelected =
+                    selectedCell?.rowKey === key && selectedCell.columnId === column.id;
+                  const cellClass = bodyCellClassName(
+                    column as DbTablesPanelGridColumn<unknown>,
+                    cellSelected,
+                    copyable,
+                  );
+                  return (
+                    <td
+                      key={column.id}
+                      className={cellClass || undefined}
+                      title={title}
+                      onClick={(event) => {
+                        if (!copyable) {
+                          return;
+                        }
+                        event.stopPropagation();
+                        setSelectedCell({ rowKey: key, columnId: column.id });
+                        onRowClick?.(row);
+                      }}
+                      onDoubleClick={(event) => {
+                        if (!copyable) {
+                          return;
+                        }
+                        event.stopPropagation();
+                        const text = resolveCopyText(row, column);
+                        if (text) {
+                          void writeToClipboard(text).then((ok) => {
+                            if (ok) {
+                              showToast(t("common.copied"));
+                            }
+                          });
+                        }
+                      }}
+                    >
+                      {column.render(row, rowIndex)}
+                    </td>
+                  );
+                })}
+              </tr>
             );
           })}
-          {paddingBottom > 0 ? (
-            <tr aria-hidden>
-              <td colSpan={columns.length} style={{ height: paddingBottom, padding: 0, border: "none" }} />
-            </tr>
-          ) : null}
         </tbody>
       </table>
     </div>
