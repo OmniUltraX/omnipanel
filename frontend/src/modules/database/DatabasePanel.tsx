@@ -694,6 +694,20 @@ export function DatabasePanel() {
     [setWorkspaceTabs],
   );
 
+  /** 激活已有 Dock Tab；双击树节点时若当前为预览 Tab 则升格为常驻。 */
+  const activateExistingDockTab = useCallback(
+    (tabId: string, mode: SchemaDockOpenMode = "preview") => {
+      if (mode === "permanent") {
+        const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
+        if (tab?.preview) {
+          promotePreviewTab(tabId);
+        }
+      }
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, promotePreviewTab],
+  );
+
   const handleDockTabDoubleClick = useCallback(
     (tabId: string) => {
       const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
@@ -3189,7 +3203,7 @@ export function DatabasePanel() {
 
       const existingTabId = findTabIdForTable(moduleTabs, connId, dbName, tableName);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         if (connection.db_type !== "redis") {
           warmColumnMetaFromCache(existingTabId);
           fetchAndApplyTableColumnMeta(existingTabId, connection, dbName, tableName, (columns) => {
@@ -3241,8 +3255,8 @@ export function DatabasePanel() {
       ensureTablePreview(tabId);
     },
     [
+      activateExistingDockTab,
       loadTablePreview,
-      activateWorkspaceTab,
       promotePreviewTab,
       replacePreviewDockTab,
       setActiveConnIdIfChanged,
@@ -3327,7 +3341,7 @@ export function DatabasePanel() {
         ? findTabIdForRedisQuery(moduleTabs, connId, dbName)
         : findTabIdForDatabase(moduleTabs, connId, dbName);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         return;
       }
 
@@ -3382,7 +3396,7 @@ export function DatabasePanel() {
       ]);
       activateWorkspaceTab(tabId);
     },
-    [activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
   );
 
   const openSqlFile = useCallback(
@@ -3633,7 +3647,7 @@ export function DatabasePanel() {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const existingTabId = findTabIdForRedisQuery(moduleTabs, connId, dbName);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         return;
       }
 
@@ -3678,7 +3692,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
     },
-    [activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab],
+    [activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab],
   );
 
   const handleSelectConnection = useCallback(
@@ -3696,7 +3710,7 @@ export function DatabasePanel() {
         const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
         const existingTabId = findTabIdForConnection(moduleTabs, connId);
         if (existingTabId) {
-          activateWorkspaceTab(existingTabId);
+          activateExistingDockTab(existingTabId, mode);
           return;
         }
 
@@ -3743,7 +3757,7 @@ export function DatabasePanel() {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const existingTabId = findTabIdForConnection(moduleTabs, connId);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         return;
       }
 
@@ -3785,7 +3799,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
     },
-    [connections, groups, setActiveGroupId, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [connections, groups, setActiveGroupId, activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
   );
 
   const runQuery = useCallback(async (
