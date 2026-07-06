@@ -26,9 +26,11 @@ import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanel
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
 import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
 import { DeploymentConfigEditorSubWindow } from "./DeploymentConfigEditorSubWindow";
-import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
+import { DeploymentServiceActionButtons } from "./DeploymentServiceActionButtons";
+import { DeploymentServiceLogSubWindow } from "./DeploymentServiceLogSubWindow";
 import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
+import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
 
 import { buildMysqlCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
@@ -295,6 +297,22 @@ export function DatabaseConnectionInfoPanel({
     void openMysqlConfig(deployment);
   }, [deployment, openMysqlConfig]);
 
+  const {
+    logOpen: serviceLogOpen,
+    logIo: serviceLogIo,
+    logSubtitle: serviceLogSubtitle,
+    logBusy: serviceLogBusy,
+    restartBusy: serviceRestartBusy,
+    closeLog: closeServiceLog,
+    viewServiceLog,
+    restartService,
+    canManageDeployedService,
+  } = useDeploymentServiceActions();
+
+  const handleViewServiceLog = useCallback(() => {
+    void viewServiceLog(connection, deployment, "mysql");
+  }, [connection, deployment, viewServiceLog]);
+
   const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
       return;
@@ -382,6 +400,13 @@ export function DatabaseConnectionInfoPanel({
     },
     [refreshConnections, refreshDeployment, refreshVariables, subTab],
   );
+
+  const handleRestartService = useCallback(() => {
+    void restartService(deployment, "mysql", async () => {
+      await refreshDeployment();
+      await refreshActiveTab();
+    });
+  }, [deployment, refreshActiveTab, refreshDeployment, restartService]);
 
   useEffect(() => {
     setSubTab("connections");
@@ -769,9 +794,14 @@ export function DatabaseConnectionInfoPanel({
             />
           </div>
           {deployment?.kind === "host" || deployment?.kind === "docker" ? (
-            <DeploymentConfigOpenButton
-              onClick={handleOpenMysqlConfig}
-              busy={configOpening}
+            <DeploymentServiceActionButtons
+              canManage={canManageDeployedService(deployment)}
+              logBusy={serviceLogBusy}
+              restartBusy={serviceRestartBusy}
+              configBusy={configOpening}
+              onViewLog={handleViewServiceLog}
+              onRestart={handleRestartService}
+              onOpenConfig={handleOpenMysqlConfig}
             />
           ) : null}
         </div>
@@ -867,6 +897,13 @@ export function DatabaseConnectionInfoPanel({
           connectionLabel={connectionLabel}
           onClose={closeConfigEditor}
         />
+        <DeploymentServiceLogSubWindow
+          open={serviceLogOpen}
+          io={serviceLogIo}
+          logSubtitle={serviceLogSubtitle}
+          connectionLabel={connectionLabel}
+          onClose={closeServiceLog}
+        />
       </>
     );
   }
@@ -880,6 +917,13 @@ export function DatabaseConnectionInfoPanel({
         configPath={configPath}
         connectionLabel={connectionLabel}
         onClose={closeConfigEditor}
+      />
+      <DeploymentServiceLogSubWindow
+        open={serviceLogOpen}
+        io={serviceLogIo}
+        logSubtitle={serviceLogSubtitle}
+        connectionLabel={connectionLabel}
+        onClose={closeServiceLog}
       />
     </>
   );

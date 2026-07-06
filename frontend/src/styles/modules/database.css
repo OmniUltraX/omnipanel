@@ -650,6 +650,19 @@
         color: var(--meta);
     }
 
+    .db-connection-info-deploy-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .db-connection-info-deploy-action-btn {
+        color: var(--meta);
+    }
+
+    .db-connection-info-deploy-action-btn:not(:disabled):hover,
     .db-connection-info-deploy-config-btn:not(:disabled):hover {
         color: var(--accent);
     }

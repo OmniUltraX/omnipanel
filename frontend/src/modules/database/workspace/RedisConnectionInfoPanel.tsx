@@ -21,9 +21,11 @@ import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanel
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
 import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
 import { DeploymentConfigEditorSubWindow } from "./DeploymentConfigEditorSubWindow";
-import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
+import { DeploymentServiceActionButtons } from "./DeploymentServiceActionButtons";
+import { DeploymentServiceLogSubWindow } from "./DeploymentServiceLogSubWindow";
 import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
+import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
 
 import { buildRedisCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
@@ -278,6 +280,22 @@ export function RedisConnectionInfoPanel({
     void openRedisConfig(connection, deployment);
   }, [connection, deployment, openRedisConfig]);
 
+  const {
+    logOpen: serviceLogOpen,
+    logIo: serviceLogIo,
+    logSubtitle: serviceLogSubtitle,
+    logBusy: serviceLogBusy,
+    restartBusy: serviceRestartBusy,
+    closeLog: closeServiceLog,
+    viewServiceLog,
+    restartService,
+    canManageDeployedService,
+  } = useDeploymentServiceActions();
+
+  const handleViewServiceLog = useCallback(() => {
+    void viewServiceLog(connection, deployment, "redis");
+  }, [connection, deployment, viewServiceLog]);
+
   const refreshClients = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
       return;
@@ -357,6 +375,20 @@ export function RedisConnectionInfoPanel({
     },
     [refreshClients, refreshConfig, refreshDeployment, subTab],
   );
+
+  const handleRestartService = useCallback(() => {
+    void restartService(deployment, "redis", async () => {
+      await refreshDeployment();
+      await refreshActiveTab();
+    });
+  }, [deployment, refreshActiveTab, refreshDeployment, restartService]);
+
+  const redisConfigPathHint = useMemo(() => {
+    if (!deployment?.dir?.trim()) {
+      return undefined;
+    }
+    return `${deployment.dir.trim().replace(/\/+$/, "")}/redis.conf`;
+  }, [deployment?.dir]);
 
   useEffect(() => {
     setSubTab("connections");
@@ -655,14 +687,15 @@ export function RedisConnectionInfoPanel({
             />
           </div>
           {deployment?.kind === "host" || deployment?.kind === "docker" ? (
-            <DeploymentConfigOpenButton
-              configPath={
-                deployment?.dir?.trim()
-                  ? `${deployment.dir.trim().replace(/\/+$/, "")}/redis.conf`
-                  : undefined
-              }
-              onClick={handleOpenRedisConfig}
-              busy={configOpening}
+            <DeploymentServiceActionButtons
+              canManage={canManageDeployedService(deployment)}
+              logBusy={serviceLogBusy}
+              restartBusy={serviceRestartBusy}
+              configBusy={configOpening}
+              onViewLog={handleViewServiceLog}
+              onRestart={handleRestartService}
+              onOpenConfig={handleOpenRedisConfig}
+              configPath={redisConfigPathHint}
             />
           ) : null}
         </div>
@@ -758,6 +791,13 @@ export function RedisConnectionInfoPanel({
           connectionLabel={connectionLabel}
           onClose={closeConfigEditor}
         />
+        <DeploymentServiceLogSubWindow
+          open={serviceLogOpen}
+          io={serviceLogIo}
+          logSubtitle={serviceLogSubtitle}
+          connectionLabel={connectionLabel}
+          onClose={closeServiceLog}
+        />
       </>
     );
   }
@@ -771,6 +811,13 @@ export function RedisConnectionInfoPanel({
         configPath={configPath}
         connectionLabel={connectionLabel}
         onClose={closeConfigEditor}
+      />
+      <DeploymentServiceLogSubWindow
+        open={serviceLogOpen}
+        io={serviceLogIo}
+        logSubtitle={serviceLogSubtitle}
+        connectionLabel={connectionLabel}
+        onClose={closeServiceLog}
       />
     </>
   );
