@@ -1,67 +1,108 @@
 import { useEffect, useRef } from "react";
-import type { Graph } from "@antv/g6";
+import MindMap from "simple-mind-map";
+import "simple-mind-map/dist/simpleMindMap.esm.css";
 import { useI18n } from "../../../i18n";
-import {
-  createMindmapGraph,
-  renderMindmapGraph,
-  refreshMindmapGraphTheme,
-  SAMPLE_TREE_DATA,
-  type MindmapGraphSession,
-} from "./g6MindmapSetup";
-import { watchTreeDiagramTheme } from "./treeDiagramTheme";
+import { readTreeDiagramTheme, watchTreeDiagramTheme } from "./treeDiagramTheme";
 
 interface TreeDiagramPanelProps {
   label?: string;
 }
 
+const SAMPLE_TREE_DATA = {
+  data: {
+    text: "示例根节点",
+  },
+  children: [
+    {
+      data: { text: "连接 A" },
+      children: [
+        { data: { text: "数据库 db1" } },
+        { data: { text: "数据库 db2" } },
+      ],
+    },
+    {
+      data: { text: "连接 B" },
+      children: [
+        { data: { text: "表 users" } },
+        { data: { text: "表 orders" } },
+      ],
+    },
+  ],
+};
+
 export function TreeDiagramPanel({ label }: TreeDiagramPanelProps) {
   const { t } = useI18n();
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<Graph | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mindMapRef = useRef<MindMap | null>(null);
 
   useEffect(() => {
-    const container = canvasRef.current;
+    const container = containerRef.current;
     if (!container) return;
 
-    // React StrictMode 重挂载时清理残留画布
-    container.replaceChildren();
+    const theme = readTreeDiagramTheme(container);
+    const themeConfig = {
+      backgroundColor: theme.canvasBg,
+      lineColor: theme.edgeFallback,
+      lineWidth: 2,
+      root: {
+        fillColor: theme.rootFill,
+        color: theme.rootLabelFill,
+        borderColor: theme.rootStroke,
+        borderWidth: 1,
+      },
+      second: {
+        fillColor: theme.nodeFill,
+        color: theme.labelFill,
+        borderColor: theme.nodeStroke,
+        borderWidth: 1,
+      },
+      node: {
+        fillColor: theme.nodeFill,
+        color: theme.labelFill,
+        borderColor: theme.nodeStroke,
+        borderWidth: 1,
+      },
+    };
 
-    const session: MindmapGraphSession = { disposed: false };
-    const graph = createMindmapGraph(container, SAMPLE_TREE_DATA);
-    graphRef.current = graph;
+    mindMapRef.current = new MindMap({
+      el: container,
+      data: SAMPLE_TREE_DATA,
+      themeConfig,
+    } as any);
 
-    const renderPromise = renderMindmapGraph(graph, session);
+    const applyTheme = () => {
+      const newTheme = readTreeDiagramTheme(container);
+      mindMapRef.current?.setThemeConfig({
+        backgroundColor: newTheme.canvasBg,
+        lineColor: newTheme.edgeFallback,
+        lineWidth: 2,
+        root: {
+          fillColor: newTheme.rootFill,
+          color: newTheme.rootLabelFill,
+          borderColor: newTheme.rootStroke,
+          borderWidth: 1,
+        },
+        second: {
+          fillColor: newTheme.nodeFill,
+          color: newTheme.labelFill,
+          borderColor: newTheme.nodeStroke,
+          borderWidth: 1,
+        },
+        node: {
+          fillColor: newTheme.nodeFill,
+          color: newTheme.labelFill,
+          borderColor: newTheme.nodeStroke,
+          borderWidth: 1,
+        },
+      });
+    };
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (session.disposed || graph.destroyed) return;
-      const entry = entries[0];
-      if (!entry) return;
-      const { width, height } = entry.contentRect;
-      if (width > 0 && height > 0) {
-        try {
-          graph.setSize(width, height);
-        } catch {
-          // 图已销毁时忽略
-        }
-      }
-    });
-    resizeObserver.observe(container);
-
-    const stopThemeWatch = watchTreeDiagramTheme(() => {
-      if (session.disposed || graph.destroyed) return;
-      void refreshMindmapGraphTheme(graph);
-    });
+    const stopThemeWatch = watchTreeDiagramTheme(applyTheme);
 
     return () => {
       stopThemeWatch();
-      session.disposed = true;
-      resizeObserver.disconnect();
-      void renderPromise.finally(() => {
-        if (!graph.destroyed) {
-          graph.destroy();
-        }
-      });
-      graphRef.current = null;
+      mindMapRef.current?.destroy();
+      mindMapRef.current = null;
     };
   }, []);
 
@@ -71,7 +112,7 @@ export function TreeDiagramPanel({ label }: TreeDiagramPanelProps) {
         <h3 className="db-tree-diagram-panel__title">{label ?? t("database.queryFiles.defaultTreeFileName")}</h3>
         <p className="db-tree-diagram-panel__hint">{t("database.treeDiagram.placeholderHint")}</p>
       </div>
-      <div ref={canvasRef} className="db-tree-diagram-panel__canvas" />
+      <div ref={containerRef} className="db-tree-diagram-panel__canvas" />
     </div>
   );
 }
