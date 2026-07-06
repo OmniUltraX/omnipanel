@@ -65,6 +65,11 @@ import {
   resolveSavedSessionCwd,
 } from "../modules/terminal/terminalSessionResume";
 import { isWarpDisplay } from "../modules/terminal/terminalDisplayMode";
+import {
+  formatPtyCommandInput,
+  isMultilineTerminalCommand,
+} from "../modules/terminal/formatPtyCommandInput";
+import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
 import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
@@ -530,7 +535,9 @@ export function useTerminal(
 
     function sendCommand(cmd: string) {
       recordTerminalSessionActivity(sessionId, Date.now(), { command: cmd });
-      writeToBackend(`${cmd}\r`);
+      const pane = findPaneById(sessionId);
+      const shell = resolveTerminalShellFamily(pane?.type ?? "local", pane?.shellLabel);
+      writeToBackend(formatPtyCommandInput(cmd, shell));
     }
 
     sendCommandRef.current = sendCommand;
@@ -660,9 +667,24 @@ export function useTerminal(
               const blockId =
                 pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
               if (blockId) {
+                const existingForDefer = useBlocksStore.getState().findBlockById(blockId);
+                const paneForShell = findPaneById(sessionId);
+                const shellFamily = resolveTerminalShellFamily(
+                  paneForShell?.type ?? "local",
+                  paneForShell?.shellLabel,
+                );
+                const deferForMultiline =
+                  shellFamily !== "powershell" &&
+                  existingForDefer?.status === "running" &&
+                  isMultilineTerminalCommand(existingForDefer.command) &&
+                  (hasActiveFeedCapture(sessionId) || pendingBlock?.blockId === blockId);
+                if (deferForMultiline) {
+                  scheduleFeedBlockIdleComplete(blockId);
+                  break;
+                }
                 clearFeedBlockIdleComplete(blockId);
                 const endLine = t.buffer.active.cursorY + t.buffer.active.baseY;
-                const existing = useBlocksStore.getState().findBlockById(blockId);
+                const existing = existingForDefer;
                 const cmd = normalizeBlockCommand(
                   existing?.command ?? pendingBlock?.command ?? "",
                 );
@@ -720,7 +742,16 @@ export function useTerminal(
     let remoteInitEchoFilter: ReturnType<typeof createRemoteInitEchoFilter> | null = null;
     let remoteInitEchoFilterTimer: number | null = null;
     const FEED_BLOCK_IDLE_MS = 800;
+    const FEED_BLOCK_MULTILINE_IDLE_MS = 2_500;
     const feedBlockIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function resolveFeedBlockIdleMs(blockId: string): number {
+      const block = useBlocksStore.getState().findBlockById(blockId);
+      if (block && isMultilineTerminalCommand(block.command)) {
+        return FEED_BLOCK_MULTILINE_IDLE_MS;
+      }
+      return FEED_BLOCK_IDLE_MS;
+    }
 
     function scheduleFeedBlockIdleComplete(blockId: string) {
       if (!isWarpDisplay(sessionId)) return;
@@ -744,7 +775,7 @@ export function useTerminal(
             cwd: resolvedCwd,
             ...(cleaned ? { output: cleaned } : {}),
           });
-        }, FEED_BLOCK_IDLE_MS),
+        }, resolveFeedBlockIdleMs(blockId)),
       );
     }
 

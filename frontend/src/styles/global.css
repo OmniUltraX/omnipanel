@@ -3850,6 +3850,8 @@ a {
     height: 100%;
     align-items: stretch;
     align-self: stretch;
+    position: relative;
+    z-index: 3;
 }
 
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container {
@@ -3857,19 +3859,37 @@ a {
     overflow: hidden;
 }
 
+.dockable-workspace.dock-window-control .dv-pre-actions-container,
+.dockable-workspace.dock-window-control .dv-left-actions-container {
+    flex-shrink: 0;
+}
+
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container .dv-void-container {
     flex: 1 1 0;
-    min-width: 24px;
+    min-width: 0;
     height: 100%;
     cursor: default;
 }
 
+/* void 移窗由 JS startDragging 处理；禁用原生 drag-region 避免盖住后续 tab */
 .dockable-workspace.dock-window-control .dock-window-void-drag {
-    -webkit-app-region: drag;
+    -webkit-app-region: no-drag;
 }
 
+/* tab 区按内容占宽，void 吃剩余空白；避免 void 与 tab 平分导致误折叠 */
+.dockable-workspace.dock-window-control .dv-scrollable,
+.dockable-workspace.dock-window-control .dv-tabs-and-actions-container > .dv-tabs-container {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+}
+
+.dockable-workspace.dock-window-control .dv-scrollable > .dv-tabs-container,
 .dockable-workspace.dock-window-control .dv-tabs-container {
-    flex: 1 1 0;
+    width: max-content;
+    max-width: 100%;
+    flex: none;
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;

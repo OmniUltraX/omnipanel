@@ -10,6 +10,7 @@ import {
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
+import { isMultilineTerminalCommand } from "./formatPtyCommandInput";
 import {
   prepareShellForAiTool,
   recoverShellAfterAiTool,
@@ -493,7 +494,8 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
 
     if (isWarpDisplay(pending.tabId)) {
       const blockId = armFeedCapture(pending.tabId, displayCommand);
-      scheduleShellBlockFallbackComplete(pending.tabId, blockId);
+      const fallbackMs = isMultilineTerminalCommand(displayCommand) ? 30_000 : undefined;
+      scheduleShellBlockFallbackComplete(pending.tabId, blockId, fallbackMs);
       if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(displayCommand)) {
         scheduleCdBlockFallbackComplete(pending.tabId, blockId);
       }
