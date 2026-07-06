@@ -350,7 +350,7 @@ function TableTargetTag({
   );
 }
 
-const SYNC_STRATEGIES: DataSyncStrategy[] = ["rewrite", "append", "update"];
+const SYNC_STRATEGIES: DataSyncStrategy[] = ["source", "merge", "target"];
 
 function SyncStrategyButtons({
   tableName,
@@ -364,14 +364,14 @@ function SyncStrategyButtons({
   const { t } = useI18n();
 
   const labels: Record<DataSyncStrategy, string> = {
-    rewrite: t("database.toolbox.side.strategyRewrite"),
-    append: t("database.toolbox.side.strategyAppend"),
-    update: t("database.toolbox.side.strategyUpdate"),
+    source: t("database.toolbox.side.strategySource"),
+    merge: t("database.toolbox.side.strategyMerge"),
+    target: t("database.toolbox.side.strategyTarget"),
   };
   const hints: Record<DataSyncStrategy, string> = {
-    rewrite: t("database.toolbox.side.strategyRewriteHint"),
-    append: t("database.toolbox.side.strategyAppendHint"),
-    update: t("database.toolbox.side.strategyUpdateHint"),
+    source: t("database.toolbox.side.strategySourceHint"),
+    merge: t("database.toolbox.side.strategyMergeHint"),
+    target: t("database.toolbox.side.strategyTargetHint"),
   };
 
   return (
@@ -401,7 +401,7 @@ function SyncStrategyButtons({
 function TargetSyncTableRow({
   tableName,
   targetStatus,
-  syncStrategy = "rewrite",
+  syncStrategy = "source",
   onSyncStrategyChange,
   analysis,
   detailOpen = false,
@@ -1134,7 +1134,7 @@ export function SyncSidePanel({
     return names.map((name) => ({
       name,
       status: tableTargetStatus[name] ?? (targetTablesLoading ? "checking" : undefined),
-      strategy: tableSyncStrategies[name] ?? "rewrite",
+      strategy: tableSyncStrategies[name] ?? "source",
       analysis: tableAnalysis[name],
     }));
   }, [

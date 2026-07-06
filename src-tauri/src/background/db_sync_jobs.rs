@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -969,13 +969,150 @@ async fn truncate_target_table(
     Ok(())
 }
 
+fn normalize_data_sync_strategy(strategy: Option<&str>) -> &'static str {
+    match strategy.unwrap_or("source") {
+        "target" => "target",
+        "merge" | "append" => "merge",
+        "source" | "rewrite" | "update" => "source",
+        _ => "source",
+    }
+}
+
+async fn fetch_table_row_keys(
+    connection: &DbConnectionConfig,
+    table_name: &str,
+    pk_columns: &[String],
+    all_columns: &[String],
+    cancel: &AtomicBool,
+) -> Result<HashSet<String>, String> {
+    let total = database::db_count_table(
+        connection.clone(),
+        None,
+        table_name.to_string(),
+        None,
+    )
+    .await?;
+    if total <= 0 {
+        return Ok(HashSet::new());
+    }
+
+    let mut keys = HashSet::new();
+    let mut offset = 0i64;
+    while offset < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page = database::db_preview_table(
+            connection.clone(),
+            table_name.to_string(),
+            PAGE_SIZE as u32,
+            offset as u32,
+            None,
+            None,
+        )
+        .await?;
+        if page.rows.is_empty() {
+            break;
+        }
+        for row in &page.rows {
+            keys.insert(build_row_key(row, pk_columns, all_columns));
+        }
+        let batch_len = page.rows.len();
+        offset += PAGE_SIZE;
+        if batch_len < PAGE_SIZE as usize {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
+async fn copy_table_data_merge(
+    source: &DbConnectionConfig,
+    source_db: &str,
+    target: &DbConnectionConfig,
+    target_db: &str,
+    spec: &DbSyncExecTableSpec,
+    cancel: &AtomicBool,
+    report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
+) -> Result<u64, String> {
+    let table = spec.name.as_str();
+    let columns: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
+    if columns.is_empty() {
+        return Err("缺少表字段信息".to_string());
+    }
+    let pk_columns: Vec<String> = spec
+        .columns
+        .iter()
+        .filter(|c| c.is_pk)
+        .map(|c| c.name.clone())
+        .collect();
+
+    let mut source_conn = source.clone();
+    source_conn.database = source_db.to_string();
+    let mut target_conn = target.clone();
+    target_conn.database = target_db.to_string();
+
+    let target_keys =
+        fetch_table_row_keys(&target_conn, table, &pk_columns, &columns, cancel).await?;
+
+    let total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
+    let mut written = 0u64;
+    let mut offset = 0i64;
+
+    while offset < i64::from(total.max(1)) || (total == 0 && offset == 0) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page = database::db_preview_table(
+            source_conn.clone(),
+            table.to_string(),
+            PAGE_SIZE as u32,
+            offset as u32,
+            None,
+            None,
+        )
+        .await?;
+        if page.rows.is_empty() {
+            break;
+        }
+        let batch_len = page.rows.len();
+        let rows_to_insert: Vec<HashMap<String, serde_json::Value>> = page
+            .rows
+            .into_iter()
+            .filter(|row| {
+                let key = build_row_key(row, &pk_columns, &columns);
+                !target_keys.contains(&key)
+            })
+            .collect();
+        for chunk in rows_to_insert.chunks(INSERT_BATCH_SIZE) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
+            }
+            let sql = build_insert_statement(&target.db_type, table, &columns, chunk)?;
+            if sql.is_empty() {
+                continue;
+            }
+            written += database::db_run_sql(target_conn.clone(), None, sql).await?;
+        }
+        let done = (offset as u32 + batch_len as u32).min(total.max(batch_len as u32));
+        report_rows(done, total.max(1));
+        offset += PAGE_SIZE;
+        if batch_len < PAGE_SIZE as usize {
+            break;
+        }
+    }
+
+    Ok(written)
+}
+
 fn build_insert_statement(
     db_type: &str,
     table: &str,
     columns: &[String],
     rows: &[HashMap<String, serde_json::Value>],
-    strategy: &str,
-    pk_columns: &[String],
 ) -> Result<String, String> {
     if rows.is_empty() {
         return Ok(String::new());
@@ -996,68 +1133,9 @@ fn build_insert_statement(
         values_parts.push(format!("({values})"));
     }
     let values_sql = values_parts.join(", ");
-
-    if is_mysql_engine(db_type) {
-        return match strategy {
-            "append" => Ok(format!(
-                "INSERT IGNORE INTO {table_ident} ({col_list}) VALUES {values_sql}"
-            )),
-            "update" if !pk_columns.is_empty() => {
-                let base = format!("INSERT INTO {table_ident} ({col_list}) VALUES {values_sql}");
-                let updates = columns
-                    .iter()
-                    .map(|col| {
-                        let ident = quote_ident(db_type, col);
-                        format!("{ident}=new.{ident}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                Ok(format!("{base} AS new ON DUPLICATE KEY UPDATE {updates}"))
-            }
-            _ => Ok(format!(
-                "INSERT INTO {table_ident} ({col_list}) VALUES {values_sql}"
-            )),
-        };
-    }
-
-    if is_postgres_engine(db_type) {
-        let base = format!("INSERT INTO {table_ident} ({col_list}) VALUES {values_sql}");
-        if strategy == "append" && !pk_columns.is_empty() {
-            let pk_list = pk_columns
-                .iter()
-                .map(|col| quote_ident(db_type, col))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Ok(format!("{base} ON CONFLICT ({pk_list}) DO NOTHING"));
-        }
-        if strategy == "update" && !pk_columns.is_empty() {
-            let pk_list = pk_columns
-                .iter()
-                .map(|col| quote_ident(db_type, col))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let updates = columns
-                .iter()
-                .map(|col| {
-                    let ident = quote_ident(db_type, col);
-                    format!("{ident}=EXCLUDED.{ident}")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Ok(format!("{base} ON CONFLICT ({pk_list}) DO UPDATE SET {updates}"));
-        }
-        return Ok(base);
-    }
-
-    if strategy == "append" {
-        Ok(format!(
-            "INSERT OR IGNORE INTO {table_ident} ({col_list}) VALUES {values_sql}"
-        ))
-    } else {
-        Ok(format!(
-            "INSERT OR REPLACE INTO {table_ident} ({col_list}) VALUES {values_sql}"
-        ))
-    }
+    Ok(format!(
+        "INSERT INTO {table_ident} ({col_list}) VALUES {values_sql}"
+    ))
 }
 
 async fn copy_table_data(
@@ -1074,17 +1152,27 @@ async fn copy_table_data(
     if columns.is_empty() {
         return Err("缺少表字段信息".to_string());
     }
-    let pk_columns: Vec<String> = spec
-        .columns
-        .iter()
-        .filter(|c| c.is_pk)
-        .map(|c| c.name.clone())
-        .collect();
-    let strategy = spec.strategy.as_deref().unwrap_or("rewrite");
+    let strategy = normalize_data_sync_strategy(spec.strategy.as_deref());
 
-    if strategy == "rewrite" {
-        truncate_target_table(target, target_db, table).await?;
+    if strategy == "target" {
+        report_rows(0, 1);
+        return Ok(0);
     }
+
+    if strategy == "merge" {
+        return copy_table_data_merge(
+            source,
+            source_db,
+            target,
+            target_db,
+            spec,
+            cancel,
+            report_rows,
+        )
+        .await;
+    }
+
+    truncate_target_table(target, target_db, table).await?;
 
     let mut source_conn = source.clone();
     source_conn.database = source_db.to_string();
@@ -1124,8 +1212,6 @@ async fn copy_table_data(
                 table,
                 &columns,
                 chunk,
-                strategy,
-                &pk_columns,
             )?;
             if sql.is_empty() {
                 continue;
@@ -1200,7 +1286,11 @@ async fn execute_data_sync_table(
             table,
             status: "success".to_string(),
             rows_written: Some(rows),
-            message: Some(format!("已同步 {rows} 行")),
+            message: Some(match normalize_data_sync_strategy(spec.strategy.as_deref()) {
+                "target" => "已保留目标表数据，跳过同步".to_string(),
+                "merge" => format!("已追加 {rows} 行（忽略冲突行）"),
+                _ => format!("已同步 {rows} 行"),
+            }),
             error: None,
         },
         Err(err) if err == "cancelled" => SyncExecResultEvent {

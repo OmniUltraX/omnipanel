@@ -1,7 +1,7 @@
 import type { DbConnectionConfig } from "./api";
 import type { RedisDeploymentInfo } from "./redisDeploymentDetect";
 
-const STORAGE_KEY = "omnipanel-redis-deployment-cache.v1";
+const STORAGE_KEY = "omnipanel-redis-deployment-cache.v2";
 
 interface CachedRedisDeploymentEntry {
   connectionKey: string;

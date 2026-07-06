@@ -6,6 +6,13 @@ import {
   ensureSshReady,
   findSshConnectionForDbHost,
 } from "./mysqlSlowQueryLog";
+import {
+  buildFindDockerContainerByPortCommand,
+  buildFindDockerContainerByPortFallbackCommand,
+  parseDockerPsFormatLine,
+  parseDockerPsPortsFallbackLine,
+  type DockerContainerRef,
+} from "./dockerContainerResolve";
 
 export type RedisDeploymentKind = "host" | "docker" | "unknown";
 
@@ -92,29 +99,24 @@ function resolveHostLocation(dir: string, pidFile: string): string {
   return pidFile;
 }
 
-function parseDockerPsLine(line: string): { id: string; name: string } | null {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length < 2) {
-    return null;
-  }
-  return { id: parts[0], name: parts[1] };
-}
-
 async function findDockerContainerByPort(
   sshConnectionId: string,
   port: number,
-): Promise<{ id: string; name: string } | null> {
-  const portNeedle = `:${port}`;
-  const quotedNeedle = shellQuote(portNeedle);
-  const { stdout } = await sshExec(
+): Promise<DockerContainerRef | null> {
+  let { stdout } = await sshExec(
     sshConnectionId,
-    `docker ps 2>/dev/null | grep ${quotedNeedle} | head -1`,
+    buildFindDockerContainerByPortCommand(port),
   );
-  return parseDockerPsLine(stdout.split("\n")[0] ?? "");
+  let parsed = parseDockerPsFormatLine(stdout.split("\n")[0] ?? "");
+  if (parsed) {
+    return parsed;
+  }
+  ({ stdout } = await sshExec(
+    sshConnectionId,
+    buildFindDockerContainerByPortFallbackCommand(port),
+  ));
+  parsed = parseDockerPsPortsFallbackLine(stdout.split("\n")[0] ?? "");
+  return parsed;
 }
 
 async function dockerContainerFileExists(

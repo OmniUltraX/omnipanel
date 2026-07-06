@@ -3,7 +3,22 @@ import { Button } from "../../../components/ui/Button";
 import { useI18n } from "../../../i18n";
 import { DataLoading } from "../../../components/ui/DataLoading";
 import type { DbColumnMeta } from "../api";
+import { RowDiffConflictCell } from "./RowDiffConflictCell";
+import { RowDiffResizableTh, rowDiffTdProps } from "./RowDiffResizableTh";
 import { fetchRowDiffPage } from "./rowDiffCache";
+import {
+  ROW_DIFF_COL_ACTIONS,
+  ROW_DIFF_COL_KEY,
+  ROW_DIFF_COL_KIND,
+  useRowDiffColumnResize,
+} from "./useRowDiffColumnResize";
+import {
+  getRowDiffFieldResolution,
+  setRowDiffAllChangedFields,
+  setRowDiffFieldResolution,
+  type RowDiffFieldResolutions,
+  type RowDiffFieldSide,
+} from "./rowDiffResolutions";
 import type { DataAnalysisResult, TableRowDiff } from "./types";
 
 const ROW_DIFF_PAGE_SIZE = 50;
@@ -63,10 +78,19 @@ export function TableRowDiffPanel({
   const [totalRows, setTotalRows] = useState(0);
   const [pageLoading, setPageLoading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [fieldResolutions, setFieldResolutions] = useState<RowDiffFieldResolutions>({});
 
   const cacheId = analysis?.diffCacheId;
   const inlineDiffs = useInlineDiffs(analysis);
   const useCache = Boolean(cacheId && analysis?.status === "diff");
+  const columnNames = useMemo(() => columns.map((col) => col.name), [columns]);
+  const {
+    scrollRef,
+    columnIds,
+    beginColumnResize,
+    resetColumnWidth,
+    resolveColumnWidth,
+  } = useRowDiffColumnResize(columnNames, `${tableName}|${cacheId ?? ""}`);
 
   useEffect(() => {
     setPage(0);
@@ -75,6 +99,7 @@ export function TableRowDiffPanel({
     setTotalRows(0);
     setPageError(null);
     setPageLoading(false);
+    setFieldResolutions({});
   }, [tableName, cacheId, analysis?.status, analysis?.diffRows]);
 
   const kindFilterKey = kindFilters.slice().sort().join(",");
@@ -157,6 +182,31 @@ export function TableRowDiffPanel({
     setPage(0);
   }, []);
 
+  const handlePickCell = useCallback((rowKey: string, columnName: string, side: RowDiffFieldSide) => {
+    setFieldResolutions((prev) => setRowDiffFieldResolution(prev, rowKey, columnName, side));
+  }, []);
+
+  const handlePickRow = useCallback((diff: TableRowDiff, side: RowDiffFieldSide) => {
+    const changedFields = diff.changedFields ?? [];
+    if (changedFields.length === 0) {
+      return;
+    }
+    setFieldResolutions((prev) => setRowDiffAllChangedFields(prev, diff.rowKey, changedFields, side));
+  }, []);
+
+  const isRowResolvedWith = useCallback(
+    (diff: TableRowDiff, side: RowDiffFieldSide): boolean => {
+      const changedFields = diff.changedFields ?? [];
+      if (changedFields.length === 0) {
+        return false;
+      }
+      return changedFields.every(
+        (field) => getRowDiffFieldResolution(fieldResolutions, diff.rowKey, field) === side,
+      );
+    },
+    [fieldResolutions],
+  );
+
   if (!analysis || analysis.status === "unchecked") {
     return (
       <div className="db-toolbox-row-diff-panel db-toolbox-row-diff-panel--empty">
@@ -209,8 +259,6 @@ export function TableRowDiffPanel({
     );
   }
 
-  const columnNames = columns.map((col) => col.name);
-
   return (
     <div className="db-toolbox-row-diff-panel">
       <div className="db-toolbox-row-diff-panel__toolbar">
@@ -243,28 +291,72 @@ export function TableRowDiffPanel({
         </div>
       ) : (
         <>
-          <div className="db-toolbox-row-diff-scroll">
+          <div ref={scrollRef} className="db-toolbox-row-diff-scroll">
             <table className="db-toolbox-row-diff-table">
+              <colgroup>
+                {columnIds.map((colId) => {
+                  const width = resolveColumnWidth(colId);
+                  return <col key={colId} data-col-id={colId} style={{ width }} />;
+                })}
+              </colgroup>
               <thead>
                 <tr>
-                  <th>{t("database.toolbox.side.rowDiffKey")}</th>
-                  <th>{t("database.toolbox.side.rowDiffKind")}</th>
+                  <RowDiffResizableTh
+                    colId={ROW_DIFF_COL_KEY}
+                    width={resolveColumnWidth(ROW_DIFF_COL_KEY)}
+                    className="db-toolbox-row-diff-key-col"
+                    onResizeStart={beginColumnResize}
+                    onResizeReset={resetColumnWidth}
+                  >
+                    {t("database.toolbox.side.rowDiffKey")}
+                  </RowDiffResizableTh>
+                  <RowDiffResizableTh
+                    colId={ROW_DIFF_COL_KIND}
+                    width={resolveColumnWidth(ROW_DIFF_COL_KIND)}
+                    onResizeStart={beginColumnResize}
+                    onResizeReset={resetColumnWidth}
+                  >
+                    {t("database.toolbox.side.rowDiffKind")}
+                  </RowDiffResizableTh>
                   {columnNames.map((name) => (
-                    <th key={name}>{name}</th>
+                    <RowDiffResizableTh
+                      key={name}
+                      colId={name}
+                      width={resolveColumnWidth(name)}
+                      onResizeStart={beginColumnResize}
+                      onResizeReset={resetColumnWidth}
+                    >
+                      {name}
+                    </RowDiffResizableTh>
                   ))}
+                  <RowDiffResizableTh
+                    colId={ROW_DIFF_COL_ACTIONS}
+                    width={resolveColumnWidth(ROW_DIFF_COL_ACTIONS)}
+                    className="db-toolbox-row-diff-actions-col"
+                    onResizeStart={beginColumnResize}
+                    onResizeReset={resetColumnWidth}
+                  >
+                    {t("database.toolbox.side.rowDiffActions")}
+                  </RowDiffResizableTh>
                 </tr>
               </thead>
               <tbody>
                 {displayDiffs.map((diff) => {
                   const kindLabel = rowDiffKindLabel(diff.kind, t);
+                  const showRowActions = diff.kind === "changed" && (diff.changedFields?.length ?? 0) > 0;
 
                   return (
                     <tr
                       key={diff.rowKey}
                       className={`db-toolbox-row-diff-row db-toolbox-row-diff-row--${diff.kind}`}
                     >
-                      <td className="db-toolbox-row-diff-key">{diff.displayKey}</td>
-                      <td>
+                      <td
+                        className="db-toolbox-row-diff-key"
+                        {...rowDiffTdProps(ROW_DIFF_COL_KEY, resolveColumnWidth(ROW_DIFF_COL_KEY))}
+                      >
+                        {diff.displayKey}
+                      </td>
+                      <td {...rowDiffTdProps(ROW_DIFF_COL_KIND, resolveColumnWidth(ROW_DIFF_COL_KIND))}>
                         <span className={`db-toolbox-row-diff-kind db-toolbox-row-diff-kind--${diff.kind}`}>
                           {kindLabel}
                         </span>
@@ -273,10 +365,28 @@ export function TableRowDiffPanel({
                         const isChanged = diff.changedFields?.includes(colName) ?? false;
                         const sourceVal = diff.sourceRow?.[colName];
                         const targetVal = diff.targetRow?.[colName];
-                        let cellText: string;
+
                         if (diff.kind === "changed" && isChanged) {
-                          cellText = `${formatCellValue(sourceVal)} → ${formatCellValue(targetVal)}`;
-                        } else if (diff.kind === "sourceOnly") {
+                          return (
+                            <RowDiffConflictCell
+                              key={colName}
+                              rowKey={diff.rowKey}
+                              columnName={colName}
+                              colWidth={resolveColumnWidth(colName)}
+                              sourceVal={sourceVal}
+                              targetVal={targetVal}
+                              resolution={getRowDiffFieldResolution(
+                                fieldResolutions,
+                                diff.rowKey,
+                                colName,
+                              )}
+                              onPick={handlePickCell}
+                            />
+                          );
+                        }
+
+                        let cellText: string;
+                        if (diff.kind === "sourceOnly") {
                           cellText = formatCellValue(sourceVal);
                         } else if (diff.kind === "targetOnly") {
                           cellText = formatCellValue(targetVal);
@@ -287,13 +397,40 @@ export function TableRowDiffPanel({
                         return (
                           <td
                             key={colName}
-                            className={isChanged ? "db-toolbox-row-diff-cell--conflict" : undefined}
                             title={cellText}
+                            {...rowDiffTdProps(colName, resolveColumnWidth(colName))}
                           >
                             {cellText}
                           </td>
                         );
                       })}
+                      <td
+                        className="db-toolbox-row-diff-actions-col"
+                        {...rowDiffTdProps(ROW_DIFF_COL_ACTIONS, resolveColumnWidth(ROW_DIFF_COL_ACTIONS))}
+                      >
+                        {showRowActions ? (
+                          <div className="db-toolbox-row-diff-row-actions">
+                            <Button
+                              type="button"
+                              variant={isRowResolvedWith(diff, "target") ? "default" : "ghost"}
+                              size="sm"
+                              className="db-toolbox-row-diff-row-action"
+                              onClick={() => handlePickRow(diff, "target")}
+                            >
+                              {t("database.toolbox.side.rowDiffPickTarget")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={isRowResolvedWith(diff, "source") ? "default" : "ghost"}
+                              size="sm"
+                              className="db-toolbox-row-diff-row-action"
+                              onClick={() => handlePickRow(diff, "source")}
+                            >
+                              {t("database.toolbox.side.rowDiffPickSource")}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}

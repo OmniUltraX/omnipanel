@@ -39,8 +39,87 @@ export function resolveDataSyncConflictStatus(
   return undefined;
 }
 
-/** 冲突表的数据同步策略 */
-export type DataSyncStrategy = "rewrite" | "append" | "update";
+/**
+ * 结合行级比对结果解析目标侧状态。
+ * 行级分析完成后不再回退为「检测中」，避免与「行一致 / 差异 x 行」同时展示。
+ */
+export function resolveTableTargetStatusWithAnalysis(
+  tableName: string,
+  targetTableNames: Set<string>,
+  sourceRowCount: number | null | undefined,
+  targetRowCount: number | null | undefined,
+  analysis?: DataAnalysisResult,
+): TableTargetStatus | undefined {
+  if (analysis?.status === "diff") {
+    return "conflict";
+  }
+  if (analysis?.status === "match" || analysis?.status === "error") {
+    return undefined;
+  }
+  if (analysis?.status === "analyzing") {
+    return undefined;
+  }
+  return resolveDataSyncConflictStatus(
+    tableName,
+    targetTableNames,
+    sourceRowCount,
+    targetRowCount,
+  );
+}
+
+/** 是否应保留冲突表同步策略（行级差异或行数冲突） */
+export function shouldKeepDataSyncStrategy(
+  tableName: string,
+  targetTableNames: Set<string>,
+  sourceRowCount: number | null | undefined,
+  targetRowCount: number | null | undefined,
+  analysis?: DataAnalysisResult,
+): boolean {
+  return (
+    resolveTableTargetStatusWithAnalysis(
+      tableName,
+      targetTableNames,
+      sourceRowCount,
+      targetRowCount,
+      analysis,
+    ) === "conflict"
+  );
+}
+
+/** 冲突表的数据同步策略：源 = 全部采用源表；目标 = 保留目标表；合并 = 仅追加目标缺失行 */
+export type DataSyncStrategy = "source" | "target" | "merge";
+
+/** @deprecated 旧版策略，读取配置时映射为新策略 */
+export type LegacyDataSyncStrategy = "rewrite" | "append" | "update";
+
+export function normalizeDataSyncStrategy(
+  value: string | undefined | null,
+  fallback: DataSyncStrategy = "source",
+): DataSyncStrategy {
+  if (value === "target") {
+    return "target";
+  }
+  if (value === "merge" || value === "append") {
+    return "merge";
+  }
+  if (value === "source" || value === "rewrite" || value === "update") {
+    return "source";
+  }
+  return fallback;
+}
+
+export function normalizeTableSyncStrategies(
+  strategies: Record<string, string> | undefined,
+): Record<string, DataSyncStrategy> {
+  if (!strategies) {
+    return {};
+  }
+  const next: Record<string, DataSyncStrategy> = {};
+  for (const [name, strategy] of Object.entries(strategies)) {
+    next[name] = normalizeDataSyncStrategy(strategy);
+  }
+  return next;
+}
 
 /** 逐条比对（行级 diff）状态：未执行 / 执行中 / 全部一致 / 存在差异 / 失败 */
 export type DataAnalysisStatus = "unchecked" | "analyzing" | "match" | "diff" | "error";

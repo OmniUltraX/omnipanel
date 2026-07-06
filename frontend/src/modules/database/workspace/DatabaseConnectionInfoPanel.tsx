@@ -30,10 +30,13 @@ import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
 import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 
+import { buildMysqlCliSections } from "./connectionCliCommands";
+import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
+
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 const VARIABLES_SQL = "SHOW VARIABLES;";
 
-type ConnectionInfoSubTab = "connections" | "status";
+type ConnectionInfoSubTab = "connections" | "status" | "cli";
 
 type ProcessSortColumn = "user" | "host" | "db" | "time";
 type ProcessSortDirection = "asc" | "desc";
@@ -371,11 +374,13 @@ export function DatabaseConnectionInfoPanel({
     async (options?: { silent?: boolean }) => {
       if (subTab === "connections") {
         await refreshConnections(options);
-      } else {
+      } else if (subTab === "status") {
         await refreshVariables(options);
+      } else {
+        await refreshDeployment();
       }
     },
-    [refreshConnections, refreshVariables, subTab],
+    [refreshConnections, refreshDeployment, refreshVariables, subTab],
   );
 
   useEffect(() => {
@@ -396,7 +401,8 @@ export function DatabaseConnectionInfoPanel({
       return;
     }
     void refreshConnections();
-  }, [active, capable, connection.id, refreshConnections]);
+    void refreshDeployment();
+  }, [active, capable, connection.id, refreshConnections, refreshDeployment]);
 
   useEffect(() => {
     if (!active || !capable || subTab !== "status") {
@@ -511,9 +517,24 @@ export function DatabaseConnectionInfoPanel({
     variablesSort.direction,
   ]);
 
-  const tabLoading = subTab === "connections" ? connectionsLoading : variablesLoading;
+  const cliSections = useMemo(
+    () => buildMysqlCliSections(t, connection, deployment, sshConnections),
+    [connection, deployment, sshConnections, t],
+  );
+
+  const tabLoading =
+    subTab === "connections"
+      ? connectionsLoading
+      : subTab === "status"
+        ? variablesLoading
+        : deploymentLoading;
+
   const tabCount =
-    subTab === "connections" ? sortedProcessRows.length : sortedVariableRows.length;
+    subTab === "connections"
+      ? sortedProcessRows.length
+      : subTab === "status"
+        ? sortedVariableRows.length
+        : cliSections.length;
 
   const toggleProcessSort = useCallback((column: ProcessSortColumn) => {
     setProcessSort((prev) => {
@@ -697,6 +718,29 @@ export function DatabaseConnectionInfoPanel({
     );
   };
 
+  const renderCliSession = () => (
+    <ConnectionCliTabPanel
+      connection={connection}
+      client="mysql"
+      deployment={deployment}
+      deploymentLoading={deploymentLoading}
+      sshConnections={sshConnections}
+      panelActive={active}
+      visible={subTab === "cli"}
+    />
+  );
+
+  const renderPanelMainContent = () => (
+    <>
+      {capable && active ? renderCliSession() : null}
+      {subTab === "connections"
+        ? renderConnectionsTable()
+        : subTab === "status"
+          ? renderVariablesTable()
+          : null}
+    </>
+  );
+
   const panelBody = (content: ReactNode) => (
     <ScopedSearch
       className="db-tables-panel db-tables-panel--dock"
@@ -705,9 +749,11 @@ export function DatabaseConnectionInfoPanel({
       placeholder={
         subTab === "connections"
           ? t("database.connectionInfo.search")
-          : t("database.connectionInfo.variablesSearch")
+          : subTab === "status"
+            ? t("database.connectionInfo.variablesSearch")
+            : ""
       }
-      enabled={capable}
+      enabled={capable && subTab !== "cli"}
     >
       {capable ? (
         <div className="db-connection-info-deploy">
@@ -756,6 +802,18 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.status")}
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "cli" ? " active" : ""}`}
+            aria-selected={subTab === "cli"}
+            onClick={() => {
+              setSubTab("cli");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.cli")}
+          </button>
         </div>
       ) : null}
       <div
@@ -764,10 +822,16 @@ export function DatabaseConnectionInfoPanel({
         aria-label={
           subTab === "connections"
             ? t("database.connectionInfo.tabs.connections")
-            : t("database.connectionInfo.tabs.status")
+            : subTab === "status"
+              ? t("database.connectionInfo.tabs.status")
+              : t("database.connectionInfo.tabs.cli")
         }
       >
-        <div className="db-tables-panel-grid-wrap">{content}</div>
+        <div
+          className={`db-tables-panel-grid-wrap${subTab === "cli" ? " db-tables-panel-grid-wrap--cli" : ""}`}
+        >
+          {content}
+        </div>
       </div>
       <div className="db-tables-panel-meta">
         <DbPanelMetaRefreshButton
@@ -780,7 +844,9 @@ export function DatabaseConnectionInfoPanel({
         <span className="db-tables-panel-meta-text">
           {tabLoading
             ? t("common.loading")
-            : t("database.connectionInfo.count", { count: tabCount })}
+            : subTab === "cli"
+              ? t("database.connectionInfo.cli.sectionCount", { count: tabCount })
+              : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>
     </ScopedSearch>
@@ -807,7 +873,7 @@ export function DatabaseConnectionInfoPanel({
 
   return (
     <>
-      {panelBody(subTab === "connections" ? renderConnectionsTable() : renderVariablesTable())}
+      {panelBody(renderPanelMainContent())}
       <DeploymentConfigEditorSubWindow
         open={configEditorOpen}
         io={configEditorIo}

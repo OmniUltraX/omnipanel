@@ -6,12 +6,13 @@ import {
 } from "./schemaSyncAlignedTables";
 import type { SchemaTableDiff } from "./schemaDiff";
 import { formatIndexDetail } from "./schemaDiff";
-import type {
-  DataSyncStrategy,
-  SchemaTableNameCase,
-  SyncTableInfo,
-  TableTargetStatus,
-  ToolboxTabId,
+import {
+  type DataSyncStrategy,
+  type SchemaTableNameCase,
+  type SyncTableInfo,
+  type TableTargetStatus,
+  type ToolboxTabId,
+  normalizeDataSyncStrategy,
 } from "./types";
 
 export interface SyncTaskSqlPreviewInput {
@@ -102,9 +103,23 @@ function escapeRegExp(value: string): string {
 }
 
 function strategyLabel(strategy: DataSyncStrategy): string {
-  if (strategy === "append") return "append";
-  if (strategy === "update") return "update";
-  return "rewrite";
+  return strategy;
+}
+
+function buildInsertPreviewSql(
+  dbType: string,
+  table: string,
+  columns: DbColumnMeta[],
+  rowCount: number | null,
+): string {
+  const tableIdent = quoteIdent(dbType, table);
+  const colNames = columns.map((c) => quoteIdent(dbType, c.name)).join(", ");
+  const rowsHint =
+    rowCount != null && rowCount >= 0
+      ? `-- 预计同步 ${rowCount.toLocaleString()} 行（分批 INSERT，每批约 150 行）`
+      : "-- 预计从源库分批读取并 INSERT";
+  const valuesHint = `-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...), (...);`;
+  return `${rowsHint}\n${valuesHint}`;
 }
 
 function buildAddColumnSql(dbType: string, table: string, col: DbColumnMeta): string {
@@ -153,50 +168,6 @@ function buildTruncateSql(dbType: string, table: string): string {
     return `TRUNCATE TABLE ${ident}`;
   }
   return `DELETE FROM ${ident}`;
-}
-
-function buildInsertPreviewSql(
-  dbType: string,
-  table: string,
-  columns: DbColumnMeta[],
-  strategy: DataSyncStrategy,
-  rowCount: number | null,
-): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const colNames = columns.map((c) => quoteIdent(dbType, c.name)).join(", ");
-  const rowsHint =
-    rowCount != null && rowCount >= 0
-      ? `-- 预计同步 ${rowCount.toLocaleString()} 行（分批 INSERT，每批约 150 行）`
-      : "-- 预计从源库分批读取并 INSERT";
-  const valuesHint = `-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...), (...);`;
-
-  if (isMysqlEngine(dbType)) {
-    if (strategy === "append") {
-      return `${rowsHint}\n-- INSERT IGNORE INTO ${tableIdent} (${colNames}) VALUES (...);`;
-    }
-    if (strategy === "update") {
-      return `${rowsHint}\n-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...)\n-- ON DUPLICATE KEY UPDATE ...;`;
-    }
-    return `${rowsHint}\n${valuesHint}`;
-  }
-
-  if (isPostgresEngine(dbType)) {
-    if (strategy === "append") {
-      return `${rowsHint}\n-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...)\n-- ON CONFLICT DO NOTHING;`;
-    }
-    if (strategy === "update") {
-      return `${rowsHint}\n-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...)\n-- ON CONFLICT (...) DO UPDATE SET ...;`;
-    }
-    return `${rowsHint}\n${valuesHint}`;
-  }
-
-  if (strategy === "append") {
-    return `${rowsHint}\n-- INSERT OR IGNORE INTO ${tableIdent} (${colNames}) VALUES (...);`;
-  }
-  if (strategy === "update") {
-    return `${rowsHint}\n-- INSERT OR REPLACE INTO ${tableIdent} (${colNames}) VALUES (...);`;
-  }
-  return `${rowsHint}\n${valuesHint}`;
 }
 
 async function buildSchemaTablePreview(
@@ -312,7 +283,9 @@ async function buildDataTablePreview(
   const dbType = input.targetConn.db_type;
   const status = input.tableTargetStatus[tableName];
   const strategy =
-    input.tableSyncStrategies[tableName] ?? (status === "new" ? "rewrite" : "rewrite");
+    status === "new"
+      ? "source"
+      : normalizeDataSyncStrategy(input.tableSyncStrategies[tableName]);
   const columns = input.sourceTableColumns[tableName] ?? [];
   const rowCount = input.sourceRowCounts[tableName] ?? null;
 
@@ -325,12 +298,28 @@ async function buildDataTablePreview(
     }
   }
 
-  if (strategy === "rewrite" && status !== "new") {
+  lines.push(`-- 策略: ${strategyLabel(strategy)}`);
+
+  if (strategy === "target") {
+    lines.push("-- 保留目标表数据，跳过该表数据同步");
+    return lines;
+  }
+
+  if (strategy === "merge") {
+    lines.push("-- 合并：仅插入目标中不存在的行，忽略主键冲突行");
+    lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
+    const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
+    if (pkCols.length > 0) {
+      lines.push(`-- 主键: ${pkCols.join(", ")}`);
+    }
+    return lines;
+  }
+
+  if (status !== "new") {
     lines.push(`${buildTruncateSql(dbType, tableName)};`);
   }
 
-  lines.push(`-- 策略: ${strategyLabel(strategy)}`);
-  lines.push(buildInsertPreviewSql(dbType, tableName, columns, strategy, rowCount));
+  lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
 
   const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
   if (pkCols.length > 0) {

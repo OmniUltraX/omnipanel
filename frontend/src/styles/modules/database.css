@@ -736,6 +736,70 @@
         margin-bottom: -1px;
     }
 
+    .db-connection-cli {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+        min-height: 0;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .db-connection-cli--hidden {
+        display: none;
+    }
+
+    .db-tables-panel-grid-wrap--cli {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .db-connection-cli-terminal {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 220px;
+        min-width: 0;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--r-md);
+        overflow: hidden;
+        background: var(--bg-deeper);
+    }
+
+    .db-connection-cli-terminal--idle {
+        align-items: center;
+        justify-content: center;
+    }
+
+    .db-connection-cli-terminal .term-panes {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .db-connection-cli-terminal .term-pane {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .db-connection-cli-terminal .terminal-area {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .db-connection-cli-warning {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--warning, #b45309);
+    }
+
     .db-tables-panel-view-toggle {
         display: inline-flex;
         align-items: center;
@@ -2936,21 +3000,32 @@
     }
 
     .db-toolbox-row-diff-table {
-        width: 100%;
+        width: max-content;
+        min-width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
         font-size: 11px;
     }
 
     .db-toolbox-row-diff-table th,
     .db-toolbox-row-diff-table td {
+        box-sizing: border-box;
         padding: 4px 8px;
         border-bottom: 1px solid var(--border-soft);
         text-align: left;
         vertical-align: top;
         white-space: nowrap;
-        max-width: 200px;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .db-toolbox-row-diff-table td.db-toolbox-row-diff-cell--conflict {
+        overflow: visible;
+    }
+
+    .db-toolbox-row-diff-table td.db-toolbox-row-diff-cell--picker-open {
+        position: relative;
+        z-index: 4;
     }
 
     .db-toolbox-row-diff-table th {
@@ -2961,6 +3036,31 @@
         color: var(--muted);
         font-weight: 600;
         box-shadow: 0 1px 0 var(--border-soft);
+    }
+
+    .db-toolbox-row-diff-th-label {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding-right: 6px;
+    }
+
+    .db-toolbox-row-diff-table th.db-toolbox-row-diff-th--resizing {
+        user-select: none;
+    }
+
+    .db-toolbox-row-diff-scroll--col-resizing {
+        cursor: col-resize;
+        user-select: none;
+    }
+
+    .db-toolbox-row-diff-scroll--col-resizing .db-toolbox-row-diff-table {
+        pointer-events: none;
+    }
+
+    .db-toolbox-row-diff-scroll--col-resizing .db-col-resize-handle {
+        pointer-events: auto;
     }
 
     .db-toolbox-row-diff-table thead {
@@ -3013,6 +3113,143 @@
         color: var(--warn);
         font-weight: 600;
         background: color-mix(in srgb, var(--warn) 18%, transparent);
+        position: relative;
+        padding: 0;
+        overflow: visible;
+    }
+
+    .db-toolbox-row-diff-cell-inner {
+        position: relative;
+        min-height: 28px;
+        padding: 6px 10px;
+        display: flex;
+        align-items: center;
+    }
+
+    .db-toolbox-row-diff-cell-pending {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .db-toolbox-row-diff-cell-picked {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .db-toolbox-row-diff-cell--resolved-source {
+        color: var(--success);
+        background: color-mix(in srgb, var(--success) 14%, transparent);
+    }
+
+    .db-toolbox-row-diff-cell--resolved-target {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+    }
+
+    .db-toolbox-row-diff-cell-picker {
+        display: inline-flex;
+        align-items: stretch;
+        gap: 2px;
+        padding: 3px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        box-shadow: var(--shadow-md, 0 6px 20px rgb(0 0 0 / 18%));
+        white-space: nowrap;
+    }
+
+    .db-toolbox-row-diff-cell-picker--portal {
+        z-index: 12000;
+        pointer-events: auto;
+    }
+
+    .db-toolbox-row-diff-cell-picker--portal::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: -5px;
+        width: 8px;
+        height: 8px;
+        transform: translateX(-50%) rotate(45deg);
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .db-toolbox-row-diff-cell-picker-btn {
+        position: relative;
+        z-index: 1;
+        min-width: 32px;
+        height: 24px;
+        padding: 0 8px;
+        border: 1px solid var(--border-soft);
+        border-radius: calc(var(--r-sm) - 2px);
+        background: var(--bg-deeper);
+        color: var(--fg-2);
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        line-height: 1;
+    }
+
+    .db-toolbox-row-diff-cell-picker-btn:hover {
+        border-color: var(--border);
+        color: var(--fg);
+        background: var(--surface);
+    }
+
+    .db-toolbox-row-diff-cell-picker-btn--active {
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    }
+
+    .db-toolbox-row-diff-cell-picker-btn--yes.db-toolbox-row-diff-cell-picker-btn--active {
+        border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+        color: var(--success);
+        background: color-mix(in srgb, var(--success) 12%, var(--surface));
+    }
+
+    .db-toolbox-row-diff-actions-col {
+        position: sticky;
+        right: 0;
+        z-index: 2;
+        padding: 4px 6px;
+        text-align: center;
+        vertical-align: middle;
+        background: var(--surface);
+        box-shadow: -6px 0 10px -8px rgb(0 0 0 / 28%);
+        border-left: 1px solid var(--border-soft);
+        overflow: visible;
+    }
+
+    .db-toolbox-row-diff-table thead .db-toolbox-row-diff-actions-col {
+        z-index: 3;
+        background: var(--bg-deeper);
+    }
+
+    .db-toolbox-row-diff-row-actions {
+        display: inline-flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        width: 100%;
+    }
+
+    .db-toolbox-row-diff-row-action {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 24px;
+        padding: 0 4px;
+        font-size: 11px;
     }
 
     .db-toolbox-footer {

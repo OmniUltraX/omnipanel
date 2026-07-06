@@ -20,6 +20,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
 import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
+import { isDatabaseCliTerminalPane } from "../modules/database/databaseCliTerminal";
 import {
   decodeTerminalBytesRaw,
   extractCommandOutput,
@@ -189,6 +190,26 @@ function isRemotePane(sessionId: string): boolean {
   return findPaneById(sessionId)?.type === "remote";
 }
 
+function isSshBackendSessionId(backendSid: string): boolean {
+  return backendSid.startsWith("ssh-");
+}
+
+function resolveBackendTransport(sessionId: string, backendSid: string | null) {
+  const remote = isRemotePane(sessionId) || Boolean(backendSid && isSshBackendSessionId(backendSid));
+  return {
+    remote,
+    writeCmd: remote ? "ssh_write" : "write_terminal",
+    resizeCmd: remote ? "ssh_resize" : "resize_terminal",
+  };
+}
+
+function backendSessionMatchesPane(sessionId: string, backendSid: string): boolean {
+  if (isRemotePane(sessionId)) {
+    return isSshBackendSessionId(backendSid);
+  }
+  return !isSshBackendSessionId(backendSid);
+}
+
 /** 远程 pane 走 SSH（ssh_connect_connection），本地 pane 走本地 PTY（create_terminal）。 */
 async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const pane = findPaneById(sessionId);
@@ -284,8 +305,8 @@ function safeStringify(value: unknown): string {
   }
 }
 
-function disposeBackendSession(sessionId: string, backendSid: string) {
-  const cmd = isRemotePane(sessionId) ? "ssh_disconnect" : "close_terminal";
+function disposeBackendSession(_sessionId: string, backendSid: string) {
+  const cmd = isSshBackendSessionId(backendSid) ? "ssh_disconnect" : "close_terminal";
   invoke(cmd, { id: backendSid }).catch(() => { });
 }
 
@@ -399,7 +420,9 @@ export function disposeSessionBackend(sessionId: string) {
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const existingSid = findPaneById(sessionId)?.backendSessionId;
-  if (existingSid) return existingSid;
+  if (existingSid && backendSessionMatchesPane(sessionId, existingSid)) {
+    return existingSid;
+  }
 
   let pending = pendingBackendSessions.get(sessionId);
   if (!pending) {
@@ -472,8 +495,6 @@ export function useTerminal(
     let unlistenEvent: UnlistenFn | null = null;
     const disposables: IDisposable[] = [];
     const remote = isRemotePane(sessionId);
-    const writeCmd = remote ? "ssh_write" : "write_terminal";
-    const resizeCmd = remote ? "ssh_resize" : "resize_terminal";
     // 重连恢复期间由后端快照统一重建屏幕，期间丢弃增量事件以避免重复。
     let restoring = false;
 
@@ -489,6 +510,7 @@ export function useTerminal(
 
     function flushPendingInput() {
       if (!backendSid) return;
+      const { writeCmd } = resolveBackendTransport(sessionId, backendSid);
       for (const data of pendingInput) {
         invoke(writeCmd, {
           id: backendSid,
@@ -509,6 +531,7 @@ export function useTerminal(
         pendingInput.push(data);
         return;
       }
+      const { writeCmd } = resolveBackendTransport(sessionId, backendSid);
       invoke(writeCmd, {
         id: backendSid,
         data: toBytes(data),
@@ -538,6 +561,7 @@ export function useTerminal(
     setTerminalPaneRawWriter(sessionId, writeToBackend);
 
     function tryShellSessionBootstrapOnReady(): void {
+      if (isDatabaseCliTerminalPane(sessionId)) return;
       if (isSilentHistorySync(sessionId) || !isWarpDisplay(sessionId)) return;
       if (shellBootstrapReattached) return;
 
@@ -874,12 +898,19 @@ export function useTerminal(
     }
 
     async function ensureBackendSession(cols: number, rows: number) {
-      const existingSid = findPaneById(sessionId)?.backendSessionId;
+      let reusableSid = findPaneById(sessionId)?.backendSessionId ?? null;
 
-      if (existingSid) {
+      if (reusableSid && !backendSessionMatchesPane(sessionId, reusableSid)) {
+        disposeBackendSession(sessionId, reusableSid);
+        injectedBackendSessions.delete(reusableSid);
+        useTerminalStore.getState().setBackendSessionId(sessionId, null);
+        reusableSid = null;
+      }
+
+      if (reusableSid) {
         shellBootstrapReattached = true;
-        backendSid = existingSid;
-        registerRuntimeBackendSession(sessionId, existingSid);
+        backendSid = reusableSid;
+        registerRuntimeBackendSession(sessionId, reusableSid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
         const savedCwd = resolveSavedSessionCwd(sessionId);
         if (savedCwd) {
@@ -888,8 +919,10 @@ export function useTerminal(
         }
         void restoreSnapshot();
         flushPendingInput();
-        if (remote) {
-          if (!injectedBackendSessions.has(backendSid)) {
+        const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
+        if (transportRemote) {
+          const skipShellIntegration = isDatabaseCliTerminalPane(sessionId);
+          if (!skipShellIntegration && !injectedBackendSessions.has(backendSid)) {
             injectedBackendSessions.add(backendSid);
             if (remoteInitEchoFilter && !remoteInitEchoFilterTimer) {
               remoteInitEchoFilterTimer = window.setTimeout(() => {
@@ -905,9 +938,11 @@ export function useTerminal(
                 window.setTimeout(() => requestShellHistorySync(sessionId), 600);
               }
             }, 300);
-          } else if (remoteInitEchoFilter) {
-            remoteInitEchoFilter.releasePending();
-            remoteInitEchoFilter = null;
+          } else if (skipShellIntegration || remoteInitEchoFilter) {
+            if (remoteInitEchoFilter) {
+              remoteInitEchoFilter.releasePending();
+              remoteInitEchoFilter = null;
+            }
           }
         } else {
           window.setTimeout(() => {
@@ -927,8 +962,10 @@ export function useTerminal(
         registerRuntimeBackendSession(sessionId, sid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
         flushPendingInput();
-        if (remote) {
-          if (!injectedBackendSessions.has(backendSid)) {
+        const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
+        if (transportRemote) {
+          const skipShellIntegration = isDatabaseCliTerminalPane(sessionId);
+          if (!skipShellIntegration && !injectedBackendSessions.has(backendSid)) {
             injectedBackendSessions.add(backendSid);
             if (remoteInitEchoFilter && !remoteInitEchoFilterTimer) {
               remoteInitEchoFilterTimer = window.setTimeout(() => {
@@ -944,9 +981,11 @@ export function useTerminal(
                 window.setTimeout(() => requestShellHistorySync(sessionId), 600);
               }
             }, 300);
-          } else if (remoteInitEchoFilter) {
-            remoteInitEchoFilter.releasePending();
-            remoteInitEchoFilter = null;
+          } else if (skipShellIntegration || remoteInitEchoFilter) {
+            if (remoteInitEchoFilter) {
+              remoteInitEchoFilter.releasePending();
+              remoteInitEchoFilter = null;
+            }
           }
         } else {
           window.setTimeout(() => {
@@ -1032,6 +1071,7 @@ export function useTerminal(
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             if (destroyed || !backendSid || suspendedRef.current) return;
+            const { resizeCmd } = resolveBackendTransport(sessionId, backendSid);
             invoke(resizeCmd, {
               id: backendSid,
               cols: term!.cols,

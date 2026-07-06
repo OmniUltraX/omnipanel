@@ -57,7 +57,10 @@ import { TableRowDiffPanel } from "./TableRowDiffPanel";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import {
   connectionWithDatabase,
-  resolveDataSyncConflictStatus,
+  resolveTableTargetStatusWithAnalysis,
+  normalizeDataSyncStrategy,
+  normalizeTableSyncStrategies,
+  shouldKeepDataSyncStrategy,
   type DataAnalysisResult,
   type DataSyncStrategy,
   type SyncSideSnapshot,
@@ -826,7 +829,16 @@ export function DatabaseToolbox({
       setTableTargetStatus(() => {
         const next: Record<string, TableTargetStatus> = {};
         for (const name of sourceSelected) {
-          next[name] = "checking";
+          const status = resolveTableTargetStatusWithAnalysis(
+            name,
+            targetTableNames,
+            sourceSnapshot.tables.find((tbl) => tbl.name === name)?.rowCount,
+            targetRowCounts[name],
+            tableAnalysis[name],
+          );
+          if (status) {
+            next[name] = status;
+          }
         }
         return next;
       });
@@ -840,11 +852,12 @@ export function DatabaseToolbox({
     setTableTargetStatus(() => {
       const next: Record<string, TableTargetStatus> = {};
       for (const name of sourceSelected) {
-        const status = resolveDataSyncConflictStatus(
+        const status = resolveTableTargetStatusWithAnalysis(
           name,
           targetTableNames,
           sourceCountByName.get(name),
           targetRowCounts[name],
+          tableAnalysis[name],
         );
         if (status) {
           next[name] = status;
@@ -856,14 +869,16 @@ export function DatabaseToolbox({
     setTableSyncStrategies((prev) => {
       const next: Record<string, DataSyncStrategy> = {};
       for (const name of sourceSelected) {
-        const status = resolveDataSyncConflictStatus(
-          name,
-          targetTableNames,
-          sourceCountByName.get(name),
-          targetRowCounts[name],
-        );
-        if (status === "conflict") {
-          next[name] = prev[name] ?? "rewrite";
+        if (
+          shouldKeepDataSyncStrategy(
+            name,
+            targetTableNames,
+            sourceCountByName.get(name),
+            targetRowCounts[name],
+            tableAnalysis[name],
+          )
+        ) {
+          next[name] = prev[name] ?? "source";
         }
       }
       return next;
@@ -877,6 +892,7 @@ export function DatabaseToolbox({
     targetTablesLoading,
     targetConfigured,
     tab,
+    tableAnalysis,
   ]);
 
   /** 结构同步：勾选源表后对比目标表字段差异 */
@@ -1294,6 +1310,14 @@ export function DatabaseToolbox({
         setTableAnalysis((prev) => ({ ...prev, [name]: { status: "analyzing" } }));
       } else {
         analyzingRef.current.delete(name);
+        setTableAnalysis((prev) => {
+          if (prev[name]?.status !== "analyzing") {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[name];
+          return next;
+        });
       }
     }
   }, []);
@@ -1834,7 +1858,7 @@ export function DatabaseToolbox({
           : [];
     setSourceSelected(new Set(selectedNames));
     setSourceExpanded(new Set(config.expandedTables ?? []));
-    setTableSyncStrategies({ ...(config.tableSyncStrategies ?? {}) });
+    setTableSyncStrategies(normalizeTableSyncStrategies(config.tableSyncStrategies));
     if (tab === "dataSync") {
       const cacheKey = buildSyncAnalysisConfigKey({
         tab,
@@ -2428,8 +2452,9 @@ export function DatabaseToolbox({
             name,
             columns: sourceTableColumns[name] ?? [],
             strategy:
-              tableSyncStrategies[name] ??
-              (tableTargetStatus[name] === "new" ? "rewrite" : "rewrite"),
+              tableTargetStatus[name] === "new"
+                ? "source"
+                : normalizeDataSyncStrategy(tableSyncStrategies[name]),
           })),
         );
       } else {

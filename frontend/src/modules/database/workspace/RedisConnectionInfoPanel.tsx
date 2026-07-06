@@ -25,7 +25,10 @@ import { DeploymentConfigOpenButton } from "./DeploymentConfigOpenButton";
 import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 
-type ConnectionInfoSubTab = "connections" | "status";
+import { buildRedisCliSections } from "./connectionCliCommands";
+import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
+
+type ConnectionInfoSubTab = "connections" | "status" | "cli";
 
 type ConfigSortColumn = "name" | "value";
 type ConfigSortDirection = "asc" | "desc";
@@ -346,11 +349,13 @@ export function RedisConnectionInfoPanel({
     async (options?: { silent?: boolean }) => {
       if (subTab === "connections") {
         await refreshClients(options);
-      } else {
+      } else if (subTab === "status") {
         await refreshConfig(options);
+      } else {
+        await refreshDeployment();
       }
     },
-    [refreshClients, refreshConfig, subTab],
+    [refreshClients, refreshConfig, refreshDeployment, subTab],
   );
 
   useEffect(() => {
@@ -580,9 +585,47 @@ export function RedisConnectionInfoPanel({
     );
   };
 
-  const tabLoading = subTab === "connections" ? clientsLoading : configLoading;
+  const cliSections = useMemo(
+    () => buildRedisCliSections(t, connection, deployment, sshConnections),
+    [connection, deployment, sshConnections, t],
+  );
+
+  const tabLoading =
+    subTab === "connections"
+      ? clientsLoading
+      : subTab === "status"
+        ? configLoading
+        : deploymentLoading;
+
   const tabCount =
-    subTab === "connections" ? sortedClientRows.length : sortedConfigRows.length;
+    subTab === "connections"
+      ? sortedClientRows.length
+      : subTab === "status"
+        ? sortedConfigRows.length
+        : cliSections.length;
+
+  const renderCliSession = () => (
+    <ConnectionCliTabPanel
+      connection={connection}
+      client="redis"
+      deployment={deployment}
+      deploymentLoading={deploymentLoading}
+      sshConnections={sshConnections}
+      panelActive={active}
+      visible={subTab === "cli"}
+    />
+  );
+
+  const renderPanelMainContent = () => (
+    <>
+      {capable && active ? renderCliSession() : null}
+      {subTab === "connections"
+        ? renderClientsTable()
+        : subTab === "status"
+          ? renderConfigTable()
+          : null}
+    </>
+  );
 
   const panelBody = (content: ReactNode) => (
     <ScopedSearch
@@ -592,9 +635,11 @@ export function RedisConnectionInfoPanel({
       placeholder={
         subTab === "connections"
           ? t("database.redisConnectionInfo.clientsSearch")
-          : t("database.redisConnectionInfo.configSearch")
+          : subTab === "status"
+            ? t("database.redisConnectionInfo.configSearch")
+            : ""
       }
-      enabled={capable}
+      enabled={capable && subTab !== "cli"}
     >
       {capable ? (
         <div className="db-connection-info-deploy">
@@ -648,6 +693,18 @@ export function RedisConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.status")}
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "cli" ? " active" : ""}`}
+            aria-selected={subTab === "cli"}
+            onClick={() => {
+              setSubTab("cli");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.cli")}
+          </button>
         </div>
       ) : null}
       <div
@@ -656,10 +713,16 @@ export function RedisConnectionInfoPanel({
         aria-label={
           subTab === "connections"
             ? t("database.connectionInfo.tabs.connections")
-            : t("database.connectionInfo.tabs.status")
+            : subTab === "status"
+              ? t("database.connectionInfo.tabs.status")
+              : t("database.connectionInfo.tabs.cli")
         }
       >
-        <div className="db-tables-panel-grid-wrap">{content}</div>
+        <div
+          className={`db-tables-panel-grid-wrap${subTab === "cli" ? " db-tables-panel-grid-wrap--cli" : ""}`}
+        >
+          {content}
+        </div>
       </div>
       <div className="db-tables-panel-meta">
         <DbPanelMetaRefreshButton
@@ -672,7 +735,9 @@ export function RedisConnectionInfoPanel({
         <span className="db-tables-panel-meta-text">
           {tabLoading
             ? t("common.loading")
-            : t("database.connectionInfo.count", { count: tabCount })}
+            : subTab === "cli"
+              ? t("database.connectionInfo.cli.sectionCount", { count: tabCount })
+              : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>
     </ScopedSearch>
@@ -699,7 +764,7 @@ export function RedisConnectionInfoPanel({
 
   return (
     <>
-      {panelBody(subTab === "connections" ? renderClientsTable() : renderConfigTable())}
+      {panelBody(renderPanelMainContent())}
       <DeploymentConfigEditorSubWindow
         open={configEditorOpen}
         io={configEditorIo}
