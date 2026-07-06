@@ -8,6 +8,7 @@ import {
   stripAutoLsEchoArtifacts,
   stripBestLeadingCommandEcho,
 } from "./terminalCommandEcho";
+import { OMNIPANEL_PS_IEX_RUNNER_RE } from "./formatPtyCommandInput";
 
 export function stripTerminalControlSequences(text: string): string {
   return text
@@ -170,6 +171,7 @@ export function extractCommandOutput(raw: string, command: string): string {
     const lineNorm = withoutPrompt.replace(/\s+/g, " ");
 
     if (looksLikeShellCommandEchoLine(withoutPrompt || line)) continue;
+    if (OMNIPANEL_PS_IEX_RUNNER_RE.test(withoutPrompt || line)) continue;
     if (/^\s*cd\b/i.test(withoutPrompt || line) && /\s&&\s*(?:ls|dir|ll|la|l)\b/i.test(withoutPrompt || line)) {
       continue;
     }

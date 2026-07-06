@@ -9,6 +9,7 @@ const INTERNAL_PATTERNS: RegExp[] = [
   /^export __OMNIPANEL_SHELL_INT=/,
   /^__omnipanel_prompt_start\s*\(/,
   /^PROMPT_COMMAND=.*__omnipanel_/,
+  /^iex\s*\(\[Text\.Encoding\]::UTF8\.GetString\(\[Convert\]::FromBase64String\(/i,
 ];
 
 export function isInternalHistoryCommand(command: string): boolean {

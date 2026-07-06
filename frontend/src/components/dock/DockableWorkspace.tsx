@@ -55,9 +55,60 @@ import {
   syncGroupHeaderPosition,
   type DockHeaderPosition,
 } from "./dockHeaderPosition";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DockableTab } from "./dockableTab";
 
 export type { DockableTab } from "./dockableTab";
+
+const VOID_WINDOW_DRAG_THRESHOLD_PX = 3;
+const VOID_DOUBLE_CLICK_MS = 500;
+const VOID_DOUBLE_CLICK_DISTANCE_PX = 12;
+
+const TAB_BAR_INTERACTIVE_SELECTOR = [
+  ".dv-tab",
+  ".dv-default-tab",
+  ".dock-tab-header-root",
+  ".dv-default-tab-action",
+  "button",
+  ".win-controls",
+  ".topbar-tab-add-wrap",
+  ".topbar-tab-add",
+  ".module-dock-title",
+  ".dock-window-chrome-left-actions",
+].join(",");
+
+let lastDockMaximizeToggleAt = 0;
+
+async function toggleDockWindowMaximize(): Promise<void> {
+  const now = Date.now();
+  if (now - lastDockMaximizeToggleAt < 400) return;
+  lastDockMaximizeToggleAt = now;
+  const win = getCurrentWindow();
+  if (await win.isFullscreen()) {
+    await win.setFullscreen(false);
+  } else {
+    await win.toggleMaximize();
+  }
+}
+
+function findTabBarChromeTarget(
+  root: HTMLElement,
+  target: EventTarget | null,
+): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const tabBar = target.closest<HTMLElement>(".dv-tabs-and-actions-container");
+  if (!tabBar || !root.contains(tabBar)) return null;
+  if (target.closest(TAB_BAR_INTERACTIVE_SELECTOR)) return null;
+  return tabBar;
+}
+
+const DOCK_TAB_NO_DRAG_SELECTOR = [
+  ".dv-scrollable",
+  ".dv-tabs-container",
+  ".dv-tab",
+  ".dv-default-tab[data-dock-tab-id]",
+  ".dv-left-actions-container",
+].join(",");
 
 export interface DockAddTabConfig {
   show?: boolean;
@@ -579,7 +630,7 @@ export function DockableWorkspace({
     [],
   );
 
-  // 自定义 tab 关闭按钮 drag-ignore
+  // 自定义 tab 关闭按钮 drag-ignore；windowControl 时整段 Tab 栏标记 no-drag
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pressedActiveTabIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -590,11 +641,9 @@ export function DockableWorkspace({
         .querySelectorAll<HTMLElement>(".dv-default-tab .dv-default-tab-action")
         .forEach((el: HTMLElement) => el.classList.add("drag-ignore"));
       if (windowControl) {
-        root
-          .querySelectorAll<HTMLElement>(".dv-default-tab[data-dock-tab-id]")
-          .forEach((el) => {
-            el.setAttribute("data-tauri-drag-region", "false");
-          });
+        root.querySelectorAll<HTMLElement>(DOCK_TAB_NO_DRAG_SELECTOR).forEach((el) => {
+          el.setAttribute("data-tauri-drag-region", "false");
+        });
       }
     };
     handle();
@@ -603,18 +652,16 @@ export function DockableWorkspace({
     return () => observer.disconnect();
   }, [tabs.length, windowControl]);
 
-  // windowControl：tab 与窗口按钮之间的 void 区域用于拖拽移动窗口（仅限本层 dock，不含嵌套 DockableWorkspace）
+  // windowControl：void 标记 no-drag（不含嵌套 DockableWorkspace）
   useEffect(() => {
     const root = wrapperRef.current;
     if (!root) return;
 
-    const apply = () => {
+    const syncVoids = () => {
       root.querySelectorAll<HTMLElement>(".dv-void-container").forEach((el) => {
-        const owner = el.closest(".dockable-workspace");
-        if (owner !== root) return;
-
+        if (el.closest(".dockable-workspace") !== root) return;
         if (windowControl) {
-          el.setAttribute("data-tauri-drag-region", "");
+          el.setAttribute("data-tauri-drag-region", "false");
           el.classList.add("dock-window-void-drag");
         } else {
           el.removeAttribute("data-tauri-drag-region");
@@ -623,10 +670,104 @@ export function DockableWorkspace({
       });
     };
 
-    apply();
-    const observer = new MutationObserver(apply);
+    syncVoids();
+    const observer = new MutationObserver(syncVoids);
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
+  }, [windowControl, tabs.length, layoutReady]);
+
+  // windowControl：Tab 栏空白区 JS 移窗 + 双击最大化
+  useEffect(() => {
+    const root = wrapperRef.current;
+    if (!root || !windowControl) return;
+
+    const dragRef: { current: { startX: number; startY: number } | null } = { current: null };
+    const lastTapRef: {
+      current: { time: number; x: number; y: number } | null;
+    } = { current: null };
+
+    const isVoidTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      const voidEl = target.closest(".dv-void-container.dock-window-void-drag");
+      return Boolean(voidEl && root.contains(voidEl));
+    };
+
+    const tryToggleMaximizeFromDoubleTap = (event: PointerEvent | MouseEvent) => {
+      const now = Date.now();
+      const last = lastTapRef.current;
+      if (
+        !last ||
+        now - last.time > VOID_DOUBLE_CLICK_MS ||
+        Math.abs(event.clientX - last.x) > VOID_DOUBLE_CLICK_DISTANCE_PX ||
+        Math.abs(event.clientY - last.y) > VOID_DOUBLE_CLICK_DISTANCE_PX
+      ) {
+        return false;
+      }
+      lastTapRef.current = null;
+      dragRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleDockWindowMaximize();
+      return true;
+    };
+
+    const onTabBarPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (!findTabBarChromeTarget(root, event.target)) return;
+
+      if (tryToggleMaximizeFromDoubleTap(event)) {
+        if (isVoidTarget(event.target)) {
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+
+      lastTapRef.current = { time: Date.now(), x: event.clientX, y: event.clientY };
+
+      if (isVoidTarget(event.target) && !event.shiftKey) {
+        event.stopImmediatePropagation();
+        dragRef.current = { startX: event.clientX, startY: event.clientY };
+      }
+    };
+
+    const onTabBarClick = (event: MouseEvent) => {
+      if (event.detail !== 2) return;
+      if (!findTabBarChromeTarget(root, event.target)) return;
+      lastTapRef.current = null;
+      dragRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleDockWindowMaximize();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const start = dragRef.current;
+      if (!start) return;
+      if (
+        Math.abs(event.clientX - start.startX) > VOID_WINDOW_DRAG_THRESHOLD_PX ||
+        Math.abs(event.clientY - start.startY) > VOID_WINDOW_DRAG_THRESHOLD_PX
+      ) {
+        dragRef.current = null;
+        void getCurrentWindow().startDragging();
+      }
+    };
+
+    const clearDrag = () => {
+      dragRef.current = null;
+    };
+
+    root.addEventListener("pointerdown", onTabBarPointerDown, true);
+    root.addEventListener("click", onTabBarClick, true);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", clearDrag);
+    window.addEventListener("pointercancel", clearDrag);
+    return () => {
+      root.removeEventListener("pointerdown", onTabBarPointerDown, true);
+      root.removeEventListener("click", onTabBarClick, true);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", clearDrag);
+      window.removeEventListener("pointercancel", clearDrag);
+    };
   }, [windowControl, tabs.length, layoutReady]);
 
   // 再次点击已激活 tab：以 pointerdown 时的激活态为准。
