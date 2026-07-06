@@ -131,7 +131,7 @@ function ensureShellBlockInStore(sessionId: string, block: TerminalBlock): Termi
   return { ...block, id: blockId };
 }
 
-function armFeedCapture(sessionId: string, command: string): string {
+function armFeedCapture(sessionId: string, command: string, silent = false): string {
   const blockId = createBlockId();
   const cwd = resolveSessionCwd(sessionId);
   feedCaptures.set(sessionId, blockId);
@@ -149,6 +149,7 @@ function armFeedCapture(sessionId: string, command: string): string {
     cwd,
     timestamp: Date.now(),
     status: "running",
+    ...(silent ? { silent: true } : {}),
   });
 
   return blockId;
@@ -160,7 +161,7 @@ export function runSilentFeedCommand(sessionId: string, command: string): void {
     const sender = terminalPaneSenders[sessionId];
     if (!sender || !isWarpDisplay(sessionId)) return;
     await waitForConcreteSessionCwd(sessionId);
-    armFeedCapture(sessionId, command);
+    armFeedCapture(sessionId, command, true);
     sender(command);
   });
 }

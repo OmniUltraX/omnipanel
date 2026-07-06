@@ -2,7 +2,7 @@ import type { ContextMenuItem } from "./ContextMenu";
 
 export type TabCloseAction = "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll";
 
-export type TabContextMenuAction = TabCloseAction | "rename" | "copyToWorkspace" | "moveToWorkspace" | "refresh";
+export type TabContextMenuAction = TabCloseAction | "rename" | "aiRename" | "copyToWorkspace" | "moveToWorkspace" | "refresh";
 
 type Translate = (key: string) => string;
 
@@ -11,6 +11,10 @@ export interface BuildTabCloseMenuOptions {
   showRename?: boolean;
   /** 重命名菜单文案 i18n key，默认 shell.topbar.rename */
   renameLabelKey?: string;
+  /** 是否显示「AI 重新命名」菜单项 */
+  showAiRename?: boolean;
+  /** AI 重新命名菜单文案 i18n key，默认 terminal.sessions.aiRename */
+  aiRenameLabelKey?: string;
   /** 是否显示加入工作区相关菜单项（复制/移动到工作区） */
   showWorkspaceActions?: boolean;
   /** 是否显示刷新菜单项 */
@@ -33,6 +37,17 @@ export function buildTabCloseMenuItems(
           onClick: () => onAction("rename"),
         },
         { id: "tab-sep-rename", separator: true, label: "" },
+      ]
+    : [];
+
+  const aiRenameItem: ContextMenuItem[] = options?.showAiRename
+    ? [
+        {
+          id: "tab-ai-rename",
+          label: t(options.aiRenameLabelKey ?? "terminal.sessions.aiRename"),
+          onClick: () => onAction("aiRename"),
+        },
+        { id: "tab-sep-ai-rename", separator: true, label: "" },
       ]
     : [];
 
@@ -65,6 +80,7 @@ export function buildTabCloseMenuItems(
 
   return [
     ...renameItem,
+    ...aiRenameItem,
     ...workspaceItems,
     ...refreshItem,
     {

@@ -68,8 +68,13 @@ function tagShellLabel(tags: string[] | undefined): string | null {
   if (!tags?.length) return null;
   for (const tag of tags) {
     const value = tag.includes(":") ? tag.split(":").slice(1).join(":") : tag;
-    if (/^(bash|zsh|fish|powershell|pwsh|sh)$/i.test(value)) {
-      return value.toLowerCase() === "pwsh" ? "PowerShell" : value;
+    const lower = value.toLowerCase();
+    // 支持 bash/zsh/fish/sh/powershell/pwsh/cmd/wsl/nushell/nu/xonsh/tcsh/csh
+    if (/^(bash|zsh|fish|sh|powershell|pwsh|cmd|wsl|nushell|nu|xonsh|tcsh|csh)$/i.test(lower)) {
+      if (lower === "pwsh") return "PowerShell";
+      if (lower === "cmd") return "cmd.exe";
+      if (lower === "nu" || lower === "nushell") return "nushell";
+      return value;
     }
   }
   return null;
@@ -80,7 +85,8 @@ function inferShellLabel(
   resource: WorkspaceResource | null,
 ): string {
   const generic = session.shellLabel.trim();
-  if (generic && !/^(ssh|shell)$/i.test(generic)) {
+  // 显式 shellLabel 优先（包括 cmd、wsl 等具体值）
+  if (generic && !/^(ssh|shell|auto|unknown)$/i.test(generic)) {
     return generic;
   }
 

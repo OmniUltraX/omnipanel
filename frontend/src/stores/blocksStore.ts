@@ -63,6 +63,8 @@ export interface TerminalBlock {
   attachedListing?: import("../modules/terminal/lsListing/parseLsListing").LsListing;
   /** 仅展示目录列表，无命令行 */
   directoryPreview?: boolean;
+  /** 系统静默执行（如 auto-ls），不触发 AI 自动命名等用户可见行为 */
+  silent?: boolean;
 }
 
 const MAX_BLOCK_OUTPUT_CHARS = 64_000;
