@@ -40,51 +40,6 @@ function existingNames(connections: DbConnectionConfig[]): Set<string> {
   return new Set(connections.map((conn) => conn.name.trim().toLowerCase()).filter(Boolean));
 }
 
-export function resolveImportConnectionName(
-  item: NavicatImportPreviewItem,
-  customName?: string,
-): string {
-  const trimmed = (customName ?? item.raw.name).trim();
-  return trimmed || item.raw.host.trim() || "Untitled";
-}
-
-export function computeImportPreviewRowState(
-  item: NavicatImportPreviewItem,
-  customName: string | undefined,
-  existingConnections: DbConnectionConfig[],
-  otherPreviewNames: Iterable<{ id: string; name: string }>,
-): { name: string; issues: NavicatImportIssue[]; importable: boolean } {
-  const name = resolveImportConnectionName(item, customName);
-  const issues: NavicatImportIssue[] = item.issues.filter((issue) => issue !== "duplicate_name");
-
-  const normalizedName = name.trim().toLowerCase();
-  const takenNames = existingNames(existingConnections);
-  if (normalizedName && takenNames.has(normalizedName)) {
-    issues.push("duplicate_name");
-  }
-
-  for (const other of otherPreviewNames) {
-    if (other.id === item.id) {
-      continue;
-    }
-    const otherNormalized = other.name.trim().toLowerCase();
-    if (normalizedName && otherNormalized === normalizedName) {
-      if (!issues.includes("duplicate_name")) {
-        issues.push("duplicate_name");
-      }
-      break;
-    }
-  }
-
-  const importable =
-    Boolean(item.engine && SUPPORTED_ENGINES.has(item.engine)) &&
-    Boolean(item.raw.host.trim()) &&
-    !issues.includes("duplicate_name") &&
-    !issues.includes("duplicate_fingerprint");
-
-  return { name, issues, importable };
-}
-
 export function buildNavicatImportPreview(
   rawItems: NavicatRawConnection[],
   decryptedPasswords: string[],
@@ -153,14 +108,45 @@ export function buildNavicatImportPreview(
   });
 }
 
+export function resolveImportConnectionName(
+  item: NavicatImportPreviewItem,
+  customName: string | undefined,
+): string {
+  return (customName ?? item.raw.name).trim() || item.raw.host.trim() || "Untitled";
+}
+
+export interface ImportPreviewRowState {
+  importable: boolean;
+  issues: NavicatImportIssue[];
+}
+
+export function computeImportPreviewRowState(
+  item: NavicatImportPreviewItem,
+  customName: string | undefined,
+  existingConnections: DbConnectionConfig[],
+  namesForCompare: { id: string; name: string }[],
+): ImportPreviewRowState {
+  const displayName = resolveImportConnectionName(item, customName);
+  const issues: NavicatImportIssue[] = [...item.issues];
+  const normalizedName = displayName.toLowerCase();
+  const hasDuplicateName = namesForCompare.some(
+    (n) => n.id !== item.id && n.name.toLowerCase() === normalizedName,
+  );
+  if (hasDuplicateName) {
+    if (!issues.includes("duplicate_name")) issues.push("duplicate_name");
+  }
+  const importable = item.importable && !hasDuplicateName;
+  return { importable, issues };
+}
+
 export function previewItemToConnection(
   item: NavicatImportPreviewItem,
-  customName?: string,
+  group: string,
 ): DbConnectionConfig {
   const engine = item.engine ?? "mysql";
   return {
     id: "",
-    name: resolveImportConnectionName(item, customName),
+    name: item.raw.name.trim() || item.raw.host.trim() || "Untitled",
     db_type: engine,
     host: item.raw.host.trim(),
     port: item.raw.port,
@@ -168,6 +154,7 @@ export function previewItemToConnection(
     password: item.password,
     database: item.raw.database.trim(),
     ssl: item.raw.ssl,
+    group: group.trim() || "默认",
     status: "unknown",
     enabled: true,
   };

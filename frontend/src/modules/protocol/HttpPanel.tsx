@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
-import { CodeEditor } from "../../components/ui/content/CodeEditor";
-import { Select } from "../../components/ui/form/Select";
-import { TextInput } from "../../components/ui/form/TextInput";
+import { CodeEditor } from "../../components/ui/CodeEditor";
+import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { quickInput } from "../../lib/quickInput";
 import {

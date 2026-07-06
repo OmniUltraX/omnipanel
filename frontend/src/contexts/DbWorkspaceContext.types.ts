@@ -84,7 +84,7 @@ export interface DbWorkspaceSharedContextValue {
   commitTabDirty: (tabId: string) => Promise<void>;
   openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) => void;
   sqlConnections: DbConnectionConfig[];
-  connections: DbConnectionConfig[];
+  groupConnections: DbConnectionConfig[];
   databasesByConnId: Record<string, string[]>;
   schemaByKey: Record<string, DatabaseSchema>;
   schemaLoadingKey: string | null;

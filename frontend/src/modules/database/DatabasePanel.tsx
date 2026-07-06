@@ -4,39 +4,41 @@ import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { ModuleWorkspaceLayout } from "../../components/workspace";
+import { Button } from "../../components/ui/Button";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
-import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
-import { DatabasePanelWorkspaceView } from "./DatabasePanelWorkspaceView";
-import {
-  useDatabaseActiveTabContextValue,
-  useDatabaseWorkspaceContextValue,
-} from "./useDatabaseWorkspaceContextValue";
+import type { ContextMenuItem } from "../../components/ui/ContextMenu";
+import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
 import {
   DatabaseModuleContextBridge,
   resolveDatabaseModuleContext,
 } from "./ai";
 import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoPanel";
+import { RedisConnectionInfoPanel } from "./workspace/RedisConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
+import { DbSchemaProvider } from "./schema/DbSchemaContext";
 import { ConnectionDialog } from "./connection/ConnectionDialog";
 import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
-import { ContextMenu } from "../../components/ui/menu/ContextMenu";
+import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
-import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
-import { Select } from "../../components/ui/form/Select";
-import { TextInput } from "../../components/ui/form/TextInput";
-import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu/contextMenuItems";
+import { FormDialog, FormField } from "../../components/ui/FormDialog";
+import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { quickInput } from "../../lib/quickInput";
@@ -46,6 +48,8 @@ import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
+  connectionMatchesGroup,
+  normalizeConnectionGroup,
   countTable,
   createDatabase,
   fetchTableDdl,
@@ -58,7 +62,6 @@ import {
   loadSchemaFilters,
   loadSchemaTreeExpanded,
   isMysqlConnectionInfoCapable,
-  normalizeDbEngineType,
   previewTable,
   saveConnection,
   isConnectionEnabled,
@@ -144,6 +147,7 @@ import {
   type QueryResult,
   resolveConnIdForWorkspaceTab,
 } from "./workspace/dbWorkspaceState";
+import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import {
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
@@ -163,6 +167,7 @@ import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
 import type {
   DbWorkspaceMirrorContextValue,
+  DbWorkspaceSharedContextValue,
 } from "../../contexts/DbWorkspaceContext.types";
 import { useDbDockLayoutStore, removeTabFromLayout } from "../../stores/dbDockLayoutStore";
 import {
@@ -227,11 +232,8 @@ function tabMatchesDatabaseSelection(
 function tabMatchesConnectionSelection(
   tab: DbWorkspaceTab,
   connId: string,
-  isRedis: boolean,
+  _isRedis: boolean,
 ): boolean {
-  if (isRedis) {
-    return tab.kind === "redis-query" && tab.connId === connId && !tab.dbName;
-  }
   return tab.kind === "connection" && tab.connId === connId;
 }
 
@@ -274,23 +276,8 @@ interface CreateDatabaseDialogProps {
   onCreated: (name: string) => void;
 }
 
-const MYSQL_RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
-const POSTGRES_RESERVED_DB_NAMES = ["template0", "template1"];
+const RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
 const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
-
-function reservedDbNamesForConnection(connection: DbConnectionConfig | null): string[] {
-  if (!connection) {
-    return [];
-  }
-  const engine = normalizeDbEngineType(connection.db_type);
-  if (engine === "postgresql") {
-    return POSTGRES_RESERVED_DB_NAMES;
-  }
-  if (engine === "mysql") {
-    return MYSQL_RESERVED_DB_NAMES;
-  }
-  return [];
-}
 
 function CreateDatabaseDialog({
   open,
@@ -351,7 +338,7 @@ function CreateDatabaseDialog({
     if (!trimmed) return t("database.createDatabase.nameRequired");
     if (trimmed.length > 64) return t("database.createDatabase.nameTooLong");
     if (!DB_NAME_RE.test(trimmed)) return t("database.createDatabase.nameInvalid");
-    if (reservedDbNamesForConnection(connection).some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
+    if (RESERVED_DB_NAMES.some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
       return t("database.createDatabase.nameReserved", { name: trimmed });
     }
     return null;
@@ -505,6 +492,10 @@ export function DatabasePanel() {
     }
   }, [setModuleTab]);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
+  const groups = useDbGroupStore((s) => s.groups);
+  const activeGroupId = useDbGroupStore((s) => s.activeGroupId);
+  const setActiveGroupId = useDbGroupStore((s) => s.setActiveGroupId);
+  const getGroupName = useDbGroupStore((s) => s.getGroupName);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{
     fileName: string;
@@ -518,12 +509,11 @@ export function DatabasePanel() {
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
+  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
   const [slowLogAvailabilityByConnId, setSlowLogAvailabilityByConnId] = useState<
     Record<string, SlowLogAvailability>
   >({});
-  const slowLogAvailabilityRef = useRef(slowLogAvailabilityByConnId);
-  slowLogAvailabilityRef.current = slowLogAvailabilityByConnId;
-  const slowLogProbingConnIdsRef = useRef<Set<string>>(new Set());
+  const slowLogProbeGenRef = useRef(0);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
 
   const setActiveConnIdIfChanged = useCallback((connId: string | null) => {
@@ -647,9 +637,14 @@ export function DatabasePanel() {
       if (!existing) {
         const tab = makeSyncTaskWorkspaceTab(task);
         setWorkspaceTabs((prev) => (prev.some((item) => item.id === tab.id) ? prev : [...prev, tab]));
-      } else if (existing.kind === "toolbox" && (existing.label !== task.name || existing.toolboxTab !== task.kind)) {
-        const nextTab = { ...existing, label: task.name, toolboxTab: task.kind };
-        setWorkspaceTabs((prev) => prev.map((item) => (item.id === tabId ? nextTab : item)));
+      } else if (existing.label !== task.name || existing.toolboxTab !== task.kind) {
+        setWorkspaceTabs((prev) =>
+          prev.map((item) =>
+            item.id === tabId
+              ? { ...item, label: task.name, toolboxTab: task.kind }
+              : item,
+          ),
+        );
       }
       activateWorkspaceTab(tabId);
       useDbSyncTaskStore.getState().setActiveTaskId(task.id);
@@ -754,6 +749,16 @@ export function DatabasePanel() {
     ],
   );
 
+  const activeGroupNameFromStore = useMemo(
+    () => getGroupName(activeGroupId),
+    [activeGroupId, getGroupName],
+  );
+
+  const groupConnections = useMemo(
+    () => connections.filter((conn) => connectionMatchesGroup(conn, activeGroupNameFromStore)),
+    [connections, activeGroupNameFromStore],
+  );
+
   const sqlConnections = useMemo(
     () =>
       connections.filter(
@@ -771,13 +776,21 @@ export function DatabasePanel() {
   );
 
   const activeConn = useMemo(
-    () => connections.find((c) => c.id === activeConnId) ?? connections[0] ?? null,
-    [connections, activeConnId],
+    () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
+    [groupConnections, activeConnId],
   );
 
   const dbPoolKind: PoolKind =
     activeConn?.db_type?.toLowerCase() === "redis" ? "redis" : "database";
   usePoolConnectionRegistration(dbPoolKind, moduleLive ? activeConn?.id ?? null : null);
+
+  const activeGroupName = useMemo(
+    () =>
+      activeConn
+        ? normalizeConnectionGroup(activeConn.group)
+        : activeGroupNameFromStore,
+    [activeConn, activeGroupNameFromStore],
+  );
 
   const activeWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
@@ -969,21 +982,25 @@ export function DatabasePanel() {
       const list = await listConnections();
       setConnections(list);
       setActiveConnId((prev) => {
+        const pickEnabled = (items: DbConnectionConfig[]) =>
+          items.find((item) => isConnectionEnabled(item));
         if (prev) {
           const current = list.find((item) => item.id === prev);
           if (current && isConnectionEnabled(current)) {
             return prev;
           }
         }
-        const enabled = list.find((item) => isConnectionEnabled(item));
-        return enabled?.id ?? null;
+        const inGroup = list.find(
+          (item) => connectionMatchesGroup(item, activeGroupName) && isConnectionEnabled(item),
+        );
+        return inGroup?.id ?? pickEnabled(list)?.id ?? null;
       });
     } catch {
-      // 连接列表加载失败时保留当前状态
+      // 连接列表加载失败时保留当前状??
     } finally {
       setConnectionsLoading(false);
     }
-  }, []);
+  }, [activeGroupName]);
 
   const handleImportConnections = useCallback(async () => {
     try {
@@ -1029,50 +1046,44 @@ export function DatabasePanel() {
     [t],
   );
 
-  const probeSlowLogForConnection = useCallback(
-    (connection: DbConnectionConfig) => {
-      if (!isMysqlConnectionInfoCapable(connection)) {
-        return;
-      }
-      const connId = connection.id;
-      const existing = slowLogAvailabilityRef.current[connId];
-      if (existing && existing.reason !== "checking") {
-        return;
-      }
-      if (slowLogProbingConnIdsRef.current.has(connId)) {
-        return;
-      }
+  useEffect(() => {
+    const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
+    if (mysqlConnections.length === 0) {
+      setSlowLogAvailabilityByConnId({});
+      return;
+    }
 
-      const sync = resolveSlowLogAvailabilitySync(connection, sshConnections);
-      setSlowLogAvailabilityByConnId((prev) =>
-        prev[connId]?.reason === sync.reason ? prev : { ...prev, [connId]: sync },
-      );
-      if (sync.reason !== "checking") {
-        return;
-      }
-      if (!isConnectionEnabled(connection)) {
-        setSlowLogAvailabilityByConnId((prev) => ({
-          ...prev,
-          [connId]: {
-            enabled: false,
-            reason: "connection_disabled",
-            sshConnectionId: sync.sshConnectionId,
-          },
-        }));
-        return;
-      }
+    const gen = ++slowLogProbeGenRef.current;
+    const syncMap: Record<string, SlowLogAvailability> = {};
+    for (const conn of mysqlConnections) {
+      syncMap[conn.id] = resolveSlowLogAvailabilitySync(conn, sshConnections);
+    }
+    setSlowLogAvailabilityByConnId(syncMap);
 
-      slowLogProbingConnIdsRef.current.add(connId);
-      void probeSlowLogAvailability(connection, sshConnections)
-        .then((result) => {
-          setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [connId]: result }));
-        })
-        .finally(() => {
-          slowLogProbingConnIdsRef.current.delete(connId);
-        });
-    },
-    [sshConnections],
-  );
+    void (async () => {
+      for (const conn of mysqlConnections) {
+        const sync = syncMap[conn.id];
+        if (!sync || sync.reason !== "checking") {
+          continue;
+        }
+        if (!isConnectionEnabled(conn)) {
+          if (slowLogProbeGenRef.current !== gen) return;
+          setSlowLogAvailabilityByConnId((prev) => ({
+            ...prev,
+            [conn.id]: {
+              enabled: false,
+              reason: "connection_disabled",
+              sshConnectionId: sync.sshConnectionId,
+            },
+          }));
+          continue;
+        }
+        const result = await probeSlowLogAvailability(conn, sshConnections);
+        if (slowLogProbeGenRef.current !== gen) return;
+        setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
+      }
+    })();
+  }, [connections, sshConnections, sshSessionActiveMap]);
 
   useEffect(() => {
     const bootstrapWorkspace = () => {
@@ -1357,12 +1368,12 @@ export function DatabasePanel() {
 
   useEffect(() => {
     setActiveConnId((prev) => {
-      if (prev && connections.some((item) => item.id === prev)) {
+      if (prev && groupConnections.some((item) => item.id === prev)) {
         return prev;
       }
-      return connections.find((item) => isConnectionEnabled(item))?.id ?? connections[0]?.id ?? null;
+      return groupConnections[0]?.id ?? null;
     });
-  }, [connections]);
+  }, [activeGroupId, groupConnections]);
 
   const activeSqlTabId =
     activeWorkspaceTab?.kind === "sql" ? activeWorkspaceTab.id : null;
@@ -2935,12 +2946,10 @@ export function DatabasePanel() {
       const tab: SlowQueryLogWorkspaceTab = {
         id: tabId,
         kind: "slow-query",
-        label: `${connection.name}-SlowQuery`,
+        label: t("database.slowQueryLog.tabLabel"),
         connId: connection.id,
         sshConnectionId: availability.sshConnectionId,
         logFilePath: availability.logFilePath,
-        deploymentKind: availability.deploymentKind,
-        containerId: availability.containerId,
       };
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
@@ -2993,12 +3002,6 @@ export function DatabasePanel() {
           <path d="M3 4l.7 9.1a1 1 0 0 0 1 .9h6.6a1 1 0 0 0 1-.9L13 4" />
         </svg>
       );
-      const slowLogIcon = (
-        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-          <circle cx="8" cy="8" r="5.5" />
-          <path d="M8 5v3l2 2" />
-        </svg>
-      );
 
       if (item.type === "table" && context.tableSelection) {
         const selection = context.tableSelection;
@@ -3047,7 +3050,6 @@ export function DatabasePanel() {
           slowLogItems.push({
             id: "slow-query-log",
             label: t("database.contextMenu.slowQueryLog"),
-            icon: slowLogIcon,
             disabled: !availability.enabled,
             disabledReason: !availability.enabled
               ? resolveSlowLogDisabledReason(availability)
@@ -3684,9 +3686,57 @@ export function DatabasePanel() {
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
+      const normalized = normalizeConnectionGroup(conn.group);
+      const group = groups.find((item) => item.name === normalized);
+      if (group) {
+        setActiveGroupId(group.id);
+      }
 
       if (isRedisConnection(conn)) {
-        openRedisQueryTab(connId, undefined, conn.name, mode);
+        const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+        const existingTabId = findTabIdForConnection(moduleTabs, connId);
+        if (existingTabId) {
+          activateWorkspaceTab(existingTabId);
+          return;
+        }
+
+        const previewTab = findPreviewDockTab(moduleTabs);
+        const tabTemplate: ConnectionInfoWorkspaceTab = {
+          id: "",
+          kind: "connection",
+          label: conn.name,
+          connId,
+        };
+        const matchesSelection = (tab: DbWorkspaceTab) =>
+          tabMatchesConnectionSelection(tab, connId, true);
+
+        if (mode === "permanent") {
+          if (previewTab && matchesSelection(previewTab)) {
+            promotePreviewTab(previewTab.id);
+            activateWorkspaceTab(previewTab.id);
+            return;
+          }
+
+          const tabId = makeConnectionInfoTabId();
+          setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId }]);
+          activateWorkspaceTab(tabId);
+          return;
+        }
+
+        if (previewTab && matchesSelection(previewTab)) {
+          activateWorkspaceTab(previewTab.id);
+          return;
+        }
+
+        if (previewTab) {
+          replacePreviewDockTab(previewTab.id, tabTemplate);
+          return;
+        }
+
+        const tabId = makeConnectionInfoTabId();
+        patchDockTabPreviewMeta(tabId, true);
+        setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
+        activateWorkspaceTab(tabId);
         return;
       }
 
@@ -3735,7 +3785,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
     },
-    [connections, openRedisQueryTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [connections, groups, setActiveGroupId, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
   );
 
   const runQuery = useCallback(async (
@@ -4041,57 +4091,97 @@ export function DatabasePanel() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isActiveRoute, activeWorkspaceTabId, saveSqlTab]);
 
-  const workspaceStateValue = useDatabaseWorkspaceContextValue(
-    {
-      workspaceTabs,
-      connectionsLoading,
-      sqlConnections,
-      connections,
-      databasesByConnId,
-      schemaByKey,
-      schemaLoadingKey,
-    },
-    {
-      requestTabAction,
-      runQuery,
-      cancelQuery,
-      goToQueryResultPage,
-      updateSqlTabState,
-      closeSqlResultSession,
-      setSqlResultSessionPinned,
-      refreshTablePreview,
-      goToPage,
-      setTableSort,
-      setTableFilter,
-      setTableGridView,
-      handleCellCommit,
-      handleRowEdit,
-      handleCellSetNull,
-      handleRowNew,
-      handleRowPaste,
-      handleRowsDelete,
-      resolveConnection,
-      handleSelectTable,
-      handleDesignTable,
-      openTableQuery,
-      commitTabDirty,
-      openExportMenu: (x, y, tabId, sessionId) =>
-        setExportMenu({ x, y, tabId, sessionId }),
-      resolveSqlTabConnection,
-      getSqlTabDatabases,
-      getSqlCompletionSchemas,
-      connectionForSqlTab,
-      setSqlTabConnection,
-      rowsToRecord,
-      tabModeToEditorOpenMode,
-      saveSqlTab,
-      isSqlTabDirty,
-    },
-  );
+  const workspaceStateValue: DbWorkspaceSharedContextValue = useMemo(
+    () => ({
+        tabs: workspaceTabs,
+        closeTab: (tabId: string) => requestTabAction({ kind: "close", tabId }),
+        runQuery,
+        cancelQuery,
+        goToQueryResultPage,
+        updateSqlTabState,
+        closeSqlResultSession,
+        setSqlResultSessionPinned,
+        refreshTablePreview,
+        goToPage,
+        requestTabAction,
+        setTableSort,
+        setTableFilter,
+        setTableGridView,
+        handleCellCommit,
+        handleRowEdit,
+        handleCellSetNull,
+        handleRowNew,
+        handleRowPaste,
+        handleRowsDelete,
+        resolveConnection,
+        connectionsLoading,
+        selectTable: handleSelectTable,
+        openTableDesigner: handleDesignTable,
+        openTableQuery,
+        setTabMode: (id: string, mode: "data" | "sql") =>
+          useDbWorkspaceTabStore.getState().setTabMode(id, mode),
+        commitTabDirty,
+        openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
+          setExportMenu({ x, y, tabId, sessionId }),
+        sqlConnections,
+        groupConnections,
+        databasesByConnId,
+        schemaByKey,
+        schemaLoadingKey,
+        resolveSqlTabConnection,
+        getSqlTabDatabases,
+        getSqlCompletionSchemas,
+        connectionForSqlTab,
+        setSqlTabConnection,
+        rowsToRecord,
+        tabModeToEditorOpenMode,
+        saveSqlTab,
+        isSqlTabDirty,
+    }),
+    [
+    workspaceTabs,
+    requestTabAction,
+    runQuery,
+    cancelQuery,
+    updateSqlTabState,
+    closeSqlResultSession,
+    setSqlResultSessionPinned,
+    refreshTablePreview,
+    goToPage,
+    setTableFilter,
+    setTableGridView,
+    handleCellCommit,
+    handleRowEdit,
+    handleCellSetNull,
+    handleRowNew,
+    handleRowPaste,
+    handleRowsDelete,
+    resolveConnection,
+    connectionsLoading,
+    handleSelectTable,
+    handleDesignTable,
+    openTableQuery,
+    commitTabDirty,
+    sqlConnections,
+    groupConnections,
+    databasesByConnId,
+    schemaByKey,
+    schemaLoadingKey,
+    resolveSqlTabConnection,
+    getSqlTabDatabases,
+    getSqlCompletionSchemas,
+    connectionForSqlTab,
+    setSqlTabConnection,
+    saveSqlTab,
+    isSqlTabDirty,
+  ]);
 
-  const activeTabContextValue = useDatabaseActiveTabContextValue(
-    activeWorkspaceTabId,
-    activateWorkspaceTab,
+  const activeTabContextValue = useMemo(
+    () => ({
+      activeTabId: activeWorkspaceTabId,
+      setActiveTabId: activateWorkspaceTab,
+    }),
+    [activeWorkspaceTabId, activateWorkspaceTab],
   );
 
   const workspaceStateValueRef = useRef(workspaceStateValue);
@@ -4280,10 +4370,17 @@ export function DatabasePanel() {
           <ConnectionResolvedDockPane connId={tab.connId}>
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane">
-                <DatabaseConnectionInfoPanel
-                  connection={connection}
-                  tabId={tab.id}
-                />
+                {isRedisConnection(connection) ? (
+                  <RedisConnectionInfoPanel
+                    connection={connection}
+                    active={tab.id === activeWorkspaceTabId}
+                  />
+                ) : (
+                  <DatabaseConnectionInfoPanel
+                    connection={connection}
+                    active={tab.id === activeWorkspaceTabId}
+                  />
+                )}
               </div>
             )}
           </ConnectionResolvedDockPane>
@@ -4311,9 +4408,7 @@ export function DatabasePanel() {
                   connection={connection}
                   sshConnectionId={tab.sshConnectionId}
                   logFilePath={tab.logFilePath}
-                  deploymentKind={tab.deploymentKind}
-                  containerId={tab.containerId}
-                  tabId={tab.id}
+                  active={tab.id === activeWorkspaceTabId}
                 />
               </div>
             )}
@@ -4370,7 +4465,7 @@ export function DatabasePanel() {
         return (
           <div className="db-workspace-pane db-dock-pane db-module-transfer">
             <DatabaseToolbox
-              tabId={tab.id}
+              active={tab.id === activeWorkspaceTabId}
               syncTaskId={tab.syncTaskId}
               tab={tab.toolboxTab}
               connections={toolboxConnections}
@@ -4467,11 +4562,12 @@ export function DatabasePanel() {
 
   const schemaContextValue = useMemo(
     () => ({
+      groupConnections,
       databasesByConnId,
       schemaByKey,
       schemaLoadingKey,
     }),
-    [databasesByConnId, schemaByKey, schemaLoadingKey],
+    [groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey],
   );
 
   const databaseModuleContext = useMemo(() => {
@@ -4499,41 +4595,57 @@ export function DatabasePanel() {
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
     <DbSidebarLinkageProvider value={sidebarLinkageValue}>
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
-    <DatabasePanelWorkspaceView
-      moduleTitle={t("routes.database")}
-      schemaContextValue={schemaContextValue}
-      connections={connections}
-      connectionsLoading={connectionsLoading}
-      schemaRefreshToken={schemaRefreshToken}
-      workspaceInitialized={workspaceInitialized}
-      dockTabs={dockTabs}
-      moduleLive={moduleLive}
-      dockLayout={dockLayout}
-      panelContentKeysByTab={panelContentKeysByTab}
-      moduleSoftRefreshKey={moduleSoftRefreshKey}
-      emptyPrompt={t("database.workspace.emptyTabs")}
-      recentClosedTitle={t("database.workspace.recentClosed")}
-      recentClosedActionItems={recentClosedActionItems}
-      onCreateConnection={() => {
-        setEditingConnection(null);
-        setDialogOpen(true);
-      }}
-      onImportNavicat={() => void handleImportConnections()}
-      onSelectConnection={handleSelectConnection}
-      onOpenSqlFile={openSqlFile}
-      onOpenSyncTask={handleOpenSyncTask}
-      onRunSyncTask={handleRunSyncTask}
-      onSelectTable={handleSelectTable}
-      onSelectDatabase={handleSelectDatabase}
-      buildSchemaContextMenuItems={buildSchemaContextMenuItems}
-      onConnectionContextMenu={probeSlowLogForConnection}
-      onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
-      onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
-      onDockLayoutChange={setDockLayout}
-      renderDockPanel={renderDockPanel}
-      onTabContextMenu={handleDockTabContextMenu}
-      onTabDoubleClick={handleDockTabDoubleClick}
-    />
+    <ModuleWorkspaceLayout
+      layoutKey="database"
+      className="db-module-layout"
+      leftColumnTitle={t("routes.database")}
+      leftPreset="schema"
+      leftSidebar={
+        <DbSchemaProvider value={schemaContextValue}>
+          <DatabaseSchemaSidebar
+            onCreateConnection={() => {
+              setEditingConnection(null);
+              setDialogOpen(true);
+            }}
+            onImportNavicat={() => void handleImportConnections()}
+            onSelectConnection={handleSelectConnection}
+            onOpenSqlFile={openSqlFile}
+            onOpenSyncTask={handleOpenSyncTask}
+            onRunSyncTask={handleRunSyncTask}
+            onSelectTable={handleSelectTable}
+            onSelectDatabase={handleSelectDatabase}
+            buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+            onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
+            refreshToken={schemaRefreshToken}
+            connectionConfigs={connections}
+            connectionsReady={!connectionsLoading || connections.length > 0}
+          />
+        </DbSchemaProvider>
+      }
+    >
+      <div className="db-workspace-drop-zone">
+        {!workspaceInitialized ? null : (
+          <DatabaseWorkspaceDock
+            workspaceInitialized={workspaceInitialized}
+            dockTabs={dockTabs}
+            moduleTitle={t("routes.database")}
+            enabled={moduleLive}
+            windowControl
+            onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+            dockLayout={dockLayout}
+            onDockLayoutChange={setDockLayout}
+            renderDockPanel={renderDockPanel}
+            softRefreshKey={moduleSoftRefreshKey}
+            panelContentKeysByTab={panelContentKeysByTab}
+            onTabContextMenu={handleDockTabContextMenu}
+            onTabDoubleClick={handleDockTabDoubleClick}
+            recentClosedActionItems={recentClosedActionItems}
+            emptyPrompt={t("database.workspace.emptyTabs")}
+            recentClosedTitle={t("database.workspace.recentClosed")}
+          />
+        )}
+      </div>
+    </ModuleWorkspaceLayout>
     <CreateDatabaseDialog
       open={createDbDialog !== null}
       connection={
@@ -4561,13 +4673,16 @@ export function DatabasePanel() {
         setSchemaRefreshToken((token) => token + 1);
         setEditingConnection(null);
       }}
+      defaultGroup={activeGroupName}
+      groups={groups}
       initialConnection={editingConnection}
     />
     <ConnectionImportPreviewDialog
       open={importPreview !== null}
       fileName={importPreview?.fileName ?? ""}
       items={importPreview?.items ?? []}
-      existingConnections={connections}
+      groups={groups}
+      defaultGroup={activeGroupName}
       onClose={() => setImportPreview(null)}
       onImported={() => {
         setSchemaRefreshToken((token) => token + 1);

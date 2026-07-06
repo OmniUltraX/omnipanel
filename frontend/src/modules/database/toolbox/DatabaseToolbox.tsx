@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../../i18n";
-import { Button } from "../../../components/ui/primitives/Button";
-import { IconSettings, IconClock, IconFile } from "../../../components/ui/icons/Icons";
-import { useDataLoading } from "../../../components/ui/feedback/DataLoading";
-import { SubWindow } from "../../../components/ui/window/SubWindow";
+import { Button } from "../../../components/ui/Button";
+import { IconSettings, IconClock, IconFile } from "../../../components/ui/Icons";
+import { useDataLoading } from "../../../components/ui/DataLoading";
+import { SubWindow } from "../../../components/ui/SubWindow";
 import { appConfirm } from "../../../lib/appConfirm";
 import {
   cancelDbBackgroundTask,
@@ -47,7 +47,7 @@ import {
   pickPersistableTableAnalysis,
 } from "./syncTaskAnalysisCache";
 import { DbToolboxSplitLayout } from "./DbToolboxSplitLayout";
-import { ModuleEmptyState } from "../../../components/ui/feedback/ModuleEmptyState";
+import { ModuleEmptyState } from "../../../components/ui/ModuleEmptyState";
 import {
   buildNewTableDiff,
   sourceTableSchemaSignature,
@@ -71,7 +71,6 @@ import {
   normalizeSchemaTargetStatusFilters,
   isSchemaTargetStatusFilterShowAll,
 } from "./types";
-import { useDbDockTabActive } from "../useDbDockTabActive";
 
 const EMPTY_SNAPSHOT: SyncSideSnapshot = { tables: [], loading: false, error: null };
 
@@ -90,8 +89,8 @@ interface DatabaseToolboxProps {
   /** 打开工具箱时默认源库连接 */
   initialSourceConnectionId?: string | null;
   initialSourceDatabase?: string;
-  /** Dock Tab ID，用于从 Context 读取激活态。 */
-  tabId: string;
+  /** 为 false 时不发起任何库连接请求（分段 Tab 未激活时由父级传入） */
+  active?: boolean;
 }
 
 export function DatabaseToolbox({
@@ -100,9 +99,8 @@ export function DatabaseToolbox({
   syncTaskId,
   initialSourceConnectionId,
   initialSourceDatabase = "",
-  tabId,
+  active = true,
 }: DatabaseToolboxProps) {
-  const active = useDbDockTabActive(tabId);
   const { t } = useI18n();
   const {
     total: loadTotal,
@@ -1007,7 +1005,7 @@ export function DatabaseToolbox({
     [sourceSelected],
   );
 
-  void useMemo(
+  const sourceSelectedInTarget = useMemo(
     () => sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
     [sourceSelectedTableNames, targetTableNames],
   );
@@ -1159,7 +1157,7 @@ export function DatabaseToolbox({
     setSchemaAnalyzing(false);
 
     const analyzedTables = Object.keys(diffs).filter(
-      (name) => sourceSelected.has(name) || (diffs[name]?.status as string) === "targetOnly",
+      (name) => sourceSelected.has(name) || diffs[name]?.status === "targetOnly",
     );
     const tableNames =
       analyzedTables.length > 0
@@ -1549,7 +1547,8 @@ export function DatabaseToolbox({
     prevDataAnalysisBusyRef.current = syncAnalysisBusy;
   }, [tab, syncAnalysisBusy, tableAnalysis, analysisConfigKey, syncTaskId, addAnalysisRecord, t]);
 
-  void ((tab === "dataSync" && syncAnalysisBusy) || (tab === "schemaSync" && schemaSyncBusy));
+  const syncCompareBusy =
+    (tab === "dataSync" && syncAnalysisBusy) || (tab === "schemaSync" && schemaSyncBusy);
 
   // 勾选即触发逐条比对：仅在 dataSync tab 下，对源侧新勾选且目标库中存在的表做处理。
   useEffect(() => {

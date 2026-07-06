@@ -132,6 +132,24 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
     }
 }
 
+/// Redis `CONFIG GET *`（两列：parameter / value）。
+pub async fn redis_config_get_all(params: &DbParams) -> OmniResult<QueryResult> {
+    let driver = redis::RedisDriver::connect(params).await?;
+    driver.config_get_all().await
+}
+
+/// Redis `CONFIG GET` 单键或多键，返回键值对列表。
+pub async fn redis_config_get(params: &DbParams, pattern: &str) -> OmniResult<Vec<(String, String)>> {
+    let driver = redis::RedisDriver::connect(params).await?;
+    driver.config_get(pattern).await
+}
+
+/// Redis `CLIENT LIST`：每行一个客户端连接。
+pub async fn redis_client_list(params: &DbParams) -> OmniResult<QueryResult> {
+    let driver = redis::RedisDriver::connect(params).await?;
+    driver.client_list().await
+}
+
 /// Redis 键搜索（SCAN + TYPE；值预览可选）。
 pub async fn redis_search_keys(
     params: &DbParams,

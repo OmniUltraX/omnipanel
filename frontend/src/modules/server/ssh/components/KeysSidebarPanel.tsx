@@ -2,9 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactN
 import { createPortal } from "react-dom";
 import { commands } from "../../../../ipc/bindings";
 import type { SshKeyInfo } from "../../../../ipc/bindings";
-import { Select } from "../../../../components/ui/form/Select";
-import { PasswordInput } from "../../../../components/ui/form/PasswordInput";
-import { TextInput } from "../../../../components/ui/form/TextInput";
+import { Select } from "../../../../components/ui/Select";
+import { PasswordInput } from "../../../../components/ui/PasswordInput";
+import { TextInput } from "../../../../components/ui/TextInput";
 import { useI18n } from "../../../../i18n";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/primitives/Button";
-import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
+import { Button } from "../ui/Button";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "../ui/sidebar/VerticalSplitSidebar";
+} from "../ui/VerticalSplitSidebar";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
 import { isBuiltinLocalDockerConnection } from "../../modules/docker/constants";
 import type { DockerConnectionDockOpenMode } from "../../modules/docker/dockerConnectionWorkspaceTabs";

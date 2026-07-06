@@ -282,7 +282,7 @@ export async function recallKnowledgeEntry(
     },
     topK,
     minScore,
-  } as any);
+  });
   if (res.status === "ok") {
     return res.data;
   }

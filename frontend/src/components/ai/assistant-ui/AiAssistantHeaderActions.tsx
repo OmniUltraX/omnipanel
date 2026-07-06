@@ -1,4 +1,4 @@
-import { Button } from "../../ui/primitives/Button";
+import { Button } from "../../ui/Button";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
 function ConversationListIcon() {

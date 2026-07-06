@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useKnowledgeEmbeddingProviderConfig } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
-import { SubWindow } from "../../components/ui/window/SubWindow";
-import { Button } from "../../components/ui/primitives/Button";
+import { SubWindow } from "../../components/ui/SubWindow";
+import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import type { KnowledgeRecallHit } from "../../ipc/bindings";
 import { recallKnowledgeEntry, KNOWLEDGE_RECALL_DEFAULT_MIN_SCORE_PERCENT, KNOWLEDGE_RECALL_DEFAULT_TOP_K, KNOWLEDGE_RECALL_TOP_K_MAX, KNOWLEDGE_RECALL_TOP_K_MIN } from "./knowledgeVectorize";
@@ -202,12 +202,12 @@ export function KnowledgeRecallTestSubWindow({
                         {t("knowledge.chunks.recall.score")}
                       </span>
                       <span className="knowledge-recall-panel__score-value">
-                        {formatScore(hit.score ?? 0)}
+                        {formatScore(hit.score)}
                       </span>
                       <div className="knowledge-recall-panel__score-bar" aria-hidden>
                         <span
                           className="knowledge-recall-panel__score-bar-fill"
-                          style={{ width: scoreBarWidth(hit.score ?? 0) }}
+                          style={{ width: scoreBarWidth(hit.score) }}
                         />
                       </div>
                     </div>

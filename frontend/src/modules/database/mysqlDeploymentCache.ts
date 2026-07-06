@@ -1,7 +1,7 @@
 import type { DbConnectionConfig } from "./api";
 import type { MysqlDeploymentInfo } from "./mysqlDeploymentDetect";
 
-const STORAGE_KEY = "omnipanel-mysql-deployment-cache.v3";
+const STORAGE_KEY = "omnipanel-mysql-deployment-cache.v1";
 
 interface CachedMysqlDeploymentEntry {
   connectionKey: string;

@@ -3,6 +3,9 @@ import { parentLocalPath } from "./localFilesystem";
 
 export const LOCAL_CONNECTION_ID = "__local__";
 
+/** 强制预览的最大字节数（超过此大小禁止预览） */
+export const FORCE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024; // 10MB
+
 export type FileSidebarProtocolSection = "local" | "s3" | "remote";
 
 export type FileConnectionsByProtocol = Record<FileSidebarProtocolSection, FileManagerConnectionInfo[]>;
@@ -72,24 +75,7 @@ export function resolvePreviewReadMaxBytes(
   return thresholdBytes;
 }
 
-export function exceedsPreviewThreshold(
-  fileSize: number | null | undefined,
-  thresholdBytes: number,
-): boolean {
-  return fileSize != null && fileSize > thresholdBytes;
-}
-
-/**
- * 大文件策略分级：
- *  - `normal`: <= 1MB —— 直接读完整渲染
- *  - `truncated`: 1MB - 10MB —— 读前 1MB 截断预览，banner 提示 + 强制按钮
- *  - `blocked`: > 10MB —— 阻止预览，banner 提示用户用外部工具
- *  - `unknown`: fileSize 未知 —— normal
- */
 export type LargeFileStrategy = "normal" | "truncated" | "blocked" | "unknown";
-
-/** 强制预览的"完整读"上限：读整个 10MB 文件（不切分） */
-export const FORCE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 export function classifyLargeFile(
   fileSize: number | null | undefined,
@@ -101,13 +87,20 @@ export function classifyLargeFile(
   return "normal";
 }
 
-/** 计算预览文本中行数；用于截断 banner 显示 "文件前 X 行已加载" */
-export function countPreviewLines(text: string | null | undefined): number {
+export function exceedsPreviewThreshold(
+  fileSize: number | null | undefined,
+  thresholdBytes: number,
+): boolean {
+  return fileSize != null && fileSize > thresholdBytes;
+}
+
+export function countPreviewLines(text: string): number {
   if (!text) return 0;
-  let count = 1;
+  let count = 0;
   for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) count++;
+    if (text[i] === "\n") count++;
   }
+  if (text.length > 0 && !text.endsWith("\n")) count++;
   return count;
 }
 

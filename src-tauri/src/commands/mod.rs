@@ -31,7 +31,6 @@ pub mod ssh;
 pub mod system;
 pub mod task;
 pub mod terminal;
-pub mod third_party_account;
 pub mod updater;
 pub mod providers;
 pub mod skills;

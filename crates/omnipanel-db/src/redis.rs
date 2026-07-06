@@ -86,6 +86,42 @@ impl RedisDriver {
         Ok(Self { conn })
     }
 
+    /// 执行 `CONFIG GET`，返回参数名与值的键值对列表。
+    pub async fn config_get(&self, pattern: &str) -> OmniResult<Vec<(String, String)>> {
+        let mut conn = self.conn.clone();
+        let value: redis::Value = redis::cmd("CONFIG")
+            .arg("GET")
+            .arg(pattern)
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        parse_config_get_response(value)
+    }
+
+    /// `CONFIG GET *` 结果格式化为两列表格。
+    pub async fn config_get_all(&self) -> OmniResult<QueryResult> {
+        let pairs = self.config_get("*").await?;
+        Ok(QueryResult {
+            columns: vec!["parameter".to_string(), "value".to_string()],
+            rows: pairs
+                .into_iter()
+                .map(|(name, value)| vec![Value::String(name), Value::String(value)])
+                .collect(),
+            rows_affected: 0,
+        })
+    }
+
+    /// `CLIENT LIST`：解析为列式表格（每行一个客户端连接）。
+    pub async fn client_list(&self) -> OmniResult<QueryResult> {
+        let mut conn = self.conn.clone();
+        let value: redis::Value = redis::cmd("CLIENT")
+            .arg("LIST")
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        parse_client_list_response(value)
+    }
+
     /// 使用 SCAN 按模式搜索键，并按类型过滤；值预览可选。
     pub async fn search_keys(
         &self,
@@ -439,6 +475,144 @@ fn bytes_to_display(bytes: &[u8]) -> String {
 
 fn map_redis_err(err: redis::RedisError) -> OmniError {
     OmniError::database("Redis 操作失败").with_cause(err.to_string())
+}
+
+fn parse_config_get_response(value: redis::Value) -> OmniResult<Vec<(String, String)>> {
+    match value {
+        redis::Value::Nil => Ok(Vec::new()),
+        redis::Value::Map(map) => Ok(map
+            .into_iter()
+            .map(|(key, item)| (redis_value_to_string(key), redis_value_to_string(item)))
+            .collect()),
+        redis::Value::Array(items) => {
+            let strings: Vec<String> = items.into_iter().map(redis_value_to_string).collect();
+            let mut pairs = Vec::new();
+            let mut index = 0;
+            while index + 1 < strings.len() {
+                pairs.push((strings[index].clone(), strings[index + 1].clone()));
+                index += 2;
+            }
+            Ok(pairs)
+        }
+        other => Err(OmniError::database("CONFIG GET 返回格式不支持").with_cause(format!("{other:?}"))),
+    }
+}
+
+const CLIENT_LIST_COLUMN_ORDER: &[&str] = &[
+    "id", "addr", "laddr", "fd", "name", "age", "idle", "flags", "db", "sub", "psub", "multi",
+    "qbuf", "qbuf-free", "obl", "oll", "omem", "events", "cmd", "user", "redir", "resp",
+];
+
+fn parse_client_line(line: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for part in line.split_whitespace() {
+        if let Some((key, value)) = part.split_once('=') {
+            map.insert(key.to_string(), value.to_string());
+        }
+    }
+    map
+}
+
+fn parse_client_entry(item: redis::Value) -> Option<std::collections::HashMap<String, String>> {
+    match item {
+        redis::Value::BulkString(bytes) => {
+            let line = String::from_utf8_lossy(&bytes).into_owned();
+            let map = parse_client_line(&line);
+            if map.is_empty() { None } else { Some(map) }
+        }
+        redis::Value::SimpleString(line) => {
+            let map = parse_client_line(&line);
+            if map.is_empty() { None } else { Some(map) }
+        }
+        redis::Value::Map(map) => {
+            let mut parsed = std::collections::HashMap::new();
+            for (key, value) in map {
+                parsed.insert(redis_value_to_string(key), redis_value_to_string(value));
+            }
+            if parsed.is_empty() { None } else { Some(parsed) }
+        }
+        _ => None,
+    }
+}
+
+fn build_client_list_columns(clients: &[std::collections::HashMap<String, String>]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for client in clients {
+        for key in client.keys() {
+            seen.insert(key.clone());
+        }
+    }
+    let mut columns = Vec::new();
+    for key in CLIENT_LIST_COLUMN_ORDER {
+        if seen.remove(*key) {
+            columns.push((*key).to_string());
+        }
+    }
+    columns.extend(seen.into_iter());
+    columns
+}
+
+fn parse_client_list_response(value: redis::Value) -> OmniResult<QueryResult> {
+    let clients: Vec<std::collections::HashMap<String, String>> = match value {
+        redis::Value::Nil => Vec::new(),
+        redis::Value::Array(items) => items.into_iter().filter_map(parse_client_entry).collect(),
+        redis::Value::BulkString(bytes) => {
+            let text = String::from_utf8_lossy(&bytes);
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(parse_client_line)
+                .filter(|map| !map.is_empty())
+                .collect()
+        }
+        redis::Value::SimpleString(text) => text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(parse_client_line)
+            .filter(|map| !map.is_empty())
+            .collect(),
+        other => {
+            return Err(
+                OmniError::database("CLIENT LIST 返回格式不支持").with_cause(format!("{other:?}")),
+            );
+        }
+    };
+
+    if clients.is_empty() {
+        return Ok(QueryResult {
+            columns: CLIENT_LIST_COLUMN_ORDER
+                .iter()
+                .map(|column| (*column).to_string())
+                .collect(),
+            rows: Vec::new(),
+            rows_affected: 0,
+        });
+    }
+
+    let columns = build_client_list_columns(&clients);
+    let rows = clients
+        .into_iter()
+        .map(|client| {
+            columns
+                .iter()
+                .map(|column| {
+                    Value::String(
+                        client
+                            .get(column)
+                            .cloned()
+                            .unwrap_or_else(|| "—".to_string()),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+
+    Ok(QueryResult {
+        columns,
+        rows,
+        rows_affected: 0,
+    })
 }
 
 fn percent_encode(s: &str) -> String {
