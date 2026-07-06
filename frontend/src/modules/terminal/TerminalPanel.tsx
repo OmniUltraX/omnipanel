@@ -14,6 +14,7 @@ import {
 } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
+import { showToast } from "../../stores/toastStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { TerminalTabDockPane } from "./TerminalTabDockPane";
@@ -58,6 +59,7 @@ import {
 } from "./constants";
 import { useSshWorkspaceNavStore } from "../server/ssh/stores/sshWorkspaceNavStore";
 import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
+import { renameSessionWithAi, startAutoNameSubscription } from "./sessionAutoName";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   // 用户重命名 (tab.title) 优先于资源名 —— 用户能区分同一资源下的多个 tab
@@ -177,6 +179,12 @@ export function TerminalPanel() {
   useEffect(() => {
     const stopLifecycle = startTerminalBackendLifecycle();
     return stopLifecycle;
+  }, []);
+
+  // 自动命名订阅：监听 block 完成后自动生成会话标题
+  useEffect(() => {
+    const stopAutoName = startAutoNameSubscription();
+    return stopAutoName;
   }, []);
 
   useEffect(() => {
@@ -335,10 +343,11 @@ export function TerminalPanel() {
       } else {
         tabId = addSshTerminalTab(resourceId, title);
       }
-      selectResource(resourceId);
-      focusSessionsPanel();
-      setDockActiveId(tabId);
+      // 与 handleTopbarAdd 保持一致：先激活 tab，再切换面板
       setActiveTab(tabId);
+      setDockActiveId(tabId);
+      focusSessionsPanel();
+      selectResource(resourceId);
     },
     [addLocalTerminalTab, addSshTerminalTab, focusSessionsPanel, selectResource, setActiveTab],
   );
@@ -527,6 +536,24 @@ export function TerminalPanel() {
         setCtxMenu(null);
         return;
       }
+      if (action === "aiRename") {
+        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
+        if (sessionId) {
+          void renameSessionWithAi(sessionId).then((result) => {
+            if (!result.ok) {
+              if (result.reason === "no-provider") {
+                showToast(t("terminal.sessions.aiRenameNoProvider"));
+              } else if (result.reason === "no-context") {
+                showToast(t("terminal.sessions.aiRenameNoContext"));
+              } else {
+                showToast(t("terminal.sessions.aiRenameFailed"));
+              }
+            }
+          });
+        }
+        setCtxMenu(null);
+        return;
+      }
       if (action === "endSession") {
         const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
         if (sessionId) handleEndSession(sessionId);
@@ -709,7 +736,7 @@ export function TerminalPanel() {
           visibleTabs.length,
           menuTabIndex >= 0 ? menuTabIndex : 0,
           handleContextAction,
-{ showWorkspaceActions: true, showRefresh: true, showRename: true },
+{ showWorkspaceActions: true, showRefresh: true, showRename: true, showAiRename: true },
         );
         const reconnectItem = {
           id: "tab-reconnect",

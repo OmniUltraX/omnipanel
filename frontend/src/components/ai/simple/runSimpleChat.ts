@@ -6,17 +6,29 @@ export type SimpleChatContentPart =
 
 export interface RunSimpleChatOptions {
   signal?: AbortSignal;
+  /** 终端环境上下文块（由 buildTerminalAiContextAppend 生成），注入到 system prompt */
+  terminalContextAppend?: string | null;
 }
 
 function buildApiMessages(
   systemPrompt: string,
   userContent: string | SimpleChatContentPart[],
+  terminalContextAppend?: string | null,
 ) {
   const messages: { role: "system" | "user" | "assistant"; content: string }[] =
     [];
+
+  const systemParts: string[] = [];
   if (systemPrompt) {
-    messages.push({ role: "system", content: systemPrompt });
+    systemParts.push(systemPrompt);
   }
+  if (terminalContextAppend?.trim()) {
+    systemParts.push(terminalContextAppend);
+  }
+  if (systemParts.length > 0) {
+    messages.push({ role: "system", content: systemParts.join("\n\n") });
+  }
+
   if (typeof userContent === "string") {
     messages.push({ role: "user", content: userContent });
   } else {
@@ -36,7 +48,11 @@ export async function runSimpleChat(
   userContent: string | SimpleChatContentPart[],
   options?: RunSimpleChatOptions,
 ): Promise<string> {
-  const messages = buildApiMessages(systemPrompt, userContent);
+  const messages = buildApiMessages(
+    systemPrompt,
+    userContent,
+    options?.terminalContextAppend,
+  );
 
   let result = "";
   for await (const chunk of streamOpenAI(messages, modelConfig, [], {

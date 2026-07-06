@@ -9,6 +9,7 @@ import {
 import type { TerminalConnectionStatus } from "../../stores/terminalTypes";
 import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
+import { showToast } from "../../stores/toastStore";
 import { Button } from "../../components/ui/primitives/Button";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import {
@@ -18,6 +19,10 @@ import {
   sortConnectionGroups,
   writeConnectionOrder,
 } from "./terminalConnectionOrder";
+import {
+  renameSessionWithAi,
+  subscribeAiNamingState,
+} from "./sessionAutoName";
 
 const EXPANDED_STORAGE_KEY = "omnipanel-terminal-session-tree-expanded";
 const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
@@ -125,6 +130,7 @@ function SessionRow({
   activityAt,
   isActive,
   status,
+  isAiNaming,
   onSelect,
   onEnd,
   onContextMenu,
@@ -133,6 +139,7 @@ function SessionRow({
   activityAt: number;
   isActive: boolean;
   status: TopbarTabDef["status"];
+  isAiNaming: boolean;
   onSelect: () => void;
   onEnd: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
@@ -151,6 +158,13 @@ function SessionRow({
           aria-hidden
         />
         <span className="term-session-tree__session-title">{session.title}</span>
+        {isAiNaming && (
+          <span
+            className="term-session-tree__ai-spinner"
+            title={t("terminal.sessions.aiRenaming")}
+            aria-label={t("terminal.sessions.aiRenaming")}
+          />
+        )}
         <span className="term-session-tree__session-time">
           {formatRelativeTime(activityAt)}
         </span>
@@ -176,6 +190,7 @@ function ConnectionGroupBlock({
   expanded,
   activeSessionId,
   sessionStatusById,
+  aiNamingIds,
   dropHint,
   draggingSource,
   onToggle,
@@ -190,6 +205,7 @@ function ConnectionGroupBlock({
   expanded: boolean;
   activeSessionId: string | null;
   sessionStatusById: Map<string, TopbarTabDef["status"]>;
+  aiNamingIds: Set<string>;
   dropHint: "before" | "after" | null;
   draggingSource: boolean;
   onToggle: () => void;
@@ -258,6 +274,7 @@ function ConnectionGroupBlock({
               activityAt={resolveSessionActivityAt(session, blocksBySession)}
               isActive={activeSessionId === session.id}
               status={sessionStatusById.get(session.id) ?? "idle"}
+              isAiNaming={aiNamingIds.has(session.id)}
               onSelect={() => onSelectSession(session.id)}
               onEnd={() => onEndSession(session.id)}
               onContextMenu={(event) => onSessionContextMenu(event, session.id)}
@@ -325,6 +342,8 @@ export function TerminalSessionSidebar({
     currentTitle: string;
     value: string;
   } | null>(null);
+  // 正在 AI 命名中的会话 ID 集合
+  const [aiNamingIds, setAiNamingIds] = useState<Set<string>>(new Set());
   const treeBodyRef = useRef<HTMLDivElement>(null);
   const connectionGroupsRef = useRef<ConnectionGroup[]>([]);
   const connectionOrderRef = useRef(connectionOrder);
@@ -374,6 +393,18 @@ export function TerminalSessionSidebar({
   connectionGroupsRef.current = connectionGroups;
 
   useEffect(() => {
+    const unsub = subscribeAiNamingState((sessionId, pending) => {
+      setAiNamingIds((prev) => {
+        const next = new Set(prev);
+        if (pending) next.add(sessionId);
+        else next.delete(sessionId);
+        return next;
+      });
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     const resourceIds = connectionGroups.map((group) => group.resourceId);
     if (resourceIds.length === 0) return;
     const merged = mergeConnectionOrder(connectionOrder, resourceIds);
@@ -420,6 +451,25 @@ export function TerminalSessionSidebar({
         sessionId: session.id,
         currentTitle: session.title,
         value: session.title,
+      });
+    },
+    [],
+  );
+
+  const handleAiRenameSession = useCallback(
+    (session: TerminalSession) => {
+      setSessionCtxMenu(null);
+      void renameSessionWithAi(session.id).then((result) => {
+        if (!result.ok) {
+          const { t } = useI18n();
+          if (result.reason === "no-provider") {
+            showToast(t("terminal.sessions.aiRenameNoProvider"));
+          } else if (result.reason === "no-context") {
+            showToast(t("terminal.sessions.aiRenameNoContext"));
+          } else {
+            showToast(t("terminal.sessions.aiRenameFailed"));
+          }
+        }
       });
     },
     [],
@@ -595,6 +645,7 @@ export function TerminalSessionSidebar({
               expanded={expandedMap[group.resourceId] ?? true}
               activeSessionId={resolvedActiveSessionId}
               sessionStatusById={sessionStatusById}
+              aiNamingIds={aiNamingIds}
               dropHint={
                 dropTarget?.resourceId === group.resourceId ? dropTarget.position : null
               }
@@ -623,6 +674,14 @@ export function TerminalSessionSidebar({
             id: "session-rename",
             label: t("shell.topbar.rename"),
             onClick: () => handleRenameSession(sessionCtxMenu.session),
+          },
+          {
+            id: "session-ai-rename",
+            label: aiNamingIds.has(sessionCtxMenu.session.id)
+              ? t("terminal.sessions.aiRenaming")
+              : t("terminal.sessions.aiRename"),
+            disabled: aiNamingIds.has(sessionCtxMenu.session.id),
+            onClick: () => handleAiRenameSession(sessionCtxMenu.session),
           },
           {
             id: "session-copy",
