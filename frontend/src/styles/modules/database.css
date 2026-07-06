@@ -117,6 +117,45 @@
         background: var(--accent-muted, rgba(0, 122, 255, 0.12));
     }
 
+    .db-tree-diagram-panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        background: var(--surface);
+    }
+
+    .db-tree-diagram-panel__header {
+        flex-shrink: 0;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .db-tree-diagram-panel__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .db-tree-diagram-panel__hint {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--meta);
+        line-height: 1.4;
+    }
+
+    .db-tree-diagram-panel__canvas {
+        flex: 1;
+        min-height: 280px;
+        overflow: hidden;
+        background: var(--bg);
+    }
+
+    .db-tree-diagram-panel__canvas canvas {
+        display: block;
+    }
+
     .sql-query-file-empty {
         padding: var(--sp-3) var(--sp-4);
         font-size: 12px;

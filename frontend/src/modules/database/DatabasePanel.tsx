@@ -92,6 +92,8 @@ import {
   findTabIdForDatabase,
   findTabIdForConnection,
   findTabIdForSqlFile,
+  findTabIdForTreeFile,
+  makeTreeDiagramTabId,
   makeTableTabLabel,
   makeTableTabKey,
   findTabIdForTable,
@@ -116,13 +118,14 @@ import {
   type DbWorkspaceTab,
   type RedisQueryWorkspaceTab,
   type SqlWorkspaceTab,
+  type TreeDiagramWorkspaceTab,
   type TableDesignerWorkspaceTab,
   type TablePreviewWorkspaceTab,
 } from "./workspace/workspaceTabs";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";
-import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
+import { TreeDiagramPanel } from "./tree/TreeDiagramPanel";
 import type { SyncTask } from "./toolbox/types";
 import { useDbSyncTaskStore } from "../../stores/dbSyncTaskStore";
 import {
@@ -3432,6 +3435,26 @@ export function DatabasePanel() {
     [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta],
   );
 
+  const openTreeFile = useCallback(
+    (file: DbSqlFileNode) => {
+      const existingTabId = findTabIdForTreeFile(workspaceTabs, file.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeTreeDiagramTabId();
+      const tab: TreeDiagramWorkspaceTab = {
+        id: tabId,
+        kind: "tree-diagram",
+        label: file.name.replace(/\.tree$/i, ""),
+        treeFileId: file.id,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [workspaceTabs],
+  );
+
   const renameWorkspaceTab = useCallback((tabId: string, label: string) => {
     const nextLabel = label.trim();
     if (!nextLabel) return;
@@ -4319,6 +4342,18 @@ export function DatabasePanel() {
               preview,
             };
           }
+          if (tab.kind === "tree-diagram") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database",
+              type: "file" as const,
+              icon: "database" as const,
+              tooltip: tab.label,
+              closable: true,
+              preview,
+            };
+          }
           const isTableTab = tablePreviewTabIds.has(tab.id);
           const dirty = isTableTab ? false : dirtySqlWorkspaceTabIds.has(tab.id);
           const saved = tab.kind === "sql" && Boolean(tab.sqlFileId) && !dirty;
@@ -4478,6 +4513,14 @@ export function DatabasePanel() {
         );
       }
 
+      if (tab.kind === "tree-diagram") {
+        return (
+          <div className="db-workspace-pane db-dock-pane">
+            <TreeDiagramPanel label={tab.label} />
+          </div>
+        );
+      }
+
       if (tab.kind === "toolbox") {
         return (
           <div className="db-workspace-pane db-dock-pane db-module-transfer">
@@ -4627,6 +4670,7 @@ export function DatabasePanel() {
             onImportNavicat={() => void handleImportConnections()}
             onSelectConnection={handleSelectConnection}
             onOpenSqlFile={openSqlFile}
+            onOpenTreeFile={openTreeFile}
             onOpenSyncTask={handleOpenSyncTask}
             onRunSyncTask={handleRunSyncTask}
             onSelectTable={handleSelectTable}

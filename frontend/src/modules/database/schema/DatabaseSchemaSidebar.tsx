@@ -18,12 +18,14 @@ type SectionKey = "connections" | "queries" | "syncTasks";
 export interface DatabaseSchemaSidebarProps
   extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey"> {
   onOpenSqlFile: (file: DbSqlFileNode) => void;
+  onOpenTreeFile: (file: DbSqlFileNode) => void;
   onOpenSyncTask: (task: SyncTask) => void;
   onRunSyncTask: (task: SyncTask) => void;
 }
 
 export function DatabaseSchemaSidebar({
   onOpenSqlFile,
+  onOpenTreeFile,
   onOpenSyncTask,
   onRunSyncTask,
   ...schemaProps
@@ -57,6 +59,7 @@ export function DatabaseSchemaSidebar({
       />
       <SqlQueryFilePanel
         onOpenFile={onOpenSqlFile}
+        onOpenTreeFile={onOpenTreeFile}
         section={{
           title: t("database.sidebar.queries"),
           expanded: sections.queries,

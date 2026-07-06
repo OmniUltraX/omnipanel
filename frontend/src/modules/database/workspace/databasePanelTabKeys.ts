@@ -72,6 +72,10 @@ export function buildDatabasePanelContentKeysByTab(params: {
       ].join("|");
       continue;
     }
+    if (tab.kind === "tree-diagram") {
+      keys[tab.id] = [tab.id, tab.label, tab.treeFileId ?? ""].join("|");
+      continue;
+    }
     if (tab.kind === "database") {
       keys[tab.id] = [connectionsFingerprint, tab.connId, tab.dbName].join(":");
       continue;

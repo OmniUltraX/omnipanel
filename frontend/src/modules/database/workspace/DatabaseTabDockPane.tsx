@@ -11,7 +11,8 @@ import { isTablePreviewTab } from "../../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./DatabaseSlowQueryLogPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
-import { isConnectionInfoTab, isDatabaseListTab, isSlowQueryLogTab, isSqlWorkspaceTab } from "./workspaceTabs";
+import { isConnectionInfoTab, isDatabaseListTab, isSlowQueryLogTab, isSqlWorkspaceTab, isTreeDiagramWorkspaceTab } from "./workspaceTabs";
+import { TreeDiagramPanel } from "../tree/TreeDiagramPanel";
 
 interface DatabaseTabDockPaneProps {
   tabId: string;
@@ -97,6 +98,8 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
             })()
           ) : isSqlWorkspaceTab(tab) ? (
             <DbPanelSurface tab={tab} />
+          ) : isTreeDiagramWorkspaceTab(tab) ? (
+            <TreeDiagramPanel label={tab.label} />
           ) : null}
         </div>
       </div>

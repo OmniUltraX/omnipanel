@@ -4,7 +4,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { commands } from "../ipc/bindings";
 import type { SqlTabState } from "../modules/database/workspace/dbWorkspaceState";
 
-export type DbSqlFileNodeType = "folder" | "file";
+export type DbSqlFileNodeType = "folder" | "file" | "tree";
 
 export interface DbSqlFileNode {
   id: string;
@@ -31,6 +31,7 @@ interface DbSqlFileState {
   flushToDisk: () => Promise<void>;
   addFolder: (parentId: string | null, name: string) => DbSqlFileNode;
   addFile: (parentId: string | null, name: string, sql?: string) => DbSqlFileNode;
+  addTreeFile: (parentId: string | null, name: string) => DbSqlFileNode;
   updateFileSql: (id: string, sql: string) => void;
   updateFileBinding: (id: string, connId: string, database: string) => void;
   renameNode: (id: string, name: string) => boolean;
@@ -86,7 +87,13 @@ function collectDescendantIds(nodes: DbSqlFileNode[], rootId: string): Set<strin
 }
 
 function normalizeNodeType(value: string | undefined): DbSqlFileNodeType {
-  return value === "folder" ? "folder" : "file";
+  if (value === "folder") {
+    return "folder";
+  }
+  if (value === "tree") {
+    return "tree";
+  }
+  return "file";
 }
 
 function normalizeNode(raw: Record<string, unknown>): DbSqlFileNode | null {
@@ -225,8 +232,18 @@ export function getSqlFileChildren(
   return nodes
     .filter((node) => node.parentId === parentId)
     .sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === "folder" ? -1 : 1;
+      const order = (type: DbSqlFileNodeType) => {
+        if (type === "folder") {
+          return 0;
+        }
+        if (type === "tree") {
+          return 1;
+        }
+        return 2;
+      };
+      const typeCmp = order(a.type) - order(b.type);
+      if (typeCmp !== 0) {
+        return typeCmp;
       }
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
@@ -280,6 +297,20 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
     return node;
   },
 
+  addTreeFile: (parentId, name) => {
+    const fileName = uniqueName(get().nodes, parentId, name.endsWith(".tree") ? name : `${name}.tree`);
+    const node: DbSqlFileNode = {
+      id: makeId("tree-file"),
+      type: "tree",
+      name: fileName,
+      parentId,
+      updatedAt: Date.now(),
+    };
+    const nodes = [...get().nodes, node];
+    commitNodesInMemory(set, get, nodes, [node.id, SQL_FILE_TREE_DIRTY]);
+    return node;
+  },
+
   updateFileSql: (id, sql) => {
     const nodes = get().nodes.map((node) =>
       node.id === id && node.type === "file" ? { ...node, sql, updatedAt: Date.now() } : node,
@@ -311,7 +342,11 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
       return false;
     }
     const nextName =
-      node.type === "file" && !trimmed.endsWith(".sql") ? `${trimmed}.sql` : trimmed;
+      node.type === "file" && !trimmed.endsWith(".sql")
+        ? `${trimmed}.sql`
+        : node.type === "tree" && !trimmed.endsWith(".tree")
+          ? `${trimmed}.tree`
+          : trimmed;
     const nodes = get().nodes.map((entry) =>
       entry.id === id
         ? {
@@ -321,7 +356,10 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
           }
         : entry,
     );
-    const dirtyIds = node.type === "file" ? [id, SQL_FILE_TREE_DIRTY] : [SQL_FILE_TREE_DIRTY];
+    const dirtyIds =
+      node.type === "file" || node.type === "tree"
+        ? [id, SQL_FILE_TREE_DIRTY]
+        : [SQL_FILE_TREE_DIRTY];
     commitNodesInMemory(set, get, nodes, dirtyIds);
     return true;
   },

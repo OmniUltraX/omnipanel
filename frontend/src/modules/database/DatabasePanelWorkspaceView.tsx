@@ -38,6 +38,7 @@ export interface DatabasePanelWorkspaceViewProps {
   onImportNavicat: () => void;
   onSelectConnection: (connId: string) => void;
   onOpenSqlFile: (file: DbSqlFileNode) => void;
+  onOpenTreeFile: (file: DbSqlFileNode) => void;
   onOpenSyncTask: (task: SyncTask) => void;
   onRunSyncTask: (task: SyncTask) => void;
   onSelectTable: (selection: SchemaTableSelection) => void;
@@ -74,6 +75,7 @@ export const DatabasePanelWorkspaceView = memo(function DatabasePanelWorkspaceVi
   onImportNavicat,
   onSelectConnection,
   onOpenSqlFile,
+  onOpenTreeFile,
   onOpenSyncTask,
   onRunSyncTask,
   onSelectTable,
@@ -100,6 +102,7 @@ export const DatabasePanelWorkspaceView = memo(function DatabasePanelWorkspaceVi
             onImportNavicat={onImportNavicat}
             onSelectConnection={onSelectConnection}
             onOpenSqlFile={onOpenSqlFile}
+            onOpenTreeFile={onOpenTreeFile}
             onOpenSyncTask={onOpenSyncTask}
             onRunSyncTask={onRunSyncTask}
             onSelectTable={onSelectTable}
