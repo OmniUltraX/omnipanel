@@ -52,6 +52,10 @@ const PROGRESS_COMMAND_BASES = new Set([
   "brew",
   "gem",
   "composer",
+  "snap",
+  "flatpak",
+  "pacman",
+  "zypper",
 ]);
 
 const INTERACTIVE_COMMAND_BASES = new Set([

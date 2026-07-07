@@ -589,18 +589,22 @@ export const useTerminalStore = create<TerminalState>()(
         const existing = get().tabs.find(
           (t) => t.session.resourceId === hostId && t.session.type === "remote" && !t.workspaceOnly,
         );
+        let tabId: string;
         if (existing) {
-          get().setActiveTab(existing.id);
-          return existing.id;
+          tabId = existing.id;
+        } else {
+          const suspended = get().sessions.find(
+            (s) =>
+              s.session.resourceId === hostId &&
+              s.session.type === "remote" &&
+              s.lifecycle === "suspended",
+          );
+          tabId = suspended
+            ? get().openSessionTab(suspended.id)
+            : get().addSshTerminalTab(hostId, title);
         }
-        const suspended = get().sessions.find(
-          (s) =>
-            s.session.resourceId === hostId &&
-            s.session.type === "remote" &&
-            s.lifecycle === "suspended",
-        );
-        if (suspended) return get().openSessionTab(suspended.id);
-        return get().addSshTerminalTab(hostId, title);
+        get().setActiveTab(tabId);
+        return tabId;
       },
 
       openOrFocusLocalTab: (title = "本地终端") => {

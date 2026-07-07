@@ -568,11 +568,15 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
     if (isWarpDisplay(pending.tabId)) {
       const blockId = armFeedCapture(pending.tabId, displayCommand);
       if (pending.source === "用户") {
+        const profile = resolveCommandProfile(pending.command, "用户");
         useTerminalRunStateStore.getState().beginBlockRun(pending.tabId, {
           blockId,
           command: displayCommand,
         });
         useTerminalUiStore.getState().beginCommandLive(pending.tabId);
+        if (profile.kind === "progress") {
+          useTerminalRunStateStore.getState().promoteToInlineRun(pending.tabId);
+        }
         if (shouldUseFullTerminalForUser(displayCommand)) {
           useTerminalRunStateStore.getState().enterFullTerminal(pending.tabId, blockId);
           useTerminalUiStore.getState().enterFullTerminal(pending.tabId);

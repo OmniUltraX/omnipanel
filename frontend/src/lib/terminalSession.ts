@@ -10,6 +10,22 @@ export function navigateToPath(path: string) {
   window.dispatchEvent(new CustomEvent("omnipanel-navigate", { detail: { path } }));
 }
 
+/** 聚焦指定终端标签（切换 store 状态并通知 TerminalPanel 同步 dock） */
+export function focusTerminalTab(tabId: string): boolean {
+  const tab = useTerminalStore.getState().tabs.find(
+    (item) => item.id === tabId || item.sessionId === tabId,
+  );
+  if (!tab) return false;
+
+  useTerminalStore.getState().setActiveTab(tab.id);
+  useWorkspaceStore.getState().selectResource(tab.session.resourceId);
+  navigateToPath(MODULE_PATHS.terminal);
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId: tab.id } }),
+  );
+  return true;
+}
+
 export function openSshTerminalSession(hostId: string): string | null {
   const host = resolveResourceById(hostId);
   if (!host || host.type !== "ssh") return null;

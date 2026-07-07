@@ -11,6 +11,7 @@ import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../../components/ui/primitives/Button";
+import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import {
   mergeConnectionOrder,
@@ -340,7 +341,6 @@ export function TerminalSessionSidebar({
   const [renameTarget, setRenameTarget] = useState<{
     sessionId: string;
     currentTitle: string;
-    value: string;
   } | null>(null);
   // 正在 AI 命名中的会话 ID 集合
   const [aiNamingIds, setAiNamingIds] = useState<Set<string>>(new Set());
@@ -450,7 +450,6 @@ export function TerminalSessionSidebar({
       setRenameTarget({
         sessionId: session.id,
         currentTitle: session.title,
-        value: session.title,
       });
     },
     [],
@@ -487,18 +486,16 @@ export function TerminalSessionSidebar({
     [],
   );
 
-  const commitSessionRename = useCallback(() => {
-    if (!renameTarget) return;
-    const trimmed = renameTarget.value.trim();
-    if (!trimmed) {
+  const handleConfirmSessionRename = useCallback(
+    (trimmed: string) => {
+      if (!renameTarget) return;
+      if (trimmed !== renameTarget.currentTitle) {
+        useTerminalStore.getState().renameSession(renameTarget.sessionId, trimmed);
+      }
       setRenameTarget(null);
-      return;
-    }
-    if (trimmed !== renameTarget.currentTitle) {
-      useTerminalStore.getState().renameSession(renameTarget.sessionId, trimmed);
-    }
-    setRenameTarget(null);
-  }, [renameTarget]);
+    },
+    [renameTarget],
+  );
 
   const cleanupPointerDrag = useCallback(() => {
     pointerDragRef.current = null;
@@ -706,54 +703,14 @@ export function TerminalSessionSidebar({
           />
         );
       })()}
-      {renameTarget && (
-        <div
-          className="rename-prompt-backdrop"
-          onClick={() => setRenameTarget(null)}
-          role="dialog"
-          aria-label={t("shell.topbar.rename")}
-        >
-          <div
-            className="rename-prompt-dialog"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitSessionRename();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                setRenameTarget(null);
-              }
-            }}
-          >
-            <div className="rename-prompt-label">{t("shell.topbar.rename")}</div>
-            <div className="rename-prompt-current">{renameTarget.currentTitle}</div>
-            <input
-              type="text"
-              className="rename-prompt-input"
-              value={renameTarget.value}
-              autoFocus
-              onChange={(e) => setRenameTarget({ ...renameTarget, value: e.target.value })}
-            />
-            <div className="rename-prompt-actions">
-              <button
-                type="button"
-                className="rename-prompt-btn"
-                onClick={() => setRenameTarget(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="rename-prompt-btn rename-prompt-btn--primary"
-                onClick={commitSessionRename}
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <QuickInputDialog
+        open={renameTarget != null}
+        title={t("shell.topbar.rename")}
+        subtitle={renameTarget?.currentTitle}
+        defaultValue={renameTarget?.currentTitle ?? ""}
+        onCancel={() => setRenameTarget(null)}
+        onConfirm={handleConfirmSessionRename}
+      />
     </div>
   );
 }

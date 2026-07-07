@@ -37,6 +37,7 @@ import {
   useTerminalDockLayoutStore,
 } from "../../stores/terminalDockLayoutStore";
 import { ContextMenu } from "../../components/ui/menu/ContextMenu";
+import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import {
   buildTabCloseMenuItems,
   type TabContextMenuAction,
@@ -203,7 +204,6 @@ export function TerminalPanel() {
   const [renameTarget, setRenameTarget] = useState<{
     tabId: string;
     currentTitle: string;
-    value: string;
   } | null>(null);
 
   useEffect(() => {
@@ -362,6 +362,25 @@ export function TerminalPanel() {
         : visibleTabs[0]?.id ?? "";
     if (next) setDockActiveId(next);
   }, [activeTabId, dockActiveId, isSshMode, visibleTabs]);
+
+  useLayoutEffect(() => {
+    if (isSshMode) return;
+    if (!activeTabId || isTerminalSshManagementTab(activeTabId)) return;
+    if (!tabs.some((tab) => tab.id === activeTabId)) return;
+    setDockActiveId(activeTabId);
+  }, [activeTabId, isSshMode, tabs]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (!tabId) return;
+      focusSessionsPanel();
+      setDockActiveId(tabId);
+      setActiveTab(tabId);
+    };
+    window.addEventListener("omnipanel-terminal-focus-tab", handler);
+    return () => window.removeEventListener("omnipanel-terminal-focus-tab", handler);
+  }, [focusSessionsPanel, setActiveTab]);
 
   const dockTabs = useMemo(
     () =>
@@ -523,7 +542,6 @@ export function TerminalPanel() {
           setRenameTarget({
             tabId: ctxTab.id,
             currentTitle: ctxTab.title,
-            value: ctxTab.title,
           });
         }
         setCtxMenu(null);
@@ -634,18 +652,16 @@ export function TerminalPanel() {
     [ctxMenu, handleCloseTab, handleCloseTabs, handleEndSession, activeWorkspaceId, setActiveTab, setDockLayout],
   );
 
-  const commitRename = useCallback(() => {
-    if (!renameTarget) return;
-    const trimmed = renameTarget.value.trim();
-    if (!trimmed) {
+  const handleConfirmRename = useCallback(
+    (trimmed: string) => {
+      if (!renameTarget) return;
+      if (trimmed !== renameTarget.currentTitle) {
+        useTerminalStore.getState().renameTab(renameTarget.tabId, trimmed);
+      }
       setRenameTarget(null);
-      return;
-    }
-    if (trimmed !== renameTarget.currentTitle) {
-      useTerminalStore.getState().renameTab(renameTarget.tabId, trimmed);
-    }
-    setRenameTarget(null);
-  }, [renameTarget]);
+    },
+    [renameTarget],
+  );
 
   const renderDockPanel = useCallback(
     (tabId: string) => {
@@ -764,82 +780,14 @@ export function TerminalPanel() {
           />
         );
       })()}
-      {renameTarget && (
-        <RenamePromptDialog
-          label={t("shell.topbar.rename")}
-          currentTitle={renameTarget.currentTitle}
-          value={renameTarget.value}
-          onChange={(next) => setRenameTarget({ ...renameTarget, value: next })}
-          onCommit={commitRename}
-          onCancel={() => setRenameTarget(null)}
-        />
-      )}
+      <QuickInputDialog
+        open={renameTarget != null}
+        title={t("shell.topbar.rename")}
+        subtitle={renameTarget?.currentTitle}
+        defaultValue={renameTarget?.currentTitle ?? ""}
+        onCancel={() => setRenameTarget(null)}
+        onConfirm={handleConfirmRename}
+      />
     </>
-  );
-}
-
-/** 重命名 prompt：极简居中弹窗（terminal 上下文避免 inline bar 干扰） */
-function RenamePromptDialog({
-  label,
-  currentTitle,
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: {
-  label: string;
-  currentTitle: string;
-  value: string;
-  onChange: (next: string) => void;
-  onCommit: () => void;
-  onCancel: () => void;
-}) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onCancel]);
-  return (
-    <div
-      className="rename-prompt-backdrop"
-      onClick={onCancel}
-      role="dialog"
-      aria-label={label}
-    >
-      <div
-        className="rename-prompt-dialog"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onCommit();
-          }
-        }}
-      >
-        <div className="rename-prompt-label">{label}</div>
-        <div className="rename-prompt-current">{currentTitle}</div>
-        <input
-          type="text"
-          className="rename-prompt-input"
-          value={value}
-          autoFocus
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <div className="rename-prompt-actions">
-          <button type="button" className="rename-prompt-btn" onClick={onCancel}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="rename-prompt-btn rename-prompt-btn--primary"
-            onClick={onCommit}
-          >
-            确定
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

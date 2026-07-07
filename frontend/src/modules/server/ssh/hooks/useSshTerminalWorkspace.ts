@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
+import { useI18n } from "../../../../i18n";
 import {
   sshEmbeddedWorkspaceId,
   useTerminalStore,
@@ -10,6 +11,7 @@ import {
   setTerminalPaneSender,
   terminalPaneSenders,
 } from "../../../terminal/terminalPaneSenders";
+import { tryOpenSshFromTerminalCommand } from "../../../terminal/openSshFromTerminalCommand";
 
 function disposeWorkspacePanes(workspaceId: string, resourceId: string) {
   const removeEmbeddedPane = useTerminalStore.getState().removeEmbeddedPane;
@@ -23,6 +25,7 @@ export function useSshTerminalWorkspace(
   resource: WorkspaceResource | null,
   active = false,
 ) {
+  const { t } = useI18n();
   const upsertEmbeddedPane = useTerminalStore((s) => s.upsertEmbeddedPane);
   const embeddedPanes = useTerminalStore((s) => s.embeddedPanes);
 
@@ -86,9 +89,29 @@ export function useSshTerminalWorkspace(
   const handleCommand = useCallback(
     (command: string) => {
       if (!activePane) return;
-      terminalPaneSenders[activePane.id]?.(command);
+      void tryOpenSshFromTerminalCommand(
+        command,
+        {
+          openedExisting: (name) =>
+            t("terminal.command.sshOpenedExisting", { name }),
+          openedNew: (name) => t("terminal.command.sshOpenedNew", { name }),
+          saveFailed: t("terminal.command.sshOpenFailed"),
+          connectFailed: t("terminal.command.sshConnectFailed"),
+          authFailed: t("terminal.command.sshAuthFailed"),
+          passwordPromptTitle: t("terminal.command.sshPasswordPromptTitle"),
+          passwordPromptSubtitle: (name) =>
+            t("terminal.command.sshPasswordPromptSubtitle", { name }),
+          passwordPromptPlaceholder: t("terminal.command.sshPasswordPromptPlaceholder"),
+          passwordRequired: t("terminal.command.sshPasswordRequired"),
+          passwordCancelled: t("terminal.command.sshPasswordCancelled"),
+        },
+        { sourceSessionId: activePane.id },
+      ).then((handled) => {
+        if (handled) return;
+        terminalPaneSenders[activePane.id]?.(command);
+      });
     },
-    [activePane],
+    [activePane, t],
   );
 
   const hasPaneSender = useCallback(
