@@ -1822,6 +1822,15 @@ export const zhCN = {
       stop: "停止生成",
       thinking: "思考中…",
       stalled: "AI 响应超时，请检查模型配置或网络后重试",
+      collapse: "收起",
+      expand: "展开",
+    },
+    feed: {
+      scrollToTop: "滚动到顶部",
+      scrollToBottom: "滚动到底部",
+      collapseBlock: "收起",
+      expandBlock: "展开",
+      collapsedLines: "输出 {count} 行",
     },
     newSession: {
       local: "本地终端",

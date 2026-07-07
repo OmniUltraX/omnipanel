@@ -25,6 +25,7 @@ export type TerminalViewProps = {
   startup: string[];
   active: boolean;
   inputMode?: TerminalInputMode;
+  liveNative?: boolean;
   onSenderChange: (
     sessionId: string,
     sender: ((cmd: string) => void) | null,
@@ -40,6 +41,7 @@ export function TerminalView({
   startup,
   active,
   inputMode = "external",
+  liveNative = false,
   onSenderChange,
   onBlockRightClick,
   reconnectKey,
@@ -87,6 +89,8 @@ export function TerminalView({
     (state) => state.reconnectVersions[sessionId] ?? 0,
   );
   const effectiveReconnectKey = (reconnectKey ?? 0) + storeReconnectVersion;
+  const effectiveInputMode: TerminalInputMode =
+    liveNative && inputMode === "external" ? "interactive" : inputMode;
 
   useTerminal(
     sessionId,
@@ -96,7 +100,7 @@ export function TerminalView({
     onBlockRightClick,
     terminalSuspended,
     {
-      inputMode,
+      inputMode: effectiveInputMode,
       sendRef,
       active: active && !moduleSuspended,
       reconnectKey: effectiveReconnectKey,
@@ -166,7 +170,7 @@ export function TerminalView({
   return (
     <div
       ref={containerRef}
-      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--live" : ""}`}
+      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--live" : ""}${liveNative ? " term-xterm-wrap--live-native" : ""}`}
     />
   );
 }

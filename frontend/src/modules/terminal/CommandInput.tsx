@@ -48,8 +48,6 @@ const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
 const EMPTY_ATTACHED_BLOCK_IDS: string[] = [];
 
-const INTERACTIVE_COMMAND_HINT = /^(vim|vi|nano|top|htop|less|more|python|node|ssh)\b/i;
-
 function syncCommandInputHeight(element: HTMLTextAreaElement) {
   element.style.height = "auto";
   if (!element.value) {
@@ -78,7 +76,6 @@ export type CommandInputProps = {
   sessionType?: "local" | "remote";
   lastError?: TerminalBlock | null;
   disabled?: boolean;
-  onRequestNativeMode?: () => void;
 };
 
 export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
@@ -92,7 +89,6 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       sessionType = "local",
       lastError = null,
       disabled = false,
-      onRequestNativeMode,
     },
     ref,
   ) {
@@ -301,17 +297,13 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
         return;
       }
 
-      const isInteractive = INTERACTIVE_COMMAND_HINT.test(trimmed);
-      if (isInteractive && onRequestNativeMode) {
-        onRequestNativeMode();
-      }
       onSend(trimmed);
       setValue("");
       closeCompletion();
       closeHistory();
       resetBrowse();
       return;
-    }, [closeCompletion, closeHistory, cwd, onRequestNativeMode, onSend, resetBrowse, submitInlineAi, value]);
+    }, [closeCompletion, closeHistory, cwd, onSend, resetBrowse, submitInlineAi, value]);
 
     useLayoutEffect(() => {
       const element = textareaRef.current;

@@ -4,6 +4,7 @@ import {
   useBlocksStore,
   type TerminalBlock,
 } from "../../stores/blocksStore";
+import { renderLiveOutputText } from "./terminalOutputModel";
 import { extractCommandOutput, isEchoOnlyTerminalOutput, normalizeBlockCommand, stripTerminalControlSequences } from "./terminalOutputText";
 import { isResidualShellNoise } from "./terminalCommandEcho";
 import { useTerminalUiStore } from "./terminalUiStore";
@@ -21,7 +22,6 @@ import { tryParseLsListing } from "./lsListing/parseLsListing";
 import { resolveShellOutputCwd, resolveCdDestination } from "./lsListing/resolveLsListingDirectory";
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
 import {
-  IconChevronDown,
   IconChevronRight,
   IconClipboard,
   IconCopy,
@@ -53,15 +53,26 @@ function blockTitle(block: TerminalBlock): string {
   return "命令";
 }
 
+function blockRawOutput(block: TerminalBlock): string {
+  return renderLiveOutputText(block.liveOutput, block.output);
+}
+
+function blockListingSource(block: TerminalBlock): string {
+  const raw = blockRawOutput(block);
+  const cleaned = extractCommandOutput(raw, block.command);
+  return cleaned || raw.trim();
+}
+
 function shellOutput(block: TerminalBlock): string {
-  const cleaned = extractCommandOutput(block.output, block.command);
+  const source = blockRawOutput(block);
+  const cleaned = extractCommandOutput(source, block.command);
   if (cleaned) {
     if (shouldUseDirectoryPreview(block) && isResidualShellNoise(cleaned)) return "";
     return cleaned;
   }
-  if (isEchoOnlyTerminalOutput(block.output, block.command)) return "";
-  if (isResidualShellNoise(stripTerminalControlSequences(block.output))) return "";
-  return block.output.trim();
+  if (isEchoOnlyTerminalOutput(source, block.command)) return "";
+  if (isResidualShellNoise(stripTerminalControlSequences(source))) return "";
+  return source.trim();
 }
 
 function formatDuration(block: TerminalBlock): string | null {
@@ -129,6 +140,51 @@ function scrollFeedToLatestIfFollowing(
 ) {
   if (!followOutput) return;
   scrollFeedToLatest(container);
+}
+
+function BlockCollapseFooter({
+  collapsed,
+  onToggle,
+  lineCount = 0,
+  variant = "shell",
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  lineCount?: number;
+  variant?: "shell" | "ai";
+}) {
+  const { t } = useI18n();
+  const label = collapsed
+    ? lineCount > 0
+      ? t("terminal.feed.collapsedLines", { count: lineCount })
+      : t("terminal.feed.expandBlock")
+    : t("terminal.feed.collapseBlock");
+
+  return (
+    <div
+      className={`term-warp-block__collapse-footer term-warp-block__collapse-footer--${variant}`}
+    >
+      <button
+        type="button"
+        className="term-warp-block__collapse-btn"
+        aria-expanded={!collapsed}
+        aria-label={label}
+        title={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <IconChevronRight
+          size={12}
+          className={`term-warp-block__collapse-icon${
+            collapsed ? "" : " term-warp-block__collapse-icon--expanded"
+          }`}
+        />
+        <span className="term-warp-block__collapse-label">{label}</span>
+      </button>
+    </div>
+  );
 }
 
 function AiBlockStopButton({
@@ -306,6 +362,7 @@ function AiBlockCard({
         blockId={block.id}
         dockedAutoScroll={dockAutoScroll}
       />
+      <BlockCollapseFooter collapsed={false} onToggle={onToggle} variant="ai" />
       {isStickyCandidate ? <AiDockResizeHandle sessionId={sessionId} /> : null}
     </article>
   );
@@ -341,9 +398,14 @@ function ShellBlockCard({
 }) {
   // 稳定 output 引用：避免 useSftpEnrichedLsListing effect 频繁 cleanup 导致
   // SFTP fetch promise 反复被 cancelled（首次 cd 后 listing 已渲染但 SFTP 拉不到）
+  const rawSource = useMemo(() => blockListingSource(block), [
+    block.command,
+    block.liveOutput,
+    block.output,
+  ]);
   const output = useMemo(
     () => shellOutput(block),
-    [block.attachedListing, block.command, block.output, block.status],
+    [block.attachedListing, block.command, block.output, block.liveOutput, block.status],
   );
   const duration = formatDuration(block);
   const running = block.status === "running";
@@ -353,9 +415,9 @@ function ShellBlockCard({
 
   const lsListing = useMemo(() => {
     if (block.attachedListing) return block.attachedListing;
-    if (!output || isError) return null;
-    return tryParseLsListing(block.command, output);
-  }, [block.attachedListing, block.command, output, isError]);
+    if (!rawSource.trim() || isError) return null;
+    return tryParseLsListing(block.command, rawSource);
+  }, [block.attachedListing, block.command, rawSource, isError]);
 
   const listingCwd =
     resolveShellOutputCwd(block.output) ||
@@ -365,12 +427,14 @@ function ShellBlockCard({
   const showCommandLine = !directoryPreview && cmd.length > 0;
 
   const hasOutputBody = !!lsListing || (!!output && !directoryPreview);
-  const [outputCollapsed, setOutputCollapsed] = useState(false);
+  const [bodyCollapsed, setBodyCollapsed] = useState(false);
   const outputLineCount = useMemo(() => {
     const text = lsListing ? output || block.output : output;
     if (!text) return 0;
     return text.replace(/\n+$/, "").split("\n").length;
   }, [lsListing, output, block.output]);
+
+  const showCollapseFooter = hasOutputBody || bodyCollapsed;
 
   const copyToClipboard = async (text: string, okMsg: string) => {
     const value = text.trim();
@@ -388,19 +452,13 @@ function ShellBlockCard({
 
 
   return (
-    <article className="term-warp-block term-warp-block--shell" data-block-id={block.id}>
+    <article
+      className={`term-warp-block term-warp-block--shell${
+        bodyCollapsed ? " term-warp-block--body-collapsed" : ""
+      }`}
+      data-block-id={block.id}
+    >
       <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
-        {hasOutputBody ? (
-          <button
-            type="button"
-            className="term-warp-block__toolbar-btn"
-            title={outputCollapsed ? "展开输出" : "折叠输出"}
-            aria-label={outputCollapsed ? "展开输出" : "折叠输出"}
-            onClick={() => setOutputCollapsed((v) => !v)}
-          >
-            {outputCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
-          </button>
-        ) : null}
         <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
         <button
           type="button"
@@ -450,16 +508,7 @@ function ShellBlockCard({
           />
         </div>
       ) : null}
-      {outputCollapsed && hasOutputBody ? (
-        <button
-          type="button"
-          className="term-warp-output-collapsed"
-          onClick={() => setOutputCollapsed(false)}
-        >
-          <IconChevronRight size={13} />
-          <span>输出已折叠 {outputLineCount} 行</span>
-        </button>
-      ) : lsListing ? (
+      {!bodyCollapsed && lsListing ? (
         <EnrichedLsListingView
           listing={lsListing}
           command={block.attachedListing ? "ls" : block.command}
@@ -468,17 +517,24 @@ function ShellBlockCard({
           sessionType={sessionType}
           sessionUser={sessionUser}
           resourceId={resourceId}
-          rawOutput={block.output}
+          rawOutput={rawSource}
           fallbackOutput={output}
           isError={isError}
           onRunCommand={onRunCommand}
         />
-      ) : output && !directoryPreview ? (
+      ) : !bodyCollapsed && output && !directoryPreview ? (
         <pre
           className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}
         >
           {output}
         </pre>
+      ) : null}
+      {showCollapseFooter ? (
+        <BlockCollapseFooter
+          collapsed={bodyCollapsed}
+          onToggle={() => setBodyCollapsed((value) => !value)}
+          lineCount={outputLineCount}
+        />
       ) : null}
     </article>
   );

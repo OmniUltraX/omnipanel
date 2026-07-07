@@ -2,6 +2,12 @@ import { create } from "zustand";
 import type { IMarker } from "@xterm/xterm";
 import type { DangerLevel } from "../lib/commandGuard";
 import { recordTerminalSessionActivity } from "./terminalSessionActivity";
+import {
+  createEmptyOutputModel,
+  flattenOutputModel,
+  ingestTerminalOutputChunk,
+  type TerminalOutputModel,
+} from "../modules/terminal/terminalOutputModel";
 
 export type TerminalBlockKind = "shell" | "ai";
 
@@ -48,6 +54,8 @@ export interface TerminalBlock {
   command: string;
   /** shell 块输出；AI 块不使用 */
   output: string;
+  /** 运行期输出（支持 `\r` 当前行覆盖）；完成时压平到 output */
+  liveOutput?: TerminalOutputModel;
   /** shell 块不使用 */
   reasoning?: string;
   aiThread?: AiThreadItem[];
@@ -77,6 +85,7 @@ interface BlocksState {
   addBlock: (sessionId: string, block: TerminalBlock) => void;
   updateBlock: (blockId: string, update: Partial<TerminalBlock>) => void;
   appendBlockOutput: (blockId: string, chunk: string) => void;
+  appendBlockLiveOutput: (blockId: string, chunk: string) => void;
   appendBlockReasoning: (blockId: string, chunk: string) => void;
   pushAiThreadItem: (
     blockId: string,
@@ -249,7 +258,18 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
       for (const [sid, blocks] of Object.entries(state.blocks)) {
         newBlocks[sid] = blocks.map((b) => {
           if (b.id !== blockId) return b;
-          const next = { ...b, ...patch };
+          let next = { ...b, ...patch };
+          if (
+            (patch.status === "completed" || patch.status === "failed") &&
+            next.liveOutput
+          ) {
+            const flattened = flattenOutputModel(next.liveOutput);
+            if (flattened && !patch.output) {
+              next = { ...next, output: flattened };
+            }
+            const { liveOutput: _removed, ...rest } = next;
+            next = rest as TerminalBlock;
+          }
           if (patch.status === "completed" || patch.status === "failed" || patch.completedAt != null) {
             recordTerminalSessionActivity(sid, next.completedAt ?? Date.now(), {
               command: next.command,
@@ -274,6 +294,25 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
             output = `…[输出已截断]\n${output.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
           }
           return { ...b, output };
+        });
+      }
+      return { blocks: newBlocks };
+    });
+  },
+
+  appendBlockLiveOutput: (blockId, chunk) => {
+    if (!chunk) return;
+    set((state) => {
+      const newBlocks: Record<string, TerminalBlock[]> = {};
+      for (const [sid, blocks] of Object.entries(state.blocks)) {
+        newBlocks[sid] = blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
+          const liveOutput = ingestTerminalOutputChunk(
+            b.liveOutput ?? createEmptyOutputModel(),
+            chunk,
+          );
+          return { ...b, liveOutput };
         });
       }
       return { blocks: newBlocks };

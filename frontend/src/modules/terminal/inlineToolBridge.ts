@@ -8,15 +8,12 @@ import {
 } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
-import { cancelTerminalExecution, requestTerminalExecution } from "./executeTerminalCommand";
+import { cancelTerminalExecution } from "./executeTerminalCommand";
+import { executeAiTerminalCommand } from "./executeAiTerminalCommand";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
-import {
-  extractCommandOutput,
-  isLikelyCommandEchoAsOutput,
-} from "./terminalOutputText";
 
 export interface InlineToolDecision {
   approved: boolean;
@@ -60,36 +57,6 @@ function assessRisk(command: string, resourceId?: string): DangerLevel {
   return order.indexOf(riskCheck.level) >= order.indexOf(envRisk)
     ? riskCheck.level
     : envRisk;
-}
-
-function resolveToolOutput(rawOutput: string, command: string): string {
-  const trimmed = rawOutput.trim();
-  if (!trimmed) return "";
-  const cleaned = extractCommandOutput(trimmed, command);
-  if (cleaned) return cleaned;
-  if (isLikelyCommandEchoAsOutput(trimmed, command)) return "";
-  return trimmed;
-}
-
-function buildToolResultPayload(options: {
-  command: string;
-  blockCommand?: string;
-  output: string;
-  exitCode: number | null;
-  status: string;
-  cwd: string;
-}): string {
-  return JSON.stringify(
-    {
-      command: options.blockCommand?.trim() || options.command,
-      exitCode: options.exitCode,
-      status: options.status,
-      cwd: options.cwd.trim(),
-      output: options.output.slice(-4000),
-    },
-    null,
-    2,
-  );
 }
 
 async function deliverToolResultToBackend(
@@ -214,42 +181,34 @@ export async function approveInlineTerminalTool(
 
     let decision: InlineToolDecision = { approved: false, result: "" };
     try {
-      const execResult = await requestTerminalExecution({
+      const aiResult = await executeAiTerminalCommand({
         tabId: pending.tabId,
         command,
         resourceId: pending.resourceId,
-        source: "AI",
-        title: "AI 终端命令",
-        description: command,
-        waitForBlock: true,
       });
 
-      const block = "block" in execResult ? execResult.block : undefined;
-      const rawOutput = block?.output.trim() ?? "";
-      const output = resolveToolOutput(rawOutput, block?.command.trim() || command);
-      const exitCode = block?.exitCode ?? null;
-      const resultPayload = buildToolResultPayload({
-        command,
-        blockCommand: block?.command,
-        output,
-        exitCode,
-        status: block?.status ?? "completed",
-        cwd: block?.cwd?.trim() ?? "",
-      });
+      if (aiResult.rejected) {
+        useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+          status: "failed",
+          result: aiResult.outputJson,
+        } as Partial<AiThreadToolCall>);
+        decision = { approved: false, result: aiResult.outputJson };
+      } else {
+        const exitCode = aiResult.payload.exitCode;
+        useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+          status: exitCode === 0 || exitCode === null ? "completed" : "failed",
+          result: aiResult.outputJson,
+          shellBlockId: aiResult.block?.id,
+          actionId: aiResult.action?.id,
+        } as Partial<AiThreadToolCall>);
 
-      useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
-        status: exitCode === 0 || exitCode === null ? "completed" : "failed",
-        result: resultPayload,
-        shellBlockId: block?.id,
-        actionId: execResult.action.id,
-      } as Partial<AiThreadToolCall>);
-
-      decision = {
-        approved: true,
-        result: resultPayload,
-        shellBlockId: block?.id,
-        exitCode,
-      };
+        decision = {
+          approved: true,
+          result: aiResult.outputJson,
+          shellBlockId: aiResult.block?.id,
+          exitCode,
+        };
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {

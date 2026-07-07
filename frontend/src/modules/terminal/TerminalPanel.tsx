@@ -60,10 +60,15 @@ import {
 import { useSshWorkspaceNavStore } from "../server/ssh/stores/sshWorkspaceNavStore";
 import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
 import { renameSessionWithAi, startAutoNameSubscription } from "./sessionAutoName";
+import { formatTerminalTabLabel } from "./terminalSessionDisplay";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
-  // 用户重命名 (tab.title) 优先于资源名 —— 用户能区分同一资源下的多个 tab
-  return tab.title || fallbackName || resolveResourceById(tab.session.resourceId)?.name || tab.session.resourceId;
+  return formatTerminalTabLabel(
+    tab.session.resourceId,
+    tab.title,
+    fallbackName,
+    tab.session.shellLabel,
+  );
 }
 
 function topbarTabStatus(

@@ -17,6 +17,8 @@
 
 import { useBlocksStore, type TerminalBlock, type AiThreadItem } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
+import { FULL_TERMINAL_BLOCK_SUMMARY } from "./terminalRunStateStore";
+import { flattenOutputModel } from "./terminalOutputModel";
 import {
   useAiModelsStore,
   resolveModelSelection,
@@ -83,16 +85,27 @@ function isDefaultTitle(title: string): boolean {
   return false;
 }
 
+/** 判断 block 是否适合作为自动命名上下文（排除静默块与 full-terminal 摘要） */
+function isNamingEligibleBlock(block: TerminalBlock): boolean {
+  if (block.silent) return false;
+  if (block.kind === "ai") {
+    return Boolean(block.aiThread && block.aiThread.length > 0);
+  }
+  if (block.output.trim() === FULL_TERMINAL_BLOCK_SUMMARY) return false;
+  const effectiveOutput = block.liveOutput
+    ? flattenOutputModel(block.liveOutput)
+    : block.output;
+  if (block.kind === "shell" && !effectiveOutput.trim() && block.status === "completed") {
+    return false;
+  }
+  return block.status === "completed" || block.status === "failed";
+}
+
 /** 从 blocks 中提取用于命名的上下文文本（动态截取，排除静默 block） */
 export function extractNamingContext(blocks: TerminalBlock[]): string {
   if (blocks.length === 0) return "";
 
-  // 只取 shell block 和 ai block 中有意义的，排除静默 block（auto-ls 等）
-  const meaningful = blocks.filter(
-    (b) =>
-      !b.silent &&
-      (b.kind !== "ai" || (b.aiThread && b.aiThread.length > 0)),
-  );
+  const meaningful = blocks.filter(isNamingEligibleBlock);
   if (meaningful.length === 0) return "";
 
   // 动态截取：≤5 条全取，>5 条取首3末3
@@ -308,10 +321,7 @@ export async function tryAutoNameSession(sessionId: string): Promise<void> {
   // 检查是否已有用户主动执行的 shell block（排除 auto-ls 等静默 block）
   const blocks = useBlocksStore.getState().getBlocks(sessionId);
   const hasUserCompletedShell = blocks.some(
-    (b) =>
-      b.kind !== "ai" &&
-      !b.silent &&
-      (b.status === "completed" || b.status === "failed"),
+    (b) => b.kind !== "ai" && isNamingEligibleBlock(b),
   );
   if (!hasUserCompletedShell) return;
 
@@ -423,8 +433,7 @@ export function startAutoNameSubscription(): () => void {
       const hasUserCompletedShell = blocks.some(
         (b) =>
           b.kind !== "ai" &&
-          !b.silent &&
-          (b.status === "completed" || b.status === "failed") &&
+          isNamingEligibleBlock(b) &&
           b.completedAt != null,
       );
       if (hasUserCompletedShell) {

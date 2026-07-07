@@ -18,7 +18,8 @@ import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
-import { createBlockId, useBlocksStore, type TerminalBlock } from "../stores/blocksStore";
+import { isInlineProgressChunk, renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
+import { createBlockId, useBlocksStore } from "../stores/blocksStore";
 import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
 import { isDatabaseCliTerminalPane } from "../modules/database/databaseCliTerminal";
 import {
@@ -72,6 +73,13 @@ import {
 } from "../modules/terminal/formatPtyCommandInput";
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
 import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
+import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
+import { hasFullTerminalSignal } from "../modules/terminal/fullTerminalSignals";
+import {
+  FULL_TERMINAL_BLOCK_SUMMARY,
+  useTerminalRunStateStore,
+  clearTerminalSessionRuntime,
+} from "../modules/terminal/terminalRunStateStore";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
 import { useModuleVisibility } from "../lib/moduleVisibility";
@@ -421,6 +429,8 @@ export function disposeTabBackendSessions(tabId: string) {
 /** 结束长期会话：释放后端并清理 detached 状态 */
 export function disposeSessionBackend(sessionId: string) {
   disposeTabBackendSessions(sessionId);
+  clearTerminalSessionRuntime(sessionId);
+  useTerminalUiStore.getState().returnToCommandBar(sessionId);
 }
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
@@ -544,6 +554,7 @@ export function useTerminal(
         if (isSessionNotFoundError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
+          useTerminalRunStateStore.getState().enterRecovering(sessionId);
           pendingInput.push(data);
           if (term) {
             void ensureBackendSession(term.cols, term.rows);
@@ -571,6 +582,8 @@ export function useTerminal(
       if (isDatabaseCliTerminalPane(sessionId)) return;
       if (isSilentHistorySync(sessionId) || !isWarpDisplay(sessionId)) return;
       if (shellBootstrapReattached) return;
+      const runState = useTerminalRunStateStore.getState().getRunState(sessionId);
+      if (runState !== "prompt" && runState !== "recovering") return;
 
       if (isReturningTerminalSession(sessionId)) {
         const cdCommand = buildSessionResumeCdCommand(sessionId);
@@ -608,6 +621,9 @@ export function useTerminal(
               const y = t.buffer.active.cursorY + t.buffer.active.baseY;
               pendingBlock = { startLine: y, command: "", cwd: currentCwd };
               markShellPromptReady(sessionId);
+              useTerminalRunStateStore.getState().returnToPrompt(sessionId);
+              useTerminalUiStore.getState().endCommandLive(sessionId);
+              releaseFeedCapture(sessionId);
               break;
             }
             case "B":
@@ -712,17 +728,18 @@ export function useTerminal(
                 const cmd = normalizeBlockCommand(
                   existing?.command ?? pendingBlock?.command ?? "",
                 );
+                const rawOutput = existing
+                  ? renderLiveOutputText(existing.liveOutput, existing.output)
+                  : "";
                 const cleaned =
-                  existing && cmd
-                    ? extractCommandOutput(existing.output, cmd)
-                    : "";
+                  existing && cmd ? extractCommandOutput(rawOutput, cmd) : "";
                 updateBlock(blockId, {
                   exitCode,
                   endLine,
                   status: resolveBlockStatus(exitCode),
                   cwd:
                     currentCwd ||
-                    resolveShellOutputCwd(existing?.output ?? "") ||
+                    resolveShellOutputCwd(rawOutput) ||
                     existing?.cwd ||
                     pendingBlock?.cwd ||
                     currentCwd,
@@ -735,6 +752,7 @@ export function useTerminal(
                 trimXtermAfterBlockEnd(t);
                 clearOutputWatch(sessionId);
                 releaseFeedCapture(sessionId);
+                useTerminalRunStateStore.getState().returnToPrompt(sessionId);
               }
               pendingBlock = null;
               // 命令结束，尝试自动回到 Command Bar（OSC 133 D 是最可靠的事件源，
@@ -788,10 +806,11 @@ export function useTerminal(
           const block = useBlocksStore.getState().findBlockById(blockId);
           if (!block || block.kind === "ai" || block.status !== "running") return;
           const cmd = normalizeBlockCommand(block.command);
-          const cleaned = cmd ? extractCommandOutput(block.output, cmd) : block.output.trim();
+          const rawOutput = renderLiveOutputText(block.liveOutput, block.output);
+          const cleaned = cmd ? extractCommandOutput(rawOutput, cmd) : rawOutput.trim();
           const resolvedCwd =
             currentCwd ||
-            resolveShellOutputCwd(block.output) ||
+            resolveShellOutputCwd(rawOutput) ||
             block.cwd;
           useBlocksStore.getState().updateBlock(blockId, {
             status: resolveBlockStatus(block.exitCode ?? 0),
@@ -823,6 +842,9 @@ export function useTerminal(
       if (suspendedRef.current) return false;
       if (isSilentHistorySync(sessionId)) return false;
       if (!isWarpDisplay(sessionId)) return true;
+      const runStore = useTerminalRunStateStore.getState();
+      if (runStore.isAiToolRunning(sessionId)) return false;
+      if (runStore.shouldShowLiveXterm(sessionId)) return true;
       return Boolean(pendingBlock?.blockId) || hasActiveFeedCapture(sessionId);
     }
 
@@ -830,6 +852,33 @@ export function useTerminal(
       outputBatcher = createTerminalOutputBatcher((merged) => {
         trackTerminalOutputForAutoReturn(sessionId, merged);
         const rawText = decodeTerminalBytesRaw(merged);
+        const runStore = useTerminalRunStateStore.getState();
+        if (
+          isWarpDisplay(sessionId) &&
+          runStore.shouldShowLiveXterm(sessionId) &&
+          hasFullTerminalSignal(merged)
+        ) {
+          runStore.enterFullTerminal(
+            sessionId,
+            pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId) ?? undefined,
+          );
+          useTerminalUiStore.getState().enterFullTerminal(sessionId);
+          const blockId = pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
+          if (blockId) {
+            useBlocksStore.getState().updateBlock(blockId, {
+              status: "completed",
+              exitCode: 0,
+              output: FULL_TERMINAL_BLOCK_SUMMARY,
+            });
+          }
+        } else if (
+          isWarpDisplay(sessionId) &&
+          (runStore.getRunState(sessionId) === "block-running" ||
+            runStore.getRunState(sessionId) === "ai-tool-running") &&
+          isInlineProgressChunk(rawText)
+        ) {
+          runStore.promoteToInlineRun(sessionId);
+        }
         let text = ingestTerminalHistoryOutput(sessionId, rawText);
         if (!text) return;
         text = stripTerminalControlSequences(text);
@@ -838,9 +887,9 @@ export function useTerminal(
         feedTerminalOutputForWatch(sessionId, text);
         const outputBlockId =
           pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
-        if (outputBlockId) {
-          useBlocksStore.getState().appendBlockOutput(outputBlockId, text);
-          scheduleFeedBlockIdleComplete(outputBlockId);
+        if (runStore.shouldCaptureBlockOutput(sessionId, Boolean(outputBlockId))) {
+          useBlocksStore.getState().appendBlockLiveOutput(outputBlockId!, text);
+          scheduleFeedBlockIdleComplete(outputBlockId!);
         }
         if (suspendedRef.current) {
           runtimeRef.current.outputBuffer.push(merged);
@@ -900,6 +949,7 @@ export function useTerminal(
     async function restoreSnapshot() {
       if (!backendSid || !term) return;
       restoring = true;
+      useTerminalRunStateStore.getState().enterRecovering(sessionId);
       try {
         const b64 = await invoke<string>("terminal_snapshot", { id: backendSid });
         if (destroyed || !term) return;
@@ -917,6 +967,7 @@ export function useTerminal(
         if (isSessionNotFoundError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
+          useTerminalRunStateStore.getState().enterRecovering(sessionId);
           if (term) {
             void ensureBackendSession(term.cols, term.rows);
           }

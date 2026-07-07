@@ -1825,6 +1825,15 @@ export const enUS: TranslationDict = {
       stop: "Stop generation",
       thinking: "Thinking…",
       stalled: "AI response timed out. Check model settings or network and retry.",
+      collapse: "Collapse",
+      expand: "Expand",
+    },
+    feed: {
+      scrollToTop: "Scroll to top",
+      scrollToBottom: "Scroll to bottom",
+      collapseBlock: "Collapse",
+      expandBlock: "Expand",
+      collapsedLines: "{count} lines hidden",
     },
     newSession: {
       local: "Local Terminal",

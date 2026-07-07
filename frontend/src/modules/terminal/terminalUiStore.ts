@@ -4,6 +4,7 @@ import type { TerminalInputMode } from "../../hooks/useTerminal";
 
 import { clearAutoReturnTracking, armAutoReturn } from "./terminalAutoReturn";
 import { clampAiDockHeight, DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
+import { useTerminalRunStateStore } from "./terminalRunStateStore";
 
 interface SetInputModeOptions {
   /** 交互程序结束后自动回到 Command Bar */
@@ -29,6 +30,12 @@ interface TerminalUiState {
   shouldAutoReturnToCommandBar: (sessionId: string) => boolean;
 
   returnToCommandBar: (sessionId: string) => void;
+
+  beginCommandLive: (sessionId: string) => void;
+  endCommandLive: (sessionId: string) => void;
+  isCommandLive: (sessionId: string) => boolean;
+  enterFullTerminal: (sessionId: string) => void;
+  isFullTerminal: (sessionId: string) => boolean;
 
   setExpandedAiBlock: (sessionId: string, blockId: string | null) => void;
   getExpandedAiBlock: (sessionId: string) => string | null;
@@ -71,8 +78,30 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
   shouldAutoReturnToCommandBar: (sessionId) =>
     get().autoReturnToCommandBar[sessionId] === true,
 
+  beginCommandLive: (sessionId) => {
+    const run = useTerminalRunStateStore.getState();
+    if (run.getRunState(sessionId) === "prompt") {
+      run.beginBlockRun(sessionId, {});
+    }
+  },
+
+  endCommandLive: (sessionId) => {
+    useTerminalRunStateStore.getState().returnToPrompt(sessionId);
+  },
+
+  isCommandLive: (sessionId) =>
+    useTerminalRunStateStore.getState().shouldShowLiveXterm(sessionId),
+
+  enterFullTerminal: (sessionId) => {
+    useTerminalRunStateStore.getState().enterFullTerminal(sessionId);
+  },
+
+  isFullTerminal: (sessionId) =>
+    useTerminalRunStateStore.getState().isFullTerminal(sessionId),
+
   returnToCommandBar: (sessionId) => {
     clearAutoReturnTracking(sessionId);
+    useTerminalRunStateStore.getState().returnToPrompt(sessionId);
     set((state) => {
       const autoReturnToCommandBar = { ...state.autoReturnToCommandBar };
       delete autoReturnToCommandBar[sessionId];

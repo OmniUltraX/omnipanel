@@ -17,6 +17,7 @@ import {
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
 import { useTerminalSessionStats } from "./useTerminalSessionStats";
 import { useTerminalUiStore } from "./terminalUiStore";
+import { useTerminalRunStateStore } from "./terminalRunStateStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { Button } from "../../components/ui/primitives/Button";
 import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
@@ -173,10 +174,14 @@ function PaneViewBody(
     (state) => state.inputModes[paneId] ?? "external",
   );
   const setInputMode = useTerminalUiStore((state) => state.setInputMode);
+  const fullTerminal = useTerminalRunStateStore(
+    (state) => state.getRunState(paneId) === "full-terminal",
+  );
   const lastError = useBlocksStore((state) => state.getLastError(paneId));
   const parsed = parseSshSubtitle(resource?.subtitle);
   const promptSymbol = resolveCommandPromptSymbol(session, parsed.user, resource);
   const sessionUser = parsed.user ?? (session.type === "local" ? null : "root");
+  const liveNative = inputMode === "external" && fullTerminal;
 
   useImperativeHandle(ref, () => ({
     focusInput: () => {
@@ -185,10 +190,10 @@ function PaneViewBody(
   }));
 
   useEffect(() => {
-    if (isActive && inputMode === "external") {
+    if (isActive && inputMode === "external" && !liveNative) {
       cmdRef.current?.focus();
     }
-  }, [isActive, inputMode]);
+  }, [isActive, inputMode, liveNative]);
 
   const focusCommandInput = () => {
     if (inputMode !== "external") return;
@@ -231,6 +236,7 @@ function PaneViewBody(
         tabIndex={-1}
         onMouseDownCapture={(event) => {
           onActivate();
+          if (liveNative) return;
           if (inputMode !== "external") return;
           const target = event.target as HTMLElement;
           if (target.closest(".term-warp-feed")) {
@@ -258,7 +264,7 @@ function PaneViewBody(
           });
         }}
       >
-        {inputMode === "external" ? (
+        {inputMode === "external" && !liveNative ? (
           <TerminalBlockFeed
             sessionId={paneId}
             resourceId={session.resourceId}
@@ -276,12 +282,13 @@ function PaneViewBody(
           startup={startup}
           active={isActive}
           inputMode={inputMode}
+          liveNative={liveNative}
           onSenderChange={onSenderChange}
           onBlockRightClick={handleBlockRightClick}
           reconnectKey={reconnectKey}
         />
       </div>
-      {inputMode === "external" ? (
+      {inputMode === "external" && !liveNative ? (
         <CommandInput
           ref={cmdRef}
           promptSymbol={promptSymbol}
@@ -291,9 +298,6 @@ function PaneViewBody(
           resourceId={session.resourceId}
           sessionType={session.type}
           lastError={lastError}
-          onRequestNativeMode={() =>
-            setInputMode(paneId, "interactive", { autoReturn: true })
-          }
         />
       ) : null}
       {blockMenu ? (
