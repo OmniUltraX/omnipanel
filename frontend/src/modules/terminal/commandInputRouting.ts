@@ -1,12 +1,11 @@
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { isSilentHistorySyncCommand } from "./commandBar/shellHistorySync";
 import { normalizeBlockCommand } from "./terminalOutputText";
+import { isInteractiveTerminalCommandFallback } from "./interactiveCommands";
 
 /** 首字符为 CJK（含汉字、假名、谚文）等自然语言输入 */
 const CJK_FIRST_CHAR_RE =
   /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
-
-const INTERACTIVE_COMMAND_RE = /^(vim|vi|nano|top|htop|less|more|python|node|ssh)\b/i;
 
 const SHELL_ERROR_SIGNAL_RE =
   /(?:command not found|not recognized as an internal or external command|no such file or directory|permission denied|syntax error|operation not permitted|cannot access|can't access|fatal:|segmentation fault|未找到命令|找不到命令|不是内部或外部命令|没有那个文件|权限不够|语法错误|您的意思是)/i;
@@ -109,7 +108,7 @@ export function shouldTriggerAiAfterShell(block: TerminalBlock): boolean {
   if (!cmd || block.kind === "ai") return false;
   if (block.status === "running") return false;
   if (isSilentHistorySyncCommand(cmd)) return false;
-  if (INTERACTIVE_COMMAND_RE.test(cmd)) return false;
+  if (isInteractiveTerminalCommandFallback(cmd)) return false;
 
   const exitCode = block.exitCode ?? 0;
   const output = block.output.trim();

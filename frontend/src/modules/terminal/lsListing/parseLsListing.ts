@@ -319,8 +319,28 @@ function modeToKind(modeChar: string, mode: string): LsEntryKind {
   return "file";
 }
 
+function isLongListingHeaderLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  if (/^total\s+\d/i.test(trimmed)) return true;
+  if (/^总用量\s*\d/.test(trimmed)) return true;
+  if (/^总计\s*\d/.test(trimmed)) return true;
+  return false;
+}
+
+function isLongListingNoiseLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  if (isLongListingHeaderLine(trimmed)) return true;
+  if (/^[^\s]+@[^\s]+:\s*[^\s]*[$#]\s*$/.test(trimmed)) return true;
+  if (/^[^\s]+@[^\s]+:[^\s]*[$#]\s+\S/.test(trimmed)) return false;
+  if (/^PS\s+[A-Za-z]:[^>]*>\s*$/.test(trimmed)) return true;
+  if (/^(?:ll|ls|la|l|dir)\s*$/i.test(trimmed)) return true;
+  return false;
+}
+
 function parseLongLine(line: string): LsEntry | null {
-  const match = line.match(/^([-dlbcps])([rwx-]{9})\s+/);
+  const match = line.match(/^([-dlbcps])([rwx-]{9})([+@])?\s+/);
   if (!match) return null;
 
   const parts = line.trim().split(/\s+/);
@@ -403,7 +423,7 @@ function isLongListing(command: string): boolean {
 
 function shouldParseAsLongListing(command: string, lines: string[]): boolean {
   if (isLongListing(command)) return true;
-  const longLines = lines.filter((line) => /^[-dlbcps][rwx-]{9}\s/.test(line));
+  const longLines = lines.filter((line) => /^[-dlbcps][rwx-]{9}[+@]?\s/.test(line));
   if (longLines.length === 0) return false;
   // 避免 plain ls 输出里夹杂一行权限串时整段解析失败
   return longLines.length >= Math.max(2, Math.ceil(lines.length * 0.6));
@@ -432,19 +452,16 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
   if (shouldParseAsLongListing(listingCommand, lines)) {
     const entries: LsEntry[] = [];
     for (const line of lines) {
-      if (line.startsWith("total ")) continue;
+      if (isLongListingNoiseLine(line)) continue;
       const entry = parseLongLine(line);
-      if (!entry) {
-        if (entries.length > 0) return null;
-        continue;
-      }
+      if (!entry) continue;
       entries.push(entry);
     }
     if (entries.length > 0) return { entries, layout: "long" };
   }
 
   const gridSource = lines
-    .filter((line) => !/^[-dlbcps][rwx-]{9}\s/.test(line))
+    .filter((line) => !/^[-dlbcps][rwx-]{9}[+@]?\s/.test(line))
     .join(" ")
     .trim();
   if (looksLikeShellCommandEcho(gridSource || text)) return null;

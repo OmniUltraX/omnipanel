@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
 import { attachBlockToAiInput } from "./terminalBlockAiAttach";
+import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 
 type BlockAttachToAiButtonProps = {
   block: TerminalBlock;
@@ -26,6 +27,8 @@ export function BlockAttachToAiButton({
       return;
     }
     if (result === "duplicate") {
+      scrollTerminalBlockIntoView(sessionId, block.id);
+      onFocusInput?.();
       showToast(t("terminal.command.attachDuplicate"));
       return;
     }

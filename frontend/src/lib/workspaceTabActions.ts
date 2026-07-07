@@ -14,7 +14,7 @@ import {
   type WorkspaceDockTab,
 } from "../stores/workspaceBottomDockStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
-import { resolveResourceById } from "../stores/connectionStore";
+import { formatTerminalTabLabel } from "../modules/terminal/terminalSessionDisplay";
 import {
   useTerminalStore,
   createTerminalTabId,
@@ -35,11 +35,15 @@ import { syncWorkspaceDockActiveTabSideEffects } from "./syncWorkspaceDockActive
 // --- Snapshot factories ---
 
 export function terminalTabToSnapshot(tab: TerminalTab): TerminalTabSnapshot {
-  const resource = resolveResourceById(tab.session.resourceId);
   return {
     module: "terminal",
     id: tab.id,
-    label: resource?.name ?? tab.title ?? tab.session.shellLabel,
+    label: formatTerminalTabLabel(
+      tab.session.resourceId,
+      tab.title,
+      undefined,
+      tab.session.shellLabel,
+    ),
     sessionType: tab.session.type,
     resourceId: tab.session.resourceId,
     shellLabel: tab.session.shellLabel,
@@ -52,11 +56,15 @@ export function terminalTabToSnapshot(tab: TerminalTab): TerminalTabSnapshot {
 export function copyTerminalTabToWorkspaceSnapshot(
   source: TerminalTab,
 ): TerminalTabSnapshot {
-  const resource = resolveResourceById(source.session.resourceId);
   return {
     module: "terminal",
     id: createTerminalTabId(),
-    label: resource?.name ?? source.title ?? source.session.shellLabel,
+    label: formatTerminalTabLabel(
+      source.session.resourceId,
+      source.title,
+      undefined,
+      source.session.shellLabel,
+    ),
     sessionType: source.session.type,
     resourceId: source.session.resourceId,
     shellLabel: source.session.shellLabel,
@@ -69,11 +77,15 @@ export function copyTerminalTabToWorkspaceSnapshot(
 export function moveTerminalTabToWorkspaceSnapshot(
   source: TerminalTab,
 ): TerminalTabSnapshot {
-  const resource = resolveResourceById(source.session.resourceId);
   return {
     module: "terminal",
     id: source.id,
-    label: resource?.name ?? source.title ?? source.session.shellLabel,
+    label: formatTerminalTabLabel(
+      source.session.resourceId,
+      source.title,
+      undefined,
+      source.session.shellLabel,
+    ),
     sessionType: source.session.type,
     resourceId: source.session.resourceId,
     shellLabel: source.session.shellLabel,

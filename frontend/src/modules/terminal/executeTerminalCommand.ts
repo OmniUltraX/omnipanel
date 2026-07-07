@@ -10,20 +10,35 @@ import {
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
-import { isMultilineTerminalCommand } from "./formatPtyCommandInput";
 import {
   prepareShellForAiTool,
   recoverShellAfterAiTool,
 } from "./terminalShellRecovery";
-import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete } from "./terminalAutoLs";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete } from "./terminalAutoLs";
 import { isCdNavigationCommand } from "./terminalAutoLsPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
+import { useTerminalUiStore } from "./terminalUiStore";
+import {
+  FULL_TERMINAL_BLOCK_SUMMARY,
+  useTerminalRunStateStore,
+} from "./terminalRunStateStore";
+import {
+  resolveCommandProfile,
+  shouldUseFullTerminalForUser,
+  type CommandProfileKind,
+} from "./terminalCommandProfile";
 
-const BLOCK_WAIT_TIMEOUT_MS = 60_000;
-const OUTPUT_IDLE_MS = 600;
+export const BLOCK_WAIT_TIMEOUT_MS = 60_000;
+export const OUTPUT_IDLE_MS = 600;
 const MERGE_WINDOW_MS = 120;
 const OSC_WAIT_CAP_MS = 5_000;
+
+export interface WaitForCommandOptions {
+  timeoutMs?: number;
+  outputIdleMs?: number;
+  profileKind?: CommandProfileKind;
+}
 
 const pendingExecutions = new Map<
   string,
@@ -42,6 +57,8 @@ interface OutputWatch {
   cwd: string;
   output: string;
   sawOutput: boolean;
+  outputIdleMs: number;
+  profileKind?: CommandProfileKind;
   idleTimer: ReturnType<typeof setTimeout> | null;
   hardTimer: ReturnType<typeof setTimeout>;
   resolve: (block: TerminalBlock) => void;
@@ -252,9 +269,29 @@ function findLatestMeaningfulBlock(
   return null;
 }
 
+export function getOutputWatchText(sessionId: string): string {
+  return outputWatches.get(sessionId)?.output ?? "";
+}
+
 function finishOutputWatch(sessionId: string): void {
   const watch = outputWatches.get(sessionId);
   if (!watch) return;
+
+  if (watch.profileKind === "progress") {
+    const captureId = feedCaptures.get(sessionId);
+    if (captureId) {
+      const block = useBlocksStore.getState().findBlockById(captureId);
+      if (block?.status === "running") {
+        if (watch.idleTimer) clearTimeout(watch.idleTimer);
+        watch.idleTimer = setTimeout(
+          () => finishOutputWatch(sessionId),
+          watch.outputIdleMs,
+        );
+        return;
+      }
+    }
+  }
+
   const cleaned = extractCommandOutput(watch.output, watch.command);
   if (
     !cleaned &&
@@ -262,7 +299,7 @@ function finishOutputWatch(sessionId: string): void {
       isLikelyCommandEchoAsOutput(watch.output, watch.command))
   ) {
     if (watch.idleTimer) clearTimeout(watch.idleTimer);
-    watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), OUTPUT_IDLE_MS);
+    watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), watch.outputIdleMs);
     return;
   }
   if (watch.idleTimer) clearTimeout(watch.idleTimer);
@@ -293,23 +330,31 @@ function scheduleOutputIdle(sessionId: string): void {
   const watch = outputWatches.get(sessionId);
   if (!watch || !watch.sawOutput) return;
   if (watch.idleTimer) clearTimeout(watch.idleTimer);
-  watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), OUTPUT_IDLE_MS);
+  watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), watch.outputIdleMs);
 }
 
-function startOutputWatch(sessionId: string, command: string): Promise<TerminalBlock> {
+function startOutputWatch(
+  sessionId: string,
+  command: string,
+  options?: WaitForCommandOptions,
+): Promise<TerminalBlock> {
   clearOutputWatch(sessionId);
   const cwd = resolveSessionCwd(sessionId);
+  const timeoutMs = options?.timeoutMs ?? BLOCK_WAIT_TIMEOUT_MS;
+  const outputIdleMs = options?.outputIdleMs ?? OUTPUT_IDLE_MS;
   return new Promise<TerminalBlock>((resolve, reject) => {
     const watch: OutputWatch = {
       command,
       cwd,
       output: "",
       sawOutput: false,
+      outputIdleMs,
+      profileKind: options?.profileKind,
       idleTimer: null,
       hardTimer: setTimeout(() => {
         clearOutputWatch(sessionId);
         reject(new Error("等待命令输出超时"));
-      }, BLOCK_WAIT_TIMEOUT_MS),
+      }, timeoutMs),
       resolve,
       reject,
     };
@@ -375,16 +420,18 @@ function capOscWait(
   ]).catch(() => null);
 }
 
-async function waitForCommandResult(
+export async function waitForCommandResult(
   sessionId: string,
   command: string,
+  options?: WaitForCommandOptions,
 ): Promise<TerminalBlock> {
-  const outputPromise = startOutputWatch(sessionId, command);
+  const outputIdleMs = options?.outputIdleMs ?? OUTPUT_IDLE_MS;
+  const outputPromise = startOutputWatch(sessionId, command, options);
   const oscPromise = capOscWait(sessionId, command);
 
   await Promise.race([outputPromise, oscPromise]);
 
-  const settleMs = OUTPUT_IDLE_MS + MERGE_WINDOW_MS;
+  const settleMs = outputIdleMs + MERGE_WINDOW_MS;
   const [outputBlock, oscBlock] = await Promise.all([
     Promise.race([
       outputPromise.catch(() => null),
@@ -469,16 +516,40 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
     }
 
     if (pending.waitForBlock) {
+      const profile = isAiSource
+        ? resolveCommandProfile(pending.command, "AI")
+        : resolveCommandProfile(pending.command, "用户");
+      const waitOptions = {
+        timeoutMs: profile.timeoutMs,
+        outputIdleMs: profile.outputIdleMs,
+        profileKind: profile.kind,
+      };
+      let captureBlockId: string | undefined;
       if (isWarpDisplay(pending.tabId)) {
-        armFeedCapture(pending.tabId, displayCommand);
+        captureBlockId = armFeedCapture(pending.tabId, displayCommand);
+        if (isAiSource) {
+          useTerminalRunStateStore.getState().beginAiToolRun(pending.tabId, {
+            blockId: captureBlockId,
+            command: displayCommand,
+          });
+        }
       }
-      const resultPromise = waitForCommandResult(pending.tabId, displayCommand);
+      const resultPromise = waitForCommandResult(
+        pending.tabId,
+        displayCommand,
+        waitOptions,
+      );
       sender(displayCommand);
       try {
         const block = await resultPromise;
+        const watchText = getOutputWatchText(pending.tabId);
+        const mergedBlock =
+          watchText.trim() && block.output.trim().length < watchText.trim().length
+            ? { ...block, output: watchText }
+            : block;
         const stored = isWarpDisplay(pending.tabId)
-          ? ensureShellBlockInStore(pending.tabId, block)
-          : block;
+          ? ensureShellBlockInStore(pending.tabId, mergedBlock)
+          : mergedBlock;
         pending.resolveBlock?.(stored);
       } catch (err) {
         pending.rejectBlock?.(err instanceof Error ? err : new Error(String(err)));
@@ -487,6 +558,7 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
         releaseFeedCapture(pending.tabId);
         pendingExecutions.delete(action.id);
         if (isAiSource) {
+          useTerminalRunStateStore.getState().returnToPrompt(pending.tabId);
           await recoverShellAfterAiTool(pending.tabId);
         }
       }
@@ -495,8 +567,22 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
 
     if (isWarpDisplay(pending.tabId)) {
       const blockId = armFeedCapture(pending.tabId, displayCommand);
-      const fallbackMs = isMultilineTerminalCommand(displayCommand) ? 30_000 : undefined;
-      scheduleShellBlockFallbackComplete(pending.tabId, blockId, fallbackMs);
+      if (pending.source === "用户") {
+        useTerminalRunStateStore.getState().beginBlockRun(pending.tabId, {
+          blockId,
+          command: displayCommand,
+        });
+        useTerminalUiStore.getState().beginCommandLive(pending.tabId);
+        if (shouldUseFullTerminalForUser(displayCommand)) {
+          useTerminalRunStateStore.getState().enterFullTerminal(pending.tabId, blockId);
+          useTerminalUiStore.getState().enterFullTerminal(pending.tabId);
+          useBlocksStore.getState().updateBlock(blockId, {
+            status: "completed",
+            exitCode: 0,
+            output: FULL_TERMINAL_BLOCK_SUMMARY,
+          });
+        }
+      }
       if (isCdNavigationCommand(pending.command) || isCdNavigationCommand(displayCommand)) {
         scheduleCdBlockFallbackComplete(pending.tabId, blockId);
       }

@@ -4,7 +4,7 @@ import { commands } from "../../ipc/bindings";
 import { createBlockId, isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { buildNaturalLanguagePrompt } from "./warpExperience";
-import { cancelPendingInlineTools } from "./inlineToolBridge";
+import { resolveInlineConversationId } from "./terminalAiContextBundle";
 import { getResolvedAiThread, pushAssistantErrorMessage } from "./aiThreadBridge";
 
 function beginAiBlock(sessionId: string, query: string, cwd: string): string {
@@ -44,8 +44,7 @@ const INLINE_AI_STOPPED = "已手动停止";
 
 /** 强制停止卡住的终端内联 AI 卡片 */
 export function cancelInlineAiBlock(sessionId: string, blockId: string): void {
-  // 内联卡片会话按 blockId 派生（见 AiRuntimeProvider.inlineConversationId）
-  void commands.aiChatCancel(`term-${blockId}`).catch(() => {});
+  void commands.aiChatCancel(resolveInlineConversationId(sessionId)).catch(() => {});
   cancelAiGeneration();
   cancelPendingInlineTools(blockId);
 

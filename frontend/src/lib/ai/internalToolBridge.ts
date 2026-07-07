@@ -150,10 +150,8 @@ export async function handleAssistantPendingTerminalTool(options: {
   inFlightToolCalls.add(key);
 
   const command = parseCommand(options.argsJson);
-  const tabId =
-    options.terminalSessionId?.trim() ||
-    useTerminalStore.getState().activeTabId ||
-    null;
+  const boundSessionId = options.terminalSessionId?.trim() || null;
+  const tabId = boundSessionId;
 
   try {
     if (!command) {
@@ -170,7 +168,18 @@ export async function handleAssistantPendingTerminalTool(options: {
       await commands.aiChatToolResult(
         options.conversationId,
         options.toolCallId,
-        "当前没有活动的终端会话，无法执行命令",
+        "未绑定终端会话，无法执行命令。请在终端上下文中发起请求。",
+        false,
+      );
+      return;
+    }
+
+    const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
+    if (!tab) {
+      await commands.aiChatToolResult(
+        options.conversationId,
+        options.toolCallId,
+        `终端会话 ${tabId} 不存在或已关闭`,
         false,
       );
       return;
@@ -193,7 +202,7 @@ export async function handleAssistantPendingTerminalTool(options: {
       }
     }
 
-    const { outputJson } = await executeTerminalCommandCore({
+    const coreResult = await executeTerminalCommandCore({
       command,
       session_id: tabId,
     });
@@ -201,8 +210,8 @@ export async function handleAssistantPendingTerminalTool(options: {
     await commands.aiChatToolResult(
       options.conversationId,
       options.toolCallId,
-      outputJson,
-      true,
+      coreResult.outputJson,
+      !coreResult.rejected,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

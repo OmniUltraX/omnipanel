@@ -53,6 +53,8 @@ import { ProtocolNewTabDialog } from "./modules/protocol/ProtocolNewTabDialog";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { SshToTerminalRedirect } from "./modules/terminal/SshToTerminalRedirect";
+import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
+import { startTerminalHistorySync } from "./modules/terminal/terminalHistorySync";
 import {
   LazyDashboardPage,
   LazyDatabasePanel,
@@ -157,6 +159,15 @@ function AppShell() {
   useAiDrawerShortcut();
   useBottomWorkspaceShortcut();
   useSettingsShortcut();
+
+  useEffect(() => {
+    const stopHistorySync = startTerminalHistorySync();
+    const stopAutoName = startAutoNameSubscription();
+    return () => {
+      stopHistorySync();
+      stopAutoName();
+    };
+  }, []);
 
   const location = useLocation();
   const navigate = useNavigate();

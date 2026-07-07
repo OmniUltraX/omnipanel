@@ -1,6 +1,4 @@
-import { getResourceById } from "../../lib/resourceRegistry";
-import { useSshStatsStore } from "../../stores/sshStatsStore";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { resolveTerminalAiContextBundle } from "./terminalAiContextBundle";
 import type { TerminalSessionInfo } from "../../stores/terminalStore";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import type { HostSystemStats } from "../../ipc/bindings";
@@ -13,7 +11,7 @@ import {
 
 /** AI 终端上下文提示行：告知模型必须按此 shell/OS 语法执行命令。 */
 export const TERMINAL_CONTEXT_IMPORTANT_LINE =
-  "- IMPORTANT: Commands run in THIS terminal session. Use shell syntax matching the OS/shell above (e.g. `date` on Linux/bash, `Get-Date` on Windows PowerShell only).";
+  "- IMPORTANT: Commands run in THIS terminal session via the terminal tool. Ignore any local Agent runtime/cache cwd; it is not the terminal working directory. Use shell syntax matching the OS/shell above (e.g. `date` on Linux/bash, `Get-Date` on Windows PowerShell only).";
 
 /** 终端环境结构化提示——所有 AI 路径共享的单一真相源。 */
 export interface AiTerminalHints {
@@ -81,13 +79,6 @@ export function formatAiTerminalHints(hints: AiTerminalHints): string {
  * 所有需要终端上下文的 AI 路径统一调用此函数。
  */
 export function buildTerminalAiContextAppend(sessionId: string): string | null {
-  const tab = useTerminalStore.getState().tabs.find((t) => t.id === sessionId);
-  if (!tab) return null;
-
-  const session = tab.session;
-  const resource = getResourceById(session.resourceId);
-  const stats = useSshStatsStore.getState().statsMap[session.resourceId] ?? null;
-
-  const hints = resolveAiTerminalHints(session, resource, stats);
-  return formatAiTerminalHints(hints);
+  const bundle = resolveTerminalAiContextBundle(sessionId, "assistant");
+  return bundle?.terminalContextAppend ?? null;
 }

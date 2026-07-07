@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { AiThreadItem, TerminalBlock } from "./blocksStore";
 import { useBlocksStore } from "./blocksStore";
 import { useSettingsStore } from "./settingsStore";
+import { renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
 
 export const TERMINAL_HISTORY_STORAGE_KEY = "omnipanel-terminal-history.v1";
 export const DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS = 200;
@@ -53,10 +54,11 @@ function trimAiThread(thread: AiThreadItem[] | undefined): AiThreadItem[] | unde
 }
 
 export function toPersistedTerminalBlock(block: TerminalBlock): PersistedTerminalBlock {
+  const { liveOutput, ...rest } = block;
   return {
-    ...block,
+    ...rest,
     marker: null,
-    output: trimOutput(block.output),
+    output: trimOutput(renderLiveOutputText(liveOutput, block.output)),
     reasoning: block.reasoning ? trimOutput(block.reasoning) : block.reasoning,
     aiThread: trimAiThread(block.aiThread),
   };

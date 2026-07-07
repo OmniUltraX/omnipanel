@@ -255,7 +255,7 @@ function LsGridColumnView({
 
 function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFile }: LsListingViewProps) {
   const isGrid = listing.layout === "grid";
-  const { containerRef, widthCh } = useLsGridTerminalWidth(isGrid);
+  const { containerRef, widthCh, isMeasured } = useLsGridTerminalWidth(isGrid);
 
   const legacyWidths = useMemo(
     () => (listing.layout === "long" ? computeLongColumnWidths(listing.entries) : null),
@@ -274,8 +274,8 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFil
   }, [listing.layout, listing.entries, longFieldFormat]);
 
   const gridLayout = useMemo(
-    () => (isGrid ? layoutLsGrid(listing.entries, widthCh) : null),
-    [isGrid, listing.entries, widthCh],
+    () => (isGrid && isMeasured ? layoutLsGrid(listing.entries, widthCh) : null),
+    [isGrid, isMeasured, listing.entries, widthCh],
   );
 
   const style: CSSProperties | undefined = useMemo(() => {
@@ -289,23 +289,30 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFil
     return undefined;
   }, [listing.layout, legacyWidths, longFieldWidths]);
 
-  if (listing.layout === "grid" && gridLayout) {
+  if (listing.layout === "grid") {
     return (
       <div
         ref={containerRef}
         className="term-ls-listing term-ls-listing--grid"
         role="list"
         aria-label="目录列表"
+        style={
+          isMeasured
+            ? undefined
+            : { visibility: "hidden", minHeight: "1.55em" }
+        }
       >
-        {gridLayout.columns.map((column, index) => (
-          <LsGridColumnView
-            key={`col-${index}`}
-            column={column}
-            listingDirectory={listingDirectory}
-            onRunCommand={onRunCommand}
-            onOpenFile={onOpenFile}
-          />
-        ))}
+        {gridLayout
+          ? gridLayout.columns.map((column, index) => (
+              <LsGridColumnView
+                key={`col-${index}`}
+                column={column}
+                listingDirectory={listingDirectory}
+                onRunCommand={onRunCommand}
+                onOpenFile={onOpenFile}
+              />
+            ))
+          : null}
       </div>
     );
   }

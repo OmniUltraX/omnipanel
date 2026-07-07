@@ -1,5 +1,7 @@
 import { disposeTabBackendSessions } from "../../hooks/useTerminal";
 import { useTerminalStore } from "../../stores/terminalStore";
+import { clearTerminalSessionRuntime } from "./terminalRunStateStore";
+import { useTerminalUiStore } from "./terminalUiStore";
 
 const DEFAULT_IDLE_TTL_MS = 30 * 60 * 1000;
 const MAX_DETACHED_SESSIONS = 12;
@@ -18,6 +20,8 @@ export function clearTerminalBackendSessionTouch(sessionId: string): void {
 export function disposeDetachedBackend(sessionId: string): void {
   disposeTabBackendSessions(sessionId);
   clearTerminalBackendSessionTouch(sessionId);
+  clearTerminalSessionRuntime(sessionId);
+  useTerminalUiStore.getState().returnToCommandBar(sessionId);
   const state = useTerminalStore.getState();
   const { [sessionId]: _removed, ...rest } = state.detachedRuntime;
   if (_removed) {

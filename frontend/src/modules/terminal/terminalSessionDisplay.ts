@@ -1,8 +1,52 @@
 import type { HostSystemStats } from "@/ipc/bindings";
 import { getResourceTagValue } from "@/lib/resourceTags";
 import type { WorkspaceResource } from "@/lib/resourceRegistry";
+import { resolveResourceById } from "@/stores/connectionStore";
 import type { TerminalSessionInfo } from "@/stores/terminalStore";
 import { formatBytes } from "@/stores/sshStatsStore";
+
+/** 终端 Tab 展示用基础标题（不含连接前缀）。 */
+export function resolveTerminalTabBaseTitle(
+  resourceId: string,
+  title?: string | null,
+  fallbackName?: string | null,
+  shellLabel?: string | null,
+): string {
+  const trimmedTitle = title?.trim();
+  if (trimmedTitle) return trimmedTitle;
+  const trimmedFallback = fallbackName?.trim();
+  if (trimmedFallback) return trimmedFallback;
+  const connectionName = resolveResourceById(resourceId)?.name?.trim();
+  if (connectionName) return connectionName;
+  const trimmedShell = shellLabel?.trim();
+  if (trimmedShell) return trimmedShell;
+  return resourceId;
+}
+
+/** 终端 Tab 展示标题：连接名 + "-" + 会话标题，例如 p1-deploy。 */
+export function formatTerminalTabLabel(
+  resourceId: string,
+  title?: string | null,
+  fallbackName?: string | null,
+  shellLabel?: string | null,
+): string {
+  const connectionName = resolveResourceById(resourceId)?.name?.trim();
+  const baseTitle = resolveTerminalTabBaseTitle(
+    resourceId,
+    title,
+    fallbackName,
+    shellLabel,
+  );
+
+  if (!connectionName) return baseTitle;
+
+  const prefix = `${connectionName}-`;
+  if (baseTitle.startsWith(prefix) || baseTitle === connectionName) {
+    return baseTitle;
+  }
+
+  return `${prefix}${baseTitle}`;
+}
 
 export function parseSshSubtitle(subtitle?: string) {
   const match = subtitle?.match(/^([^@\s]+)@([^:\s]+)(?::(\d+))?/);

@@ -461,7 +461,6 @@ export function TerminalSessionSidebar({
       setSessionCtxMenu(null);
       void renameSessionWithAi(session.id).then((result) => {
         if (!result.ok) {
-          const { t } = useI18n();
           if (result.reason === "no-provider") {
             showToast(t("terminal.sessions.aiRenameNoProvider"));
           } else if (result.reason === "no-context") {
@@ -472,7 +471,7 @@ export function TerminalSessionSidebar({
         }
       });
     },
-    [],
+    [t],
   );
 
   const handleCopySession = useCallback(

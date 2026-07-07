@@ -24,7 +24,6 @@ import { EMPTY_TERMINAL_BLOCKS, useBlocksStore } from "../../stores/blocksStore"
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import {
   bootstrapTerminalHistory,
-  startTerminalHistorySync,
 } from "./terminalHistorySync";
 import {
   copyTerminalTabToWorkspaceSnapshot,
@@ -59,11 +58,16 @@ import {
 } from "./constants";
 import { useSshWorkspaceNavStore } from "../server/ssh/stores/sshWorkspaceNavStore";
 import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
-import { renameSessionWithAi, startAutoNameSubscription } from "./sessionAutoName";
+import { renameSessionWithAi } from "./sessionAutoName";
+import { formatTerminalTabLabel } from "./terminalSessionDisplay";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
-  // 用户重命名 (tab.title) 优先于资源名 —— 用户能区分同一资源下的多个 tab
-  return tab.title || fallbackName || resolveResourceById(tab.session.resourceId)?.name || tab.session.resourceId;
+  return formatTerminalTabLabel(
+    tab.session.resourceId,
+    tab.title,
+    fallbackName,
+    tab.session.shellLabel,
+  );
 }
 
 function topbarTabStatus(
@@ -172,19 +176,8 @@ export function TerminalPanel() {
   }, [setActiveTab]);
 
   useEffect(() => {
-    const stopSync = startTerminalHistorySync();
-    return stopSync;
-  }, []);
-
-  useEffect(() => {
     const stopLifecycle = startTerminalBackendLifecycle();
     return stopLifecycle;
-  }, []);
-
-  // 自动命名订阅：监听 block 完成后自动生成会话标题
-  useEffect(() => {
-    const stopAutoName = startAutoNameSubscription();
-    return stopAutoName;
   }, []);
 
   useEffect(() => {
