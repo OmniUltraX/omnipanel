@@ -12,6 +12,7 @@ import { json } from "@codemirror/lang-json";
 import { sql } from "@codemirror/lang-sql";
 import { StreamLanguage } from "@codemirror/language";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
@@ -25,6 +26,8 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   language?: CodeEditorLanguage;
   readOnly?: boolean;
+  /** ???????????????? ScopedSearch ????????? */
+  highlightQuery?: string;
   height?: number | string;
   className?: string;
 }
@@ -64,6 +67,7 @@ export function CodeEditor({
   onChange,
   language = "text",
   readOnly = false,
+  highlightQuery = "",
   height = "100%",
   className,
 }: CodeEditorProps) {
@@ -75,11 +79,14 @@ export function CodeEditor({
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
+  const languageRef = useRef(language);
   const themeCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
+  const languageCompartment = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   valueRef.current = value;
+  languageRef.current = language;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -90,10 +97,16 @@ export function CodeEditor({
       drawSelection(),
       history(),
       EditorState.tabSize.of(2),
-      languageExtension(language),
+      languageCompartment.current.of(languageExtension(languageRef.current)),
       EditorView.lineWrapping,
       keymap.of([...defaultKeymap, ...historyKeymap]),
-      themeCompartment.current.of(getSqlEditorThemeExtensions(isLightTheme())),
+      themeCompartment.current.of(
+        getSqlEditorThemeExtensions(isLightTheme(), {
+          fontFamily: sqlEditorFontFamily,
+          fontSize: sqlEditorFontSize,
+          lineHeight: sqlEditorLineHeight,
+        }),
+      ),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -104,6 +117,7 @@ export function CodeEditor({
           }
         }
       }),
+      getSearchHighlightExtension(),
     ];
 
     const view = new EditorView({
@@ -118,6 +132,14 @@ export function CodeEditor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: languageCompartment.current.reconfigure(languageExtension(language)),
+    });
+  }, [language]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -138,6 +160,12 @@ export function CodeEditor({
       effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    updateSearchHighlight(view, highlightQuery);
+  }, [value, highlightQuery]);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {

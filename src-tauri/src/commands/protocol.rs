@@ -13,7 +13,7 @@ use crate::protocol::serial::{self, PortInfo, SerialConfig};
 use crate::protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPacket};
 use crate::protocol::ws::{self, WsConfig, WsMessage};
 use crate::state::AppState;
-use omnipanel_store::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
+use omnipanel_store::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 
 static SERIAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 static WS_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -489,6 +489,19 @@ pub async fn http_delete_history(state: State<'_, AppState>, id: String) -> Resu
 
 #[tauri::command]
 #[specta::specta]
+pub async fn http_rename_history(
+    state: State<'_, AppState>,
+    id: String,
+    label: String,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage
+        .http_rename_history(&id, label.trim())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn http_clear_history_for_request(
     state: State<'_, AppState>,
     request_id: String,
@@ -527,6 +540,35 @@ pub async fn http_delete_collection(state: State<'_, AppState>, id: String) -> R
     storage
         .http_delete_collection(&id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn http_list_environments(
+    state: State<'_, AppState>,
+) -> Result<Vec<HttpEnvironment>, String> {
+    let storage = state.storage.lock().await;
+    storage.http_list_environments().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn http_save_environment(
+    state: State<'_, AppState>,
+    env: HttpEnvironment,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage.http_save_environment(&env).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn http_delete_environment(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage.http_delete_environment(&id).map_err(|e| e.to_string())
 }
 
 // ──────────────────────────────────────────────

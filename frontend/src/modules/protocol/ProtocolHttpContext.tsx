@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { commands, type HttpCollection, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
+import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { formatHttpJsonBody } from "./httpJsonBody";
@@ -22,6 +22,12 @@ import {
   type HttpResponseData,
   type HttpResponseSession,
 } from "./httpResponseState";
+import {
+  readStoredActiveEnvironmentId,
+  resolveHttpRequestUrl,
+  splitUrlByEnvironment,
+  writeStoredActiveEnvironmentId,
+} from "./httpEnvironment";
 
 export type { HttpResponseData, HttpResponseSession };
 
@@ -60,6 +66,7 @@ export interface HttpKvPair {
 
 export interface HttpEditorState {
   method: HttpMethod;
+  environmentId: string | null;
   url: string;
   params: HttpKvPair[];
   headers: HttpKvPair[];
@@ -72,6 +79,7 @@ export interface HttpEditorState {
 interface ProtocolHttpContextValue {
   history: HttpHistoryEntry[];
   collections: HttpCollection[];
+  environments: HttpEnvironment[];
   savedRequests: SavedHttpRequest[];
   selectedRequestId: string | null;
   activeCollectionId: string | null;
@@ -80,11 +88,15 @@ interface ProtocolHttpContextValue {
   setEditor: (patch: Partial<HttpEditorState>) => void;
   loadHistory: () => Promise<void>;
   loadCollections: () => Promise<void>;
+  loadEnvironments: () => Promise<void>;
   loadSavedRequests: () => Promise<void>;
+  saveEnvironment: (env: HttpEnvironment) => Promise<void>;
+  deleteEnvironment: (id: string) => Promise<void>;
   createCollection: (name: string) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
   deleteSavedRequest: (id: string) => Promise<void>;
   deleteHistoryEntry: (id: string) => Promise<void>;
+  renameHistoryEntry: (id: string, label: string) => Promise<void>;
   clearRequestHistory: (requestId: string) => Promise<void>;
   applyHistoryEntry: (entry: HttpHistoryEntry) => void;
   applySavedRequest: (req: SavedHttpRequest) => void;
@@ -104,6 +116,7 @@ interface ProtocolHttpContextValue {
   recordSendHistory: (data: {
     method: string;
     url: string;
+    environmentId: string | null;
     statusCode: number | null;
     responseTimeMs: number | null;
     requestSize: number | null;
@@ -120,7 +133,8 @@ function generateId(): string {
 
 const DEFAULT_EDITOR: HttpEditorState = {
   method: "GET",
-  url: "https://api.example.com/v1/users",
+  environmentId: null,
+  url: "/v1/users",
   params: [
     { key: "page", value: "1", enabled: true },
     { key: "limit", value: "20", enabled: true },
@@ -179,6 +193,7 @@ function editorToSavedRequest(
     authType: authTypeToStorage(editor.authType),
     authValue: editor.authValue,
     collectionId: meta.collectionId,
+    environmentId: editor.environmentId,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
   };
@@ -194,6 +209,7 @@ function editorWithFormattedJsonBody(editor: HttpEditorState): HttpEditorState {
 export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<HttpHistoryEntry[]>([]);
   const [collections, setCollections] = useState<HttpCollection[]>([]);
+  const [environments, setEnvironments] = useState<HttpEnvironment[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedHttpRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
@@ -273,7 +289,13 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   );
 
   const setEditor = useCallback((patch: Partial<HttpEditorState>) => {
-    setEditorState((prev) => ({ ...prev, ...patch }));
+    setEditorState((prev) => {
+      const next = { ...prev, ...patch };
+      if ("environmentId" in patch) {
+        writeStoredActiveEnvironmentId(next.environmentId);
+      }
+      return next;
+    });
   }, []);
 
   const loadHistory = useCallback(async () => {
@@ -290,6 +312,13 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loadEnvironments = useCallback(async () => {
+    const res = await commands.httpListEnvironments();
+    if (res.status === "ok") {
+      setEnvironments(res.data);
+    }
+  }, []);
+
   const loadSavedRequests = useCallback(async () => {
     const res = await commands.httpListRequests(null);
     if (res.status === "ok") {
@@ -300,8 +329,25 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadHistory();
     void loadCollections();
+    void loadEnvironments();
     void loadSavedRequests();
-  }, [loadHistory, loadCollections, loadSavedRequests]);
+  }, [loadHistory, loadCollections, loadEnvironments, loadSavedRequests]);
+
+  useEffect(() => {
+    if (environments.length === 0) return;
+    setEditorState((prev) => {
+      if (prev.environmentId && environments.some((item) => item.id === prev.environmentId)) {
+        return prev;
+      }
+      const storedId = readStoredActiveEnvironmentId();
+      const storedEnv = storedId
+        ? environments.find((item) => item.id === storedId) ?? null
+        : null;
+      const fallback = storedEnv ?? environments[0] ?? null;
+      if (!fallback) return prev;
+      return { ...prev, environmentId: fallback.id };
+    });
+  }, [environments]);
 
   const createCollection = useCallback(
     async (name: string) => {
@@ -333,6 +379,36 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       }
     },
     [activeCollectionId, loadCollections, loadSavedRequests],
+  );
+
+  const saveEnvironment = useCallback(
+    async (env: HttpEnvironment) => {
+      const res = await commands.httpSaveEnvironment(env);
+      if (res.status === "ok") {
+        await loadEnvironments();
+        writeStoredActiveEnvironmentId(env.id);
+        setEditorState((prev) => ({ ...prev, environmentId: env.id }));
+      }
+    },
+    [loadEnvironments],
+  );
+
+  const deleteEnvironment = useCallback(
+    async (id: string) => {
+      const res = await commands.httpDeleteEnvironment(id);
+      if (res.status === "ok") {
+        await loadEnvironments();
+        await loadSavedRequests();
+        setEditorState((prev) => {
+          if (prev.environmentId !== id) return prev;
+          const remaining = environments.filter((item) => item.id !== id);
+          const nextId = remaining[0]?.id ?? null;
+          writeStoredActiveEnvironmentId(nextId);
+          return { ...prev, environmentId: nextId };
+        });
+      }
+    },
+    [environments, loadEnvironments, loadSavedRequests],
   );
 
   const deleteSavedRequest = useCallback(
@@ -376,6 +452,30 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     [loadHistory],
   );
 
+  const renameHistoryEntry = useCallback(
+    async (id: string, label: string) => {
+      const trimmed = label.trim();
+      const res = await commands.httpRenameHistory(id, trimmed);
+      if (res.status === "ok") {
+        setResponseSessionsByRequest((prev) => {
+          const next: Record<string, HttpResponseSession[]> = {};
+          for (const [requestId, sessions] of Object.entries(prev)) {
+            next[requestId] = sessions.map((item, index) => {
+              if (item.historyId !== id) return item;
+              return {
+                ...item,
+                label: trimmed || makeHttpResponseSessionLabel(index + 1, item.response.status),
+              };
+            });
+          }
+          return next;
+        });
+        await loadHistory();
+      }
+    },
+    [loadHistory],
+  );
+
   const clearRequestHistory = useCallback(
     async (requestId: string) => {
       const res = await commands.httpClearHistoryForRequest(requestId);
@@ -390,11 +490,17 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
 
   const applyHistoryEntry = useCallback(
     (entry: HttpHistoryEntry) => {
+      const split = splitUrlByEnvironment(entry.url, environments);
       setEditorState((prev) => ({
         ...prev,
         method: entry.method as HttpMethod,
-        url: entry.url,
+        environmentId: entry.environmentId ?? split.environmentId ?? prev.environmentId,
+        url: split.path,
       }));
+      const resolvedEnvId = entry.environmentId ?? split.environmentId;
+      if (resolvedEnvId) {
+        writeStoredActiveEnvironmentId(resolvedEnvId);
+      }
       const requestId = entry.requestId ?? selectedRequestId;
       if (!requestId || !hasStoredResponse(entry)) return;
 
@@ -420,7 +526,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         };
       });
     },
-    [selectedRequestId],
+    [environments, selectedRequestId],
   );
 
   const parseHeaders = useCallback((raw: string): HttpKvPair[] => {
@@ -453,9 +559,19 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
                 ? "Authorization"
                 : "Bearer Token";
 
+      const split = req.environmentId
+        ? { environmentId: req.environmentId, path: req.url }
+        : splitUrlByEnvironment(req.url, environments);
+      const environmentId =
+        split.environmentId ??
+        readStoredActiveEnvironmentId() ??
+        environments[0]?.id ??
+        null;
+
       setEditorState({
         method: req.method as HttpMethod,
-        url: req.url,
+        environmentId,
+        url: split.path,
         body: req.body ?? "",
         bodyType: "JSON",
         authType,
@@ -463,8 +579,11 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         params: [{ key: "", value: "", enabled: true }],
         headers: parseHeaders(req.headers),
       });
+      if (environmentId) {
+        writeStoredActiveEnvironmentId(environmentId);
+      }
     },
-    [parseHeaders],
+    [environments, parseHeaders],
   );
 
   const selectRequest = useCallback(
@@ -503,6 +622,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         authType: "",
         authValue: "",
         collectionId: null,
+        environmentId: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -616,6 +736,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (data: {
       method: string;
       url: string;
+      environmentId: string | null;
       statusCode: number | null;
       responseTimeMs: number | null;
       requestSize: number | null;
@@ -626,6 +747,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       const responseFields = responseDataToHistoryFields(data.response);
       const entry: HttpHistoryEntry = {
         id: historyId,
+        label: "",
         method: data.method,
         url: data.url,
         statusCode: data.statusCode,
@@ -634,6 +756,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         responseSize: data.responseSize,
         createdAt: Date.now(),
         requestId: selectedRequestId,
+        environmentId: data.environmentId,
         responseStatusText: responseFields.responseStatusText,
         responseContentType: responseFields.responseContentType,
         responseHeaders: responseFields.responseHeaders,
@@ -652,6 +775,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     () => ({
       history,
       collections,
+      environments,
       savedRequests,
       selectedRequestId,
       activeCollectionId,
@@ -660,11 +784,15 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       setEditor,
       loadHistory,
       loadCollections,
+      loadEnvironments,
       loadSavedRequests,
+      saveEnvironment,
+      deleteEnvironment,
       createCollection,
       deleteCollection,
       deleteSavedRequest,
       deleteHistoryEntry,
+      renameHistoryEntry,
       clearRequestHistory,
       applyHistoryEntry,
       applySavedRequest,
@@ -686,6 +814,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     [
       history,
       collections,
+      environments,
       savedRequests,
       selectedRequestId,
       activeCollectionId,
@@ -693,11 +822,15 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       setEditor,
       loadHistory,
       loadCollections,
+      loadEnvironments,
       loadSavedRequests,
+      saveEnvironment,
+      deleteEnvironment,
       createCollection,
       deleteCollection,
       deleteSavedRequest,
       deleteHistoryEntry,
+      renameHistoryEntry,
       clearRequestHistory,
       applyHistoryEntry,
       applySavedRequest,

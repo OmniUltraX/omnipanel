@@ -370,6 +370,25 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_third_party_accounts_platform ON third_party_accounts(platform);
     "#,
+    // v18 — HTTP 历史自定义显示名称
+    r#"
+    ALTER TABLE http_history ADD COLUMN label TEXT NOT NULL DEFAULT '';
+    "#,
+    // v19 — HTTP 调试环境 + 请求关联环境
+    r#"
+    CREATE TABLE IF NOT EXISTS http_environments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    ALTER TABLE http_requests ADD COLUMN environment_id TEXT;
+    "#,
+    // v20 — HTTP 历史记录关联环境
+    r#"
+    ALTER TABLE http_history ADD COLUMN environment_id TEXT;
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -475,6 +494,44 @@ impl Storage {
                 return Err(map_sqlite(err));
             }
         }
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_history ADD COLUMN label TEXT NOT NULL DEFAULT ''",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_requests ADD COLUMN environment_id TEXT",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_history ADD COLUMN environment_id TEXT",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS http_environments (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );",
+            )
+            .map_err(map_sqlite)?;
         self.conn
             .execute_batch(
                 "CREATE INDEX IF NOT EXISTS idx_http_history_request ON http_history(request_id, created_at);",
@@ -719,6 +776,7 @@ mod tests {
             auth_type: "none".into(),
             auth_value: String::new(),
             collection_id: None,
+            environment_id: None,
             created_at: 1,
             updated_at: 1,
         };

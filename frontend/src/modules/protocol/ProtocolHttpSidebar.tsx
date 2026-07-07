@@ -16,6 +16,7 @@ import {
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
 import { useI18n } from "../../i18n";
+import { cn } from "../../lib/utils";
 import { IconFolder } from "../../components/ui/icons/Icons";
 import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
 import {
@@ -38,6 +39,11 @@ import {
 } from "./protocolLayoutTree";
 import { ProtocolTreeNode } from "./ProtocolTreeNode";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
+import {
+  formatHistoryEntryDate,
+  historyEntryDisplayLabel,
+  resolveHistoryEnvironmentName,
+} from "./httpResponseState";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
@@ -134,6 +140,7 @@ export function ProtocolHttpSidebar() {
   const collections = http?.collections ?? [];
   const savedRequests = http?.savedRequests ?? [];
   const history = http?.history ?? [];
+  const environments = http?.environments ?? [];
   const activeWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
     [activeWorkspaceTabId, workspaceTabs],
@@ -585,6 +592,21 @@ export function ProtocolHttpSidebar() {
     }
 
     if (target.kind === "history" && http) {
+      const historyEntry = requestHistory.find((entry) => entry.id === target.historyId);
+      items.push({
+        id: "rename-history",
+        label: t("protocol.sidebar.renameHistory"),
+        onClick: () => {
+          if (!historyEntry) return;
+          void quickInput({
+            title: t("protocol.sidebar.renameHistoryTitle"),
+            defaultValue: historyEntry.label?.trim() || historyEntryDisplayLabel(historyEntry, environments),
+          }).then((name) => {
+            if (name == null) return;
+            void http.renameHistoryEntry(target.historyId, name.trim());
+          });
+        },
+      });
       items.push({
         id: "delete-history",
         label: t("protocol.sidebar.deleteHistory"),
@@ -621,6 +643,8 @@ export function ProtocolHttpSidebar() {
     http,
     savedRequests,
     labEntries,
+    requestHistory,
+    environments,
     renameLabEntry,
     deleteLabEntry,
     closeWorkspaceTab,
@@ -795,7 +819,11 @@ export function ProtocolHttpSidebar() {
             <div className="proto-empty">{t("protocol.sidebar.noRequestHistory")}</div>
           ) : (
             <div className="proto-sidebar-history">
-              {requestHistory.map((entry) => (
+              {requestHistory.map((entry) => {
+                const displayName = historyEntryDisplayLabel(entry, environments);
+                const environmentName = resolveHistoryEnvironmentName(entry, environments);
+                const requestDate = formatHistoryEntryDate(entry.createdAt);
+                return (
                 <div
                   key={entry.id}
                   className="history-item"
@@ -808,26 +836,37 @@ export function ProtocolHttpSidebar() {
                     });
                   }}
                 >
-                  <div className="history-item-main">
-                    <span className="h-method" style={{ color: methodColor(entry.method) }}>
-                      {formatMethodBadge(entry.method)}
+                  <div className="history-item-head">
+                    <div className="history-item-name" title={displayName}>
+                      {displayName}
+                    </div>
+                    <span
+                      className="history-item-env"
+                      title={environmentName ?? t("protocol.sidebar.historyNoEnvironment")}
+                    >
+                      {environmentName ?? t("protocol.sidebar.historyNoEnvironment")}
                     </span>
-                    <span className="h-url">{entry.url}</span>
                   </div>
-                  <div className="history-item-meta">
-                    {entry.statusCode != null && (
-                      <span
-                        className={`h-status ${entry.statusCode < 400 ? "h-status-ok" : "h-status-err"}`}
-                      >
-                        {entry.statusCode}
-                      </span>
-                    )}
-                    {entry.responseTimeMs != null && (
-                      <span className="h-time">{entry.responseTimeMs}ms</span>
-                    )}
+                  <div className="history-item-details">
+                    <span className="history-item-detail history-item-date" title={requestDate}>
+                      {requestDate}
+                    </span>
+                    <span className="history-item-detail history-item-time">
+                      {entry.responseTimeMs != null ? `${entry.responseTimeMs}ms` : "—"}
+                    </span>
+                    <span
+                      className={cn(
+                        "history-item-detail history-item-status",
+                        entry.statusCode != null &&
+                          (entry.statusCode < 400 ? "history-item-status--ok" : "history-item-status--err"),
+                      )}
+                    >
+                      {entry.statusCode != null ? entry.statusCode : "—"}
+                    </span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           </div>

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
+import { useDbSqlFileStore } from "./dbSqlFileStore";
 import {
   createEmptyTreeChartDocument,
   serializeTreeChartDocument,
@@ -11,6 +12,7 @@ export interface DbTreeChartFileNode {
   id: string;
   name: string;
   document: string;
+  parentId: string | null;
   updatedAt: number;
 }
 
@@ -19,9 +21,12 @@ interface DbTreeChartFileState {
   dirtyFileIds: string[];
   isFileDirty: (id: string) => boolean;
   flushToDisk: () => Promise<void>;
-  addFile: (name: string, document?: string) => DbTreeChartFileNode;
+  addFile: (name: string, document?: string, parentId?: string | null) => DbTreeChartFileNode;
   updateFileDocument: (id: string, document: string) => void;
   renameNode: (id: string, name: string) => boolean;
+  moveNode: (id: string, newParentId: string | null) => boolean;
+  canMoveNodeToParent: (id: string, newParentId: string | null) => boolean;
+  detachFromFolder: (folderId: string) => void;
   deleteNode: (id: string) => void;
   getNode: (id: string) => DbTreeChartFileNode | undefined;
   replaceNodes: (nodes: DbTreeChartFileNode[]) => void;
@@ -53,6 +58,11 @@ function uniqueName(nodes: DbTreeChartFileNode[], name: string, excludeId?: stri
   return `${stem} ${index}.ctr`;
 }
 
+function isSqlFolderId(folderId: string): boolean {
+  const node = useDbSqlFileStore.getState().getNode(folderId);
+  return Boolean(node && node.type === "folder");
+}
+
 function normalizeNode(raw: Record<string, unknown>): DbTreeChartFileNode | null {
   const id = typeof raw.id === "string" ? raw.id : "";
   const name = typeof raw.name === "string" ? raw.name : "";
@@ -66,6 +76,12 @@ function normalizeNode(raw: Record<string, unknown>): DbTreeChartFileNode | null
       typeof raw.document === "string"
         ? raw.document
         : serializeTreeChartDocument(createEmptyTreeChartDocument()),
+    parentId:
+      typeof raw.parentId === "string"
+        ? raw.parentId
+        : raw.parentId === null
+          ? null
+          : null,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };
 }
@@ -106,6 +122,7 @@ function serializeNodeForDisk(node: DbTreeChartFileNode) {
     id: node.id,
     name: node.name,
     document: node.document,
+    parentId: node.parentId,
     updatedAt: node.updatedAt,
   };
 }
@@ -168,7 +185,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
         commitNodesInMemory(set, get, nodes, nodes.map((node) => node.id));
       },
 
-      addFile: (name, document = serializeTreeChartDocument(createEmptyTreeChartDocument())) => {
+      addFile: (name, document = serializeTreeChartDocument(createEmptyTreeChartDocument()), parentId = null) => {
         const fileName = uniqueName(
           get().nodes,
           name.endsWith(".ctr") ? name : `${name}.ctr`,
@@ -177,6 +194,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
           id: makeId(),
           name: fileName,
           document,
+          parentId,
           updatedAt: Date.now(),
         };
         const nodes = [...get().nodes, node];
@@ -208,6 +226,60 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
         );
         commitNodesInMemory(set, get, nodes, [id]);
         return true;
+      },
+
+      canMoveNodeToParent: (id, newParentId) => {
+        const node = get().nodes.find((entry) => entry.id === id);
+        if (!node) {
+          return false;
+        }
+        if ((node.parentId ?? null) === newParentId) {
+          return false;
+        }
+        if (newParentId && !isSqlFolderId(newParentId)) {
+          return false;
+        }
+        return true;
+      },
+
+      moveNode: (id, newParentId) => {
+        if (!get().canMoveNodeToParent(id, newParentId)) {
+          return false;
+        }
+        const node = get().nodes.find((entry) => entry.id === id);
+        if (!node) {
+          return false;
+        }
+        const nodes = get().nodes.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                parentId: newParentId,
+                updatedAt: Date.now(),
+              }
+            : entry,
+        );
+        commitNodesInMemory(set, get, nodes, [id]);
+        return true;
+      },
+
+      detachFromFolder: (folderId) => {
+        const movedIds: string[] = [];
+        const nodes = get().nodes.map((entry) => {
+          if (entry.parentId !== folderId) {
+            return entry;
+          }
+          movedIds.push(entry.id);
+          return {
+            ...entry,
+            parentId: null,
+            updatedAt: Date.now(),
+          };
+        });
+        if (movedIds.length === 0) {
+          return;
+        }
+        commitNodesInMemory(set, get, nodes, movedIds);
       },
 
       deleteNode: (id) => {

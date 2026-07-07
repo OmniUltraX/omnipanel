@@ -8,6 +8,7 @@ import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { HttpPanel } from "./HttpPanel";
 import { useProtocolHttp } from "./ProtocolHttpContext";
+import { resolveHttpRequestUrl } from "./httpEnvironment";
 
 function ProtocolHttpTopbarBridge() {
   const requestNewRequestPicker = useProtocolTopbarStore((s) => s.requestNewRequestPicker);
@@ -100,15 +101,18 @@ export function HttpRequestPanel({
     () =>
       openTabIds.map((id) => {
         const req = http.savedRequests.find((entry) => entry.id === id);
+        const fullUrl = req
+          ? resolveHttpRequestUrl(req.url, req.environmentId ?? null, http.environments)
+          : null;
         return {
           id,
           label: req?.name ?? t("protocol.sidebar.defaultRequestName"),
           panelType: "http-request",
           closable: true,
-          tooltip: req?.url?.trim() ? req.url : req?.name,
+          tooltip: fullUrl?.trim() || req?.url?.trim() || req?.name,
         };
       }),
-    [openTabIds, http.savedRequests, t],
+    [openTabIds, http.savedRequests, http.environments, t],
   );
 
   const handleActiveTabChange = useCallback(

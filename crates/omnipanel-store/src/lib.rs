@@ -45,7 +45,7 @@ pub use database::{
     DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
     save_database_connections,
 };
-pub use http::{HttpCollection, HttpHistoryEntry, SavedHttpRequest};
+pub use http::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
 pub use knowledge_vector::{

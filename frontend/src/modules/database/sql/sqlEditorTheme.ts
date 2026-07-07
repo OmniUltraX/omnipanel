@@ -45,12 +45,17 @@ const darkHighlight = HighlightStyle.define([
   { tag: t.operator, color: "#fdfcfc" },
   { tag: t.string, color: "#30d158" },
   { tag: t.number, color: "#ff9f0a" },
+  { tag: t.bool, color: "#64d2ff" },
+  { tag: t.null, color: "#bf5af2", fontStyle: "italic" },
   { tag: t.comment, color: "#6e6e73", fontStyle: "italic" },
   { tag: t.typeName, color: "#007aff" },
   { tag: t.variableName, color: "#fdfcfc" },
-  { tag: t.propertyName, color: "#c8c6c4" },
+  { tag: t.propertyName, color: "#ff9f0a" },
   { tag: t.definition(t.propertyName), color: "#ff9f0a" },
   { tag: t.function(t.variableName), color: "#ff9f0a" },
+  { tag: t.brace, color: "#8e8e93" },
+  { tag: t.squareBracket, color: "#8e8e93" },
+  { tag: t.separator, color: "#8e8e93" },
 ]);
 
 const lightHighlight = HighlightStyle.define([
@@ -58,12 +63,17 @@ const lightHighlight = HighlightStyle.define([
   { tag: t.operator, color: "#1d1d1f" },
   { tag: t.string, color: "#34c759" },
   { tag: t.number, color: "#ff9500" },
+  { tag: t.bool, color: "#32ade6" },
+  { tag: t.null, color: "#af52de", fontStyle: "italic" },
   { tag: t.comment, color: "#aeaeb2", fontStyle: "italic" },
   { tag: t.typeName, color: "#007aff" },
   { tag: t.variableName, color: "#1d1d1f" },
-  { tag: t.propertyName, color: "#424245" },
+  { tag: t.propertyName, color: "#ff9500" },
   { tag: t.definition(t.propertyName), color: "#ff9500" },
   { tag: t.function(t.variableName), color: "#ff9500" },
+  { tag: t.brace, color: "#636366" },
+  { tag: t.squareBracket, color: "#636366" },
+  { tag: t.separator, color: "#636366" },
 ]);
 
 const sharedAutocompleteTheme = {
@@ -436,7 +446,7 @@ export function getSqlEditorThemeExtensions(
 ) {
   return [
     isLight ? createLightTheme(typography) : createDarkTheme(typography),
-    syntaxHighlighting(isLight ? lightHighlight : darkHighlight),
+    syntaxHighlighting(isLight ? lightHighlight : darkHighlight, { fallback: true }),
   ];
 }
 

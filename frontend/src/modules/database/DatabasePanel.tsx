@@ -130,6 +130,7 @@ import {
   type TreeChartWorkspaceTab,
 } from "./workspace/workspaceTabs";
 import { TreeChartPanel } from "./treeChart/TreeChartPanel";
+import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";

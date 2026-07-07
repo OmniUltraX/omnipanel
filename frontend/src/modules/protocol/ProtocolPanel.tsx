@@ -10,6 +10,7 @@ import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
 import { ProtocolHttpSidebar } from "./ProtocolHttpSidebar";
+import { ProtocolEnvironmentHeaderButton } from "./ProtocolEnvironmentHeaderButton";
 import { ProtocolSessionPanel } from "./ProtocolSessionPanel";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";
 import { useProtocolPickerHandler } from "./useProtocolPickerHandler";
@@ -169,6 +170,7 @@ function ProtocolPanelInner() {
       layoutKey="protocol"
       className="protocol-module-layout"
       leftColumnTitle={t("routes.protocol")}
+      leftIconRail={<ProtocolEnvironmentHeaderButton />}
       leftSidebar={<ProtocolHttpSidebar />}
     >
       <ModuleSegmentDock

@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 
 use super::storage::Storage;
 
+/// HTTP 调试环境（基地址）。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpEnvironment {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    #[specta(type = f64)]
+    pub created_at: i64,
+    #[specta(type = f64)]
+    pub updated_at: i64,
+}
+
 /// 保存的 HTTP 请求。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +32,7 @@ pub struct SavedHttpRequest {
     pub auth_type: String,
     pub auth_value: String,
     pub collection_id: Option<String>,
+    pub environment_id: Option<String>,
     #[specta(type = f64)]
     pub created_at: i64,
     #[specta(type = f64)]
@@ -30,6 +44,8 @@ pub struct SavedHttpRequest {
 #[serde(rename_all = "camelCase")]
 pub struct HttpHistoryEntry {
     pub id: String,
+    /// 用户自定义显示名称；为空时在 UI 中回退为不含基地址的请求路径。
+    pub label: String,
     pub method: String,
     pub url: String,
     #[specta(type = f64)]
@@ -43,6 +59,7 @@ pub struct HttpHistoryEntry {
     #[specta(type = f64)]
     pub created_at: i64,
     pub request_id: Option<String>,
+    pub environment_id: Option<String>,
     pub response_status_text: String,
     pub response_content_type: String,
     pub response_headers: String,
@@ -65,8 +82,8 @@ pub struct HttpCollection {
 impl Storage {
     pub fn http_save_request(&self, req: &SavedHttpRequest) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.created_at, req.updated_at],
+            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.environment_id, req.created_at, req.updated_at],
         ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 请求失败").with_cause(e.to_string()))?;
         Ok(())
     }
@@ -77,9 +94,9 @@ impl Storage {
     ) -> OmniResult<Vec<SavedHttpRequest>> {
         let conn = self.conn();
         let mut stmt = if collection_id.is_some() {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, created_at, updated_at FROM http_requests WHERE collection_id = ?1 ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, created_at, updated_at FROM http_requests WHERE collection_id = ?1 ORDER BY name")
         } else {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, created_at, updated_at FROM http_requests ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, created_at, updated_at FROM http_requests ORDER BY name")
         }.map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = if let Some(cid) = collection_id {
             stmt.query_map(params![cid], map_request)
@@ -100,9 +117,10 @@ impl Storage {
 
     pub fn http_add_history(&self, entry: &HttpHistoryEntry) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT INTO http_history (id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, response_status_text, response_content_type, response_headers, response_body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO http_history (id, label, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, environment_id, response_status_text, response_content_type, response_headers, response_body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 entry.id,
+                entry.label,
                 entry.method,
                 entry.url,
                 entry.status_code,
@@ -111,6 +129,7 @@ impl Storage {
                 entry.response_size,
                 entry.created_at,
                 entry.request_id,
+                entry.environment_id,
                 entry.response_status_text,
                 entry.response_content_type,
                 entry.response_headers,
@@ -123,24 +142,26 @@ impl Storage {
     pub fn http_list_history(&self, limit: i64) -> OmniResult<Vec<HttpHistoryEntry>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, response_status_text, response_content_type, response_headers, response_body FROM http_history ORDER BY created_at DESC LIMIT ?1"
+            "SELECT id, label, method, url, status_code, response_time_ms, request_size, response_size, created_at, request_id, environment_id, response_status_text, response_content_type, response_headers, response_body FROM http_history ORDER BY created_at DESC LIMIT ?1"
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map(params![limit], |row| {
                 Ok(HttpHistoryEntry {
                     id: row.get(0)?,
-                    method: row.get(1)?,
-                    url: row.get(2)?,
-                    status_code: row.get(3)?,
-                    response_time_ms: row.get(4)?,
-                    request_size: row.get(5)?,
-                    response_size: row.get(6)?,
-                    created_at: row.get(7)?,
-                    request_id: row.get(8)?,
-                    response_status_text: row.get(9)?,
-                    response_content_type: row.get(10)?,
-                    response_headers: row.get(11)?,
-                    response_body: row.get(12)?,
+                    label: row.get(1)?,
+                    method: row.get(2)?,
+                    url: row.get(3)?,
+                    status_code: row.get(4)?,
+                    response_time_ms: row.get(5)?,
+                    request_size: row.get(6)?,
+                    response_size: row.get(7)?,
+                    created_at: row.get(8)?,
+                    request_id: row.get(9)?,
+                    environment_id: row.get(10)?,
+                    response_status_text: row.get(11)?,
+                    response_content_type: row.get(12)?,
+                    response_headers: row.get(13)?,
+                    response_body: row.get(14)?,
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
@@ -159,6 +180,20 @@ impl Storage {
         self.conn()
             .execute("DELETE FROM http_history WHERE id = ?1", params![id])
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn http_rename_history(&self, id: &str, label: &str) -> OmniResult<()> {
+        let updated = self
+            .conn()
+            .execute(
+                "UPDATE http_history SET label = ?2 WHERE id = ?1",
+                params![id, label],
+            )
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        if updated == 0 {
+            return Err(OmniError::new(ErrorCode::Database, "HTTP 历史记录不存在"));
+        }
         Ok(())
     }
 
@@ -206,6 +241,47 @@ impl Storage {
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         Ok(())
     }
+
+    pub fn http_save_environment(&self, env: &HttpEnvironment) -> OmniResult<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO http_environments (id, name, base_url, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![env.id, env.name, env.base_url, env.created_at, env.updated_at],
+        ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 环境失败").with_cause(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn http_list_environments(&self) -> OmniResult<Vec<HttpEnvironment>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, base_url, created_at, updated_at FROM http_environments ORDER BY name",
+        ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(HttpEnvironment {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    base_url: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))
+    }
+
+    pub fn http_delete_environment(&self, id: &str) -> OmniResult<()> {
+        self.conn()
+            .execute("DELETE FROM http_environments WHERE id = ?1", params![id])
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        self.conn()
+            .execute(
+                "UPDATE http_requests SET environment_id = NULL WHERE environment_id = ?1",
+                params![id],
+            )
+            .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
+        Ok(())
+    }
 }
 
 fn map_request(row: &rusqlite::Row) -> rusqlite::Result<SavedHttpRequest> {
@@ -219,7 +295,8 @@ fn map_request(row: &rusqlite::Row) -> rusqlite::Result<SavedHttpRequest> {
         auth_type: row.get(6)?,
         auth_value: row.get(7)?,
         collection_id: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        environment_id: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }

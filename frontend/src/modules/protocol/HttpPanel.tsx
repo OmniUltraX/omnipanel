@@ -20,6 +20,7 @@ import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
 import { useWebSocketSession } from "./useWebSocketSession";
 import type { HttpResponseData } from "./httpResponseState";
+import { resolveHttpRequestUrl } from "./httpEnvironment";
 
 type ReqTab = "params" | "headers" | "body" | "auth" | "scripts";
 
@@ -71,6 +72,7 @@ export function HttpPanel() {
     setEditor,
     activeCollectionId,
     collections,
+    environments,
     savedRequests,
     selectedRequestId,
     saveCurrentRequest,
@@ -84,8 +86,15 @@ export function HttpPanel() {
     addResponseSession,
   } = useProtocolHttp();
 
-  const { method, url, params, headers, body, bodyType, authType, authValue } = editor;
+  const { method, environmentId, url, params, headers, body, bodyType, authType, authValue } =
+    editor;
   const isWebSocket = isWebSocketMethod(method);
+
+  const resolvedRequestUrl = useMemo(
+    () => resolveHttpRequestUrl(url, environmentId, environments),
+    [url, environmentId, environments],
+  );
+
   const {
     status: wsStatus,
     messages: wsMessages,
@@ -94,7 +103,7 @@ export function HttpPanel() {
     toggleConnect: toggleWsConnect,
     sendMessage: sendWsMessage,
     disconnect: disconnectWs,
-  } = useWebSocketSession(url, headers);
+  } = useWebSocketSession(resolvedRequestUrl ?? "", headers);
 
   useEffect(() => {
     if (!isWebSocket) {
@@ -104,11 +113,12 @@ export function HttpPanel() {
 
   const setMethod = (value: HttpMethod) => {
     if (value === "WEBSOCKET" && !url.trim()) {
-      setEditor({ method: value, url: "wss://api.example.com/ws" });
+      setEditor({ method: value, url: "/ws" });
       return;
     }
     setEditor({ method: value });
   };
+  const setEnvironmentId = (value: string) => setEditor({ environmentId: value || null });
   const setUrl = (value: string) => setEditor({ url: value });
   const setParams = (value: HttpKvPair[]) => setEditor({ params: value });
   const setHeaders = (value: HttpKvPair[]) => setEditor({ headers: value });
@@ -153,6 +163,7 @@ export function HttpPanel() {
   };
 
   const handleSend = useCallback(async () => {
+    if (!resolvedRequestUrl) return;
     setSending(true);
     try {
       const enabledParams = params.filter((p) => p.enabled && p.key);
@@ -171,7 +182,7 @@ export function HttpPanel() {
       const trimmedAuthValue = authValue.trim();
       const config = {
         method,
-        url,
+        url: resolvedRequestUrl,
         headers: headerMap,
         query_params: queryParams,
         body: bodyType !== "Binary" ? body : null,
@@ -187,7 +198,8 @@ export function HttpPanel() {
       try {
         await recordSendHistory({
           method,
-          url,
+          url: resolvedRequestUrl,
+          environmentId,
           statusCode: result.status,
           responseTimeMs: result.time_ms,
           requestSize: body ? new TextEncoder().encode(body).length : 0,
@@ -213,7 +225,8 @@ export function HttpPanel() {
     }
   }, [
     method,
-    url,
+    resolvedRequestUrl,
+    environmentId,
     params,
     headers,
     body,
@@ -272,6 +285,11 @@ export function HttpPanel() {
   const tabs: ReqTab[] = ["params", "headers", "body", "auth", "scripts"];
   const bodyFill = !isWebSocket && activeTab === "body";
   const hasResponsePanel = !isWebSocket && responseSessions.length > 0;
+  const canSendRequest = Boolean(resolvedRequestUrl?.trim());
+  const environmentOptions = useMemo(
+    () => environments.map((env) => ({ value: env.id, label: env.name })),
+    [environments],
+  );
 
   const editorContent = (
     <div className={`http-panel${bodyFill ? " http-panel--body-fill" : ""}${isWebSocket ? " http-panel--ws" : ""}`}>
@@ -306,14 +324,24 @@ export function HttpPanel() {
             searchable={false}
             options={HTTP_METHOD_OPTIONS}
           />
+          <Select
+            className="env-select"
+            value={environmentId ?? ""}
+            onChange={setEnvironmentId}
+            searchable={false}
+            placeholder={t("protocol.environment.selectPlaceholder")}
+            options={environmentOptions}
+            disabled={environmentOptions.length === 0}
+          />
           <TextInput
             className="url-input"
             placeholder={
-              isWebSocket ? t("protocol.ws.urlPlaceholder") : t("protocol.http.urlPlaceholder")
+              isWebSocket ? t("protocol.ws.pathPlaceholder") : t("protocol.http.pathPlaceholder")
             }
             value={url}
             onChange={setUrl}
             disabled={isWebSocket && wsStatus === "connected"}
+            title={resolvedRequestUrl ?? undefined}
           />
           {isWebSocket ? (
             <>
@@ -329,7 +357,7 @@ export function HttpPanel() {
               <button
                 className={`btn ${wsStatus === "connected" ? "btn-danger" : "btn-primary"}`}
                 onClick={() => void toggleWsConnect()}
-                disabled={wsStatus === "connecting" || !url.trim()}
+                disabled={wsStatus === "connecting" || !canSendRequest}
               >
                 {wsStatus === "connected"
                   ? t("protocol.common.disconnect")
@@ -339,7 +367,11 @@ export function HttpPanel() {
               </button>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={() => void handleSend()} disabled={sending}>
+            <button
+              className="btn btn-primary"
+              onClick={() => void handleSend()}
+              disabled={sending || !canSendRequest}
+            >
               {sending ? t("protocol.common.sending") : t("protocol.common.send")}
             </button>
           )}
@@ -510,6 +542,7 @@ export function HttpPanel() {
             {bodyType === "JSON" ? (
               <div className="http-json-editor">
                 <CodeEditor
+                  key="http-json-body"
                   className="http-json-editor__cm"
                   language="json"
                   value={body}

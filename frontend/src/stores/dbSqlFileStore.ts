@@ -34,6 +34,8 @@ interface DbSqlFileState {
   updateFileSql: (id: string, sql: string) => void;
   updateFileBinding: (id: string, connId: string, database: string) => void;
   renameNode: (id: string, name: string) => boolean;
+  moveNode: (id: string, newParentId: string | null) => boolean;
+  canMoveNodeToParent: (id: string, newParentId: string | null) => boolean;
   deleteNode: (id: string) => void;
   getNode: (id: string) => DbSqlFileNode | undefined;
   replaceNodes: (nodes: DbSqlFileNode[]) => void;
@@ -215,6 +217,24 @@ function markDirtyIds(
   return [...next];
 }
 
+function isFolderDescendant(
+  nodes: DbSqlFileNode[],
+  folderId: string,
+  maybeAncestorId: string,
+): boolean {
+  if (folderId === maybeAncestorId) {
+    return true;
+  }
+  let current = nodes.find((node) => node.id === folderId);
+  while (current?.parentId) {
+    if (current.parentId === maybeAncestorId) {
+      return true;
+    }
+    current = nodes.find((node) => node.id === current!.parentId);
+  }
+  return false;
+}
+
 function commitNodesInMemory(
   set: (fn: (state: DbSqlFileState) => Partial<DbSqlFileState>) => void,
   _get: () => DbSqlFileState,
@@ -338,6 +358,53 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
       node.type === "file"
         ? [id, SQL_FILE_TREE_DIRTY]
         : [SQL_FILE_TREE_DIRTY];
+    commitNodesInMemory(set, get, nodes, dirtyIds);
+    return true;
+  },
+
+  canMoveNodeToParent: (id, newParentId) => {
+    const nodes = get().nodes;
+    const node = nodes.find((entry) => entry.id === id);
+    if (!node) {
+      return false;
+    }
+    if (node.parentId === newParentId) {
+      return false;
+    }
+    if (newParentId) {
+      const target = nodes.find((entry) => entry.id === newParentId);
+      if (!target || target.type !== "folder") {
+        return false;
+      }
+      if (node.type === "folder" && isFolderDescendant(nodes, newParentId, id)) {
+        return false;
+      }
+    }
+    return true;
+  },
+
+  moveNode: (id, newParentId) => {
+    if (!get().canMoveNodeToParent(id, newParentId)) {
+      return false;
+    }
+    const node = get().nodes.find((entry) => entry.id === id);
+    if (!node) {
+      return false;
+    }
+    const siblings = get().nodes.filter((entry) => entry.id !== id);
+    const nextName = uniqueName(siblings, newParentId, node.name, id);
+    const nodes = get().nodes.map((entry) =>
+      entry.id === id
+        ? {
+            ...entry,
+            parentId: newParentId,
+            name: nextName,
+            updatedAt: Date.now(),
+          }
+        : entry,
+    );
+    const dirtyIds =
+      node.type === "file" ? [id, SQL_FILE_TREE_DIRTY] : [SQL_FILE_TREE_DIRTY];
     commitNodesInMemory(set, get, nodes, dirtyIds);
     return true;
   },
