@@ -14,8 +14,6 @@
         "validate-signing": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/validate-signing-key.ps1"
     },
     "dependencies": {
-        "@antv/g": "^6.3.1",
-        "@antv/g6": "^5.1.1",
         "@assistant-ui/react": "^0.14.23",
         "@assistant-ui/react-markdown": "^0.14.4",
         "@assistant-ui/react-mcp": "^0.0.15",
@@ -63,7 +61,6 @@
         "react-router-dom": "^7.15.1",
         "rehype-highlight": "^7.0.2",
         "remark-gfm": "^4.0.1",
-        "simple-mind-map": "^0.14.0-fix.2",
         "spark-md5": "^3.0.2",
         "sql-formatter": "^15.8.2",
         "standardwebhooks": "^1.0.0",

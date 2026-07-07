@@ -11,7 +11,6 @@ import { SchemaSidebarSection } from "../schema/SchemaSidebarSection";
 
 interface SqlQueryFilePanelProps {
   onOpenFile: (file: DbSqlFileNode) => void;
-  onOpenTreeFile: (file: DbSqlFileNode) => void;
   section?: SchemaSidebarSectionConfig;
 }
 
@@ -23,7 +22,6 @@ function FolderTree({
   expandedIds,
   onToggleFolder,
   onOpenFile,
-  onOpenTreeFile,
   onContextMenu,
   activeFileId,
 }: {
@@ -34,7 +32,6 @@ function FolderTree({
   expandedIds: Set<string>;
   onToggleFolder: (id: string) => void;
   onOpenFile: (file: DbSqlFileNode) => void;
-  onOpenTreeFile: (file: DbSqlFileNode) => void;
   onContextMenu: (node: DbSqlFileNode, event: ReactMouseEvent) => void;
   activeFileId?: string | null;
 }) {
@@ -104,7 +101,6 @@ function FolderTree({
                   expandedIds={expandedIds}
                   onToggleFolder={onToggleFolder}
                   onOpenFile={onOpenFile}
-                  onOpenTreeFile={onOpenTreeFile}
                   onContextMenu={onContextMenu}
                   activeFileId={activeFileId}
                 />
@@ -113,35 +109,25 @@ function FolderTree({
           );
         }
 
-        const isTree = node.type === "tree";
         const isActive = activeFileId === node.id;
 
         return (
           <div
             key={node.id}
-            className={`sql-file-tree-node sql-file-tree-node--file${isTree ? " sql-file-tree-node--tree" : ""}${isActive ? " sql-file-tree-node--active" : ""}`}
+            className={`sql-file-tree-node sql-file-tree-node--file${isActive ? " sql-file-tree-node--active" : ""}`}
             style={{ paddingLeft: indent }}
-            onClick={() => (isTree ? onOpenTreeFile(node) : onOpenFile(node))}
+            onClick={() => onOpenFile(node)}
             onContextMenu={(event) => onContextMenu(node, event)}
           >
             <span className="tree-arrow tree-leaf">
               <span className="tree-dot" />
             </span>
             <span className="tree-icon">
-              {isTree ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="6" cy="17" r="2" />
-                  <circle cx="18" cy="17" r="2" />
-                  <path d="M12 7v4M12 11l-5 4M12 11l5 4" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                  <path d="M14 2v6h6" />
-                  <path d="M8 13h8M8 17h5" />
-                </svg>
-              )}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                <path d="M14 2v6h6" />
+                <path d="M8 13h8M8 17h5" />
+              </svg>
             </span>
             <span className="tree-label">{node.name}</span>
           </div>
@@ -151,12 +137,11 @@ function FolderTree({
   );
 }
 
-export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQueryFilePanelProps) {
+export function SqlQueryFilePanel({ onOpenFile, section }: SqlQueryFilePanelProps) {
   const { t } = useI18n();
   const nodes = useDbSqlFileStore((s) => s.nodes);
   const addFolder = useDbSqlFileStore((s) => s.addFolder);
   const addFile = useDbSqlFileStore((s) => s.addFile);
-  const addTreeFile = useDbSqlFileStore((s) => s.addTreeFile);
   const renameNode = useDbSqlFileStore((s) => s.renameNode);
   const deleteNode = useDbSqlFileStore((s) => s.deleteNode);
   const [search, setSearch] = useState("");
@@ -201,14 +186,6 @@ export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQu
     [onOpenFile],
   );
 
-  const handleOpenTreeFile = useCallback(
-    (file: DbSqlFileNode) => {
-      setActiveFileId(file.id);
-      onOpenTreeFile(file);
-    },
-    [onOpenTreeFile],
-  );
-
   const handleCreateFolder = useCallback(async (parentId: string | null = null) => {
     const name = await quickInput({
       title: t("database.queryFiles.newFolderTitle"),
@@ -237,23 +214,9 @@ export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQu
     handleOpenFile(file);
   }, [addFile, handleOpenFile, t]);
 
-  const handleCreateTreeFile = useCallback(async (parentId: string | null = null) => {
-    const name = await quickInput({
-      title: t("database.queryFiles.newTreeFileTitle"),
-      placeholder: t("database.queryFiles.treeFileNamePlaceholder"),
-      defaultValue: t("database.queryFiles.defaultTreeFileName"),
-      validate: (value) => (value.trim() ? null : t("database.queryFiles.nameRequired")),
-    });
-    if (!name) {
-      return;
-    }
-    const file = addTreeFile(parentId, name.trim());
-    handleOpenTreeFile(file);
-  }, [addTreeFile, handleOpenTreeFile, t]);
-
   const handleRename = useCallback(
     async (node: DbSqlFileNode) => {
-      const defaultValue = node.name.replace(/\.sql$/i, "").replace(/\.tree$/i, "");
+      const defaultValue = node.name.replace(/\.sql$/i, "");
       const name = await quickInput({
         title: t("database.queryFiles.renameTitle"),
         defaultValue,
@@ -283,14 +246,6 @@ export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQu
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
           <path d="M14 2v6h6M12 11v6M9 14h6" />
-        </svg>
-      </Button>
-      <Button variant="icon" title={t("database.queryFiles.newTreeFile")} onClick={() => void handleCreateTreeFile()}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-          <circle cx="12" cy="5" r="2" />
-          <circle cx="6" cy="17" r="2" />
-          <circle cx="18" cy="17" r="2" />
-          <path d="M12 7v4M12 11l-5 4M12 11l5 4" />
         </svg>
       </Button>
     </div>
@@ -323,7 +278,6 @@ export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQu
               expandedIds={expandedIds}
               onToggleFolder={toggleFolder}
               onOpenFile={handleOpenFile}
-              onOpenTreeFile={handleOpenTreeFile}
               onContextMenu={(node, event) => {
                 event.preventDefault();
                 setCtxMenu({ x: event.clientX, y: event.clientY, node });
@@ -352,11 +306,6 @@ export function SqlQueryFilePanel({ onOpenFile, onOpenTreeFile, section }: SqlQu
                           id: "new-file",
                           label: t("database.queryFiles.newFile"),
                           onClick: () => void handleCreateFile(ctxMenu.node!.id),
-                        },
-                        {
-                          id: "new-tree-file",
-                          label: t("database.queryFiles.newTreeFile"),
-                          onClick: () => void handleCreateTreeFile(ctxMenu.node!.id),
                         },
                         {
                           id: "new-folder",
