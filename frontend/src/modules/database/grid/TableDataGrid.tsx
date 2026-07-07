@@ -20,10 +20,11 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
 import { Button } from "../../../components/ui/Button";
+import { WarnAlert } from "../../../components/ui/overlay/WarnAlert";
 import { useI18n } from "../../../i18n";
-import { type DbColumnMeta } from "../api";
+import { type DbColumnMeta, type DbConnectionConfig } from "../api";
 import { resolvePreviewRowKey, type SortState } from "../workspace/dbWorkspaceState";
-import { getFilterColumnNames, buildTablePreviewSql } from "./tablePreviewFilter";
+import { getFilterColumnNames, buildTablePreviewSql, buildTablePreviewSqlWithRelations } from "./tablePreviewFilter";
 import { showToast } from "../../../stores/toastStore";
 import {
   detectCellEditorKind,
@@ -34,6 +35,21 @@ import {
 } from "../cell_editor";
 import { TableDataGridFilterPopover } from "./TableDataGridOverlays";
 import { TableDataGridCellOverlay } from "./TableDataGridCellOverlay";
+import { TableColumnRelationDialog } from "./TableColumnRelationDialog";
+import {
+  formatColumnRelationLabel,
+  buildRelationDisplayColumnLabel,
+  expandColumnsWithRelations,
+  isRelationDisplayColumn,
+  relationDisplayColumnId,
+  relationSourceColumn,
+  type TableColumnRelation,
+} from "./tableColumnRelation";
+import {
+  fetchColumnRelationLookups,
+  normalizeRelationLookupKey,
+} from "./columnRelationLookup";
+import type { TableSchema } from "../types";
 import { TableCellPreviewSubWindow } from "./TableCellPreviewSubWindow";
 import {
   buildCellEditOverlay,
@@ -45,6 +61,8 @@ import {
 import {
   ColumnFilterButton,
   ColumnHeaderLabel,
+  ColumnRelationButton,
+  ColumnRelationDisplayActions,
   ColumnSortIndicator,
   ColumnVisibilitySidebar,
   TableDataGridCellContextMenu,
@@ -169,6 +187,15 @@ export type TableDataGridProps = {
   /** 快速新建以当前表为上下文的 SQL 查询 */
   onCreateTableQuery?: () => void;
   canCreateTableQuery?: boolean;
+  /** 可选关联目标表（表预览模式，用于列头关联配置） */
+  relationTables?: TableSchema[];
+  /** 关联查询所用连接（表预览模式） */
+  relationConnection?: DbConnectionConfig;
+  /** 关联查询所用数据库名（表预览模式） */
+  relationDatabase?: string;
+  /** 列关联配置（列名 -> 目标表.字段） */
+  columnRelations?: Record<string, TableColumnRelation>;
+  onColumnRelationsChange?: (relations: Record<string, TableColumnRelation>) => void;
 };
 
 export const TableDataGrid = memo(function TableDataGrid({
@@ -211,6 +238,11 @@ export const TableDataGrid = memo(function TableDataGrid({
   canOpenTableDesign = true,
   onCreateTableQuery,
   canCreateTableQuery = true,
+  relationTables,
+  relationConnection,
+  relationDatabase,
+  columnRelations: columnRelationsProp,
+  onColumnRelationsChange,
 }: TableDataGridProps) {
   const { t } = useI18n();
   const effectiveColumns = useMemo(() => {
@@ -265,6 +297,30 @@ export const TableDataGrid = memo(function TableDataGrid({
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterLockedField, setFilterLockedField] = useState<string | null>(null);
   const [filterAnchorRect, setFilterAnchorRect] = useState<DOMRect | null>(null);
+  const [relationDialogColumn, setRelationDialogColumn] = useState<string | null>(null);
+  const [relationDeleteSourceColumn, setRelationDeleteSourceColumn] = useState<string | null>(null);
+  const [relationLookupMaps, setRelationLookupMaps] = useState<
+    Record<string, Map<string, unknown>>
+  >({});
+  const [localColumnRelations, setLocalColumnRelations] = useState<
+    Record<string, TableColumnRelation>
+  >({});
+  const isColumnRelationsControlled = onColumnRelationsChange != null;
+  const columnRelations = isColumnRelationsControlled
+    ? (columnRelationsProp ?? {})
+    : localColumnRelations;
+  const setColumnRelations = useCallback(
+    (updater: (prev: Record<string, TableColumnRelation>) => Record<string, TableColumnRelation>) => {
+      const next = updater(columnRelations);
+      if (isColumnRelationsControlled) {
+        onColumnRelationsChange!(next);
+        return;
+      }
+      setLocalColumnRelations(next);
+    },
+    [columnRelations, isColumnRelationsControlled, onColumnRelationsChange],
+  );
+  const canConfigureRelation = Boolean(relationTables && relationTables.length > 0);
   const [copySqlHint, setCopySqlHint] = useState(false);
   const copySqlHintTimerRef = useRef<number | null>(null);
   const cellMenuOpenRef = useRef<(state: TableDataGridCellMenuState) => void>(() => {});
@@ -403,7 +459,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   useEffect(() => {
     setHiddenColumns((prev) => {
       if (prev.size === 0) return prev;
-      const valid = new Set(effectiveColumns);
+      const valid = new Set(transposed ? effectiveColumns : expandColumnsWithRelations(effectiveColumns, columnRelations));
       let changed = false;
       const next = new Set<string>();
       for (const name of prev) {
@@ -415,7 +471,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return changed ? next : prev;
     });
-  }, [effectiveColumns]);
+  }, [effectiveColumns, columnRelations, transposed]);
 
   const pkCols = useMemo(() => (columnMeta ?? []).filter((c) => c.isPk), [columnMeta]);
   const pkCount = pkCols.length;
@@ -467,17 +523,197 @@ export const TableDataGrid = memo(function TableDataGrid({
     setFilterOpen(true);
   }, []);
 
+  const openRelationDialog = useCallback((columnName: string) => {
+    setRelationDialogColumn(columnName);
+  }, []);
+
+  const handleRelationConfirm = useCallback(
+    (relation: TableColumnRelation | null) => {
+      if (!relationDialogColumn) return;
+      setColumnRelations((prev) => {
+        const next = { ...prev };
+        if (relation) {
+          next[relationDialogColumn] = relation;
+        } else {
+          delete next[relationDialogColumn];
+        }
+        return next;
+      });
+      setRelationDialogColumn(null);
+    },
+    [relationDialogColumn, setColumnRelations],
+  );
+
+  const handleRelationDeleteConfirm = useCallback(() => {
+    if (!relationDeleteSourceColumn) return;
+    setColumnRelations((prev) => {
+      const next = { ...prev };
+      delete next[relationDeleteSourceColumn];
+      return next;
+    });
+    setRelationDeleteSourceColumn(null);
+  }, [relationDeleteSourceColumn, setColumnRelations]);
+
   const canCopyPreviewSql = Boolean(dbType && tableName);
 
+  const gridColumns = useMemo(() => {
+    if (transposed) return effectiveColumns;
+    return expandColumnsWithRelations(effectiveColumns, columnRelations);
+  }, [effectiveColumns, columnRelations, transposed]);
+
   const visibleColumns = useMemo(
-    () => (hiddenColumns.size === 0 ? effectiveColumns : effectiveColumns.filter((c) => !hiddenColumns.has(c))),
-    [effectiveColumns, hiddenColumns],
+    () => {
+      if (hiddenColumns.size === 0) return gridColumns;
+      return gridColumns.filter((column) => {
+        if (hiddenColumns.has(column)) return false;
+        if (isRelationDisplayColumn(column)) {
+          const sourceColumn = relationSourceColumn(column);
+          return sourceColumn ? !hiddenColumns.has(sourceColumn) : true;
+        }
+        return true;
+      });
+    },
+    [gridColumns, hiddenColumns],
+  );
+
+  const relationHighlightColumnIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const sourceColumn of Object.keys(columnRelations)) {
+      ids.add(sourceColumn);
+      ids.add(relationDisplayColumnId(sourceColumn));
+    }
+    return ids;
+  }, [columnRelations]);
+
+  const sidebarColumns = transposed ? effectiveColumns : gridColumns;
+
+  const sidebarColumnLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const column of sidebarColumns) {
+      if (isRelationDisplayColumn(column)) {
+        const sourceColumn = relationSourceColumn(column);
+        const relation = sourceColumn ? columnRelations[sourceColumn] : undefined;
+        const relatedTable = relation
+          ? relationTables?.find((table) => table.name === relation.tableName)
+          : undefined;
+        labels[column] = relation
+          ? buildRelationDisplayColumnLabel(relation, relatedTable)
+          : column;
+      } else {
+        labels[column] = column;
+      }
+    }
+    return labels;
+  }, [sidebarColumns, columnRelations, relationTables]);
+
+  const isSidebarColumnVisible = useCallback(
+    (columnName: string) => {
+      if (hiddenColumns.has(columnName)) return false;
+      if (isRelationDisplayColumn(columnName)) {
+        const sourceColumn = relationSourceColumn(columnName);
+        return sourceColumn ? !hiddenColumns.has(sourceColumn) : true;
+      }
+      return true;
+    },
+    [hiddenColumns],
+  );
+
+  const sidebarColumnItemClassName = useCallback(
+    (columnName: string) => {
+      if (isRelationDisplayColumn(columnName)) {
+        return "db-col-visibility-popover-item--relation-display";
+      }
+      if (columnRelations[columnName]) {
+        return "db-col-visibility-popover-item--relation";
+      }
+      return undefined;
+    },
+    [columnRelations],
+  );
+
+  const rowsWithRelationDisplay = useMemo(() => {
+    if (transposed || Object.keys(columnRelations).length === 0) return rows;
+    return rows.map((row) => {
+      const extra: Record<string, unknown> = {};
+      for (const sourceColumn of Object.keys(columnRelations)) {
+        const displayColumnId = relationDisplayColumnId(sourceColumn);
+        const lookupMap = relationLookupMaps[displayColumnId];
+        const sourceValue = row[sourceColumn];
+        if (sourceValue == null || sourceValue === "") {
+          extra[displayColumnId] = null;
+          continue;
+        }
+        extra[displayColumnId] =
+          lookupMap?.get(normalizeRelationLookupKey(sourceValue)) ?? null;
+      }
+      return { ...row, ...extra };
+    });
+  }, [rows, columnRelations, relationLookupMaps, transposed]);
+
+  useEffect(() => {
+    if (
+      transposed ||
+      !relationConnection ||
+      !relationDatabase ||
+      !dbType ||
+      Object.keys(columnRelations).length === 0
+    ) {
+      setRelationLookupMaps({});
+      return;
+    }
+
+    let cancelled = false;
+    void fetchColumnRelationLookups(
+      relationConnection,
+      relationDatabase,
+      dbType,
+      columnRelations,
+      relationTables,
+      rows,
+    ).then((maps) => {
+      if (!cancelled) {
+        setRelationLookupMaps(maps);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    transposed,
+    relationConnection,
+    relationDatabase,
+    dbType,
+    columnRelations,
+    relationTables,
+    rows,
+  ]);
+
+  const previewGridColumns = useMemo(
+    () => visibleColumns.filter((column) => !isRelationDisplayColumn(column) || columnRelations[relationSourceColumn(column) ?? ""]),
+    [visibleColumns, columnRelations],
   );
 
   const previewSql = useMemo(() => {
     if (!canCopyPreviewSql || !dbType || !tableName) return "";
+    const hasRelationDisplayColumns = previewGridColumns.some((column) =>
+      isRelationDisplayColumn(column),
+    );
+    if (hasRelationDisplayColumns) {
+      return buildTablePreviewSqlWithRelations({
+        dbType,
+        tableName,
+        filter,
+        sort,
+        page,
+        pageSize,
+        columnRelations,
+        relationTables,
+        visibleGridColumns: previewGridColumns,
+      });
+    }
     const allColumnsVisible =
-      visibleColumns.length === 0 || visibleColumns.length >= effectiveColumns.length;
+      previewGridColumns.length === 0 || previewGridColumns.length >= effectiveColumns.length;
     return buildTablePreviewSql({
       dbType,
       tableName,
@@ -485,7 +721,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       sort,
       page,
       pageSize,
-      selectColumns: allColumnsVisible ? undefined : visibleColumns,
+      selectColumns: allColumnsVisible ? undefined : previewGridColumns,
     });
   }, [
     canCopyPreviewSql,
@@ -494,9 +730,11 @@ export const TableDataGrid = memo(function TableDataGrid({
     filter,
     page,
     pageSize,
+    previewGridColumns,
+    columnRelations,
+    relationTables,
     sort,
     tableName,
-    visibleColumns,
   ]);
 
   const handleCopyPreviewSql = useCallback(async () => {
@@ -550,16 +788,16 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const transposedData = useMemo(() => {
     if (!transposed) return null;
-    return transposeGridData(visibleColumns, rows, page, pageSize, columnMeta);
-  }, [transposed, visibleColumns, rows, page, pageSize, columnMeta]);
+    return transposeGridData(visibleColumns, rowsWithRelationDisplay, page, pageSize, columnMeta);
+  }, [transposed, visibleColumns, rowsWithRelationDisplay, page, pageSize, columnMeta]);
 
   const transposedDirty = useMemo(() => {
     if (!transposed) return null;
-    return transposeDirtyState(rows, columnMeta, dirtyRowKeys, cellOverrides);
-  }, [transposed, rows, columnMeta, dirtyRowKeys, cellOverrides]);
+    return transposeDirtyState(rowsWithRelationDisplay, columnMeta, dirtyRowKeys, cellOverrides);
+  }, [transposed, rowsWithRelationDisplay, columnMeta, dirtyRowKeys, cellOverrides]);
 
   const displayColumns = transposed ? transposedData!.columns : visibleColumns;
-  const displayRows = transposed ? transposedData!.rows : rows;
+  const displayRows = transposed ? transposedData!.rows : rowsWithRelationDisplay;
   const displayDirtyRowKeys = transposed ? transposedDirty!.dirtyRowKeys : dirtyRowKeys;
   const displayCellOverrides = transposed ? transposedDirty!.cellOverrides : cellOverrides;
 
@@ -724,8 +962,18 @@ export const TableDataGrid = memo(function TableDataGrid({
     () => {
       const defs: ColumnDef<Record<string, unknown>>[] = displayColumns.map((col) => {
         const isFieldCol = transposed && col === TRANSPOSE_FIELD_COL;
+        const isRelationDisplayCol = !transposed && isRelationDisplayColumn(col);
+        const relationSource = isRelationDisplayCol ? relationSourceColumn(col) : null;
+        const sourceRelation = relationSource ? columnRelations[relationSource] : undefined;
+        const relatedTable = sourceRelation
+          ? relationTables?.find((table) => table.name === sourceRelation.tableName)
+          : undefined;
+        const relationDisplayLabel = sourceRelation
+          ? buildRelationDisplayColumnLabel(sourceRelation, relatedTable)
+          : col;
         const rowHeaderIndex = transposed ? parseInt(col.replace("__row__", ""), 10) : -1;
-        const headerMeta = !isFieldCol && !transposed ? columnMetaMap?.[col] : undefined;
+        const headerMeta =
+          !isFieldCol && !transposed && !isRelationDisplayCol ? columnMetaMap?.[col] : undefined;
         return {
           id: col,
           accessorFn: (row) => row[col],
@@ -742,7 +990,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             }
             return (
               <ColumnHeaderLabel
-                label={col}
+                label={isRelationDisplayCol ? relationDisplayLabel : col}
                 meta={headerMeta}
                 t={t}
               />
@@ -775,7 +1023,9 @@ export const TableDataGrid = memo(function TableDataGrid({
             }
             const colMetaForCell = transposed
               ? columnMetaMap?.[String(row.original[TRANSPOSE_FIELD_COL] ?? "")]
-              : columnMetaMap?.[column.id];
+              : isRelationDisplayCol
+                ? undefined
+                : columnMetaMap?.[column.id];
             const rowKey = transposed
               ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
               : resolvePreviewRowKey(row.original, pkCols);
@@ -794,11 +1044,12 @@ export const TableDataGrid = memo(function TableDataGrid({
                 pkCount={pkCount}
                 autoIncrementPlaceholder={autoIncrementPlaceholder}
                 t={t}
+                className={isRelationDisplayCol ? "db-data-table-cell--relation-display" : undefined}
               />
             );
           },
           minSize: isFieldCol ? 80 : COLUMN_MIN_WIDTH,
-          size: isFieldCol ? 108 : 120,
+          size: isFieldCol ? 108 : isRelationDisplayCol ? 140 : 120,
         };
       });
       if (!transposed) {
@@ -817,7 +1068,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return defs;
     },
-    [displayColumns, transposed, columnMetaMap, t, page, pageSize, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
+    [displayColumns, transposed, columnMetaMap, columnRelations, relationTables, t, page, pageSize, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
   );
 
   const table = useReactTable({
@@ -1000,7 +1251,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     }
   }, [columnSizing, displayColumns, totalTableWidth, containerWidth, fillDelta, lastColumnId, resolveColumnWidth]);
 
-  const allColumnsHidden = effectiveColumns.length > 0 && visibleColumns.length === 0;
+  const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
   const tableRows = table.getRowModel().rows;
   const leafColumnCount = table.getAllLeafColumns().length;
 
@@ -1237,10 +1488,16 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const handleColumnNavigate = useCallback(
     (columnName: string) => {
-      if (hiddenColumns.has(columnName)) {
+      if (!isSidebarColumnVisible(columnName)) {
         setHiddenColumns((prev) => {
           const next = new Set(prev);
           next.delete(columnName);
+          if (isRelationDisplayColumn(columnName)) {
+            const sourceColumn = relationSourceColumn(columnName);
+            if (sourceColumn) {
+              next.delete(sourceColumn);
+            }
+          }
           return next;
         });
         pendingColumnFocusRef.current = columnName;
@@ -1248,17 +1505,17 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       scrollAndHighlightColumn(columnName);
     },
-    [hiddenColumns, setHiddenColumns, scrollAndHighlightColumn],
+    [isSidebarColumnVisible, scrollAndHighlightColumn, setHiddenColumns],
   );
 
   useLayoutEffect(() => {
     const pending = pendingColumnFocusRef.current;
-    if (!pending || hiddenColumns.has(pending)) {
+    if (!pending || !isSidebarColumnVisible(pending)) {
       return;
     }
     pendingColumnFocusRef.current = null;
     scrollAndHighlightColumn(pending);
-  }, [visibleColumns, hiddenColumns, scrollAndHighlightColumn]);
+  }, [visibleColumns, hiddenColumns, isSidebarColumnVisible, scrollAndHighlightColumn]);
 
   const handleSelectAll = useCallback(() => {
     const maxRow = tableRows.length - 1;
@@ -1364,6 +1621,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       leafColumnCount,
       columnSizedIds,
       columnLayout,
+      relationHighlightColumnIds,
     };
   }, [
     transposed,
@@ -1379,6 +1637,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     leafColumnCount,
     columnSizedIds,
     columnLayout,
+    relationHighlightColumnIds,
   ]);
 
   const resolveBodyCellContext = useCallback(
@@ -1581,12 +1840,15 @@ export const TableDataGrid = memo(function TableDataGrid({
     <div className="db-data-table-body">
       {!colSidebarCollapsed ? (
         <ColumnVisibilitySidebar
-          columns={effectiveColumns}
+          columns={sidebarColumns}
           columnMetaMap={columnMetaMap}
           hiddenColumns={hiddenColumns}
           onChange={setHiddenColumns}
           activeColumn={navigatedColumnId}
           onColumnNavigate={handleColumnNavigate}
+          columnLabels={sidebarColumnLabels}
+          isColumnVisible={isSidebarColumnVisible}
+          columnItemClassName={sidebarColumnItemClassName}
         />
       ) : null}
       <div className="db-data-table-main">
@@ -1619,8 +1881,10 @@ export const TableDataGrid = memo(function TableDataGrid({
                 const baseSize = header.getSize();
                 const colId = header.column.id;
                 const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;
+                const isRelationDisplayCol = !transposed && isRelationDisplayColumn(colId);
                 const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
-                const canSort = enableSort && !transposed && colId !== ROW_NUM_COL_ID;
+                const canSort =
+                  enableSort && !transposed && colId !== ROW_NUM_COL_ID && !isRelationDisplayCol;
                 const sortActive = canSort && sort?.column === colId;
                 const sortDirection = sortActive ? sort!.direction : null;
                 const sortClass = sortActive
@@ -1629,26 +1893,50 @@ export const TableDataGrid = memo(function TableDataGrid({
                     : " db-data-table-th--sort-desc"
                   : "";
                 const filterClass =
-                  canFilter && !transposed && filterColumnNames.has(colId)
+                  canFilter && !transposed && !isRelationDisplayCol && filterColumnNames.has(colId)
                     ? " db-data-table-th--filtered"
                     : "";
-                const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
-                const colMeta = !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID
-                  ? columnMetaMap?.[colId]
+                const relationSourceCol = isRelationDisplayCol ? relationSourceColumn(colId) : colId;
+                const relation =
+                  !transposed && colId !== ROW_NUM_COL_ID && !isFieldCol && !isRelationDisplayCol
+                    ? columnRelations[colId]
+                    : undefined;
+                const relatedTableForRelation = relation
+                  ? relationTables?.find((table) => table.name === relation.tableName)
                   : undefined;
+                const relationActive = Boolean(relation);
+                const relationLabel = formatColumnRelationLabel(relation, relatedTableForRelation);
+                const thSelected = isHeaderInColumnSelection(headerColIdx, cellRange, tableRows.length);
+                const colMeta =
+                  !transposed && !isFieldCol && colId !== ROW_NUM_COL_ID && !isRelationDisplayCol
+                    ? columnMetaMap?.[colId]
+                    : undefined;
+                const relationDisplayHeader =
+                  isRelationDisplayCol && relationSourceCol
+                    ? (() => {
+                        const sourceRelation = columnRelations[relationSourceCol];
+                        if (!sourceRelation) return colId;
+                        const relatedTable = relationTables?.find(
+                          (table) => table.name === sourceRelation.tableName,
+                        );
+                        return buildRelationDisplayColumnLabel(sourceRelation, relatedTable);
+                      })()
+                    : null;
                 const headerTitle = isSelectAllHeader
                   ? t("database.results.selectAll")
                   : colMeta
                     ? buildColumnHeaderTooltip(colMeta, colId, t)
-                    : colId !== ROW_NUM_COL_ID
-                      ? colId
-                      : undefined;
+                    : relationDisplayHeader
+                      ? relationDisplayHeader
+                      : colId !== ROW_NUM_COL_ID
+                        ? colId
+                        : undefined;
                 return (
                 <th
                   key={header.id}
                   data-col-id={colId}
                   style={buildColumnCellStyle(colId, baseSize, lastColumnId, fillDelta)}
-                  className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}`}
+                  className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}${relationActive ? " db-data-table-th--relation" : ""}${isRelationDisplayCol ? " db-data-table-th--relation-display" : ""}`}
                   onClick={
                     isSelectAllHeader
                       ? handleSelectAll
@@ -1661,7 +1949,11 @@ export const TableDataGrid = memo(function TableDataGrid({
                       <span className="db-data-table-th-label">
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </span>
-                      {(canSort || (canFilter && colId !== ROW_NUM_COL_ID && !transposed)) && (
+                      {(canSort ||
+                        (canFilter &&
+                          colId !== ROW_NUM_COL_ID &&
+                          !transposed &&
+                          !isRelationDisplayCol)) && (
                         <span className="db-data-table-th-actions">
                           {canSort && (
                             <ColumnSortIndicator
@@ -1674,7 +1966,10 @@ export const TableDataGrid = memo(function TableDataGrid({
                               }}
                             />
                           )}
-                          {canFilter && colId !== ROW_NUM_COL_ID && !transposed && (
+                          {canFilter &&
+                            colId !== ROW_NUM_COL_ID &&
+                            !transposed &&
+                            !isRelationDisplayCol && (
                             <ColumnFilterButton
                               columnName={colId}
                               active={filterColumnNames.has(colId)}
@@ -1683,6 +1978,28 @@ export const TableDataGrid = memo(function TableDataGrid({
                           )}
                         </span>
                       )}
+                      {canConfigureRelation &&
+                      colId !== ROW_NUM_COL_ID &&
+                      !transposed &&
+                      !isFieldCol &&
+                      !isRelationDisplayCol ? (
+                        <span className="db-data-table-th-relation">
+                          <ColumnRelationButton
+                            columnName={colId}
+                            active={relationActive}
+                            relationLabel={relationLabel}
+                            onOpen={openRelationDialog}
+                          />
+                        </span>
+                      ) : null}
+                      {isRelationDisplayCol && relationSourceCol ? (
+                        <span className="db-data-table-th-relation-display-actions-wrap">
+                          <ColumnRelationDisplayActions
+                            onEdit={() => openRelationDialog(relationSourceCol)}
+                            onDelete={() => setRelationDeleteSourceColumn(relationSourceCol)}
+                          />
+                        </span>
+                      ) : null}
                     </span>
                   )}
                   {header.column.getCanResize() && (
@@ -1716,7 +2033,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         <TableDataGridVirtualBody
           virtualPaddingTop={virtualPaddingTop}
           virtualPaddingBottom={virtualPaddingBottom}
-          leafColumnCount={leafColumnCount}
+          visibleCellCount={columnLayout.visibleCellCount}
           virtualRowIndices={virtualRowIndices}
           tableRows={tableRows}
           buildRowProps={buildGridBodyRowProps}
@@ -2009,6 +2326,27 @@ export const TableDataGrid = memo(function TableDataGrid({
         onClose={() => setFilterOpen(false)}
       />
     )}
+    {relationDialogColumn && relationTables && relationTables.length > 0 ? (
+      <TableColumnRelationDialog
+        open
+        onClose={() => setRelationDialogColumn(null)}
+        columnName={relationDialogColumn}
+        tables={relationTables}
+        initial={columnRelations[relationDialogColumn] ?? null}
+        onConfirm={handleRelationConfirm}
+      />
+    ) : null}
+    <WarnAlert
+      open={relationDeleteSourceColumn != null}
+      title={t("database.results.relationDeleteTitle")}
+      message={t("database.results.relationDeleteMessage", {
+        column: relationDeleteSourceColumn ?? "",
+      })}
+      confirmLabel={t("common.delete")}
+      cancelLabel={t("common.cancel")}
+      onConfirm={handleRelationDeleteConfirm}
+      onClose={() => setRelationDeleteSourceColumn(null)}
+    />
     <TableCellPreviewSubWindow
       open={cellPreviewState != null}
       preview={cellPreviewState}

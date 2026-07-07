@@ -1,6 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CodeEditor } from "../../components/ui/CodeEditor";
-import { ContentPreviewView } from "../../components/ui/ContentPreviewView";
 import { ModuleEmptyState } from "../../components/ui/ModuleEmptyState";
 import {
   ScopedSearch,
@@ -89,6 +88,72 @@ interface SessionBodyProps {
   handleFormatJson: () => void;
 }
 
+function HttpResponseJsonModeToolbar({
+  jsonViewMode,
+  setJsonViewMode,
+  treeTabDisabled,
+  bodyPreview,
+  canFormatLargeJson,
+  formatting,
+  handleFormatJson,
+}: Pick<
+  SessionBodyProps,
+  | "jsonViewMode"
+  | "setJsonViewMode"
+  | "bodyPreview"
+  | "canFormatLargeJson"
+  | "formatting"
+  | "handleFormatJson"
+> & { treeTabDisabled: boolean }) {
+  const { t } = useI18n();
+  if (!isJsonPreview(bodyPreview)) return null;
+
+  return (
+    <div
+      className="content-preview-text-toolbar http-response-summary-toolbar"
+      role="group"
+      aria-label={t("contentPreview.textMode")}
+    >
+        <button
+          type="button"
+          className={cn(
+            "content-preview-text-mode-btn",
+            jsonViewMode === "structured" && "is-active",
+            treeTabDisabled && "is-disabled",
+          )}
+          aria-pressed={jsonViewMode === "structured"}
+          disabled={treeTabDisabled}
+          title={treeTabDisabled ? t("protocol.http.largeJsonTreeDisabled") : undefined}
+          onClick={() => setJsonViewMode("structured")}
+        >
+          {t("contentPreview.modeJson")}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "content-preview-text-mode-btn",
+            jsonViewMode === "source" && "is-active",
+          )}
+          aria-pressed={jsonViewMode === "source"}
+          onClick={() => setJsonViewMode("source")}
+        >
+          {t("contentPreview.modeCode")}
+        </button>
+        {(bodyPreview?.kind === "json-source" || bodyPreview?.kind === "json-large") &&
+        canFormatLargeJson ? (
+          <button
+            type="button"
+            className="content-preview-text-mode-btn http-response-format-json-btn"
+            disabled={formatting}
+            onClick={handleFormatJson}
+          >
+            {formatting ? t("protocol.http.formattingJson") : t("protocol.http.formatJson")}
+          </button>
+        ) : null}
+    </div>
+  );
+}
+
 const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
   session,
   isActive,
@@ -110,9 +175,29 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
   const { t } = useI18n();
   const { response } = session;
 
+  const wrapJsonPreviewPanel = useCallback(
+    (content: ReactNode) => (
+      <div className="content-preview-view content-preview-view--embedded http-response-session__body-preview">
+        {content}
+      </div>
+    ),
+    [],
+  );
+
+  const renderJsonSourceEditor = (value: string) =>
+    wrapJsonPreviewPanel(
+      <div className="content-preview-code">
+        <ResponseCodeEditor
+          className="content-preview-code-editor"
+          language="json"
+          value={value}
+        />
+      </div>,
+    );
+
   const renderLargeJsonSourceHint = () => {
     if (bodyPreview?.kind !== "json-source") return null;
-    return (
+    return wrapJsonPreviewPanel(
       <div className="http-response-large-json">
         <p className="http-response-large-json__message">
           {t("protocol.http.largeJsonSourceHint", {
@@ -142,35 +227,25 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
         {formatError ? (
           <p className="http-response-large-json__error">{formatError}</p>
         ) : null}
-      </div>
+      </div>,
     );
   };
 
   const renderVirtualJsonBody = () => {
     if (virtualJsonParsing) {
-      return (
-        <div className="content-preview-view content-preview-view--embedded http-response-session__body-preview">
-          <ModuleEmptyState preset="folder" title={t("protocol.http.parsingJson")} />
-        </div>
+      return wrapJsonPreviewPanel(
+        <ModuleEmptyState preset="folder" title={t("protocol.http.parsingJson")} />,
       );
     }
     if (virtualJsonParseFailed || !virtualJsonValue) {
-      return (
-        <div className="http-response-session__body-editor">
-          <ResponseCodeEditor
-            className="http-response-session__body-cm"
-            language="json"
-            value={bodyPreview?.kind === "json-large" ? bodyPreview.body : ""}
-          />
-        </div>
+      return renderJsonSourceEditor(
+        bodyPreview?.kind === "json-large" ? bodyPreview.body : "",
       );
     }
-    return (
-      <div className="content-preview-view content-preview-view--embedded http-response-session__body-preview">
-        <div className="content-preview-json content-preview-json--virtual">
-          <VirtualJsonView value={virtualJsonValue} />
-        </div>
-      </div>
+    return wrapJsonPreviewPanel(
+      <div className="content-preview-json content-preview-json--virtual">
+        <VirtualJsonView value={virtualJsonValue} />
+      </div>,
     );
   };
 
@@ -188,55 +263,27 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
 
     if (bodyPreview.kind === "json-tree") {
       if (jsonViewMode === "structured") {
-        return (
-          <ContentPreviewView
-            status="ready"
-            content={{ kind: "json", value: bodyPreview.value }}
-            showTextModeToolbar={false}
-            contentResetKey={session.id}
-            className="content-preview-view--embedded http-response-session__body-preview"
-          />
+        return wrapJsonPreviewPanel(
+          <div className="content-preview-json content-preview-json--virtual">
+            <VirtualJsonView value={bodyPreview.value} />
+          </div>,
         );
       }
-      return (
-        <div className="http-response-session__body-editor">
-          <ResponseCodeEditor
-            className="http-response-session__body-cm"
-            language="json"
-            value={sourceEditorValue}
-          />
-        </div>
-      );
+      return renderJsonSourceEditor(sourceEditorValue);
     }
 
     if (bodyPreview.kind === "json-large") {
       if (jsonViewMode === "structured") {
         return renderVirtualJsonBody();
       }
-      return (
-        <div className="http-response-session__body-editor">
-          <ResponseCodeEditor
-            className="http-response-session__body-cm"
-            language="json"
-            value={sourceEditorValue}
-          />
-        </div>
-      );
+      return renderJsonSourceEditor(sourceEditorValue);
     }
 
     if (bodyPreview.kind === "json-source") {
       if (jsonViewMode === "structured") {
         return renderLargeJsonSourceHint();
       }
-      return (
-        <div className="http-response-session__body-editor">
-          <ResponseCodeEditor
-            className="http-response-session__body-cm"
-            language="json"
-            value={sourceEditorValue}
-          />
-        </div>
-      );
+      return renderJsonSourceEditor(sourceEditorValue);
     }
 
     if (bodyPreview.kind === "text-truncated" && !showFullPlainBody) {
@@ -266,12 +313,14 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
 
     if (bodyPreview.kind === "text-truncated" && showFullPlainBody) {
       return (
-        <div className="http-response-session__body-editor">
-          <ResponseCodeEditor
-            className="http-response-session__body-cm"
-            language="text"
-            value={response.body}
-          />
+        <div className="content-preview-view content-preview-view--embedded http-response-session__body-preview">
+          <div className="content-preview-code">
+            <ResponseCodeEditor
+              className="content-preview-code-editor"
+              language="text"
+              value={response.body}
+            />
+          </div>
         </div>
       );
     }
@@ -418,7 +467,8 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
     }, 0);
   }, [formatting, response.body, t]);
 
-  const showJsonToolbar = isActive && responseTab === "body" && isJsonPreview(bodyPreview);
+  const showJsonToolbar =
+    isActive && responseTab === "body" && isJsonPreview(bodyPreview);
   const treeTabDisabled = bodyPreview?.kind === "json-source";
 
   return (
@@ -431,29 +481,42 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
     >
       <div className="http-response-session">
         <div className="http-response-summary">
-          <span
-            className={cn(
-              "http-response-status",
-              response.status >= 200 && response.status < 400
-                ? "http-response-status--success"
-                : "http-response-status--danger",
-            )}
-          >
-            {response.status} {response.statusText}
-          </span>
-          <span className="http-response-meta">{response.timeMs}ms</span>
-          <span className="http-response-meta-sep" aria-hidden>
-            ·
-          </span>
-          <span className="http-response-meta">
-            {(response.sizeBytes / 1024).toFixed(1)} KB
-          </span>
-          <span className="http-response-meta-sep" aria-hidden>
-            ·
-          </span>
-          <span className="http-response-meta http-response-meta--type" title={response.contentType}>
-            {response.contentType}
-          </span>
+          <div className="http-response-summary-main">
+            <span
+              className={cn(
+                "http-response-status",
+                response.status >= 200 && response.status < 400
+                  ? "http-response-status--success"
+                  : "http-response-status--danger",
+              )}
+            >
+              {response.status} {response.statusText}
+            </span>
+            <span className="http-response-meta">{response.timeMs}ms</span>
+            <span className="http-response-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span className="http-response-meta">
+              {(response.sizeBytes / 1024).toFixed(1)} KB
+            </span>
+            <span className="http-response-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span className="http-response-meta http-response-meta--type" title={response.contentType}>
+              {response.contentType}
+            </span>
+          </div>
+          {showJsonToolbar ? (
+            <HttpResponseJsonModeToolbar
+              jsonViewMode={jsonViewMode}
+              setJsonViewMode={setJsonViewMode}
+              treeTabDisabled={treeTabDisabled}
+              bodyPreview={bodyPreview}
+              canFormatLargeJson={canFormatLargeJson}
+              formatting={formatting}
+              handleFormatJson={handleFormatJson}
+            />
+          ) : null}
         </div>
 
         <div className="http-response-toolbar">
@@ -472,50 +535,6 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
               </button>
             ))}
           </div>
-          {showJsonToolbar ? (
-            <div
-              className="http-response-body-mode-toolbar content-preview-text-toolbar"
-              role="group"
-              aria-label={t("contentPreview.textMode")}
-            >
-              <button
-                type="button"
-                className={cn(
-                  "content-preview-text-mode-btn",
-                  jsonViewMode === "structured" && "is-active",
-                  treeTabDisabled && "is-disabled",
-                )}
-                aria-pressed={jsonViewMode === "structured"}
-                disabled={treeTabDisabled}
-                title={treeTabDisabled ? t("protocol.http.largeJsonTreeDisabled") : undefined}
-                onClick={() => setJsonViewMode("structured")}
-              >
-                {t("contentPreview.modeJson")}
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "content-preview-text-mode-btn",
-                  jsonViewMode === "source" && "is-active",
-                )}
-                aria-pressed={jsonViewMode === "source"}
-                onClick={() => setJsonViewMode("source")}
-              >
-                {t("contentPreview.modeCode")}
-              </button>
-              {(bodyPreview?.kind === "json-source" || bodyPreview?.kind === "json-large") &&
-              canFormatLargeJson ? (
-                <button
-                  type="button"
-                  className="content-preview-text-mode-btn http-response-format-json-btn"
-                  disabled={formatting}
-                  onClick={handleFormatJson}
-                >
-                  {formatting ? t("protocol.http.formattingJson") : t("protocol.http.formatJson")}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         <div className="http-response-content">

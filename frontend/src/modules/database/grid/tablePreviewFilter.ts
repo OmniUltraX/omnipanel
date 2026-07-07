@@ -8,6 +8,14 @@ import {
 import type { DbColumnMeta } from "../api";
 import type { SortState } from "../workspace/dbWorkspaceState";
 import { buildOrderByClause } from "../workspace/dbWorkspaceState";
+import type { TableSchema } from "../types";
+import type { TableColumnRelation } from "./tableColumnRelation";
+import {
+  buildRelationDisplayColumnLabel,
+  isRelationDisplayColumn,
+  relationSourceColumn,
+  resolveRelationDisplayFieldName,
+} from "./tableColumnRelation";
 
 const EMPTY_TABLE_FILTER_BASE: RuleGroupType = {
   combinator: "and",
@@ -241,4 +249,97 @@ export function buildTablePreviewSql({
 export function buildSelectAllFromTableSql(dbType: string, tableName: string): string {
   const tableRef = quoteSqlIdentifier(tableName, dbType);
   return `SELECT * FROM ${tableRef};`;
+}
+
+function qualifyFilterWhereForAlias(
+  filter: RuleGroupType | null | undefined,
+  dbType: string,
+  tableAlias: string,
+): string | undefined {
+  const sql = formatFilterWhere(filter, dbType);
+  if (!sql) return undefined;
+  const columns = getFilterColumnNames(filter ?? { combinator: "and", rules: [] });
+  let qualified = sql;
+  for (const column of [...columns].sort((a, b) => b.length - a.length)) {
+    const quoted = quoteSqlIdentifier(column, dbType);
+    qualified = qualified.split(quoted).join(`${tableAlias}.${quoted}`);
+  }
+  return qualified;
+}
+
+function buildOrderByClauseForAlias(
+  sort: SortState,
+  dbType: string,
+  tableAlias: string,
+): string {
+  if (isRelationDisplayColumn(sort.column)) return "";
+  const quoted = quoteSqlIdentifier(sort.column, dbType);
+  return `${tableAlias}.${quoted} ${sort.direction.toUpperCase()}`;
+}
+
+export interface TablePreviewRelationSqlContext extends TablePreviewSqlContext {
+  columnRelations: Record<string, TableColumnRelation>;
+  relationTables?: TableSchema[];
+  /** 当前网格可见列（含关联显示列） */
+  visibleGridColumns: string[];
+}
+
+/** 组装含 LEFT JOIN 的表预览 SQL（同步关联显示列） */
+export function buildTablePreviewSqlWithRelations({
+  dbType,
+  tableName,
+  filter,
+  sort,
+  page,
+  pageSize,
+  columnRelations,
+  relationTables,
+  visibleGridColumns,
+}: TablePreviewRelationSqlContext): string {
+  const mainAlias = "t";
+  const tableRef = quoteSqlIdentifier(tableName, dbType);
+  const tableByName = new Map((relationTables ?? []).map((table) => [table.name, table]));
+  const selectParts: string[] = [];
+  const joinParts: string[] = [];
+  let joinIndex = 0;
+
+  for (const column of visibleGridColumns) {
+    if (isRelationDisplayColumn(column)) {
+      const sourceColumn = relationSourceColumn(column);
+      const relation = sourceColumn ? columnRelations[sourceColumn] : undefined;
+      if (!relation) continue;
+      const relatedTable = tableByName.get(relation.tableName);
+      const displayField = resolveRelationDisplayFieldName(relation, relatedTable);
+      const joinAlias = `rel_${joinIndex++}`;
+      const joinAliasRef = quoteSqlIdentifier(joinAlias, dbType);
+      const relatedTableRef = quoteSqlIdentifier(relation.tableName, dbType);
+      const joinFieldRef = quoteSqlIdentifier(relation.fieldName, dbType);
+      const sourceFieldRef = quoteSqlIdentifier(sourceColumn!, dbType);
+      const displayFieldRef = quoteSqlIdentifier(displayField, dbType);
+      const outputAlias = quoteSqlIdentifier(
+        buildRelationDisplayColumnLabel(relation, relatedTable),
+        dbType,
+      );
+      joinParts.push(
+        `LEFT JOIN ${relatedTableRef} AS ${joinAliasRef} ON ${quoteSqlIdentifier(mainAlias, dbType)}.${sourceFieldRef} = ${joinAliasRef}.${joinFieldRef}`,
+      );
+      selectParts.push(`${joinAliasRef}.${displayFieldRef} AS ${outputAlias}`);
+      continue;
+    }
+    selectParts.push(
+      `${quoteSqlIdentifier(mainAlias, dbType)}.${quoteSqlIdentifier(column, dbType)}`,
+    );
+  }
+
+  const selectSql = selectParts.length > 0 ? selectParts.join(", ") : `${quoteSqlIdentifier(mainAlias, dbType)}.*`;
+  const qualifiedWhere = qualifyFilterWhereForAlias(filter, dbType, quoteSqlIdentifier(mainAlias, dbType));
+  const whereSql = qualifiedWhere ? ` WHERE ${qualifiedWhere}` : "";
+  const orderSql = sort ? ` ORDER BY ${buildOrderByClauseForAlias(sort, dbType, quoteSqlIdentifier(mainAlias, dbType))}` : "";
+  const limit = Math.max(0, pageSize);
+  const offset = Math.max(0, page) * limit;
+  const fromSql =
+    joinParts.length > 0
+      ? `${tableRef} AS ${quoteSqlIdentifier(mainAlias, dbType)}\n${joinParts.join("\n")}`
+      : tableRef;
+  return `SELECT ${selectSql} FROM ${fromSql}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
 }

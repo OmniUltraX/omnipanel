@@ -27,6 +27,84 @@ export type TableDataGridCellMenuState = {
   rowActionsEnabled?: boolean;
 };
 
+export function ColumnRelationButton({
+  columnName,
+  active,
+  relationLabel,
+  onOpen,
+}: {
+  columnName: string;
+  active: boolean;
+  relationLabel?: string;
+  onOpen: (columnName: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      className={`db-data-table-relation-btn${active ? " db-data-table-relation-btn--active" : ""}`}
+      title={
+        active && relationLabel
+          ? t("database.results.relationColumnHintActive", { target: relationLabel })
+          : t("database.results.relationColumnHint")
+      }
+      aria-label={t("database.results.relationColumnHint")}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(columnName);
+      }}
+    >
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10" aria-hidden>
+        <path d="M6.5 3.5h6a1 1 0 0 1 1 1v6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9.5 6.5H3.5a1 1 0 0 0-1 1v6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10.5 2.5 13 5M5 11l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+export function ColumnRelationDisplayActions({
+  onEdit,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <span className="db-data-table-relation-display-actions">
+      <button
+        type="button"
+        className="db-data-table-relation-display-btn"
+        title={t("database.results.relationEdit")}
+        aria-label={t("database.results.relationEdit")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onEdit();
+        }}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10" aria-hidden>
+          <path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="db-data-table-relation-display-btn db-data-table-relation-display-btn--danger"
+        title={t("database.results.relationDelete")}
+        aria-label={t("database.results.relationDelete")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="10" height="10" aria-hidden>
+          <path d="M3 4.5h10M6 4.5V3.5h4v1M6.5 7v4M9.5 7v4M4.5 4.5l.5 8h6l.5-8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 export function ColumnFilterButton({
   columnName,
   active,
@@ -258,6 +336,9 @@ export function ColumnVisibilitySidebar({
   onChange,
   activeColumn,
   onColumnNavigate,
+  columnLabels,
+  isColumnVisible,
+  columnItemClassName,
 }: {
   columns: string[];
   hiddenColumns: Set<string>;
@@ -265,6 +346,9 @@ export function ColumnVisibilitySidebar({
   columnMetaMap: Record<string, DbColumnMeta> | null;
   activeColumn: string | null;
   onColumnNavigate: (columnName: string) => void;
+  columnLabels?: Record<string, string>;
+  isColumnVisible?: (columnName: string) => boolean;
+  columnItemClassName?: (columnName: string) => string | undefined;
 }) {
   const { t } = useI18n();
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -272,11 +356,16 @@ export function ColumnVisibilitySidebar({
 
   const q = query.trim();
   const filteredColumns = useMemo(
-    () => (q ? columns.filter((c) => textSearchMatches(q, c)) : columns),
-    [columns, q],
+    () => (q ? columns.filter((c) => textSearchMatches(q, columnLabels?.[c] ?? c)) : columns),
+    [columns, columnLabels, q],
   );
 
-  const visibleCount = columns.length - hiddenColumns.size;
+  const resolveVisible = useCallback(
+    (name: string) => (isColumnVisible ? isColumnVisible(name) : !hiddenColumns.has(name)),
+    [hiddenColumns, isColumnVisible],
+  );
+
+  const visibleCount = columns.filter((name) => resolveVisible(name)).length;
   const allVisible = columns.length > 0 && visibleCount === columns.length;
 
   useEffect(() => {
@@ -354,12 +443,20 @@ export function ColumnVisibilitySidebar({
             </li>
           ) : (
             filteredColumns.map((name) => {
-              const checked = !hiddenColumns.has(name);
+              const checked = resolveVisible(name);
               const meta = columnMetaMap?.[name];
+              const label = columnLabels?.[name] ?? name;
+              const itemClassName = columnItemClassName?.(name);
               return (
                 <li
                   key={name}
-                  className={`db-col-visibility-popover-item${activeColumn === name ? " db-col-visibility-popover-item--active" : ""}`}
+                  className={[
+                    "db-col-visibility-popover-item",
+                    activeColumn === name ? "db-col-visibility-popover-item--active" : "",
+                    itemClassName,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   onClick={() => onColumnNavigate(name)}
                 >
                   <input
@@ -368,8 +465,8 @@ export function ColumnVisibilitySidebar({
                     onChange={() => toggleOne(name)}
                     onClick={(e) => e.stopPropagation()}
                   />
-                  <span className="db-col-visibility-popover-item-name" title={name}>
-                    {name}
+                  <span className="db-col-visibility-popover-item-name" title={label}>
+                    {label}
                   </span>
                   {meta?.comment?.trim() ? (
                     <span

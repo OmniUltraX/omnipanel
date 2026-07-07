@@ -22,6 +22,15 @@ export type SortState = {
   direction: SortDirection;
 };
 
+/** 表预览列关联配置（持久化于工作区会话） */
+export type TableColumnRelationConfig = {
+  tableName: string;
+  fieldName: string;
+  displayFieldName?: string;
+  /** 关联显示列别名（可选） */
+  alias?: string;
+};
+
 export type TablePreviewState = {
   loading: boolean;
   error: string | null;
@@ -36,6 +45,8 @@ export type TablePreviewState = {
   filter: RuleGroupType | null;
   /** 隐藏的列名；空数组表示全部显示 */
   hiddenColumns: string[];
+  /** 列关联配置（列名 -> 目标表.字段） */
+  columnRelations: Record<string, TableColumnRelationConfig>;
   /** 是否开启行列转置 */
   transposed: boolean;
 };
@@ -143,6 +154,7 @@ export function createDefaultTablePreviewState(): TablePreviewState {
     sort: null,
     filter: null,
     hiddenColumns: [],
+    columnRelations: {},
     transposed: false,
   };
 }

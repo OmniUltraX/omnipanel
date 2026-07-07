@@ -291,6 +291,26 @@
         width: 100%;
     }
 
+    .table-column-relation-dialog .form-field__control {
+        width: 100%;
+    }
+
+    .table-column-relation-dialog__select {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
+    .table-column-relation-dialog__select .omni-select-trigger {
+        width: 100%;
+    }
+
+    .table-column-relation-dialog__input {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
     .tree-chart-field-select__filter {
         max-height: 280px;
         overflow: auto;
@@ -4524,7 +4544,19 @@
         align-items: center;
         gap: 2px;
         flex-shrink: 0;
-        align-self: center;
+        align-self: start;
+        justify-self: end;
+    }
+
+    .db-data-table-th-relation {
+        grid-column: 2;
+        grid-row: 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        align-self: end;
+        justify-self: end;
     }
 
     .db-data-table-th-header__name-row {
@@ -4726,6 +4758,91 @@
     .db-data-table-filter-btn:hover,
     .db-data-table-filter-btn--active {
         opacity: 1;
+        color: var(--accent);
+    }
+
+    .db-data-table-relation-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        opacity: 0.45;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .db-data-table-relation-btn:hover,
+    .db-data-table-relation-btn--active {
+        opacity: 1;
+        color: var(--accent);
+    }
+
+    .db-data-table-th-relation-display-actions-wrap {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        align-self: center;
+        justify-self: end;
+    }
+
+    .db-data-table-relation-display-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .db-data-table-relation-display-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        opacity: 0.55;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .db-data-table-relation-display-btn:hover {
+        opacity: 1;
+        color: var(--accent);
+    }
+
+    .db-data-table-relation-display-btn--danger:hover {
+        color: var(--danger, #ff453a);
+    }
+
+    .db-data-table-th--relation,
+    .db-data-table-th--relation-display {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+    }
+
+    .db-data-table-th--relation-display .db-data-table-th-label {
+        color: var(--accent);
+        font-weight: 600;
+    }
+
+    .db-data-table-cell--relation,
+    .db-data-table-cell--relation-display {
+        background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+        color: var(--fg);
+    }
+
+    .db-col-visibility-popover-item--relation,
+    .db-col-visibility-popover-item--relation-display {
+        background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+    }
+
+    .db-col-visibility-popover-item--relation .db-col-visibility-popover-item-name,
+    .db-col-visibility-popover-item--relation-display .db-col-visibility-popover-item-name {
         color: var(--accent);
     }
 

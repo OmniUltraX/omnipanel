@@ -62,6 +62,7 @@ type GridBodyCellProps = {
   fillDelta: number;
   cellContentKey: string;
   cell: Cell<Record<string, unknown>, unknown>;
+  isRelationHighlight: boolean;
 };
 
 const GridBodyCell = memo(
@@ -82,13 +83,14 @@ const GridBodyCell = memo(
     fillDelta,
     cellContentKey: _cellContentKey,
     cell,
+    isRelationHighlight,
   }: GridBodyCellProps) {
     return (
       <td
         data-col-id={columnId}
         data-col-index={colIndex}
         style={buildColumnCellStyle(columnId, baseSize, lastColumnId, fillDelta)}
-        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${isDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}`}
+        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${isDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}${isRelationHighlight ? " db-data-table-cell--relation" : ""}`}
       >
         {flexRender(cell.column.columnDef.cell, cell.getContext())}
       </td>
@@ -109,6 +111,7 @@ const GridBodyCell = memo(
     prev.columnId === next.columnId &&
     prev.isRowNum === next.isRowNum &&
     prev.isFieldCol === next.isFieldCol &&
+    prev.isRelationHighlight === next.isRelationHighlight &&
     prev.cell === next.cell,
 );
 
@@ -136,6 +139,7 @@ export type GridBodyStaticConfig = {
   leafColumnCount: number;
   columnSizedIds: ReadonlySet<string>;
   columnLayout: ColumnVirtualizationLayout;
+  relationHighlightColumnIds: ReadonlySet<string>;
 };
 
 export type GridBodyRowProps = {
@@ -176,6 +180,7 @@ function renderBodyCell(
     fillDelta,
     leafColumnCount,
     columnSizedIds,
+    relationHighlightColumnIds,
   } = staticConfig;
 
   const isRowNum = cell.column.id === ROW_NUM_COL_ID;
@@ -201,6 +206,8 @@ function renderBodyCell(
   const isSelected =
     !isRowSelector &&
     isCellSelected(row.index, cellIdx, cellRange, selectedRows, leafColumnCount);
+  const isRelationHighlight =
+    !isRowSelector && relationHighlightColumnIds.has(cell.column.id);
   const baseSize = cell.column.getSize();
   const columnSized = columnSizedIds.has(cell.column.id);
   const cellContentKey = isRowSelector
@@ -226,6 +233,7 @@ function renderBodyCell(
       fillDelta={fillDelta}
       cellContentKey={cellContentKey}
       cell={cell}
+      isRelationHighlight={isRelationHighlight}
     />
   );
 }

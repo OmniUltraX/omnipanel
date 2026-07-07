@@ -16499,6 +16499,71 @@ a {
     box-sizing: border-box;
 }
 
+/* react-json-view-lite — 与应用主题对齐（VirtualJsonView） */
+.virtual-json-view {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--fg-2);
+}
+
+.virtual-json-view ._GzYRV {
+    line-height: 1.55;
+}
+
+.virtual-json-view ._1MGIk,
+.virtual-json-view ._2bSDX {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.virtual-json-view ._2T6PJ,
+.virtual-json-view ._1Gho6,
+.virtual-json-view ._Chy1W,
+.virtual-json-view ._2bveF {
+    color: var(--danger);
+}
+
+.virtual-json-view ._1bQdo,
+.virtual-json-view ._1prJR {
+    color: color-mix(in srgb, var(--accent) 82%, white);
+}
+
+.virtual-json-view ._3zQKs,
+.virtual-json-view ._LaAZe,
+.virtual-json-view ._GTKgm {
+    color: var(--success);
+}
+
+.virtual-json-view ._1xvuR,
+.virtual-json-view ._vGjyY,
+.virtual-json-view ._2vRm- {
+    color: var(--meta);
+}
+
+.virtual-json-view ._3uHL6,
+.virtual-json-view ._oLqym,
+.virtual-json-view ._2AXVT,
+.virtual-json-view ._2KJWg,
+.virtual-json-view ._17H2C,
+.virtual-json-view ._3QHg2,
+.virtual-json-view ._3fDAz,
+.virtual-json-view ._gsbQL {
+    color: var(--fg-2);
+}
+
+.virtual-json-view ._f10Tu {
+    color: var(--muted);
+}
+
+.virtual-json-view ._2IvMF {
+    background: color-mix(in srgb, var(--warn) 28%, transparent);
+}
+
+.virtual-json-view ._11RoI {
+    background: transparent !important;
+}
+
 .content-preview-text {
     flex: 1;
     min-height: 0;

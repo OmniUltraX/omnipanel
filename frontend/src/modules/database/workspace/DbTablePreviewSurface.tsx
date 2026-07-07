@@ -18,10 +18,12 @@ import {
   isDeletedRowDirtyKey,
   resolvePreviewRowKey,
   type SortState,
+  type TableColumnRelationConfig,
 } from "./dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
 import { connectionHasTableSchemaChildren } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
+import { useTreeChartDatabaseSchema } from "../treeChart/useTreeChartDatabaseSchema";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
@@ -46,6 +48,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const canRefresh = tab.connId && tab.dbName && tab.tableName;
 
   const previewConnection = tab.connId ? ws.resolveConnection(tab.connId) : null;
+  const databaseSchema = useTreeChartDatabaseSchema(previewConnection, tab.dbName ?? "");
+  const relationTables = useMemo(
+    () => databaseSchema?.tables.filter((table) => table.kind !== "view") ?? [],
+    [databaseSchema],
+  );
   const canInsertRow = !!(
     canRefresh &&
     preview?.data &&
@@ -200,6 +207,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const handleTransposedChange = useCallback(
     (transposed: boolean) => {
       ws.setTableGridView(tab.id, { transposed });
+    },
+    [ws.setTableGridView, tab.id],
+  );
+  const handleColumnRelationsChange = useCallback(
+    (columnRelations: Record<string, TableColumnRelationConfig>) => {
+      ws.setTableGridView(tab.id, { columnRelations });
     },
     [ws.setTableGridView, tab.id],
   );
@@ -388,6 +401,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       canOpenTableDesign={canDesignTable}
       onCreateTableQuery={handleCreateTableQuery}
       canCreateTableQuery={Boolean(canRefresh && previewConnection)}
+      relationTables={relationTables}
+      relationConnection={previewConnection ?? undefined}
+      relationDatabase={tab.dbName ?? undefined}
+      columnRelations={preview.columnRelations}
+      onColumnRelationsChange={handleColumnRelationsChange}
     />
   ) : null;
 

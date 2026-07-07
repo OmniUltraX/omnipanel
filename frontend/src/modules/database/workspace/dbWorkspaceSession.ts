@@ -3,6 +3,7 @@ import {
   DEFAULT_PAGE_SIZE,
   type SqlTabState,
   type SortState,
+  type TableColumnRelationConfig,
   type TableDesignerTabState,
   type TablePreviewState,
 } from "./dbWorkspaceState";
@@ -27,6 +28,7 @@ export interface DbTablePreviewStateSnapshot {
   sort?: SortState | null;
   filter?: RuleGroupType | null;
   hiddenColumns?: string[];
+  columnRelations?: Record<string, TableColumnRelationConfig>;
   transposed?: boolean;
 }
 
@@ -90,6 +92,23 @@ function parseTableLabel(label: string): { dbName: string; tableName: string } |
   return { dbName: label.slice(0, dot), tableName: label.slice(dot + 1) };
 }
 
+function cloneColumnRelations(
+  relations: Record<string, TableColumnRelationConfig>,
+): Record<string, TableColumnRelationConfig> {
+  const next: Record<string, TableColumnRelationConfig> = {};
+  for (const [column, relation] of Object.entries(relations)) {
+    next[column] = {
+      tableName: relation.tableName,
+      fieldName: relation.fieldName,
+      ...(relation.displayFieldName?.trim()
+        ? { displayFieldName: relation.displayFieldName.trim() }
+        : {}),
+      ...(relation.alias?.trim() ? { alias: relation.alias.trim() } : {}),
+    };
+  }
+  return next;
+}
+
 function previewStateFromLegacy(
   legacy: DbTablePreviewMetaSnapshot | DbTablePreviewStateSnapshot | undefined,
 ): DbTablePreviewStateSnapshot | undefined {
@@ -105,6 +124,10 @@ function previewStateFromLegacy(
       "hiddenColumns" in legacy && legacy.hiddenColumns
         ? [...legacy.hiddenColumns]
         : [],
+    columnRelations:
+      "columnRelations" in legacy && legacy.columnRelations
+        ? cloneColumnRelations(legacy.columnRelations)
+        : {},
     transposed: "transposed" in legacy ? (legacy.transposed ?? false) : false,
   };
 }
@@ -119,6 +142,9 @@ export function tablePreviewStateToSnapshot(
     filter: preview.filter ?? null,
     ...(preview.hiddenColumns.length > 0
       ? { hiddenColumns: [...preview.hiddenColumns] }
+      : {}),
+    ...(Object.keys(preview.columnRelations).length > 0
+      ? { columnRelations: cloneColumnRelations(preview.columnRelations) }
       : {}),
     ...(preview.transposed ? { transposed: true } : {}),
   };
@@ -140,6 +166,9 @@ export function tablePreviewStateFromSnapshot(
     sort: previewState?.sort ?? null,
     filter: previewState?.filter ?? null,
     hiddenColumns: previewState?.hiddenColumns ? [...previewState.hiddenColumns] : [],
+    columnRelations: previewState?.columnRelations
+      ? cloneColumnRelations(previewState.columnRelations)
+      : {},
     transposed: previewState?.transposed ?? false,
     ...overrides,
   };

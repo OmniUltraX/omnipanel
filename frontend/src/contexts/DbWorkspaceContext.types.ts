@@ -51,7 +51,7 @@ export interface DbWorkspaceSharedContextValue {
   setTableFilter: (tabId: string, filter: RuleGroupType | null) => void;
   setTableGridView: (
     tabId: string,
-    patch: Partial<Pick<TablePreviewState, "hiddenColumns" | "transposed">>,
+    patch: Partial<Pick<TablePreviewState, "hiddenColumns" | "transposed" | "columnRelations">>,
   ) => void;
   handleCellCommit: (
     tabId: string,

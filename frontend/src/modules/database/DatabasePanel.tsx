@@ -2302,7 +2302,7 @@ export function DatabasePanel() {
   const setTableGridView = useCallback(
     (
       tabId: string,
-      patch: Partial<Pick<TablePreviewState, "hiddenColumns" | "transposed">>,
+      patch: Partial<Pick<TablePreviewState, "hiddenColumns" | "transposed" | "columnRelations">>,
     ) => {
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
@@ -2313,6 +2313,23 @@ export function DatabasePanel() {
             ...patch,
             ...(patch.hiddenColumns
               ? { hiddenColumns: [...patch.hiddenColumns] }
+              : {}),
+            ...(patch.columnRelations !== undefined
+              ? {
+                  columnRelations: Object.fromEntries(
+                    Object.entries(patch.columnRelations).map(([column, relation]) => [
+                      column,
+                      {
+                        tableName: relation.tableName,
+                        fieldName: relation.fieldName,
+                        ...(relation.displayFieldName?.trim()
+                          ? { displayFieldName: relation.displayFieldName.trim() }
+                          : {}),
+                        ...(relation.alias?.trim() ? { alias: relation.alias.trim() } : {}),
+                      },
+                    ]),
+                  ),
+                }
               : {}),
           },
         };

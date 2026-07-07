@@ -373,18 +373,32 @@
         flex-direction: column;
         overflow: hidden;
         height: 100%;
-        background: var(--surface);
+        background: var(--bg);
     }
 
     .http-response-summary {
         flex-shrink: 0;
         display: flex;
         align-items: center;
-        gap: var(--sp-2);
+        justify-content: space-between;
+        gap: var(--sp-3);
         padding: var(--sp-2) var(--sp-3);
-        border-bottom: 1px solid var(--border);
-        font-size: 11px;
-        background: var(--surface);
+        border-bottom: 1px solid var(--border-subtle, var(--border));
+        font-size: var(--text-xs, 11px);
+        background: var(--bg);
+    }
+
+    .http-response-summary-main {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        flex: 1;
+    }
+
+    .http-response-summary-toolbar {
+        flex-shrink: 0;
+        margin-left: auto;
     }
 
     .http-response-status {
@@ -425,10 +439,8 @@
         flex-shrink: 0;
         display: flex;
         align-items: stretch;
-        gap: var(--sp-2);
-        border-bottom: 1px solid var(--border);
-        background: var(--surface);
-        padding-right: var(--sp-2);
+        border-bottom: 1px solid var(--border-subtle, var(--border));
+        background: var(--bg);
     }
 
     .http-response-tabs {
@@ -456,12 +468,7 @@
     .http-response-tab.is-active {
         color: var(--fg);
         border-bottom-color: var(--accent);
-    }
-
-    .http-response-body-mode-toolbar {
-        margin-left: auto;
-        align-self: center;
-        flex-shrink: 0;
+        font-weight: 600;
     }
 
     .http-response-content {
@@ -513,21 +520,34 @@
     .http-response-body-text {
         flex: 1;
         min-height: 0;
-        padding: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
         font-size: 12px;
-        line-height: 1.6;
+        line-height: 1.55;
         overflow-y: auto;
         white-space: pre-wrap;
-        word-break: break-all;
+        word-break: break-word;
         font-family: var(--font-mono);
-        color: var(--fg);
-        background: var(--bg-deeper);
+        color: var(--fg-2);
+        background: var(--bg);
     }
 
     .http-response-session__body-preview {
         flex: 1;
         min-height: 0;
-        background: var(--bg-deeper);
+        background: var(--bg);
+    }
+
+    .http-response-session__body-preview .content-preview-json,
+    .http-response-session__body-preview .content-preview-code {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .http-response-session__body-preview .content-preview-code-editor,
+    .http-response-session__body-preview .content-preview-code-editor .code-editor__host,
+    .http-response-session__body-preview .content-preview-code-editor .cm-editor {
+        height: 100%;
+        min-height: 0;
     }
 
     .http-response-session__body-placeholder {
@@ -546,6 +566,7 @@
         padding: var(--sp-6) var(--sp-4);
         text-align: center;
         color: var(--fg-2);
+        background: var(--bg);
     }
 
     .http-response-large-json__message {
@@ -605,19 +626,6 @@
         margin-left: var(--sp-1);
     }
 
-    .http-response-session__body-editor {
-        flex: 1;
-        min-height: 0;
-        background: var(--bg-deeper);
-    }
-
-    .http-response-session__body-cm,
-    .http-response-session__body-cm .code-editor__host,
-    .http-response-session__body-cm .code-editor__host .cm-editor {
-        height: 100%;
-        min-height: 0;
-    }
-
     /* 响应体/响应头支持文本选择与复制（覆盖全局 user-select: none） */
     .http-response-session .http-response-body-text,
     .http-response-session .http-response-body-text *,
@@ -625,10 +633,10 @@
     .http-response-session .http-response-headers *,
     .http-response-session .http-response-header-key,
     .http-response-session .http-response-header-value,
-    .http-response-session__body-cm .cm-editor,
-    .http-response-session__body-cm .cm-scroller,
-    .http-response-session__body-cm .cm-content,
-    .http-response-session__body-cm .cm-line,
+    .http-response-session__body-preview .content-preview-code .cm-editor,
+    .http-response-session__body-preview .content-preview-code .cm-scroller,
+    .http-response-session__body-preview .content-preview-code .cm-content,
+    .http-response-session__body-preview .content-preview-code .cm-line,
     .http-response-session__body-preview,
     .http-response-session__body-preview .content-preview-text,
     .http-response-session__body-preview .content-preview-json,

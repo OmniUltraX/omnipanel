@@ -76,6 +76,7 @@ export const TableDataGridCellContent = memo(function TableDataGridCellContent({
   pkCount,
   autoIncrementPlaceholder,
   t,
+  className,
 }: {
   value: unknown;
   row: Record<string, unknown>;
@@ -85,6 +86,7 @@ export const TableDataGridCellContent = memo(function TableDataGridCellContent({
   pkCount: number;
   autoIncrementPlaceholder: string;
   t: Translate;
+  className?: string;
 }) {
   if (columnId === ROW_NUM_COL_ID) {
     return null;
@@ -103,7 +105,7 @@ export const TableDataGridCellContent = memo(function TableDataGridCellContent({
 
   if (isNullValue) {
     return (
-      <span className="db-data-table-cell-null-tag">
+      <span className={["db-data-table-cell-null-tag", className].filter(Boolean).join(" ")}>
         {t("database.results.columnNullableShort")}
       </span>
     );
@@ -111,7 +113,13 @@ export const TableDataGridCellContent = memo(function TableDataGridCellContent({
 
   return (
     <span
-      className={`db-data-table-cell-text${isAutoIncrementPlaceholder ? " db-data-table-cell-text--placeholder" : ""}`}
+      className={[
+        "db-data-table-cell-text",
+        isAutoIncrementPlaceholder ? "db-data-table-cell-text--placeholder" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {displayText}
     </span>
