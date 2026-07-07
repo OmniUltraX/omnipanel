@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   EMPTY_TERMINAL_BLOCKS,
   useBlocksStore,
@@ -147,11 +156,15 @@ function BlockCollapseFooter({
   onToggle,
   lineCount = 0,
   variant = "shell",
+  showCollapse = true,
+  actions,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   lineCount?: number;
   variant?: "shell" | "ai";
+  showCollapse?: boolean;
+  actions?: ReactNode;
 }) {
   const { t } = useI18n();
   const label = collapsed
@@ -160,29 +173,95 @@ function BlockCollapseFooter({
       : t("terminal.feed.expandBlock")
     : t("terminal.feed.collapseBlock");
 
+  const footerClass = [
+    "term-warp-block__footer",
+    `term-warp-block__footer--${variant}`,
+    !showCollapse && actions ? "term-warp-block__footer--actions-only" : "",
+    showCollapse && collapsed ? "term-warp-block__footer--collapsed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div
-      className={`term-warp-block__collapse-footer term-warp-block__collapse-footer--${variant}`}
-    >
+    <div className={footerClass}>
+      {showCollapse ? (
+        <button
+          type="button"
+          className="term-warp-block__collapse-btn"
+          aria-expanded={!collapsed}
+          aria-label={label}
+          title={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          <IconChevronRight
+            size={12}
+            className={`term-warp-block__collapse-icon${
+              collapsed ? "" : " term-warp-block__collapse-icon--expanded"
+            }`}
+          />
+          <span className="term-warp-block__collapse-label">{label}</span>
+        </button>
+      ) : null}
+      {actions}
+    </div>
+  );
+}
+
+async function copyBlockText(text: string, okMsg: string) {
+  const value = text.trim();
+  if (!value) {
+    showToast("没有可复制的内容");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast(okMsg);
+  } catch {
+    showToast("复制失败");
+  }
+}
+
+function ShellBlockToolbar({
+  block,
+  sessionId,
+  cmd,
+  output,
+  hasOutputBody,
+  onFocusInput,
+}: {
+  block: TerminalBlock;
+  sessionId: string;
+  cmd: string;
+  output: string;
+  hasOutputBody: boolean;
+  onFocusInput?: () => void;
+}) {
+  return (
+    <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
+      <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
       <button
         type="button"
-        className="term-warp-block__collapse-btn"
-        aria-expanded={!collapsed}
-        aria-label={label}
-        title={label}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggle();
-        }}
+        className="term-warp-block__toolbar-btn"
+        title="复制命令"
+        aria-label="复制命令"
+        onClick={() => copyBlockText(cmd || normalizeBlockCommand(block.command), "已复制命令")}
       >
-        <IconChevronRight
-          size={12}
-          className={`term-warp-block__collapse-icon${
-            collapsed ? "" : " term-warp-block__collapse-icon--expanded"
-          }`}
-        />
-        <span className="term-warp-block__collapse-label">{label}</span>
+        <IconCopy size={14} />
       </button>
+      {hasOutputBody ? (
+        <button
+          type="button"
+          className="term-warp-block__toolbar-btn"
+          title="复制输出"
+          aria-label="复制输出"
+          onClick={() => copyBlockText(output || block.output, "已复制输出")}
+        >
+          <IconClipboard size={14} />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -434,22 +513,7 @@ function ShellBlockCard({
     return text.replace(/\n+$/, "").split("\n").length;
   }, [lsListing, output, block.output]);
 
-  const showCollapseFooter = hasOutputBody || bodyCollapsed;
-
-  const copyToClipboard = async (text: string, okMsg: string) => {
-    const value = text.trim();
-    if (!value) {
-      showToast("没有可复制的内容");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(value);
-      showToast(okMsg);
-    } catch {
-      showToast("复制失败");
-    }
-  };
-
+  const showCollapseControl = hasOutputBody || bodyCollapsed;
 
   return (
     <article
@@ -458,29 +522,6 @@ function ShellBlockCard({
       }`}
       data-block-id={block.id}
     >
-      <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
-        <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
-        <button
-          type="button"
-          className="term-warp-block__toolbar-btn"
-          title="复制命令"
-          aria-label="复制命令"
-          onClick={() => copyToClipboard(cmd || normalizeBlockCommand(block.command), "已复制命令")}
-        >
-          <IconCopy size={14} />
-        </button>
-        {hasOutputBody ? (
-          <button
-            type="button"
-            className="term-warp-block__toolbar-btn"
-            title="复制输出"
-            aria-label="复制输出"
-            onClick={() => copyToClipboard(output || block.output, "已复制输出")}
-          >
-            <IconClipboard size={14} />
-          </button>
-        ) : null}
-      </div>
       {showCommandLine ? (
         <div className="term-warp-prompt-line">
           <TerminalPathBreadcrumb
@@ -529,13 +570,22 @@ function ShellBlockCard({
           {output}
         </pre>
       ) : null}
-      {showCollapseFooter ? (
-        <BlockCollapseFooter
-          collapsed={bodyCollapsed}
-          onToggle={() => setBodyCollapsed((value) => !value)}
-          lineCount={outputLineCount}
-        />
-      ) : null}
+      <BlockCollapseFooter
+        collapsed={bodyCollapsed}
+        onToggle={() => setBodyCollapsed((value) => !value)}
+        lineCount={outputLineCount}
+        showCollapse={showCollapseControl}
+        actions={
+          <ShellBlockToolbar
+            block={block}
+            sessionId={sessionId}
+            cmd={cmd}
+            output={output}
+            hasOutputBody={hasOutputBody}
+            onFocusInput={onFocusInput}
+          />
+        }
+      />
     </article>
   );
 }

@@ -42,6 +42,7 @@ import { TerminalToolCallDock } from "./TerminalToolCallDock";
 import { TerminalCommandBarControls } from "./TerminalCommandBarControls";
 import { useBlocksStore } from "../../stores/blocksStore";
 import { blockContextLabel } from "./formatTerminalBlockForAiContext";
+import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 import { useTerminalAiInputContextStore } from "./terminalAiInputContextStore";
 
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
@@ -470,14 +471,17 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
             <div className="term-cmd-context-chips">
               {attachedBlocks.map((block) => (
                 <div key={block.id} className="term-cmd-context-chip">
-                  <span
+                  <button
+                    type="button"
                     className="term-cmd-context-chip__label"
                     title={blockContextLabel(block)}
-                  >
-                    {t("terminal.command.attachedContext", {
-                      label: formatAttachedChipLabel(block),
+                    aria-label={t("terminal.command.jumpToAttachedContext", {
+                      label: blockContextLabel(block),
                     })}
-                  </span>
+                    onClick={() => scrollTerminalBlockIntoView(sessionId, block.id)}
+                  >
+                    {formatAttachedChipLabel(block)}
+                  </button>
                   <button
                     type="button"
                     className="term-cmd-context-chip__remove"

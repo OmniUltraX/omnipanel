@@ -17,8 +17,11 @@
 
 import { useBlocksStore, type TerminalBlock, type AiThreadItem } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
+import type { TerminalSession } from "../../stores/terminalStore";
+import { resolveResourceById } from "../../stores/connectionStore";
 import { FULL_TERMINAL_BLOCK_SUMMARY } from "./terminalRunStateStore";
 import { flattenOutputModel } from "./terminalOutputModel";
+import { resolveTerminalTabBaseTitle } from "./terminalSessionDisplay";
 import {
   useAiModelsStore,
   resolveModelSelection,
@@ -75,14 +78,51 @@ export function isAiNaming(sessionId: string): boolean {
   return pendingAiNaming.has(sessionId);
 }
 
-/** 判断标题是否仍为默认值（未被用户修改过） */
-function isDefaultTitle(title: string): boolean {
-  if (!title) return true;
-  // 本地终端默认标题
-  if (title === "本地终端" || title === "Local Terminal") return true;
-  // SSH 默认用主机名，难以穷举——约定：如果标题含 @ 且无空格（如 root@host），视为默认
-  if (/^[^\s]+@[^\s]+$/.test(title)) return true;
+function isBuiltinDefaultTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed) return true;
+  if (trimmed === "本地终端" || trimmed === "Local Terminal") return true;
+  if (/^[^\s]+@[^\s]+$/.test(trimmed)) return true;
   return false;
+}
+
+/** 判断标题是否仍为默认值（未被用户修改过） */
+export function isDefaultSessionTitle(session: Pick<TerminalSession, "title" | "session">): boolean {
+  const title = session.title.trim();
+  if (isBuiltinDefaultTitle(title)) return true;
+
+  const resource = resolveResourceById(session.session.resourceId);
+  const resourceName = resource?.name?.trim() ?? "";
+  const shellLabel = session.session.shellLabel?.trim() ?? "";
+
+  if (resourceName && title === resourceName) return true;
+
+  const baseTitle = resolveTerminalTabBaseTitle(
+    session.session.resourceId,
+    null,
+    resourceName || null,
+    shellLabel || null,
+  );
+  if (title === baseTitle) return true;
+
+  if (resourceName) {
+    const prefixed = `${resourceName}-${baseTitle}`;
+    if (title === prefixed) return true;
+    if (title.startsWith(`${resourceName}-`)) {
+      const suffix = title.slice(resourceName.length + 1);
+      if (isBuiltinDefaultTitle(suffix)) return true;
+    }
+  }
+
+  return false;
+}
+
+function blockEffectiveOutput(block: TerminalBlock): string {
+  return block.liveOutput ? flattenOutputModel(block.liveOutput) : block.output;
+}
+
+function isCompletedShellNamingBlock(block: TerminalBlock): boolean {
+  return block.kind !== "ai" && isNamingEligibleBlock(block);
 }
 
 /** 判断 block 是否适合作为自动命名上下文（排除静默块与 full-terminal 摘要） */
@@ -91,12 +131,14 @@ function isNamingEligibleBlock(block: TerminalBlock): boolean {
   if (block.kind === "ai") {
     return Boolean(block.aiThread && block.aiThread.length > 0);
   }
-  if (block.output.trim() === FULL_TERMINAL_BLOCK_SUMMARY) return false;
-  const effectiveOutput = block.liveOutput
-    ? flattenOutputModel(block.liveOutput)
-    : block.output;
-  if (block.kind === "shell" && !effectiveOutput.trim() && block.status === "completed") {
-    return false;
+  const effectiveOutput = blockEffectiveOutput(block);
+  if (effectiveOutput.trim() === FULL_TERMINAL_BLOCK_SUMMARY) return false;
+  if (block.kind === "shell") {
+    if (!(block.status === "completed" || block.status === "failed")) return false;
+    if (!block.command.trim() && !block.attachedListing && !block.directoryPreview) {
+      return false;
+    }
+    return true;
   }
   return block.status === "completed" || block.status === "failed";
 }
@@ -126,8 +168,10 @@ export function extractNamingContext(blocks: TerminalBlock[]): string {
     } else {
       const cmd = block.command.trim();
       if (cmd) {
-        const outputSnippet = block.output.trim().slice(0, 200);
+        const outputSnippet = blockEffectiveOutput(block).trim().slice(0, 200);
         lines.push(outputSnippet ? `[命令] ${cmd}\n输出: ${outputSnippet}` : `[命令] ${cmd}`);
+      } else if (block.directoryPreview || block.attachedListing) {
+        lines.push(`[目录] ${block.cwd || "~"}`);
       }
     }
   }
@@ -316,16 +360,13 @@ export async function tryAutoNameSession(sessionId: string): Promise<void> {
   const session = useTerminalStore.getState().sessions.find((s) => s.id === sessionId);
   if (!session) return;
   // 仅对默认标题的会话自动命名
-  if (!isDefaultTitle(session.title)) return;
+  if (!isDefaultSessionTitle(session)) return;
 
   // 检查是否已有用户主动执行的 shell block（排除 auto-ls 等静默 block）
   const blocks = useBlocksStore.getState().getBlocks(sessionId);
-  const hasUserCompletedShell = blocks.some(
-    (b) => b.kind !== "ai" && isNamingEligibleBlock(b),
-  );
+  const hasUserCompletedShell = blocks.some(isCompletedShellNamingBlock);
   if (!hasUserCompletedShell) return;
 
-  autoNamedSessions.add(sessionId);
   pendingAiNaming.add(sessionId);
   emitNamingState(sessionId, true);
 
@@ -334,9 +375,10 @@ export async function tryAutoNameSession(sessionId: string): Promise<void> {
     if (result.ok) {
       // 写回前再次检查：用户可能在 AI 请求期间手动重命名了
       const current = useTerminalStore.getState().sessions.find((s) => s.id === sessionId);
-      if (current && isDefaultTitle(current.title)) {
+      if (current && isDefaultSessionTitle(current)) {
         applyTitle(sessionId, result.title);
       }
+      autoNamedSessions.add(sessionId);
     }
   } finally {
     pendingAiNaming.delete(sessionId);
@@ -417,27 +459,44 @@ function drainRenameQueue(sessionId: string): void {
 // ========== 自动命名订阅 ==========
 
 let subscriptionUnsubscribe: (() => void) | null = null;
-let sessionCleanupUnsubscribe: (() => void) | null = null;
+
+function countCompletedShellNamingBlocks(blocks: TerminalBlock[]): number {
+  return blocks.filter(isCompletedShellNamingBlock).length;
+}
+
+function scanPendingAutoNameSessions(): void {
+  for (const [sessionId, blocks] of Object.entries(useBlocksStore.getState().blocks)) {
+    if (countCompletedShellNamingBlocks(blocks) > 0) {
+      void tryAutoNameSession(sessionId);
+    }
+  }
+}
 
 /**
  * 启动自动命名订阅：监听 blocksStore 变化，首个 shell block 完成后触发命名。
  * 同时监听 terminalStore 的会话删除事件，清理标记防止内存泄漏。
- * 应在终端模块挂载时调用一次。
+ * 应在应用启动时调用一次（App 级，而非仅 TerminalPanel）。
  */
 export function startAutoNameSubscription(): () => void {
   if (subscriptionUnsubscribe) return subscriptionUnsubscribe;
 
-  const unsubscribeBlocks = useBlocksStore.subscribe((state) => {
-    // 遍历所有 session 的 blocks，检查是否有新完成的用户 shell block（排除静默 block）
-    for (const [sessionId, blocks] of Object.entries(state.blocks)) {
-      const hasUserCompletedShell = blocks.some(
-        (b) =>
-          b.kind !== "ai" &&
-          isNamingEligibleBlock(b) &&
-          b.completedAt != null,
-      );
-      if (hasUserCompletedShell) {
-        // 异步触发，不阻塞 store 更新
+  const unsubscribeBlocks = useBlocksStore.subscribe((state, prevState) => {
+    const prev = prevState ?? { blocks: {} as Record<string, TerminalBlock[]> };
+    const sessionIds = new Set([
+      ...Object.keys(state.blocks),
+      ...Object.keys(prev.blocks),
+    ]);
+
+    for (const sessionId of sessionIds) {
+      if (autoNamedSessions.has(sessionId) || pendingAiNaming.has(sessionId)) continue;
+
+      const blocks = state.blocks[sessionId] ?? [];
+      const prevBlocks = prev.blocks[sessionId] ?? [];
+      const becameEligible =
+        countCompletedShellNamingBlocks(blocks) >
+        countCompletedShellNamingBlocks(prevBlocks);
+
+      if (becameEligible) {
         void tryAutoNameSession(sessionId);
       }
     }
@@ -445,7 +504,8 @@ export function startAutoNameSubscription(): () => void {
 
   // 监听会话删除：清理标记
   const unsubscribeSessions = useTerminalStore.subscribe((state, prevState) => {
-    const prevIds = new Set(prevState.sessions.map((s) => s.id));
+    const prev = prevState ?? state;
+    const prevIds = new Set(prev.sessions.map((s) => s.id));
     const currentIds = new Set(state.sessions.map((s) => s.id));
     for (const id of prevIds) {
       if (!currentIds.has(id)) {
@@ -460,10 +520,10 @@ export function startAutoNameSubscription(): () => void {
     unsubscribeBlocks();
     unsubscribeSessions();
     subscriptionUnsubscribe = null;
-    sessionCleanupUnsubscribe = null;
   };
 
   subscriptionUnsubscribe = cleanup;
+  scanPendingAutoNameSessions();
   return cleanup;
 }
 
