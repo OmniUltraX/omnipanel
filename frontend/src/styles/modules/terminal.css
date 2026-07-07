@@ -1448,14 +1448,16 @@
         z-index: 20;
     }
 
-    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked {
+    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked,
+    .term-warp-block--ai.term-warp-block--expanded.term-warp-block--ai-sticky-docked {
         display: flex;
         flex-direction: column;
         min-height: 0;
         overflow: hidden;
     }
 
-    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread {
+    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread,
+    .term-warp-block--ai.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
@@ -1466,6 +1468,25 @@
     }
 
     .term-warp-sticky-segment {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        flex-shrink: 0;
+    }
+
+    /*
+     * 展开 AI 吸顶：anchor 为 sticky-context 直接子级，约束范围覆盖后续所有 segment。
+     * 不可放在 term-warp-sticky-segment 内——segment 高度有限，第二个 AI 顶上来时 sticky 会失效。
+     */
+    .term-warp-ai-sticky-anchor {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        flex-shrink: 0;
+        align-self: stretch;
+    }
+
+    .term-warp-sticky-context {
         display: flex;
         flex-direction: column;
         gap: var(--sp-3);
@@ -1718,6 +1739,43 @@
 
     .term-warp-output--error {
         color: #ff8787;
+    }
+
+    .term-warp-ssh-jump {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        margin: 2px 0 0;
+        padding: 8px 10px;
+        border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary, #b8b3ab);
+        font-size: 12px;
+        line-height: 1.45;
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+    }
+
+    .term-warp-ssh-jump:hover {
+        border-color: var(--accent, #4c8dff);
+        background: rgba(76, 141, 255, 0.08);
+        color: var(--text-primary, #ece8e1);
+    }
+
+    .term-warp-ssh-jump__summary {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .term-warp-ssh-jump__action {
+        flex-shrink: 0;
+        color: var(--accent, #4c8dff);
+        font-weight: 500;
+        white-space: nowrap;
     }
 
     /* ls 列表：类型着色 + 目录可点击 cd */
@@ -2125,6 +2183,51 @@
         margin-left: auto;
     }
 
+    .term-warp-ai-nav {
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
+    .term-warp-ai-nav__btn {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid color-mix(in srgb, var(--meta, #9a938a) 32%, transparent);
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--panel, #1c1b19) 88%, #000);
+        color: color-mix(in srgb, var(--text, #f8f4e8) 72%, var(--meta, #9a938a));
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+
+    .term-warp-ai-nav__btn:hover {
+        background: color-mix(in srgb, var(--accent) 14%, var(--panel, #1c1b19));
+        color: #f8f4e8;
+        border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+    }
+
+    .term-warp-ai-nav__triangle {
+        display: block;
+        width: 0;
+        height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 5px solid currentColor;
+        transform: translateY(-1px);
+    }
+
+    .term-warp-ai-nav__triangle--down {
+        border-bottom: none;
+        border-top: 5px solid currentColor;
+        transform: translateY(1px);
+    }
+
     .term-warp-block__toggle .term-warp-block__chevron {
         display: block;
         transition: transform 0.15s ease;
@@ -2290,6 +2393,26 @@
         padding: 10px 12px;
         font-size: 11px;
         color: var(--meta);
+    }
+
+    .term-warp-ai-stalled {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 6px 8px 0;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid color-mix(in oklab, var(--warning, #f59e0b) 40%, transparent);
+        background: color-mix(in oklab, var(--warning, #f59e0b) 12%, transparent);
+        font-size: 11px;
+        color: var(--fg-2);
+    }
+
+    .term-warp-ai-stalled__actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
     }
 
     .term-warp-block__hint {

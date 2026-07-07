@@ -4,7 +4,7 @@ import {
   type ToolCallMessagePartComponent,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { ToolFallback } from "../../components/assistant-ui/tool-fallback";
 import { ThreadMessagesOnly } from "../../components/assistant-ui/thread";
 import {
@@ -14,23 +14,69 @@ import {
 import { aiThreadToThreadMessages, getResolvedAiThread } from "./aiThreadBridge";
 import { cancelAiGeneration } from "../../lib/ai/cancelAiGeneration";
 import { useFollowOutputScroll } from "./useFollowOutputScroll";
+import { buildBlockThreadSignature } from "./threadSignature";
+import { useI18n } from "../../i18n";
+import { cancelInlineAiBlock } from "./warpInlineAi";
 
 const EMPTY_MESSAGES: ReturnType<typeof aiThreadToThreadMessages> = [];
 
-type TerminalAiThreadRuntimeProps = {
-  block: TerminalBlock;
+type TerminalAiBlockSlice = {
+  id: string;
+  status: TerminalBlock["status"];
+  aiStalled: boolean;
+  threadSignature: string;
+  thread: ReturnType<typeof getResolvedAiThread>;
 };
 
-function TerminalAiThreadRuntime({ block }: TerminalAiThreadRuntimeProps) {
-  const thread = getResolvedAiThread(block);
-  const isRunning = block.status === "running";
+type TerminalAiThreadRuntimeProps = {
+  blockSlice: TerminalAiBlockSlice;
+  sessionId: string;
+};
+
+function TerminalAiStalledBanner({
+  blockId,
+  sessionId,
+}: {
+  blockId: string;
+  sessionId: string;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className="term-warp-ai-stalled" role="status">
+      <span>{t("terminal.ai.stalled")}</span>
+      <div className="term-warp-ai-stalled__actions">
+        <button
+          type="button"
+          className="term-warp-block__toolbar-btn"
+          onClick={() => cancelInlineAiBlock(sessionId, blockId)}
+        >
+          {t("terminal.ai.stop")}
+        </button>
+        <button
+          type="button"
+          className="term-warp-block__toolbar-btn"
+          onClick={() => {
+            useBlocksStore.getState().updateBlock(blockId, { aiStalled: false });
+            cancelInlineAiBlock(sessionId, blockId);
+          }}
+        >
+          {t("terminal.ai.retry")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TerminalAiThreadRuntime({ blockSlice, sessionId }: TerminalAiThreadRuntimeProps) {
+  const isRunning = blockSlice.status === "running";
 
   const messages = useMemo(
     () =>
-      thread.length > 0
-        ? aiThreadToThreadMessages(thread, { isStreaming: isRunning })
+      blockSlice.thread.length > 0
+        ? aiThreadToThreadMessages(blockSlice.thread, { isStreaming: isRunning })
         : EMPTY_MESSAGES,
-    [thread, isRunning],
+    [blockSlice.thread, blockSlice.threadSignature, isRunning],
   );
 
   const toolFallback = useMemo<ToolCallMessagePartComponent>(
@@ -59,7 +105,10 @@ function TerminalAiThreadRuntime({ block }: TerminalAiThreadRuntimeProps) {
   }
 
   return (
-    <AssistantRuntimeProvider key={block.id} runtime={runtime}>
+    <AssistantRuntimeProvider key={blockSlice.id} runtime={runtime}>
+      {blockSlice.aiStalled ? (
+        <TerminalAiStalledBanner blockId={blockSlice.id} sessionId={sessionId} />
+      ) : null}
       <ThreadMessagesOnly
         components={{
           ToolFallback: toolFallback,
@@ -71,6 +120,7 @@ function TerminalAiThreadRuntime({ block }: TerminalAiThreadRuntimeProps) {
 
 type TerminalAiThreadViewProps = {
   blockId: string;
+  sessionId: string;
   /** 吸顶展开态：内容在卡片内滚动，需跟随最新输出 */
   dockedAutoScroll?: boolean;
 };
@@ -78,23 +128,54 @@ type TerminalAiThreadViewProps = {
 /** 终端 AI 卡片内容：复用侧栏 assistant-ui 消息渲染 */
 export function TerminalAiThreadView({
   blockId,
+  sessionId,
   dockedAutoScroll = false,
 }: TerminalAiThreadViewProps) {
   const threadRef = useRef<HTMLDivElement>(null);
-  const block = useBlocksStore((state) => state.findBlockById(blockId));
 
-  const threadSignature = useMemo(() => {
-    if (!block || block.kind !== "ai") return "";
-    const thread = getResolvedAiThread(block);
-    return thread
-      .map((item) => {
-        if (item.kind === "message") {
-          return `m:${item.id}:${item.content.length}:${item.reasoning?.length ?? 0}`;
-        }
-        return `t:${item.id}:${item.status}:${item.result?.length ?? 0}`;
-      })
-      .join("|");
-  }, [block]);
+  const selectThreadSignature = useCallback(
+    (state: ReturnType<typeof useBlocksStore.getState>) => {
+      const block = state.findBlockById(blockId);
+      if (!block || block.kind !== "ai") return "";
+      return buildBlockThreadSignature(block);
+    },
+    [blockId],
+  );
+
+  const selectStatus = useCallback(
+    (state: ReturnType<typeof useBlocksStore.getState>) => {
+      const block = state.findBlockById(blockId);
+      if (!block || block.kind !== "ai") return null;
+      return block.status;
+    },
+    [blockId],
+  );
+
+  const selectAiStalled = useCallback(
+    (state: ReturnType<typeof useBlocksStore.getState>) => {
+      const block = state.findBlockById(blockId);
+      if (!block || block.kind !== "ai") return false;
+      return Boolean(block.aiStalled);
+    },
+    [blockId],
+  );
+
+  const threadSignature = useBlocksStore(selectThreadSignature);
+  const status = useBlocksStore(selectStatus);
+  const aiStalled = useBlocksStore(selectAiStalled);
+
+  const blockSlice = useMemo((): TerminalAiBlockSlice | null => {
+    if (!threadSignature || !status) return null;
+    const block = useBlocksStore.getState().findBlockById(blockId);
+    if (!block || block.kind !== "ai") return null;
+    return {
+      id: block.id,
+      status,
+      aiStalled,
+      threadSignature,
+      thread: getResolvedAiThread(block),
+    };
+  }, [blockId, threadSignature, status, aiStalled]);
 
   useFollowOutputScroll(threadRef, {
     enabled: dockedAutoScroll,
@@ -102,11 +183,11 @@ export function TerminalAiThreadView({
     settleFrames: 1,
   });
 
-  if (!block || block.kind !== "ai") return null;
+  if (!blockSlice) return null;
 
   return (
     <div className="term-warp-ai-thread" ref={threadRef}>
-      <TerminalAiThreadRuntime block={block} />
+      <TerminalAiThreadRuntime blockSlice={blockSlice} sessionId={sessionId} />
     </div>
   );
 }

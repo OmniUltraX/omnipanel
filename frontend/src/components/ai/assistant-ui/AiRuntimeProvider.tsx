@@ -33,6 +33,16 @@ import {
 } from "../../../modules/terminal/terminalAiContextBundle";
 import { buildInlineAiHistoryJson } from "../../../modules/terminal/terminalInlineAiHistory";
 import { cancelPendingInlineTools } from "../../../modules/terminal/inlineToolBridge";
+import {
+  appendInlineAiStreamChunk,
+  flushInlineAiStream,
+} from "../../../modules/terminal/inlineAiStreamBuffer";
+import {
+  checkInlineAiStall,
+  clearInlineAiWatchdog,
+  resetInlineAiStall,
+  touchInlineAiDelta,
+} from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
 
@@ -205,6 +215,9 @@ function finalizeInlineBlock(
   inline: InlineTerminalAiTarget,
   options: { failed: boolean; aborted?: boolean; reason?: string },
 ): void {
+  flushInlineAiStream(inline.blockId, inline.assistantTurnId);
+  clearInlineAiWatchdog(inline.blockId);
+  useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
   if (options.aborted) {
     cancelPendingInlineTools(inline.blockId);
   }
@@ -300,9 +313,16 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   runGenerationRef.current = async (convId, assistantMsgId, userText, inline) => {
     const appendText = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        useBlocksStore
-          .getState()
-          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "content", chunk);
+        touchInlineAiDelta(inline.blockId);
+        if (useBlocksStore.getState().findBlockById(inline.blockId)?.aiStalled) {
+          useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+        }
+        appendInlineAiStreamChunk(
+          inline.blockId,
+          inline.assistantTurnId,
+          "content",
+          chunk,
+        );
       } else if (assistantMsgId) {
         appendStreamContent(convId, assistantMsgId, chunk);
       }
@@ -310,9 +330,16 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const appendReasoning = (chunk: string) => {
       if (inline?.assistantTurnId) {
-        useBlocksStore
-          .getState()
-          .appendAiThreadMessageField(inline.blockId, inline.assistantTurnId, "reasoning", chunk);
+        touchInlineAiDelta(inline.blockId);
+        if (useBlocksStore.getState().findBlockById(inline.blockId)?.aiStalled) {
+          useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+        }
+        appendInlineAiStreamChunk(
+          inline.blockId,
+          inline.assistantTurnId,
+          "reasoning",
+          chunk,
+        );
       } else if (assistantMsgId) {
         appendStreamReasoning(convId, assistantMsgId, chunk);
       }
@@ -441,6 +468,18 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     pendingToolBridgeRef.current.clear();
     waitingToolDispatchRef.current.clear();
 
+    let stallTimer: ReturnType<typeof setInterval> | null = null;
+    if (inline) {
+      resetInlineAiStall(inline.blockId);
+      useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+      stallTimer = setInterval(() => {
+        if (signal.aborted) return;
+        if (checkInlineAiStall(inline.blockId)) {
+          useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: true });
+        }
+      }, 5_000);
+    }
+
     // 清理历史轮次遗留的 streaming 状态（此前 panic/中断时可能未复位）
     if (!inline && assistantMsgId) {
       const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
@@ -456,6 +495,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const finishGeneration = (failed = false, aborted = false) => {
       if (inline) {
+        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
         if (aborted) {
           finalizeInlineBlock(inline, { failed: true, aborted: true, reason: "已停止" });
         } else {
@@ -483,7 +523,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             httpProvider: backend.kind === "http" ? backend.httpProvider : null,
             context: aiContext,
             historyJson: inline
-              ? buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
+              ? await buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
               : buildHistoryJson(convId),
             toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: "master" } } : "none",
           },
@@ -507,6 +547,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         });
       finishGeneration();
     } catch (err) {
+      if (inline) {
+        flushInlineAiStream(inline.blockId, inline.assistantTurnId);
+      }
       if (signal.aborted) {
         finishGeneration(true, true);
       } else {
@@ -518,6 +561,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         finishGeneration(true);
       }
     } finally {
+      if (stallTimer) clearInterval(stallTimer);
       setIsGenerating(false);
       abortRef.current = null;
     }

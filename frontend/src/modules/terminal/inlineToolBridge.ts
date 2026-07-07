@@ -6,6 +6,7 @@ import {
   useBlocksStore,
   type AiThreadToolCall,
 } from "../../stores/blocksStore";
+import { pushAssistantErrorMessage } from "./aiThreadBridge";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
 import { cancelTerminalExecution } from "./executeTerminalCommand";
@@ -64,11 +65,25 @@ async function deliverToolResultToBackend(
   toolCallId: string,
   result: string,
   approved: boolean,
+  blockId?: string,
 ): Promise<void> {
   try {
     await reportToolResultWithRetry(conversationId, toolCallId, result, approved);
-  } catch {
-    // 重试仍失败时静默；后端将超时，卡片可手动停止。
+  } catch (err) {
+    if (!blockId) return;
+    const message =
+      err instanceof Error
+        ? `工具回传失败：${err.message}`
+        : "工具回传失败，请停止后重试";
+    pushAssistantErrorMessage(blockId, message);
+    useBlocksStore.getState().updateBlock(blockId, {
+      status: "failed",
+      exitCode: 1,
+    });
+    useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+      status: "failed",
+      result: message,
+    } as Partial<AiThreadToolCall>);
   }
 }
 
@@ -136,7 +151,7 @@ export function cancelPendingInlineTools(blockId?: string): void {
     if (blockId && pending.blockId !== blockId) continue;
     const result = "用户已取消";
     pending.resolve({ approved: false, result });
-    void deliverToolResultToBackend(pending.conversationId, id, result, false);
+    void deliverToolResultToBackend(pending.conversationId, id, result, false, pending.blockId);
     useBlocksStore.getState().updateAiThreadItem(pending.blockId, id, {
       status: "rejected",
       result,
@@ -169,7 +184,7 @@ export async function approveInlineTerminalTool(
         result,
       } as Partial<AiThreadToolCall>);
       pendingByToolCallId.delete(toolCallId);
-      await deliverToolResultToBackend(conversationId, toolCallId, result, false);
+      await deliverToolResultToBackend(conversationId, toolCallId, result, false, blockId);
       pending.resolve({ approved: false, result });
       return;
     }
@@ -224,6 +239,7 @@ export async function approveInlineTerminalTool(
       toolCallId,
       decision.result,
       decision.approved,
+      blockId,
     );
     pending.resolve(decision);
   } finally {
@@ -242,7 +258,7 @@ export function rejectInlineTerminalTool(blockId: string, toolCallId: string): v
   } as Partial<AiThreadToolCall>);
 
   pendingByToolCallId.delete(toolCallId);
-  void deliverToolResultToBackend(pending.conversationId, toolCallId, result, false);
+  void deliverToolResultToBackend(pending.conversationId, toolCallId, result, false, blockId);
   pending.resolve({ approved: false, result });
 }
 

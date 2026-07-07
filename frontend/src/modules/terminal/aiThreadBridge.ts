@@ -3,6 +3,7 @@ import type { AiMessage, ToolCallState } from "../../stores/aiStore";
 import { aiMessagesToThreadMessages } from "../../components/ai/assistant-ui/messageBridge";
 import type { AiThreadItem, AiThreadMessage, AiThreadToolCall, TerminalBlock } from "../../stores/blocksStore";
 import { isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
+import { buildAiThreadItemSignature } from "./threadSignature";
 
 export interface ModelPriorMessage {
   role: "user" | "assistant" | "tool";
@@ -169,11 +170,136 @@ export function aiThreadToAiMessages(
 }
 
 /** 转为 assistant-ui ThreadMessage，供终端内嵌聊天 UI 使用 */
+const threadMessageCache = new Map<string, ThreadMessage>();
+
+function resolveStreamingAssistantId(
+  items: AiThreadItem[],
+  isStreaming: boolean,
+): string | null {
+  if (!isStreaming) return null;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (isAiThreadMessage(item) && item.role === "assistant") {
+      return item.id;
+    }
+  }
+  return null;
+}
+
 export function aiThreadToThreadMessages(
   thread: AiThreadItem[],
   options?: { isStreaming?: boolean },
 ): ThreadMessage[] {
-  return aiMessagesToThreadMessages(aiThreadToAiMessages(thread, options));
+  const items = normalizeAiThread(thread);
+  const streamingAssistantId = resolveStreamingAssistantId(items, Boolean(options?.isStreaming));
+  const messages: ThreadMessage[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const item = items[index];
+    if (isAiThreadMessage(item)) {
+      if (item.role === "user") {
+        const signature = buildAiThreadItemSignature(item);
+        const cached = threadMessageCache.get(signature);
+        if (cached) {
+          messages.push(cached);
+          index += 1;
+          continue;
+        }
+        const aiMsg: AiMessage = {
+          id: item.id,
+          role: "user",
+          content: item.content,
+          timestamp: item.timestamp ?? Date.now(),
+        };
+        const threadMsg = aiMessagesToThreadMessages([aiMsg])[0];
+        threadMessageCache.set(signature, threadMsg);
+        messages.push(threadMsg);
+        index += 1;
+        continue;
+      }
+
+      const isStreamingMessage = item.id === streamingAssistantId;
+      if (!isStreamingMessage) {
+        const signature = buildAiThreadItemSignature(item);
+        let cached = threadMessageCache.get(signature);
+        if (!cached) {
+          const toolCalls: ToolCallState[] = [];
+          let scan = index + 1;
+          while (scan < items.length && isAiThreadToolCall(items[scan])) {
+            const toolCall = items[scan] as AiThreadToolCall;
+            toolCalls.push({
+              id: toolCall.id,
+              name: toolCall.toolName,
+              arguments: toolCall.args,
+              result: toolCall.result,
+              status: mapToolStatus(toolCall.status),
+            });
+            scan += 1;
+          }
+          const aiMsg: AiMessage = {
+            id: item.id,
+            role: "assistant",
+            content: item.content,
+            reasoningContent: item.reasoning?.trim() || undefined,
+            timestamp: item.timestamp ?? Date.now(),
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            isStreaming: false,
+            isReasoningStreaming: false,
+          };
+          cached = aiMessagesToThreadMessages([aiMsg])[0];
+          threadMessageCache.set(signature, cached);
+        }
+        messages.push(cached);
+        while (index + 1 < items.length && isAiThreadToolCall(items[index + 1])) {
+          index += 1;
+        }
+        index += 1;
+        continue;
+      }
+
+      const aiMessages = aiThreadToAiMessages(items.slice(index), {
+        isStreaming: true,
+      });
+      messages.push(...aiMessagesToThreadMessages(aiMessages));
+      break;
+    }
+
+    if (isAiThreadToolCall(item)) {
+      const signature = buildAiThreadItemSignature(item);
+      let cached = threadMessageCache.get(signature);
+      if (!cached) {
+        const aiMsg: AiMessage = {
+          id: `tool-wrap-${item.id}`,
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          toolCalls: [
+            {
+              id: item.id,
+              name: item.toolName,
+              arguments: item.args,
+              result: item.result,
+              status: mapToolStatus(item.status),
+            },
+          ],
+        };
+        cached = aiMessagesToThreadMessages([aiMsg])[0];
+        threadMessageCache.set(signature, cached);
+      }
+      messages.push(cached);
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return messages;
+}
+
+export function invalidateAiThreadMessageCache(): void {
+  threadMessageCache.clear();
 }
 
 export function messageBody(item: AiThreadMessage): string {

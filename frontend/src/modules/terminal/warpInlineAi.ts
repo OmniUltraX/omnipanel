@@ -6,6 +6,9 @@ import { useTerminalUiStore } from "./terminalUiStore";
 import { buildNaturalLanguagePrompt } from "./warpExperience";
 import { resolveInlineConversationId } from "./terminalAiContextBundle";
 import { getResolvedAiThread, pushAssistantErrorMessage } from "./aiThreadBridge";
+import { cancelPendingInlineTools } from "./inlineToolBridge";
+import { clearInlineAiWatchdog } from "./inlineAiWatchdog";
+import { flushInlineAiStream } from "./inlineAiStreamBuffer";
 
 function beginAiBlock(sessionId: string, query: string, cwd: string): string {
   const blockId = createBlockId();
@@ -46,6 +49,8 @@ const INLINE_AI_STOPPED = "已手动停止";
 export function cancelInlineAiBlock(sessionId: string, blockId: string): void {
   void commands.aiChatCancel(resolveInlineConversationId(sessionId)).catch(() => {});
   cancelAiGeneration();
+  flushInlineAiStream(blockId);
+  clearInlineAiWatchdog(blockId);
   cancelPendingInlineTools(blockId);
 
   const block = useBlocksStore.getState().findBlockById(blockId);

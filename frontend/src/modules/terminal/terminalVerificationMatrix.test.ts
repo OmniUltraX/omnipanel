@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { hasFullTerminalSignal } from "./fullTerminalSignals";
 import {
@@ -20,9 +20,35 @@ import {
   useTerminalRunStateStore,
 } from "./terminalRunStateStore";
 import { resolveTerminalAiContextBundle } from "./terminalAiContextBundle";
-import { buildInlineAiHistoryJson } from "./terminalInlineAiHistory";
+import { buildInlineAiHistoryJsonSync, sliceRecentTurns } from "./terminalInlineAiHistory";
+import {
+  appendInlineAiStreamChunk,
+  flushInlineAiStream,
+} from "./inlineAiStreamBuffer";
+import {
+  checkInlineAiStall,
+  clearInlineAiWatchdog,
+  INLINE_AI_STALL_THRESHOLD_MS,
+  resetInlineAiStall,
+  touchInlineAiDelta,
+} from "./inlineAiWatchdog";
+import {
+  applyStickyHandoff,
+  resolveStickyAiBlockIdWithExpanded,
+  STICKY_HANDOFF_INSET_PX,
+} from "./useStickyAiBlockId";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
+
+/*
+ * 手工验收清单（终端 AI 卡片性能与稳定性）
+ * | 场景 | 期望 |
+ * | 10+ 轮连续追问 | 滚动与渲染流畅，无明显卡顿 |
+ * | 思考模型流式输出 | 无突发大段文字，逐帧平滑 |
+ * | 工具密集任务 | 不误判卡死，工具回传失败有提示 |
+ * | 断网/超时 | 显示 stalled 横幅，可停止/重试 |
+ * | 停止后可重试 | cancel 后 block 状态正确，可再次追问 |
+ */
 
 /*
  * 手工验收清单（AI 工具命令执行体系）
@@ -51,6 +77,11 @@ describe("terminalCommandProfile", () => {
     expect(profile.kind).toBe("progress");
     expect(profile.timeoutMs).toBe(1_800_000);
     expect(profile.outputIdleMs).toBe(3_000);
+  });
+
+  it("snap install 识别为 progress", () => {
+    const profile = resolveCommandProfile("snap install lxd", "用户");
+    expect(profile.kind).toBe("progress");
   });
 
   it("拒绝流式命令并附替代建议", () => {
@@ -137,7 +168,31 @@ describe("terminalOutputModel", () => {
 
   it("识别进度类输出片段", () => {
     expect(isInlineProgressChunk("Downloading\rDownloading 50%")).toBe(true);
+    expect(
+      isInlineProgressChunk(
+        '5.21/stable  47% 3.89MB/s 16.6s Download snap "lxd"\n',
+      ),
+    ).toBe(true);
     expect(isInlineProgressChunk("plain line\n")).toBe(false);
+  });
+
+  it("合并换行刷新的进度行", () => {
+    let model = createEmptyOutputModel();
+    model = ingestTerminalOutputChunk(
+      model,
+      '5.21/stable  47% 3.89MB/s 16.6s Download snap "lxd"\n',
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      '5.21/stable  50% 4.01MB/s 15.2s Download snap "lxd"\n',
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      '5.21/stable  55% 4.12MB/s 14.0s Download snap "lxd"\n',
+    );
+    expect(flattenOutputModel(model)).toBe(
+      '5.21/stable  55% 4.12MB/s 14.0s Download snap "lxd"',
+    );
   });
 });
 
@@ -258,11 +313,178 @@ describe("terminalInlineAiHistory", () => {
       },
     });
 
-    const json = buildInlineAiHistoryJson(blockId);
+    const json = buildInlineAiHistoryJsonSync(blockId);
     expect(json).toBeTruthy();
     const parsed = JSON.parse(json!) as Array<{ role: string; content: string }>;
     expect(parsed).toHaveLength(2);
     expect(parsed[0].content).toBe("pwd");
+  });
+
+  it("超过阈值时保留最近 N 轮原文", () => {
+    const blockId = "blk-inline-history-long";
+    const messages = Array.from({ length: 14 }, (_, index) => ({
+      kind: "message" as const,
+      id: `m-${index}`,
+      role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `msg-${index}`,
+      timestamp: index,
+    }));
+
+    useBlocksStore.setState({
+      blocks: {
+        "sess-1": [
+          {
+            id: blockId,
+            sessionId: "sess-1",
+            kind: "ai",
+            command: "# hi",
+            output: "",
+            exitCode: null,
+            startLine: -1,
+            endLine: -1,
+            marker: null,
+            cwd: "~",
+            timestamp: Date.now(),
+            status: "running",
+            aiThread: messages,
+          },
+        ],
+      },
+    });
+
+    const recent = sliceRecentTurns(messages, 6);
+    expect(recent.length).toBeGreaterThan(0);
+    expect(recent[0].id).toBe(`m-${messages.length - 12}`);
+
+    const json = buildInlineAiHistoryJsonSync(blockId);
+    const parsed = JSON.parse(json!) as Array<{ role: string; content: string }>;
+    expect(parsed.length).toBeLessThanOrEqual(24);
+    expect(parsed.some((item) => item.content === `msg-${messages.length - 1}`)).toBe(true);
+  });
+});
+
+describe("inlineAiStreamBuffer", () => {
+  it("批量 flush 合并 chunk 到 store", () => {
+    const blockId = "blk-stream-buffer";
+    const messageId = "assistant-1";
+    useBlocksStore.setState({
+      blocks: {
+        "sess-1": [
+          {
+            id: blockId,
+            sessionId: "sess-1",
+            kind: "ai",
+            command: "# hi",
+            output: "",
+            exitCode: null,
+            startLine: -1,
+            endLine: -1,
+            marker: null,
+            cwd: "~",
+            timestamp: Date.now(),
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: messageId,
+                role: "assistant",
+                content: "",
+                timestamp: 1,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    appendInlineAiStreamChunk(blockId, messageId, "content", "hello ");
+    appendInlineAiStreamChunk(blockId, messageId, "content", "world");
+    flushInlineAiStream(blockId, messageId);
+
+    const block = useBlocksStore.getState().findBlockById(blockId);
+    const assistant = block?.aiThread?.find((item) => item.id === messageId);
+    expect(assistant && "content" in assistant ? assistant.content : "").toBe("hello world");
+  });
+});
+
+describe("inlineAiWatchdog", () => {
+  it("无 delta 超阈值后标记 stalled", () => {
+    const blockId = "blk-watchdog";
+    clearInlineAiWatchdog(blockId);
+
+    const base = Date.now();
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(base);
+    touchInlineAiDelta(blockId);
+    expect(checkInlineAiStall(blockId)).toBe(false);
+
+    nowSpy.mockReturnValue(base + INLINE_AI_STALL_THRESHOLD_MS + 1_000);
+    expect(checkInlineAiStall(blockId)).toBe(true);
+    expect(checkInlineAiStall(blockId)).toBe(true);
+
+    clearInlineAiWatchdog(blockId);
+    nowSpy.mockRestore();
+  });
+});
+
+describe("useStickyAiBlockId handoff", () => {
+  const blocks = [
+    { id: "ai-1", kind: "ai" },
+    { id: "shell-1", kind: "shell" },
+    { id: "ai-2", kind: "ai" },
+  ] as TerminalBlock[];
+
+  const container = {
+    getBoundingClientRect: () => ({
+      top: 100,
+      bottom: 500,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 400,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }),
+  } as HTMLElement;
+
+  it("向下切换较新 AI 时需超过 handoff 线", () => {
+    const handoffLine = 500 - STICKY_HANDOFF_INSET_PX;
+    const entries = [
+      { blockId: "ai-1", rect: { top: -200, bottom: 200 } as DOMRect },
+      { blockId: "ai-2", rect: { top: handoffLine + 20, bottom: 520 } as DOMRect },
+    ];
+
+    expect(applyStickyHandoff("ai-1", "ai-2", blocks, entries, container)).toBe("ai-1");
+
+    entries[1].rect = { top: handoffLine - 10, bottom: 520 } as DOMRect;
+    expect(applyStickyHandoff("ai-1", "ai-2", blocks, entries, container)).toBe("ai-2");
+  });
+
+  it("向上滚回较早 AI 时立即切换", () => {
+    const entries = [
+      { blockId: "ai-1", rect: { top: 120, bottom: 300 } as DOMRect },
+      { blockId: "ai-2", rect: { top: 400, bottom: 600 } as DOMRect },
+    ];
+
+    expect(applyStickyHandoff("ai-2", "ai-1", blocks, entries, container)).toBe("ai-1");
+  });
+
+  it("有展开 AI 时锁定吸顶，忽略滚动解析", () => {
+    const list = document.createElement("div");
+    const segment1 = document.createElement("div");
+    segment1.dataset.blockId = "ai-1";
+    list.appendChild(segment1);
+    const segment2 = document.createElement("div");
+    segment2.dataset.blockId = "ai-2";
+    list.appendChild(segment2);
+
+    const feed = document.createElement("div");
+    feed.appendChild(list);
+
+    expect(
+      resolveStickyAiBlockIdWithExpanded(feed, list, blocks, "ai-1"),
+    ).toBe("ai-1");
   });
 });
 

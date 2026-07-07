@@ -392,6 +392,137 @@ const ComposerAction: FC = () => {
   );
 };
 
+const StreamingPlainText: FC = () => {
+  const text = useAuiState((s) => {
+    for (const part of s.message.content) {
+      if (part.type === "text") return part.text;
+    }
+    return "";
+  });
+  return (
+    <pre className="aui-streaming-plaintext m-0 whitespace-pre-wrap font-[inherit] text-[inherit] leading-relaxed">
+      {text}
+    </pre>
+  );
+};
+
+const TerminalAssistantMessage: FC = () => {
+  const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  const { t } = useI18n();
+  const {
+    ToolFallback: ToolFallbackComponent = ToolFallback,
+    ToolGroup,
+    ReasoningGroup,
+  } = useContext(ThreadComponentsContext);
+
+  const ACTION_BAR_PT = "pt-1.5";
+  const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
+
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_assistant-message-root"
+      data-role="assistant"
+      className="fade-in slide-in-from-bottom-1 animate-in relative duration-150"
+    >
+      <div
+        data-slot="aui_assistant-message-content"
+        className="text-fg-2 px-2 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
+      >
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({
+            reasoning: ["group-chainOfThought", "group-reasoning"],
+            "tool-call": ["group-chainOfThought", "group-tool"],
+            "standalone-tool-call": [],
+          })}
+        >
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-chainOfThought":
+                return <div data-slot="aui_chain-of-thought">{children}</div>;
+              case "group-tool":
+                if (ToolGroup) {
+                  return <ToolGroup group={part}>{children}</ToolGroup>;
+                }
+                return (
+                  <ToolGroupRoot variant="ghost">
+                    <ToolGroupTrigger
+                      count={part.indices.length}
+                      active={part.status.type === "running"}
+                    />
+                    <ToolGroupContent>{children}</ToolGroupContent>
+                  </ToolGroupRoot>
+                );
+              case "group-reasoning": {
+                if (ReasoningGroup) {
+                  return <ReasoningGroup group={part}>{children}</ReasoningGroup>;
+                }
+                const running = part.status.type === "running";
+                return (
+                  <ReasoningRoot streaming={running}>
+                    <ReasoningTrigger active={running} />
+                    <ReasoningContent aria-busy={running}>
+                      <ReasoningText>{children}</ReasoningText>
+                    </ReasoningContent>
+                  </ReasoningRoot>
+                );
+              }
+              case "text":
+                return isRunning ? <StreamingPlainText /> : <MarkdownText />;
+              case "reasoning":
+                return <Reasoning {...part} />;
+              case "tool-call":
+                return part.toolUI ?? <ToolFallbackComponent {...part} />;
+              case "data":
+                return part.dataRendererUI;
+              case "indicator":
+                return (
+                  <span
+                    data-slot="aui_assistant-message-indicator"
+                    className="animate-pulse font-sans"
+                    aria-label={t("ai.composer.assistantWorking")}
+                  >
+                    {"●"}
+                  </span>
+                );
+              default:
+                return null;
+            }
+          }}
+        </MessagePrimitive.GroupedParts>
+        <MessageError />
+      </div>
+
+      <div
+        data-slot="aui_assistant-message-footer"
+        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+      >
+        <ActionBarPrimitive.Root
+          hideWhenRunning
+          autohide="not-last"
+          className="aui-assistant-action-bar-root text-muted-foreground flex gap-1"
+        >
+          <ActionBarPrimitive.Copy asChild>
+            <TooltipIconButton tooltip={t("ai.composer.buttonCopy")}>
+              <CopyIcon />
+            </TooltipIconButton>
+          </ActionBarPrimitive.Copy>
+        </ActionBarPrimitive.Root>
+      </div>
+    </MessagePrimitive.Root>
+  );
+};
+
+const TerminalThreadMessage: FC = () => {
+  const { AssistantMessage: AssistantMessageComponent = TerminalAssistantMessage } =
+    useContext(ThreadComponentsContext);
+  const role = useAuiState((s) => s.message.role);
+  const isEditing = useAuiState((s) => s.message.composer.isEditing);
+
+  if (isEditing) return <EditComposer />;
+  if (role === "user") return <UserMessage />;
+  return <AssistantMessageComponent />;
+};
+
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
@@ -665,8 +796,16 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
 
 /** 仅消息列表（无 Composer），供终端内嵌 AI 卡片使用 */
 export const ThreadMessagesOnly: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
+  const mergedComponents = useMemo<ThreadComponents>(
+    () => ({
+      ...components,
+      AssistantMessage: components.AssistantMessage ?? TerminalAssistantMessage,
+    }),
+    [components],
+  );
+
   return (
-    <ThreadComponentsContext.Provider value={components}>
+    <ThreadComponentsContext.Provider value={mergedComponents}>
       <ThreadPrimitive.Root
         className="aui-root aui-thread-root term-warp-ai-thread-root flex flex-col"
         style={{
@@ -675,7 +814,7 @@ export const ThreadMessagesOnly: FC<ThreadProps> = ({ components = EMPTY_COMPONE
       >
         <ThreadPrimitive.Viewport className="flex flex-col overflow-x-auto overflow-y-hidden px-1 py-1">
           <div className="aui_message-group flex flex-col gap-y-4 empty:hidden">
-            <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            <ThreadPrimitive.Messages>{() => <TerminalThreadMessage />}</ThreadPrimitive.Messages>
           </div>
         </ThreadPrimitive.Viewport>
       </ThreadPrimitive.Root>

@@ -22,13 +22,13 @@ import { resolveResourceById } from "../../stores/connectionStore";
 import { FULL_TERMINAL_BLOCK_SUMMARY } from "./terminalRunStateStore";
 import { flattenOutputModel } from "./terminalOutputModel";
 import { resolveTerminalTabBaseTitle } from "./terminalSessionDisplay";
-import {
-  useAiModelsStore,
-  resolveModelSelection,
-  firstModelSelectionId,
-} from "../../stores/aiModelsStore";
-import { buildBearerAuthorization, fetchWithNetworkHint } from "../../lib/fetchHeaders";
 import { useSettingsStore } from "../../stores/settingsStore";
+import {
+  requestAiCompletionOnce,
+  AI_COMPLETION_ONCE_TIMEOUT_MS,
+  AI_COMPLETION_ONCE_RETRY_DELAY_MS,
+  AI_COMPLETION_ONCE_MAX_RETRIES,
+} from "../../lib/ai/requestAiCompletionOnce";
 
 /** 上下文提取：短会话全取，长会话首末截取 */
 const CONTEXT_HEAD_COUNT = 3;
@@ -37,11 +37,11 @@ const CONTEXT_FULL_THRESHOLD = 5;
 /** 生成标题的最大字符数 */
 const MAX_TITLE_CHARS = 16;
 /** 单次 AI 请求超时 */
-const AI_REQUEST_TIMEOUT_MS = 15_000;
+const AI_REQUEST_TIMEOUT_MS = AI_COMPLETION_ONCE_TIMEOUT_MS;
 /** 失败重试延迟 */
-const RETRY_DELAY_MS = 3_000;
+const RETRY_DELAY_MS = AI_COMPLETION_ONCE_RETRY_DELAY_MS;
 /** 重试次数 */
-const MAX_RETRIES = 1;
+const MAX_RETRIES = AI_COMPLETION_ONCE_MAX_RETRIES;
 
 /** 命名结果类型 */
 export type AiRenameResult =
@@ -192,35 +192,6 @@ function summarizeAiThread(thread: AiThreadItem[]): string {
   return parts.join(" | ");
 }
 
-interface AiModelConfig {
-  baseUrl: string;
-  apiKey: string;
-  name: string;
-}
-
-/** 从 aiModelsStore 获取第一个可用的模型配置 */
-function resolveAiModelConfig(): AiModelConfig | null {
-  const providers = useAiModelsStore.getState().providers;
-  if (providers.length === 0) return null;
-  const selectionId = firstModelSelectionId(providers);
-  if (!selectionId) return null;
-  const resolved = resolveModelSelection(providers, selectionId);
-  if (!resolved || !resolved.apiKey.trim()) return null;
-  return {
-    baseUrl: resolved.baseUrl,
-    apiKey: resolved.apiKey,
-    name: resolved.name,
-  };
-}
-
-/** 构建 chat completions 请求 URL（兼容 baseUrl 是否含 /v1） */
-function buildChatCompletionsUrl(baseUrl: string): string {
-  const clean = baseUrl.replace(/\/+$/, "");
-  return clean.includes("/v1")
-    ? `${clean}/chat/completions`
-    : `${clean}/v1/chat/completions`;
-}
-
 /** 根据用户语言构建 system prompt */
 function buildSystemPrompt(lang: string): string {
   const isZh = lang.startsWith("zh");
@@ -260,83 +231,34 @@ async function requestSessionTitle(
   const context = extractNamingContext(blocks);
   if (!context.trim()) return { ok: false, reason: "no-context" };
 
-  const config = resolveAiModelConfig();
-  if (!config) return { ok: false, reason: "no-provider" };
-
   const lang = useSettingsStore.getState().locale ?? "zh-CN";
   const systemPrompt = buildSystemPrompt(lang);
   const userPrompt = buildUserPrompt(context, lang);
-  const url = buildChatCompletionsUrl(config.baseUrl);
 
-  let lastError: Error | null = null;
+  const result = await requestAiCompletionOnce({
+    system: systemPrompt,
+    user: userPrompt,
+    temperature: 0.3,
+    maxTokens: 50,
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: MAX_RETRIES,
+    retryDelayMs: RETRY_DELAY_MS,
+    signal,
+  });
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
-    if (signal) {
-      signal.addEventListener("abort", () => controller.abort());
-    }
-
-    try {
-      const response = await fetchWithNetworkHint(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: buildBearerAuthorization(config.apiKey),
-        },
-        body: JSON.stringify({
-          model: config.name,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.3,
-          max_tokens: 50,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        console.warn(`[sessionAutoName] AI 请求失败 (attempt ${attempt + 1}): HTTP ${response.status}`);
-        lastError = new Error(`HTTP ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-      const content: string | undefined = data?.choices?.[0]?.message?.content;
-      if (!content) {
-        lastError = new Error("Empty response");
-        continue;
-      }
-
-      // 清理：去引号、去换行、截断
-      const cleaned = content
-        .trim()
-        .replace(/^["'""''「『]+|["'""''」』]+$/g, "")
-        .replace(/\n+/g, " ")
-        .slice(0, MAX_TITLE_CHARS)
-        .trim();
-
-      if (cleaned) {
-        return { ok: true, title: cleaned };
-      }
-      lastError = new Error("Empty after cleanup");
-    } catch (err) {
-      if ((err as Error)?.name === "AbortError") {
-        return { ok: false, reason: "request-failed" };
-      }
-      console.warn(`[sessionAutoName] AI 请求异常 (attempt ${attempt + 1}):`, err);
-      lastError = err as Error;
-    } finally {
-      clearTimeout(timeout);
-    }
+  if (!result.ok) {
+    if (result.reason === "no-provider") return { ok: false, reason: "no-provider" };
+    return { ok: false, reason: "request-failed" };
   }
 
-  return { ok: false, reason: "request-failed" };
+  const cleaned = result.content
+    .replace(/^["'""''「『]+|["'""''」』]+$/g, "")
+    .replace(/\n+/g, " ")
+    .slice(0, MAX_TITLE_CHARS)
+    .trim();
+
+  if (!cleaned) return { ok: false, reason: "request-failed" };
+  return { ok: true, title: cleaned };
 }
 
 /** 回写会话标题 */

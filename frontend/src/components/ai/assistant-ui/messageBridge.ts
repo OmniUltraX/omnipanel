@@ -6,6 +6,15 @@ import type {
 
 import type { AiMessage, ToolCallState } from "../../../stores/aiStore";
 
+const completedThreadMessageCache = new Map<string, ThreadMessage>();
+
+function aiMessageCacheKey(msg: AiMessage): string {
+  const toolSig = msg.toolCalls
+    ?.map((tc) => `${tc.id}:${tc.status}:${tc.result?.length ?? 0}`)
+    .join(",");
+  return `${msg.id}:${msg.role}:${msg.content.length}:${msg.reasoningContent?.length ?? 0}:${toolSig ?? ""}`;
+}
+
 function extractThreadText(message: ThreadMessage): string {
   for (const part of message.content) {
     if (part.type === "text") {
@@ -55,6 +64,18 @@ function extractThreadToolCalls(message: ThreadAssistantMessage): ToolCallState[
 }
 
 export function aiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
+  if (!msg.isStreaming) {
+    const cacheKey = aiMessageCacheKey(msg);
+    const cached = completedThreadMessageCache.get(cacheKey);
+    if (cached) return cached;
+    const built = buildAiMessageToThreadMessage(msg);
+    completedThreadMessageCache.set(cacheKey, built);
+    return built;
+  }
+  return buildAiMessageToThreadMessage(msg);
+}
+
+function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
   if (msg.role === "user") {
     return {
       id: msg.id,

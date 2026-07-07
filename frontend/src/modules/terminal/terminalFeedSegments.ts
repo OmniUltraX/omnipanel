@@ -48,3 +48,14 @@ export function groupFeedBlocksIntoSegments(blocks: TerminalBlock[]): FeedSegmen
 
   return segments;
 }
+
+/** 展开 AI 所在 segment 下标；-1 表示无或未找到 */
+export function findExpandedAiSegmentIndex(
+  segments: FeedSegment[],
+  expandedAiBlockId: string | null,
+): number {
+  if (!expandedAiBlockId) return -1;
+  return segments.findIndex(
+    (segment) => segment.kind === "ai-run" && segment.ai.id === expandedAiBlockId,
+  );
+}

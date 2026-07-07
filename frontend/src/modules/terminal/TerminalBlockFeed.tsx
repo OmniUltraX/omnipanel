@@ -13,7 +13,10 @@ import {
   useBlocksStore,
   type TerminalBlock,
 } from "../../stores/blocksStore";
-import { renderLiveOutputText } from "./terminalOutputModel";
+import {
+  collapseProgressOutputText,
+  renderLiveOutputText,
+} from "./terminalOutputModel";
 import { extractCommandOutput, isEchoOnlyTerminalOutput, normalizeBlockCommand, stripTerminalControlSequences } from "./terminalOutputText";
 import { isResidualShellNoise } from "./terminalCommandEcho";
 import { useTerminalUiStore } from "./terminalUiStore";
@@ -36,14 +39,16 @@ import {
   IconCopy,
 } from "../../components/ui/icons/Icons";
 import { showToast } from "../../stores/toastStore";
+import { focusTerminalTab } from "../../lib/terminalSession";
 import { BlockAttachToAiButton } from "./BlockAttachToAiButton";
 import type { TerminalSessionType } from "../../stores/terminalStore";
-import { groupFeedBlocksIntoSegments, type FeedAiRunSegment } from "./terminalFeedSegments";
+import { groupFeedBlocksIntoSegments, findExpandedAiSegmentIndex, type FeedAiRunSegment } from "./terminalFeedSegments";
 import {
   FOLLOW_OUTPUT_PIN_THRESHOLD_PX,
   isScrollPinnedToBottom,
 } from "./useFollowOutputScroll";
 import { useTerminalCopyContextMenu } from "./terminalTextSelection";
+import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 
 type TerminalBlockFeedProps = {
   sessionId: string;
@@ -63,7 +68,8 @@ function blockTitle(block: TerminalBlock): string {
 }
 
 function blockRawOutput(block: TerminalBlock): string {
-  return renderLiveOutputText(block.liveOutput, block.output);
+  const raw = renderLiveOutputText(block.liveOutput, block.output);
+  return collapseProgressOutputText(raw);
 }
 
 function blockListingSource(block: TerminalBlock): string {
@@ -292,23 +298,83 @@ function AiBlockStopButton({
   );
 }
 
+function AiBlockNavButtons({
+  sessionId,
+  blockId,
+  aiBlockIds,
+}: {
+  sessionId: string;
+  blockId: string;
+  aiBlockIds: string[];
+}) {
+  const { t } = useI18n();
+
+  if (!aiBlockIds || aiBlockIds.length <= 1) return null;
+
+  const currentIndex = aiBlockIds.indexOf(blockId);
+  if (currentIndex < 0) return null;
+
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < aiBlockIds.length - 1;
+
+  const scrollTo = (targetId: string) => {
+    scrollTerminalBlockIntoView(sessionId, targetId);
+  };
+
+  return (
+    <div className="term-warp-ai-nav" role="group" aria-label={t("terminal.ai.navGroup")}>
+      {hasPrev ? (
+        <button
+          type="button"
+          className="term-warp-ai-nav__btn"
+          aria-label={t("terminal.ai.navPrev")}
+          title={t("terminal.ai.navPrev")}
+          onClick={(event) => {
+            event.stopPropagation();
+            scrollTo(aiBlockIds[currentIndex - 1]!);
+          }}
+        >
+          <span className="term-warp-ai-nav__triangle" aria-hidden />
+        </button>
+      ) : null}
+      {hasNext ? (
+        <button
+          type="button"
+          className="term-warp-ai-nav__btn"
+          aria-label={t("terminal.ai.navNext")}
+          title={t("terminal.ai.navNext")}
+          onClick={(event) => {
+            event.stopPropagation();
+            scrollTo(aiBlockIds[currentIndex + 1]!);
+          }}
+        >
+          <span className="term-warp-ai-nav__triangle term-warp-ai-nav__triangle--down" aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function AiBlockHeaderActions({
   block,
   sessionId,
   expanded,
   onToggle,
   onFocusInput,
+  aiBlockIds,
 }: {
   block: TerminalBlock;
   sessionId: string;
   expanded: boolean;
   onToggle: () => void;
   onFocusInput?: () => void;
+  aiBlockIds: string[];
 }) {
   const { t } = useI18n();
 
   return (
     <div className="term-warp-block__header-actions">
+      <AiBlockNavButtons sessionId={sessionId} blockId={block.id} aiBlockIds={aiBlockIds} />
       <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
       <button
         type="button"
@@ -371,8 +437,11 @@ function AiBlockCard({
   expanded,
   onToggle,
   isStickyCandidate,
+  dockExpanded = false,
+  stickyOnCard = true,
   feedPinnedToBottom,
   onFocusInput,
+  aiBlockIds,
 }: {
   blockId: string;
   sessionId: string;
@@ -380,27 +449,33 @@ function AiBlockCard({
   onToggle: () => void;
   /** 当前视口上下文中可吸顶的 AI 候选 */
   isStickyCandidate?: boolean;
+  /** 展开 dock 布局（限高 + 内部滚动） */
+  dockExpanded?: boolean;
+  /** 是否在卡片上应用 position:sticky（anchor 吸顶时为 false） */
+  stickyOnCard?: boolean;
   feedPinnedToBottom: boolean;
   onFocusInput?: () => void;
+  aiBlockIds: string[];
 }) {
   const block = useBlocksStore((state) => state.findBlockById(blockId));
   const dockMaxHeight = useTerminalUiStore(
     (state) => state.aiDockHeights[sessionId] ?? DEFAULT_AI_DOCK_HEIGHT,
   );
 
+  const isDocked = dockExpanded || Boolean(isStickyCandidate && expanded);
+
   const dockAutoScroll = Boolean(
     block?.kind === "ai" &&
-      isStickyCandidate &&
-      expanded &&
+      isDocked &&
       feedPinnedToBottom &&
       block.status === "running",
   );
 
   if (!block || block.kind !== "ai") return null;
 
-  const stickyClass = isStickyCandidate ? " term-warp-block--ai-sticky" : "";
-  const dockClass =
-    isStickyCandidate && expanded ? " term-warp-block--ai-sticky-docked" : "";
+  const stickyClass =
+    stickyOnCard && isStickyCandidate ? " term-warp-block--ai-sticky" : "";
+  const dockClass = isDocked && expanded ? " term-warp-block--ai-sticky-docked" : "";
 
   if (!expanded) {
     return (
@@ -415,6 +490,7 @@ function AiBlockCard({
           expanded={false}
           onToggle={onToggle}
           onFocusInput={onFocusInput}
+          aiBlockIds={aiBlockIds}
         />
       </article>
     );
@@ -423,7 +499,7 @@ function AiBlockCard({
   return (
     <article
       className={`term-warp-block term-warp-block--ai term-warp-block--expanded${stickyClass}${dockClass}`}
-      style={isStickyCandidate ? { maxHeight: dockMaxHeight } : undefined}
+      style={isDocked ? { maxHeight: dockMaxHeight } : undefined}
       data-block-id={block.id}
     >
       <header className="term-warp-block__header">
@@ -435,14 +511,16 @@ function AiBlockCard({
           expanded
           onToggle={onToggle}
           onFocusInput={onFocusInput}
+          aiBlockIds={aiBlockIds}
         />
       </header>
       <TerminalAiThreadView
         blockId={block.id}
+        sessionId={sessionId}
         dockedAutoScroll={dockAutoScroll}
       />
       <BlockCollapseFooter collapsed={false} onToggle={onToggle} variant="ai" />
-      {isStickyCandidate ? <AiDockResizeHandle sessionId={sessionId} /> : null}
+      {isDocked ? <AiDockResizeHandle sessionId={sessionId} /> : null}
     </article>
   );
 }
@@ -452,8 +530,11 @@ const MemoAiBlockCard = memo(AiBlockCard, (prev, next) =>
   prev.sessionId === next.sessionId &&
   prev.expanded === next.expanded &&
   prev.isStickyCandidate === next.isStickyCandidate &&
+  prev.dockExpanded === next.dockExpanded &&
+  prev.stickyOnCard === next.stickyOnCard &&
   prev.feedPinnedToBottom === next.feedPinnedToBottom &&
-  prev.onFocusInput === next.onFocusInput,
+  prev.onFocusInput === next.onFocusInput &&
+  prev.aiBlockIds === next.aiBlockIds,
 );
 
 function ShellBlockCard({
@@ -475,6 +556,7 @@ function ShellBlockCard({
   sessionUser?: string | null;
   onFocusInput?: () => void;
 }) {
+  const { t } = useI18n();
   // 稳定 output 引用：避免 useSftpEnrichedLsListing effect 频繁 cleanup 导致
   // SFTP fetch promise 反复被 cancelled（首次 cd 后 listing 已渲染但 SFTP 拉不到）
   const rawSource = useMemo(() => blockListingSource(block), [
@@ -504,8 +586,10 @@ function ShellBlockCard({
     block.cwd;
   const directoryPreview = shouldUseDirectoryPreview(block);
   const showCommandLine = !directoryPreview && cmd.length > 0;
+  const sshJumpTarget = block.linkedTabId?.trim() || null;
 
-  const hasOutputBody = !!lsListing || (!!output && !directoryPreview);
+  const hasOutputBody =
+    !!lsListing || (!!output && !directoryPreview) || !!sshJumpTarget;
   const [bodyCollapsed, setBodyCollapsed] = useState(false);
   const outputLineCount = useMemo(() => {
     const text = lsListing ? output || block.output : output;
@@ -563,6 +647,25 @@ function ShellBlockCard({
           isError={isError}
           onRunCommand={onRunCommand}
         />
+      ) : !bodyCollapsed && sshJumpTarget ? (
+        <button
+          type="button"
+          className="term-warp-ssh-jump"
+          onClick={() => {
+            if (!focusTerminalTab(sshJumpTarget)) {
+              showToast(t("terminal.command.sshJumpTabMissing"));
+            }
+          }}
+        >
+          <span className="term-warp-ssh-jump__summary">
+            {t("terminal.command.sshJumpBlockSummary", {
+              name: block.linkedTabTitle ?? block.linkedTabId ?? "",
+            })}
+          </span>
+          <span className="term-warp-ssh-jump__action">
+            {t("terminal.command.sshJumpAction")}
+          </span>
+        </button>
       ) : !bodyCollapsed && output && !directoryPreview ? (
         <pre
           className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}
@@ -612,6 +715,8 @@ function FeedAiRunSegmentView({
   sessionType,
   sessionUser,
   onFocusInput,
+  aiBlockIds,
+  useStickyAnchor = false,
 }: {
   segment: FeedAiRunSegment;
   sessionId: string;
@@ -625,10 +730,14 @@ function FeedAiRunSegmentView({
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
   onFocusInput?: () => void;
+  aiBlockIds: string[];
+  /** 展开吸顶 AI 作为 sticky-context 直接子级，避免 segment 过短导致吸顶失效 */
+  useStickyAnchor?: boolean;
 }) {
   const { ai, shells } = segment;
   const expanded = resolveAiExpanded(ai, expandedAiBlockId);
   const isStickyCandidate = ai.id === stickyAiBlockId;
+  const shouldDock = expanded && isStickyCandidate;
 
   const onToggle = () => {
     if (expanded) {
@@ -638,31 +747,108 @@ function FeedAiRunSegmentView({
     }
   };
 
+  const aiCard = (
+    <MemoAiBlockCard
+      blockId={ai.id}
+      sessionId={sessionId}
+      expanded={expanded}
+      onToggle={onToggle}
+      isStickyCandidate={isStickyCandidate}
+      dockExpanded={shouldDock}
+      stickyOnCard={!useStickyAnchor}
+      feedPinnedToBottom={feedPinnedToBottom}
+      onFocusInput={onFocusInput}
+      aiBlockIds={aiBlockIds}
+    />
+  );
+
+  const shellCards = shells.map((shell) => (
+    <MemoShellBlockCard
+      key={shell.id}
+      block={shell}
+      sessionId={sessionId}
+      resourceId={resourceId}
+      promptSymbol={promptSymbol}
+      onRunCommand={onRunCommand}
+      sessionType={sessionType}
+      sessionUser={sessionUser}
+      onFocusInput={onFocusInput}
+    />
+  ));
+
+  if (useStickyAnchor && shouldDock) {
+    return (
+      <>
+        <div className="term-warp-ai-sticky-anchor" data-block-id={ai.id}>
+          {aiCard}
+        </div>
+        {shellCards}
+      </>
+    );
+  }
+
   return (
     <div className="term-warp-sticky-segment" data-block-id={ai.id}>
-      <MemoAiBlockCard
-        blockId={ai.id}
-        sessionId={sessionId}
-        expanded={expanded}
-        onToggle={onToggle}
-        isStickyCandidate={isStickyCandidate}
-        feedPinnedToBottom={feedPinnedToBottom}
-        onFocusInput={onFocusInput}
-      />
-      {shells.map((shell) => (
-        <MemoShellBlockCard
-          key={shell.id}
-          block={shell}
-          sessionId={sessionId}
-          resourceId={resourceId}
-          promptSymbol={promptSymbol}
-          onRunCommand={onRunCommand}
-          sessionType={sessionType}
-          sessionUser={sessionUser}
-          onFocusInput={onFocusInput}
-        />
-      ))}
+      {aiCard}
+      {shellCards}
     </div>
+  );
+}
+
+type FeedSegmentViewProps = {
+  sessionId: string;
+  resourceId?: string;
+  promptSymbol?: string;
+  expandedAiBlockId: string | null;
+  setExpandedAiBlock: (sessionId: string, blockId: string | null) => void;
+  stickyAiBlockId: string | null;
+  feedPinnedToBottom: boolean;
+  onRunCommand?: (command: string) => void;
+  sessionType?: TerminalSessionType;
+  sessionUser?: string | null;
+  onFocusInput?: () => void;
+  aiBlockIds: string[];
+};
+
+function renderFeedSegment(
+  segment: ReturnType<typeof groupFeedBlocksIntoSegments>[number],
+  props: FeedSegmentViewProps,
+  options?: { useStickyAnchor?: boolean },
+) {
+  if (segment.kind === "orphan-shells") {
+    return segment.blocks.map((block) => (
+      <MemoShellBlockCard
+        key={block.id}
+        block={block}
+        sessionId={props.sessionId}
+        resourceId={props.resourceId}
+        promptSymbol={props.promptSymbol}
+        onRunCommand={props.onRunCommand}
+        sessionType={props.sessionType}
+        sessionUser={props.sessionUser}
+        onFocusInput={props.onFocusInput}
+      />
+    ));
+  }
+
+  return (
+    <FeedAiRunSegmentView
+      key={segment.ai.id}
+      segment={segment}
+      sessionId={props.sessionId}
+      resourceId={props.resourceId}
+      promptSymbol={props.promptSymbol}
+      expandedAiBlockId={props.expandedAiBlockId}
+      setExpandedAiBlock={props.setExpandedAiBlock}
+      stickyAiBlockId={props.stickyAiBlockId}
+      feedPinnedToBottom={props.feedPinnedToBottom}
+      onRunCommand={props.onRunCommand}
+      sessionType={props.sessionType}
+      sessionUser={props.sessionUser}
+      onFocusInput={props.onFocusInput}
+      aiBlockIds={props.aiBlockIds}
+      useStickyAnchor={options?.useStickyAnchor}
+    />
   );
 }
 
@@ -696,9 +882,20 @@ export function TerminalBlockFeed({
   useTerminalCopyContextMenu(scrollRef);
 
   const visibleBlocks = blocks.filter(shouldRenderBlock);
+  const aiBlockIds = useMemo(
+    () =>
+      blocks
+        .filter((entry) => entry.kind === "ai" && shouldRenderBlock(entry))
+        .map((entry) => entry.id),
+    [blocks],
+  );
   const feedSegments = useMemo(
     () => groupFeedBlocksIntoSegments(visibleBlocks),
     [visibleBlocks],
+  );
+  const expandedAiSegmentIndex = useMemo(
+    () => findExpandedAiSegmentIndex(feedSegments, expandedAiBlockId),
+    [feedSegments, expandedAiBlockId],
   );
   const activitySignature = useMemo(
     () => buildFeedActivitySignature(visibleBlocks),
@@ -708,7 +905,43 @@ export function TerminalBlockFeed({
     () => buildFeedShellSignature(visibleBlocks),
     [visibleBlocks],
   );
-  const stickyAiBlockId = useStickyAiBlockId(scrollRef, listRef, visibleBlocks, shellSignature);
+  const stickyAiBlockId = useStickyAiBlockId(
+    scrollRef,
+    listRef,
+    visibleBlocks,
+    shellSignature,
+    expandedAiBlockId,
+  );
+  const segmentViewProps = useMemo<FeedSegmentViewProps>(
+    () => ({
+      sessionId,
+      resourceId,
+      promptSymbol,
+      expandedAiBlockId,
+      setExpandedAiBlock,
+      stickyAiBlockId,
+      feedPinnedToBottom,
+      onRunCommand,
+      sessionType,
+      sessionUser,
+      onFocusInput,
+      aiBlockIds,
+    }),
+    [
+      sessionId,
+      resourceId,
+      promptSymbol,
+      expandedAiBlockId,
+      setExpandedAiBlock,
+      stickyAiBlockId,
+      feedPinnedToBottom,
+      onRunCommand,
+      sessionType,
+      sessionUser,
+      onFocusInput,
+      aiBlockIds,
+    ],
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -843,40 +1076,31 @@ export function TerminalBlockFeed({
   return (
     <div className="term-warp-feed" ref={scrollRef}>
       <div className="term-warp-feed__list" ref={listRef}>
-        {feedSegments.map((segment) => {
-          if (segment.kind === "orphan-shells") {
-            return segment.blocks.map((block) => (
-              <MemoShellBlockCard
-                key={block.id}
-                block={block}
-                sessionId={sessionId}
-                resourceId={resourceId}
-                promptSymbol={promptSymbol}
-                onRunCommand={onRunCommand}
-                sessionType={sessionType}
-                sessionUser={sessionUser}
-                onFocusInput={onFocusInput}
-              />
-            ));
+        {feedSegments.map((segment, index) => {
+          if (expandedAiSegmentIndex >= 0) {
+            if (index < expandedAiSegmentIndex) {
+              return renderFeedSegment(segment, segmentViewProps);
+            }
+            if (index === expandedAiSegmentIndex) {
+              return (
+                <div
+                  key={`sticky-ctx-${expandedAiBlockId}`}
+                  className="term-warp-sticky-context"
+                >
+                  {feedSegments
+                    .slice(expandedAiSegmentIndex)
+                    .map((stickySegment, offset) =>
+                      renderFeedSegment(stickySegment, segmentViewProps, {
+                        useStickyAnchor: offset === 0,
+                      }),
+                    )}
+                </div>
+              );
+            }
+            return null;
           }
 
-          return (
-            <FeedAiRunSegmentView
-              key={segment.ai.id}
-              segment={segment}
-              sessionId={sessionId}
-              resourceId={resourceId}
-              promptSymbol={promptSymbol}
-              expandedAiBlockId={expandedAiBlockId}
-              setExpandedAiBlock={setExpandedAiBlock}
-              stickyAiBlockId={stickyAiBlockId}
-              feedPinnedToBottom={feedPinnedToBottom}
-              onRunCommand={onRunCommand}
-              sessionType={sessionType}
-              sessionUser={sessionUser}
-              onFocusInput={onFocusInput}
-            />
-          );
+          return renderFeedSegment(segment, segmentViewProps);
         })}
       </div>
       <div

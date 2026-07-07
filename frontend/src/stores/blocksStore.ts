@@ -73,6 +73,15 @@ export interface TerminalBlock {
   directoryPreview?: boolean;
   /** 系统静默执行（如 auto-ls），不触发 AI 自动命名等用户可见行为 */
   silent?: boolean;
+  /** SSH 命令拦截等：点击可跳转到关联终端标签 */
+  linkedTabId?: string;
+  linkedTabTitle?: string;
+  /** 内联 AI 历史摘要缓存（更早轮次压缩结果） */
+  aiThreadSummary?: string;
+  /** 摘要对应的 aiThread 消息条数，用于判断缓存是否失效 */
+  aiThreadSummaryForCount?: number;
+  /** 流式无 delta 超时标记 */
+  aiStalled?: boolean;
 }
 
 const MAX_BLOCK_OUTPUT_CHARS = 64_000;
