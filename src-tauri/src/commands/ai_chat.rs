@@ -132,6 +132,8 @@ pub struct AiContextBundleDto {
     pub cwd: Option<String>,
     pub workspace_id: Option<String>,
     pub terminal_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_session_type: Option<String>,
     pub env_tag: Option<String>,
     pub resource_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,6 +178,7 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
                 cwd: dto.context.cwd,
                 workspace_id: dto.context.workspace_id,
                 terminal_session_id: dto.context.terminal_session_id,
+                terminal_session_type: dto.context.terminal_session_type,
                 env_tag: dto.context.env_tag,
                 resource_id: dto.context.resource_id,
                 terminal_context_append: dto.context.terminal_context_append,
@@ -196,6 +199,24 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
             system_append: None,
         })
     }
+}
+
+/// 本地 ACP Agent 进程的工作目录。远程终端场景禁止把远程路径当作本地 cwd。
+fn resolve_acp_session_cwd(context: &AiContextBundle) -> String {
+    let is_remote_terminal = context
+        .terminal_session_type
+        .as_deref()
+        .is_some_and(|t| t.eq_ignore_ascii_case("remote"));
+
+    if is_remote_terminal {
+        return crate::commands::acp::default_cwd();
+    }
+
+    context
+        .cwd
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(crate::commands::acp::default_cwd)
 }
 
 async fn build_http_provider(
@@ -440,12 +461,7 @@ async fn run_acp_internal_turn(
 
     let backend_id = internal.backend_id.clone();
 
-    let cwd = internal
-        .context
-        .cwd
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(crate::commands::acp::default_cwd);
+    let cwd = resolve_acp_session_cwd(&internal.context);
 
     let client_tools = internal
         .context

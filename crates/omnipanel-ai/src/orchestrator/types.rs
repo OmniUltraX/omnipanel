@@ -8,6 +8,8 @@ pub struct AiContextBundle {
     pub cwd: Option<String>,
     pub workspace_id: Option<String>,
     pub terminal_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_session_type: Option<String>,
     pub env_tag: Option<String>,
     pub resource_id: Option<String>,
     /// 终端环境描述（shell/OS/主机等），注入 ACP client-tools prompt。

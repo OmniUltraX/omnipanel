@@ -12,6 +12,7 @@ export interface AiContextBundle {
   cwd?: string | null;
   workspaceId?: string | null;
   terminalSessionId?: string | null;
+  terminalSessionType?: "local" | "remote" | null;
   envTag?: string | null;
   resourceId?: string | null;
   terminalContextAppend?: string | null;
@@ -67,6 +68,7 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
           cwd: options.request.context.cwd ?? null,
           workspaceId: options.request.context.workspaceId ?? null,
           terminalSessionId: options.request.context.terminalSessionId ?? null,
+          terminalSessionType: options.request.context.terminalSessionType ?? null,
           envTag: options.request.context.envTag ?? null,
           resourceId: options.request.context.resourceId ?? null,
           terminalContextAppend: options.request.context.terminalContextAppend ?? null,

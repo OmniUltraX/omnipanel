@@ -26,6 +26,12 @@ import {
   pushAssistantErrorMessage,
 } from "../../../modules/terminal/aiThreadBridge";
 import { buildTerminalAiContextAppend } from "../../../modules/terminal/buildTerminalAiContext";
+import {
+  resolveInlineConversationId,
+  resolveTerminalAiContextBundle,
+  terminalAiBundleToOrchestratorContext,
+} from "../../../modules/terminal/terminalAiContextBundle";
+import { buildInlineAiHistoryJson } from "../../../modules/terminal/terminalInlineAiHistory";
 import { cancelPendingInlineTools } from "../../../modules/terminal/inlineToolBridge";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
@@ -112,15 +118,33 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
     ? useTerminalStore.getState().tabs.find((t) => t.id === inline.sessionId)
     : useTerminalStore.getState().tabs.find((t) => t.id === useTerminalStore.getState().activeTabId);
   const sessionId = inline?.sessionId ?? tab?.id ?? null;
-  const terminalContextAppend = sessionId ? buildTerminalAiContextAppend(sessionId) : null;
-  return {
-    cwd: tab?.session.cwd ?? null,
-    workspaceId: null,
-    terminalSessionId: sessionId,
-    envTag: null,
-    resourceId: tab?.session.resourceId ?? null,
-    terminalContextAppend,
-  };
+  if (!sessionId) {
+    return {
+      cwd: null,
+      workspaceId: null,
+      terminalSessionId: null,
+      terminalSessionType: null,
+      envTag: null,
+      resourceId: null,
+      terminalContextAppend: null,
+    };
+  }
+  const bundle = resolveTerminalAiContextBundle(
+    sessionId,
+    inline ? "terminal-inline" : "assistant",
+  );
+  if (!bundle) {
+    return {
+      cwd: null,
+      workspaceId: null,
+      terminalSessionId: sessionId,
+      terminalSessionType: tab?.session.type ?? null,
+      envTag: null,
+      resourceId: tab?.session.resourceId ?? null,
+      terminalContextAppend: buildTerminalAiContextAppend(sessionId),
+    };
+  }
+  return terminalAiBundleToOrchestratorContext(bundle);
 }
 
 function handleStreamEvent(
@@ -458,7 +482,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             backendId: backend.backendId,
             httpProvider: backend.kind === "http" ? backend.httpProvider : null,
             context: aiContext,
-            historyJson: buildHistoryJson(convId),
+            historyJson: inline
+              ? buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
+              : buildHistoryJson(convId),
             toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: "master" } } : "none",
           },
           signal,
@@ -529,10 +555,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      let convId = useAiStore.getState().activeConversationId ?? createConversation();
-      if (!useAiStore.getState().activeConversationId) {
-        useAiStore.getState().setActiveConversation(convId);
-      }
+      const convId = resolveInlineConversationId(sessionId);
 
       const assistantTurnId = useBlocksStore.getState().pushAiThreadItem(blockId, {
         kind: "message",
@@ -542,10 +565,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       });
 
       useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);
-
-      if (!continueThread) {
-        addMessage(convId, { role: "user", content: userText });
-      }
 
       const inlineTarget: InlineTerminalAiTarget = {
         sessionId,
