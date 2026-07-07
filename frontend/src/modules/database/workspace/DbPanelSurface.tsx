@@ -15,6 +15,7 @@ import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
 import { useI18n } from "../../../i18n";
 import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
+import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { isConnectionEnabled } from "../api";
 import type { DatabaseSchema } from "../types";
 
@@ -83,7 +84,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
 
   const tabConn = ws.resolveSqlTabConnection(tab.id);
   const tabDatabases = ws.getSqlTabDatabases(tab.id);
-  const connectionForRun = ws.connectionForSqlTab(tab.id);
   const completionSchemas = ws.getSqlCompletionSchemas(tab.id);
 
   const schemaKey =
@@ -118,7 +118,12 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
   const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(_mode);
   const sqlEditorRef = useRef<SqlEditorHandle>(null);
 
-  const canRunSql = Boolean(connectionForRun && tabState.database.trim());
+  const canRunSql = Boolean(
+    tabConn &&
+      (tabState.database.trim() ||
+        !sqlRequiresDatabaseContext(tabState.sql) ||
+        !sqlRequiresDatabaseContext(sqlAtOffset(tabState.sql, tabState.cursorOffset))),
+  );
 
   const runCurrentSql = useCallback(() => {
     const sql =

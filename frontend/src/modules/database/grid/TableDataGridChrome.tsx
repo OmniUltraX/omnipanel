@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { TextInput } from "../../../components/ui/TextInput";
+import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import { columnTypeTagClassName } from "./columnTypeTag";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";

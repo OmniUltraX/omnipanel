@@ -34,9 +34,11 @@ import {
 } from "../cell_editor";
 import { TableDataGridFilterPopover } from "./TableDataGridOverlays";
 import { TableDataGridCellOverlay } from "./TableDataGridCellOverlay";
+import { TableCellPreviewSubWindow } from "./TableCellPreviewSubWindow";
 import {
   buildCellEditOverlay,
   buildCellPreviewOverlay,
+  buildCellPreviewState,
   type CellOverlayAnchor,
   type CellOverlayState,
 } from "./tableCellPreview";
@@ -319,7 +321,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (target instanceof Element) {
         if (
           target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay",
+            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow",
           )
         ) {
           return;
@@ -445,6 +447,16 @@ export const TableDataGrid = memo(function TableDataGrid({
       );
     },
     [],
+  );
+
+  const closeCellPreview = useCallback(() => {
+    pinnedPreviewRef.current = false;
+    setCellOverlay((prev) => (prev?.mode === "preview" ? null : prev));
+  }, []);
+
+  const cellPreviewState = useMemo(
+    () => (cellOverlay?.mode === "preview" ? buildCellPreviewState(cellOverlay) : null),
+    [cellOverlay],
   );
   const filterColumnNames = useMemo(() => getFilterColumnNames(filter), [filter]);
   const canFilter = enableFilter && Boolean(onFilterChange && columnMeta?.length);
@@ -1084,7 +1096,9 @@ export const TableDataGrid = memo(function TableDataGrid({
 
         event.preventDefault();
         event.stopPropagation();
-        void navigator.clipboard.writeText(csv).catch(() => {
+        void navigator.clipboard.writeText(csv).then(() => {
+          showToast(t("common.copied"));
+        }).catch(() => {
           /* clipboard unavailable */
         });
 
@@ -1104,9 +1118,6 @@ export const TableDataGrid = memo(function TableDataGrid({
               displayCellOverrides,
             );
             copiedRowRef.current = rowValues;
-            if (rowValues) {
-              showToast(t("database.rowEditor.copyRowDone"));
-            }
           } else {
             copiedRowRef.current = null;
           }
@@ -1998,6 +2009,11 @@ export const TableDataGrid = memo(function TableDataGrid({
         onClose={() => setFilterOpen(false)}
       />
     )}
+    <TableCellPreviewSubWindow
+      open={cellPreviewState != null}
+      preview={cellPreviewState}
+      onClose={closeCellPreview}
+    />
     </div>
   );
 });

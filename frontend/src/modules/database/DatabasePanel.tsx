@@ -41,6 +41,7 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
+import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
@@ -73,6 +74,7 @@ import {
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
 import { formatSql } from "./sqlIntel/sqlFormat";
+import { sqlRequiresDatabaseContext } from "./sqlIntel/connectionLevelSql";
 import { toCsv } from "./shared/csvExport";
 import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./shared/columnMetaUtils";
 import { isSameCellValue, shouldUseInlineCellEdit } from "./cell_editor";
@@ -1483,13 +1485,20 @@ export function DatabasePanel() {
   );
 
   const connectionForSqlTab = useCallback(
-    (tabId: string): DbConnectionConfig | null => {
+    (tabId: string, sql?: string): DbConnectionConfig | null => {
       const conn = resolveSqlTabConnection(tabId);
-      const database = useDbWorkspaceTabStore.getState().sqlTabStates[tabId]?.database.trim() ?? "";
-      if (!conn || !database) {
+      if (!conn) {
         return null;
       }
-      return { ...conn, database };
+      const database = useDbWorkspaceTabStore.getState().sqlTabStates[tabId]?.database.trim() ?? "";
+      if (database) {
+        return { ...conn, database };
+      }
+      const probe = sql?.trim();
+      if (probe && !sqlRequiresDatabaseContext(probe)) {
+        return { ...conn, database: conn.database?.trim() ?? "" };
+      }
+      return null;
     },
     [resolveSqlTabConnection],
   );
@@ -2838,9 +2847,12 @@ export function DatabasePanel() {
     async (tabId: string, sessionId?: string) => {
       const payload = await resolveTabExportData(tabId, sessionId);
       if (!payload) return;
-      await writeToClipboard(toCsv(payload.columns, payload.rows));
+      const ok = await writeToClipboard(toCsv(payload.columns, payload.rows));
+      if (ok) {
+        showToast(t("common.copied"));
+      }
     },
-    [resolveTabExportData],
+    [resolveTabExportData, t],
   );
 
   const [exportMenu, setExportMenu] = useState<
@@ -3816,22 +3828,24 @@ export function DatabasePanel() {
     }
     const resolvedTabId = tab.id;
     const tabState = tabStore.sqlTabStates[resolvedTabId] ?? createDefaultSqlTabState();
-    const conn = connectionForSqlTab(resolvedTabId);
     const sessions = tabState.resultSessions ?? [];
 
     if (options?.sessionId) {
       const session = sessions.find((item) => item.id === options.sessionId);
       if (!session) return;
+      const sql = session.sql.trim();
+      if (!sql) return;
+      const conn = connectionForSqlTab(resolvedTabId, sql);
       if (!conn) {
         updateSqlResultSession(resolvedTabId, session.id, {
-          error: t("database.results.noConnection"),
+          error: resolveSqlTabConnection(resolvedTabId)
+            ? t("database.workspace.selectDatabase")
+            : t("database.results.noConnection"),
         });
         return;
       }
-      const resultPage = Math.max(0, options.resultPage ?? 0);
-      const sql = session.sql.trim();
-      if (!sql) return;
 
+      const resultPage = Math.max(0, options.resultPage ?? 0);
       updateSqlResultSession(resolvedTabId, session.id, { running: true, error: null });
       const started = performance.now();
       const runId = makeQueryRunId();
@@ -3867,16 +3881,18 @@ export function DatabasePanel() {
 
     const sql = (sqlOverride ?? tabState.sql).trim();
 
-    if (!conn) {
-      updateSqlTabState(resolvedTabId, { error: t("database.results.noConnection") });
-      return;
-    }
-    if (!tabState.database.trim()) {
-      updateSqlTabState(resolvedTabId, { error: t("database.workspace.selectDatabase") });
-      return;
-    }
     if (!sql) {
       updateSqlTabState(resolvedTabId, { error: t("database.results.emptySql") });
+      return;
+    }
+
+    const conn = connectionForSqlTab(resolvedTabId, sql);
+    if (!conn) {
+      updateSqlTabState(resolvedTabId, {
+        error: resolveSqlTabConnection(resolvedTabId)
+          ? t("database.workspace.selectDatabase")
+          : t("database.results.noConnection"),
+      });
       return;
     }
 
@@ -3946,6 +3962,7 @@ export function DatabasePanel() {
     }
   }, [
     connectionForSqlTab,
+    resolveSqlTabConnection,
     activeWorkspaceTab,
     enqueueAction,
     t,
@@ -4032,7 +4049,11 @@ export function DatabasePanel() {
       const state = useDbWorkspaceTabStore.getState().sqlTabStates[tabId] ?? createDefaultSqlTabState();
       const store = useDbSqlFileStore.getState();
       const connection = resolveConnection(state.connId);
-      const sqlToSave = formatSql(state.sql, connection?.db_type ?? null);
+      const rawSql = state.sql;
+      const sqlToSave =
+        useSettingsStore.getState().formatSqlOnSave
+          ? formatSql(rawSql, connection?.db_type ?? null)
+          : rawSql;
       if (sqlToSave !== state.sql) {
         updateSqlTabState(tabId, { sql: sqlToSave });
       }

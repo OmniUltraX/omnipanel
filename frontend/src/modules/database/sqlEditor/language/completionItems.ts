@@ -1,5 +1,5 @@
 import type { DatabaseSchema, TableSchema } from "../../types";
-import { filterAndRankByFuzzy } from "../../../../lib/fuzzyMatch";
+import { filterAndRankByFuzzy, fuzzyScore } from "../../../../lib/fuzzyMatch";
 import { buildFunctionCompletionItems, type SqlFunctionCompletionContext } from "../../sqlIntel/sqlFunctionCatalog";
 import { Catalog } from "../catalog";
 import {
@@ -13,6 +13,19 @@ import {
   resolveFromTableInStatement,
   type SqlCompletionContext,
 } from "../parser/context";
+import { applySqlKeywordCase, type SqlKeywordCase } from "../../sqlIntel/sqlKeywordCase";
+import { getSqlCompletionUsageBoost, recordSqlCompletionUsage } from "../../sqlIntel/sqlCompletionUsage";
+import {
+  currentSqlWordPrefix,
+  isCursorInSqlString,
+  resolveCompletionIntent,
+  type SqlCompletionIntent,
+} from "../../sqlIntel/sqlCompletionPosition";
+import {
+  buildSuggestedTableAlias,
+  resolveTableBeforeTrailingSpace,
+  type TableBeforeTrailingSpace,
+} from "./tableAlias";
 interface CompletionItem {
   label: string;
   kind: number;
@@ -48,7 +61,7 @@ function tierBoostForKind(kind: number): number {
   return (3 - completionKindTier(kind)) * KIND_TIER_BOOST_STEP;
 }
 
-export { tierBoostForKind, COLUMN_KIND };
+export { tierBoostForKind, COLUMN_KIND, recordSqlCompletionUsage };
 
 function sortCompletionsByKind(items: CompletionItem[]): CompletionItem[] {
   return [...items].sort((a, b) => {
@@ -122,6 +135,7 @@ const FROM_CLAUSE_KEYWORDS = new Set([
   "LIMIT",
   "HAVING",
   "ON",
+  "AS",
 ]);
 
 const WHERE_CLAUSE_KEYWORDS = new Set(["AND", "OR", "ORDER BY", "GROUP BY", "LIMIT", "HAVING"]);
@@ -137,6 +151,49 @@ function currentStatementBefore(text: string, offset: number): string {
   const start = before.lastIndexOf(";") + 1;
   return before.slice(start);
 }
+
+function linePrefixAt(text: string, offset: number): string {
+  return text.slice(0, offset).split("\n").pop() ?? "";
+}
+
+function resolveFromTableTrailingSpaceAt(
+  text: string,
+  offset: number,
+  context: SqlCompletionContext,
+  schemas: DatabaseSchema[],
+): TableBeforeTrailingSpace | null {
+  if (context !== "from_clause") {
+    return null;
+  }
+  return resolveTableBeforeTrailingSpace(linePrefixAt(text, offset), schemas);
+}
+
+function buildTableAliasCompletionItems(resolved: TableBeforeTrailingSpace): CompletionItem[] {
+  const alias = buildSuggestedTableAlias(resolved.table);
+  if (!alias) {
+    return [];
+  }
+  return [
+    {
+      label: alias,
+      kind: TABLE_KIND,
+      detail: `建议别名 · ${resolved.tableName}`,
+      insertText: `${alias} `,
+      boost: 500,
+    },
+  ];
+}
+
+/** FROM 表名 + 空格后：应弹出建议别名与 WHERE / LIMIT 等子句关键字。 */
+export function shouldOfferFromTableTailCompletions(
+  context: SqlCompletionContext,
+  linePrefix: string,
+  schemas: DatabaseSchema[],
+): boolean {
+  return context === "from_clause" && resolveTableBeforeTrailingSpace(linePrefix, schemas) !== null;
+}
+
+const UPDATE_SET_KEYWORDS = new Set(["WHERE"]);
 
 function allowedKeywordsForContext(context: SqlCompletionContext): Set<string> | null {  switch (context) {
     case "statement_start":
@@ -156,6 +213,8 @@ function allowedKeywordsForContext(context: SqlCompletionContext): Set<string> |
     case "insert_into":
     case "update_table":
       return new Set<string>();
+    case "update_set":
+      return UPDATE_SET_KEYWORDS;
     case "general":
       return null;
     default:
@@ -171,29 +230,49 @@ function filterKeywordsByContext(items: CompletionItem[], context: SqlCompletion
   return items.filter((item) => allowed.has(item.label.toUpperCase()));
 }
 
-function includeFunctions(context: SqlCompletionContext): boolean {
+function includeFunctions(context: SqlCompletionContext, intent: SqlCompletionIntent): boolean {
+  if (intent === "columns") {
+    return false;
+  }
+  if (intent === "values") {
+    return true;
+  }
   return (
     context === "select_list" ||
     context === "where_clause" ||
     context === "group_by" ||
     context === "order_by" ||
+    context === "update_set" ||
     context === "general"
   );
 }
 
-function includeColumns(context: SqlCompletionContext): boolean {
+function includeColumns(context: SqlCompletionContext, intent: SqlCompletionIntent): boolean {
+  if (intent === "values") {
+    return false;
+  }
+  if (intent === "columns") {
+    return (
+      context === "select_list" ||
+      context === "where_clause" ||
+      context === "group_by" ||
+      context === "order_by" ||
+      context === "update_set" ||
+      context === "general"
+    );
+  }
   return (
     context === "select_list" ||
     context === "where_clause" ||
     context === "group_by" ||
     context === "order_by" ||
+    context === "update_set" ||
     context === "general"
   );
 }
 
 function includeTables(context: SqlCompletionContext): boolean {
   return (
-    context === "statement_start" ||
     context === "from_clause" ||
     context === "insert_into" ||
     context === "update_table" ||
@@ -212,11 +291,12 @@ export function shouldOfferTableCompletionsWithoutPrefix(context: SqlCompletionC
   );
 }
 
-const FROM_TABLE_COLUMN_CONTEXTS = new Set<SqlCompletionContext>([
+const SCOPED_TABLE_COLUMN_CONTEXTS = new Set<SqlCompletionContext>([
   "select_list",
   "where_clause",
   "group_by",
   "order_by",
+  "update_set",
 ]);
 
 /** WHERE / GROUP BY / ORDER BY 且已解析出 FROM 表：无输入前缀时也应弹出字段。 */
@@ -226,7 +306,10 @@ export function shouldOfferColumnCompletionsWithoutPrefix(
 ): boolean {
   return (
     hasFromTable &&
-    (context === "where_clause" || context === "group_by" || context === "order_by")
+    (context === "where_clause" ||
+      context === "group_by" ||
+      context === "order_by" ||
+      context === "update_set")
   );
 }
 
@@ -235,7 +318,12 @@ function includeDatabases(context: SqlCompletionContext): boolean {
 }
 
 function shouldFilterColumnsByFromTable(context: SqlCompletionContext): boolean {
-  return context === "where_clause" || context === "group_by" || context === "order_by";
+  return (
+    context === "where_clause" ||
+    context === "group_by" ||
+    context === "order_by" ||
+    context === "update_set"
+  );
 }
 
 /** WHERE / GROUP BY / ORDER BY 且仅单表：只补裸字段名，不补 表.字段 / 库.表.字段。 */
@@ -260,12 +348,6 @@ function buildAllColumnsCompletionItem(
     detail: `全部字段 · ${qualifiedTable}`,
     boost: 100,
   };
-}
-
-function currentPrefix(text: string, offset: number) {
-  const before = text.slice(0, offset);
-  const line = before.split("\n").pop() ?? "";
-  return line.match(/(\w+)$/)?.[1] ?? "";
 }
 
 /** IS / NOT 谓词尾部：此位置只应补关键字（如 NULL），不应出现字段名。 */
@@ -317,8 +399,47 @@ function buildIsNotTailCompletions(tail: Exclude<IsNotCompletionTail, null>): Co
   ];
 }
 
-function filterItems(items: CompletionItem[], prefix: string): CompletionItem[] {
-  const filtered = prefix ? filterAndRankByFuzzy(items, prefix) : items;
+function applyCompletionUsageBoost(item: CompletionItem): CompletionItem {
+  const usageBoost = getSqlCompletionUsageBoost(item.kind, item.label);
+  if (!usageBoost) {
+    return item;
+  }
+  return { ...item, boost: (item.boost ?? 0) + usageBoost };
+}
+
+function buildScopedTableColumns(fromTable: {
+  table: TableSchema;
+  qualifiedTable: string;
+}): CompletionItem[] {
+  const { table } = fromTable;
+  return table.columns.map((column) => ({
+    label: column.name,
+    kind: COLUMN_KIND,
+    detail: `${column.type} · ${table.name}`,
+    insertText: column.name,
+  }));
+}
+
+function filterItems(
+  items: CompletionItem[],
+  prefix: string,
+  options?: { preserveAllColumns?: boolean },
+): CompletionItem[] {
+  const withUsage = items.map(applyCompletionUsageBoost);
+  if (!prefix) {
+    return sortCompletionsByKind(applyKindTierBoost(withUsage));
+  }
+  if (options?.preserveAllColumns) {
+    const columns = withUsage.filter((item) => item.kind === COLUMN_KIND);
+    const others = withUsage.filter((item) => item.kind !== COLUMN_KIND);
+    const rankedColumns = columns.map((item) => ({
+      ...item,
+      boost: (item.boost ?? 0) + fuzzyScore(prefix, item.label) * 10,
+    }));
+    const filteredOthers = filterAndRankByFuzzy(others, prefix);
+    return sortCompletionsByKind(applyKindTierBoost([...rankedColumns, ...filteredOthers]));
+  }
+  const filtered = filterAndRankByFuzzy(withUsage, prefix);
   return sortCompletionsByKind(applyKindTierBoost(filtered));
 }
 
@@ -328,70 +449,6 @@ export function buildDatabaseSchema(
   meta?: Pick<DatabaseSchema, "connectionName" | "dbType">,
 ): DatabaseSchema {
   return { name: databaseName, tables, ...meta };
-}
-
-/** 表名后的快捷片段：select / count / update / insert */
-export function buildTableActionSnippets(
-  qualifiedTable: string,
-  table: TableSchema,
-  whereClause?: string,
-): CompletionItem[] {
-  const cols = table.columns.map((c) => c.name);
-  const selectCols = cols.length > 0 ? cols.join(", ") : "*";
-  const insertColList = cols.length > 0 ? cols.join(", ") : "column1, column2";
-  const insertValues =
-    cols.length > 0
-      ? cols.map((c, i) => `\${${i + 1}:${c}}`).join(", ")
-      : "${1:value1}, ${2:value2}";
-  const setClause =
-    cols.length > 0
-      ? cols.map((c, i) => `${c} = \${${i + 1}}`).join(",\n  ")
-      : "${1:column} = ${2:value}";
-
-  const whereText = whereClause?.trim();
-  const wherePart = whereText || "${1:1=1}";
-  const whereIsPlaceholder = !whereText;
-
-  return [
-    {
-      label: "select",
-      kind: KEYWORD_KIND,
-      detail: "生成 SELECT 查询",
-      insertText: `SELECT ${selectCols}\nFROM ${qualifiedTable}\nWHERE ${wherePart};`,
-      snippet: whereIsPlaceholder,
-    },
-    {
-      label: "count",
-      kind: FUNCTION_KIND,
-      detail: "生成 COUNT 统计",
-      insertText: whereText
-        ? `SELECT COUNT(*) AS total\nFROM ${qualifiedTable}\nWHERE ${whereText};`
-        : `SELECT COUNT(*) AS total\nFROM ${qualifiedTable};`,
-    },
-    {
-      label: "update",
-      kind: KEYWORD_KIND,
-      detail: "生成 UPDATE 语句",
-      insertText: whereText
-        ? `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE ${whereText};`
-        : `UPDATE ${qualifiedTable}\nSET ${setClause}\nWHERE \${${cols.length > 0 ? cols.length + 1 : 3}:1=1};`,
-      snippet: true,
-    },
-    {
-      label: "insert",
-      kind: KEYWORD_KIND,
-      detail: "生成 INSERT 语句",
-      insertText: `INSERT INTO ${qualifiedTable} (${insertColList})\nVALUES (${insertValues});`,
-      snippet: true,
-    },
-    {
-      label: "delete",
-      kind: KEYWORD_KIND,
-      detail: "生成 DELETE 语句",
-      insertText: `DELETE FROM ${qualifiedTable}\nWHERE ${wherePart};`,
-      snippet: whereIsPlaceholder,
-    },
-  ];
 }
 
 export function introspectToTableSchemas(
@@ -526,30 +583,59 @@ function buildAllColumnsFromAnalysis(
   return items;
 }
 
+function applyCompletionKeywordCase(item: CompletionItem, keywordCase: SqlKeywordCase): CompletionItem {
+  if (keywordCase === "upper") {
+    return item;
+  }
+  if (item.kind !== KEYWORD_KIND && item.kind !== FUNCTION_KIND) {
+    return item;
+  }
+  const insertText = item.insertText ?? item.label;
+  return {
+    ...item,
+    label: applySqlKeywordCase(item.label, keywordCase),
+    insertText: applySqlKeywordCase(insertText, keywordCase),
+  };
+}
+
 export function getCompletionItems(
   text: string,
   offset: number,
   schemas: DatabaseSchema[],
   dbType?: string | null,
+  keywordCase: SqlKeywordCase = "upper",
 ): CompletionItem[] {
-  const prefix = currentPrefix(text, offset);
+  if (isCursorInSqlString(text, offset)) {
+    return [];
+  }
+
+  const prefix = currentSqlWordPrefix(text, offset);
   const isNotTail = resolveIsNotCompletionTail(text, offset);
   if (isNotTail) {
-    return filterItems(buildIsNotTailCompletions(isNotTail), prefix);
+    return filterItems(
+      buildIsNotTailCompletions(isNotTail).map((item) => applyCompletionKeywordCase(item, keywordCase)),
+      prefix,
+    );
   }
 
   const context = resolveSqlCompletionContext(text, offset);
+  const intent = resolveCompletionIntent(text, offset, context);
+  const fromTableTrailingSpace = resolveFromTableTrailingSpaceAt(text, offset, context, schemas);
   const statement = sliceStatementAtOffset(text, offset).trim();
   const analysis = statement ? analyzeStatement(statement, dbType) : null;
   const catalog = Catalog.fromSchemas(schemas);
-  const fromTable = FROM_TABLE_COLUMN_CONTEXTS.has(context)
+  const fromTable = SCOPED_TABLE_COLUMN_CONTEXTS.has(context)
     ? resolveFromTableInStatement(text, offset, schemas, dbType)
     : null;
+  const scopedColumnContext =
+    shouldFilterColumnsByFromTable(context) && fromTable != null;
   const databases: CompletionItem[] = [];
   const tables: CompletionItem[] = [];
   let columns: CompletionItem[] = [];
 
-  if (includeColumns(context) && analysis && analysis.tables.length > 0) {
+  if (includeColumns(context, intent) && scopedColumnContext && fromTable) {
+    columns = buildScopedTableColumns(fromTable);
+  } else if (includeColumns(context, intent) && analysis && analysis.tables.length > 0) {
     columns = buildColumnsFromAnalysis(
       analysis,
       catalog,
@@ -571,11 +657,8 @@ export function getCompletionItems(
     }
 
     for (const table of database.tables) {
-      if (includeTables(context)) {
-        const tableBoost =
-          context === "statement_start" || shouldOfferTableCompletionsWithoutPrefix(context)
-            ? 60
-            : undefined;
+      if (includeTables(context) && !fromTableTrailingSpace) {
+        const tableBoost = shouldOfferTableCompletionsWithoutPrefix(context) ? 60 : undefined;
         tables.push({
           label: table.name,
           kind: TABLE_KIND,
@@ -585,7 +668,7 @@ export function getCompletionItems(
         });
       }
 
-      if (includeColumns(context) && (!analysis || analysis.tables.length === 0)) {
+      if (includeColumns(context, intent) && (!analysis || analysis.tables.length === 0)) {
         if (
           fromTable &&
           shouldFilterColumnsByFromTable(context) &&
@@ -637,19 +720,29 @@ export function getCompletionItems(
     }
   }
 
-  const keywords = filterKeywordsByContext(SQL_KEYWORDS, context);
-  const functions = includeFunctions(context)
+  const keywords =
+    intent === "values"
+      ? [{ label: "NULL", kind: KEYWORD_KIND, insertText: "NULL", detail: "SQL 关键字" }]
+      : filterKeywordsByContext(SQL_KEYWORDS, context);
+  const functions = includeFunctions(context, intent)
     ? buildFunctionCompletionItems(dbType, context as SqlFunctionCompletionContext)
     : [];
   const allColumnsItem =
-    !prefix && context !== "select_list"
+    !fromTableTrailingSpace &&
+    intent !== "values" &&
+    !prefix &&
+    context !== "select_list"
       ? analysis && analysis.tables.length > 0
         ? buildAllColumnsFromAnalysis(analysis, catalog, context)[0] ?? null
         : fromTable
           ? buildAllColumnsCompletionItem(fromTable.table, fromTable.qualifiedTable)
           : null
       : null;
+  const aliasItems = fromTableTrailingSpace
+    ? buildTableAliasCompletionItems(fromTableTrailingSpace)
+    : [];
   const merged = [
+    ...aliasItems,
     ...(allColumnsItem ? [allColumnsItem] : []),
     ...columns,
     ...databases,
@@ -657,7 +750,11 @@ export function getCompletionItems(
     ...functions,
     ...keywords,
   ];
-  return filterItems(merged, prefix);
+  return filterItems(
+    merged.map((item) => applyCompletionKeywordCase(item, keywordCase)),
+    prefix,
+    { preserveAllColumns: scopedColumnContext },
+  );
 }
 
 export { resolveSqlCompletionContext, resolveFromTableInStatement } from "../parser/context";

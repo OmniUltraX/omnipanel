@@ -113,6 +113,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const sqlEditorFontFamily = useSettingsStore((s) => s.sqlEditorFontFamily);
   const sqlEditorFontSize = useSettingsStore((s) => s.sqlEditorFontSize);
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
+  const sqlKeywordCase = useSettingsStore((s) => s.sqlKeywordCase);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -123,6 +124,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const readOnlyRef = useRef(readOnly);
   const schemasRef = useRef(schemas);
   const dbTypeRef = useRef(dbType);
+  const sqlKeywordCaseRef = useRef(sqlKeywordCase);
   const valueRef = useRef(value);
   const themeCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
@@ -135,6 +137,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
   dbTypeRef.current = dbType;
+  sqlKeywordCaseRef.current = sqlKeywordCase;
   valueRef.current = value;
 
   const syncCursorOffset = useCallback((view: EditorView) => {
@@ -192,6 +195,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     const extensions = createSqlEditorExtensions({
       getSchemas: () => schemasRef.current,
       getDbType: () => dbTypeRef.current,
+      getKeywordCase: () => sqlKeywordCaseRef.current,
       getReadOnly: () => readOnlyRef.current,
       onDocChange: (next) => {
         if (next !== valueRef.current) {
@@ -260,10 +264,10 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     const profile = resolveSqlDialect(dbType);
     view.dispatch({
       effects: languageCompartment.current.reconfigure(
-        sql({ dialect: profile.cmDialect, upperCaseKeywords: true }),
+        sql({ dialect: profile.cmDialect, upperCaseKeywords: sqlKeywordCase === "upper" }),
       ),
     });
-  }, [dbType]);
+  }, [dbType, sqlKeywordCase]);
 
   useEffect(() => {
     const view = viewRef.current;

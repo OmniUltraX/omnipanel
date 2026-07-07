@@ -238,6 +238,7 @@ export type SqlFunctionCompletionContext =
   | "order_by"
   | "insert_into"
   | "update_table"
+  | "update_set"
   | "delete_from"
   | "general";
 

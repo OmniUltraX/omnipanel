@@ -11,13 +11,15 @@ import { EditorView } from "@codemirror/view";
 import type { DatabaseSchema, TableSchema } from "../../types";
 import { filterAndRankByFuzzy } from "../../../../lib/fuzzyMatch";
 import {
-  buildTableActionSnippets,
   COLUMN_KIND,
   getCompletionItems,
+  recordSqlCompletionUsage,
   shouldOfferColumnCompletionsWithoutPrefix,
+  shouldOfferFromTableTailCompletions,
   shouldOfferTableCompletionsWithoutPrefix,
   tierBoostForKind,
 } from "./completionItems";
+import { getSqlCompletionUsageBoost } from "../../sqlIntel/sqlCompletionUsage";
 import {
   resolveFromTableInStatement,
   resolveAliasTableInStatement,
@@ -25,11 +27,11 @@ import {
 } from "../parser/context";
 import { analyzeStatement } from "../parser/analyzer";
 import { sliceStatementAtOffset } from "../parser/ast";
+import { applySqlKeywordCase, type SqlKeywordCase } from "../../sqlIntel/sqlKeywordCase";
 import {
-  buildSuggestedTableAlias,
-  resolveTableBeforeTrailingSpace,
-} from "./tableAlias";
-import type { SqlCompletionContext } from "../parser/context";
+  currentSqlWordPrefix,
+  isCursorInSqlString,
+} from "../../sqlIntel/sqlCompletionPosition";
 
 const SQL_NOISE_TOKENS = new Set([
   "SELECT", "FROM", "WHERE", "JOIN", "ON", "AND", "OR", "AS", "INTO", "SET",
@@ -335,6 +337,34 @@ function completionKindToType(kind: number): string {
   return "text";
 }
 
+function attachCompletionUsageTracking(
+  option: Completion,
+  kind: number,
+  label: string,
+): Completion {
+  const originalApply = option.apply;
+  if (typeof originalApply === "function") {
+    return {
+      ...option,
+      apply(view, completion, from, to) {
+        recordSqlCompletionUsage(kind, label);
+        originalApply(view, completion, from, to);
+      },
+    };
+  }
+  return {
+    ...option,
+    apply(view, completion, from, to) {
+      recordSqlCompletionUsage(kind, label);
+      const insert = typeof originalApply === "string" ? originalApply : completion.label;
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+      });
+    },
+  };
+}
+
 function columnSuggestions(
   tableName: string,
   tableTokenInLine: string,
@@ -348,6 +378,48 @@ function columnSuggestions(
   }));
 }
 
+function mapCompletionItemToOption(
+  item: {
+    label: string;
+    kind: number;
+    insertText?: string;
+    detail?: string;
+    snippet?: boolean;
+    boost?: number;
+    info?: string;
+  },
+  insertText: string,
+  boostAdjust = 0,
+): Completion {
+  const boost = (item.boost ?? 0) + boostAdjust;
+  const info = item.info;
+  if (item.snippet) {
+    return attachCompletionUsageTracking(
+      snippetCompletion(insertText, {
+        label: item.label,
+        detail: item.detail,
+        type: completionKindToType(item.kind),
+        boost,
+        info,
+      }),
+      item.kind,
+      item.label,
+    );
+  }
+  return attachCompletionUsageTracking(
+    {
+      label: item.label,
+      type: completionKindToType(item.kind),
+      detail: item.detail,
+      apply: insertText,
+      boost,
+      info,
+    },
+    item.kind,
+    item.label,
+  );
+}
+
 function tableSuggestions(database: DatabaseSchema): Completion[] {
   return database.tables.map((table) => ({
     label: table.name,
@@ -355,19 +427,6 @@ function tableSuggestions(database: DatabaseSchema): Completion[] {
     detail: `表 · ${database.name} (${table.columns.length} 列)`,
     apply: table.name,
   }));
-}
-
-function applyEditorReplacement(
-  view: EditorView,
-  removeFrom: number,
-  removeTo: number,
-  insert: string,
-  cursorPos: number,
-) {
-  view.dispatch({
-    changes: { from: removeFrom, to: removeTo, insert },
-    selection: { anchor: removeFrom + cursorPos },
-  });
 }
 
 function resolveQualifierColumnRange(
@@ -402,44 +461,19 @@ function tableDotSuggestions(
   const replaceTo = context.pos;
   const prefix = prefixAfterLastDot(linePrefix);
 
-  const actionItems: Completion[] = filterByFuzzy(
-    buildTableActionSnippets(ctx.qualifiedTable, ctx.table, ctx.whereClause),
-    prefix,
-  ).map((item) => {
-    const insertText = item.insertText ?? item.label;
-    const boost = tierBoostForKind(item.kind) + (item.snippet ? 99 : 0);
-    const base = item.snippet
-      ? snippetCompletion(insertText, {
-          label: item.label,
-          detail: item.detail,
-          type: completionKindToType(item.kind),
-          boost,
-        })
-      : {
-          label: item.label,
-          type: completionKindToType(item.kind),
-          detail: item.detail,
-          boost,
-        };
-
-    return {
-      ...base,
-      apply: (view: EditorView) => {
-        applyEditorReplacement(view, tableStartOffset, replaceTo, insertText, insertText.length);
-      },
-    };
-  });
-
   const allColumns = columnSuggestions(ctx.table.name, ctx.tableTokenInLine, ctx.table.columns);
   const columns = prefix ? filterByFuzzy(allColumns, prefix) : allColumns;
 
-  const options = [
-    ...columns.map((col) => ({
-      ...col,
-      boost: tierBoostForKind(COLUMN_KIND),
-    })),
-    ...actionItems,
-  ];
+  const options = columns.map((col) =>
+    attachCompletionUsageTracking(
+      {
+        ...col,
+        boost: tierBoostForKind(COLUMN_KIND) + getSqlCompletionUsageBoost(COLUMN_KIND, col.label),
+      },
+      COLUMN_KIND,
+      col.label,
+    ),
+  );
   if (options.length === 0) return null;
 
   return {
@@ -478,11 +512,16 @@ function withLiveCompletionUpdate(
 
 function shouldOfferSqlCompletion(state: EditorState): boolean {
   const pos = state.selection.main.head;
+  const docText = state.doc.toString();
+  if (isCursorInSqlString(docText, pos)) {
+    return false;
+  }
   const line = state.doc.lineAt(pos);
   const linePrefix = line.text.slice(0, pos - line.from);
   if (/^\s*$/.test(linePrefix)) return true;
   if (/\w+\.\w*$/.test(linePrefix)) return true;
-  return /\w+$/.test(linePrefix);
+  const prefix = currentSqlWordPrefix(docText, pos);
+  return prefix.length > 0;
 }
 
 /** 无匹配导致补全关闭后，退格删除字符时重新触发补全查询。 */
@@ -518,7 +557,7 @@ export function sqlCompletionTriggerAfterClause(
     if (
       shouldOfferTableCompletionsWithoutPrefix(context) ||
       shouldOfferColumnCompletionsWithoutPrefix(context, hasScopedTables) ||
-      shouldOfferTableAliasAfterSpace(context, linePrefix, schemas)
+      shouldOfferFromTableTailCompletions(context, linePrefix, schemas)
     ) {
       requestAnimationFrame(() => startCompletion(view));
     }
@@ -526,83 +565,15 @@ export function sqlCompletionTriggerAfterClause(
   });
 }
 
-function shouldOfferTableAliasAfterSpace(
-  completionContext: SqlCompletionContext,
-  linePrefix: string,
-  schemas: DatabaseSchema[],
-): boolean {
-  if (completionContext !== "from_clause") {
-    return false;
-  }
-  return resolveTableBeforeTrailingSpace(linePrefix, schemas) !== null;
-}
-
-function buildTableAliasCompletionResult(
-  context: CompletionContext,
-  linePrefix: string,
-  docText: string,
-  schemas: DatabaseSchema[],
-  dbType?: string,
-): CompletionResult | null {
-  const completionContext = resolveSqlCompletionContext(docText, context.pos);
-  if (!shouldOfferTableAliasAfterSpace(completionContext, linePrefix, schemas)) {
-    return null;
-  }
-  const resolved = resolveTableBeforeTrailingSpace(linePrefix, schemas);
-  if (!resolved) {
-    return null;
-  }
-  const alias = buildSuggestedTableAlias(resolved.table);
-  if (!alias) {
-    return null;
-  }
-
-  const aliasOption: Completion = {
-    label: alias,
-    type: "variable",
-    detail: `建议别名 · ${resolved.tableName}`,
-    apply: alias,
-    boost: tierBoostForKind(22) + 500,
-  };
-
-  const otherItems = getCompletionItems(docText, context.pos, schemas, dbType);
-  const otherOptions: Completion[] = otherItems.map((item) => {
-    const insertText = item.insertText ?? item.label;
-    const boost = (item.boost ?? 0) - 200;
-    if (item.snippet) {
-      return snippetCompletion(insertText, {
-        label: item.label,
-        detail: item.detail,
-        type: completionKindToType(item.kind),
-        boost,
-        info: item.info,
-      });
-    }
-    return {
-      label: item.label,
-      type: completionKindToType(item.kind),
-      detail: item.detail,
-      apply: insertText,
-      boost,
-      info: item.info,
-    };
-  });
-
-  return {
-    from: context.pos,
-    to: context.pos,
-    options: dedupeCompletions([aliasOption, ...otherOptions]),
-    filter: false,
-  };
-}
-
 function computeSqlCompletionResult(
   context: CompletionContext,
   getSchemas: () => DatabaseSchema[],
   getDbType?: () => string | undefined,
+  getKeywordCase?: () => SqlKeywordCase,
 ): CompletionResult | null {
   const schemas = getSchemas();
   const dbType = getDbType?.();
+  const keywordCase = getKeywordCase?.() ?? "upper";
   const docText = context.state.doc.toString();
   const line = context.state.doc.lineAt(context.pos);
   const linePrefix = line.text.slice(0, context.pos - line.from);
@@ -619,10 +590,16 @@ function computeSqlCompletionResult(
     if (asDatabase) {
       const dotIndex = linePrefix.lastIndexOf(".");
       const options = dedupeCompletions(
-        tableSuggestions(asDatabase).map((item) => ({
-          ...item,
-          boost: tierBoostForKind(22),
-        })),
+        tableSuggestions(asDatabase).map((item) =>
+          attachCompletionUsageTracking(
+            {
+              ...item,
+              boost: tierBoostForKind(22),
+            },
+            22,
+            item.label,
+          ),
+        ),
       );
       if (options.length === 0) return null;
       return {
@@ -633,17 +610,6 @@ function computeSqlCompletionResult(
     }
   }
 
-  const aliasResult = buildTableAliasCompletionResult(
-    context,
-    linePrefix,
-    docText,
-    schemas,
-    dbType,
-  );
-  if (aliasResult) {
-    return aliasResult;
-  }
-
   const completionContext = resolveSqlCompletionContext(docText, context.pos);
   const statement = sliceStatementAtOffset(docText, context.pos).trim();
   const statementAnalysis = statement ? analyzeStatement(statement, dbType) : null;
@@ -652,15 +618,19 @@ function computeSqlCompletionResult(
     fromTableInStmt !== null || (statementAnalysis?.tables.length ?? 0) > 0;
   const atLineContentStart = /^\s*$/.test(linePrefix);
   const hasSchemaTables = schemas.some((db) => db.tables.length > 0);
-  const wantsStatementStartTables =
-    completionContext === "statement_start" && atLineContentStart && hasSchemaTables;
+  const wantsStatementStartKeywords =
+    completionContext === "statement_start" && atLineContentStart;
   const wantsTableNameContext =
     hasSchemaTables && shouldOfferTableCompletionsWithoutPrefix(completionContext);
   const wantsClauseColumns = shouldOfferColumnCompletionsWithoutPrefix(
     completionContext,
     hasScopedTables,
   );
-  const wantsTableAlias = shouldOfferTableAliasAfterSpace(completionContext, linePrefix, schemas);
+  const wantsFromTableTail = shouldOfferFromTableTailCompletions(
+    completionContext,
+    linePrefix,
+    schemas,
+  );
 
   const qualCol = resolveQualifierColumnRange(line, linePrefix, context.pos);
   const qualStart =
@@ -670,42 +640,24 @@ function computeSqlCompletionResult(
   if (
     !word?.text &&
     !context.explicit &&
-    !wantsStatementStartTables &&
+    !wantsStatementStartKeywords &&
     !wantsTableNameContext &&
     !wantsClauseColumns &&
-    !wantsTableAlias &&
+    !wantsFromTableTail &&
     !qualCol
   ) {
     return null;
   }
 
   const from = qualStart ?? qualCol?.from ?? (word ? word.from : context.pos);
-  const items = getCompletionItems(docText, context.pos, schemas, dbType);
+  const items = getCompletionItems(docText, context.pos, schemas, dbType, keywordCase);
   const options: Completion[] = items.map((item) => {
     let insertText = item.insertText ?? item.label;
     if (qualCol && item.kind === COLUMN_KIND) {
       const columnName = bareColumnInsertText(insertText);
       insertText = `${qualCol.qualifier}.${columnName}`;
     }
-    const boost = item.boost;
-    const info = item.info;
-    if (item.snippet) {
-      return snippetCompletion(insertText, {
-        label: item.label,
-        detail: item.detail,
-        type: completionKindToType(item.kind),
-        boost,
-        info,
-      });
-    }
-    return {
-      label: item.label,
-      type: completionKindToType(item.kind),
-      detail: item.detail,
-      apply: insertText,
-      boost,
-      info,
-    };
+    return mapCompletionItemToOption(item, insertText);
   });
 
   const deduped = dedupeCompletions(options);
@@ -722,8 +674,9 @@ function computeSqlCompletionResult(
 export function createSqlCompletionSource(
   getSchemas: () => DatabaseSchema[],
   getDbType?: () => string | undefined,
+  getKeywordCase?: () => SqlKeywordCase,
 ): (context: CompletionContext) => CompletionResult | null {
   const build = (context: CompletionContext) =>
-    computeSqlCompletionResult(context, getSchemas, getDbType);
+    computeSqlCompletionResult(context, getSchemas, getDbType, getKeywordCase);
   return (context) => withLiveCompletionUpdate(build, context);
 }

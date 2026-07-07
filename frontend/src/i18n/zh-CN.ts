@@ -2683,6 +2683,12 @@ export const zhCN = {
       editorFontSize: "字号",
       editorLineHeight: "行高",
       editorLineHeightDesc: "行高倍数，影响代码行间距",
+      editorKeywordCase: "SQL 关键字大小写",
+      editorKeywordCaseDesc: "自动补全插入的 SQL 关键字与函数名使用大写或小写",
+      editorKeywordCaseUpper: "大写",
+      editorKeywordCaseLower: "小写",
+      formatSqlOnSave: "保存时格式化 SQL",
+      formatSqlOnSaveDesc: "保存 SQL 文件或工作区标签时自动格式化语句",
     },
     files: {
       label: "文件",

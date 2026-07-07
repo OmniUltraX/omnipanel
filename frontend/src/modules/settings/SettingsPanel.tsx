@@ -847,6 +847,8 @@ export function SettingsPanel() {
   const sqlEditorFontFamily = useSettingsStore((s) => s.sqlEditorFontFamily);
   const sqlEditorFontSize = useSettingsStore((s) => s.sqlEditorFontSize);
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
+  const sqlKeywordCase = useSettingsStore((s) => s.sqlKeywordCase);
+  const formatSqlOnSave = useSettingsStore((s) => s.formatSqlOnSave);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
   const fileIndexStorageDir = useSettingsStore((s) => s.fileIndexStorageDir);
@@ -867,6 +869,14 @@ export function SettingsPanel() {
   const sqlEditorLineHeightOptions = useMemo(
     () => SQL_EDITOR_LINE_HEIGHT_OPTIONS.map((n) => String(n)),
     [],
+  );
+  const sqlKeywordCaseOptions = useMemo(() => ["upper", "lower"] as const, []);
+  const sqlKeywordCaseOptionLabels = useMemo(
+    () => [
+      t("settings.database.editorKeywordCaseUpper"),
+      t("settings.database.editorKeywordCaseLower"),
+    ],
+    [t],
   );
   const filePreviewThresholdOptions = useMemo(
     () => FILE_PREVIEW_THRESHOLD_OPTIONS.map((n) => String(n)),
@@ -1660,13 +1670,37 @@ export function SettingsPanel() {
                     lineHeight: sqlEditorLineHeight,
                   }}
                 >
-                  <span className="sql-editor-preview__kw">SELECT</span> id, name
+                  <span className="sql-editor-preview__kw">
+                    {sqlKeywordCase === "upper" ? "SELECT" : "select"}
+                  </span>{" "}
+                  id, name
                   <br />
-                  <span className="sql-editor-preview__kw">FROM</span> users
+                  <span className="sql-editor-preview__kw">
+                    {sqlKeywordCase === "upper" ? "FROM" : "from"}
+                  </span>{" "}
+                  users
                   <br />
-                  <span className="sql-editor-preview__kw">WHERE</span> status ={" "}
+                  <span className="sql-editor-preview__kw">
+                    {sqlKeywordCase === "upper" ? "WHERE" : "where"}
+                  </span>{" "}
+                  status ={" "}
                   <span className="sql-editor-preview__str">'active'</span>;
                 </div>
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.editorKeywordCase")}</h4>
+                  <p>{t("settings.database.editorKeywordCaseDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={sqlKeywordCase}
+                  onChange={(v) =>
+                    setDatabaseSettings({ sqlKeywordCase: v as "upper" | "lower" })
+                  }
+                  options={[...sqlKeywordCaseOptions]}
+                  optionLabels={sqlKeywordCaseOptionLabels}
+                />
               </div>
 
               <div className="setting-row">
@@ -1704,6 +1738,16 @@ export function SettingsPanel() {
                     setDatabaseSettings({ sqlEditorLineHeight: clampSqlEditorLineHeight(Number(v)) })
                   }
                   options={sqlEditorLineHeightOptions}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.formatSqlOnSave")}</h4>
+                  <p>{t("settings.database.formatSqlOnSaveDesc")}</p>
+                </div>
+                <Toggle
+                  value={formatSqlOnSave}
+                  onChange={(v) => setDatabaseSettings({ formatSqlOnSave: v })}
                 />
               </div>
             </div>

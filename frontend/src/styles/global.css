@@ -2290,6 +2290,36 @@ a {
     border-color: color-mix(in srgb, #bf5af2 32%, var(--border));
 }
 
+/* SQL Lint 波浪线 / gutter 诊断提示 */
+.cm-tooltip-lint .cm-diagnosticText {
+    display: block;
+}
+
+.db-sql-lint-diagnostic-message {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    max-width: min(420px, 90vw);
+}
+
+.db-sql-lint-diagnostic-message__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.45;
+}
+
+.db-sql-lint-diagnostic-message__copy {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    color: var(--fg-muted);
+}
+
+.db-sql-lint-diagnostic-message__copy:hover {
+    color: var(--fg);
+}
+
 /* SQL 编辑器表/字段悬停信息卡（tooltip 挂载在 body） */
 .cm-tooltip:has(.db-sql-hover-card) {
     padding: 0;

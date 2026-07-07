@@ -2685,6 +2685,12 @@ export const enUS: TranslationDict = {
       editorFontSize: "Font size",
       editorLineHeight: "Line height",
       editorLineHeightDesc: "Line height multiplier for code spacing",
+      editorKeywordCase: "SQL keyword casing",
+      editorKeywordCaseDesc: "Use uppercase or lowercase for keywords and functions inserted by autocomplete",
+      editorKeywordCaseUpper: "Uppercase",
+      editorKeywordCaseLower: "Lowercase",
+      formatSqlOnSave: "Format SQL on save",
+      formatSqlOnSaveDesc: "Automatically format SQL when saving a file or workspace tab",
     },
     files: {
       label: "Files",

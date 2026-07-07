@@ -41,6 +41,7 @@ import { resolveSqlToRun } from "../language/selection";
 export interface SqlEditorExtensionOptions {
   getSchemas: () => DatabaseSchema[];
   getDbType: () => string | undefined;
+  getKeywordCase: () => import("../../sqlIntel/sqlKeywordCase").SqlKeywordCase;
   getReadOnly: () => boolean;
   onDocChange: (value: string) => void;
   onCursorSync: (view: EditorView) => void;
@@ -55,6 +56,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
   const {
     getSchemas,
     getDbType,
+    getKeywordCase,
     getReadOnly,
     onDocChange,
     onCursorSync,
@@ -81,7 +83,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     foldGutter(),
     closeBrackets(),
     languageCompartment.of(
-      sql({ dialect: dialectProfile.cmDialect, upperCaseKeywords: true }),
+      sql({ dialect: dialectProfile.cmDialect, upperCaseKeywords: getKeywordCase() === "upper" }),
     ),
     EditorView.lineWrapping,
     getSearchHighlightExtension(),
@@ -94,7 +96,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
       icons: true,
       optionClass: (completion) =>
         `cm-sql-completion cm-sql-completion--${completion.type ?? "text"}`,
-      override: [createSqlCompletionSource(getSchemas, getDbType)],
+      override: [createSqlCompletionSource(getSchemas, getDbType, getKeywordCase)],
     }),
     sqlCompletionReopenOnDelete(),
     sqlCompletionTriggerAfterClause(getSchemas, getDbType),

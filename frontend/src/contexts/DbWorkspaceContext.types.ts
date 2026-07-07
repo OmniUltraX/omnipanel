@@ -91,7 +91,7 @@ export interface DbWorkspaceSharedContextValue {
   resolveSqlTabConnection: (tabId: string) => DbConnectionConfig | null;
   getSqlTabDatabases: (tabId: string) => string[];
   getSqlCompletionSchemas: (tabId: string) => DatabaseSchema[];
-  connectionForSqlTab: (tabId: string) => DbConnectionConfig | null;
+  connectionForSqlTab: (tabId: string, sql?: string) => DbConnectionConfig | null;
   setSqlTabConnection: (tabId: string, connId: string | null) => void;
   rowsToRecord: (cols: string[], rows: unknown[][]) => Record<string, unknown>[];
   tabModeToEditorOpenMode: (mode: "data" | "sql") => SqlEditorOpenMode;

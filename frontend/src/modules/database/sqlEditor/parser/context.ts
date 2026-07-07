@@ -1,7 +1,8 @@
 import type { DatabaseSchema, TableSchema } from "../../types";
+import { stripSqlStringLiterals } from "../../sqlIntel/sqlCompletionPosition";
 import type { Catalog } from "../catalog";
 import { Catalog as CatalogClass } from "../catalog";
-import { analyzeStatement, analyzeStatementAtOffset, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
+import { analyzeStatementAtOffset, resolvePrimaryFromTable, resolveTableByAlias } from "./analyzer";
 import { sliceStatementAtOffset, statementOffsetAtPos } from "./ast";
 
 export type SqlCompletionContext =
@@ -13,6 +14,7 @@ export type SqlCompletionContext =
   | "order_by"
   | "insert_into"
   | "update_table"
+  | "update_set"
   | "delete_from"
   | "general";
 
@@ -38,75 +40,64 @@ function currentStatementBefore(text: string, offset: number): string {
 
 /** 根据光标位置推断 SQL 补全上下文（Clause 级；Parser 用于表/别名解析）。 */
 export function resolveSqlCompletionContext(text: string, offset: number): SqlCompletionContext {
-  const stmt = currentStatementBefore(text, offset);
-  if (!stmt.trim()) {
+  const stmt = stripSqlStringLiterals(currentStatementBefore(text, offset));
+  const trimmed = stmt.trim();
+  if (!trimmed) {
     return "statement_start";
   }
 
-  const idxSelect = lastIndexOfKeyword(stmt, "SELECT");
-  const idxFrom = lastIndexOfKeyword(stmt, "FROM");
-  const idxWhere = lastIndexOfKeyword(stmt, "WHERE");
-  const idxGroup = lastIndexOfKeyword(stmt, "GROUP BY");
-  const idxOrder = lastIndexOfKeyword(stmt, "ORDER BY");
-  const idxInsert = lastIndexOfKeyword(stmt, "INSERT INTO");
-  const idxUpdate = lastIndexOfKeyword(stmt, "UPDATE");
-  const idxDelete = lastIndexOfKeyword(stmt, "DELETE");
-  const idxSet = lastIndexOfKeyword(stmt, "SET");
-
-  if (/^\s*(CREATE|ALTER|DROP)\b/i.test(stmt.trim())) {
+  if (/^\s*(CREATE|ALTER|DROP)\b/i.test(trimmed)) {
     return "general";
   }
 
+  const idxInsert = lastIndexOfKeyword(stmt, "INSERT INTO");
+  const idxUpdate = lastIndexOfKeyword(stmt, "UPDATE");
+  const idxDelete = lastIndexOfKeyword(stmt, "DELETE");
+  const idxSelect = lastIndexOfKeyword(stmt, "SELECT");
+  const idxSet = lastIndexOfKeyword(stmt, "SET");
+
   if (idxInsert >= 0 && (idxSelect < 0 || idxInsert > idxSelect)) {
     return "insert_into";
-  }
-
-  if (idxDelete >= 0 && (idxSelect < 0 || idxDelete > idxSelect)) {
-    if (idxFrom < 0 || idxFrom < idxDelete) {
-      return "delete_from";
-    }
-    if (idxWhere < 0 || idxWhere < idxFrom) {
-      return "from_clause";
-    }
-    return "where_clause";
   }
 
   if (idxUpdate >= 0 && (idxSelect < 0 || idxUpdate > idxSelect)) {
     if (idxSet < 0 || idxSet < idxUpdate) {
       return "update_table";
     }
-    return "where_clause";
+    const idxWhere = lastIndexOfKeyword(stmt, "WHERE");
+    if (idxWhere >= 0 && idxWhere > idxSet) {
+      return "where_clause";
+    }
+    return "update_set";
   }
 
-  if (idxSelect >= 0 && (idxFrom < 0 || idxFrom < idxSelect)) {
-    return "select_list";
-  }
-
-  if (idxFrom >= 0) {
-    if (idxWhere < 0 || idxWhere < idxFrom) {
-      return "from_clause";
+  if (idxDelete >= 0 && (idxSelect < 0 || idxDelete > idxSelect)) {
+    const idxFrom = lastIndexOfKeyword(stmt, "FROM");
+    if (idxFrom < 0 || idxFrom < idxDelete) {
+      return "delete_from";
     }
   }
 
-  if (idxWhere >= 0) {
-    if (idxGroup >= 0 && idxGroup > idxWhere && (idxOrder < 0 || idxOrder < idxGroup)) {
-      return "group_by";
+  const clauseMarkers: Array<{ keyword: string; context: SqlCompletionContext }> = [
+    { keyword: "ORDER BY", context: "order_by" },
+    { keyword: "GROUP BY", context: "group_by" },
+    { keyword: "WHERE", context: "where_clause" },
+    { keyword: "FROM", context: "from_clause" },
+    { keyword: "SELECT", context: "select_list" },
+  ];
+
+  let active: { index: number; context: SqlCompletionContext } | null = null;
+  for (const marker of clauseMarkers) {
+    const index = lastIndexOfKeyword(stmt, marker.keyword);
+    if (index < 0) {
+      continue;
     }
-    if (idxOrder >= 0 && idxOrder > idxWhere) {
-      return "order_by";
+    if (!active || index >= active.index) {
+      active = { index, context: marker.context };
     }
-    return "where_clause";
   }
 
-  if (idxGroup >= 0) {
-    return "group_by";
-  }
-
-  if (idxOrder >= 0) {
-    return "order_by";
-  }
-
-  return "statement_start";
+  return active?.context ?? "statement_start";
 }
 
 function resolveFromTableRegex(
@@ -114,13 +105,51 @@ function resolveFromTableRegex(
   catalog: Catalog,
 ): { table: TableSchema; qualifiedTable: string } | null {
   const fromMatch = statement.match(/\bFROM\s+(?:(\w+)\.)?(\w+)\b/i);
-  if (!fromMatch) return null;
-  const resolved = catalog.findTable(fromMatch[2], fromMatch[1]);
-  if (!resolved) return null;
-  return {
-    table: resolved.table as TableSchema,
-    qualifiedTable: resolved.qualifiedTable,
-  };
+  if (fromMatch) {
+    const resolved = catalog.findTable(fromMatch[2], fromMatch[1]);
+    if (resolved) {
+      return {
+        table: resolved.table as TableSchema,
+        qualifiedTable: resolved.qualifiedTable,
+      };
+    }
+  }
+
+  const updateMatch = statement.match(
+    /\bUPDATE\s+((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)(?:\s+(?:AS\s+)?[`"]?[\w$]+[`"]?)?/i,
+  );
+  if (updateMatch) {
+    const token = updateMatch[1].replace(/^[`"]|[`"]$/g, "");
+    const dot = token.lastIndexOf(".");
+    const schemaName = dot >= 0 ? token.slice(0, dot).replace(/^[`"]|[`"]$/g, "") : undefined;
+    const tableName = dot >= 0 ? token.slice(dot + 1).replace(/^[`"]|[`"]$/g, "") : token;
+    const resolved = catalog.findTable(tableName, schemaName);
+    if (resolved) {
+      return {
+        table: resolved.table as TableSchema,
+        qualifiedTable: resolved.qualifiedTable,
+      };
+    }
+  }
+
+  const deleteMatch = statement.match(
+    /\bDELETE\s+FROM\s+((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)/i,
+  );
+  if (deleteMatch) {
+    const token = deleteMatch[1].replace(/^[`"]|[`"]$/g, "");
+    const dot = token.lastIndexOf(".");
+    const schemaName = dot >= 0 ? token.slice(0, dot).replace(/^[`"]|[`"]$/g, "") : undefined;
+    const tableName = dot >= 0 ? token.slice(dot + 1).replace(/^[`"]|[`"]$/g, "") : token;
+    const resolved = catalog.findTable(tableName, schemaName);
+    if (resolved) {
+      return {
+        table: resolved.table as TableSchema,
+        qualifiedTable: resolved.qualifiedTable,
+      };
+    }
+  }
+
+  return null;
 }
 
 /** 解析当前语句的主表：优先 AST，回退正则。 */

@@ -1,10 +1,13 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { EditorView } from "@codemirror/view";
 import { splitSqlStatements } from "../../sqlIntel/sqlLex";
+import { isConnectionLevelSql } from "../../sqlIntel/connectionLevelSql";
 import type { DatabaseSchema } from "../../types";
 import { Catalog } from "../catalog";
 import { formatParseError } from "../parser/ast";
 import { extractTableRefSpans } from "../parser/analyzer";
+import { withCopyableDiagnosticMessage } from "./lintDiagnosticMessage";
+import { shouldSuppressParseErrorWhileTyping } from "./incompleteParseError";
 
 const KEYWORD_TYPO_SUGGESTIONS: Record<string, string> = {
   FORM: "FROM",
@@ -79,6 +82,8 @@ export function createSqlLinter(
     const statements = splitSqlStatements(doc);
     const parts = statements.length > 0 ? statements : [{ sql: doc.trim(), from: 0, to: doc.length, hadTrailingSemicolon: false }];
 
+    const cursor = view.state.selection.main.head;
+
     for (const part of parts) {
       const statement = doc.slice(part.from, part.to).trim();
       if (!statement) continue;
@@ -86,19 +91,24 @@ export function createSqlLinter(
       const baseOffset = part.from + Math.max(leading, 0);
 
       diagnostics.push(...scanKeywordTypos(statement, baseOffset));
-      diagnostics.push(...scanMissingTables(catalog, statement, baseOffset, dbType));
+      if (!isConnectionLevelSql(statement)) {
+        diagnostics.push(...scanMissingTables(catalog, statement, baseOffset, dbType));
 
-      const parseError = formatParseError(statement, dbType);
-      if (parseError) {
-        diagnostics.push({
-          from: baseOffset,
-          to: Math.min(baseOffset + statement.length, doc.length),
-          severity: "warning",
-          message: parseError,
-        });
+        const parseError = formatParseError(statement, dbType);
+        if (
+          parseError &&
+          !shouldSuppressParseErrorWhileTyping(parseError, cursor, part.from, part.to)
+        ) {
+          diagnostics.push({
+            from: baseOffset,
+            to: Math.min(baseOffset + statement.length, doc.length),
+            severity: "warning",
+            message: parseError,
+          });
+        }
       }
     }
 
-    return diagnostics;
+    return diagnostics.map(withCopyableDiagnosticMessage);
   });
 }

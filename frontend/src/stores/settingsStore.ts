@@ -6,6 +6,11 @@ import {
   normalizeControllableProtocolStatus,
   type ControllableProtocolTabKey,
 } from "../lib/protocolLabConfig";
+import type { SqlKeywordCase } from "../modules/database/sqlIntel/sqlKeywordCase";
+import {
+  DEFAULT_SQL_KEYWORD_CASE,
+  normalizeSqlKeywordCase,
+} from "../modules/database/sqlIntel/sqlKeywordCase";
 
 export type Locale = "zh-CN" | "en-US";
 export type UiDensity = "compact" | "standard" | "comfortable";
@@ -133,6 +138,9 @@ export const DEFAULT_SQL_EDITOR_LINE_HEIGHT: SqlEditorLineHeight = 1.6;
 
 export const DEFAULT_SQL_EDITOR_FONT_FAMILY = "Cascadia Code";
 
+export type { SqlKeywordCase };
+export { DEFAULT_SQL_KEYWORD_CASE, normalizeSqlKeywordCase };
+
 export function clampSqlEditorFontSize(value: number): SqlEditorFontSize {
   const n = Math.round(value);
   if ((SQL_EDITOR_FONT_SIZE_OPTIONS as readonly number[]).includes(n)) {
@@ -221,6 +229,8 @@ interface SettingsState {
   sqlEditorFontFamily: string;
   sqlEditorFontSize: SqlEditorFontSize;
   sqlEditorLineHeight: SqlEditorLineHeight;
+  sqlKeywordCase: SqlKeywordCase;
+  formatSqlOnSave: boolean;
   filePreviewThresholdBytes: FilePreviewThresholdBytes;
   /** 文件索引存储目录，空字符串表示默认 ~/.omnipd/files/index */
   fileIndexStorageDir: string;
@@ -256,7 +266,7 @@ interface SettingsState {
     mode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode,
   ) => void;
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,
-    "databaseQueryPageSize" | "sqlEditorFontFamily" | "sqlEditorFontSize" | "sqlEditorLineHeight"
+    "databaseQueryPageSize" | "sqlEditorFontFamily" | "sqlEditorFontSize" | "sqlEditorLineHeight" | "sqlKeywordCase" | "formatSqlOnSave"
   >>) => void;
   setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir">>) => void;
   setProtocolLabSettings: (
@@ -352,6 +362,8 @@ export const useSettingsStore = create<SettingsState>()(
       sqlEditorFontFamily: DEFAULT_SQL_EDITOR_FONT_FAMILY,
       sqlEditorFontSize: DEFAULT_SQL_EDITOR_FONT_SIZE,
       sqlEditorLineHeight: DEFAULT_SQL_EDITOR_LINE_HEIGHT,
+      sqlKeywordCase: DEFAULT_SQL_KEYWORD_CASE,
+      formatSqlOnSave: true,
       filePreviewThresholdBytes: DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
       fileIndexStorageDir: "",
       protocolLabTabs: { ...DEFAULT_CONTROLLABLE_PROTOCOL_STATUS },
@@ -418,6 +430,12 @@ export const useSettingsStore = create<SettingsState>()(
             patch.sqlEditorLineHeight !== undefined
               ? clampSqlEditorLineHeight(patch.sqlEditorLineHeight)
               : state.sqlEditorLineHeight,
+          sqlKeywordCase:
+            patch.sqlKeywordCase !== undefined
+              ? normalizeSqlKeywordCase(patch.sqlKeywordCase)
+              : state.sqlKeywordCase,
+          formatSqlOnSave:
+            patch.formatSqlOnSave !== undefined ? patch.formatSqlOnSave : state.formatSqlOnSave,
         })),
       setFileSettings: (patch) =>
         set((state) => ({
@@ -500,6 +518,8 @@ export const useSettingsStore = create<SettingsState>()(
         sqlEditorFontFamily: state.sqlEditorFontFamily,
         sqlEditorFontSize: state.sqlEditorFontSize,
         sqlEditorLineHeight: state.sqlEditorLineHeight,
+        sqlKeywordCase: state.sqlKeywordCase,
+        formatSqlOnSave: state.formatSqlOnSave,
         filePreviewThresholdBytes: state.filePreviewThresholdBytes,
         fileIndexStorageDir: state.fileIndexStorageDir,
         protocolLabTabs: state.protocolLabTabs,
@@ -513,6 +533,9 @@ export const useSettingsStore = create<SettingsState>()(
           resolved,
           databaseQueryPageSize:
             state?.databaseQueryPageSize ?? DEFAULT_DATABASE_QUERY_PAGE_SIZE,
+          sqlKeywordCase:
+            normalizeSqlKeywordCase(state?.sqlKeywordCase),
+          formatSqlOnSave: state?.formatSqlOnSave ?? true,
           filePreviewThresholdBytes:
             state?.filePreviewThresholdBytes ?? DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
           fileIndexStorageDir: state?.fileIndexStorageDir ?? "",
