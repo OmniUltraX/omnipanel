@@ -5,7 +5,6 @@ import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
-import { Button } from "../../components/ui/Button";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
@@ -29,7 +28,8 @@ import { appAlert } from "../../lib/appAlert";
 import { FormDialog, FormField } from "../../components/ui/FormDialog";
 import { Select } from "../../components/ui/Select";
 import { TextInput } from "../../components/ui/TextInput";
-import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/contextMenuItems";
+import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
@@ -53,6 +53,7 @@ import {
   useDbTreeChartFileStore,
   type DbTreeChartFileNode,
 } from "../../stores/dbTreeChartFileStore";
+import { useDbDataDictionaryStore, type DataDictionaryEntry } from "../../stores/dbDataDictionaryStore";
 import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
@@ -127,11 +128,13 @@ import {
   type SqlWorkspaceTab,
   type TableDesignerWorkspaceTab,
   type TablePreviewWorkspaceTab,
+  type ToolboxWorkspaceTab,
   type TreeChartWorkspaceTab,
 } from "./workspace/workspaceTabs";
 import { TreeChartPanel } from "./treeChart/TreeChartPanel";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
+import { DataDictionaryDialog } from "./workspace/DataDictionaryDialog";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";
 import type { SyncTask } from "./toolbox/types";
@@ -515,6 +518,12 @@ export function DatabasePanel() {
   const [editingConnection, setEditingConnection] = useState<DbConnectionConfig | null>(null);
   const [schemaRefreshToken, setSchemaRefreshToken] = useState(0);
 
+  const dictionaries = useDbDataDictionaryStore((s) => s.dictionaries);
+  const addDictionary = useDbDataDictionaryStore((s) => s.addDictionary);
+  const updateDictionary = useDbDataDictionaryStore((s) => s.updateDictionary);
+  const [dictDialogOpen, setDictDialogOpen] = useState(false);
+  const [editingDictEntry, setEditingDictEntry] = useState<DataDictionaryEntry | null>(null);
+
   const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const sshConnections = useConnectionStore(
@@ -574,6 +583,22 @@ export function DatabasePanel() {
   } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
   const updateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
+
+  const handleOpenDictDialog = (entry?: DataDictionaryEntry | null) => {
+    setEditingDictEntry(entry ?? null);
+    setDictDialogOpen(true);
+  };
+
+  const handleDictSubmit = (name: string, data: string) => {
+    if (editingDictEntry) {
+      updateDictionary(editingDictEntry.id, name, data);
+    } else {
+      addDictionary(name, data);
+    }
+    setDictDialogOpen(false);
+    setEditingDictEntry(null);
+  };
+
   const [createDbDialog, setCreateDbDialog] = useState<
     | {
         connId: string;
@@ -648,11 +673,11 @@ export function DatabasePanel() {
       if (!existing) {
         const tab = makeSyncTaskWorkspaceTab(task);
         setWorkspaceTabs((prev) => (prev.some((item) => item.id === tab.id) ? prev : [...prev, tab]));
-      } else if (existing.label !== task.name || existing.toolboxTab !== task.kind) {
+      } else if (existing.label !== task.name || (existing as ToolboxWorkspaceTab).toolboxTab !== task.kind) {
         setWorkspaceTabs((prev) =>
           prev.map((item) =>
             item.id === tabId
-              ? { ...item, label: task.name, toolboxTab: task.kind }
+              ? { ...item, label: task.name, toolboxTab: task.kind } as DbWorkspaceTab
               : item,
           ),
         );
@@ -3730,6 +3755,7 @@ export function DatabasePanel() {
     };
   }, [reopenRecentClosedPanel, activateWorkspaceTab, setTabModes]);
 
+  // @ts-ignore
   const openRedisQueryTab = useCallback(
     (connId: string, dbName: string | undefined, label: string, mode: SchemaDockOpenMode = "preview") => {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
@@ -4744,6 +4770,31 @@ export function DatabasePanel() {
       className="db-module-layout"
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
+      leftIconRail={
+        <IconDropdownButton
+          title={t("database.dataDictionary.title")}
+          ariaLabel={t("database.dataDictionary.title")}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+              <line x1="3" y1="9" x2="21" y2="9" />
+              <line x1="9" y1="3" x2="9" y2="9" />
+            </svg>
+          }
+          items={[
+            {
+              id: "new",
+              label: t("database.dataDictionary.new"),
+              onSelect: () => handleOpenDictDialog(null),
+            },
+            ...dictionaries.map((entry) => ({
+              id: entry.id,
+              label: entry.name,
+              onSelect: () => handleOpenDictDialog(entry),
+            })),
+          ]}
+        />
+      }
       leftSidebar={
           <DatabaseSchemaSidebar
             onCreateConnection={() => {
@@ -4819,21 +4870,27 @@ export function DatabasePanel() {
         setSchemaRefreshToken((token) => token + 1);
         setEditingConnection(null);
       }}
-      defaultGroup={activeGroupName}
-      groups={groups}
       initialConnection={editingConnection}
     />
     <ConnectionImportPreviewDialog
       open={importPreview !== null}
       fileName={importPreview?.fileName ?? ""}
       items={importPreview?.items ?? []}
-      groups={groups}
-      defaultGroup={activeGroupName}
+      existingConnections={connections}
       onClose={() => setImportPreview(null)}
       onImported={() => {
         setSchemaRefreshToken((token) => token + 1);
         void refreshConnections();
       }}
+    />
+    <DataDictionaryDialog
+      open={dictDialogOpen}
+      entry={editingDictEntry}
+      onCancel={() => {
+        setDictDialogOpen(false);
+        setEditingDictEntry(null);
+      }}
+      onSubmit={handleDictSubmit}
     />
     </DbWorkspaceProviders>
     </DbSidebarLinkageProvider>

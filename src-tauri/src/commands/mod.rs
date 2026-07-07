@@ -37,3 +37,4 @@ pub mod updater;
 pub mod providers;
 pub mod skills;
 pub mod workflow;
+pub mod third_party_account;

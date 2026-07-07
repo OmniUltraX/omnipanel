@@ -368,18 +368,24 @@ export function DatabaseConnectionInfoPanel({
   }, [capable, connection]);
 
   const refreshDeployment = useCallback(async () => {
+    console.debug("[MySQL Deployment] refreshDeployment called, capable:", capable);
     if (!capable) {
+      console.debug("[MySQL Deployment] Not capable, setting deployment to null");
       setDeployment(null);
       setDeploymentLoading(false);
       return;
     }
 
+    console.debug("[MySQL Deployment] Starting deployment probe, connection:", connection.name);
+    console.debug("[MySQL Deployment] SSH connections available:", sshConnections.length);
     setDeploymentLoading(true);
     try {
       const info = await probeMysqlDeployment(connection, sshConnections);
+      console.debug("[MySQL Deployment] Probe completed, result:", info);
       writeMysqlDeploymentCache(connection, info);
       setDeployment(info);
-    } catch {
+    } catch (e) {
+      console.debug("[MySQL Deployment] Probe failed with exception:", e);
       const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
       writeMysqlDeploymentCache(connection, fallback);
       setDeployment(fallback);
@@ -866,6 +872,9 @@ export function DatabaseConnectionInfoPanel({
       <div className="db-tables-panel-meta">
         <DbPanelMetaRefreshButton
           onClick={() => {
+            console.debug("[MySQL Deployment] Refresh button clicked");
+            console.debug("[MySQL Deployment] capable:", capable, "tabLoading:", tabLoading, "deploymentLoading:", deploymentLoading);
+            console.debug("[MySQL Deployment] connection:", connection.name, "db_type:", connection.db_type);
             void refreshActiveTab();
             void refreshDeployment();
           }}

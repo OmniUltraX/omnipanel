@@ -346,6 +346,9 @@ fn export_ipc_bindings() {
         commands::ai_chat::ai_gateway_configure,
         commands::ai_chat::ai_services_probe,
         
+        commands::third_party_account::third_party_account_list,
+        commands::third_party_account::third_party_account_upsert,
+        commands::third_party_account::third_party_account_delete,
     ]);
 
     // 用 CARGO_MANIFEST_DIR 拼绝对路径，避免 cwd 在不同入口（cargo test/run）下不一致。
@@ -855,6 +858,10 @@ pub fn run() {
             commands::acp::acp_respond_permission,
             commands::acp::acp_save_agent_config,
             commands::acp::acp_get_default_command,
+            // Third party accounts
+            commands::third_party_account::third_party_account_list,
+            commands::third_party_account::third_party_account_upsert,
+            commands::third_party_account::third_party_account_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

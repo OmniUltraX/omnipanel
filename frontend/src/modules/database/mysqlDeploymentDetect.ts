@@ -147,27 +147,35 @@ export async function probeMysqlDeployment(
   connection: DbConnectionConfig,
   sshConnections: Connection[],
 ): Promise<MysqlDeploymentInfo> {
+  console.debug("[MySQL Deployment Detect] Starting probe for connection:", connection.name, connection.host);
+
   if (!isMysqlConnectionInfoCapable(connection)) {
+    console.debug("[MySQL Deployment Detect] Not MySQL connection, returning unknown");
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   let variables: MysqlDeployVariables;
   try {
     variables = await queryMysqlDeployVariables(connection);
-  } catch {
+    console.debug("[MySQL Deployment Detect] Queried MySQL variables:", variables);
+  } catch (e) {
+    console.debug("[MySQL Deployment Detect] Failed to query variables:", e);
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   const { pidFile, basedir, datadir } = variables;
   if (!pidFile) {
+    console.debug("[MySQL Deployment Detect] No pid_file found in MySQL variables");
     return { kind: "unknown", reason: "no_pid_file" };
   }
 
   const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
+    console.debug("[MySQL Deployment Detect] No SSH connection found for host:", connection.host);
     return { kind: "unknown", reason: "no_ssh", pidFile };
   }
   if (!isSshConnectionEstablished(ssh.id)) {
+    console.debug("[MySQL Deployment Detect] SSH connection not established:", ssh.name);
     return {
       kind: "unknown",
       reason: "ssh_not_connected",
@@ -178,9 +186,11 @@ export async function probeMysqlDeployment(
   }
 
   const sshMeta = { sshConnectionId: ssh.id, serverName: ssh.name };
+  console.debug("[MySQL Deployment Detect] SSH connection established:", ssh.name, "pidFile:", pidFile);
 
   try {
     if (await remoteFileExists(ssh.id, pidFile)) {
+      console.debug("[MySQL Deployment Detect] PID file exists on host, returning 'host' deployment");
       return {
         kind: "host",
         pidFile,
@@ -189,12 +199,16 @@ export async function probeMysqlDeployment(
       };
     }
 
+    console.debug("[MySQL Deployment Detect] PID file not found on host, checking Docker");
     const container = await findDockerContainerByPort(ssh.id, connection.port);
     if (!container) {
+      console.debug("[MySQL Deployment Detect] No Docker container found for port:", connection.port);
       return { kind: "unknown", reason: "no_container", pidFile, ...sshMeta };
     }
 
+    console.debug("[MySQL Deployment Detect] Found Docker container:", container.name, container.id);
     if (await dockerContainerFileExists(ssh.id, container.id, pidFile)) {
+      console.debug("[MySQL Deployment Detect] PID file exists in container, returning 'docker' deployment");
       return {
         kind: "docker",
         pidFile,
@@ -205,6 +219,7 @@ export async function probeMysqlDeployment(
       };
     }
 
+    console.debug("[MySQL Deployment Detect] PID file not found in container, returning 'unknown'");
     return {
       kind: "unknown",
       reason: "pid_not_in_container",
@@ -213,7 +228,8 @@ export async function probeMysqlDeployment(
       containerName: container.name,
       ...sshMeta,
     };
-  } catch {
+  } catch (e) {
+    console.debug("[MySQL Deployment Detect] Exception during probe:", e);
     return { kind: "unknown", reason: "probe_failed", pidFile, ...sshMeta };
   }
 }
