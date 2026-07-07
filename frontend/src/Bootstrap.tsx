@@ -6,6 +6,7 @@ import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { commands } from "./ipc/bindings";
 import { initAiModelsStore } from "./stores/aiModelsStore";
 import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
+import { initDbTreeChartFilesStore } from "./stores/dbTreeChartFileStore";
 import { initAcpServicesStore } from "./stores/acpServicesStore";
 import { initCliProvidersStore } from "./stores/cliProvidersStore";
 import { initConnections } from "./stores/connectionStore";
@@ -98,6 +99,7 @@ export function Bootstrap() {
 
         await pushLog(t("app.splash.logs.sqlFiles"));
         await initDbSqlFilesStore();
+        await initDbTreeChartFilesStore();
 
         await pushLog(t("app.splash.logs.acpServices"));
         await initAcpServicesStore();

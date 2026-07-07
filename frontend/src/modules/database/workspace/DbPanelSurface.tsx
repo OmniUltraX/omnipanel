@@ -200,7 +200,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           onChange={(v) => ws.setSqlTabConnection(tab.id, v || null)}
           disabled={!tabState.connId && sqlConnections.length === 0}
           title={t("database.workspace.connection")}
-          searchable={false}
+          searchable
           placeholder={t("database.results.noConnection")}
           options={
             sqlConnections.length === 0
@@ -220,7 +220,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
           onChange={(v) => ws.updateSqlTabState(tab.id, { database: v })}
           disabled={!tabState.connId}
           title={t("database.workspace.database")}
-          searchable={false}
+          searchable
           placeholder={t("database.workspace.noDatabase")}
           options={
             !tabConn || tabDatabases.length === 0

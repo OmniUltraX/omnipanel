@@ -287,6 +287,7 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             value={selectedDb}
             onChange={(value) => setSelectedDb(value)}
             disabled={loadingDbs || busy}
+            searchable
             options={databases.map((name) => ({ value: name, label: `DB ${name}` }))}
             placeholder={t("database.redisQuery.database")}
           />

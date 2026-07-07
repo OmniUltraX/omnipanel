@@ -268,6 +268,9 @@ export function sanitizeWorkspaceSession(
         (tab.toolboxTab === "dataSync" || tab.toolboxTab === "schemaSync")
       );
     }
+    if (tab.kind === "tree-chart") {
+      return Boolean(tab.treeChartFileId);
+    }
     return false;
   });
   if (tabs.length === 0) {

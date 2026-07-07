@@ -5,10 +5,12 @@ import { useDbSchemaCacheStore } from "../stores/dbSchemaCacheStore";
 import { useDbSchemaFilterStore } from "../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../stores/dbSchemaTreeExpandedStore";
 import { useDbSqlFileStore } from "../stores/dbSqlFileStore";
+import { useDbTreeChartFileStore } from "../stores/dbTreeChartFileStore";
 import { useDbWorkspaceSessionStore } from "../stores/dbWorkspaceSessionStore";
 import { useDbWorkspaceTabStore } from "../stores/dbWorkspaceTabStore";
 
 const DB_SQL_FILES_CACHE_KEY = "omnipanel-db-sql-files";
+const DB_TREE_CHART_FILES_CACHE_KEY = "omnipanel-db-tree-chart-files";
 const DB_SCHEMA_SIDEBAR_SECTIONS_KEY = "omnipanel-db-schema-sidebar-sections";
 
 const EMPTY_SCHEMA_FILTERS = { databaseFilters: {}, tableFilters: {} };
@@ -28,6 +30,7 @@ export async function clearDatabaseModuleData(): Promise<void> {
     commands.dbSaveSchemaFilters(EMPTY_SCHEMA_FILTERS).catch(() => undefined),
     commands.dbSaveSchemaTreeExpanded(EMPTY_SCHEMA_TREE_EXPANDED).catch(() => undefined),
     commands.dbSqlFilesSave({ version: 1, nodes: [] }).catch(() => undefined),
+    commands.dbTreeChartFilesSave({ version: 1, nodes: [] }).catch(() => undefined),
   ]);
 
   useDbWorkspaceSessionStore.setState({
@@ -51,10 +54,12 @@ export async function clearDatabaseModuleData(): Promise<void> {
     hydrated: true,
   });
   useDbSqlFileStore.setState({ nodes: [], dirtyFileIds: [] });
+  useDbTreeChartFileStore.setState({ nodes: [], dirtyFileIds: [] });
   useDbDockLayoutStore.getState().reset();
 
   try {
     localStorage.removeItem(DB_SQL_FILES_CACHE_KEY);
+    localStorage.removeItem(DB_TREE_CHART_FILES_CACHE_KEY);
     localStorage.removeItem(DB_SCHEMA_SIDEBAR_SECTIONS_KEY);
   } catch {
     // ignore

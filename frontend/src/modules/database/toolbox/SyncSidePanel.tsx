@@ -193,6 +193,7 @@ function ConnectionDatabaseFilters({
         value={connectionId}
         onChange={onConnectionChange}
         disabled={connections.length === 0}
+        searchable
         title={t("database.toolbox.side.connection")}
         placeholder={t("database.toolbox.side.noConnection")}
         options={
@@ -206,6 +207,7 @@ function ConnectionDatabaseFilters({
         value={database}
         onChange={onDatabaseChange}
         disabled={!conn || databasesLoading || databases.length === 0}
+        searchable
         title={t("database.toolbox.side.database")}
         placeholder={t("database.toolbox.side.noDatabase")}
         options={

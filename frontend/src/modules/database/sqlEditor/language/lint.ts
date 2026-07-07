@@ -52,7 +52,7 @@ function scanMissingTables(
 
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
-  for (const span of extractTableRefSpans(statement, baseOffset, dbType)) {
+  for (const span of extractTableRefSpans(statement, baseOffset, dbType, catalog)) {
     const rangeKey = `${span.from}:${span.to}`;
     if (seen.has(rangeKey)) continue;
     seen.add(rangeKey);

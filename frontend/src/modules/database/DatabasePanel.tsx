@@ -49,6 +49,11 @@ import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
+  formatTreeChartFileLabel,
+  useDbTreeChartFileStore,
+  type DbTreeChartFileNode,
+} from "../../stores/dbTreeChartFileStore";
+import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
   countTable,
@@ -94,6 +99,7 @@ import {
   findTabIdForDatabase,
   findTabIdForConnection,
   findTabIdForSqlFile,
+  findTabIdForTreeChartFile,
   makeTableTabLabel,
   makeTableTabKey,
   findTabIdForTable,
@@ -112,6 +118,7 @@ import {
   syncTaskDockTabId,
   makeTableDesignerTabLabel,
   makeSqlTabLabel,
+  makeTreeChartTabId,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
   type SlowQueryLogWorkspaceTab,
@@ -120,7 +127,9 @@ import {
   type SqlWorkspaceTab,
   type TableDesignerWorkspaceTab,
   type TablePreviewWorkspaceTab,
+  type TreeChartWorkspaceTab,
 } from "./workspace/workspaceTabs";
+import { TreeChartPanel } from "./treeChart/TreeChartPanel";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";
@@ -2150,6 +2159,20 @@ export function DatabasePanel() {
         }
       }
 
+      if (tab.kind === "tree-chart" && tab.treeChartFileId) {
+        const existing = findTabIdForTreeChartFile(workspaceTabsRef.current, tab.treeChartFileId);
+        if (existing) {
+          activateWorkspaceTab(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+        const file = useDbTreeChartFileStore.getState().getNode(tab.treeChartFileId);
+        if (!file) {
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
       if (tab.kind === "database") {
         const existing = findTabIdForDatabase(
           workspaceTabsRef.current,
@@ -3443,6 +3466,42 @@ export function DatabasePanel() {
     [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta],
   );
 
+  const openTreeChartFile = useCallback(
+    (file: DbTreeChartFileNode) => {
+      const existingTabId = findTabIdForTreeChartFile(workspaceTabsRef.current, file.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeTreeChartTabId();
+      const tab: TreeChartWorkspaceTab = {
+        id: tabId,
+        kind: "tree-chart",
+        label: formatTreeChartFileLabel(file.name),
+        treeChartFileId: file.id,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, setWorkspaceTabs],
+  );
+
+  const openTreeChartTab = useCallback(async () => {
+    const name = await quickInput({
+      title: t("database.treeChart.newFileTitle"),
+      placeholder: t("database.treeChart.fileNamePlaceholder"),
+      defaultValue: t("database.treeChart.defaultFileName"),
+      validate: (value) => (value.trim() ? null : t("database.treeChart.nameRequired")),
+    });
+    if (!name) {
+      return;
+    }
+    const store = useDbTreeChartFileStore.getState();
+    const file = store.addFile(name.trim());
+    await store.flushToDisk();
+    openTreeChartFile(file);
+  }, [openTreeChartFile, t]);
+
   const renameWorkspaceTab = useCallback((tabId: string, label: string) => {
     const nextLabel = label.trim();
     if (!nextLabel) return;
@@ -4339,6 +4398,19 @@ export function DatabasePanel() {
               preview,
             };
           }
+          if (tab.kind === "tree-chart") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database",
+              type: "file" as const,
+              saved: true,
+              icon: "database" as const,
+              tooltip: t("database.treeChart.tabTooltip"),
+              closable: true,
+              preview,
+            };
+          }
           const isTableTab = tablePreviewTabIds.has(tab.id);
           const dirty = isTableTab ? false : dirtySqlWorkspaceTabIds.has(tab.id);
           const saved = tab.kind === "sql" && Boolean(tab.sqlFileId) && !dirty;
@@ -4498,6 +4570,17 @@ export function DatabasePanel() {
         );
       }
 
+      if (tab.kind === "tree-chart") {
+        return (
+          <div className="db-workspace-pane db-dock-pane db-workspace-pane--tree-chart">
+            <TreeChartPanel
+              connections={connections.filter(isSqlCapableConnection)}
+              fileId={tab.treeChartFileId}
+            />
+          </div>
+        );
+      }
+
       if (tab.kind === "toolbox") {
         return (
           <div className="db-workspace-pane db-dock-pane db-module-transfer">
@@ -4560,6 +4643,11 @@ export function DatabasePanel() {
       ].join("|"),
     [connections, connectionsLoading, workspaceTabs, activeWorkspaceTabId],
   );
+
+  const activeTreeChartFileId = useMemo(() => {
+    const tab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
+    return tab?.kind === "tree-chart" ? tab.treeChartFileId : null;
+  }, [workspaceTabs, activeWorkspaceTabId]);
 
   const sidebarLinkageConnId = useMemo(() => {
     if (activeTableKey) {
@@ -4632,13 +4720,13 @@ export function DatabasePanel() {
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
     <DbSidebarLinkageProvider value={sidebarLinkageValue}>
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
+    <DbSchemaProvider value={schemaContextValue}>
     <ModuleWorkspaceLayout
       layoutKey="database"
       className="db-module-layout"
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
       leftSidebar={
-        <DbSchemaProvider value={schemaContextValue}>
           <DatabaseSchemaSidebar
             onCreateConnection={() => {
               setEditingConnection(null);
@@ -4647,6 +4735,9 @@ export function DatabasePanel() {
             onImportNavicat={() => void handleImportConnections()}
             onSelectConnection={handleSelectConnection}
             onOpenSqlFile={openSqlFile}
+            onNewTreeChart={() => void openTreeChartTab()}
+            onOpenTreeChartFile={openTreeChartFile}
+            activeTreeChartFileId={activeTreeChartFileId}
             onOpenSyncTask={handleOpenSyncTask}
             onRunSyncTask={handleRunSyncTask}
             onSelectTable={handleSelectTable}
@@ -4657,7 +4748,6 @@ export function DatabasePanel() {
             connectionConfigs={connections}
             connectionsReady={!connectionsLoading || connections.length > 0}
           />
-        </DbSchemaProvider>
       }
     >
       <div className="db-workspace-drop-zone">
@@ -4683,6 +4773,7 @@ export function DatabasePanel() {
         )}
       </div>
     </ModuleWorkspaceLayout>
+    </DbSchemaProvider>
     <CreateDatabaseDialog
       open={createDbDialog !== null}
       connection={

@@ -78,6 +78,10 @@ function refKey(ref: TableRef): string {
   return `${ref.schemaName ?? ""}:${ref.tableName}:${ref.alias ?? ""}`.toLowerCase();
 }
 
+function tableRefIdentity(ref: Pick<TableRef, "schemaName" | "tableName">): string {
+  return `${ref.schemaName ?? ""}:${ref.tableName}`.toLowerCase();
+}
+
 function pushFromItem(target: TableRef[], item: unknown): void {
   if (!item || typeof item !== "object") return;
   const row = item as FromLike & { expr?: unknown; type?: string };
@@ -194,6 +198,44 @@ function extractFromClauseSegment(sql: string): string {
   return segment;
 }
 
+/** 仅在括号深度为 0 处按逗号 / JOIN 分割 FROM 段，避免嵌套子查询内 JOIN 被误切。 */
+function splitFromSegmentAtTopLevel(segment: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let chunkStart = 0;
+  const len = segment.length;
+
+  for (let i = 0; i < len; i++) {
+    const ch = segment[i];
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      continue;
+    }
+    if (depth !== 0) continue;
+
+    if (ch === ",") {
+      parts.push(segment.slice(chunkStart, i));
+      chunkStart = i + 1;
+      continue;
+    }
+
+    const rest = segment.slice(i);
+    const joinMatch = rest.match(/^(\s*(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)?\s*JOIN\b)/i);
+    if (joinMatch) {
+      parts.push(segment.slice(chunkStart, i));
+      chunkStart = i + joinMatch[0].length;
+      i += joinMatch[0].length - 1;
+    }
+  }
+
+  parts.push(segment.slice(chunkStart));
+  return parts.filter((part) => part.trim());
+}
+
 /** AST 解析失败或语句未写完时，从 FROM/JOIN/UPDATE 子句正则提取表与别名。 */
 export function extractTableRefsFromRegex(sql: string): TableRef[] {
   const refs: TableRef[] = [];
@@ -201,8 +243,7 @@ export function extractTableRefsFromRegex(sql: string): TableRef[] {
 
   const fromSegment = extractFromClauseSegment(sql);
   if (fromSegment) {
-    const joinParts = fromSegment.split(/\b(?:,(?![^()]*\)))|\b(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)?\s*JOIN\b/i);
-    for (const part of joinParts) {
+    for (const part of splitFromSegmentAtTopLevel(fromSegment)) {
       parseTableAliasChunk(part, refs, seen);
     }
   }
@@ -527,9 +568,8 @@ function extractTableRefSpansFromRegex(sql: string, baseOffset: number): TableRe
       segment = segment.slice(0, stop);
     }
     const segmentStart = fromMatch.index + fromMatch[0].indexOf(segment);
-    const joinParts = segment.split(/\b(?:,(?![^()]*\)))|\b(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)?\s*JOIN\b/i);
     let searchFrom = 0;
-    for (const part of joinParts) {
+    for (const part of splitFromSegmentAtTopLevel(segment)) {
       const partIndex = segment.indexOf(part, searchFrom);
       if (partIndex < 0) continue;
       parseTableAliasChunkWithSpans(part, segmentStart + partIndex, spans);
@@ -575,11 +615,33 @@ function dedupeTableRefSpans(spans: TableRefSpan[]): TableRefSpan[] {
   return [...byRange.values()];
 }
 
+function isPhysicalTableRefSpan(
+  span: TableRefSpan,
+  analysis: StatementAnalysis | null,
+  catalog?: Catalog,
+): boolean {
+  if (span.schemaName) {
+    const schemaKey = span.schemaName.toLowerCase();
+    if (analysis?.aliasMap.has(schemaKey)) {
+      return false;
+    }
+    if (catalog && !catalog.isDatabaseName(span.schemaName)) {
+      return false;
+    }
+  }
+  if (!analysis || analysis.tables.length === 0) {
+    return !span.schemaName;
+  }
+  const identity = tableRefIdentity(span);
+  return analysis.tables.some((tableRef) => tableRefIdentity(tableRef) === identity);
+}
+
 /** 提取语句中表引用的文档范围（用于 Lint 波浪线）。 */
 export function extractTableRefSpans(
   sql: string,
   baseOffset = 0,
   dbType?: string | null,
+  catalog?: Catalog,
 ): TableRefSpan[] {
   const trimmed = sql.trim();
   if (!trimmed) return [];
@@ -588,16 +650,8 @@ export function extractTableRefSpans(
 
   const spans = extractTableRefSpansFromRegex(trimmed, adjustedBase);
   const analysis = analyzeStatement(trimmed, dbType);
-  if (!analysis || analysis.tables.length === 0) {
-    return dedupeTableRefSpans(spans);
-  }
-
-  const allowed = new Set(analysis.tables.map((ref) => refKey(ref)));
   return dedupeTableRefSpans(
-    spans.filter((span) => {
-      const ref: TableRef = { schemaName: span.schemaName, tableName: span.tableName };
-      return allowed.has(refKey(ref));
-    }),
+    spans.filter((span) => isPhysicalTableRefSpan(span, analysis, catalog)),
   );
 }
 

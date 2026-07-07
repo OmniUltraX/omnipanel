@@ -88,6 +88,15 @@ export type ToolboxWorkspaceTab = {
   preview?: boolean;
 };
 
+export type TreeChartWorkspaceTab = {
+  id: string;
+  kind: "tree-chart";
+  label: string;
+  treeChartFileId: string;
+  workspaceOnly?: boolean;
+  preview?: boolean;
+};
+
 export type DbWorkspaceTab =
   | SqlWorkspaceTab
   | TablePreviewWorkspaceTab
@@ -96,7 +105,8 @@ export type DbWorkspaceTab =
   | ConnectionInfoWorkspaceTab
   | SlowQueryLogWorkspaceTab
   | RedisQueryWorkspaceTab
-  | ToolboxWorkspaceTab;
+  | ToolboxWorkspaceTab
+  | TreeChartWorkspaceTab;
 
 export function isSqlWorkspaceTab(tab: DbWorkspaceTab): tab is SqlWorkspaceTab {
   return tab.kind === "sql";
@@ -128,6 +138,10 @@ export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspace
 
 export function isToolboxTab(tab: DbWorkspaceTab | null | undefined): tab is ToolboxWorkspaceTab {
   return tab?.kind === "toolbox";
+}
+
+export function isTreeChartTab(tab: DbWorkspaceTab | null | undefined): tab is TreeChartWorkspaceTab {
+  return tab?.kind === "tree-chart";
 }
 
 /** @deprecated 旧版全局同步 Tab，会话恢复时会被丢弃 */
@@ -206,6 +220,14 @@ export function makeRedisQueryTabId(): string {
   return `redisq:${Date.now()}`;
 }
 
+export function makeTreeChartTabId(): string {
+  return `treechart:${Date.now()}`;
+}
+
+export function makeTreeChartTabLabel(count: number): string {
+  return count <= 1 ? "树图" : `树图 ${count}`;
+}
+
 export function makeTableDesignerTabLabel(dbName: string, tableName: string): string {
   return `${dbName}.${tableName}`;
 }
@@ -267,6 +289,16 @@ export function findTabIdForSqlFile(
 ): string | undefined {
   return tabs.find(
     (tab) => isModuleDockTab(tab) && tab.kind === "sql" && tab.sqlFileId === fileId,
+  )?.id;
+}
+
+/** 查找已打开指定树图文件的工作区 Tab */
+export function findTabIdForTreeChartFile(
+  tabs: DbWorkspaceTab[],
+  fileId: string,
+): string | undefined {
+  return tabs.find(
+    (tab) => isModuleDockTab(tab) && tab.kind === "tree-chart" && tab.treeChartFileId === fileId,
   )?.id;
 }
 

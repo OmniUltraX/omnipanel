@@ -123,6 +123,353 @@
         color: var(--text-secondary, #8e8e93);
     }
 
+    .tree-chart-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+    }
+
+    .tree-chart-panel__header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-deeper);
+        flex-shrink: 0;
+    }
+
+    .tree-chart-panel__select {
+        min-width: 140px;
+        max-width: 220px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        font-size: 11px;
+        font-family: var(--font);
+    }
+
+    .tree-chart-panel__empty-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-2);
+        min-height: 0;
+        padding: var(--sp-4);
+    }
+
+    .tree-chart-panel__empty-hint {
+        margin: 0;
+        font-size: 12px;
+        color: var(--meta);
+    }
+
+    .tree-chart-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        outline: none;
+    }
+
+    .tree-chart-list:focus-visible {
+        box-shadow: inset 0 0 0 1px var(--accent, var(--border-strong, var(--border)));
+    }
+
+    .tree-chart-list__row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-1) var(--sp-3);
+        min-height: 28px;
+        font-size: 12px;
+        border-bottom: 1px solid var(--border-subtle, var(--border));
+        border-left: 2px solid transparent;
+        cursor: default;
+        transition: opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .tree-chart-list__cell {
+        user-select: text;
+        cursor: text;
+    }
+
+    .tree-chart-list__row:hover {
+        background: var(--surface-hover);
+    }
+
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active) {
+        opacity: 0.45;
+    }
+
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active):hover {
+        opacity: 0.65;
+    }
+
+    .tree-chart-list__row--active {
+        opacity: 1;
+        background: var(--accent-soft);
+        border-left-color: var(--accent, var(--fg));
+    }
+
+    .tree-chart-list__row--active:hover {
+        background: var(--accent-soft);
+    }
+
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active) .tree-chart-list__label,
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active) .tree-chart-list__upstream,
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active) .tree-chart-list__relation,
+    .tree-chart-list--has-selection .tree-chart-list__row:not(.tree-chart-list__row--active) .tree-chart-list__count {
+        color: var(--muted);
+    }
+
+    .tree-chart-list__row--active .tree-chart-list__label {
+        color: var(--fg);
+        font-weight: 600;
+    }
+
+    .tree-chart-list__row--active .tree-chart-list__count {
+        color: var(--accent, var(--fg));
+    }
+
+    .tree-chart-list__label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--fg);
+    }
+
+    .tree-chart-list__upstream {
+        flex-shrink: 0;
+        max-width: 35%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--meta);
+        font-size: 11px;
+    }
+
+    .tree-chart-list__relation {
+        flex-shrink: 0;
+        max-width: 35%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--meta);
+        font-size: 11px;
+    }
+
+    .tree-chart-list__count {
+        flex-shrink: 0;
+        min-width: 2.5em;
+        padding: 0 var(--sp-1);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        color: var(--accent, var(--fg));
+        font-weight: 600;
+    }
+
+    .tree-chart-panel__empty--error {
+        color: var(--danger, #ff453a);
+    }
+
+    .tree-chart-field-select__select {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
+    .tree-chart-field-select__select .omni-select-trigger {
+        width: 100%;
+    }
+
+    .tree-chart-field-select__filter {
+        max-height: 280px;
+        overflow: auto;
+        padding: var(--sp-2);
+        border: 1px solid var(--border-subtle, var(--border));
+        border-radius: var(--radius-sm, 6px);
+        background: var(--surface, var(--bg));
+    }
+
+    .tree-chart-field-select__filter .db-query-filter {
+        min-width: 0;
+    }
+
+    .tree-chart-field-select__mode {
+        display: flex;
+        gap: var(--sp-2);
+    }
+
+    .tree-chart-field-select__mode-btn {
+        flex: 1;
+        min-height: 32px;
+        padding: 0 var(--sp-3);
+        border: 1px solid var(--border-subtle, var(--border));
+        border-radius: var(--radius-sm, 6px);
+        background: var(--surface, var(--bg));
+        color: var(--muted);
+        font-size: 12px;
+        cursor: pointer;
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .tree-chart-field-select__mode-btn:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .tree-chart-field-select__mode-btn--active {
+        border-color: var(--accent, var(--fg));
+        background: var(--accent-soft);
+        color: var(--fg);
+        font-weight: 600;
+    }
+
+    .tree-chart-panel__split-wrap {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+        overflow: hidden;
+        display: flex;
+    }
+
+    .tree-chart-panel__split {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .tree-chart-panel__split .dock-panel {
+        min-width: 0;
+    }
+
+    .tree-chart-panel__column {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+        background: var(--bg);
+    }
+
+    .tree-chart-panel__column-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--meta);
+        background: var(--bg-deeper);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .tree-chart-panel__column-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tree-chart-panel__column-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-shrink: 0;
+    }
+
+    .tree-chart-panel__column-actions-divider {
+        width: 1px;
+        height: 16px;
+        margin: 0 var(--sp-1);
+        background: var(--border-subtle, var(--border));
+        flex-shrink: 0;
+    }
+
+    .tree-chart-panel__column-toggle--active {
+        color: var(--accent, var(--fg));
+        background: var(--accent-soft);
+    }
+
+    .tree-chart-panel__column-toggle--active:hover {
+        background: var(--accent-soft);
+    }
+
+    .tree-chart-panel__column-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: var(--sp-1) 0;
+        background: var(--bg);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree {
+        --schema-tree-row-height: 22px;
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node {
+        min-height: var(--schema-tree-row-height);
+        color: var(--fg-2);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node:hover {
+        background: var(--surface-hover);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node--active {
+        background: var(--accent-soft);
+        color: var(--fg);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node--sticky {
+        position: sticky;
+        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
+        z-index: 1;
+        background: var(--bg);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node--sticky:hover {
+        background: var(--surface-hover);
+    }
+
+    .tree-chart-panel .tree-chart-column-tree .tree-node--sticky.tree-node--active {
+        background: var(--accent-soft);
+    }
+
+    .tree-chart-panel .tree-chart-node__detail {
+        margin-left: auto;
+        padding-right: var(--sp-2);
+        font-size: 11px;
+        color: var(--meta);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tree-chart-panel__empty {
+        padding: var(--sp-3) var(--sp-4);
+        font-size: 12px;
+        color: var(--meta);
+    }
+
+    .db-workspace-pane--tree-chart {
+        padding: 0;
+        background: var(--bg);
+    }
+
     .sql-file-tree-node {
         display: flex;
         align-items: center;

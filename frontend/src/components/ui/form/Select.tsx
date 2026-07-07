@@ -17,10 +17,8 @@ export interface SelectOption {
   value: string;
   label: string;
   subtitle?: string;
-  /** 悬停 tooltip；默认由 label + subtitle 拼接 */
   title?: string;
   disabled?: boolean;
-  /** 选项主标签行内样式（如字体预览） */
   labelStyle?: CSSProperties;
 }
 
@@ -31,20 +29,16 @@ export interface SelectProps {
   onChange: (value: string) => void;
   options: SelectOptionsInput;
   placeholder?: string;
-  /** 是否显示搜索框；默认 true，显式传 false 可关�?*/
   searchable?: boolean;
   searchThreshold?: number;
   disabled?: boolean;
   size?: "sm" | "md";
-  /** 隐藏触发器边框，仅在展开下拉面板时显�?*/
   borderless?: boolean;
   className?: string;
   style?: CSSProperties;
   emptyText?: string;
   searchPlaceholder?: string;
-  /** 下拉面板 z-index，默�?10000；嵌套在更高层级弹层内需传入更大�?*/
   panelZIndex?: number;
-  /** 下拉面板最小宽度（px），默认与触发器同宽 */
   panelMinWidth?: number;
   "aria-label"?: string;
   title?: string;
@@ -126,6 +120,51 @@ export function Select({
     () => filteredOptions.filter((opt) => !opt.disabled),
     [filteredOptions],
   );
+
+  const enabledOptions = useMemo(
+    () => options.filter((opt) => !opt.disabled),
+    [options],
+  );
+
+  const moveSelectableIndex = useCallback(
+    (current: number, delta: number, length: number) => {
+      if (length <= 0) {
+        return 0;
+      }
+      return (current + delta + length) % length;
+    },
+    [],
+  );
+
+  const selectRelativeEnabledOption = useCallback(
+    (delta: number) => {
+      if (enabledOptions.length === 0) {
+        return;
+      }
+      const currentIndex = enabledOptions.findIndex((opt) => opt.value === value);
+      const nextIndex =
+        currentIndex < 0
+          ? delta > 0
+            ? 0
+            : enabledOptions.length - 1
+          : moveSelectableIndex(currentIndex, delta, enabledOptions.length);
+      const nextOption = enabledOptions[nextIndex];
+      if (nextOption && nextOption.value !== value) {
+        onChange(nextOption.value);
+      }
+    },
+    [enabledOptions, moveSelectableIndex, onChange, value],
+  );
+
+  const scrollHighlightedOptionIntoView = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    panel
+      .querySelector<HTMLElement>(".omni-select-option.is-highlighted")
+      ?.scrollIntoView({ block: "nearest" });
+  }, []);
 
   const selectedOption = useMemo(
     () => options.find((opt) => opt.value === value) ?? null,
@@ -209,6 +248,13 @@ export function Select({
     }
   }, [highlightIndex, selectableOptions.length]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+    scrollHighlightedOptionIntoView();
+  }, [open, highlightIndex, filteredOptions, scrollHighlightedOptionIntoView]);
+
   // Close on outside click (panel is portaled to document.body)
   useEffect(() => {
     if (!open) return;
@@ -227,6 +273,13 @@ export function Select({
 
   const handleTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
+
+    if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      selectRelativeEnabledOption(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+
     if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       setOpen(true);
@@ -249,6 +302,7 @@ export function Select({
   const handlePanelKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       close();
       triggerRef.current?.focus();
       return;
@@ -256,14 +310,15 @@ export function Select({
     if (selectableOptions.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setHighlightIndex((prev) => (prev + 1) % selectableOptions.length);
+      event.stopPropagation();
+      setHighlightIndex((prev) => moveSelectableIndex(prev, 1, selectableOptions.length));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setHighlightIndex(
-        (prev) => (prev - 1 + selectableOptions.length) % selectableOptions.length,
-      );
+      event.stopPropagation();
+      setHighlightIndex((prev) => moveSelectableIndex(prev, -1, selectableOptions.length));
     } else if (event.key === "Enter") {
       event.preventDefault();
+      event.stopPropagation();
       const opt = selectableOptions[highlightIndex];
       if (opt) selectOption(opt);
     }
@@ -309,8 +364,8 @@ export function Select({
             style={panelStyle}
             role="listbox"
             id={listboxId}
-            tabIndex={-1}
-            onKeyDown={handlePanelKeyDown}
+            tabIndex={enableSearch ? undefined : -1}
+            onKeyDown={enableSearch ? undefined : handlePanelKeyDown}
           >
             {enableSearch && (
               <div className="omni-select-search">

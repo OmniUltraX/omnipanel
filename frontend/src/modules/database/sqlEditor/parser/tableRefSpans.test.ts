@@ -15,6 +15,18 @@ const schemas: DatabaseSchema[] = [
   },
 ];
 
+const eduSchemas: DatabaseSchema[] = [
+  {
+    name: "edu",
+    tables: [
+      { name: "edu_book", columns: [{ name: "id", type: "int", isPK: true }] },
+      { name: "edu_book_version", columns: [{ name: "id", type: "int", isPK: true }] },
+      { name: "edu_english_unit", columns: [{ name: "id", type: "int", isPK: true }] },
+      { name: "edu_english_word", columns: [{ name: "id", type: "int", isPK: true }] },
+    ],
+  },
+];
+
 describe("extractTableRefSpans", () => {
   it("marks missing table token in FROM clause", () => {
     const sql = "SELECT * FROM ghost_users";
@@ -26,11 +38,33 @@ describe("extractTableRefSpans", () => {
 
   it("marks qualified missing table", () => {
     const sql = "SELECT * FROM app.missing_table";
-    const spans = extractTableRefSpans(sql, 0, "mysql");
+    const catalog = Catalog.fromSchemas(schemas);
+    const spans = extractTableRefSpans(sql, 0, "mysql", catalog);
     expect(spans).toHaveLength(1);
     expect(spans[0]?.schemaName).toBe("app");
     expect(spans[0]?.tableName).toBe("missing_table");
     expect(sql.slice(spans[0]!.from, spans[0]!.to)).toBe("missing_table");
+  });
+
+  it("ignores alias.column when JOIN appears inside nested subquery", () => {
+    const catalog = Catalog.fromSchemas(eduSchemas);
+    const sql = `
+SELECT eb.id
+FROM edu_book eb
+LEFT JOIN (
+  SELECT eeu.id, count(eew.id) AS u_count
+  FROM edu_english_unit eeu
+  LEFT JOIN edu_english_word eew ON eeu.id = eew.unit_id
+  GROUP BY eeu.id
+) t1 ON eb.id = t1.textbook_grade_id
+`.trim();
+    const spans = extractTableRefSpans(sql, 0, "mysql", catalog);
+    const names = spans.map((span) =>
+      span.schemaName ? `${span.schemaName}.${span.tableName}` : span.tableName,
+    );
+    expect(names).not.toContain("eb.id");
+    expect(names).not.toContain("eeu.id");
+    expect(names).toEqual(["edu_book"]);
   });
 });
 
