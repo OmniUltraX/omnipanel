@@ -11,7 +11,6 @@ import {
   type SchemaTreeItem,
 } from "./schemaTreeItem";
 import { makeTableNodeId, makeViewNodeId } from "./schemaTreeIds";
-import { paginateSchemaChildren } from "./schemaTreePagination";
 
 type TreeNodeComponent = (props: {
   item: SchemaTreeItem;
@@ -35,13 +34,6 @@ type TreeNodeComponent = (props: {
   deleteDisabled?: boolean;
 }) => ReactElement;
 
-type LoadMoreComponent = (props: {
-  depth: number;
-  remaining: number;
-  label: string;
-  onClick: () => void;
-}) => ReactElement;
-
 function tableColumnsFolderId(tableId: string) {
   return `${tableId}:cols`;
 }
@@ -52,17 +44,14 @@ function tableIndexesFolderId(tableId: string) {
 
 export function SchemaTreeObjectDetails({
   TreeNode,
-  LoadMoreButton,
   conn,
   dbName,
   tbl,
   objectKind,
   depth,
   expandedNodeIds,
-  childVisibleLimits,
   activeTableKey,
   onToggle,
-  onLoadMore,
   onSelectTable,
   onContextSchemaNode,
   resolveNodeMeta,
@@ -71,17 +60,14 @@ export function SchemaTreeObjectDetails({
   onToggleTablePin,
 }: {
   TreeNode: TreeNodeComponent;
-  LoadMoreButton: LoadMoreComponent;
   conn: { config: DbConnectionConfig };
   dbName: string;
   tbl: CachedTable;
   objectKind: "table" | "view";
   depth: number;
   expandedNodeIds: Set<string>;
-  childVisibleLimits: Record<string, number>;
   activeTableKey: string | null;
   onToggle: (id: string) => void;
-  onLoadMore: (parentNodeId: string) => void;
   onSelectTable?: (selection: {
     connId: string;
     dbName: string;
@@ -112,8 +98,6 @@ export function SchemaTreeObjectDetails({
   const idxExpanded = expandedNodeIds.has(idxFolderId);
   const columns = tbl.columns ?? [];
   const indexes = tbl.indexes ?? [];
-  const pagedColumns = paginateSchemaChildren(columns, colsFolderId, childVisibleLimits);
-  const pagedIndexes = paginateSchemaChildren(indexes, idxFolderId, childVisibleLimits);
   const tableItem: SchemaTreeItem =
     objectKind === "view"
       ? {
@@ -193,7 +177,7 @@ export function SchemaTreeObjectDetails({
             {...actionsFor(colsFolderItem)}
           />
           {colsExpanded &&
-            pagedColumns.visible.map((col) => {
+            columns.map((col) => {
               const colItem = buildColumnTreeItem(
                 conn.config.id,
                 dbName,
@@ -218,14 +202,6 @@ export function SchemaTreeObjectDetails({
               />
               );
             })}
-          {colsExpanded && pagedColumns.hasMore && (
-            <LoadMoreButton
-              depth={depth + 2}
-              remaining={pagedColumns.remaining}
-              label={t("database.sidebar.loadMore")}
-              onClick={() => onLoadMore(colsFolderId)}
-            />
-          )}
           {objectKind === "table" && (
             <>
               <TreeNode
@@ -239,7 +215,7 @@ export function SchemaTreeObjectDetails({
                 {...actionsFor(idxFolderItem)}
               />
               {idxExpanded &&
-                pagedIndexes.visible.map((idx) => {
+                indexes.map((idx) => {
                   const idxItem = buildIndexTreeItem(
                     conn.config.id,
                     dbName,
@@ -261,14 +237,6 @@ export function SchemaTreeObjectDetails({
                   />
                   );
                 })}
-              {idxExpanded && pagedIndexes.hasMore && (
-                <LoadMoreButton
-                  depth={depth + 2}
-                  remaining={pagedIndexes.remaining}
-                  label={t("database.sidebar.loadMore")}
-                  onClick={() => onLoadMore(idxFolderId)}
-                />
-              )}
             </>
           )}
         </>

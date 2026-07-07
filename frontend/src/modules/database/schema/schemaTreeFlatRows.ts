@@ -104,7 +104,6 @@ export interface SchemaFlatRowsParams {
   t: (key: string, params?: Record<string, string | number>) => string;
   connections: CachedConnection[];
   expandedNodeIds: Set<string>;
-  childVisibleLimits: Record<string, number>;
   databaseFilters: Record<string, SchemaFilterState | undefined>;
   tableFilters: Record<string, SchemaFilterState | undefined>;
   activeConnId: string | null;
@@ -188,7 +187,7 @@ function appendTableObjectRows(
   depth: number,
   tablePinned: boolean | undefined,
 ) {
-  const { t, expandedNodeIds, childVisibleLimits, activeTableKey, refreshingNodeIds, searchQuery } =
+  const { t, expandedNodeIds, activeTableKey, refreshingNodeIds, searchQuery } =
     params;
   const q = searchQuery?.trim() ?? "";
   const isSearchMode = q.length > 0;
@@ -225,19 +224,8 @@ function appendTableObjectRows(
             : allIndexes.filter((idx) => schemaIndexMatchesSearch(q, idx))
           : []
       : [];
-  const paginateOpts = isSearchMode ? { unpaginated: true } : undefined;
-  const pagedColumns = paginateSchemaChildren(
-    columnsToShow,
-    colsFolderId,
-    childVisibleLimits,
-    paginateOpts,
-  );
-  const pagedIndexes = paginateSchemaChildren(
-    indexesToShow,
-    idxFolderId,
-    childVisibleLimits,
-    paginateOpts,
-  );
+  const pagedColumns = paginateSchemaChildren(columnsToShow, colsFolderId);
+  const pagedIndexes = paginateSchemaChildren(indexesToShow, idxFolderId);
   const tableItem: SchemaTreeItem =
     objectKind === "view"
       ? {
@@ -382,7 +370,6 @@ function appendTableObjectRows(
 interface SchemaFlatRowsBuildContext {
   q: string;
   isSearchMode: boolean;
-  paginateOpts: { unpaginated: true } | undefined;
   searchLabels: {
     tables: string;
     views: string;
@@ -404,7 +391,6 @@ function appendConnectionSchemaRows(
   const {
     t,
     expandedNodeIds,
-    childVisibleLimits,
     databaseFilters,
     tableFilters,
     activeConnId,
@@ -413,7 +399,7 @@ function appendConnectionSchemaRows(
     refreshingNodeIds,
     resolvedTheme,
   } = params;
-  const { q, isSearchMode, paginateOpts, searchLabels, routineLabel } = ctx;
+  const { q, isSearchMode, searchLabels, routineLabel } = ctx;
 
     const connId = `conn:${conn.config.id}`;
     if (
@@ -440,12 +426,7 @@ function appendConnectionSchemaRows(
     const visibleCount = visibleDatabases.length;
     const totalCount = allDatabases.length;
     const isFiltered = totalCount > 0 && visibleCount < totalCount;
-    const pagedDatabases = paginateSchemaChildren(
-      visibleDatabases,
-      databasesFolderId,
-      childVisibleLimits,
-      paginateOpts,
-    );
+    const pagedDatabases = paginateSchemaChildren(visibleDatabases, databasesFolderId);
 
     const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
     const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
@@ -589,24 +570,9 @@ function appendConnectionSchemaRows(
                 )
             : []
           : allRoutines;
-        const pagedTables = paginateSchemaChildren(
-          tablesToShow,
-          tblsFolderId,
-          childVisibleLimits,
-          paginateOpts,
-        );
-        const pagedViews = paginateSchemaChildren(
-          viewsToShow,
-          viewsFolderId,
-          childVisibleLimits,
-          paginateOpts,
-        );
-        const pagedRoutines = paginateSchemaChildren(
-          routinesToShow,
-          otherFolderId,
-          childVisibleLimits,
-          paginateOpts,
-        );
+        const pagedTables = paginateSchemaChildren(tablesToShow, tblsFolderId);
+        const pagedViews = paginateSchemaChildren(viewsToShow, viewsFolderId);
+        const pagedRoutines = paginateSchemaChildren(routinesToShow, otherFolderId);
         const dbItem = buildDatabaseTreeItem(conn.config.id, db.name);
         const dbNodeRefreshing = Boolean(refreshingNodeIds[dbId]);
         const tblsFolderRefreshing = Boolean(refreshingNodeIds[tblsFolderId]);
@@ -845,12 +811,7 @@ function appendConnectionSchemaRows(
         });
 
         if (usersExpanded) {
-          const pagedUsers = paginateSchemaChildren(
-            usersToShow,
-            usersFolderId,
-            childVisibleLimits,
-            paginateOpts,
-          );
+          const pagedUsers = paginateSchemaChildren(usersToShow, usersFolderId);
           for (const user of pagedUsers.visible) {
             const uid = userNodeId(conn.config.id, user.name, user.host);
             const userItem: SchemaTreeItem = {
@@ -885,13 +846,13 @@ function appendConnectionLayoutRows(
   baseDepth: number,
   ctx: SchemaFlatRowsBuildContext,
 ): void {
-  const { connections, expandedNodeIds, childVisibleLimits, layoutFolders, connectionParents } = params;
-  const { isSearchMode, paginateOpts } = ctx;
+  const { connections, expandedNodeIds, layoutFolders, connectionParents } = params;
+  const { isSearchMode } = ctx;
   const folders = layoutFolders ?? [];
   const parents = connectionParents ?? {};
   const parentKey = parentFolderId ?? SCHEMA_ROOT_CONNECTIONS_ID;
   const entries = listSchemaConnectionLayoutChildren(parentFolderId, folders, connections, parents);
-  const paged = paginateSchemaChildren(entries, parentKey, childVisibleLimits, paginateOpts);
+  const paged = paginateSchemaChildren(entries, parentKey);
 
   for (const entry of paged.visible) {
     if (entry.kind === "folder") {
@@ -920,11 +881,10 @@ function appendConnectionLayoutRows(
 }
 
 export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow[] {
-  const { t, connections, childVisibleLimits, searchQuery } = params;
+  const { t, connections, searchQuery } = params;
 
   const q = searchQuery?.trim() ?? "";
   const isSearchMode = q.length > 0;
-  const paginateOpts = isSearchMode ? ({ unpaginated: true as const }) : undefined;
   const searchLabels = {
     tables: t("database.sidebar.tables"),
     views: t("database.sidebar.views"),
@@ -939,18 +899,12 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
   const ctx: SchemaFlatRowsBuildContext = {
     q,
     isSearchMode,
-    paginateOpts,
     searchLabels,
     routineLabel,
   };
 
   if (isSearchMode) {
-    const pagedRootConns = paginateSchemaChildren(
-      connections,
-      SCHEMA_ROOT_CONNECTIONS_ID,
-      childVisibleLimits,
-      paginateOpts,
-    );
+    const pagedRootConns = paginateSchemaChildren(connections, SCHEMA_ROOT_CONNECTIONS_ID);
     for (const conn of pagedRootConns.visible) {
       appendConnectionSchemaRows(rows, params, conn, 0, ctx);
     }

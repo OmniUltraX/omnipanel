@@ -65,8 +65,9 @@ import {
   schemaNodeDeleteLabelKey,
 } from "./schemaTreeNodeActions";
 import {
-  nextSchemaChildLimit,
-} from "./schemaTreePagination";
+  collectExpandedIdsForScrollTarget,
+  resolveSchemaTreeScrollTarget,
+} from "./schemaTreeSidebarLinkage";
 import { mergeConnectionsWithCache, type CachedConnection } from "./schemaCacheMerge";
 import { submitSchemaCacheRefresh, SCHEMA_CACHE_REFRESH_COMPLETE_EVENT } from "./schemaCacheBackgroundTasks";
 import {
@@ -96,11 +97,6 @@ import {
 } from "./schemaTreeFlatRows";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
-import {
-  buildPaginationPatchesForScrollTarget,
-  collectExpandedIdsForScrollTarget,
-  resolveSchemaTreeScrollTarget,
-} from "./schemaTreeSidebarLinkage";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import {
@@ -176,31 +172,6 @@ interface TreeNodeProps {
   layoutDraggingSource?: boolean;
   dragOver?: boolean;
   onLayoutPointerDown?: (e: React.PointerEvent<HTMLElement>) => void;
-}
-
-function SchemaLoadMoreButton({
-  depth,
-  remaining,
-  onClick,
-  label,
-}: {
-  depth: number;
-  remaining: number;
-  onClick: () => void;
-  label: string;
-}) {
-  const indent = depth * 16 + 8;
-  return (
-    <button
-      type="button"
-      className="schema-load-more-btn"
-      style={{ paddingLeft: indent }}
-      onClick={onClick}
-    >
-      {label}
-      {remaining > 0 ? ` (${remaining})` : ""}
-    </button>
-  );
 }
 
 function TreeNode({
@@ -605,7 +576,6 @@ export function SchemaBrowser({
   const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
   const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
   const updateExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
-  const [childVisibleLimits, setChildVisibleLimits] = useState<Record<string, number>>({});
   const [internalConnections, setInternalConnections] = useState<LoadedConnection[]>([]);
   const [internalLoading, setInternalLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1344,13 +1314,6 @@ export function SchemaBrowser({
     }
   }, [expandedHydrated, hydrateSchemaExpanded]);
 
-  const loadMoreChildren = useCallback((parentNodeId: string) => {
-    setChildVisibleLimits((prev) => ({
-      ...prev,
-      [parentNodeId]: nextSchemaChildLimit(prev, parentNodeId),
-    }));
-  }, []);
-
   const toggle = (id: string) => {
     if (id.startsWith("conn:")) {
       const connId = id.slice(5);
@@ -1414,7 +1377,6 @@ export function SchemaBrowser({
         t,
         connections,
         expandedNodeIds,
-        childVisibleLimits,
         databaseFilters,
         tableFilters,
         activeConnId,
@@ -1431,7 +1393,6 @@ export function SchemaBrowser({
       t,
       connections,
       expandedNodeIds,
-      childVisibleLimits,
       databaseFilters,
       tableFilters,
       activeConnId,
@@ -1494,33 +1455,10 @@ export function SchemaBrowser({
       }
       return changed ? next : prev;
     });
-
-    if (connections.length === 0) {
-      return;
-    }
-
-    setChildVisibleLimits((prev) => {
-      const patch = buildPaginationPatchesForScrollTarget(
-        sidebarScrollTargetId,
-        {
-          connections,
-          databaseFilters,
-          tableFilters,
-        },
-        prev,
-      );
-      if (Object.keys(patch).length === 0) {
-        return prev;
-      }
-      return { ...prev, ...patch };
-    });
   }, [
     sidebarScrollTargetId,
     loading,
     search,
-    connections,
-    databaseFilters,
-    tableFilters,
     updateExpanded,
   ]);
 
@@ -1603,16 +1541,6 @@ export function SchemaBrowser({
           <div style={{ padding: "4px 0", paddingLeft, fontSize: "11px", color }}>
             {row.text}
           </div>
-        );
-      }
-      if (row.kind === "load-more") {
-        return (
-          <SchemaLoadMoreButton
-            depth={row.depth}
-            remaining={row.remaining}
-            label={t("database.sidebar.loadMore")}
-            onClick={() => loadMoreChildren(row.parentNodeId)}
-          />
         );
       }
 
@@ -1757,7 +1685,6 @@ export function SchemaBrowser({
     },
     [
       t,
-      loadMoreChildren,
       expandedNodeIds,
       onSelectConnection,
       onSelectDatabase,
