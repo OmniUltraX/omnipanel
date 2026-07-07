@@ -392,22 +392,7 @@ const ComposerAction: FC = () => {
   );
 };
 
-const StreamingPlainText: FC = () => {
-  const text = useAuiState((s) => {
-    for (const part of s.message.content) {
-      if (part.type === "text") return part.text;
-    }
-    return "";
-  });
-  return (
-    <pre className="aui-streaming-plaintext m-0 whitespace-pre-wrap font-[inherit] text-[inherit] leading-relaxed">
-      {text}
-    </pre>
-  );
-};
-
 const TerminalAssistantMessage: FC = () => {
-  const isRunning = useAuiState((s) => s.message.status?.type === "running");
   const { t } = useI18n();
   const {
     ToolFallback: ToolFallbackComponent = ToolFallback,
@@ -467,7 +452,7 @@ const TerminalAssistantMessage: FC = () => {
                 );
               }
               case "text":
-                return isRunning ? <StreamingPlainText /> : <MarkdownText />;
+                return <MarkdownText />;
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":

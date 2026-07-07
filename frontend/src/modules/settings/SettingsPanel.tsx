@@ -1581,6 +1581,16 @@ export function SettingsPanel() {
                   />
                 </div>
               ) : null}
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.autoReconnectSsh")}</h4>
+                  <p>{t("settings.terminal.autoReconnectSshDesc")}</p>
+                </div>
+                <Toggle
+                  value={terminalAutoReconnectSsh}
+                  onChange={(v) => setTerminalSettings({ terminalAutoReconnectSsh: v })}
+                />
+              </div>
 
               <div className="settings-subsection">
                 <h3>{t("settings.terminal.historySection")}</h3>

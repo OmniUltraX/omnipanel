@@ -57,6 +57,12 @@ import {
 import { markShellPromptReady } from "../modules/terminal/terminalShellRecovery";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
 import {
+  cancelAutoReconnectSsh,
+  scheduleAutoReconnectSsh,
+  AUTO_RECONNECT_MAX_ATTEMPTS,
+  type AutoReconnectCallbacks,
+} from "../modules/terminal/autoReconnectTerminalSsh";
+import {
   unregisterTerminalAutoLsSession,
   getAdaptedAutoLsCommandForSession,
   isTerminalAutoLsEnabled,
@@ -537,13 +543,41 @@ export function useTerminal(
       pendingInput = [];
     }
 
-    function isSessionNotFoundError(err: unknown): boolean {
-      return String(err).includes("not found");
+    /**
+     * 任意一端（前端缓存的 backendSid 已清 / 后端 PTY 已 dispose / 远端 SSH 通道已关）
+     * 写数据时抛回来的错误都视作"会话已关闭"，统一触发自动重连。
+     * 关键字覆盖 russh / conpty / Windows 套接字常见提示，匹配走小写。
+     */
+    const SESSION_CLOSED_KEYWORDS = [
+      "已关闭",
+      "closed",
+      "disconnected",
+      "not found",
+      "not open",
+      "not connected",
+      "connection lost",
+      "connection reset",
+      "connection aborted",
+      "broken pipe",
+      "pipe closed",
+      "channel not found",
+      "channel closed",
+      "session not found",
+      "eof",
+      "peer closed",
+    ];
+
+    function isSessionClosedError(err: unknown): boolean {
+      const msg = String(err).toLowerCase();
+      return SESSION_CLOSED_KEYWORDS.some((kw) => msg.includes(kw));
     }
 
     function writeToBackend(data: string) {
       if (!backendSid) {
+        // 失去后端会话（exited 事件已到但还没收到，或本地 cached id 仍存在但后端已清）。
+        // 兜底触发一次自动重连，避免用户敲键盘时无任何反馈。
         pendingInput.push(data);
+        scheduleAutoReconnectSsh(sessionId);
         return;
       }
       const { writeCmd } = resolveBackendTransport(sessionId, backendSid);
@@ -551,7 +585,7 @@ export function useTerminal(
         id: backendSid,
         data: toBytes(data),
       }).catch((err) => {
-        if (isSessionNotFoundError(err)) {
+        if (isSessionNotFoundError(err) || isSessionClosedError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
           useTerminalRunStateStore.getState().enterRecovering(sessionId);
@@ -559,6 +593,8 @@ export function useTerminal(
           if (term) {
             void ensureBackendSession(term.cols, term.rows);
           }
+          // 主动 schedule 一次重连。scheduleAutoReconnectSsh 内部会幂等去重。
+          scheduleAutoReconnectSsh(sessionId);
           return;
         }
         console.error(`[Terminal ${sessionId}] ${writeCmd} failed:`, err);
@@ -936,9 +972,28 @@ export function useTerminal(
         (ev) => {
           if (destroyed || ev.payload.session_id !== backendSid) return;
           if (ev.payload.event === "exited") {
-            useTerminalStore.getState().setStatus(sessionId, "disconnected");
-            if (!suspendedRef.current) {
-              term?.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
+            // SSH 后端报告会话退出。如果开了自动重连，schedule 一条退避重连；
+            // 否则维持原行为：标 disconnected + 写一行提示。
+            const callbacks: AutoReconnectCallbacks = {
+              onScheduled: (attempt, delayMs) => {
+                if (suspendedRef.current) return;
+                term?.writeln(
+                  `\r\n\x1b[33m[连接断开，${delayMs / 1000}s 后自动重连 (${attempt}/${AUTO_RECONNECT_MAX_ATTEMPTS})...]\x1b[0m`,
+                );
+              },
+              onGiveUp: () => {
+                if (!suspendedRef.current) {
+                  term?.writeln(
+                    `\r\n\x1b[31m[自动重连失败 (${AUTO_RECONNECT_MAX_ATTEMPTS}/${AUTO_RECONNECT_MAX_ATTEMPTS})，请右键 → 重新连接]\x1b[0m`,
+                  );
+                }
+              },
+            };
+            if (!scheduleAutoReconnectSsh(ev.payload.session_id, callbacks)) {
+              useTerminalStore.getState().setStatus(sessionId, "disconnected");
+              if (!suspendedRef.current) {
+                term?.writeln("\r\n\x1b[33m[Process exited]\x1b[0m");
+              }
             }
           }
         }
@@ -964,7 +1019,7 @@ export function useTerminal(
           term.clear();
         }
       } catch (err) {
-        if (isSessionNotFoundError(err)) {
+        if (isSessionClosedError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
           useTerminalRunStateStore.getState().enterRecovering(sessionId);

@@ -1335,6 +1335,14 @@ export function DockableWorkspace({
       const api = event.api;
       apiRef.current = api;
 
+      // #region debug-point C:onready
+      const __t0 = performance.now();
+      fetch("http://127.0.0.1:7778/event", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "C", location: "DockableWorkspace.tsx:onReady", msg: "[DEBUG] onReady START", data: { scope: dockScopeRef.current, tabCount: tabsRef.current.length }, ts: Date.now() }),
+      }).catch(() => {});
+      // #endregion
+
       // 避免 onReady 重复触发时重复订阅
       for (const d of disposablesRef.current) d.dispose();
       disposablesRef.current = [];
@@ -1478,6 +1486,14 @@ export function DockableWorkspace({
           }
         }
       }
+
+      // #region debug-point C:onready-end
+      const __t1 = performance.now();
+      fetch("http://127.0.0.1:7778/event", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "C", location: "DockableWorkspace.tsx:onReady", msg: "[DEBUG] onReady END", data: { scope: dockScopeRef.current, durationMs: Math.round(__t1 - __t0), panelCount: api.panels.length, groupCount: api.groups.length }, ts: Date.now() }),
+      }).catch(() => {});
+      // #endregion
     },
     [applyInitialLayout, syncTabGroups],
   );

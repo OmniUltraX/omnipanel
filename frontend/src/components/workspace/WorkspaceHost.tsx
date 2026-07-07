@@ -8,27 +8,20 @@ interface WorkspaceHostProps {
 }
 
 /**
- * 应用级工作区宿主：嵌入态包 WorkspacePreview；工程工作区全屏时仅渲染主内容。
- * 全屏底栏由 App 层唯一挂载 WorkspaceBottomHost。
+ * 始终返回 WorkspacePreview，避免全屏切换时 return type 变化
+ * 导致 routePanels 子树 unmount/remount。
  */
 export function WorkspaceHost({ children }: WorkspaceHostProps) {
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const isBottomFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const wsState = workspaceShellState(workspaceMode);
   const embeddedModeClass =
+    !isBottomFullscreen &&
     workspaceMode !== "fullscreen" &&
     workspaceMode !== "home" &&
     workspaceMode !== "hidden"
       ? ` workspace-host--${workspaceMode}`
       : "";
-
-  if (isBottomFullscreen) {
-    return (
-      <div className={`content-bottom workspace-host workspace-host--${wsState}`}>
-        {children}
-      </div>
-    );
-  }
 
   return (
     <WorkspacePreview

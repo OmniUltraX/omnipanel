@@ -28,6 +28,17 @@ export function relayoutDockviewInstances(
   scopePrefix?: string,
   size?: { width: number; height: number },
 ): void {
+  // #region debug-point D:relayout
+  let __hits = 0;
+  for (const instance of instancesByViewId.values()) {
+    if (scopePrefix && !instance.scope.startsWith(scopePrefix)) continue;
+    __hits++;
+  }
+  fetch("http://127.0.0.1:7778/event", {
+    method: "POST",
+    body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "D", location: "dockviewRegistry.ts:relayout", msg: "[DEBUG] relayout called", data: { scopePrefix, hits: __hits, totalInstances: instancesByViewId.size, size }, ts: Date.now() }),
+  }).catch(() => {});
+  // #endregion
   for (const instance of instancesByViewId.values()) {
     if (scopePrefix && !instance.scope.startsWith(scopePrefix)) continue;
     try {

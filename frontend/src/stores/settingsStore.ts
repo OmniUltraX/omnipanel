@@ -250,7 +250,8 @@ interface SettingsState {
     "terminalFontFamily" | "terminalFontSize" | "terminalLineHeight" |
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
     "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
-    "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand"
+    "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand" |
+    "terminalAutoReconnectSsh"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
@@ -343,6 +344,7 @@ export const useSettingsStore = create<SettingsState>()(
       terminalHistoryMaxBlocks: 200,
       terminalAutoLsAfterCd: true,
       terminalAutoLsCommand: "ls",
+      terminalAutoReconnectSsh: true,
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,

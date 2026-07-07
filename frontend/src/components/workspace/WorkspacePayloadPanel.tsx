@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/primitives/Button";
@@ -46,15 +47,24 @@ function PayloadFallback({
 /** 工作区 Dock 中由快照物化的 payload 面板 */
 export function WorkspacePayloadPanel({ tab, isActive }: WorkspacePayloadPanelProps) {
   const payload = tab.payload;
+  const [terminalTabId, setTerminalTabId] = useState<string | null>(null);
+
+  // 把"确保 tab 存在"的副作用从 render 期挪到 effect，避免 setState during render warning
+  useEffect(() => {
+    if (!payload || payload.module !== "terminal") return;
+    const id = ensureTerminalTabFromSnapshot(payload);
+    setTerminalTabId(id);
+  }, [payload]);
+
   if (!payload) {
     return null;
   }
 
   if (payload.module === "terminal") {
-    const tabId = ensureTerminalTabFromSnapshot(payload);
+    if (!terminalTabId) return null;
     return (
       <div className="workspace-terminal-mirror">
-        <TerminalTabDockPane tabId={tabId} isActive={isActive} />
+        <TerminalTabDockPane tabId={terminalTabId} isActive={isActive} />
       </div>
     );
   }

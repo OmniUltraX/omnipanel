@@ -4,7 +4,7 @@ import {
   type ToolCallMessagePartComponent,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useDeferredValue, useMemo, useRef } from "react";
 import { ToolFallback } from "../../components/assistant-ui/tool-fallback";
 import { ThreadMessagesOnly } from "../../components/assistant-ui/thread";
 import {
@@ -79,14 +79,24 @@ function TerminalAiThreadRuntime({ blockSlice, sessionId }: TerminalAiThreadRunt
     [blockSlice.thread, blockSlice.threadSignature, isRunning],
   );
 
+  // 让 markdown 解析 + 渲染走 transition：流式期间 messages 引用每帧都在变，
+  // useDeferredValue 把对 useExternalStoreRuntime 的更新降级，主线程不被打断。
+  // isRunning 保持非 deferred，stop/cancel 立即生效。
+  const deferredMessages = useDeferredValue(messages);
+
   const toolFallback = useMemo<ToolCallMessagePartComponent>(
     () => ToolFallback,
     [],
   );
 
+  const threadComponents = useMemo(
+    () => ({ ToolFallback: toolFallback }),
+    [toolFallback],
+  );
+
   const adapter = useMemo<ExternalStoreAdapter>(
     () => ({
-      messages,
+      messages: deferredMessages,
       isRunning,
       onNew: async () => {},
       setMessages: () => {},
@@ -95,7 +105,7 @@ function TerminalAiThreadRuntime({ blockSlice, sessionId }: TerminalAiThreadRunt
         cancelAiGeneration();
       },
     }),
-    [messages, isRunning],
+    [deferredMessages, isRunning],
   );
 
   const runtime = useExternalStoreRuntime(adapter);
@@ -109,11 +119,7 @@ function TerminalAiThreadRuntime({ blockSlice, sessionId }: TerminalAiThreadRunt
       {blockSlice.aiStalled ? (
         <TerminalAiStalledBanner blockId={blockSlice.id} sessionId={sessionId} />
       ) : null}
-      <ThreadMessagesOnly
-        components={{
-          ToolFallback: toolFallback,
-        }}
-      />
+      <ThreadMessagesOnly components={threadComponents} />
     </AssistantRuntimeProvider>
   );
 }

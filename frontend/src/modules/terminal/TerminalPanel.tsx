@@ -22,6 +22,7 @@ import { TerminalModuleContextBridge } from "./ai/TerminalModuleContextBridge";
 import { buildTerminalModuleContext } from "./ai/types";
 import { EMPTY_TERMINAL_BLOCKS, useBlocksStore } from "../../stores/blocksStore";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
+import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
 import {
   bootstrapTerminalHistory,
 } from "./terminalHistorySync";
@@ -303,6 +304,8 @@ export function TerminalPanel() {
     (ids: string[]) => {
       const uniqueIds = [...new Set(ids.filter(Boolean))];
       for (const id of uniqueIds) {
+        const sessionId = resolveSessionIdFromTabId(id);
+        if (sessionId) cancelAutoReconnectSsh(sessionId);
         detachTabView(id);
       }
     },
@@ -621,6 +624,7 @@ export function TerminalPanel() {
           clearTerminalPaneSender(sessionId);
           clearPaneBackendPending(sessionId);
           disposeSessionBackend(sessionId);
+          cancelAutoReconnectSsh(sessionId);
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           useTerminalStore.getState().setStatus(sessionId, "connecting");
           useTerminalStore.getState().bumpReconnect(sessionId);

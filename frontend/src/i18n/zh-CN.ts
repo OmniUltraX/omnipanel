@@ -2806,6 +2806,8 @@ export const zhCN = {
       autoLsAfterCdDesc: "cd 时自动拼接列表命令：Unix 用 &&，PowerShell 用 ; if ($?) { }",
       autoLsCommand: "自动 ls 命令",
       autoLsCommandDesc: "拼接在 cd 后的子命令；Unix 默认 ls、可填 ls -a；PowerShell 下 ls -a 会转为 Get-ChildItem -Force",
+      autoReconnectSsh: "SSH 断线自动重连",
+      autoReconnectSshDesc: "SSH 会话断开时自动重连：1s/2s/4s/8s/16s 指数退避，最多 5 次。主动关闭 tab / 手动结束会话时不会触发。",
       historySection: "命令历史",
       historySectionDesc: "Block Feed 中的命令与 AI 对话会按会话保存到本地，可在终端侧栏「历史」中管理。",
       historyPersist: "保存终端历史",

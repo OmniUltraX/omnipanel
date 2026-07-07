@@ -3298,11 +3298,32 @@ a {
 }
 
 .route-panel:not(.route-panel--active) {
-    visibility: hidden;
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
+    display: none;
+}
+
+/* === 工作区全屏态：dock 容器 position:fixed 占满视口 ===
+   dockview 始终在 WorkspacePreview 内挂载（不 unmount），
+   全屏时用 position:fixed 脱离 SidebarBottom 的 panel size 限制。 */
+.workspace-preview--fullscreen .workspace-preview__dock {
+    position: fixed !important;
+    top: 0 !important;
+    left: var(--sidebar-w) !important;
+    right: 0 !important;
+    bottom: 26px !important;
+    z-index: 50 !important;
+    height: auto !important;
+    max-height: none !important;
+    background: var(--bg);
+    visibility: visible !important;
+    overflow: visible !important;
+}
+
+.workspace-preview--fullscreen .workspace-preview__main {
+    display: none !important;
+}
+
+.workspace-preview--fullscreen .workspace-preview__taskbar-slot {
+    display: none !important;
 }
 
 .route-panel--active {

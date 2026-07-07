@@ -157,7 +157,7 @@ export function Sidebar() {
         type="button"
         className={`sidebar-logo${isWorkspaceHome ? " active" : ""}`}
         title={logoTitle}
-        onClick={() => toggleWorkspaceFromChromeIcon(navigate)}
+        onClick={() => toggleWorkspaceFromChromeIcon(navigate, location.pathname)}
       >
         <AppLogo size={36} className="sidebar-logo__img" />
       </button>

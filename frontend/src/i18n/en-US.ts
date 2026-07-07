@@ -2791,6 +2791,8 @@ export const enUS: TranslationDict = {
       autoLsAfterCdDesc: "Append list command after cd: && on Unix, ; if ($?) { } on PowerShell",
       autoLsCommand: "Auto ls command",
       autoLsCommandDesc: "Default ls; ls -a becomes Get-ChildItem -Force on PowerShell",
+      autoReconnectSsh: "Auto-reconnect SSH on drop",
+      autoReconnectSshDesc: "When an SSH session drops, auto-reconnect with 1s/2s/4s/8s/16s exponential backoff, up to 5 attempts. Not triggered when the user closes the tab or ends the session manually.",
       historySection: "Command history",
       historySectionDesc: "Block Feed commands and AI threads are saved per session locally. Manage them in the terminal side panel.",
       historyPersist: "Persist terminal history",

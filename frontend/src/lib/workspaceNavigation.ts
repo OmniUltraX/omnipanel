@@ -2,7 +2,8 @@ import type { NavigateFunction } from "react-router-dom";
 import { useTerminalLeftPanelStore } from "../modules/terminal/terminalLeftPanelStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { DEFAULT_WORKSPACE, useWorkspaceStore } from "../stores/workspaceStore";
-import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath } from "./paths";
+import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath } from "./paths";
+import { useDashboardStore } from "../modules/workspace/useDashboardStore";
 
 let chromeIconTransition = false;
 
@@ -53,19 +54,37 @@ export function exitEngineeringWorkspaceFullscreen(
 export function goWorkspaceHome(navigate?: NavigateFunction): void {
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {
-    bottom.leaveFullscreenForFeature();
+    // 全屏 → 点 logo：强制 taskbar 模式（不恢复用户偏好的 split-window），
+    // 首页看板有足够空间，工作区标签仍可见，用户可快速切回。
+    bottom.applyWorkspaceDisplayPreference("task-bar");
+    useBottomPanelStore.setState((state) => ({
+      expandSignal: state.expandSignal + 1,
+    }));
   }
   useWorkspaceStore.getState().switchWorkspace(DEFAULT_WORKSPACE.id);
   dispatchNavigate(DASHBOARD_PATH, navigate);
 }
 
-/** 左上角侧边栏 Logo：非全屏进工程工作区全屏，全屏回首页 */
-export function toggleWorkspaceFromChromeIcon(navigate?: NavigateFunction): void {
+/** 左上角侧边栏 Logo 行为：
+ *  - 已在首页看板：no-op + 触发看板数据刷新
+ *  - 工程工作区全屏：跳首页看板
+ *  - 普通工作区不展示（hidden / thumbnail）：跳首页看板（不打开全屏）
+ *  - 半屏 / 任务栏：最大化工作区（全屏）
+ */
+export function toggleWorkspaceFromChromeIcon(
+  navigate?: NavigateFunction,
+  currentPath?: string,
+): void {
   if (chromeIconTransition) return;
   chromeIconTransition = true;
   try {
+    if (currentPath && isDashboardPath(currentPath)) {
+      useDashboardStore.getState().triggerRefresh();
+      return;
+    }
     const bottom = useBottomPanelStore.getState();
-    if (bottom.isFullscreen) {
+    const mode = bottom.workspaceMode;
+    if (mode === "fullscreen" || mode === "hidden" || mode === "thumbnail") {
       goWorkspaceHome(navigate);
       return;
     }

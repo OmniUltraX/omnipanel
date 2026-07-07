@@ -505,11 +505,6 @@ function AppShell() {
           )}
           {aiDisplayMode === "dockview" ? <AiDockView /> : null}
         </div>
-        {isBottomFullscreen ? (
-          <div className="workspace-bottom-fullscreen-shell">
-            <WorkspaceBottomHost key={`engineering-workspace:${currentWorkspaceId}`} />
-          </div>
-        ) : null}
         <StatusBar />
       </div>
       {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}

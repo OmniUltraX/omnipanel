@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { commands, type DockerContainerSummary } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useActionStore } from "../../stores/actionStore";
 import { useBlocksStore, isAiThreadToolCall, type TerminalBlock } from "../../stores/blocksStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -35,6 +36,7 @@ import {
   type DashboardTaskRow,
   type DashboardWorkspaceCard,
 } from "./dashboardModel";
+import { useDashboardStore } from "./useDashboardStore";
 
 function resolveToolCallCommand(args: string, command?: string): string {
   const direct = command?.trim();
@@ -105,8 +107,11 @@ export function useDashboardData(): DashboardData {
   const blocksBySession = useBlocksStore((s) => s.blocks);
   const statsMap = useSshStatsStore((s) => s.statsMap);
 
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
-  const [containersLoading, setContainersLoading] = useState(true);
+  // 容器列表走 useDashboardStore 缓存：切走再切回直接拿快照，背景 swr 重拉。
+  const containers = useDashboardStore((s) => s.containers);
+  const containersLoading = useDashboardStore((s) => s.loading);
+  const refreshSignal = useDashboardStore((s) => s.refreshSignal);
+  const moduleSuspended = useModuleSuspended();
 
   const relativeLabels = useMemo(
     () => ({
@@ -152,28 +157,41 @@ export function useDashboardData(): DashboardData {
       );
     }
 
+    if (moduleSuspended) return;
     void loadStats();
     return () => {
       cancelled = true;
     };
-  }, [connections.length]);
+  }, [connections.length, moduleSuspended]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadContainers() {
-      setContainersLoading(true);
+      useDashboardStore.getState().setContainerSnapshot({
+        containers: useDashboardStore.getState().containers,
+        loading: true,
+        failureCount: 0,
+      });
       try {
         const connRes = await commands.dockerListConnections();
         if (cancelled) return;
         if (connRes.status !== "ok") {
-          setContainers([]);
+          useDashboardStore.getState().setContainerSnapshot({
+            containers: [],
+            loading: false,
+            failureCount: 1,
+          });
           return;
         }
 
         const connectionIds = connRes.data.slice(0, 2).map((item) => item.connectionId);
         if (connectionIds.length === 0) {
-          setContainers([]);
+          useDashboardStore.getState().setContainerSnapshot({
+            containers: [],
+            loading: false,
+            failureCount: 0,
+          });
           return;
         }
 
@@ -189,19 +207,29 @@ export function useDashboardData(): DashboardData {
             merged.set(container.id, container);
           }
         }
-        setContainers(Array.from(merged.values()));
+        useDashboardStore.getState().clearFailure();
+        useDashboardStore.getState().setContainerSnapshot({
+          containers: Array.from(merged.values()),
+          loading: false,
+          failureCount: 0,
+        });
       } catch {
-        if (!cancelled) setContainers([]);
-      } finally {
-        if (!cancelled) setContainersLoading(false);
+        if (!cancelled) {
+          useDashboardStore.getState().setContainerSnapshot({
+            containers: useDashboardStore.getState().containers,
+            loading: false,
+            failureCount: 1,
+          });
+        }
       }
     }
 
+    if (moduleSuspended) return;
     void loadContainers();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshSignal, moduleSuspended]);
 
   const names = useMemo(() => connectionNameMap(connections), [connections]);
 

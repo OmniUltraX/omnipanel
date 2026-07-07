@@ -74,16 +74,16 @@ function useWorkspacePreviewDockRelayout(
 }
 
 /**
- * 工作区预览布局：主内容 + 可拖拽底部工作区�?
+ * 工作区预览布局：主内容 + 可拖拽底部工作区�?
  * - split-window：分屏高度，dockview 展示全部面板
- * - task-bar：标签栏高度�?0px），浏览器式标签�?
- * 显示模式�?`workspaceDisplayPreference` 用户偏好决定，持久化�?bottomPanelStore�?
+ * - task-bar：标签栏高度�?0px），浏览器式标签�?
+ * 显示模式�?`workspaceDisplayPreference` 用户偏好决定，持久化�?bottomPanelStore�?
  */
 export function WorkspacePreview({ children, className }: WorkspacePreviewProps) {
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const embeddedMode = useEmbeddedWorkspaceMode();
-  /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循�?*/
+  /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循�?*/
   const isPreviewOpen =
     !isFullscreen && workspaceMode !== "hidden" && embeddedMode !== "hidden";
   const workspaceDisplayPreference = useBottomPanelStore(
@@ -97,21 +97,23 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const showTaskBar = isBottomPanelOpen && displayMode === "task-bar";
   const bottomStackRef = useRef<HTMLDivElement>(null);
 
-  useWorkspacePreviewDockRelayout(bottomStackRef, showSplitWindow);
+  useWorkspacePreviewDockRelayout(bottomStackRef, showSplitWindow || isFullscreen);
 
-  // 首次展开后保持底部子树挂载，避免反复 mount 触发 Windows 控制台闪�?
   const [keepBottomMounted, setKeepBottomMounted] = useState(
-    () => useBottomPanelStore.getState().workspaceMode !== "hidden",
+    () =>
+      useBottomPanelStore.getState().workspaceMode !== "hidden" ||
+      useBottomPanelStore.getState().isFullscreen,
   );
 
   useEffect(() => {
-    if (isBottomPanelOpen) {
+    if (isBottomPanelOpen || isFullscreen) {
       setKeepBottomMounted(true);
     }
-  }, [isBottomPanelOpen]);
+  }, [isBottomPanelOpen, isFullscreen]);
 
   const rootClass = [
     "workspace-preview",
+    isFullscreen ? "workspace-preview--fullscreen" : "",
     isPreviewCollapsed ? "workspace-preview--collapsed" : "",
     isBottomPanelOpen ? `workspace-preview--${displayMode}` : "",
     className ?? "",
@@ -119,21 +121,19 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     .filter(Boolean)
     .join(" ");
 
-  // 全屏时底栏由 App 单独挂载；taskbar 模式仅渲染标签栏
-  const showBottomStack = keepBottomMounted && !isFullscreen;
-  const showEmbeddedDock = showBottomStack && showSplitWindow;
+  // dockview 始终挂载，用 CSS display 控制显隐（零 unmount）
+  const showBottomStack = keepBottomMounted;
+  const dockVisible = showSplitWindow || isFullscreen;
 
   const bottomPanel = showBottomStack ? (
-    <div ref={showEmbeddedDock ? bottomStackRef : undefined} className="workspace-preview__bottom-stack">
-      {showEmbeddedDock ? (
-        <div
-          className="workspace-preview__dock"
-          data-visible="true"
-          aria-hidden={false}
-        >
-          <WorkspaceBottomHost />
-        </div>
-      ) : null}
+    <div ref={bottomStackRef} className="workspace-preview__bottom-stack">
+      <div
+        className="workspace-preview__dock"
+        data-visible={dockVisible ? "true" : "false"}
+        aria-hidden={!dockVisible}
+      >
+        <WorkspaceBottomHost />
+      </div>
       {showTaskBar ? (
         <div
           className="workspace-preview__taskbar-slot"
