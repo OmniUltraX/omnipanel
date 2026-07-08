@@ -126,13 +126,18 @@ export function Sidebar() {
   };
 
   const go = (path: string) => {
+    // 全屏切模块须同步完成，startTransition 会延迟 navigate 导致延迟退出卡住
+    if (isBottomFullscreen) {
+      navigateToFeature(path, navigate);
+      return;
+    }
     startTransition(() => {
       navigateToFeature(path, navigate);
     });
   };
 
   const handleModuleNav = (path: string) => {
-    if (isActive(path)) {
+    if (!isBottomFullscreen && isActive(path)) {
       usePanelLayoutStore.getState().toggleModuleSidebar();
       return;
     }

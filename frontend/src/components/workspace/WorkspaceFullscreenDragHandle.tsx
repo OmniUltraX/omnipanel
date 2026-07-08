@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { MODULE_PATHS } from "../../lib/paths";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
@@ -11,17 +12,11 @@ const DRAG_START_THRESHOLD_PX = 8;
 export function WorkspaceFullscreenDragHandle() {
   const navigate = useNavigate();
   const activePath = useWorkspaceStore((s) => s.activePath);
-  const leaveFullscreenByDrag = useBottomPanelStore((s) => s.leaveFullscreenByDrag);
   const dragging = useRef(false);
   const exited = useRef(false);
   const startY = useRef(0);
   const moveRef = useRef<((event: PointerEvent) => void) | null>(null);
   const upRef = useRef<(() => void) | null>(null);
-
-  const navigateToLastFeature = useCallback(() => {
-    const path = activePath && activePath !== "/" ? activePath : "/terminal";
-    navigate(path);
-  }, [activePath, navigate]);
 
   const cleanupListeners = useCallback(() => {
     if (moveRef.current) {
@@ -41,9 +36,11 @@ export function WorkspaceFullscreenDragHandle() {
   const exitToHalf = useCallback(() => {
     if (exited.current) return;
     exited.current = true;
-    leaveFullscreenByDrag();
-    navigateToLastFeature();
-  }, [leaveFullscreenByDrag, navigateToLastFeature]);
+    const path =
+      activePath && activePath !== "/" ? activePath : MODULE_PATHS.terminal;
+    useBottomPanelStore.getState().requestDeferExitFullscreen(path, "drag-half");
+    navigate(path);
+  }, [activePath, navigate]);
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { SidebarBottom } from "../sidebar/SidebarBottom";
 import { WorkspacePreviewTaskBar } from "./WorkspacePreviewTaskBar";
 import { WorkspaceBottomHost } from "../../workspace/WorkspaceBottomHost";
@@ -25,31 +25,52 @@ function resolveDisplayMode(
   return "split-window";
 }
 
+const WORKSPACE_FULLSCREEN_STATUSBAR_PX = 26;
+
+function measureWorkspaceBottomDockSize(
+  stackEl: HTMLElement | null,
+  isFullscreen: boolean,
+): { width: number; height: number } {
+  if (isFullscreen) {
+    const sidebarW = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"),
+    ) || 56;
+    return {
+      width: Math.max(0, window.innerWidth - sidebarW),
+      height: Math.max(0, window.innerHeight - WORKSPACE_FULLSCREEN_STATUSBAR_PX),
+    };
+  }
+  const stackRect = stackEl?.getBoundingClientRect();
+  return {
+    width: stackRect?.width ?? 0,
+    height: stackRect?.height ?? 0,
+  };
+}
+
 function useWorkspacePreviewDockRelayout(
   bottomStackRef: React.RefObject<HTMLElement | null>,
   enabled: boolean,
+  isFullscreen: boolean,
 ): void {
   useEffect(() => {
     if (!enabled) return;
     const stackEl = bottomStackRef.current;
-    if (!stackEl) return;
 
     let lastStackW = 0;
     let lastStackH = 0;
     let raf = 0;
 
     const relayoutFromStack = () => {
-      const stackRect = stackEl.getBoundingClientRect();
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        relayoutDockviewInstances("workspace-bottom", {
-          width: stackRect.width,
-          height: stackRect.height,
-        });
+        const { width, height } = measureWorkspaceBottomDockSize(stackEl, isFullscreen);
+        if (width <= 0 || height <= 0) return;
+        relayoutDockviewInstances("workspace-bottom", { width, height });
       });
     };
 
     const observer = new ResizeObserver((entries) => {
+      if (isFullscreen) return;
       const rect = entries[0]?.contentRect;
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
       if (
@@ -63,14 +84,22 @@ function useWorkspacePreviewDockRelayout(
       relayoutFromStack();
     });
 
-    observer.observe(stackEl);
+    if (stackEl && !isFullscreen) {
+      observer.observe(stackEl);
+    }
+
+    const onWindowResize = () => {
+      if (isFullscreen) relayoutFromStack();
+    };
+    window.addEventListener("resize", onWindowResize);
     relayoutFromStack();
 
     return () => {
       observer.disconnect();
+      window.removeEventListener("resize", onWindowResize);
       cancelAnimationFrame(raf);
     };
-  }, [bottomStackRef, enabled]);
+  }, [bottomStackRef, enabled, isFullscreen]);
 }
 
 /**
@@ -97,7 +126,45 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const showTaskBar = isBottomPanelOpen && displayMode === "task-bar";
   const bottomStackRef = useRef<HTMLDivElement>(null);
 
-  useWorkspacePreviewDockRelayout(bottomStackRef, showSplitWindow || isFullscreen);
+  useWorkspacePreviewDockRelayout(bottomStackRef, showSplitWindow || isFullscreen, isFullscreen);
+
+  const wasFullscreenRef = useRef(isFullscreen);
+  useLayoutEffect(() => {
+    if (!isFullscreen) return;
+    const run = () => {
+      const { width, height } = measureWorkspaceBottomDockSize(
+        bottomStackRef.current,
+        true,
+      );
+      if (width > 0 && height > 0) {
+        relayoutDockviewInstances("workspace-bottom", { width, height });
+      }
+    };
+    run();
+    const raf1 = requestAnimationFrame(run);
+    const raf2 = requestAnimationFrame(() => requestAnimationFrame(run));
+    const timer = window.setTimeout(run, 80);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.clearTimeout(timer);
+    };
+  }, [isFullscreen]);
+
+  // 退出全屏工作区：主内容区从 display:none 恢复，绘制前同步 relayout 模块 dock
+  useLayoutEffect(() => {
+    const wasFullscreen = wasFullscreenRef.current;
+    wasFullscreenRef.current = isFullscreen;
+    if (!wasFullscreen || isFullscreen) return;
+    relayoutDockviewInstances("terminal");
+    relayoutDockviewInstances("database");
+    relayoutDockviewInstances("docker");
+    relayoutDockviewInstances("files");
+    relayoutDockviewInstances("server");
+    relayoutDockviewInstances("protocol");
+    relayoutDockviewInstances("workflow");
+    relayoutDockviewInstances("knowledge");
+  }, [isFullscreen]);
 
   const [keepBottomMounted, setKeepBottomMounted] = useState(
     () =>

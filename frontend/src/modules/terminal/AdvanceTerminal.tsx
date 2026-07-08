@@ -41,9 +41,10 @@ export type AdvanceTerminalProps = {
   tabId: string;
   isActive: boolean;
   onActivate?: () => void;
+  sideDockScope?: string;
 };
 
-export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminalProps) {
+export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: AdvanceTerminalProps) {
   const { t } = useI18n();
   const { paneProps, resource, tab } = useTerminalTabDockPane(tabId, isActive, onActivate);
 
@@ -385,7 +386,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate }: AdvanceTerminal
           <DockableWorkspace
             key={`${tabId}-${isLocal ? "local" : "remote"}`}
             className="advance-terminal-side-dock"
-            dockScope={`terminal-side-${tabId}`}
+            dockScope={sideDockScope ?? `terminal-side-${tabId}`}
             tabs={sideTabs}
             activeTabId={activeSideTab}
             onActiveTabChange={handleSideTabChange}

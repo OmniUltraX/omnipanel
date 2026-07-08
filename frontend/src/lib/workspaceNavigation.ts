@@ -33,9 +33,11 @@ export function enterEngineeringWorkspaceFullscreen(
   navigate?: NavigateFunction,
 ): void {
   useWorkspaceStore.getState().switchWorkspace(id);
-  useBottomPanelStore.getState().enterWorkspaceFullscreen();
-  const path = WORKSPACE_PATHS.detail(id);
-  dispatchNavigate(path, navigate);
+  const bottom = useBottomPanelStore.getState();
+  bottom.clearDeferExitFullscreen();
+  // 先切工作区路由再进全屏，避免 pathname 仍停在 /module/* 时无法再次切出
+  dispatchNavigate(WORKSPACE_PATHS.detail(id), navigate);
+  bottom.enterWorkspaceFullscreen();
 }
 
 /** 退出工程工作区全屏，恢复嵌入态并回到功能页或看板 */
@@ -44,24 +46,19 @@ export function exitEngineeringWorkspaceFullscreen(
 ): void {
   const bottom = useBottomPanelStore.getState();
   if (!bottom.isFullscreen) return;
-  bottom.exitFullscreen();
   const activePath = useWorkspaceStore.getState().activePath;
   const target = isWorkspacePath(activePath) ? DASHBOARD_PATH : activePath;
+  bottom.requestDeferExitFullscreen(target, "feature");
   dispatchNavigate(target, navigate);
 }
 
 /** 进入看板首页（/dashboard） */
 export function goWorkspaceHome(navigate?: NavigateFunction): void {
+  useWorkspaceStore.getState().switchWorkspace(DEFAULT_WORKSPACE.id);
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {
-    // 全屏 → 点 logo：强制 taskbar 模式（不恢复用户偏好的 split-window），
-    // 首页看板有足够空间，工作区标签仍可见，用户可快速切回。
-    bottom.applyWorkspaceDisplayPreference("task-bar");
-    useBottomPanelStore.setState((state) => ({
-      expandSignal: state.expandSignal + 1,
-    }));
+    bottom.requestDeferExitFullscreen(DASHBOARD_PATH, "home");
   }
-  useWorkspaceStore.getState().switchWorkspace(DEFAULT_WORKSPACE.id);
   dispatchNavigate(DASHBOARD_PATH, navigate);
 }
 
@@ -131,10 +128,12 @@ export function navigateToSshManagement(navigate: NavigateFunction): void {
 
 /** 侧边栏 / 命令面板：导航到功能模块，全屏时按记忆状态恢复底部工作区 */
 export function navigateToFeature(path: string, navigate: NavigateFunction): void {
+  useWorkspaceStore.getState().setActivePath(path);
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {
-    bottom.leaveFullscreenForFeature();
+    bottom.requestDeferExitFullscreen(path, "feature");
+    navigate(path);
+    return;
   }
-  useWorkspaceStore.getState().setActivePath(path);
   navigate(path);
 }

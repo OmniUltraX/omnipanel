@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
 
 interface WinControlsProps {
   className?: string;
@@ -8,18 +8,7 @@ interface WinControlsProps {
 
 export function WinControls({ className }: WinControlsProps) {
   const { t } = useI18n();
-  const [isMaximized, setIsMaximized] = useState(false);
-
-  useEffect(() => {
-    const win = getCurrentWindow();
-    const update = async () => setIsMaximized(await win.isMaximized());
-    update();
-    let unlisten: (() => void) | undefined;
-    (async () => {
-      unlisten = await win.onResized(update);
-    })();
-    return () => unlisten?.();
-  }, []);
+  const isMaximized = useTauriWindowMaximized();
 
   const handleMinimize = async () => {
     await getCurrentWindow().minimize();

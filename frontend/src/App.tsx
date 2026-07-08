@@ -9,6 +9,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -25,12 +26,18 @@ import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { Button } from "./components/ui/primitives/Button";
-import { SuspendedModulePanel } from "./components/ui/feedback/SuspendedModulePanel";
+import { SuspendedModulePanel, OverlayModuleRoutePanel } from "./components/ui/feedback";
 import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
 import { WorkspaceBottomHost } from "./components/workspace/WorkspaceBottomHost";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
+import {
+  createInitialOverlayMounted,
+  isOverlayModuleKey,
+  isOverlayModulePath,
+  isShellRoutePath,
+} from "./lib/routePanels";
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
@@ -176,9 +183,19 @@ function AppShell() {
   const isTerminal = location.pathname === MODULE_PATHS.terminal;
   const isDocker = location.pathname === MODULE_PATHS.docker;
   const isDatabase = location.pathname === MODULE_PATHS.database;
-  const [otherRoutesMounted, setOtherRoutesMounted] = useState(!isTerminal);
-  const [dockerMounted, setDockerMounted] = useState(isDocker);
-  const [databaseMounted, setDatabaseMounted] = useState(isDatabase);
+  const isFiles = location.pathname === MODULE_PATHS.files;
+  const isServer = location.pathname === MODULE_PATHS.server;
+  const isProtocol = location.pathname === MODULE_PATHS.protocol;
+  const isWorkflow = location.pathname === MODULE_PATHS.workflow;
+  const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
+  const isShellRoute = isShellRoutePath(location.pathname);
+
+  const [overlayMounted, setOverlayMounted] = useState(() =>
+    createInitialOverlayMounted(location.pathname),
+  );
+  const [shellRoutesMounted, setShellRoutesMounted] = useState(() =>
+    isShellRoutePath(location.pathname),
+  );
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const setActivePath = useWorkspaceStore((state) => state.setActivePath);
@@ -194,22 +211,16 @@ function AppShell() {
   const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
 
   useEffect(() => {
-    if (!isTerminal) {
-      setOtherRoutesMounted(true);
+    const key = moduleKeyFromPath(location.pathname);
+    if (isOverlayModuleKey(key)) {
+      setOverlayMounted((prev) =>
+        prev[key] ? prev : { ...prev, [key]: true },
+      );
     }
-  }, [isTerminal]);
-
-  useEffect(() => {
-    if (isDocker) {
-      setDockerMounted(true);
+    if (isShellRoutePath(location.pathname)) {
+      setShellRoutesMounted(true);
     }
-  }, [isDocker]);
-
-  useEffect(() => {
-    if (isDatabase) {
-      setDatabaseMounted(true);
-    }
-  }, [isDatabase]);
+  }, [location.pathname]);
 
   // 工作区已有数据库 Tab 时预挂载，避免切到其他功能后底部 SQL 失效
   useEffect(() => {
@@ -220,7 +231,9 @@ function AppShell() {
           (tab.kind === "mirrored" && tab.originScope === "database") ||
           (tab.kind === "payload" && tab.payload?.module === "database")
         ) {
-          setDatabaseMounted(true);
+          setOverlayMounted((prev) =>
+            prev.database ? prev : { ...prev, database: true },
+          );
           return;
         }
       }
@@ -279,7 +292,6 @@ function AppShell() {
     navigate(DASHBOARD_PATH, { replace: true });
   }, [location.pathname, navigate]);
 
-  const isProtocol = location.pathname === MODULE_PATHS.protocol;
   const protocolNewTabPickerOpen = useProtocolTopbarStore((s) => s.newTabPickerOpen);
   const setProtocolNewTabPickerOpen = useProtocolTopbarStore((s) => s.setNewTabPickerOpen);
 
@@ -323,7 +335,15 @@ function AppShell() {
   const setAiDockWidth = useSettingsStore((s) => s.setAiDockWidth);
   const workspaceMode = useBottomPanelStore((s) => s.workspaceMode);
   const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
+  const deferExitPath = useBottomPanelStore((s) => s.deferExitFullscreenUntilPath);
   const wsState = workspaceShellState(workspaceMode);
+
+  // 全屏延迟退出：路由 commit 后同一 layout 阶段再解除全屏，避免闪旧页面
+  // deferExitPath 入 deps：navigate 同路径 noop 时 pathname 不变，仍需完成退出
+  useLayoutEffect(() => {
+    useBottomPanelStore.getState().tryCompleteDeferExitFullscreen(location.pathname);
+  }, [location.pathname, deferExitPath]);
+
   const embeddedModeClass =
     workspaceMode !== "fullscreen" && workspaceMode !== "hidden"
       ? ` workspace--mode-${workspaceMode}`
@@ -333,10 +353,13 @@ function AppShell() {
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
   const dragging = useRef(false);
 
-  // 工程工作区全屏时同步 URL 到 /workspace/:id（Logo/面板按钮已直接 navigate 时可跳过）
+  // 工程工作区全屏时同步 URL 到 /workspace/:id（Logo 先 navigate 看板时勿拉回工作区）
   useEffect(() => {
     if (workspaceMode !== "fullscreen" && workspaceMode !== "home") return;
     if (isWorkspacePath(location.pathname)) return;
+    if (isShellRoutePath(location.pathname) || isOverlayModulePath(location.pathname)) {
+      return;
+    }
     const id = useWorkspaceStore.getState().workspace.id;
     navigate(WORKSPACE_PATHS.detail(id), { replace: true });
   }, [workspaceMode, location.pathname, navigate]);
@@ -381,35 +404,64 @@ function AppShell() {
 
   const routePanels = (
     <div className="content-routes">
-      <div
-        className={`route-panel${isTerminal ? " route-panel--active" : ""}`}
+      <OverlayModuleRoutePanel
+        active={isTerminal}
+        mounted={overlayMounted.terminal}
+        suspendWhenHidden={false}
       >
-        <SuspendedModulePanel active={isTerminal} suspendWhenHidden={false}>
-          <LazyTerminalPanel />
-        </SuspendedModulePanel>
-      </div>
-      <div
-        className={`route-panel${isDocker ? " route-panel--active" : ""}`}
+        <LazyTerminalPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isDocker}
+        mounted={overlayMounted.docker}
+        suspendWhenHidden={false}
       >
-        {dockerMounted && (
-          <SuspendedModulePanel active={isDocker}>
-            <LazyDockerPanel />
-          </SuspendedModulePanel>
-        )}
-      </div>
-      <div
-        className={`route-panel${isDatabase ? " route-panel--active" : ""}`}
+        <LazyDockerPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isDatabase}
+        mounted={overlayMounted.database}
+        suspendWhenHidden={false}
       >
-        {databaseMounted && (
-          <SuspendedModulePanel active={isDatabase}>
-            <LazyDatabasePanel />
-          </SuspendedModulePanel>
-        )}
-      </div>
-      <div
-        className={`route-panel${!isTerminal && !isDocker && !isDatabase ? " route-panel--active" : ""}`}
+        <LazyDatabasePanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isFiles}
+        mounted={overlayMounted.files}
+        suspendWhenHidden={false}
       >
-        {otherRoutesMounted && (
+        <LazyFilesPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isServer}
+        mounted={overlayMounted.server}
+        suspendWhenHidden={false}
+      >
+        <LazyServerPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isProtocol}
+        mounted={overlayMounted.protocol}
+        suspendWhenHidden={false}
+      >
+        <LazyProtocolPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isWorkflow}
+        mounted={overlayMounted.workflow}
+        suspendWhenHidden={false}
+      >
+        <LazyWorkflowPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isKnowledge}
+        mounted={overlayMounted.knowledge}
+        suspendWhenHidden={false}
+      >
+        <LazyKnowledgePanel />
+      </OverlayModuleRoutePanel>
+      <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
+        {shellRoutesMounted && (
           <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
             <Route
@@ -435,46 +487,11 @@ function AppShell() {
             />
             <Route path={MODULE_PATHS.database} element={null} />
             <Route path={MODULE_PATHS.docker} element={null} />
-            <Route
-              path={MODULE_PATHS.server}
-              element={
-                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.server}>
-                  <LazyServerPanel />
-                </SuspendedModulePanel>
-              }
-            />
-            <Route
-              path={MODULE_PATHS.protocol}
-              element={
-                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.protocol}>
-                  <LazyProtocolPanel />
-                </SuspendedModulePanel>
-              }
-            />
-            <Route
-              path={MODULE_PATHS.workflow}
-              element={
-                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.workflow}>
-                  <LazyWorkflowPanel />
-                </SuspendedModulePanel>
-              }
-            />
-            <Route
-              path={MODULE_PATHS.knowledge}
-              element={
-                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.knowledge}>
-                  <LazyKnowledgePanel />
-                </SuspendedModulePanel>
-              }
-            />
-            <Route
-              path={MODULE_PATHS.files}
-              element={
-                <SuspendedModulePanel active={location.pathname === MODULE_PATHS.files}>
-                  <LazyFilesPanel />
-                </SuspendedModulePanel>
-              }
-            />
+            <Route path={MODULE_PATHS.server} element={null} />
+            <Route path={MODULE_PATHS.protocol} element={null} />
+            <Route path={MODULE_PATHS.workflow} element={null} />
+            <Route path={MODULE_PATHS.knowledge} element={null} />
+            <Route path={MODULE_PATHS.files} element={null} />
             <Route path="*" element={<Navigate to={DASHBOARD_PATH} replace />} />
           </Routes>
         )}

@@ -19,6 +19,9 @@ import {
 /** 底部嵌入区展示态：off=隐藏，half=半屏 */
 export type WorkspaceEmbeddedMode = "off" | "half";
 
+/** 延迟退出全屏：等目标路由 commit 后再解除，避免主区闪旧页面 */
+export type DeferExitFullscreenMode = "home" | "feature" | "drag-half";
+
 interface BottomPanelState {
   expandSignal: number;
   collapseSignal: number;
@@ -40,6 +43,11 @@ interface BottomPanelState {
   /** 是否全屏（工程工作区） */
   isFullscreen: boolean;
   embeddedMode: WorkspaceEmbeddedMode;
+  /** 全屏时待跳转的目标路由；pathname 到达后再退出全屏 */
+  deferExitFullscreenUntilPath: string | null;
+  deferExitFullscreenMode: DeferExitFullscreenMode | null;
+  /** task-bar SubWindow 当前展示的 tab（overlay 模块让出 isActive） */
+  taskbarSubWindowTabId: string | null;
 
   requestExpand: () => void;
   requestCollapse: () => void;
@@ -68,6 +76,18 @@ interface BottomPanelState {
   applyWorkspaceDisplayPreference: (
     preference?: WorkspaceDisplayPreference,
   ) => void;
+  /** 全屏 → 功能页/看板：先记目标路由，路由到位后由 App useLayoutEffect 完成退出 */
+  requestDeferExitFullscreen: (
+    path: string,
+    mode: DeferExitFullscreenMode,
+  ) => void;
+  clearDeferExitFullscreen: () => void;
+  tryCompleteDeferExitFullscreen: (pathname: string) => boolean;
+  setTaskbarSubWindowTabId: (tabId: string | null) => void;
+}
+
+function matchesDeferredExitPath(pathname: string, pending: string): boolean {
+  return pathname === pending || pathname.startsWith(`${pending}/`);
 }
 
 function normalizeWorkspaceMode(mode: WorkspaceMode): WorkspaceMode {
@@ -102,6 +122,9 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       isOpen: false,
       isFullscreen: false,
       embeddedMode: "off",
+      deferExitFullscreenUntilPath: null,
+      deferExitFullscreenMode: null,
+      taskbarSubWindowTabId: null,
 
       requestExpand: () => {
         const { workspaceMode, workspaceDisplayPreference } = get();
@@ -237,7 +260,16 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       },
 
       enterWorkspaceFullscreen: () => {
+        const state = get();
+        const normalized = normalizeWorkspaceMode(state.workspaceMode);
+        const rememberedMode: EmbeddedWorkspaceMode =
+          isEmbeddedWorkspaceMode(normalized) && normalized !== "hidden"
+            ? normalized
+            : state.lastNonFullscreenMode;
         set(() => ({
+          deferExitFullscreenUntilPath: null,
+          deferExitFullscreenMode: null,
+          lastNonFullscreenMode: rememberedMode,
           workspaceMode: "fullscreen",
           ...syncDerivedFlags("fullscreen"),
         }));
@@ -256,6 +288,56 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         const { workspaceMode } = get();
         if (normalizeWorkspaceMode(workspaceMode) !== "fullscreen") return;
         get().applyEmbeddedMode();
+      },
+
+      requestDeferExitFullscreen: (path, mode) => {
+        if (!get().isFullscreen) return;
+        set({
+          deferExitFullscreenUntilPath: path,
+          deferExitFullscreenMode: mode,
+        });
+      },
+
+      clearDeferExitFullscreen: () => {
+        const { deferExitFullscreenUntilPath, deferExitFullscreenMode } = get();
+        if (!deferExitFullscreenUntilPath && !deferExitFullscreenMode) return;
+        set({
+          deferExitFullscreenUntilPath: null,
+          deferExitFullscreenMode: null,
+        });
+      },
+
+      tryCompleteDeferExitFullscreen: (pathname) => {
+        const { deferExitFullscreenUntilPath: pending, deferExitFullscreenMode: mode } =
+          get();
+        if (!pending || !mode || !get().isFullscreen) return false;
+        if (!matchesDeferredExitPath(pathname, pending)) return false;
+
+        if (mode === "home") {
+          get().applyWorkspaceDisplayPreference("task-bar");
+          set((state) => ({
+            deferExitFullscreenUntilPath: null,
+            deferExitFullscreenMode: null,
+            expandSignal: state.expandSignal + 1,
+          }));
+        } else if (mode === "drag-half") {
+          get().leaveFullscreenByDrag();
+          set({
+            deferExitFullscreenUntilPath: null,
+            deferExitFullscreenMode: null,
+          });
+        } else {
+          get().applyEmbeddedMode();
+          set({
+            deferExitFullscreenUntilPath: null,
+            deferExitFullscreenMode: null,
+          });
+        }
+        return true;
+      },
+
+      setTaskbarSubWindowTabId: (tabId) => {
+        set({ taskbarSubWindowTabId: tabId });
       },
 
       leaveFullscreenByDrag: () => {

@@ -1,8 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
+import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
 
 interface WorkspaceBottomTitleBarProps {
   /** 全屏模式下显示窗口控制按钮，否则显示全屏按钮 */
@@ -16,7 +17,7 @@ export function WorkspaceBottomTitleBar({
   const workspaceName = useWorkspaceStore((state) => state.workspace.name);
   const enterFullscreen = useBottomPanelStore((state) => state.enterFullscreen);
   const exitFullscreen = useBottomPanelStore((state) => state.exitFullscreen);
-  const [isMaximized, setIsMaximized] = useState(false);
+  const isMaximized = useTauriWindowMaximized(showWinControls);
   const spacerDragRef = useRef<{ startX: number; startY: number } | null>(null);
 
   const handleMinimize = async () => {
@@ -54,18 +55,6 @@ export function WorkspaceBottomTitleBar({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [showWinControls]);
-
-  useEffect(() => {
-    if (!showWinControls) return;
-    const win = getCurrentWindow();
-    const update = async () => setIsMaximized(await win.isMaximized());
-    update();
-    let unlisten: (() => void) | undefined;
-    (async () => {
-      unlisten = await win.onResized(update);
-    })();
-    return () => unlisten?.();
   }, [showWinControls]);
 
   const handleDoubleClick = async (event: React.MouseEvent) => {
