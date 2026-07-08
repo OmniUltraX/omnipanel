@@ -407,56 +407,50 @@ function AppShell() {
       <OverlayModuleRoutePanel
         active={isTerminal}
         mounted={overlayMounted.terminal}
-        suspendWhenHidden={false}
+        keepLayout
       >
         <LazyTerminalPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDocker}
         mounted={overlayMounted.docker}
-        suspendWhenHidden={false}
       >
         <LazyDockerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDatabase}
         mounted={overlayMounted.database}
-        suspendWhenHidden={false}
+        keepLayout
       >
         <LazyDatabasePanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isFiles}
         mounted={overlayMounted.files}
-        suspendWhenHidden={false}
       >
         <LazyFilesPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isServer}
         mounted={overlayMounted.server}
-        suspendWhenHidden={false}
       >
         <LazyServerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isProtocol}
         mounted={overlayMounted.protocol}
-        suspendWhenHidden={false}
       >
         <LazyProtocolPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isWorkflow}
         mounted={overlayMounted.workflow}
-        suspendWhenHidden={false}
       >
         <LazyWorkflowPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isKnowledge}
         mounted={overlayMounted.knowledge}
-        suspendWhenHidden={false}
       >
         <LazyKnowledgePanel />
       </OverlayModuleRoutePanel>

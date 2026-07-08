@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../../components/ui/primitives/Button";
 import { DetailPanelModeToggle } from "../../components/ui/layout/DetailPanelShell";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { CloseIcon } from "./icons";
 
 interface ContainerStats {
@@ -44,6 +45,9 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(true);
   const streamIdRef = useRef<string | null>(null);
+  // 模块切走（路由非 active）时 suspended=true：停掉 stats 流避免后台高频 setStats 重渲染。
+  const moduleSuspended = useModuleSuspended();
+  const streamActive = active && !moduleSuspended;
 
   useEffect(() => {
     setStats(null);
@@ -52,7 +56,7 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
   }, [connectionId, containerId]);
 
   useEffect(() => {
-    if (!connectionId || !containerId || !active) return;
+    if (!connectionId || !containerId || !streamActive) return;
 
     let disposed = false;
     const unlistens: UnlistenFn[] = [];
@@ -104,7 +108,7 @@ export function DockerStatsPanel({ connectionId, containerId, containerName, onC
       stopStream(streamIdRef.current);
       streamIdRef.current = null;
     };
-  }, [connectionId, containerId, active]);
+  }, [connectionId, containerId, streamActive]);
 
   return (
     <div className="docker-stats-panel">
