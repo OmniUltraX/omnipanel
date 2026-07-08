@@ -16666,6 +16666,21 @@ textarea.content-preview-text--editable {
     border-radius: var(--r-sm);
 }
 
+.content-preview-audio-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-6) var(--sp-4);
+    background: var(--bg-deeper);
+}
+
+.content-preview-audio {
+    width: min(100%, 560px);
+    max-width: 100%;
+}
+
 .content-preview-markdown > :first-child {
     margin-top: 0;
 }

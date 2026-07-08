@@ -134,16 +134,6 @@ export function isTablePreviewTab(tab: DbWorkspaceTab): tab is TablePreviewWorks
   return tab.kind === "table";
 }
 
-/** @deprecated 使用 isTablePreviewTab(tab) */
-export function isTablePreviewTabId(tabId: string, tabs?: DbWorkspaceTab[]): boolean {
-  if (tabs) {
-    const tab = tabs.find((item) => item.id === tabId);
-    return tab ? isTablePreviewTab(tab) : false;
-  }
-  const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
-  return Boolean(preview?.tableName);
-}
-
 export function selectDbTabWorkspaceMirrorSlice(state: DbWorkspaceTabState) {
   return {
     sqlTabStates: state.sqlTabStates,

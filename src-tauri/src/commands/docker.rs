@@ -1,9 +1,8 @@
-//! Docker ?? Tauri ?????
+//! Docker 模块 Tauri 命令桥接。
 //!
-//! ??????????????????????????? Docker ??????
-//! `omnipanel-docker` crate??????? `Result<T, OmniError>`???????
-//! `docker-log` / `docker-log-end` ???????
-
+//! 设计原则：本文件只做参数解析、连接解析与事件桥接，所有 Docker 业务逻辑都在
+//! `omnipanel-docker` crate。命令统一返回 `Result<T, OmniError>`，流式数据通过
+//! `docker-log` / `docker-log-end` 事件回传前端。
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -31,13 +30,13 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::state::{AppState, DockerExecSessionEntry};
 
-/// ???? Engine ?? id???????????
+/// 内建本地 Engine 连接 id（不落库，始终可用）。
 const LOCAL_CONNECTION_ID: &str = "docker-local";
 
 static LOG_STREAM_COUNTER: AtomicU64 = AtomicU64::new(1);
 static EXEC_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// ??? `Connection.config`?kind=docker?? Docker ?????
+/// 解析自 `Connection.config`（kind=docker）的 Docker 连接配置。
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DockerConnectionConfig {
@@ -54,7 +53,7 @@ struct DockerConnectionConfig {
     client_key: Option<String>,
     ssh: Option<SshConfig>,
     bound_ssh_connection_id: Option<String>,
-    /// 1Panel ???baseUrl / apiKey / insecure?
+    /// 1Panel 面板配置：baseUrl / apiKey / insecure
     #[serde(default)]
     onepanel: Option<OnePanelConfigDto>,
 }
@@ -68,7 +67,7 @@ struct OnePanelConfigDto {
     insecure: bool,
 }
 
-/// ?????????
+/// 已解析的操作目标。
 enum DockerTarget {
     Local,
     Remote(bollard::Docker),
@@ -76,7 +75,7 @@ enum DockerTarget {
     OnePanel(OnePanelAdapter),
 }
 
-/// ???? id ??????SSH ???????????????
+/// 解析连接 id 到操作目标。SSH 目标会从复用池获取或建立会话。
 async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerTarget, OmniError> {
     if connection_id == LOCAL_CONNECTION_ID {
         return Ok(DockerTarget::Local);
@@ -89,7 +88,7 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
     .ok_or_else(|| {
         OmniError::new(
             ErrorCode::NotFound,
-            format!("Docker ?? {connection_id} ???"),
+            format!("Docker 连接 {connection_id} 不存在"),
         )
     })?;
 
@@ -98,7 +97,7 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
     match cfg.source.as_deref().map(DockerConnectionSource::parse) {
         Some(DockerConnectionSource::SshEngine) => {
             let ssh = cfg.ssh.ok_or_else(|| {
-                OmniError::new(ErrorCode::InvalidInput, "ssh-engine ??? Docker ???? SSH ??")
+                OmniError::new(ErrorCode::InvalidInput, "ssh-engine 类型缺少 Docker SSH 配置")
             })?;
             let session = ensure_docker_ssh(state, connection_id, ssh).await?;
             Ok(DockerTarget::Ssh(session))
@@ -107,7 +106,7 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
             let host = cfg.host.ok_or_else(|| {
                 OmniError::new(
                     ErrorCode::InvalidInput,
-                    "remote-engine ??? Docker ???? host ??",
+                    "remote-engine 类型缺少 Docker host 配置",
                 )
             })?;
             let port = cfg
@@ -131,7 +130,7 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
             let panel = cfg.onepanel.as_ref().ok_or_else(|| {
                 OmniError::new(
                     ErrorCode::InvalidInput,
-                    "onepanel ??? Docker ???? 1Panel ??",
+                    "onepanel 类型缺少 Docker 1Panel 配置",
                 )
             })?;
             let adapter = OnePanelAdapter::new(
@@ -144,12 +143,7 @@ async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerT
     }
 }
 
-/// ?????? SSH ??????? SSH ????????
-///
-/// ?????
-/// 1. Docker ??? (`docker_ssh_sessions`) ???? ? ????
-/// 2. `bound_ssh_connection_id` ?? ? ??? SSH ?????????
-/// 3. ????? ? ????????? Docker ???
+/// 从复用池获取 SSH 会话，不存在则建立并缓存。
 async fn ensure_docker_ssh(
     state: &AppState,
     connection_id: &str,
@@ -174,7 +168,7 @@ async fn ensure_docker_ssh(
     if let Some(ref ssh_id) = bound_id {
         if let Some(bound_cfg) = state.ssh_pool.get_ssh_config(ssh_id).await {
             ssh = bound_cfg;
-            tracing::info!("Docker ?? {connection_id} ???? SSH ?? {ssh_id}??? exec ???");
+            tracing::info!("Docker 连接 {connection_id} 已绑定 SSH 会话 {ssh_id}，跳过 exec 探测");
         }
     }
 
@@ -186,7 +180,7 @@ async fn ensure_docker_ssh(
 
 async fn invalidate_docker_ssh(state: &AppState, connection_id: &str) {
     if let Some(session) = state.docker_ssh_sessions.lock().await.remove(connection_id) {
-        tracing::warn!("?? Docker SSH ??: {connection_id}");
+        tracing::warn!("移除 Docker SSH 会话: {connection_id}");
         session.disconnect().await;
     }
 }
@@ -238,10 +232,10 @@ where
             Err(err) => return Err(err),
         }
     }
-    Err(OmniError::new(ErrorCode::Ssh, "SSH ????????????"))
+    Err(OmniError::new(ErrorCode::Ssh, "SSH 会话不可用或已断开"))
 }
 
-/// ?? ? ?? adapter ???
+/// 目标 → 统一 adapter 对象。
 fn adapter_for(target: DockerTarget) -> Result<Box<dyn DockerAdapter>, OmniError> {
     match target {
         DockerTarget::Local => Ok(Box::new(LocalDockerAdapter::connect()?)),
@@ -251,7 +245,7 @@ fn adapter_for(target: DockerTarget) -> Result<Box<dyn DockerAdapter>, OmniError
     }
 }
 
-/// ?????? adapter?????????????
+/// 解析连接得到 adapter（大部分命令的统一入口）。
 async fn resolve_adapter(
     state: &AppState,
     connection_id: &str,
@@ -260,8 +254,7 @@ async fn resolve_adapter(
     adapter_for(target)
 }
 
-/// ???? Docker ??????? Engine + ???? docker ?????
-/// ?????????????????????????? `docker_probe_connection` ?????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_list_connections(
@@ -310,7 +303,7 @@ pub async fn docker_list_connections(
             .unwrap_or_else(|| conn.name.clone());
         let warning_message = match source {
             DockerConnectionSource::OnePanel => {
-                Some("1Panel ???????????? / ?? exec / ?? push-pull / build".to_string())
+                Some("1Panel 面板模式：容器 / 镜像 exec / 镜像 push-pull / build".to_string())
             }
             _ => None,
         };
@@ -333,7 +326,7 @@ pub async fn docker_list_connections(
     Ok(out)
 }
 
-/// ???????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_probe_connection(
@@ -354,21 +347,21 @@ pub async fn docker_reset_ssh_session(
     Ok(())
 }
 
-/// ?? Docker Engine ?????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_get_local_engine_status() -> Result<DockerLocalEngineStatus, OmniError> {
     Ok(local_engine_status().await)
 }
 
-/// ?????? Docker Desktop???????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_start_local_engine() -> Result<(), OmniError> {
     start_local_engine()
 }
 
-/// ???????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_get_overview(
@@ -383,7 +376,7 @@ pub async fn docker_get_overview(
     .await
 }
 
-/// `docker system df` ???????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_get_system_disk_usage(
@@ -396,7 +389,7 @@ pub async fn docker_get_system_disk_usage(
         .await
 }
 
-/// ?????`filter` ? all/running/stopped?
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_list_containers(
@@ -411,7 +404,7 @@ pub async fn docker_list_containers(
     .await
 }
 
-/// ?????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_inspect_container(
@@ -425,8 +418,7 @@ pub async fn docker_inspect_container(
         .await
 }
 
-/// ?????????start/stop/restart/kill/pause/unpause/remove?
-/// ??????kill/remove????????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_container_action(
@@ -436,13 +428,13 @@ pub async fn docker_container_action(
     action: String,
 ) -> Result<(), OmniError> {
     let parsed = DockerContainerAction::parse(&action)
-        .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, format!("??????: {action}")))?;
+        .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, format!("未知容器操作: {action}")))?;
     if parsed.is_destructive() {
         tracing::info!(
             connection = %connection_id,
             container = %container_id,
             action = %action,
-            "????? Docker ????"
+            "请先连接 Docker 引擎"
         );
     }
     resolve_adapter(&state, &connection_id)
@@ -451,7 +443,7 @@ pub async fn docker_container_action(
         .await
 }
 
-/// ??????????tail ???????? `docker_stream_container_logs`?
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_container_logs(
@@ -466,9 +458,7 @@ pub async fn docker_container_logs(
         .await
 }
 
-/// ????????????? streamId?????? `docker-log` ?????
-/// ??/???? `docker-log-end` ??????? Engine ???? follow?
-/// SSH Engine ?????? tail?follow ??????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_stream_container_logs(
@@ -533,8 +523,8 @@ pub async fn docker_stream_container_logs(
                 .await
             }
             DockerTarget::OnePanel(_adapter) => {
-                // 1Panel ???? `docker logs -f` ???????? polling + container_logs?
-                Err(OmniError::new(ErrorCode::Internal, "1Panel ?????????????"))
+                // 1Panel 面板无原生 `docker logs -f`，回退为 polling + container_logs
+                Err(OmniError::new(ErrorCode::Internal, "1Panel 面板暂不支持实时日志流"))
             }
         };
 
@@ -551,7 +541,7 @@ pub async fn docker_stream_container_logs(
     Ok(stream_id)
 }
 
-/// ????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_stop_log_stream(
@@ -566,8 +556,7 @@ pub async fn docker_stop_log_stream(
 
 static STATS_STREAM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// ???? stats ?????? streamId??????? `docker-stats` ?????
-/// ??/???? `docker-stats-end` ?????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_stream_stats(
@@ -650,7 +639,7 @@ pub async fn docker_stream_stats(
     Ok(stream_id)
 }
 
-/// ???? stats ??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_stop_stats_stream(
@@ -663,7 +652,7 @@ pub async fn docker_stop_stats_stream(
     Ok(())
 }
 
-/// ?????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_list_images(
@@ -676,7 +665,7 @@ pub async fn docker_list_images(
         .await
 }
 
-/// ????????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_remove_image(
@@ -685,14 +674,14 @@ pub async fn docker_remove_image(
     image_id: String,
     force: bool,
 ) -> Result<(), OmniError> {
-    tracing::info!(connection = %connection_id, image = %image_id, force, "?? Docker ??");
+    tracing::info!(connection = %connection_id, image = %image_id, force, "删除 Docker 镜像");
     resolve_adapter(&state, &connection_id)
         .await?
         .remove_image(&image_id, force)
         .await
 }
 
-/// ?????`docker inspect`??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_inspect_image(
@@ -706,7 +695,7 @@ pub async fn docker_inspect_image(
         .await
 }
 
-/// ??????`docker history`??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_image_history(
@@ -720,35 +709,35 @@ pub async fn docker_image_history(
         .await
 }
 
-/// ??????????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_prune_images(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<DockerPruneResult, OmniError> {
-    tracing::info!(connection = %connection_id, "?? Docker ????");
+    tracing::info!(connection = %connection_id, "打开 Docker 容器终端");
     resolve_adapter(&state, &connection_id)
         .await?
         .prune_images()
         .await
 }
 
-/// ??????????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_prune_build_cache(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<DockerPruneResult, OmniError> {
-    tracing::info!(connection = %connection_id, "?? Docker ????");
+    tracing::info!(connection = %connection_id, "打开 Docker 容器终端");
     resolve_adapter(&state, &connection_id)
         .await?
         .prune_build_cache()
         .await
 }
 
-/// ?????? + ??????? exec ???
+/// 在容器内创建交互式 exec 会话
 async fn close_docker_exec_for_container(
     state: &AppState,
     connection_id: &str,
@@ -772,7 +761,7 @@ async fn close_docker_exec_for_container(
     }
 }
 
-/// ???? Docker ????? exec ???PTY ? SSH ??????????????
+/// 本地 Docker 容器 exec：分配 PTY；SSH 引擎走远程 shell 通道
 async fn close_docker_exec_for_connection(state: &AppState, connection_id: &str) {
     loop {
         let next = {
@@ -928,7 +917,7 @@ pub async fn docker_create_exec_session(
 
     let (session, mut output) = exec_pair.ok_or_else(|| {
         last_err
-            .unwrap_or_else(|| OmniError::new(ErrorCode::Ssh, "????????????? shell???? bash/sh?"))
+            .unwrap_or_else(|| OmniError::new(ErrorCode::Ssh, "无法在容器内启动交互 shell，请尝试 bash/sh"))
     })?;
 
     let session_id = format!(
@@ -971,7 +960,7 @@ pub async fn docker_create_exec_session(
     Ok(session_id)
 }
 
-/// ?????? stdin?
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_exec_write(
@@ -982,11 +971,11 @@ pub async fn docker_exec_write(
     let sessions = state.docker_exec_sessions.lock().await;
     let entry = sessions
         .get(&session_id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("?????? {session_id} ???")))?;
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("容器终端会话 {session_id} 不存在")))?;
     entry.session.write(&data).await
 }
 
-/// ?????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_exec_resize(
@@ -1002,7 +991,7 @@ pub async fn docker_exec_resize(
     Ok(())
 }
 
-/// ??????????? stdin ???????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_exec_close(
@@ -1015,7 +1004,7 @@ pub async fn docker_exec_close(
     Ok(())
 }
 
-/// ?? Compose ????????????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_list_compose_projects(
@@ -1028,7 +1017,7 @@ pub async fn docker_list_compose_projects(
         .await
 }
 
-/// ????????? `docker_image_progress` ????? `progress_channel` ???
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_pull_image(
@@ -1047,7 +1036,7 @@ pub async fn docker_pull_image(
     adapter.pull_image(&image, Some(Box::new(cb) as _)).await
 }
 
-/// ????????? `docker_image_progress` ????? `progress_channel` ???
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_push_image(
@@ -1066,7 +1055,7 @@ pub async fn docker_push_image(
     adapter.push_image(&image, Some(Box::new(cb) as _)).await
 }
 
-/// ????????? tag?
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_tag_image(
@@ -1081,7 +1070,7 @@ pub async fn docker_tag_image(
         .await
 }
 
-/// ?????Dockerfile?????? `progress_channel` ?????
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_build_image(
@@ -1100,7 +1089,7 @@ pub async fn docker_build_image(
     adapter.build_image(&context, Some(Box::new(cb) as _)).await
 }
 
-/// Compose ?????up/down/restart/pull/logs??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_compose_action(
@@ -1115,7 +1104,7 @@ pub async fn docker_compose_action(
         .await
 }
 
-// -------- ?? --------
+// -------- 镜像 --------
 
 #[tauri::command]
 #[specta::specta]
@@ -1155,7 +1144,7 @@ pub async fn docker_remove_network(
         .await
 }
 
-/// ?????`docker network inspect`??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_inspect_network(
@@ -1238,7 +1227,7 @@ pub async fn docker_remove_volume(
         .await
 }
 
-/// ????`docker volume inspect`??
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_inspect_volume(
@@ -1264,7 +1253,7 @@ pub async fn docker_prune_volumes(
         .await
 }
 
-// -------- ????? --------
+// -------- 文件操作 --------
 
 #[tauri::command]
 #[specta::specta]
@@ -1374,7 +1363,7 @@ pub struct SshHostInfo {
     pub user: String,
 }
 
-/// ?? SSH ?? Docker ?????
+/// 通过 SSH 探测 Docker 是否可用
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerScanItemResult {
@@ -1388,7 +1377,7 @@ pub struct DockerScanItemResult {
     pub error: Option<String>,
 }
 
-/// ??????? SSH ?? Docker ?????
+/// 自动探测并绑定 SSH 上的 Docker 引擎
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerScanResult {
@@ -1459,7 +1448,7 @@ async fn probe_ssh_docker_session(session: &SshSession) -> DockerAutoDetectResul
     }
 }
 
-/// ??????? SSH ???? Docker ??????????? Docker ???
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_scan_ssh_docker_hosts(
@@ -1498,7 +1487,7 @@ pub async fn docker_scan_ssh_docker_hosts(
                     probe: None,
                     docker_connection_id: None,
                     action: "failed".to_string(),
-                    error: Some(format!("SSH ??????: {e}")),
+                    error: Some(format!("SSH 连接失败: {e}")),
                 });
                 continue;
             }
@@ -1616,7 +1605,7 @@ pub async fn docker_scan_ssh_docker_hosts(
     Ok(result)
 }
 
-/// ?????????? ID?
+/// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_create_container(
@@ -1628,7 +1617,7 @@ pub async fn docker_create_container(
         connection = %connection_id,
         image = %request.image,
         name = ?request.name,
-        "?? Docker ??"
+        "删除 Docker 镜像"
     );
     resolve_adapter(&state, &connection_id)
         .await?
@@ -1636,7 +1625,7 @@ pub async fn docker_create_container(
         .await
 }
 
-// ?? Docker Swarm Commands ??????????????????????????????????????????????
+// -- Docker Swarm Commands（集群模式，与单机 Engine 命令分区）--
 
 #[tauri::command]
 #[specta::specta]
@@ -1691,7 +1680,7 @@ pub async fn docker_swarm_inspect(
         .swarm_inspect()
         .await?;
     serde_json::to_string_pretty(&val)
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "?????").with_cause(e.to_string()))
+        .map_err(|e| OmniError::new(ErrorCode::Internal, "序列化失败").with_cause(e.to_string()))
 }
 
 #[tauri::command]
@@ -1786,7 +1775,7 @@ pub async fn docker_node_inspect(
         .node_inspect(&node_id)
         .await?;
     serde_json::to_string_pretty(&val)
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "?????").with_cause(e.to_string()))
+        .map_err(|e| OmniError::new(ErrorCode::Internal, "序列化失败").with_cause(e.to_string()))
 }
 
 #[tauri::command]
@@ -1957,3 +1946,6 @@ mod tests {
         assert!(!is_ssh_session_recoverable(&err));
     }
 }
+
+
+

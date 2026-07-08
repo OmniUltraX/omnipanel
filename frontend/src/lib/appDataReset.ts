@@ -19,7 +19,7 @@ import {
 import { useShortcutsStore } from "../stores/shortcutsStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useTerminalDockLayoutStore } from "../stores/terminalDockLayoutStore";
-import { useFilesDockLayoutStore } from "../stores/filesDockLayoutStore";
+import { useFilesWorkspaceSessionStore } from "../stores/filesWorkspaceSessionStore";
 import { useWorkflowStore } from "../stores/workflowStore";
 import { DEFAULT_WORKSPACE, useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorkspaceBottomDockStore } from "../stores/workspaceBottomDockStore";
@@ -35,7 +35,7 @@ const PROTECTED_CONNECTION_IDS = new Set([
 export function clearAppLayoutCache(): void {
   useTerminalDockLayoutStore.getState().reset();
   useDbDockLayoutStore.getState().reset();
-  useFilesDockLayoutStore.getState().reset();
+  useFilesWorkspaceSessionStore.getState().reset();
   useWorkspaceBottomDockStore.getState().resetAll();
   resetModuleTabs();
   useShortcutsStore.getState().resetAll();

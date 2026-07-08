@@ -12,7 +12,6 @@ import {
   type OnePanelMonitorData,
   type OnePanelProcess,
   type OnePanelRequestOptions,
-  type OnePanelSystemInfo,
 } from "./types";
 
 export interface OnePanelClientOptions {
@@ -239,29 +238,6 @@ export class OnePanelClient {
     });
   }
 
-  /** 兼容旧调用：映射到 getDashboardBase。 */
-  async getSystemInfo(): Promise<OnePanelSystemInfo> {
-    const base = await this.getDashboardBase();
-    const current = base.currentInfo ?? {};
-    const disk = current.diskData?.[0];
-    return {
-      hostname: base.hostname ?? "",
-      os: base.os ?? "",
-      kernel: base.kernelVersion ?? "",
-      platformVersion: base.platformVersion ?? "",
-      uptime: current.uptime ?? 0,
-      cpuCores: base.cpuCores ?? 0,
-      cpuModel: base.cpuModelName ?? "",
-      totalMemory: current.memoryTotal ?? 0,
-      usedMemory: current.memoryUsed ?? 0,
-      totalDisk: disk?.total ?? 0,
-      usedDisk: disk?.used ?? 0,
-      swapTotal: 0,
-      swapUsed: 0,
-      currentTime: "",
-    };
-  }
-
   /** POST /hosts/monitor/search — 监控历史时序。 */
   async searchMonitorHistory(params: {
     param: "all" | "cpu" | "memory" | "load" | "io" | "network";
@@ -281,20 +257,6 @@ export class OnePanelClient {
         endTime: params.endTime,
       },
     });
-  }
-
-  /** @deprecated 使用 searchMonitorHistory */
-  async getMonitor(params: {
-    startTime: string;
-    endTime: string;
-    point?: number;
-  }): Promise<OnePanelMonitorData[]> {
-    const data = await this.searchMonitorHistory({
-      param: "cpu",
-      startTime: params.startTime,
-      endTime: params.endTime,
-    });
-    return [data];
   }
 
   /** GET /dashboard/current/top/cpu|mem — Top 进程。 */

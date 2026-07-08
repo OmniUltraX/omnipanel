@@ -43,9 +43,6 @@ export interface AiThreadToolCall {
 
 export type AiThreadItem = AiThreadMessage | AiThreadToolCall;
 
-/** @deprecated 使用 AiThreadMessage */
-export type AiThreadTurn = AiThreadMessage;
-
 export interface TerminalBlock {
   id: string;
   sessionId: string;
@@ -117,21 +114,6 @@ interface BlocksState {
   appendAiThreadMessageFieldSync: (
     blockId: string,
     messageId: string,
-    field: "content" | "reasoning",
-    chunk: string,
-  ) => void;
-  /** @deprecated 使用 pushAiThreadItem */
-  pushAiThreadTurn: (
-    blockId: string,
-    turn: Omit<AiThreadMessage, "kind" | "id" | "timestamp"> & {
-      id?: string;
-      timestamp?: number;
-    },
-  ) => string;
-  /** @deprecated 使用 appendAiThreadMessageField */
-  appendAiThreadField: (
-    blockId: string,
-    turnId: string,
     field: "content" | "reasoning",
     chunk: string,
   ) => void;
@@ -389,20 +371,6 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
 
   appendAiThreadMessageField: (blockId, messageId, field, chunk) => {
     get().appendAiThreadMessageFieldSync(blockId, messageId, field, chunk);
-  },
-
-  pushAiThreadTurn: (blockId, turn) =>
-    get().pushAiThreadItem(blockId, {
-      kind: "message",
-      role: turn.role,
-      content: turn.content,
-      reasoning: turn.reasoning,
-      id: turn.id,
-      timestamp: turn.timestamp,
-    }),
-
-  appendAiThreadField: (blockId, turnId, field, chunk) => {
-    get().appendAiThreadMessageField(blockId, turnId, field, chunk);
   },
 
   findBlockById: (blockId) => {

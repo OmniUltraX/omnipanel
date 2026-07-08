@@ -30,10 +30,6 @@ interface CliProvidersState {
 
   syncProviders: (options?: { forceModels?: boolean }) => Promise<void>;
 
-  /** @deprecated 使用 syncProviders */
-
-  refreshProviders: () => Promise<void>;
-
   refreshModels: (providerId: string, options?: { silent?: boolean }) => Promise<string[]>;
 
   setProviderEnabled: (id: string, enabled: boolean) => Promise<boolean>;
@@ -263,14 +259,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           set({ loading: false, syncing: false });
 
         }
-
-      },
-
-
-
-      refreshProviders: async () => {
-
-        await get().syncProviders({ forceModels: true });
 
       },
 

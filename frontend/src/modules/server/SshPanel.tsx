@@ -40,8 +40,6 @@ export function SshPanel() {
 
       <ModuleWorkspaceLayout
 
-        layoutKey="ssh"
-
         className="ssh-module-layout"
 
         leftColumnTitle={t("routes.ssh")}

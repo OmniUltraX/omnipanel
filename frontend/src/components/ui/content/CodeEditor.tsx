@@ -16,7 +16,7 @@ import { getSearchHighlightExtension, updateSearchHighlight } from "../../../mod
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
-/** MySQL .cnf / .ini ??????legacy properties ????? [section]?# ???= ???? */
+/** MySQL .cnf / .ini 语法高亮（legacy properties 模式，支持 [section]、# 注释与 key= value） */
 const iniLanguage = StreamLanguage.define(properties);
 
 export type CodeEditorLanguage = "text" | "sql" | "json" | "yaml" | "shell" | "dockerfile" | "ini";
@@ -26,7 +26,7 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   language?: CodeEditorLanguage;
   readOnly?: boolean;
-  /** ???????????????? ScopedSearch ????????? */
+  /** 搜索高亮关键词（与 ScopedSearch 联动，由父组件传入） */
   highlightQuery?: string;
   height?: number | string;
   className?: string;
@@ -61,7 +61,7 @@ export function codeEditorLanguageFromPath(filePath: string): CodeEditorLanguage
   return languageFromFilePath(filePath);
 }
 
-/** ?? CodeMirror ??????�?SQL ?????????�?*/
+/** 轻量 CodeMirror 编辑器，复用 SQL 编辑器的主题与字体设置 */
 export function CodeEditor({
   value,
   onChange,
@@ -211,3 +211,4 @@ export function CodeEditor({
     </div>
   );
 }
+

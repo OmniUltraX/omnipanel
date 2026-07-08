@@ -134,7 +134,6 @@ export function ServerPanel() {
     <>
       <ServerSidebarLinkageProvider value={sidebarLinkageValue}>
         <ModuleWorkspaceLayout
-          layoutKey="server-panels"
           className="server-panels-workspace"
           leftColumnTitle={t("routes.server")}
           leftPreset="server"

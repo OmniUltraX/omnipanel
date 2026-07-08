@@ -1510,8 +1510,8 @@ export function DockableWorkspace({
     };
   }, []);
 
-  // 作为跨实例拖放目标时，即使无 tab 也需保持 dockview 挂载以接收 drop
-  const keepDockviewMounted = acceptExternalDrops;
+  // 作为跨实例拖放目标或嵌入窗口控制时，即使无 tab 也需保持 dockview 挂载
+  const keepDockviewMounted = acceptExternalDrops || windowControl;
 
   if (tabs.length === 0 && !keepDockviewMounted) {
     return (

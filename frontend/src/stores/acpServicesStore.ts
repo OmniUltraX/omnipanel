@@ -19,7 +19,7 @@ export type AcpService = {
   modelSelectionId: string | null;
   /** 多启用：是否开启该 CLI 提供者 */
   enabled: boolean;
-  /** @deprecated 兼容旧数据，等同首个 enabled */
+  /** 持久化兼容字段，读写时与 enabled 同步 */
   isActive: boolean;
   builtin?: boolean;
   createdAt: number;
@@ -30,8 +30,6 @@ interface AcpServicesState {
   installStatuses: AgentInstallStatus[];
   detecting: boolean;
   toggleEnabled: (kind: AgentKind) => void;
-  /** @deprecated 使用 toggleEnabled */
-  setActive: (kind: AgentKind) => void;
   updateService: (id: AgentKind, patch: Partial<Pick<AcpService, "modelSelectionId">>) => void;
   setInstallStatuses: (statuses: AgentInstallStatus[]) => void;
   refreshDetection: () => Promise<void>;
@@ -114,10 +112,6 @@ export const useAcpServicesStore = create<AcpServicesState>()(
             return { ...s, enabled, isActive: enabled };
           }),
         });
-      },
-
-      setActive: (kind) => {
-        get().toggleEnabled(kind);
       },
 
       updateService: (id, patch) => {

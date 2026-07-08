@@ -89,9 +89,6 @@ export function shouldKeepDataSyncStrategy(
 /** 冲突表的数据同步策略：源 = 全部采用源表；目标 = 保留目标表；合并 = 仅追加目标缺失行 */
 export type DataSyncStrategy = "source" | "target" | "merge";
 
-/** @deprecated 旧版策略，读取配置时映射为新策略 */
-export type LegacyDataSyncStrategy = "rewrite" | "append" | "update";
-
 export function normalizeDataSyncStrategy(
   value: string | undefined | null,
   fallback: DataSyncStrategy = "source",
@@ -178,8 +175,8 @@ export function connectionWithDatabase(
 /** 结构同步目标侧单行状态 */
 export type SchemaTargetRowStatus = "new" | "diff" | "targetOnly" | "match";
 
-/** @deprecated 单选遗留值，读取时会 normalize 为数组 */
-export type SchemaTargetStatusFilter = "all" | SchemaTargetRowStatus;
+/** 持久化迁移：旧版单选状态筛选，读取时 normalize 为数组 */
+type PersistedSchemaTargetStatusFilter = "all" | SchemaTargetRowStatus;
 
 export const ALL_SCHEMA_TARGET_ROW_STATUSES: SchemaTargetRowStatus[] = [
   "new",
@@ -190,7 +187,7 @@ export const ALL_SCHEMA_TARGET_ROW_STATUSES: SchemaTargetRowStatus[] = [
 
 /** 将持久化配置 normalize 为多选数组；空数组表示全部状态 */
 export function normalizeSchemaTargetStatusFilters(
-  raw?: SchemaTargetStatusFilter | SchemaTargetRowStatus[] | null,
+  raw?: PersistedSchemaTargetStatusFilter | SchemaTargetRowStatus[] | null,
 ): SchemaTargetRowStatus[] {
   if (!raw) {
     return [];
@@ -211,6 +208,21 @@ export function isSchemaTargetStatusFilterShowAll(filters: SchemaTargetRowStatus
   return (
     filters.length === 0 || filters.length >= ALL_SCHEMA_TARGET_ROW_STATUSES.length
   );
+}
+
+/** 从任务配置解析结构同步状态筛选（含 showMatchingTables 旧字段迁移） */
+export function resolveSchemaTargetStatusFiltersFromConfig(
+  config: Pick<SyncTaskConfig, "schemaTargetStatusFilter"> & {
+    showMatchingTables?: boolean;
+  },
+): SchemaTargetRowStatus[] {
+  if (config.schemaTargetStatusFilter != null) {
+    return normalizeSchemaTargetStatusFilters(config.schemaTargetStatusFilter);
+  }
+  if (config.showMatchingTables === false) {
+    return ALL_SCHEMA_TARGET_ROW_STATUSES.filter((status) => status !== "match");
+  }
+  return [];
 }
 
 /** 同步任务分析结果缓存（随任务配置持久化） */
@@ -240,11 +252,9 @@ export interface SyncTaskConfig {
   /** 结构同步：目标库不存在时是否新建表，默认 true */
   schemaCreateMissingTables?: boolean;
   /** 结构同步：目标侧表状态筛选（空数组表示全部） */
-  schemaTargetStatusFilter?: SchemaTargetRowStatus[] | SchemaTargetStatusFilter;
+  schemaTargetStatusFilter?: SchemaTargetRowStatus[] | PersistedSchemaTargetStatusFilter;
   /** 结构同步：表名搜索过滤 */
   schemaTableSearch?: string;
-  /** @deprecated 已由 schemaTargetStatusFilter 替代 */
-  showMatchingTables?: boolean;
   /** 上次分析结果缓存 */
   analysisCache?: SyncTaskAnalysisCache;
 }

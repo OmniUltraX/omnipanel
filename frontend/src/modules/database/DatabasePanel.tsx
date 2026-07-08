@@ -44,7 +44,7 @@ import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
-import { isSqlMonacoEditorFocused, sqlAtOffset } from "./lsp/sqlStatement";
+import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
@@ -78,7 +78,7 @@ import {
   type DbCharsetMeta,
   type DbConnectionConfig,
 } from "./api";
-import { buildDatabaseSchema, introspectToTableSchemas } from "./lsp/sqlCompletion";
+import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
 import { formatSql } from "./sqlIntel/sqlFormat";
 import { sqlRequiresDatabaseContext } from "./sqlIntel/connectionLevelSql";
 import { toCsv } from "./shared/csvExport";
@@ -147,7 +147,6 @@ import {
   reuseTemporarySqlResultSession,
   type SqlResultSession,
   estimateTablePreviewTotalRows,
-  buildOrderByClause,
   NEW_ROW_KEY_PREFIX,
   DELETED_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
@@ -170,7 +169,8 @@ import {
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
-import { buildSelectAllFromTableSql, formatFilterWhere } from "./grid/tablePreviewFilter";
+import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
+import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
 import {
   probeSlowLogAvailability,
   resolveSlowLogAvailabilitySync,
@@ -271,7 +271,7 @@ function applyDefaultWorkspaceSession(
 }
 
 
-/** 把行主键拼成的字符串??col=val&col=val"）解析回单列值，rowKey 中空字符串表??NULL??*/
+/** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL */
 function readRowKeyValue(rowKey: string, colName: string): string {
   for (const part of rowKey.split("&")) {
     const eq = part.indexOf("=");
@@ -566,7 +566,7 @@ export function DatabasePanel() {
   const recentClosedPanels = useDbWorkspaceSessionStore((s) => s.recentClosedPanels);
   const pushRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.pushRecentClosedPanel);
   const removeRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.removeRecentClosedPanel);
-  /** SQL 工作??Tab 未保存标记（??tabId；与 store.dirtyFileIds 解耦，保证 Tab 头即时更新） */
+  /** SQL 工作区 Tab 未保存标记（按 tabId；与 store.dirtyFileIds 解耦，保证 Tab 头即时更新） */
   const [dirtySqlWorkspaceTabIds, setDirtySqlWorkspaceTabIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1046,7 +1046,7 @@ export function DatabasePanel() {
         return inGroup?.id ?? pickEnabled(list)?.id ?? null;
       });
     } catch {
-      // 连接列表加载失败时保留当前状??
+      // 连接列表加载失败时保留当前状态
     } finally {
       setConnectionsLoading(false);
     }
@@ -1357,17 +1357,24 @@ export function DatabasePanel() {
 
       const sort = previewState?.sort ?? null;
       const filter = previewState?.filter ?? null;
+      const columnRelations = previewState?.columnRelations ?? {};
       const hiddenColumns = previewState?.hiddenColumns ? [...previewState.hiddenColumns] : [];
       const transposed = previewState?.transposed ?? false;
       const page = previewState?.page ?? 0;
       const pageSize = previewState?.pageSize ?? createDefaultTablePreviewState().pageSize;
-      const orderBy = sort ? buildOrderByClause(sort, connection.db_type) : undefined;
-      const where = formatFilterWhere(filter, connection.db_type);
-      void Promise.all([
-        countTable(connForSchema, tab.tableName, tab.dbName, where),
-        previewTable(connForSchema, tab.tableName, pageSize, page * pageSize, orderBy, where),
-      ])
-        .then(([totalRows, data]) => {
+      void fetchTablePreviewPage({
+        connection,
+        connId: tab.connId,
+        tableName: tab.tableName,
+        dbName: tab.dbName,
+        page,
+        pageSize,
+        sort,
+        filter,
+        columnMeta: useDbWorkspaceTabStore.getState().tableColumnMeta[tab.id],
+        columnRelations,
+      })
+        .then(({ data, totalRows = 0 }) => {
           if (connection.db_type === "redis") {
             setTableColumnMeta((prev) => ({
               ...prev,
@@ -1391,6 +1398,7 @@ export function DatabasePanel() {
               filter,
               hiddenColumns,
               transposed,
+              columnRelations,
             },
           }));
         })
@@ -1410,6 +1418,7 @@ export function DatabasePanel() {
               filter,
               hiddenColumns,
               transposed,
+              columnRelations,
             },
           }));
         });
@@ -1632,7 +1641,7 @@ export function DatabasePanel() {
           }));
         })
         .catch(() => {
-          // 忽略：用户可??Schema 侧栏手动刷新
+          // 忽略：用户可在 Schema 侧栏手动刷新
         });
     }
     return () => {
@@ -1778,22 +1787,27 @@ export function DatabasePanel() {
     (tabId: string, connId: string, dbName: string, tableName: string) => {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
-      const connForSchema = { ...connection, database: dbName };
 
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
         const page = existing.page;
-        const orderBy = existing.sort
-          ? buildOrderByClause(existing.sort, connection.db_type)
-          : undefined;
-        const where = formatFilterWhere(existing.filter, connection.db_type);
+        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+        const columnRelations = existing.columnRelations ?? {};
 
-        Promise.all([
-          countTable(connForSchema, tableName, dbName, where),
-          previewTable(connForSchema, tableName, pageSize, page * pageSize, orderBy, where),
-        ])
-          .then(([totalRows, data]) => {
+        void fetchTablePreviewPage({
+          connection,
+          connId,
+          tableName,
+          dbName,
+          page,
+          pageSize,
+          sort: existing.sort,
+          filter: existing.filter,
+          columnMeta: colMeta,
+          columnRelations,
+        })
+          .then(({ data, totalRows = 0 }) => {
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -1822,13 +1836,23 @@ export function DatabasePanel() {
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
-        const orderBy = existing.sort
-          ? buildOrderByClause(existing.sort, connection.db_type)
-          : undefined;
-        const where = formatFilterWhere(existing.filter, connection.db_type);
+        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+        const columnRelations = existing.columnRelations ?? {};
 
-        previewTable(connForSchema, tableName, pageSize, page * pageSize, orderBy, where)
-          .then((data) => {
+        void fetchTablePreviewPage({
+          connection,
+          connId,
+          tableName,
+          dbName,
+          page,
+          pageSize,
+          sort: existing.sort,
+          filter: existing.filter,
+          columnMeta: colMeta,
+          columnRelations,
+          skipCount: true,
+        })
+          .then(({ data }) => {
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -1855,21 +1879,26 @@ export function DatabasePanel() {
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
       const connection = connections.find((c) => c.id === preview.connId);
       if (!connection) return;
-      const connForSchema = { ...connection, database: preview.dbName };
 
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
-        const orderBy = existing.sort
-          ? buildOrderByClause(existing.sort, connection.db_type)
-          : undefined;
-        const where = formatFilterWhere(filter, connection.db_type);
+        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+        const columnRelations = existing.columnRelations ?? {};
 
-        Promise.all([
-          countTable(connForSchema, preview.tableName!, preview.dbName!, where),
-          previewTable(connForSchema, preview.tableName!, pageSize, 0, orderBy, where),
-        ])
-          .then(([totalRows, data]) => {
+        void fetchTablePreviewPage({
+          connection,
+          connId: preview.connId,
+          tableName: preview.tableName!,
+          dbName: preview.dbName!,
+          page: 0,
+          pageSize,
+          sort: existing.sort,
+          filter,
+          columnMeta: colMeta,
+          columnRelations,
+        })
+          .then(({ data, totalRows = 0 }) => {
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -1942,19 +1971,26 @@ export function DatabasePanel() {
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
       const connection = connections.find((c) => c.id === preview.connId);
       if (!connection) return;
-      const connForSchema = { ...connection, database: preview.dbName };
 
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
-        const orderBy = sort ? buildOrderByClause(sort, connection.db_type) : undefined;
-        const where = formatFilterWhere(existing.filter, connection.db_type);
+        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+        const columnRelations = existing.columnRelations ?? {};
 
-        Promise.all([
-          countTable(connForSchema, preview.tableName!, preview.dbName!, where),
-          previewTable(connForSchema, preview.tableName!, pageSize, 0, orderBy, where),
-        ])
-          .then(([totalRows, data]) => {
+        void fetchTablePreviewPage({
+          connection,
+          connId: preview.connId,
+          tableName: preview.tableName!,
+          dbName: preview.dbName!,
+          page: 0,
+          pageSize,
+          sort,
+          filter: existing.filter,
+          columnMeta: colMeta,
+          columnRelations,
+        })
+          .then(({ data, totalRows = 0 }) => {
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -4109,14 +4145,14 @@ export function DatabasePanel() {
     [runQuery],
   );
 
-  // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 ??Ctrl+Enter??
+  // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 Ctrl+Enter 快捷键
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing) return;
       if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey || e.altKey) {
         return;
       }
-      if (isSqlMonacoEditorFocused()) return;
+      if (isSqlEditorFocused()) return;
 
       const tabId = activeWorkspaceTabId;
       if (!tabId) return;
@@ -4216,7 +4252,7 @@ export function DatabasePanel() {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) {
         return;
       }
-      if (isSqlMonacoEditorFocused()) return;
+      if (isSqlEditorFocused()) return;
       if (!activeWorkspaceTabId) return;
       const tab = workspaceTabsRef.current.find((item) => item.id === activeWorkspaceTabId);
       if (!tab || tab.kind !== "sql") return;
@@ -4766,7 +4802,6 @@ export function DatabasePanel() {
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
     <DbSchemaProvider value={schemaContextValue}>
     <ModuleWorkspaceLayout
-      layoutKey="database"
       className="db-module-layout"
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
@@ -4929,3 +4964,5 @@ export function DatabasePanel() {
     </>
   );
 }
+
+

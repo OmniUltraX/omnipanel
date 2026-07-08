@@ -72,7 +72,3 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
   );
 }
 
-/** @deprecated 使用 DockWindowChromeActions */
-export function DockWindowTitleActions() {
-  return <DockWindowChromeActions mode="both" />;
-}

@@ -76,11 +76,6 @@ export function isModuleOpen(key: ModuleKey): boolean {
   return getModuleStatus(key) === "open";
 }
 
-/** @deprecated 使用 isModuleOpen */
-export function isModuleEnabled(key: ModuleKey): boolean {
-  return isModuleOpen(key);
-}
-
 export function getNavVisibleModuleKeys(): ModuleKey[] {
   const { modules, hydrated } = useAppModuleStore.getState();
   if (!hydrated || modules.length === 0) {

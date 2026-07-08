@@ -32,11 +32,6 @@ export async function connectAcpAgent(commandLine: string): Promise<void> {
   }
 }
 
-/** @deprecated 使用 connectActiveAcpAgent */
-export async function connectDefaultAcpAgent(): Promise<void> {
-  await connectActiveAcpAgent();
-}
-
 export async function getAcpDefaultCommand(): Promise<string | null> {
   const result = await commands.acpGetDefaultCommand();
   if (result.status === "error") {
@@ -80,7 +75,7 @@ export async function connectActiveAcpAgent(): Promise<void> {
     }
 
     const modelSelectionId = adapter.requiresOmniPanelConfig()
-      ? resolveAcpModelSelectionId(state.services.find((s) => s.isActive) ?? null)
+      ? resolveAcpModelSelectionId(state.services.find((s) => s.enabled) ?? null)
       : null;
 
     if (adapter.requiresOmniPanelConfig() && !modelSelectionId) {

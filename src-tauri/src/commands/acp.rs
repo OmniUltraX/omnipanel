@@ -8,7 +8,6 @@ use std::sync::Mutex;
 
 use omnipanel_ai::ir::{StopReason, StreamEvent, ToolStatus};
 use omnipanel_ai::providers::acp::{AcpManager, PromptOptions};
-use omnipanel_mcp::{McpServiceRuntimeStatus, McpTransport};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::ipc::Channel;
@@ -216,57 +215,6 @@ fn infer_spawn_cwd(args: &[String]) -> Option<PathBuf> {
 
 fn resolve_default_agent_command(app: &AppHandle) -> Option<String> {
     resolve_default_agent_launch(app).map(|spec| spec.display_command)
-}
-
-/// @deprecated MCP 不再注入 ACP Agent；保留供遗留路径参考。
-#[allow(dead_code)]
-pub async fn build_mcp_servers(state: &AppState) -> Vec<serde_json::Value> {
-    let manager = state.mcp_manager.lock().await;
-    let mut servers = Vec::new();
-
-    for service in manager.list_services() {
-        if !service.enabled {
-            continue;
-        }
-        match &service.transport {
-            McpTransport::Stdio { config } => {
-                servers.push(serde_json::json!({
-                    "name": service.name,
-                    "command": config.command,
-                    "args": config.args,
-                    "env": config.env.iter().map(|(k, v)| {
-                        serde_json::json!({ "name": k, "value": v })
-                    }).collect::<Vec<_>>(),
-                }));
-            }
-            McpTransport::Sse { config } => {
-                if service.builtin && service.status != McpServiceRuntimeStatus::Running {
-                    continue;
-                }
-                let url = service
-                    .endpoint
-                    .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .or_else(|| {
-                        if config.url.trim().is_empty() {
-                            None
-                        } else {
-                            Some(config.url.as_str())
-                        }
-                    });
-                let Some(url) = url else { continue };
-                // OmniMCP 与 rmcp StreamableHttp 均走 HTTP 传输，非 legacy SSE。
-                servers.push(serde_json::json!({
-                    "type": "http",
-                    "name": service.name,
-                    "url": url,
-                    "headers": [],
-                }));
-            }
-        }
-    }
-
-    servers
 }
 
 fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {

@@ -163,7 +163,6 @@ export function KnowledgePanel() {
         </div>
       )}
       <ModuleWorkspaceLayout
-        layoutKey="knowledge"
         className="knowledge-workspace"
         leftColumnTitle={t("routes.knowledge")}
         leftPreset="schema"

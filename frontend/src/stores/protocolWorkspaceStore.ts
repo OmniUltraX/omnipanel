@@ -23,8 +23,6 @@ interface ProtocolWorkspaceState {
   activeTabId: string | null;
   savedLayout: SerializedDockview | null;
   openSessionTab: (input: OpenProtocolSessionInput) => string;
-  /** @deprecated 使用 openSessionTab */
-  openProtocolTab: (protocol: ProtocolTabKey) => string;
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string | null) => void;
   updateTabLabel: (tabId: string, label: string) => void;
@@ -85,8 +83,6 @@ export const useProtocolWorkspaceStore = create<ProtocolWorkspaceState>()(
         }));
         return tab.id;
       },
-      openProtocolTab: (protocol) =>
-        get().openSessionTab({ protocol, label: protocol, resourceId: null }),
       closeTab: (tabId) => {
         const state = get();
         const tabs = state.tabs.filter((tab) => tab.id !== tabId);

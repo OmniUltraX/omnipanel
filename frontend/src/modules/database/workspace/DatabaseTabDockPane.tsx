@@ -1,5 +1,5 @@
 import { useSyncExternalStore, useMemo } from "react";
-import { DbWorkspaceProvider } from "../../../contexts/DbWorkspaceContext";
+import { DbWorkspaceMirrorProvider } from "../../../contexts/DbWorkspaceContext";
 import {
   getMirroredDbTabSnapshot,
   getMirroredDbTabVersion,
@@ -46,7 +46,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
   const { tab } = snapshot;
 
   return (
-    <DbWorkspaceProvider value={overriddenCtx}>
+    <DbWorkspaceMirrorProvider value={overriddenCtx}>
       <div className="workspace-database-mirror db-dock-workspace">
         <div className="db-workspace-pane db-dock-pane">
           {isConnectionInfoTab(tab) ? (
@@ -100,6 +100,6 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
           ) : null}
         </div>
       </div>
-    </DbWorkspaceProvider>
+    </DbWorkspaceMirrorProvider>
   );
 }

@@ -24,24 +24,6 @@ export interface OnePanelDeviceBase {
   currentTime?: string;
 }
 
-/** @deprecated 使用 OnePanelDashboardBase */
-export interface OnePanelSystemInfo extends OnePanelDeviceBase {
-  hostname: string;
-  os: string;
-  kernel: string;
-  platformVersion: string;
-  uptime: number;
-  cpuCores: number;
-  cpuModel: string;
-  totalMemory: number;
-  usedMemory: number;
-  totalDisk: number;
-  usedDisk: number;
-  swapTotal: number;
-  swapUsed: number;
-  currentTime: string;
-}
-
 export interface OnePanelDiskInfo {
   path?: string;
   total?: number;

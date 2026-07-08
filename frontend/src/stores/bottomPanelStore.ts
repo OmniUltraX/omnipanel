@@ -16,7 +16,7 @@ import {
   type WorkspaceMode,
 } from "../lib/workspaceMode";
 
-/** @deprecated 兼容旧逻辑，映射到 hidden/half */
+/** 底部嵌入区展示态：off=隐藏，half=半屏 */
 export type WorkspaceEmbeddedMode = "off" | "half";
 
 interface BottomPanelState {
@@ -39,9 +39,6 @@ interface BottomPanelState {
   isOpen: boolean;
   /** 是否全屏（工程工作区） */
   isFullscreen: boolean;
-  /** @deprecated 首页已移除，始终为 false */
-  isHomeActive: boolean;
-  /** @deprecated 使用 lastNonFullscreenMode */
   embeddedMode: WorkspaceEmbeddedMode;
 
   requestExpand: () => void;
@@ -52,15 +49,9 @@ interface BottomPanelState {
     options?: { fromUserDrag?: boolean; commit?: boolean },
   ) => void;
   enterFullscreen: () => void;
-  /** @deprecated 首页已移除，等同于 enterWorkspaceFullscreen */
-  enterHomeWorkspace: () => void;
   enterWorkspaceFullscreen: () => void;
   exitFullscreen: () => void;
   leaveFullscreenForFeature: () => void;
-  /** @deprecated 首页已移除，等同于 leaveFullscreenForFeature */
-  leaveHomeToFeature: () => void;
-  /** @deprecated 首页已移除，等同于 enterWorkspaceFullscreen */
-  exitHomeToWorkspace: () => void;
   applyEmbeddedMode: () => void;
   toggleFullscreen: () => void;
   toggleEmbeddedWorkspace: () => void;
@@ -85,7 +76,7 @@ function normalizeWorkspaceMode(mode: WorkspaceMode): WorkspaceMode {
 
 function syncDerivedFlags(mode: WorkspaceMode): Pick<
   BottomPanelState,
-  "isOpen" | "isFullscreen" | "isHomeActive" | "embeddedMode"
+  "isOpen" | "isFullscreen" | "embeddedMode"
 > {
   const normalized = normalizeWorkspaceMode(mode);
   const isFullscreen = normalized === "fullscreen";
@@ -94,7 +85,7 @@ function syncDerivedFlags(mode: WorkspaceMode): Pick<
     normalized === "half" || normalized === "thumbnail" || normalized === "taskbar"
       ? "half"
       : "off";
-  return { isOpen, isFullscreen, isHomeActive: false, embeddedMode };
+  return { isOpen, isFullscreen, embeddedMode };
 }
 
 export const useBottomPanelStore = create<BottomPanelState>()(
@@ -110,7 +101,6 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       workspaceDisplayPreference: "split-window",
       isOpen: false,
       isFullscreen: false,
-      isHomeActive: false,
       embeddedMode: "off",
 
       requestExpand: () => {
@@ -246,19 +236,11 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         get().enterWorkspaceFullscreen();
       },
 
-      enterHomeWorkspace: () => {
-        get().enterWorkspaceFullscreen();
-      },
-
       enterWorkspaceFullscreen: () => {
         set(() => ({
           workspaceMode: "fullscreen",
           ...syncDerivedFlags("fullscreen"),
         }));
-      },
-
-      exitHomeToWorkspace: () => {
-        get().enterWorkspaceFullscreen();
       },
 
       applyEmbeddedMode: () => {
@@ -274,10 +256,6 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         const { workspaceMode } = get();
         if (normalizeWorkspaceMode(workspaceMode) !== "fullscreen") return;
         get().applyEmbeddedMode();
-      },
-
-      leaveHomeToFeature: () => {
-        get().leaveFullscreenForFeature();
       },
 
       leaveFullscreenByDrag: () => {
@@ -434,7 +412,6 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           workspaceHeightPx: legacyEmbedded === "half" ? workspaceHeightPx : 0,
           workspaceMode,
           embeddedMode: legacyEmbedded,
-          isHomeActive: false,
         } as BottomPanelState;
       },
       merge: (persisted, current) => {
@@ -475,7 +452,6 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           merged.workspaceMode = "hidden";
           Object.assign(merged, syncDerivedFlags("hidden"));
         }
-        merged.isHomeActive = false;
         return merged;
       },
     },

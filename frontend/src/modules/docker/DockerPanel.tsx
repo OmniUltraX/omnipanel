@@ -1298,7 +1298,6 @@ export function DockerPanel() {
     <>
       <DockerSidebarLinkageProvider value={sidebarLinkageValue}>
         <ModuleWorkspaceLayout
-          layoutKey="docker-connections"
           className="docker-connections-workspace"
           leftColumnTitle={t("routes.docker")}
           leftPreset="server"

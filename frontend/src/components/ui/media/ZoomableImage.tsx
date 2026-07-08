@@ -33,7 +33,7 @@ function ImagePreviewOverlay({ open, src, alt, onClose }: ImagePreviewOverlayPro
         aria-label={t("ui.imagePreview.close")}
         onClick={onClose}
       >
-        �
+        ×
       </button>
       <img
         className="image-preview-overlay__img"
@@ -50,9 +50,9 @@ export type ZoomableImageProps = {
   alt?: string;
   className?: string;
   imgClassName?: string;
-  /** ?????????? 120px */
+  /** 缩略图最大高度，默认 120px */
   maxHeight?: number | string;
-  /** ??????????? true */
+  /** 是否可点击放大预览，默认 true */
   zoomable?: boolean;
 };
 

@@ -7,7 +7,6 @@ import {
   useProcessListColumnsStore,
   type ProcessColumnId,
 } from "@/stores/processListColumnsStore";
-import type { DetailTab } from "@/modules/server/ssh/types";
 import { ProcessDetailDrawer } from "./ProcessDetailDrawer";
 import { TunnelCreateDialog, type TunnelDraft } from "./TunnelCreateDialog";
 import { TextInput } from "@/components/ui/form/TextInput";
@@ -246,8 +245,6 @@ export type ProcessListPanelProps = {
   updatedAt: number | null;
   error?: string | null;
   onRefresh: () => void;
-  /** @deprecated terminal/sftp Tab 已移除，此 prop 已无效，保留仅为兼容 */
-  setDetailTab?: (tab: DetailTab) => void;
   enableTunnels?: boolean;
   variant?: "default" | "monitor";
 };
@@ -260,7 +257,6 @@ export function ProcessListPanel({
   updatedAt,
   error,
   onRefresh,
-  setDetailTab: _setDetailTab,
   enableTunnels = true,
   variant = "default",
 }: ProcessListPanelProps) {

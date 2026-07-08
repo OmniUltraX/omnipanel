@@ -17,7 +17,7 @@ import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { formatTerminalTabLabel } from "../modules/terminal/terminalSessionDisplay";
 import {
   useTerminalStore,
-  createTerminalTabId,
+  createTerminalSessionId,
   type TerminalTab,
 } from "../stores/terminalStore";
 import { disposeTabBackendSessions } from "../hooks/useTerminal";
@@ -58,7 +58,7 @@ export function copyTerminalTabToWorkspaceSnapshot(
 ): TerminalTabSnapshot {
   return {
     module: "terminal",
-    id: createTerminalTabId(),
+    id: createTerminalSessionId(),
     label: formatTerminalTabLabel(
       source.session.resourceId,
       source.title,

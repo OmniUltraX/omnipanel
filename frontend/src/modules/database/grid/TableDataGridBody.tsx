@@ -14,6 +14,7 @@ import {
   ROW_NUM_COL_ID,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
+import { isRelationDisplayColumn } from "./tableColumnRelation";
 import type { ColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnCellStyle, isNearRowBottom } from "./tableDataGridLayout";
 import {
@@ -63,6 +64,7 @@ type GridBodyCellProps = {
   cellContentKey: string;
   cell: Cell<Record<string, unknown>, unknown>;
   isRelationHighlight: boolean;
+  isRelationDisplayCol: boolean;
 };
 
 const GridBodyCell = memo(
@@ -84,13 +86,19 @@ const GridBodyCell = memo(
     cellContentKey: _cellContentKey,
     cell,
     isRelationHighlight,
+    isRelationDisplayCol,
   }: GridBodyCellProps) {
+    const relationClass = isRelationDisplayCol
+      ? " db-data-table-cell--relation-display"
+      : isRelationHighlight
+        ? " db-data-table-cell--relation"
+        : "";
     return (
       <td
         data-col-id={columnId}
         data-col-index={colIndex}
         style={buildColumnCellStyle(columnId, baseSize, lastColumnId, fillDelta)}
-        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${isDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}${isRelationHighlight ? " db-data-table-cell--relation" : ""}`}
+        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${isDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}${relationClass}`}
       >
         {flexRender(cell.column.columnDef.cell, cell.getContext())}
       </td>
@@ -112,6 +120,7 @@ const GridBodyCell = memo(
     prev.isRowNum === next.isRowNum &&
     prev.isFieldCol === next.isFieldCol &&
     prev.isRelationHighlight === next.isRelationHighlight &&
+    prev.isRelationDisplayCol === next.isRelationDisplayCol &&
     prev.cell === next.cell,
 );
 
@@ -208,6 +217,8 @@ function renderBodyCell(
     isCellSelected(row.index, cellIdx, cellRange, selectedRows, leafColumnCount);
   const isRelationHighlight =
     !isRowSelector && relationHighlightColumnIds.has(cell.column.id);
+  const isRelationDisplayCol =
+    !isRowSelector && !transposed && isRelationDisplayColumn(cell.column.id);
   const baseSize = cell.column.getSize();
   const columnSized = columnSizedIds.has(cell.column.id);
   const cellContentKey = isRowSelector
@@ -234,6 +245,7 @@ function renderBodyCell(
       cellContentKey={cellContentKey}
       cell={cell}
       isRelationHighlight={isRelationHighlight}
+      isRelationDisplayCol={isRelationDisplayCol}
     />
   );
 }

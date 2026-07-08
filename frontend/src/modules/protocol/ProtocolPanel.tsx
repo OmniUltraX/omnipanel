@@ -167,7 +167,6 @@ function ProtocolPanelInner() {
 
   return (
     <ModuleWorkspaceLayout
-      layoutKey="protocol"
       className="protocol-module-layout"
       leftColumnTitle={t("routes.protocol")}
       leftIconRail={<ProtocolEnvironmentHeaderButton />}

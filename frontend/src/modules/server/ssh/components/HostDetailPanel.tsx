@@ -67,10 +67,7 @@ export function HostDetailPanel({ hostId }: Props) {
         }`}
       >
         {detailTab === "overview" && (
-          <OverviewDetailTab
-            activeResource={activeResource}
-            setDetailTab={setDetailTab}
-          />
+          <OverviewDetailTab activeResource={activeResource} />
         )}
         {detailTab === "tunnels" && (
           <HostTunnelsDetailTab activeResource={activeResource} />

@@ -9,5 +9,4 @@ export {
   resolveSqlToRun,
   positionToOffset,
   isSqlEditorFocused,
-  isSqlMonacoEditorFocused,
 } from "../../sqlIntel/sqlStatement";

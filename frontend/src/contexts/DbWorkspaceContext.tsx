@@ -19,12 +19,11 @@ export type {
   DbWorkspaceProvidersProps,
   DbWorkspaceTabDataContextValue,
   DbWorkspaceMirrorContextValue,
-  DbWorkspaceContextValue,
 } from "./DbWorkspaceContext.types";
 
 const StateCtx = createContext<DbWorkspaceSharedContextValue | null>(null);
 const ActiveTabCtx = createContext<DbWorkspaceActiveTabContextValue | null>(null);
-/** 底部镜像 Tab 注入的 Tab 级数据（主面板走 Zustand store）。 */
+/** 镜像 Tab 注入的 Tab 级数据（主面板走 Zustand store） */
 const MirrorTabDataCtx = createContext<DbWorkspaceTabDataContextValue | null>(null);
 
 function splitMirrorContextValue(value: DbWorkspaceMirrorContextValue): {
@@ -70,7 +69,7 @@ export function DbWorkspaceProviders({
   );
 }
 
-/** 镜像 Tab 等场景：从完整快照注入双 Context。 */
+/** 镜像 Tab 等场景：从完整快照注入双 Context */
 export function DbWorkspaceMirrorProvider({
   value,
   children,
@@ -86,17 +85,6 @@ export function DbWorkspaceMirrorProvider({
       </DbWorkspaceProviders>
     </MirrorTabDataCtx.Provider>
   );
-}
-
-/** @deprecated 请使用 DbWorkspaceProviders；保留以兼容镜像注入。 */
-export function DbWorkspaceProvider({
-  value,
-  children,
-}: {
-  value: DbWorkspaceMirrorContextValue;
-  children: ReactNode;
-}) {
-  return <DbWorkspaceMirrorProvider value={value}>{children}</DbWorkspaceMirrorProvider>;
 }
 
 export function useDbWorkspace(): DbWorkspaceSharedContextValue {
@@ -119,7 +107,7 @@ export function useDbWorkspaceActiveTabId(): string {
   return useDbWorkspaceActiveTab().activeTabId;
 }
 
-/** 主面板走 store；镜像 Tab 走 MirrorTabDataCtx。 */
+/** 优先镜像 store，否则 Tab 级 MirrorTabDataCtx */
 export function useDbTabWorkspaceSliceOrMirror(tabId: string): DbTabWorkspaceSlice {
   const mirrorTabData = useContext(MirrorTabDataCtx);
   const storeSlice = useDbTabWorkspaceSlice(tabId);
@@ -140,3 +128,4 @@ export function useDbTabWorkspaceSliceOrMirror(tabId: string): DbTabWorkspaceSli
 
   return mirrorSlice ?? storeSlice;
 }
+

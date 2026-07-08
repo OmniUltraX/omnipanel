@@ -16,10 +16,15 @@ export interface DbTreeChartFileNode {
   updatedAt: number;
 }
 
+/** 树结构变更（新建/重命名/删除/移动）的落盘脏标记 */
+export const TREE_CHART_FILE_TREE_DIRTY = "__tree__";
+
 interface DbTreeChartFileState {
   nodes: DbTreeChartFileNode[];
+  /** 尚未写入磁盘的文件 id；含 {@link TREE_CHART_FILE_TREE_DIRTY} 表示树结构有变 */
   dirtyFileIds: string[];
   isFileDirty: (id: string) => boolean;
+  /** 将内存中的节点与缓存写入磁盘，并清除脏标记 */
   flushToDisk: () => Promise<void>;
   addFile: (name: string, document?: string, parentId?: string | null) => DbTreeChartFileNode;
   updateFileDocument: (id: string, document: string) => void;
@@ -33,6 +38,7 @@ interface DbTreeChartFileState {
 }
 
 const CACHE_KEY = "omnipanel-db-tree-chart-files";
+const LEGACY_PERSIST_KEY = "omnipanel-db-tree-chart-files";
 
 let initPromise: Promise<void> | null = null;
 
@@ -117,6 +123,20 @@ function readNodesCache(): DbTreeChartFileNode[] | null {
   }
 }
 
+function readLegacyPersistedNodes(): DbTreeChartFileNode[] | null {
+  try {
+    const raw = localStorage.getItem(LEGACY_PERSIST_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { state?: { nodes?: unknown }; nodes?: unknown };
+    const nodes = normalizeNodes(parsed.state?.nodes ?? parsed.nodes);
+    return nodes.length > 0 ? nodes : null;
+  } catch {
+    return null;
+  }
+}
+
 function serializeNodeForDisk(node: DbTreeChartFileNode) {
   return {
     id: node.id,
@@ -155,7 +175,7 @@ function markDirtyIds(prev: string[], ids: string[]): string[] {
 
 function commitNodesInMemory(
   set: (fn: (state: DbTreeChartFileState) => Partial<DbTreeChartFileState>) => void,
-  get: () => DbTreeChartFileState,
+  _get: () => DbTreeChartFileState,
   nodes: DbTreeChartFileNode[],
   dirtyIds: string[] = [],
 ) {
@@ -177,12 +197,38 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
         if (get().dirtyFileIds.length === 0) {
           return;
         }
-        await persistNodes(get().nodes);
+        const nodes = get().nodes;
+        if (nodes.length === 0) {
+          if (!isTauriRuntime()) {
+            set({ dirtyFileIds: [] });
+            return;
+          }
+          try {
+            const res = await commands.dbTreeChartFilesLoad();
+            const diskNodes =
+              res.status === "ok" ? normalizeNodes(res.data.nodes) : [];
+            if (diskNodes.length > 0) {
+              console.warn(
+                "[dbTreeChartFileStore] 跳过空列表落盘，避免覆盖已有 .ctr 文件",
+              );
+              set({ dirtyFileIds: [] });
+              return;
+            }
+          } catch {
+            // 加载失败时仍允许写入空列表
+          }
+        }
+        await persistNodes(nodes);
         set({ dirtyFileIds: [] });
       },
 
       replaceNodes: (nodes) => {
-        commitNodesInMemory(set, get, nodes, nodes.map((node) => node.id));
+        commitNodesInMemory(
+          set,
+          get,
+          nodes,
+          nodes.map((node) => node.id),
+        );
       },
 
       addFile: (name, document = serializeTreeChartDocument(createEmptyTreeChartDocument()), parentId = null) => {
@@ -198,7 +244,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
           updatedAt: Date.now(),
         };
         const nodes = [...get().nodes, node];
-        commitNodesInMemory(set, get, nodes, [node.id]);
+        commitNodesInMemory(set, get, nodes, [node.id, TREE_CHART_FILE_TREE_DIRTY]);
         return node;
       },
 
@@ -224,7 +270,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
               }
             : node,
         );
-        commitNodesInMemory(set, get, nodes, [id]);
+        commitNodesInMemory(set, get, nodes, [id, TREE_CHART_FILE_TREE_DIRTY]);
         return true;
       },
 
@@ -259,7 +305,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
               }
             : entry,
         );
-        commitNodesInMemory(set, get, nodes, [id]);
+        commitNodesInMemory(set, get, nodes, [id, TREE_CHART_FILE_TREE_DIRTY]);
         return true;
       },
 
@@ -279,12 +325,12 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
         if (movedIds.length === 0) {
           return;
         }
-        commitNodesInMemory(set, get, nodes, movedIds);
+        commitNodesInMemory(set, get, nodes, [...movedIds, TREE_CHART_FILE_TREE_DIRTY]);
       },
 
       deleteNode: (id) => {
         const nodes = get().nodes.filter((node) => node.id !== id);
-        commitNodesInMemory(set, get, nodes, [id]);
+        commitNodesInMemory(set, get, nodes, [id, TREE_CHART_FILE_TREE_DIRTY]);
       },
 
       getNode: (id) => get().nodes.find((node) => node.id === id),
@@ -293,7 +339,18 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
       name: CACHE_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ nodes: state.nodes }),
-      migrate: (persisted) => persisted as { nodes: DbTreeChartFileNode[] },
+      migrate: (persisted) => {
+        if (!persisted || typeof persisted !== "object") {
+          return { nodes: [] as DbTreeChartFileNode[] };
+        }
+        const record = persisted as {
+          state?: { nodes?: unknown };
+          nodes?: unknown;
+        };
+        return {
+          nodes: normalizeNodes(record.state?.nodes ?? record.nodes),
+        };
+      },
     },
   ),
 );
@@ -308,7 +365,7 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
 
   initPromise = (async () => {
     if (!isTauriRuntime()) {
-      const cached = readNodesCache();
+      const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
         useDbTreeChartFileStore.setState({ nodes: cached, dirtyFileIds: [] });
       }
@@ -319,7 +376,7 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
       const res = await commands.dbTreeChartFilesLoad();
       if (res.status !== "ok") {
         console.warn("[dbTreeChartFileStore] 加载失败:", res.error);
-        const cached = readNodesCache();
+        const cached = readNodesCache() ?? readLegacyPersistedNodes();
         if (cached?.length) {
           useDbTreeChartFileStore.setState({ nodes: cached });
         }
@@ -328,10 +385,13 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
 
       const diskNodes = normalizeNodes(res.data.nodes);
       if (diskNodes.length === 0) {
-        const cached = readNodesCache();
-        if (cached?.length) {
-          useDbTreeChartFileStore.setState({ nodes: cached, dirtyFileIds: [] });
-          await persistNodes(cached);
+        const legacy = readLegacyPersistedNodes() ?? readNodesCache();
+        if (legacy?.length) {
+          useDbTreeChartFileStore.setState({ nodes: legacy, dirtyFileIds: [] });
+          await persistNodes(legacy);
+          console.info(
+            `[dbTreeChartFileStore] 已从 localStorage 迁移 ${legacy.length} 个 .ctr 文件到磁盘`,
+          );
         }
         return;
       }
@@ -340,7 +400,7 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
       writeNodesCache(diskNodes);
     } catch (error) {
       console.warn("[dbTreeChartFileStore] 初始化加载失败:", error);
-      const cached = readNodesCache();
+      const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
         useDbTreeChartFileStore.setState({ nodes: cached, dirtyFileIds: [] });
       }
@@ -348,6 +408,42 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
   })();
 
   await initPromise;
+}
+
+/** 手动尝试从 localStorage 恢复 .ctr 文件并写回磁盘 */
+export async function recoverTreeChartFilesFromLocalStorage(): Promise<number> {
+  const cached = readLegacyPersistedNodes() ?? readNodesCache();
+  if (!cached?.length) {
+    return 0;
+  }
+
+  let mergedById = new Map<string, DbTreeChartFileNode>();
+  if (isTauriRuntime()) {
+    try {
+      const res = await commands.dbTreeChartFilesLoad();
+      if (res.status === "ok") {
+        diskCount = normalizeNodes(res.data.nodes).length;
+        for (const node of normalizeNodes(res.data.nodes)) {
+          mergedById.set(node.id, node);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  for (const node of cached) {
+    const existing = mergedById.get(node.id);
+    if (!existing || node.updatedAt >= existing.updatedAt) {
+      mergedById.set(node.id, node);
+    }
+  }
+  const merged = [...mergedById.values()];
+  useDbTreeChartFileStore.setState({
+    nodes: merged,
+    dirtyFileIds: merged.map((node) => node.id),
+  });
+  await useDbTreeChartFileStore.getState().flushToDisk();
+  return merged.length - diskCount;
 }
 
 export function formatTreeChartFileLabel(name: string): string {

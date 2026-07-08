@@ -4,11 +4,19 @@
     .db-module-dock,
     .db-module-transfer {
         --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--surface));
+        --relation-col-border: color-mix(in srgb, var(--accent) 50%, var(--border));
+        --relation-col-bg: color-mix(in srgb, var(--accent) 16%, var(--surface));
+        --relation-display-col-border: color-mix(in srgb, var(--accent) 82%, var(--border));
+        --relation-display-col-bg: color-mix(in srgb, var(--accent) 24%, var(--surface));
     }
 
     [data-theme="light"] .db-module-dock,
     [data-theme="light"] .db-module-transfer {
         --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--surface));
+        --relation-col-border: color-mix(in srgb, var(--accent) 42%, var(--border));
+        --relation-col-bg: color-mix(in srgb, var(--accent) 12%, var(--surface));
+        --relation-display-col-border: color-mix(in srgb, var(--accent) 72%, var(--border));
+        --relation-display-col-bg: color-mix(in srgb, var(--accent) 18%, var(--surface));
     }
 
     .db-layout {
@@ -4783,18 +4791,27 @@
     .db-data-table-th-relation-display-actions-wrap {
         grid-column: 2;
         grid-row: 1 / span 2;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        display: grid;
+        grid-template-columns: repeat(2, 16px);
+        grid-template-rows: repeat(2, 16px);
+        gap: 1px;
         flex-shrink: 0;
         align-self: center;
         justify-self: end;
     }
 
-    .db-data-table-relation-display-actions {
+    .db-data-table-th-relation-display-actions-wrap .db-data-table-sort-indicator,
+    .db-data-table-th-relation-display-actions-wrap .db-data-table-filter-btn,
+    .db-data-table-th-relation-display-actions-wrap .db-data-table-relation-display-btn {
         display: inline-flex;
         align-items: center;
-        gap: 2px;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+    }
+
+    .db-data-table-relation-display-actions {
+        display: contents;
     }
 
     .db-data-table-relation-display-btn {
@@ -4822,7 +4839,13 @@
     .db-data-table-th--relation,
     .db-data-table-th--relation-display {
         color: var(--accent);
-        background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+        background: var(--relation-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-col-border);
+    }
+
+    .db-data-table-th--relation-display {
+        background: var(--relation-display-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-display-col-border);
     }
 
     .db-data-table-th--relation-display .db-data-table-th-label {
@@ -4830,15 +4853,55 @@
         font-weight: 600;
     }
 
-    .db-data-table-cell--relation,
+    .db-data-table-cell--relation {
+        background: var(--relation-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-col-border);
+    }
+
     .db-data-table-cell--relation-display {
-        background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
-        color: var(--fg);
+        background: var(--relation-display-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-display-col-border);
+        color: color-mix(in srgb, var(--accent) 78%, var(--fg));
+        font-weight: 500;
+    }
+
+    .db-data-table-cell--relation .db-data-table-cell-text,
+    .db-data-table-cell--relation-display .db-data-table-cell-text {
+        color: inherit;
+    }
+
+    .db-data-table tbody tr.db-data-table-row--striped > td.db-data-table-cell--relation:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty),
+    .db-data-table tbody tr.db-data-table-row--striped > td.db-data-table-cell--relation-display:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
+        background: var(--relation-col-bg);
+    }
+
+    .db-data-table tbody tr.db-data-table-row--striped > td.db-data-table-cell--relation-display:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
+        background: var(--relation-display-col-bg);
+    }
+
+    .db-data-table tbody tr.db-data-table-row:hover > td.db-data-table-cell--relation:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
+        background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+    }
+
+    .db-data-table tbody tr.db-data-table-row:hover > td.db-data-table-cell--relation-display:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
+        background: color-mix(in srgb, var(--accent) 30%, var(--surface));
+    }
+
+    .db-data-table-cell--selected.db-data-table-cell--relation,
+    .db-data-table-cell--selected.db-data-table-cell--relation-display {
+        background: color-mix(in srgb, var(--accent) 32%, var(--surface));
+        box-shadow: inset 3px 0 0 var(--relation-display-col-border);
     }
 
     .db-col-visibility-popover-item--relation,
     .db-col-visibility-popover-item--relation-display {
-        background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+        background: var(--relation-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-col-border);
+    }
+
+    .db-col-visibility-popover-item--relation-display {
+        background: var(--relation-display-col-bg);
+        box-shadow: inset 3px 0 0 var(--relation-display-col-border);
     }
 
     .db-col-visibility-popover-item--relation .db-col-visibility-popover-item-name,

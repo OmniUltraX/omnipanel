@@ -161,6 +161,7 @@ export function ModuleSegmentDock({
       emptyContent={emptyContent}
       preActions={composedPreActions}
       acceptExternalDrops={acceptExternalDrops}
+      windowChromeVariant="segment"
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
       softRefreshKey={softRefreshKey}

@@ -1,9 +1,7 @@
-import { useCallback } from "react";
 import { useI18n } from "@/i18n";
 import { MonitoringDashboard } from "@/modules/server/ssh/components/monitoring/MonitoringDashboard";
 import { ProcessListPanel } from "@/modules/server/ssh/components/detail/ProcessListPanel";
 import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
-import type { DetailTab } from "@/modules/server/ssh/types";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "@/modules/terminal/paneResource";
 import { resolveResourceById } from "@/stores/connectionStore";
 import { useLocalOverview } from "./useLocalOverview";
@@ -23,7 +21,6 @@ export function AdvanceTerminalMonitorStack({
   mode,
   resourceId = null,
   enableTunnels = false,
-  onOpenTunnelTab,
 }: Props) {
   const { t } = useI18n();
   const localOverview = useLocalOverview(mode === "local");
@@ -43,13 +40,6 @@ export function AdvanceTerminalMonitorStack({
 
   const processResourceId =
     mode === "local" ? LOCAL_TERMINAL_RESOURCE_ID : (resourceId ?? null);
-
-  const handleDetailTab = useCallback(
-    (tab: DetailTab) => {
-      if (tab === "tunnels") onOpenTunnelTab?.();
-    },
-    [onOpenTunnelTab],
-  );
 
   const resource = mode === "remote" && resourceId ? resolveResourceById(resourceId) : null;
 
@@ -76,7 +66,6 @@ export function AdvanceTerminalMonitorStack({
           refreshing={refreshing}
           updatedAt={updatedAt}
           error={processError ?? error}
-          setDetailTab={handleDetailTab}
           onRefresh={refreshProcesses}
           enableTunnels={enableTunnels}
           variant="monitor"

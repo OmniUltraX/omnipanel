@@ -41,9 +41,10 @@ export function parsePreviewJsonText(text: string): object | null {
 }
 
 export type ContentPreviewPayload =
-  | { kind: "json"; value: object; /** @deprecated 已统一使用 VirtualJsonView */ virtual?: boolean }
+  | { kind: "json"; value: object }
   | { kind: "text"; text: string }
-  | { kind: "image"; url: string; alt?: string };
+  | { kind: "image"; url: string; alt?: string }
+  | { kind: "audio"; url: string; mimeType?: string };
 
 export type ContentPreviewStatus = "loading" | "error" | "empty" | "ready";
 

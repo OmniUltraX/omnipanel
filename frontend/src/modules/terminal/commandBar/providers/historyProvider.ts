@@ -1,5 +1,5 @@
 import type { CompletionCandidate, TerminalCompletionContext } from "../types";
-import { listSessionCommandHistory } from "../commandHistory";
+import { listSessionCommandHistoryFast } from "../useSessionCommandHistory";
 import { buildReplacementRange, parseCommandLineForCompletion } from "../parseCommandLine";
 
 export function suggestHistory(ctx: TerminalCompletionContext): CompletionCandidate[] {
@@ -8,7 +8,7 @@ export function suggestHistory(ctx: TerminalCompletionContext): CompletionCandid
   if (!token || token.kind === "path" || token.kind === "resource") return [];
 
   const prefix = token.text.toLowerCase();
-  const commands = listSessionCommandHistory(ctx.sessionId, prefix);
+  const commands = listSessionCommandHistoryFast(ctx.sessionId, prefix);
   const candidates: CompletionCandidate[] = [];
 
   for (const cmd of commands) {

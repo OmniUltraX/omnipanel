@@ -3,7 +3,6 @@ import {
   buildHistoryIndex,
   filterHistoryIndex,
 } from "./commandHistoryIndex";
-import { listSessionCommandHistoryFast } from "./useSessionCommandHistory";
 
 export type { CommandHistoryKind };
 export type CommandHistoryEntry = {
@@ -27,11 +26,6 @@ export function listCommandHistoryFromBlocks(
 ): CommandHistoryEntry[] {
   const index = buildHistoryIndex(blocks, readlineCommands);
   return filterHistoryIndex(index, query);
-}
-
-/** @deprecated 使用 useSessionCommandHistory / listSessionCommandHistoryFast */
-export function listSessionCommandHistory(sessionId: string, query = ""): string[] {
-  return listSessionCommandHistoryFast(sessionId, query);
 }
 
 export function filterCompletionLabels<T extends { label: string; description?: string }>(

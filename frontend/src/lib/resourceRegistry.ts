@@ -186,11 +186,6 @@ export const SEED_RESOURCES: WorkspaceResource[] = [
   },
 ];
 
-/**
- * @deprecated 仅作过渡兼容别名。新代码请用 connectionStore（真实数据）或 SEED_RESOURCES（空态）。
- */
-export const workspaceResources = SEED_RESOURCES;
-
 export function getResourceById(id: string | null | undefined) {
   if (!id) return null;
   const fromConfig = getOpenSshHostResource(id);

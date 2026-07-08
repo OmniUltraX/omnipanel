@@ -15,8 +15,6 @@ import "./moduleWorkspaceLayout.css";
 const LEFT_COLLAPSED_PX = 12;
 
 export interface ModuleWorkspaceLayoutProps {
-  /** @deprecated 侧栏宽度已全局共用，此字段保留兼容、不再参与持久化 */
-  layoutKey?: string;
   className?: string;
   /** 左栏顶栏标题（与模式图标两端对齐） */
   leftColumnTitle?: ReactNode;
@@ -40,7 +38,6 @@ export interface ModuleWorkspaceLayoutProps {
  * 对齐终端 TerminalSessionsWorkspaceView 结构。
  */
 export function ModuleWorkspaceLayout({
-  layoutKey: _layoutKey,
   className,
   leftColumnTitle,
   leftIconRail,
@@ -170,3 +167,4 @@ export function ModuleWorkspaceLayout({
     />
   );
 }
+

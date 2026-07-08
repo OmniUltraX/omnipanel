@@ -224,18 +224,6 @@ export function KnowledgeEmbeddingModelSelect({
   );
 }
 
-/** @deprecated 请使用 useKnowledgeEmbeddingProviderConfig */
-export function useKnowledgeEmbeddingModelSelectionId(): string | null {
-  const provider = useKnowledgeEmbeddingProviderConfig();
-  if (!provider) {
-    return null;
-  }
-  if (provider.providerId === KNOWLEDGE_EMBEDDING_OLLAMA_PROVIDER_ID) {
-    return null;
-  }
-  return `${provider.providerId}::${provider.modelName}`;
-}
-
 export function useKnowledgeEmbeddingProviderConfig() {
   const providers = useAiModelsStore((s) => s.providers);
   const mode = useSettingsStore((s) => s.knowledgeEmbeddingModelMode);

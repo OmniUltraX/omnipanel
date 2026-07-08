@@ -66,9 +66,6 @@ interface SyncSidePanelProps {
   conflictDetailTable?: string | null;
   /** 点击冲突 / 差异 tag 时打开详情 */
   onViewConflictDetail?: (tableName: string) => void;
-  /** 结构同步目标侧：是否显示字段一致的表（已废弃，由 schemaStatusFilter 替代） */
-  showMatchingTables?: boolean;
-  onShowMatchingTablesChange?: (value: boolean) => void;
   /** 结构同步目标侧：表状态筛选（空数组表示全部） */
   schemaStatusFilters?: SchemaTargetRowStatus[];
   onSchemaStatusFiltersChange?: (value: SchemaTargetRowStatus[]) => void;
@@ -141,8 +138,6 @@ function ConnectionDatabaseFilters({
   onSearchKeyDown,
   searchPlaceholder,
   toolbarLayout = "default",
-  showMatchingTables,
-  onShowMatchingTablesChange,
   schemaStatusFilters,
   onSchemaStatusFiltersChange,
   onAnalyze,
@@ -166,8 +161,6 @@ function ConnectionDatabaseFilters({
   onSearchKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
   searchPlaceholder?: string;
   toolbarLayout?: "default" | "sourceRow" | "targetRow";
-  showMatchingTables?: boolean;
-  onShowMatchingTablesChange?: (value: boolean) => void;
   schemaStatusFilters?: SchemaTargetRowStatus[];
   onSchemaStatusFiltersChange?: (value: SchemaTargetRowStatus[]) => void;
   onAnalyze?: () => void;
@@ -238,23 +231,6 @@ function ConnectionDatabaseFilters({
             aria-label={t("database.toolbox.side.selectAll")}
           />
           <span>{t("database.toolbox.side.selectAll")}</span>
-        </label>
-      )}
-      {showMatchingTables !== undefined && onShowMatchingTablesChange && (
-        <label
-          className="db-toolbox-show-matching"
-          onClick={(e) => {
-            e.preventDefault();
-            onShowMatchingTablesChange(!showMatchingTables);
-          }}
-        >
-          <span>{t("database.toolbox.side.showMatchingTables")}</span>
-          <div
-            className={`toggle${showMatchingTables ? " on" : ""}`}
-            role="switch"
-            aria-checked={showMatchingTables}
-            aria-label={t("database.toolbox.side.showMatchingTables")}
-          />
         </label>
       )}
       {schemaStatusFilters !== undefined && onSchemaStatusFiltersChange && (
@@ -1026,8 +1002,6 @@ export function SyncSidePanel({
   tableAnalysis = {},
   conflictDetailTable = null,
   onViewConflictDetail,
-  showMatchingTables: _showMatchingTables,
-  onShowMatchingTablesChange: _onShowMatchingTablesChange,
   schemaStatusFilters = [],
   onSchemaStatusFiltersChange,
   sourceTableColumns = {},

@@ -48,8 +48,6 @@ interface HostListPanelProps {
   activeHostId?: string | null;
   /** 单击 preview / 双击 permanent 打开 Dock Tab */
   onSelectHost?: (hostId: string, mode?: HostDockOpenMode) => void;
-  /** @deprecated 双击回调，请使用 onSelectHost */
-  onConnect?: (hostId: string) => void;
   /** 嵌入 VerticalSplitSidebarSection 时使用，隐藏旧版顶栏 */
   embedded?: boolean;
   /** embedded 模式下向外同步工具栏与计数 */
@@ -141,7 +139,6 @@ export function HostListPanel({
   resources,
   activeHostId: activeHostIdProp,
   onSelectHost,
-  onConnect,
   embedded = false,
   onHeaderMetaChange,
   selectionMode = false,
@@ -271,7 +268,7 @@ export function HostListPanel({
       onSelectHost(host.id, "permanent");
       return;
     }
-    onConnect?.(host.id);
+    selectHost(host);
   };
 
   const handleContextMenu = (e: React.MouseEvent, host: WorkspaceResource) => {

@@ -41,8 +41,6 @@ export interface WorkspaceDockTab {
   originScope?: string;
   /** 镜像面板来源 panel id（拖拽移动时使用） */
   originPanelId?: string;
-  /** @deprecated 旧版内置面板类型，迁移后不再创建 */
-  builtin?: "board" | "ai";
   closable?: boolean;
 }
 

@@ -34,6 +34,7 @@ import {
   FORCE_PREVIEW_MAX_BYTES,
   formatFileSize,
   imageMimeType,
+  audioMimeType,
   LOCAL_CONNECTION_ID,
   resolvePreviewReadMaxBytes,
 } from "./utils";
@@ -123,6 +124,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
     const [draftText, setDraftText] = useState<string | null>(null);
     const [jsonContent, setJsonContent] = useState<object | null>(null);
     const [imageUrl, setImageUrl] = useState<string | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const savedTextRef = useRef<string | null>(null);
 
     const notifyMeta = useCallback(
@@ -256,6 +258,8 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       setDraftText(null);
       setJsonContent(null);
       setImageUrl(null);
+      setAudioUrl(null);
+      setDetectedKind(null);
       savedTextRef.current = null;
 
       if (previewKind === "unsupported") {
@@ -297,13 +301,18 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
           // 例如 photo.txt 实际是 JPEG、sudoers 无扩展名但内容是文本
           const byteView = new Uint8Array(bytes);
           const detected = detectPreviewKindFromBytes(byteView);
-          if (detected && detected !== initialKind) {
+          if (detected && detected !== previewKind) {
             setDetectedKind(detected);
             return;
           }
 
           if (previewKind === "json" || previewKind === "text") {
             applyLoadedText(decodePreviewBytes(bytes));
+          } else if (previewKind === "audio") {
+            const blob = new Blob([byteView], { type: audioMimeType(entry.name) });
+            objectUrl = URL.createObjectURL(blob);
+            setAudioUrl(objectUrl);
+            onTextPreviewMetaChange?.(null);
           } else {
             const blob = new Blob([byteView], { type: imageMimeType(entry.name) });
             objectUrl = URL.createObjectURL(blob);
@@ -385,6 +394,17 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         <ContentPreviewView
           status="ready"
           content={{ kind: "image", url: imageUrl, alt: entry.name }}
+          showTextModeToolbar={false}
+          contentResetKey={entry.path}
+        />
+      );
+    }
+
+    if (previewKind === "audio" && audioUrl) {
+      return (
+        <ContentPreviewView
+          status="ready"
+          content={{ kind: "audio", url: audioUrl, mimeType: audioMimeType(entry.name) }}
           showTextModeToolbar={false}
           contentResetKey={entry.path}
         />

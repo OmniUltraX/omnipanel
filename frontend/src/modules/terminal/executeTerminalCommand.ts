@@ -659,12 +659,3 @@ function waitForMeaningfulBlock(
     });
   });
 }
-
-/** @deprecated 仅供测试；生产路径使用 waitForCommandResult */
-export function waitForCommandBlock(
-  sessionId: string,
-  command: string,
-  timeoutMs = BLOCK_WAIT_TIMEOUT_MS,
-): Promise<TerminalBlock> {
-  return waitForMeaningfulBlock(sessionId, command, timeoutMs);
-}

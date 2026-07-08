@@ -3,12 +3,9 @@ import type { SshManagerContext } from "@/modules/server/ssh/hooks/useSshManager
 import { MonitoringDashboard } from "@/modules/server/ssh/components/monitoring/MonitoringDashboard";
 import { ProcessListPanel } from "./ProcessListPanel";
 
-type Props = Pick<SshManagerContext, "activeResource" | "setDetailTab">;
+type Props = Pick<SshManagerContext, "activeResource">;
 
-export function OverviewDetailTab({
-  activeResource,
-  setDetailTab,
-}: Props) {
+export function OverviewDetailTab({ activeResource }: Props) {
   const resourceId = activeResource?.id ?? null;
 
   const {
@@ -41,7 +38,6 @@ export function OverviewDetailTab({
           loading={refreshing}
           refreshing={refreshing}
           updatedAt={updatedAt}
-          setDetailTab={setDetailTab}
           onRefresh={refreshProcesses}
           variant="monitor"
         />

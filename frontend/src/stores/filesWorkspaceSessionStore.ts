@@ -143,5 +143,3 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
   ),
 );
 
-/** @deprecated 兼容旧引用 */
-export const useFilesDockLayoutStore = useFilesWorkspaceSessionStore;

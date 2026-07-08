@@ -125,8 +125,8 @@ export function resolveKnowledgeEmbeddingProvider(
   };
 }
 
-/** @deprecated 旧版自定义 embedding 配置，仅用于持久化迁移 */
-export interface LegacyKnowledgeEmbeddingCustomModel {
+/** 持久化迁移：旧版自定义 embedding 配置 */
+interface PersistedLegacyEmbeddingCustomModel {
   modelName: string;
   baseUrl: string;
   apiKey?: string;
@@ -142,7 +142,7 @@ export function migrateLegacyEmbeddingSettings(
   if (mode !== "custom") {
     return null;
   }
-  const legacy = state.knowledgeEmbeddingCustomModel as LegacyKnowledgeEmbeddingCustomModel | undefined;
+  const legacy = state.knowledgeEmbeddingCustomModel as PersistedLegacyEmbeddingCustomModel | undefined;
   return {
     knowledgeEmbeddingModelMode: "ollama",
     knowledgeEmbeddingOllamaModel: {

@@ -82,11 +82,6 @@ export function isMcpToolExternalExposed(toolName: string): boolean {
   return useMcpToolStore.getState().isExternalExposed(toolName);
 }
 
-/** @deprecated 使用 isMcpToolAvailable */
-export function isMcpToolEnabled(toolName: string): boolean {
-  return isMcpToolAvailable(toolName);
-}
-
 export async function syncMcpToolCatalog(): Promise<void> {
   const entries: McpToolCatalogEntry[] = getAllMcpCatalogEntries();
   await commands.mcpToolSyncCatalog(entries);

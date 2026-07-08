@@ -32,8 +32,6 @@ interface DockerSidebarProps {
   loading?: boolean;
   scanning?: boolean;
   onSelectConnection: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
-  /** @deprecated 请使用 onSelectConnection */
-  onSelect?: (connectionId: string) => void;
   onCreate: () => void;
   onScan?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
@@ -47,7 +45,6 @@ export function DockerSidebar({
   loading,
   scanning,
   onSelectConnection,
-  onSelect,
   onCreate,
   onScan,
   onEditConnection,
@@ -81,19 +78,13 @@ export function DockerSidebar({
   };
 
   const handleConnectionClick = (connectionId: string) => {
-    const select = onSelectConnection ?? onSelect;
-    if (!select) return;
-    if (onSelectConnection) {
-      if (labelClickTimerRef.current !== null) {
-        window.clearTimeout(labelClickTimerRef.current);
-      }
-      labelClickTimerRef.current = window.setTimeout(() => {
-        labelClickTimerRef.current = null;
-        onSelectConnection(connectionId, "preview");
-      }, CONNECTION_LABEL_CLICK_DELAY_MS);
-      return;
+    if (labelClickTimerRef.current !== null) {
+      window.clearTimeout(labelClickTimerRef.current);
     }
-    onSelect?.(connectionId);
+    labelClickTimerRef.current = window.setTimeout(() => {
+      labelClickTimerRef.current = null;
+      onSelectConnection(connectionId, "preview");
+    }, CONNECTION_LABEL_CLICK_DELAY_MS);
   };
 
   const handleConnectionDoubleClick = (connectionId: string) => {
@@ -101,11 +92,7 @@ export function DockerSidebar({
       window.clearTimeout(labelClickTimerRef.current);
       labelClickTimerRef.current = null;
     }
-    if (onSelectConnection) {
-      onSelectConnection(connectionId, "permanent");
-      return;
-    }
-    onSelect?.(connectionId);
+    onSelectConnection(connectionId, "permanent");
   };
 
   const ctxItems: ContextMenuItem[] = [

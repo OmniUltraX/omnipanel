@@ -165,13 +165,6 @@ export function useHostReachabilityStatus(
   return "unknown";
 }
 
-/** @deprecated 使用 useHostConnectionIndicatorStatus */
-export function useHostOnlineStatus(
-  resourceId: string | null,
-): "online" | "connecting" | "offline" | "unknown" {
-  return useHostConnectionIndicatorStatus(resourceId);
-}
-
 /** 获取状态点的 CSS 类名 */
 export function hostStatusDotClass(
   status: "online" | "connecting" | "offline" | "unknown",

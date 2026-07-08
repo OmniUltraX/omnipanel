@@ -216,6 +216,17 @@ export function ContentPreviewView({
             decoding="async"
           />
         </div>
+      ) : content.kind === "audio" ? (
+        <div className="content-preview-audio-wrap">
+          <audio
+            className="content-preview-audio"
+            controls
+            preload="metadata"
+            src={content.url}
+          >
+            <track kind="captions" />
+          </audio>
+        </div>
       ) : textMode === "web" && webPreviewUrl ? (
         <div className="content-preview-web">
           <iframe

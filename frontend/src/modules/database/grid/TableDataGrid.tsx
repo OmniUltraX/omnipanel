@@ -637,6 +637,10 @@ export const TableDataGrid = memo(function TableDataGrid({
       const extra: Record<string, unknown> = {};
       for (const sourceColumn of Object.keys(columnRelations)) {
         const displayColumnId = relationDisplayColumnId(sourceColumn);
+        if (row[displayColumnId] !== undefined) {
+          extra[displayColumnId] = row[displayColumnId];
+          continue;
+        }
         const lookupMap = relationLookupMaps[displayColumnId];
         const sourceValue = row[sourceColumn];
         if (sourceValue == null || sourceValue === "") {
@@ -710,6 +714,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         columnRelations,
         relationTables,
         visibleGridColumns: previewGridColumns,
+        columnMeta: columnMeta ?? undefined,
       });
     }
     const allColumnsVisible =
@@ -722,6 +727,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       page,
       pageSize,
       selectColumns: allColumnsVisible ? undefined : previewGridColumns,
+      columnMeta: columnMeta ?? undefined,
     });
   }, [
     canCopyPreviewSql,
@@ -733,6 +739,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     previewGridColumns,
     columnRelations,
     relationTables,
+    columnMeta,
     sort,
     tableName,
   ]);
@@ -1044,7 +1051,6 @@ export const TableDataGrid = memo(function TableDataGrid({
                 pkCount={pkCount}
                 autoIncrementPlaceholder={autoIncrementPlaceholder}
                 t={t}
-                className={isRelationDisplayCol ? "db-data-table-cell--relation-display" : undefined}
               />
             );
           },
@@ -1884,7 +1890,7 @@ export const TableDataGrid = memo(function TableDataGrid({
                 const isRelationDisplayCol = !transposed && isRelationDisplayColumn(colId);
                 const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
                 const canSort =
-                  enableSort && !transposed && colId !== ROW_NUM_COL_ID && !isRelationDisplayCol;
+                  enableSort && !transposed && colId !== ROW_NUM_COL_ID;
                 const sortActive = canSort && sort?.column === colId;
                 const sortDirection = sortActive ? sort!.direction : null;
                 const sortClass = sortActive
@@ -1893,7 +1899,7 @@ export const TableDataGrid = memo(function TableDataGrid({
                     : " db-data-table-th--sort-desc"
                   : "";
                 const filterClass =
-                  canFilter && !transposed && !isRelationDisplayCol && filterColumnNames.has(colId)
+                  canFilter && !transposed && colId !== ROW_NUM_COL_ID && filterColumnNames.has(colId)
                     ? " db-data-table-th--filtered"
                     : "";
                 const relationSourceCol = isRelationDisplayCol ? relationSourceColumn(colId) : colId;
@@ -1949,11 +1955,7 @@ export const TableDataGrid = memo(function TableDataGrid({
                       <span className="db-data-table-th-label">
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </span>
-                      {(canSort ||
-                        (canFilter &&
-                          colId !== ROW_NUM_COL_ID &&
-                          !transposed &&
-                          !isRelationDisplayCol)) && (
+                      {(canSort || (canFilter && colId !== ROW_NUM_COL_ID && !transposed && !isRelationDisplayCol)) && (
                         <span className="db-data-table-th-actions">
                           {canSort && (
                             <ColumnSortIndicator
@@ -1994,6 +1996,24 @@ export const TableDataGrid = memo(function TableDataGrid({
                       ) : null}
                       {isRelationDisplayCol && relationSourceCol ? (
                         <span className="db-data-table-th-relation-display-actions-wrap">
+                          {canSort && (
+                            <ColumnSortIndicator
+                              active={sortActive}
+                              direction={sortActive ? sortDirection : null}
+                              title={t("database.results.sortHint")}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleHeaderClick(colId);
+                              }}
+                            />
+                          )}
+                          {canFilter && (
+                            <ColumnFilterButton
+                              columnName={colId}
+                              active={filterColumnNames.has(colId)}
+                              onOpen={openFilterPopover}
+                            />
+                          )}
                           <ColumnRelationDisplayActions
                             onEdit={() => openRelationDialog(relationSourceCol)}
                             onDelete={() => setRelationDeleteSourceColumn(relationSourceCol)}
@@ -2320,6 +2340,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       <TableDataGridFilterPopover
         anchorRect={filterAnchorRect}
         columnMeta={columnMeta}
+        columnRelations={columnRelations}
+        relationTables={relationTables}
         initialQuery={filter}
         lockedField={filterLockedField}
         onApply={onFilterChange}

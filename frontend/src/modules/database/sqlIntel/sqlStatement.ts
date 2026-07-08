@@ -43,6 +43,3 @@ export function isSqlEditorFocused(): boolean {
   const el = document.activeElement;
   return !!el?.closest(".sql-codemirror-editor");
 }
-
-/** @deprecated 使用 isSqlEditorFocused */
-export const isSqlMonacoEditorFocused = isSqlEditorFocused;

@@ -63,7 +63,7 @@ export async function connectActiveAgent(
   }
 
   const modelSelectionId = adapter.requiresOmniPanelConfig()
-    ? resolveAcpModelSelectionId(state.services.find((s) => s.isActive) ?? null)
+    ? resolveAcpModelSelectionId(state.services.find((s) => s.enabled) ?? null)
     : null;
 
   if (adapter.requiresOmniPanelConfig() && !modelSelectionId) {

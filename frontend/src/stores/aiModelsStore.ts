@@ -33,8 +33,8 @@ export interface AiModelProvider {
   createdAt: number;
 }
 
-/** @deprecated 旧版扁平模型结构，仅用于一次性数据迁移 */
-interface LegacyAiModelConfig {
+/** 持久化迁移：旧版扁平模型结构 */
+interface PersistedLegacyAiModelConfig {
   id: string;
   name: string;
   apiStandard: ApiStandard;
@@ -183,7 +183,7 @@ function normalizeModelNames(names: string[]): string[] {
   return names.map((n) => n.trim()).filter(Boolean);
 }
 
-function migrateLegacyModels(models: LegacyAiModelConfig[]): AiModelProvider[] {
+function migrateLegacyModels(models: PersistedLegacyAiModelConfig[]): AiModelProvider[] {
   const groups = new Map<
     string,
     {
@@ -231,7 +231,7 @@ const PROVIDERS_CACHE_LS_KEY = "omnipanel-ai-models-v1";
 
 /** 旧版 localStorage 中保存的负载形态 */
 interface LegacyPersistedState {
-  state?: { providers?: AiModelProvider[]; models?: LegacyAiModelConfig[] };
+  state?: { providers?: AiModelProvider[]; models?: PersistedLegacyAiModelConfig[] };
   version?: number;
 }
 

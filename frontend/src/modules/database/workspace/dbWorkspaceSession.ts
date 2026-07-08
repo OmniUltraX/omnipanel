@@ -32,8 +32,8 @@ export interface DbTablePreviewStateSnapshot {
   transposed?: boolean;
 }
 
-/** @deprecated 旧会话格式，仅用于迁移 */
-export interface DbTablePreviewMetaSnapshot {
+/** 持久化迁移：旧版表预览元数据快照 */
+interface PersistedTablePreviewMetaSnapshot {
   connId: string;
   dbName: string;
   tableName: string;
@@ -55,8 +55,8 @@ export interface DbWorkspaceSessionSnapshot {
   sqlTabStates: Record<string, DbSqlTabStateSnapshot>;
   /** 表数据 Tab 的分页/过滤状态 */
   tablePreviewStates: Record<string, DbTablePreviewStateSnapshot>;
-  /** @deprecated 旧字段，读取后迁移 */
-  tablePreviewMeta?: Record<string, DbTablePreviewMetaSnapshot>;
+  /** 持久化迁移：旧版 tablePreviewMeta，读取后迁移并清除 */
+  tablePreviewMeta?: Record<string, PersistedTablePreviewMetaSnapshot>;
   tabModes?: Record<string, "data" | "sql">;
   tableDesignerStates: Record<string, DbTableDesignerStateSnapshot>;
 }
@@ -110,7 +110,7 @@ function cloneColumnRelations(
 }
 
 function previewStateFromLegacy(
-  legacy: DbTablePreviewMetaSnapshot | DbTablePreviewStateSnapshot | undefined,
+  legacy: PersistedTablePreviewMetaSnapshot | DbTablePreviewStateSnapshot | undefined,
 ): DbTablePreviewStateSnapshot | undefined {
   if (!legacy) {
     return undefined;

@@ -144,11 +144,6 @@ export function isTreeChartTab(tab: DbWorkspaceTab | null | undefined): tab is T
   return tab?.kind === "tree-chart";
 }
 
-/** @deprecated 旧版全局同步 Tab，会话恢复时会被丢弃 */
-export const DATA_SYNC_DOCK_TAB_ID = "toolbox:dataSync";
-/** @deprecated 旧版全局同步 Tab，会话恢复时会被丢弃 */
-export const SCHEMA_SYNC_DOCK_TAB_ID = "toolbox:schemaSync";
-
 export function syncTaskDockTabId(taskId: string): string {
   return `synctask:${taskId}`;
 }

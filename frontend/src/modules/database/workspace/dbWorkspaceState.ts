@@ -85,7 +85,6 @@ export type SqlTabState = {
   /** 每次执行对应一个结果会话 */
   resultSessions: SqlResultSession[];
   activeResultSessionId: string | null;
-  /** @deprecated 旧版单结果字段，仅兼容读取 */
   result?: QueryResult | null;
   elapsed?: number | null;
   resultPage?: number;
@@ -94,8 +93,6 @@ export type SqlTabState = {
 };
 
 export const DEFAULT_PAGE_SIZE = 100;
-/** @deprecated 查询结果分页改由设置页 databaseQueryPageSize 控制；保留供旧文案兼容。 */
-export const DEFAULT_QUERY_LIMIT = 1000;
 export const DEFAULT_SQL = `SELECT version();`;
 
 /** 表预览 COUNT 未完成时，根据当前页行数估算 totalRows。 */

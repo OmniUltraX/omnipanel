@@ -5,7 +5,6 @@ export type {
 } from "./workspaceTabs";
 export {
   DEFAULT_PAGE_SIZE,
-  DEFAULT_QUERY_LIMIT,
   PENDING_INSERT_ROW_KEY,
   resolvePreviewRowKey,
   createDefaultTablePreviewState,

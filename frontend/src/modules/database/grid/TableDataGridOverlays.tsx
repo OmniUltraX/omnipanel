@@ -11,9 +11,13 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
 import type { DbColumnMeta } from "../api";
 import { createTableQueryBuilderControlElements } from "../sql/QueryBuilderSelectControls";
+import type { TableSchema } from "../types";
+import type { TableColumnRelation } from "./tableColumnRelation";
+import { isRelationDisplayColumn } from "./tableColumnRelation";
 import {
   appendFilterRuleForColumn,
   buildFilterFields,
+  buildPreviewFilterFields,
   ensureTableFilterQuery,
   extractColumnFilter,
   forceColumnOnQuery,
@@ -25,6 +29,8 @@ import {
 export function TableDataGridFilterPopover({
   anchorRect,
   columnMeta,
+  columnRelations = {},
+  relationTables,
   initialQuery,
   lockedField,
   onApply,
@@ -32,6 +38,8 @@ export function TableDataGridFilterPopover({
 }: {
   anchorRect: DOMRect;
   columnMeta: DbColumnMeta[];
+  columnRelations?: Record<string, TableColumnRelation>;
+  relationTables?: TableSchema[];
   initialQuery: RuleGroupType | null;
   lockedField: string;
   onApply: (query: RuleGroupType | null) => void;
@@ -46,11 +54,18 @@ export function TableDataGridFilterPopover({
   );
 
   const fields = useMemo(
-    () =>
-      isTableWide
-        ? buildFilterFields(columnMeta)
-        : buildFilterFields(columnMeta.filter((col) => col.name === lockedField)),
-    [columnMeta, isTableWide, lockedField],
+    () => {
+      if (isTableWide) {
+        return buildPreviewFilterFields(columnMeta, columnRelations, relationTables);
+      }
+      if (isRelationDisplayColumn(lockedField)) {
+        return buildPreviewFilterFields([], columnRelations, relationTables).filter(
+          (field) => field.name === lockedField,
+        );
+      }
+      return buildFilterFields(columnMeta.filter((col) => col.name === lockedField));
+    },
+    [columnMeta, columnRelations, relationTables, isTableWide, lockedField],
   );
 
   const controlElements = useMemo(

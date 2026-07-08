@@ -121,15 +121,9 @@ function collectAlignedDisplayNames(
 export function buildSchemaAlignedTableNames(
   sourceSnapshot: SyncSideSnapshot,
   targetSnapshot: SyncSideSnapshot,
-  showMatchingTables: boolean,
-  schemaDiffs: Record<string, SchemaTableDiff>,
   caseSensitive = true,
 ): string[] {
-  let list = collectAlignedDisplayNames(sourceSnapshot, targetSnapshot, caseSensitive);
-  if (!showMatchingTables) {
-    list = list.filter((name) => schemaDiffs[name]?.status !== "match");
-  }
-  return list;
+  return collectAlignedDisplayNames(sourceSnapshot, targetSnapshot, caseSensitive);
 }
 
 export function buildSchemaDiffsFromSnapshots(

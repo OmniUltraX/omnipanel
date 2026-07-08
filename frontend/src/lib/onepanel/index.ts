@@ -19,7 +19,6 @@ export {
   type OnePanelMonitorData,
   type OnePanelProcess,
   type OnePanelRequestOptions,
-  type OnePanelSystemInfo,
 } from "./types";
 export {
   OnePanelClient,

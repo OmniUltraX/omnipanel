@@ -28,7 +28,7 @@ export type {
   TerminalTabInput,
 } from "./terminalTypes";
 export type { TerminalSession } from "./terminalSessionModel";
-export { createTerminalSessionId, createTerminalSessionId as createTerminalTabId } from "./terminalSessionModel";
+export { createTerminalSessionId } from "./terminalSessionModel";
 
 let tabCounter = 0;
 
@@ -39,12 +39,6 @@ function syncTabCounterFromTabs(tabs: Array<{ id: string }>): void {
     if (match) max = Math.max(max, Number(match[1]));
   }
   tabCounter = max;
-}
-
-/** @deprecated 工作区快照等仍可能生成 tab-N；新会话请用 createTerminalSessionId */
-export function createLegacyTabId() {
-  tabCounter += 1;
-  return `tab-${tabCounter}`;
 }
 
 interface TerminalState {

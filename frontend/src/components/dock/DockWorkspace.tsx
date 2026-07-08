@@ -27,8 +27,6 @@ interface DockWorkspaceProps {
   main: ReactNode;
   right?: ReactNode;
   bottom?: ReactNode;
-  /** @deprecated 使用 leftPreset 或 leftSizePx */
-  leftSize?: number;
   leftSizePx?: number;
   leftMinPx?: number;
   /** 侧栏最大宽度（px） */

@@ -1,9 +1,9 @@
-import { isGridImageFile } from "./utils";
+import { isAudioPreviewFile, isGridImageFile } from "./utils";
 import { parsePreviewJsonText } from "../../lib/contentPreview";
 
 export { parsePreviewJsonText };
 
-export type FilePreviewKind = "json" | "text" | "image" | "unsupported";
+export type FilePreviewKind = "json" | "text" | "image" | "audio" | "unsupported";
 
 const JSON_EXTENSIONS = new Set(["json", "jsonc", "json5", "geojson"]);
 
@@ -67,6 +67,7 @@ function isKnownTextFilename(name: string): boolean {
 
 export function resolveFilePreviewKind(name: string): FilePreviewKind {
   if (isGridImageFile(name)) return "image";
+  if (isAudioPreviewFile(name)) return "audio";
   if (isJsonPreviewFile(name)) return "json";
   if (isTextPreviewFile(name)) return "text";
   // 常见无扩展名约定文件名：按文本预览
@@ -125,6 +126,13 @@ export function detectPreviewKindFromBytes(bytes: Uint8Array | number[]): FilePr
   // BMP: 42 4D
   if (head8.length >= 2 && head8[0] === 0x42 && head8[1] === 0x4d) return "image";
 
+  // 音频（需在 NUL 字节检测之前，二进制音频常含 0x00）
+  if (isWavMagic(head16)) return "audio";
+  if (isOggMagic(head8)) return "audio";
+  if (isFlacMagic(head8)) return "audio";
+  if (isMp3Magic(view)) return "audio";
+  if (isMp4ContainerMagic(head8)) return "audio";
+
   // 文本类格式的魔术字节
   // gzip: 1F 8B
   const isGzip = head8.length >= 2 && head8[0] === 0x1f && head8[1] === 0x8b;
@@ -159,6 +167,42 @@ export function detectPreviewKindFromBytes(bytes: Uint8Array | number[]): FilePr
   }
 
   return null;
+}
+
+function isWavMagic(view: Uint8Array): boolean {
+  return (
+    view.length >= 12 &&
+    view[0] === 0x52 &&
+    view[1] === 0x49 &&
+    view[2] === 0x46 &&
+    view[3] === 0x46 &&
+    view[8] === 0x57 &&
+    view[9] === 0x45 &&
+    view[10] === 0x41 &&
+    view[11] === 0x56
+  );
+}
+
+function isOggMagic(view: Uint8Array): boolean {
+  return view.length >= 4 && view[0] === 0x4f && view[1] === 0x67 && view[2] === 0x67 && view[3] === 0x53;
+}
+
+function isFlacMagic(view: Uint8Array): boolean {
+  return view.length >= 4 && view[0] === 0x66 && view[1] === 0x4c && view[2] === 0x61 && view[3] === 0x43;
+}
+
+function isMp3Magic(view: Uint8Array): boolean {
+  if (view.length >= 3 && view[0] === 0x49 && view[1] === 0x44 && view[2] === 0x33) {
+    return true;
+  }
+  if (view.length >= 2 && view[0] === 0xff && (view[1]! & 0xe0) === 0xe0) {
+    return true;
+  }
+  return false;
+}
+
+function isMp4ContainerMagic(view: Uint8Array): boolean {
+  return view.length >= 8 && view[4] === 0x66 && view[5] === 0x74 && view[6] === 0x79 && view[7] === 0x70;
 }
 
 function head8ToAscii(view: Uint8Array): string {

@@ -127,5 +127,3 @@ export type DbWorkspaceMirrorContextValue = DbWorkspaceSharedContextValue &
     activeTableKey: string | null;
   };
 
-/** @deprecated 镜像与旧代码兼容别名 */
-export type DbWorkspaceContextValue = DbWorkspaceMirrorContextValue;

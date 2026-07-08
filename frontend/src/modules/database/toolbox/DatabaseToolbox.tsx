@@ -71,7 +71,7 @@ import {
   type TableTargetStatus,
   type ToolboxTabId,
   type SchemaTargetRowStatus,
-  normalizeSchemaTargetStatusFilters,
+  resolveSchemaTargetStatusFiltersFromConfig,
   isSchemaTargetStatusFilterShowAll,
 } from "./types";
 
@@ -1064,8 +1064,6 @@ export function DatabaseToolbox({
       const names = buildSchemaAlignedTableNames(
         sourceSnapshot,
         targetSnapshot,
-        true,
-        {},
         schemaCompareCaseSensitive,
       );
       const next: Record<string, SchemaTableDiff> = {};
@@ -1097,8 +1095,6 @@ export function DatabaseToolbox({
     return buildSchemaAlignedTableNames(
       sourceSnapshot,
       targetSnapshot,
-      true,
-      schemaDiffsForView,
       schemaCompareCaseSensitive,
     );
   }, [
@@ -1727,7 +1723,7 @@ export function DatabaseToolbox({
     setSchemaCaseSensitive(config.schemaCaseSensitive ?? true);
     setSchemaTableNameCase(resolveSchemaTableNameCase(config.schemaTableNameCase));
     setSchemaCreateMissingTables(config.schemaCreateMissingTables !== false);
-    setSchemaTargetStatusFilters(normalizeSchemaTargetStatusFilters(config.schemaTargetStatusFilter));
+    setSchemaTargetStatusFilters(resolveSchemaTargetStatusFiltersFromConfig(config));
     setSchemaTableSearch(config.schemaTableSearch ?? "");
     restoreAnalysisFromConfig(config);
     prevAnalysisConfigKeyRef.current = buildSyncAnalysisConfigKey({

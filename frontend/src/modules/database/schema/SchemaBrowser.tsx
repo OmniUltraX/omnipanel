@@ -34,7 +34,6 @@ import {
 } from "../../../stores/dbSchemaConnectionLayoutStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import {
-  DatabaseFilterDialog,
   makeTableFilterKey,
   mergeFilter,
   applyTablePinOrder,
@@ -1869,10 +1868,10 @@ export function SchemaBrowser({
       </ScopedSearch>
 
       {filterDialogConn && filterDialogConn.databases && (
-        <DatabaseFilterDialog
+        <SchemaFilterDialog
           open={filterDialogConnId !== null}
-          connectionName={filterDialogConn.config.name}
-          databases={filterDialogConn.databases.map((db) => db.name)}
+          title={t("database.filter.title", { name: filterDialogConn.config.name })}
+          items={filterDialogConn.databases.map((db) => db.name)}
           initial={
             databaseFilters[filterDialogConn.config.id] ??
             mergeFilter(undefined, filterDialogConn.databases.map((db) => db.name))

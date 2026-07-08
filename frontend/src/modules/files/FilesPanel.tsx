@@ -396,7 +396,6 @@ function FilesBrowserView() {
   return (
     <>
       <ModuleWorkspaceLayout
-        layoutKey="files"
         className="files-workspace"
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"

@@ -38,9 +38,16 @@ export function sortFileEntries(entries: FileEntry[]): FileEntry[] {
 
 const GRID_IMAGE_EXTENSIONS = new Set(["svg", "png", "jpg", "jpeg", "webp"]);
 
+const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "flac", "aac", "m4a", "webm", "opus", "weba"]);
+
 export function isGridImageFile(name: string): boolean {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return GRID_IMAGE_EXTENSIONS.has(ext);
+}
+
+export function isAudioPreviewFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return AUDIO_EXTENSIONS.has(ext);
 }
 
 export function imageMimeType(name: string): string {
@@ -57,6 +64,30 @@ export function imageMimeType(name: string): string {
       return "image/webp";
     default:
       return "application/octet-stream";
+  }
+}
+
+export function audioMimeType(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "mp3":
+      return "audio/mpeg";
+    case "wav":
+      return "audio/wav";
+    case "ogg":
+    case "opus":
+      return "audio/ogg";
+    case "flac":
+      return "audio/flac";
+    case "aac":
+      return "audio/aac";
+    case "m4a":
+      return "audio/mp4";
+    case "webm":
+    case "weba":
+      return "audio/webm";
+    default:
+      return "audio/mpeg";
   }
 }
 

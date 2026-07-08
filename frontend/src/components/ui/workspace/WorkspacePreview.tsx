@@ -74,16 +74,16 @@ function useWorkspacePreviewDockRelayout(
 }
 
 /**
- * 工作区预览布局：主内容 + 可拖拽底部工作区�?
+ * 工作区预览布局：主内容 + 可拖拽底部工作区。
  * - split-window：分屏高度，dockview 展示全部面板
- * - task-bar：标签栏高度�?0px），浏览器式标签�?
- * 显示模式�?`workspaceDisplayPreference` 用户偏好决定，持久化�?bottomPanelStore�?
+ * - task-bar：标签栏高度（40px），浏览器式标签栏
+ * 显示模式由 `workspaceDisplayPreference` 用户偏好决定，持久化于 bottomPanelStore。
  */
 export function WorkspacePreview({ children, className }: WorkspacePreviewProps) {
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const embeddedMode = useEmbeddedWorkspaceMode();
-  /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循�?*/
+  /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循环 */
   const isPreviewOpen =
     !isFullscreen && workspaceMode !== "hidden" && embeddedMode !== "hidden";
   const workspaceDisplayPreference = useBottomPanelStore(

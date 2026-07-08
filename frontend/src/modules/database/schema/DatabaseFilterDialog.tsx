@@ -11,9 +11,6 @@ export interface SchemaFilterState {
   pinnedNames?: string[];
 }
 
-/** @deprecated use SchemaFilterState */
-export type DatabaseFilterState = SchemaFilterState;
-
 interface SchemaFilterDialogProps {
   open: boolean;
   title: string;
@@ -195,28 +192,6 @@ export function SchemaFilterDialog({
   );
 }
 
-/** @deprecated use SchemaFilterDialog */
-export function DatabaseFilterDialog(props: {
-  open: boolean;
-  connectionName: string;
-  databases: string[];
-  initial: SchemaFilterState;
-  onClose: () => void;
-  onApply: (state: SchemaFilterState) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <SchemaFilterDialog
-      open={props.open}
-      title={t("database.filter.title", { name: props.connectionName })}
-      items={props.databases}
-      initial={props.initial}
-      onClose={props.onClose}
-      onApply={props.onApply}
-    />
-  );
-}
-
 export function createDefaultFilter(names: string[]): SchemaFilterState {
   return {
     orderedNames: [...names],
@@ -333,9 +308,6 @@ export function getVisibleNames(names: string[], filter: SchemaFilterState | und
     filter,
   ).map((item) => item.name);
 }
-
-/** @deprecated use getVisibleItems */
-export const getVisibleDatabases = getVisibleItems;
 
 export function makeTableFilterKey(connId: string, dbName: string): string {
   return `${connId}:${dbName}`;

@@ -7,9 +7,6 @@ export const MAX_HTTP_JSON_FORMAT_BYTES = 4 * 1024 * 1024;
 /** 纯文本响应在 pre 中直接展示的上限，超出则截断。 */
 export const MAX_HTTP_PLAIN_BODY_BYTES = 256 * 1024;
 
-/** @deprecated 使用 MAX_HTTP_JSON_TREE_BYTES */
-export const MAX_HTTP_JSON_PREVIEW_BYTES = MAX_HTTP_JSON_TREE_BYTES;
-
 export type HttpResponseBodyPreview =
   | { kind: "json-tree"; value: object }
   /** 512KB–4MB：异步解析后使用虚拟树预览 */
@@ -100,22 +97,4 @@ export function resolveHttpResponseBodyPreview(
   }
 
   return { kind: "text", text: body };
-}
-
-/** @deprecated 使用 resolveHttpResponseBodyPreview */
-export function resolveHttpResponseBodyContent(body: string, contentType: string) {
-  const preview = resolveHttpResponseBodyPreview(body, contentType);
-  if (preview.kind === "json-tree") {
-    return { kind: "json" as const, value: preview.value };
-  }
-  if (preview.kind === "json-large") {
-    return { kind: "text" as const, text: preview.body };
-  }
-  if (preview.kind === "json-source") {
-    return { kind: "text" as const, text: preview.body };
-  }
-  if (preview.kind === "text-truncated") {
-    return { kind: "text" as const, text: preview.preview };
-  }
-  return { kind: "text" as const, text: preview.text };
 }

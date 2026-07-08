@@ -3,7 +3,7 @@ import { useWorkspaceStore } from "../stores/workspaceStore";
 import { resolveResourceById } from "../stores/connectionStore";
 import { MODULE_PATHS } from "./paths";
 
-export { createTerminalTabId } from "../stores/terminalStore";
+export { createTerminalSessionId } from "../stores/terminalStore";
 
 export function navigateToPath(path: string) {
   useWorkspaceStore.getState().setActivePath(path);
