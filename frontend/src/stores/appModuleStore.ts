@@ -63,7 +63,7 @@ export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
         ? state.modules.map((m) => (m.module_key === key ? updated : m))
         : [...state.modules, updated],
     }));
-    await import("./mcpToolStore").then((m) => m.refreshMcpToolStore());
+    await import("./builtinToolStore").then((m) => m.refreshBuiltinToolStore());
   },
 }));
 

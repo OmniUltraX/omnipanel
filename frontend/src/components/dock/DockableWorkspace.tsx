@@ -181,7 +181,7 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
   /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
-  onPanelTransferredOut?: (panelId: string) => void;
+  onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
   /**
    * segment：模块分段 Tab（ModuleSegmentDock），单 group tab 栏固定含 drag-spacer。
    * default：按布局树解析顶部/右上角 group。
@@ -844,6 +844,28 @@ export function DockableWorkspace({
     };
   }, [windowControl, tabs.length, layoutReady]);
 
+  // 半屏 → 全屏时 windowControl 由 false 变 true：须重新解析 chrome 宿主并刷新 tab 栏右侧槽位
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    syncWindowChromeHostRef.current(api);
+    if (!windowControl) return;
+
+    const root = wrapperRef.current?.querySelector<HTMLElement>(
+      ".dockable-workspace__dockview",
+    );
+    if (!root) return;
+
+    const relayout = () => {
+      const w = root.clientWidth;
+      const h = root.clientHeight;
+      if (w > 0 && h > 0) api.layout(w, h, true);
+    };
+    relayout();
+    const raf = requestAnimationFrame(relayout);
+    return () => cancelAnimationFrame(raf);
+  }, [windowControl, windowChromeHosts, layoutReady]);
+
   // 再次点击已激活 tab：以 pointerdown 时的激活态为准。
   // dockview 会在 click 前完成切换，若只看 click 时的 dv-active-tab，
   // 点击其它 tab 也会被误判为“当前激活 tab”。
@@ -1194,10 +1216,12 @@ export function DockableWorkspace({
   useLayoutEffect(() => {
     const root = wrapperRef.current;
     if (!root) return;
+    const dockRoot =
+      root.querySelector<HTMLElement>(".dockable-workspace__dockview") ?? root;
     const hiddenIds = new Set(
       tabs.filter((tab) => tab.tabBarHidden).map((tab) => tab.id),
     );
-    root
+    dockRoot
       .querySelectorAll<HTMLElement>(".dv-default-tab[data-dock-tab-id]")
       .forEach((header) => {
         const id = header.dataset.dockTabId;
@@ -1472,9 +1496,9 @@ export function DockableWorkspace({
             wrapperRef.current?.querySelector<HTMLElement>(
               ".dockable-workspace__dockview",
             ) ?? null,
-          onPanelTransferredOut: (panelId) => {
+          onPanelTransferredOut: (panelId, targetScope) => {
             transferredOutRef.current.add(panelId);
-            onPanelTransferredOutRef.current?.(panelId);
+            onPanelTransferredOutRef.current?.(panelId, targetScope);
           },
         });
       }
@@ -1612,9 +1636,7 @@ export function DockableWorkspace({
               createPanelRequest || addTabConfig?.show ? leftHeaderActions : undefined
             }
             prefixHeaderActionsComponent={preActions ? prefixHeaderActions : undefined}
-            rightHeaderActionsComponent={
-              windowControl ? rightHeaderActions : undefined
-            }
+            rightHeaderActionsComponent={rightHeaderActions}
             noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
             theme={themeDark}
             dndStrategy="pointer"

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { WorkspaceSwitcher } from "../shell/WorkspaceSwitcher";
+import { WinControls } from "../shell/WinControls";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
@@ -161,13 +162,37 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     return null;
   }
 
+  const isEmpty = tabs.length === 0;
+
   const frameClassName = [
     "workspace-panel-frame",
     isEngineeringFullscreen ? "workspace-panel-frame--engineering-full" : "",
-    tabs.length === 0 ? "workspace-panel--empty" : "",
+    isEmpty ? "workspace-panel--empty" : "",
   ]
     .filter(Boolean)
     .join(" ");
+
+  // 空工作区时 dockview 空 group 的 tab 栏可能不渲染 header，
+  // 导致 preActions(切换器) 和 rightHeaderActions(窗口按钮) 无处挂载。
+  // 此时改用独立顶栏承载，确保切换器与窗口控制按钮始终可见。
+  const emptyTopbar = isEmpty ? (
+    <div className="workspace-panel-empty-topbar">
+      <WorkspaceSwitcher
+        placement="below"
+        context="embedded"
+        showHomeOption={isEngineeringFullscreen}
+      />
+      <div className="workspace-panel-empty-spacer" />
+      {isEngineeringFullscreen ? (
+        <>
+          {windowChromeLeftActions}
+          <WinControls />
+        </>
+      ) : (
+        windowChromeLeftActions
+      )}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -175,17 +200,20 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
       onDoubleClickCapture={handleTopbarDoubleClick}
     >
       {isEngineeringFullscreen ? <WorkspaceFullscreenDragHandle /> : null}
-      {!isEngineeringFullscreen ? (
+      {!isEngineeringFullscreen && !isEmpty ? (
         <div className="workspace-panel-mode-controls">
           {windowChromeLeftActions}
         </div>
       ) : null}
+      {emptyTopbar}
       <WorkspaceDockCore
         workspace={workspace}
         dockScope={dockScope}
-        preActions={preActions}
-        windowControl={isEngineeringFullscreen}
-        windowChromeLeftActions={isEngineeringFullscreen ? windowChromeLeftActions : undefined}
+        preActions={isEmpty ? undefined : preActions}
+        windowControl={isEngineeringFullscreen && !isEmpty}
+        windowChromeLeftActions={
+          isEngineeringFullscreen && !isEmpty ? windowChromeLeftActions : undefined
+        }
         emptyContent={emptyContent}
       />
     </div>

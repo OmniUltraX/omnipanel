@@ -20,7 +20,7 @@ pub fn merge_exposed_spec_tools(storage: &Storage, router_tools: Vec<Tool>) -> V
             continue;
         }
         if !storage
-            .mcp_tool_is_exposed_available(spec.tool_name)
+            .builtin_tool_is_exposed_available(spec.tool_name)
             .unwrap_or(false)
         {
             continue;

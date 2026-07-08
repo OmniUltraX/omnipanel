@@ -143,8 +143,19 @@ export function WorkspaceDockCore({
   );
 
   const handlePanelTransferredOut = useCallback(
-    (panelId: string) => {
+    (panelId: string, targetScope: string) => {
       const tab = tabs.find((item) => item.id === panelId);
+      if (!tab) return;
+      // terminal payload 拖回终端：保留 session，由终端侧 subscribeDockviewTransfer 接管，
+      // 不释放资源、不进最近关闭（属于"移动"而非"关闭"）。
+      const isTerminalMoveToTerminal =
+        targetScope === "terminal" &&
+        tab.kind === "payload" &&
+        tab.payload?.module === "terminal";
+      if (isTerminalMoveToTerminal) {
+        removeTab(workspaceId, workspace, panelId, { skipRecentClosed: true });
+        return;
+      }
       cleanupWorkspaceDockTab(tab);
       removeTab(workspaceId, workspace, panelId);
     },

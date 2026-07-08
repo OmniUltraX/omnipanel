@@ -2,8 +2,8 @@
 //! 应用数据根目录为 `~/.omnipd`，各模块使用独立子目录。
 
 mod ai_trace;
-mod mcp_tool;
-mod mcp_tool_spec;
+mod builtin_tool;
+mod builtin_tool_spec;
 mod app_module;
 mod connection;
 mod database;
@@ -22,11 +22,13 @@ mod storage;
 mod task;
 mod third_party_account;
 mod vault;
+mod http_proxy;
+mod web_search;
 mod workflow;
 
 pub use ai_trace::{AiSessionRecord, AiTraceRecord};
-pub use mcp_tool::{McpToolCatalogEntry, McpToolRecord};
-pub use mcp_tool_spec::{
+pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};
+pub use builtin_tool_spec::{
     builtin_tool_is_native, builtin_tool_module_key, builtin_tool_omnimcp_backend,
     builtin_tool_spec, BuiltinToolSpec, ToolExecKind, BUILTIN_TOOL_SPECS,
 };
@@ -53,11 +55,17 @@ pub use knowledge_vector::{
     KnowledgeVectorHit,
     KnowledgeVectorStatus, chunk_text,
 };
+pub use http_proxy::{load_http_proxy_config, save_http_proxy_config, HttpProxyConfig};
+pub use web_search::{
+    delete_exa_api_key, exa_api_key_configured, load_exa_api_key, load_web_search_config,
+    save_exa_api_key, save_web_search_config, WebSearchBackend, WebSearchConfig,
+    WEB_SEARCH_EXA_KEY_REF,
+};
 pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
     database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
-    database_schema_tree_expanded_path, mcp_services_path, meta_db_path, module_dir, omnipd_root,
-    skills_root,
+    database_schema_tree_expanded_path, http_proxy_config_path, mcp_services_path, meta_db_path,
+    module_dir, omnipd_root, skills_root, web_search_config_path,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,

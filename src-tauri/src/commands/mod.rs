@@ -5,7 +5,7 @@ pub mod agents;
 #[allow(dead_code)]
 pub mod ai;
 pub mod app_module;
-pub mod mcp_tool;
+pub mod builtin_tool;
 pub mod mcp;
 pub mod ai_models;
 pub mod db_sql_files;
@@ -36,5 +36,6 @@ pub mod terminal;
 pub mod updater;
 pub mod providers;
 pub mod skills;
-pub mod workflow;
+pub mod web_search;
 pub mod third_party_account;
+pub mod workflow;

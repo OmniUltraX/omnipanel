@@ -9,8 +9,8 @@ export type WorkspaceMode =
 
 /** 低于等于此高度视为隐藏 */
 export const WS_HEIGHT_HIDDEN_MAX = 20;
-/** task-bar 固定展示高度（px） */
-export const WS_HEIGHT_TASKBAR_MAX = 40;
+/** task-bar 固定展示高度（px），与 --topbar-h / --ws-taskbar-h 对齐 */
+export const WS_HEIGHT_TASKBAR_MAX = 44;
 /** 超过视口此比例高度时进入 split-window */
 export const WS_SPLIT_WINDOW_HEIGHT_RATIO = 0.3;
 /** 缩略图模式最低高度（px）— 两态 UI 下与 taskbar 分界 */

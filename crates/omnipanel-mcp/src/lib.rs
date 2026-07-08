@@ -9,10 +9,10 @@ mod store;
 mod types;
 
 pub use manager::{McpManager, SharedMcpManager};
-pub use registry::{external, RegisteredTool, ToolExecutionKind, ToolRegistry};
+pub use registry::{external, web_tools, RegisteredTool, ToolExecutionKind, ToolRegistry};
 pub use types::{
     McpServiceConfig, McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpSseTransport,
-    McpStdioTransport, McpToolCallResult, McpToolInfo, McpTransport, McpTransportKind,
+    McpStdioTransport, ToolCallResult, ToolInfo, McpTransport, McpTransportKind,
     BUILTIN_MCP_ENDPOINT,
     BUILTIN_MCP_PORT,
     BUILTIN_SERVICE_ID,

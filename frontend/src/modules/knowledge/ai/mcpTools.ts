@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { McpToolRegistration } from "../../../lib/ai/context";
+import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { requireString } from "../../../lib/ai/mcpToolArgs";
 import { resolveKnowledgeEmbeddingProvider } from "../../../lib/knowledgeEmbeddingModel";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
@@ -50,7 +50,7 @@ async function queryDocument(args: Record<string, unknown>): Promise<string> {
   return JSON.stringify({ query: key, hits }, null, 2);
 }
 
-export const KNOWLEDGE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
+export const KNOWLEDGE_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_knowledge_query_document",
     description:

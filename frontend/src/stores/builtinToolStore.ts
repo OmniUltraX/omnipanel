@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import { commands, type McpToolCatalogEntry, type McpToolRecord } from "../ipc/bindings";
-import { getAllMcpCatalogEntries } from "../lib/ai/context/moduleMcpCatalog";
+import { commands, type BuiltinToolCatalogEntry, type BuiltinToolRecord } from "../ipc/bindings";
+import { getAllBuiltinCatalogEntries } from "../lib/ai/context/moduleBuiltinCatalog";
 import type { ModuleKey } from "../lib/paths";
 import { isModuleOpen } from "./appModuleStore";
 
-interface McpToolStore {
-  tools: McpToolRecord[];
+interface BuiltinToolStore {
+  tools: BuiltinToolRecord[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -16,7 +16,7 @@ interface McpToolStore {
   setExternalExposed: (toolName: string, exposed: boolean) => Promise<void>;
 }
 
-export const useMcpToolStore = create<McpToolStore>((set, get) => ({
+export const useBuiltinToolStore = create<BuiltinToolStore>((set, get) => ({
   tools: [],
   hydrated: false,
 
@@ -28,8 +28,8 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
 
   refresh: async () => {
     try {
-      await syncMcpToolCatalog();
-      const res = await commands.mcpToolList();
+      await syncBuiltinToolCatalog();
+      const res = await commands.builtinToolList();
       if (res.status === "ok") {
         set({ tools: res.data });
       }
@@ -56,7 +56,7 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
   },
 
   setInternalEnabled: async (toolName, enabled) => {
-    const res = await commands.mcpToolSetInternalEnabled(toolName, enabled);
+    const res = await commands.builtinToolSetInternalEnabled(toolName, enabled);
     if (res.status !== "ok") return;
     const updated = res.data;
     set((state) => ({
@@ -65,7 +65,7 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
   },
 
   setExternalExposed: async (toolName, exposed) => {
-    const res = await commands.mcpToolSetExternalExposed(toolName, exposed);
+    const res = await commands.builtinToolSetExternalExposed(toolName, exposed);
     if (res.status !== "ok") return;
     const updated = res.data;
     set((state) => ({
@@ -74,23 +74,23 @@ export const useMcpToolStore = create<McpToolStore>((set, get) => ({
   },
 }));
 
-export function isMcpToolAvailable(toolName: string): boolean {
-  return useMcpToolStore.getState().isAvailable(toolName);
+export function isBuiltinToolAvailable(toolName: string): boolean {
+  return useBuiltinToolStore.getState().isAvailable(toolName);
 }
 
-export function isMcpToolExternalExposed(toolName: string): boolean {
-  return useMcpToolStore.getState().isExternalExposed(toolName);
+export function isBuiltinToolExternalExposed(toolName: string): boolean {
+  return useBuiltinToolStore.getState().isExternalExposed(toolName);
 }
 
-export async function syncMcpToolCatalog(): Promise<void> {
-  const entries: McpToolCatalogEntry[] = getAllMcpCatalogEntries();
-  await commands.mcpToolSyncCatalog(entries);
+export async function syncBuiltinToolCatalog(): Promise<void> {
+  const entries: BuiltinToolCatalogEntry[] = getAllBuiltinCatalogEntries();
+  await commands.builtinToolSyncCatalog(entries);
 }
 
-export async function initMcpToolStore(): Promise<void> {
-  await useMcpToolStore.getState().hydrate();
+export async function initBuiltinToolStore(): Promise<void> {
+  await useBuiltinToolStore.getState().hydrate();
 }
 
-export async function refreshMcpToolStore(): Promise<void> {
-  await useMcpToolStore.getState().refresh();
+export async function refreshBuiltinToolStore(): Promise<void> {
+  await useBuiltinToolStore.getState().refresh();
 }

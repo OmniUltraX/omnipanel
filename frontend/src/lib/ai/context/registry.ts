@@ -3,10 +3,10 @@ import { create } from "zustand";
 import type { ModuleKey } from "../../paths";
 import { parseToolArguments } from "../parseToolArguments";
 import type { ContextProvider } from "./ContextProvider";
-import { getModuleMcpToolsFromCatalog } from "./moduleMcpCatalog";
-import { isMcpToolAvailable } from "../../../stores/mcpToolStore";
+import { getModuleBuiltinToolsFromCatalog } from "./moduleBuiltinCatalog";
+import { isBuiltinToolAvailable } from "../../../stores/builtinToolStore";
 import { isModuleOpen } from "../../../stores/appModuleStore";
-import type { AiContextScope, McpToolRegistration } from "./types";
+import type { AiContextScope, BuiltinToolRegistration } from "./types";
 
 const providers = new Map<AiContextScope, ContextProvider>();
 
@@ -57,24 +57,27 @@ export function getModuleAiContextText(moduleKey: ModuleKey): string | null {
   return provider?.getAiContextText() ?? null;
 }
 
-export function getModuleMcpTools(moduleKey: ModuleKey): McpToolRegistration[] {
+export function getModuleBuiltinTools(moduleKey: ModuleKey): BuiltinToolRegistration[] {
   if (!isModuleOpen(moduleKey)) {
     return [];
   }
-  return getModuleMcpToolsFromCatalog(moduleKey).filter((tool) =>
-    isMcpToolAvailable(tool.name),
+  return getModuleBuiltinToolsFromCatalog(moduleKey).filter((tool) =>
+    isBuiltinToolAvailable(tool.name),
   );
 }
 
-export async function executeModuleMcpTool(
+/** @deprecated 使用 getModuleBuiltinTools */
+export const getModuleMcpTools = getModuleBuiltinTools;
+
+export async function executeModuleBuiltinTool(
   moduleKey: ModuleKey,
   toolName: string,
   toolArguments: string,
 ): Promise<{ result: string; success: boolean }> {
-  if (!isMcpToolAvailable(toolName)) {
-    return { result: `MCP 工具不可用：${toolName}`, success: false };
+  if (!isBuiltinToolAvailable(toolName)) {
+    return { result: `内置工具不可用：${toolName}`, success: false };
   }
-  const tool = getModuleMcpToolsFromCatalog(moduleKey).find((item) => item.name === toolName);
+  const tool = getModuleBuiltinToolsFromCatalog(moduleKey).find((item) => item.name === toolName);
   if (!tool) {
     return { result: `未找到模块工具：${toolName}`, success: false };
   }
@@ -89,6 +92,9 @@ export async function executeModuleMcpTool(
     };
   }
 }
+
+/** @deprecated 使用 executeModuleBuiltinTool */
+export const executeModuleMcpTool = executeModuleBuiltinTool;
 
 export function getWorkspaceAiContextText(workspaceId: string): string | null {
   const provider = getContextProvider(`workspace:${workspaceId}`);

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_store::{
-    load_database_connections, ConnectionKind, KnowledgeEntry, Storage,
+    load_database_connections, ConnectionKind, HttpProxyConfig, KnowledgeEntry, Storage,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -36,6 +36,7 @@ pub async fn execute(
     name: &str,
     arguments: Value,
     storage: Arc<Mutex<Storage>>,
+    proxy: Option<HttpProxyConfig>,
 ) -> Result<(String, bool), String> {
     match name {
         "omni_knowledge_create_document" => create_document(arguments, storage).await,
@@ -44,6 +45,10 @@ pub async fn execute(
         "omni_database_list_connections" => list_database_connections(arguments).await,
         "omni_ssh_list_connections" => list_ssh_connections(arguments, storage).await,
         "load_skill" => load_skill(arguments).await,
+        "omni_web_search" => {
+            super::web_tools::search(arguments, storage, proxy).await
+        }
+        "omni_web_fetch" => super::web_tools::fetch(arguments, storage, proxy).await,
         _ => Err(format!("未知 Native 工具: {name}")),
     }
 }

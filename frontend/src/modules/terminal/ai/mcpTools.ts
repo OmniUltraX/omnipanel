@@ -1,4 +1,4 @@
-import type { McpToolRegistration } from "../../../lib/ai/context";
+import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import type { WorkspaceAction } from "../../../stores/actionStore";
 import type { TerminalBlock } from "../../../stores/blocksStore";
 import { requireString } from "../../../lib/ai/mcpToolArgs";
@@ -77,7 +77,7 @@ async function runTerminalCommand(args: Record<string, unknown>): Promise<string
 /** 终端模块 MCP 工具名（omni_{module}_{function_name}） */
 export const OMNI_TERMINAL_RUN_TERMINAL_COMMAND = "omni_terminal_run_terminal_command";
 
-export const TERMINAL_MODULE_MCP_TOOLS: McpToolRegistration[] = [
+export const TERMINAL_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: OMNI_TERMINAL_RUN_TERMINAL_COMMAND,
     description:

@@ -163,7 +163,7 @@ impl Storage {
         Ok(out)
     }
 
-    pub fn mcp_tool_audit_append(
+    pub fn builtin_tool_audit_append(
         &self,
         source: &str,
         tool_name: &str,
@@ -174,7 +174,7 @@ impl Storage {
     ) -> OmniResult<()> {
         self.conn()
             .execute(
-                "INSERT INTO mcp_tool_audit (source, tool_name, duration_ms, success, detail, ts)
+                "INSERT INTO builtin_tool_audit (source, tool_name, duration_ms, success, detail, ts)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 (
                     source,

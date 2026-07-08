@@ -2,7 +2,8 @@ import { useState } from "react";
 
 import { useI18n } from "../../i18n";
 import { McpServicesSection } from "./McpServicesSection";
-import { McpToolsSettingsSection } from "./McpToolsSettingsSection";
+import { BuiltinToolsSettingsSection } from "./BuiltinToolsSettingsSection";
+import { WebSearchSettingsSection } from "./WebSearchSettingsSection";
 import { SkillsSection } from "./SkillsSection";
 
 type AiToolsTab = "builtin" | "externalMcp" | "skills";
@@ -45,7 +46,8 @@ export function AiToolsSection() {
         <div className="settings-subsection">
           <div className="settings-subsection-card">
             <p className="setting-hint settings-subsection-desc">{t("settings.builtinTools.desc")}</p>
-            <McpToolsSettingsSection />
+            <BuiltinToolsSettingsSection />
+            <WebSearchSettingsSection />
           </div>
         </div>
       ) : null}

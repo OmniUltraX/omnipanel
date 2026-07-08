@@ -16,14 +16,16 @@ import { WorkspaceDockTabPanel } from "./WorkspaceDockTabPanel";
 interface WorkspaceTaskBarPanelSubWindowProps {
   tab: WorkspaceDockTab | null;
   open: boolean;
-  onClose: () => void;
+  onMinimize: () => void;
+  onRemove: (tabId: string) => void;
 }
 
 /** task-bar 模式：点击标签后在 SubWindow 中展示面板内容 */
 export function WorkspaceTaskBarPanelSubWindow({
   tab,
   open,
-  onClose,
+  onMinimize,
+  onRemove,
 }: WorkspaceTaskBarPanelSubWindowProps) {
   const navigate = useNavigate();
 
@@ -35,8 +37,13 @@ export function WorkspaceTaskBarPanelSubWindow({
     const dockStore = useWorkspaceBottomDockStore.getState();
     dockStore.setActiveTabId(workspaceId, tab.id);
     syncWorkspaceDockActiveTabSideEffects(tab);
-    onClose();
-  }, [tab, onClose, navigate]);
+    onMinimize();
+  }, [tab, onMinimize, navigate]);
+
+  const handleClose = useCallback(() => {
+    if (!tab) return;
+    onRemove(tab.id);
+  }, [onRemove, tab]);
 
   if (!tab) return null;
 
@@ -47,12 +54,12 @@ export function WorkspaceTaskBarPanelSubWindow({
     <SubWindow
       open={open}
       title={displayTitle}
-      onClose={onClose}
+      onClose={handleClose}
       className="workspace-taskbar-subwindow-panel"
       widthRatio={0.88}
       heightRatio={0.82}
       noOverlay
-      onMinimize={onClose}
+      onMinimize={onMinimize}
       onMaximizeToWorkspace={handleMaximizeToWorkspace}
     >
       <div className="workspace-taskbar-subwindow">

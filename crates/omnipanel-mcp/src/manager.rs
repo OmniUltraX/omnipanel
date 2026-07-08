@@ -207,13 +207,13 @@ impl McpManager {
         id: &str,
         tool_name: &str,
         arguments: serde_json::Value,
-    ) -> anyhow::Result<crate::types::McpToolCallResult> {
+    ) -> anyhow::Result<crate::types::ToolCallResult> {
         use crate::types::McpServiceRuntimeStatus;
 
         if id == BUILTIN_SERVICE_ID {
             {
                 let storage = self.storage.lock().await;
-                if !storage.mcp_tool_is_exposed_available(tool_name).unwrap_or(false) {
+                if !storage.builtin_tool_is_exposed_available(tool_name).unwrap_or(false) {
                     anyhow::bail!("MCP 工具不可用: {tool_name}");
                 }
             }
@@ -254,7 +254,7 @@ impl McpManager {
         }
     }
 
-    pub async fn list_service_tools(&self, id: &str) -> anyhow::Result<Vec<crate::types::McpToolInfo>> {
+    pub async fn list_service_tools(&self, id: &str) -> anyhow::Result<Vec<crate::types::ToolInfo>> {
         use crate::types::McpServiceRuntimeStatus;
 
         if id == BUILTIN_SERVICE_ID {
@@ -267,7 +267,7 @@ impl McpManager {
                 crate::client::list_tools_http_for_module(&endpoint, Some(OMNI_MODULE_MASTER))
                     .await?;
             let storage = self.storage.lock().await;
-            tools.retain(|tool| storage.mcp_tool_is_exposed_available(&tool.name).unwrap_or(false));
+            tools.retain(|tool| storage.builtin_tool_is_exposed_available(&tool.name).unwrap_or(false));
             return Ok(tools);
         }
 

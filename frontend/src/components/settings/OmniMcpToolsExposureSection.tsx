@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
 import type { ModuleKey } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
-import { useMcpToolStore } from "../../stores/mcpToolStore";
+import { useBuiltinToolStore } from "../../stores/builtinToolStore";
 
 function SettingToggle({
   value,
@@ -56,9 +56,9 @@ function moduleLabelKey(moduleKey: string): string {
 /** OmniMCP 对外暴露：全部内置工具均可配置，按模块分组。 */
 export function OmniMcpToolsExposureSection() {
   const { t } = useI18n();
-  const tools = useMcpToolStore((s) => s.tools);
-  const hydrate = useMcpToolStore((s) => s.hydrate);
-  const setExternalExposed = useMcpToolStore((s) => s.setExternalExposed);
+  const tools = useBuiltinToolStore((s) => s.tools);
+  const hydrate = useBuiltinToolStore((s) => s.hydrate);
+  const setExternalExposed = useBuiltinToolStore((s) => s.setExternalExposed);
   const modules = useAppModuleStore((s) => s.modules);
 
   useEffect(() => {

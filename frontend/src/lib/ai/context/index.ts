@@ -1,7 +1,7 @@
 export {
   ContextProvider,
   type AiContextScope,
-  type McpToolRegistration,
+  type BuiltinToolRegistration,
   type ModuleContextScope,
   type WorkspaceContextScope,
 } from "./ContextProvider";
@@ -19,6 +19,8 @@ export {
   getContextProvider,
   getModuleAiContextText,
   getModuleContextProvider,
+  getModuleBuiltinTools,
+  executeModuleBuiltinTool,
   getModuleMcpTools,
   executeModuleMcpTool,
   getWorkspaceAiContextText,

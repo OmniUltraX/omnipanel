@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
 import { appConfirm } from "../../../lib/appConfirm";
 import { dispatchDebouncedWindowResize } from "../../../lib/subWindowResize";
 import { isWorkspaceBuiltinTab } from "../../../lib/workspaceBuiltinPanels";
 import { syncWorkspaceDockActiveTabSideEffects } from "../../../lib/syncWorkspaceDockActiveTab";
 import { cleanupWorkspaceDockTab } from "../../../lib/workspaceTabActions";
-import { PreviewKindIcon } from "./WorkspacePreviewPanelTile";
 import {
-  resolveWorkspaceActiveTabId,
   resolveWorkspaceTabs,
   useWorkspaceBottomDockStore,
 } from "../../../stores/workspaceBottomDockStore";
@@ -20,6 +18,13 @@ import type { WorkspaceDockTab } from "../../../stores/workspaceBottomDockStore"
 import { WorkspaceTaskBarPanelSubWindow } from "../../workspace/WorkspaceTaskBarPanelSubWindow";
 import { WorkspaceSwitcher } from "../../shell/WorkspaceSwitcher";
 import { useBottomPanelStore } from "../../../stores/bottomPanelStore";
+
+function taskbarTabStatusClass(status?: string) {
+  if (status === "connected" || status === "online") return "online";
+  if (status === "connecting" || status === "running") return "connecting";
+  if (status === "offline") return "offline";
+  return "idle";
+}
 
 function TaskBarPanelTile({
   tab,
@@ -51,40 +56,44 @@ function TaskBarPanelTile({
     [displayTitle, onRemove, t, tab.id],
   );
 
+  const handleClosePointerDown = useCallback((event: PointerEvent) => {
+    event.preventDefault();
+  }, []);
+
   return (
-    <div className={`workspace-preview-taskbar__tile${active ? " is-active" : ""}`}>
-      <div
-        className={`workspace-preview-taskbar-tab${active ? " is-active" : ""}${removable ? " workspace-preview-taskbar-tab--removable" : ""}`}
-        role="presentation"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active}
-          className="workspace-preview-taskbar-tab__main"
-          onClick={() => onSelect(tab.id)}
-          title={displayTitle}
-        >
-          <span className="workspace-preview-taskbar-tab__icon" data-kind={preview.kind}>
-            <PreviewKindIcon kind={preview.kind} />
-          </span>
-          <span className="workspace-preview-taskbar-tab__label">{displayTitle}</span>
-        </button>
-        {removable ? (
-          <button
-            type="button"
-            className="workspace-preview-taskbar-tab__close drag-ignore"
-            title={t("shell.workspacePreview.removePanel")}
-            aria-label={t("shell.workspacePreview.removePanel")}
-            onClick={(event) => void handleRemove(event)}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-            </svg>
-          </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={`workspace-taskbar-tab${active ? " is-active" : ""}`}
+      title={displayTitle}
+      onClick={() => onSelect(tab.id)}
+    >
+      <span className="workspace-taskbar-tab__main">
+        {preview.status ? (
+          <span
+            className={`topbar-tab-dot ${taskbarTabStatusClass(preview.status)}`}
+            aria-hidden
+          />
         ) : null}
-      </div>
-    </div>
+        <span className="workspace-taskbar-tab__label">{displayTitle}</span>
+      </span>
+      {removable ? (
+        <span
+          className="workspace-taskbar-tab__close drag-ignore"
+          role="button"
+          tabIndex={0}
+          title={t("shell.workspacePreview.removePanel")}
+          aria-label={t("shell.workspacePreview.removePanel")}
+          onPointerDown={handleClosePointerDown}
+          onClick={(event) => void handleRemove(event)}
+        >
+          <svg width="16" height="16" viewBox="0 0 28 28" fill="none" aria-hidden>
+            <path stroke="currentColor" strokeWidth="2" d="M8 8l12 12M20 8L8 20" />
+          </svg>
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -98,9 +107,6 @@ export function WorkspacePreviewTaskBar() {
   const setTaskbarSubWindowTabId = useBottomPanelStore((state) => state.setTaskbarSubWindowTabId);
   const rawTabs = useWorkspaceBottomDockStore(
     (state) => state.tabsByWorkspace[workspace.id],
-  );
-  const rawActiveTabId = useWorkspaceBottomDockStore(
-    (state) => state.activeTabByWorkspace[workspace.id],
   );
   const ensureWorkspaceData = useWorkspaceBottomDockStore(
     (state) => state.ensureWorkspaceData,
@@ -154,10 +160,7 @@ export function WorkspacePreviewTaskBar() {
     return () => window.removeEventListener("omnipanel-workspace-dock-activate", handler);
   }, [setActiveTabId, workspace]);
 
-  const activeTabId = useMemo(
-    () => resolveWorkspaceActiveTabId(workspace, tabs, rawActiveTabId),
-    [workspace, tabs, rawActiveTabId],
-  );
+  const highlightedTabId = subWindowTabId;
 
   const subWindowTab = useMemo(
     () => tabs.find((tab) => tab.id === subWindowTabId) ?? null,
@@ -172,11 +175,15 @@ export function WorkspacePreviewTaskBar() {
 
   const handleSelectTab = useCallback(
     (tabId: string) => {
+      if (subWindowTabId === tabId) {
+        setSubWindowTabId(null);
+        return;
+      }
       setActiveTabId(workspace.id, tabId);
       syncWorkspaceDockActiveTabSideEffects(tabs.find((tab) => tab.id === tabId));
       setSubWindowTabId(tabId);
     },
-    [setActiveTabId, tabs, workspace.id],
+    [setActiveTabId, subWindowTabId, tabs, workspace.id],
   );
 
   const handleCloseSubWindow = useCallback(() => {
@@ -211,7 +218,7 @@ export function WorkspacePreviewTaskBar() {
               <TaskBarPanelTile
                 key={tab.id}
                 tab={tab}
-                active={tab.id === activeTabId}
+                active={tab.id === highlightedTabId}
                 onSelect={handleSelectTab}
                 onRemove={handleRemoveTab}
               />
@@ -246,7 +253,8 @@ export function WorkspacePreviewTaskBar() {
       <WorkspaceTaskBarPanelSubWindow
         tab={subWindowTab}
         open={subWindowTab !== null}
-        onClose={handleCloseSubWindow}
+        onMinimize={handleCloseSubWindow}
+        onRemove={handleRemoveTab}
       />
     </>
   );

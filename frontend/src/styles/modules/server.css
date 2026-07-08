@@ -2510,62 +2510,6 @@
         overflow: hidden;
     }
 
-    .ssh-fleet-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--sp-3);
-        flex-wrap: wrap;
-        padding: var(--sp-2) var(--sp-4);
-        border-bottom: 1px solid var(--border);
-        background: var(--bg-deeper);
-        flex-shrink: 0;
-    }
-
-    .ssh-fleet-bar__stats {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--sp-3);
-        font-size: 12px;
-        color: var(--muted);
-    }
-
-    .ssh-fleet-bar__stat--ok { color: var(--success); }
-    .ssh-fleet-bar__stat--off { color: var(--muted); }
-    .ssh-fleet-bar__stat--warn { color: var(--warn); }
-
-    .ssh-fleet-bar__actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-
-    .ssh-fleet-bar__btn {
-        padding: 4px 10px;
-        font-size: 11px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--surface);
-        color: var(--fg);
-        cursor: pointer;
-    }
-
-    .ssh-fleet-bar__btn:hover:not(:disabled) {
-        border-color: var(--accent);
-        color: var(--accent);
-    }
-
-    .ssh-fleet-bar__btn.active,
-    .ssh-fleet-bar__btn--accent {
-        border-color: var(--accent);
-        color: var(--accent);
-    }
-
-    .ssh-fleet-bar__btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
     .ssh-batch-panel {
         flex: 1;
         display: flex;

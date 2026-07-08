@@ -33,4 +33,4 @@ export abstract class ContextProvider<TContext = unknown> {
   }
 }
 
-export type { AiContextScope, McpToolRegistration, ModuleContextScope, WorkspaceContextScope } from "./types";
+export type { AiContextScope, BuiltinToolRegistration, ModuleContextScope, WorkspaceContextScope } from "./types";

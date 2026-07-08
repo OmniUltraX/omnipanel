@@ -85,7 +85,16 @@ pub async fn set_proxy_config(
     state: State<'_, AppState>,
     config: ProxyConfig,
 ) -> Result<(), String> {
-    *state.proxy_config.lock().await = config;
+    *state.proxy_config.lock().await = config.clone();
+    let store_proxy = omnipanel_store::HttpProxyConfig {
+        enabled: config.enabled,
+        protocol: config.protocol,
+        host: config.host,
+        port: config.port,
+        username: config.username,
+        password: config.password,
+    };
+    omnipanel_store::save_http_proxy_config(&store_proxy).map_err(|e| e.to_string())?;
     Ok(())
 }
 

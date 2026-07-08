@@ -1,16 +1,16 @@
-//! MCP 工具注册表 — 持久化于 omnipanel.db 的 mcp_tools 表。
+//! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use super::app_module::{AppModuleStatus, DEFAULT_APP_MODULES};
-use super::mcp_tool_spec::BUILTIN_TOOL_SPECS;
+use super::builtin_tool_spec::BUILTIN_TOOL_SPECS;
 use super::storage::{Storage, map_sqlite};
 
-/// 持久化的 MCP 工具条目。
+/// 持久化的内置工具条目。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct McpToolRecord {
+pub struct BuiltinToolRecord {
     pub tool_name: String,
     pub module_key: String,
     pub description: String,
@@ -24,22 +24,22 @@ pub struct McpToolRecord {
 
 /// 从前端目录同步时的输入（不覆盖用户已设置的 enabled）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct McpToolCatalogEntry {
+pub struct BuiltinToolCatalogEntry {
     pub tool_name: String,
     pub module_key: String,
     pub description: String,
 }
 
 impl Storage {
-    /// 以后端 spec 为准补种/修复内置 MCP 工具：
+    /// 以后端 spec 为准补种/修复内置工具：
     /// - 新工具按默认开关写入；
     /// - 已存在行更新 module_key / description / input_schema（保留用户开关）。
-    pub fn repair_mcp_tools(&self) -> OmniResult<()> {
-        self.ensure_mcp_tool_columns()?;
+    pub fn repair_builtin_tools(&self) -> OmniResult<()> {
+        self.ensure_builtin_tool_columns()?;
         for spec in BUILTIN_TOOL_SPECS {
             self.conn()
                 .execute(
-                    "INSERT INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema)
+                    "INSERT INTO builtin_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema)
                      VALUES (?1, ?2, ?3, 1, 1, 1, ?4)
                      ON CONFLICT(tool_name) DO UPDATE SET
                        module_key = excluded.module_key,
@@ -52,10 +52,10 @@ impl Storage {
         Ok(())
     }
 
-    fn ensure_mcp_tool_columns(&self) -> OmniResult<()> {
+    fn ensure_builtin_tool_columns(&self) -> OmniResult<()> {
         let mut stmt = self
             .conn()
-            .prepare("PRAGMA table_info(mcp_tools)")
+            .prepare("PRAGMA table_info(builtin_tools)")
             .map_err(map_sqlite)?;
         let cols: Vec<String> = stmt
             .query_map([], |row| row.get::<_, String>(1))
@@ -65,13 +65,13 @@ impl Storage {
         if !cols.iter().any(|c| c == "internal_enabled") {
             self.conn()
                 .execute(
-                    "ALTER TABLE mcp_tools ADD COLUMN internal_enabled INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE builtin_tools ADD COLUMN internal_enabled INTEGER NOT NULL DEFAULT 1",
                     [],
                 )
                 .map_err(map_sqlite)?;
             self.conn()
                 .execute(
-                    "UPDATE mcp_tools SET internal_enabled = enabled",
+                    "UPDATE builtin_tools SET internal_enabled = enabled",
                     [],
                 )
                 .ok();
@@ -79,7 +79,7 @@ impl Storage {
         if !cols.iter().any(|c| c == "external_exposed") {
             self.conn()
                 .execute(
-                    "ALTER TABLE mcp_tools ADD COLUMN external_exposed INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE builtin_tools ADD COLUMN external_exposed INTEGER NOT NULL DEFAULT 1",
                     [],
                 )
                 .map_err(map_sqlite)?;
@@ -87,7 +87,7 @@ impl Storage {
         if !cols.iter().any(|c| c == "input_schema") {
             self.conn()
                 .execute(
-                    "ALTER TABLE mcp_tools ADD COLUMN input_schema TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE builtin_tools ADD COLUMN input_schema TEXT NOT NULL DEFAULT ''",
                     [],
                 )
                 .map_err(map_sqlite)?;
@@ -95,19 +95,19 @@ impl Storage {
         Ok(())
     }
 
-    /// 列出全部 MCP 工具。
-    pub fn mcp_tool_list(&self) -> OmniResult<Vec<McpToolRecord>> {
-        self.repair_mcp_tools()?;
+    /// 列出全部内置工具。
+    pub fn builtin_tool_list(&self) -> OmniResult<Vec<BuiltinToolRecord>> {
+        self.repair_builtin_tools()?;
         let mut stmt = self
             .conn()
             .prepare(
-                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM mcp_tools ORDER BY module_key ASC, tool_name ASC",
+                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM builtin_tools ORDER BY module_key ASC, tool_name ASC",
             )
             .map_err(map_sqlite)?;
 
         let rows = stmt
             .query_map([], |row| {
-                Ok(McpToolRecord {
+                Ok(BuiltinToolRecord {
                     tool_name: row.get(0)?,
                     module_key: row.get(1)?,
                     description: row.get(2)?,
@@ -124,14 +124,14 @@ impl Storage {
     /// 同步前端目录：仅登记后端 spec 未涵盖的「未知工具」，不覆盖任何既有行。
     ///
     /// 内置工具的 module_key / description / input_schema 一律以后端
-    /// `BUILTIN_TOOL_SPECS` 单一真相源为准（`repair_mcp_tools` 会持续校正），
+    /// `BUILTIN_TOOL_SPECS` 单一真相源为准（`repair_builtin_tools` 会持续校正），
     /// 故此处对已存在工具不做修改，避免与真相源冲突。
-    pub fn mcp_tool_sync_catalog(&self, entries: &[McpToolCatalogEntry]) -> OmniResult<()> {
-        self.repair_mcp_tools()?;
+    pub fn builtin_tool_sync_catalog(&self, entries: &[BuiltinToolCatalogEntry]) -> OmniResult<()> {
+        self.repair_builtin_tools()?;
         for entry in entries {
             self.conn()
                 .execute(
-                    "INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema) VALUES (?1, ?2, ?3, 1, 1, 1, '')",
+                    "INSERT OR IGNORE INTO builtin_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema) VALUES (?1, ?2, ?3, 1, 1, 1, '')",
                     params![entry.tool_name, entry.module_key, entry.description],
                 )
                 .map_err(map_sqlite)?;
@@ -140,13 +140,13 @@ impl Storage {
     }
 
     /// 设置内置工具「内部可用」状态。
-    pub fn mcp_tool_set_internal_enabled(
+    pub fn builtin_tool_set_internal_enabled(
         &self,
         tool_name: &str,
         enabled: bool,
-    ) -> OmniResult<McpToolRecord> {
-        self.repair_mcp_tools()?;
-        let tool = self.mcp_tool_get(tool_name)?;
+    ) -> OmniResult<BuiltinToolRecord> {
+        self.repair_builtin_tools()?;
+        let tool = self.builtin_tool_get(tool_name)?;
 
         if enabled {
             self.repair_app_modules()?;
@@ -161,25 +161,25 @@ impl Storage {
 
         self.conn()
             .execute(
-                "UPDATE mcp_tools SET internal_enabled = ?1, enabled = ?1 WHERE tool_name = ?2",
+                "UPDATE builtin_tools SET internal_enabled = ?1, enabled = ?1 WHERE tool_name = ?2",
                 params![i32::from(enabled), tool_name],
             )
             .map_err(map_sqlite)?;
 
-        self.mcp_tool_get(tool_name)
+        self.builtin_tool_get(tool_name)
     }
 
     /// 设置内置工具「对外暴露」状态（OmniMCP 对外可见）。
     ///
     /// 开启暴露要求所属模块处于 open；具体能否被外部 MCP 直调取决于后端是否已实现
     ///（Native 只读/写工具可直调，UiDelegated 工具可在列表中暴露但直调需桌面端会话）。
-    pub fn mcp_tool_set_external_exposed(
+    pub fn builtin_tool_set_external_exposed(
         &self,
         tool_name: &str,
         exposed: bool,
-    ) -> OmniResult<McpToolRecord> {
-        self.repair_mcp_tools()?;
-        let tool = self.mcp_tool_get(tool_name)?;
+    ) -> OmniResult<BuiltinToolRecord> {
+        self.repair_builtin_tools()?;
+        let tool = self.builtin_tool_get(tool_name)?;
 
         if exposed {
             self.repair_app_modules()?;
@@ -194,23 +194,23 @@ impl Storage {
 
         self.conn()
             .execute(
-                "UPDATE mcp_tools SET external_exposed = ?1 WHERE tool_name = ?2",
+                "UPDATE builtin_tools SET external_exposed = ?1 WHERE tool_name = ?2",
                 params![i32::from(exposed), tool_name],
             )
             .map_err(map_sqlite)?;
-        self.mcp_tool_get(tool_name)
+        self.builtin_tool_get(tool_name)
     }
 
-    /// 设置 MCP 工具启用状态（兼容旧 API，等同 internal_enabled）。
-    pub fn mcp_tool_set_enabled(&self, tool_name: &str, enabled: bool) -> OmniResult<McpToolRecord> {
-        self.mcp_tool_set_internal_enabled(tool_name, enabled)
+    /// 设置内置工具启用状态（兼容旧 API，等同 internal_enabled）。
+    pub fn builtin_tool_set_enabled(&self, tool_name: &str, enabled: bool) -> OmniResult<BuiltinToolRecord> {
+        self.builtin_tool_set_internal_enabled(tool_name, enabled)
     }
 
     /// 查询工具在 DB 中是否标记为内部可用。
-    pub fn mcp_tool_is_enabled(&self, tool_name: &str) -> OmniResult<bool> {
-        self.repair_mcp_tools()?;
+    pub fn builtin_tool_is_enabled(&self, tool_name: &str) -> OmniResult<bool> {
+        self.repair_builtin_tools()?;
         let result: Result<i32, _> = self.conn().query_row(
-            "SELECT internal_enabled FROM mcp_tools WHERE tool_name = ?1",
+            "SELECT internal_enabled FROM builtin_tools WHERE tool_name = ?1",
             [tool_name],
             |row| row.get(0),
         );
@@ -222,10 +222,10 @@ impl Storage {
     }
 
     /// 查询工具是否对外暴露。
-    pub fn mcp_tool_is_exposed(&self, tool_name: &str) -> OmniResult<bool> {
-        self.repair_mcp_tools()?;
+    pub fn builtin_tool_is_exposed(&self, tool_name: &str) -> OmniResult<bool> {
+        self.repair_builtin_tools()?;
         let result: Result<i32, _> = self.conn().query_row(
-            "SELECT external_exposed FROM mcp_tools WHERE tool_name = ?1",
+            "SELECT external_exposed FROM builtin_tools WHERE tool_name = ?1",
             [tool_name],
             |row| row.get(0),
         );
@@ -237,10 +237,10 @@ impl Storage {
     }
 
     /// 工具是否可注册/可调用：DB 启用且所属模块为打开状态。
-    pub fn mcp_tool_is_available(&self, tool_name: &str) -> OmniResult<bool> {
-        self.repair_mcp_tools()?;
+    pub fn builtin_tool_is_available(&self, tool_name: &str) -> OmniResult<bool> {
+        self.repair_builtin_tools()?;
         self.repair_app_modules()?;
-        let tool = match self.mcp_tool_get(tool_name) {
+        let tool = match self.builtin_tool_get(tool_name) {
             Ok(t) => t,
             Err(_) => return Ok(false),
         };
@@ -252,10 +252,10 @@ impl Storage {
     }
 
     /// 工具是否可经 OmniMCP 对外暴露：external_exposed 且模块打开。
-    pub fn mcp_tool_is_exposed_available(&self, tool_name: &str) -> OmniResult<bool> {
-        self.repair_mcp_tools()?;
+    pub fn builtin_tool_is_exposed_available(&self, tool_name: &str) -> OmniResult<bool> {
+        self.repair_builtin_tools()?;
         self.repair_app_modules()?;
-        let tool = match self.mcp_tool_get(tool_name) {
+        let tool = match self.builtin_tool_get(tool_name) {
             Ok(t) => t,
             Err(_) => return Ok(false),
         };
@@ -267,58 +267,58 @@ impl Storage {
     }
 
     /// 按模块批量设置内置工具内部可用状态。
-    pub fn mcp_tool_set_enabled_for_module(
+    pub fn builtin_tool_set_enabled_for_module(
         &self,
         module_key: &str,
         enabled: bool,
     ) -> OmniResult<()> {
-        self.repair_mcp_tools()?;
+        self.repair_builtin_tools()?;
         self.conn()
             .execute(
-                "UPDATE mcp_tools SET internal_enabled = ?1, enabled = ?1 WHERE module_key = ?2",
+                "UPDATE builtin_tools SET internal_enabled = ?1, enabled = ?1 WHERE module_key = ?2",
                 params![i32::from(enabled), module_key],
             )
             .map_err(map_sqlite)?;
         Ok(())
     }
 
-    /// 根据模块状态同步其下全部 MCP 工具（关闭/禁用时全部禁用）。
+    /// 根据模块状态同步其下全部内置工具（关闭/禁用时全部禁用）。
     ///
     /// 注意：此方法会在启动时对所有模块调用，故**不**在此恢复工具，
     /// 以免覆盖用户手动禁用。恢复仅在模块 open 状态转换时由
-    /// `mcp_tool_restore_for_module` 触发（见 `app_module_set_status`）。
-    pub fn mcp_tool_sync_with_module(&self, module_key: &str) -> OmniResult<()> {
-        self.repair_mcp_tools()?;
+    /// `builtin_tool_restore_for_module` 触发（见 `app_module_set_status`）。
+    pub fn builtin_tool_sync_with_module(&self, module_key: &str) -> OmniResult<()> {
+        self.repair_builtin_tools()?;
         self.repair_app_modules()?;
         let module = self.app_module_get(module_key)?;
         if module.status != AppModuleStatus::Open {
-            self.mcp_tool_set_enabled_for_module(module_key, false)?;
+            self.builtin_tool_set_enabled_for_module(module_key, false)?;
         }
         Ok(())
     }
 
     /// 模块由非 open 转为 open 时恢复其下工具为可用（粗策略：全部置为 internal_enabled）。
     /// 仅应在 open 状态转换时调用，不可在启动时对所有模块调用。
-    pub fn mcp_tool_restore_for_module(&self, module_key: &str) -> OmniResult<()> {
-        self.repair_mcp_tools()?;
-        self.mcp_tool_set_enabled_for_module(module_key, true)
+    pub fn builtin_tool_restore_for_module(&self, module_key: &str) -> OmniResult<()> {
+        self.repair_builtin_tools()?;
+        self.builtin_tool_set_enabled_for_module(module_key, true)
     }
 
-    /// 按全部模块状态同步 MCP 工具（启动/迁移后调用）。
-    pub fn mcp_tool_sync_all_modules(&self) -> OmniResult<()> {
+    /// 按全部模块状态同步内置工具（启动/迁移后调用）。
+    pub fn builtin_tool_sync_all_modules(&self) -> OmniResult<()> {
         for (key, _, _) in DEFAULT_APP_MODULES {
-            self.mcp_tool_sync_with_module(key)?;
+            self.builtin_tool_sync_with_module(key)?;
         }
         Ok(())
     }
 
-    fn mcp_tool_get(&self, tool_name: &str) -> OmniResult<McpToolRecord> {
+    fn builtin_tool_get(&self, tool_name: &str) -> OmniResult<BuiltinToolRecord> {
         self.conn()
             .query_row(
-                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM mcp_tools WHERE tool_name = ?1",
+                "SELECT tool_name, module_key, description, internal_enabled, external_exposed, input_schema FROM builtin_tools WHERE tool_name = ?1",
                 [tool_name],
                 |row| {
-                    Ok(McpToolRecord {
+                    Ok(BuiltinToolRecord {
                         tool_name: row.get(0)?,
                         module_key: row.get(1)?,
                         description: row.get(2)?,
@@ -338,58 +338,58 @@ mod tests {
     use crate::app_module::AppModuleStatus;
 
     #[test]
-    fn mcp_tool_module_sync() {
+    fn builtin_tool_module_sync() {
         let storage = Storage::open_in_memory().unwrap();
         storage
-            .mcp_tool_set_enabled("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_enabled("omni_terminal_run_terminal_command", true)
             .unwrap();
         storage
             .app_module_set_status("terminal", AppModuleStatus::Closed)
             .unwrap();
         assert!(!storage
-            .mcp_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
             .unwrap());
         assert!(!storage
-            .mcp_tool_is_available("omni_terminal_run_terminal_command")
+            .builtin_tool_is_available("omni_terminal_run_terminal_command")
             .unwrap());
     }
 
     #[test]
-    fn mcp_tool_sync_and_toggle() {
+    fn builtin_tool_sync_and_toggle() {
         let storage = Storage::open_in_memory().unwrap();
-        let list = storage.mcp_tool_list().unwrap();
+        let list = storage.builtin_tool_list().unwrap();
         assert!(list.iter().any(|t| t.tool_name == "omni_terminal_run_terminal_command"));
 
         storage
-            .mcp_tool_set_enabled("omni_terminal_run_terminal_command", false)
+            .builtin_tool_set_enabled("omni_terminal_run_terminal_command", false)
             .unwrap();
         assert!(!storage
-            .mcp_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
             .unwrap());
 
         // 前端 catalog 不再覆盖内置工具描述：单一真相源以后端 spec 为准，
         // 且用户开关（internal_enabled=false）保留。
         storage
-            .mcp_tool_sync_catalog(&[McpToolCatalogEntry {
+            .builtin_tool_sync_catalog(&[BuiltinToolCatalogEntry {
                 tool_name: "omni_terminal_run_terminal_command".to_string(),
                 module_key: "terminal".to_string(),
                 description: "updated desc".to_string(),
             }])
             .unwrap();
         assert!(!storage
-            .mcp_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
             .unwrap());
         let tool = storage
-            .mcp_tool_get("omni_terminal_run_terminal_command")
+            .builtin_tool_get("omni_terminal_run_terminal_command")
             .unwrap();
         assert_ne!(tool.description, "updated desc");
         assert!(!tool.input_schema.is_empty(), "内置工具应带 spec schema");
     }
 
     #[test]
-    fn mcp_tool_list_carries_input_schema() {
+    fn builtin_tool_list_carries_input_schema() {
         let storage = Storage::open_in_memory().unwrap();
-        let list = storage.mcp_tool_list().unwrap();
+        let list = storage.builtin_tool_list().unwrap();
         let term = list
             .iter()
             .find(|t| t.tool_name == "omni_terminal_run_terminal_command")
@@ -403,10 +403,10 @@ mod tests {
     fn external_exposed_allows_all_builtin_tools_when_module_open() {
         let storage = Storage::open_in_memory().unwrap();
         assert!(storage
-            .mcp_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
             .is_ok());
         assert!(storage
-            .mcp_tool_set_external_exposed("omni_database_list_connections", true)
+            .builtin_tool_set_external_exposed("omni_database_list_connections", true)
             .is_ok());
     }
 
@@ -417,7 +417,7 @@ mod tests {
             .app_module_set_status("terminal", AppModuleStatus::Closed)
             .unwrap();
         let err = storage
-            .mcp_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidInput);
     }
@@ -430,14 +430,14 @@ mod tests {
             .app_module_set_status("database", AppModuleStatus::Closed)
             .unwrap();
         assert!(!storage
-            .mcp_tool_is_enabled("omni_database_execute_sql")
+            .builtin_tool_is_enabled("omni_database_execute_sql")
             .unwrap());
         // 重新打开 → 工具恢复
         storage
             .app_module_set_status("database", AppModuleStatus::Open)
             .unwrap();
         assert!(storage
-            .mcp_tool_is_enabled("omni_database_execute_sql")
+            .builtin_tool_is_enabled("omni_database_execute_sql")
             .unwrap());
     }
 }

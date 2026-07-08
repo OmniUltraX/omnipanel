@@ -389,6 +389,11 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE http_history ADD COLUMN environment_id TEXT;
     "#,
+    // v21 — 内置工具表重命名（与 MCP 协议解耦）
+    r#"
+    ALTER TABLE mcp_tools RENAME TO builtin_tools;
+    ALTER TABLE mcp_tool_audit RENAME TO builtin_tool_audit;
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -475,8 +480,8 @@ impl Storage {
         }
         self.repair_http_schema()?;
         self.repair_app_modules()?;
-        self.repair_mcp_tools()?;
-        self.mcp_tool_sync_all_modules()?;
+        self.repair_builtin_tools()?;
+        self.builtin_tool_sync_all_modules()?;
         Ok(())
     }
 

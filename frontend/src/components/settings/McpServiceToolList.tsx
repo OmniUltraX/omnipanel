@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
-import { commands, type McpToolInfo } from "../../ipc/bindings";
-import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleMcpCatalog";
+import { commands, type ToolInfo } from "../../ipc/bindings";
+import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleBuiltinCatalog";
 import {
-  initMcpToolStore,
-  isMcpToolExternalExposed,
-} from "../../stores/mcpToolStore";
+  initBuiltinToolStore,
+  isBuiltinToolExternalExposed,
+} from "../../stores/builtinToolStore";
 import { fuzzyMatchModelName } from "../../lib/fetchProviderModels";
 
 const PAGE_SIZE = 15;
@@ -24,7 +24,7 @@ export function McpServiceToolList({
   onToolsLoaded,
 }: McpServiceToolListProps) {
   const { t } = useI18n();
-  const [tools, setTools] = useState<McpToolInfo[]>([]);
+  const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -42,13 +42,13 @@ export function McpServiceToolList({
     setError(null);
     try {
       if (serviceId === OMNIMCP_BUILTIN_SERVICE_ID) {
-        await initMcpToolStore();
+        await initBuiltinToolStore();
       }
       const result = await commands.mcpListServiceTools(serviceId);
       if (result.status === "ok") {
         let list = result.data;
         if (serviceId === OMNIMCP_BUILTIN_SERVICE_ID) {
-          list = list.filter((tool) => isMcpToolExternalExposed(tool.name));
+          list = list.filter((tool) => isBuiltinToolExternalExposed(tool.name));
         }
         setTools(list);
         onToolsLoadedRef.current?.(serviceId, list.length);

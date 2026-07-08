@@ -1,9 +1,9 @@
 import type { ModuleKey } from "../../paths";
-import type { McpToolCatalogEntry, McpToolInfo } from "../../../ipc/bindings";
-import { DATABASE_MODULE_MCP_TOOLS } from "../../../modules/database/ai/mcpTools";
-import { TERMINAL_MODULE_MCP_TOOLS } from "../../../modules/terminal/ai/mcpTools";
-import { KNOWLEDGE_MODULE_MCP_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
-import type { McpToolRegistration } from "./types";
+import type { BuiltinToolCatalogEntry, ToolInfo } from "../../../ipc/bindings";
+import { DATABASE_MODULE_TOOLS } from "../../../modules/database/ai/mcpTools";
+import { TERMINAL_MODULE_TOOLS } from "../../../modules/terminal/ai/mcpTools";
+import { KNOWLEDGE_MODULE_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
+import type { BuiltinToolRegistration } from "./types";
 
 /** 与 Rust `BUILTIN_SERVICE_ID` 保持一致 */
 export const OMNIMCP_BUILTIN_SERVICE_ID = "omnimcp-builtin";
@@ -11,13 +11,13 @@ export const OMNIMCP_BUILTIN_SERVICE_ID = "omnimcp-builtin";
 export const OMNIMCP_BUILTIN_MCP_PORT = 12756;
 export const OMNIMCP_BUILTIN_MCP_URL = `http://127.0.0.1:${OMNIMCP_BUILTIN_MCP_PORT}/mcp`;
 
-const MODULE_MCP_CATALOG: Partial<Record<ModuleKey, McpToolRegistration[]>> = {
-  database: DATABASE_MODULE_MCP_TOOLS,
-  terminal: TERMINAL_MODULE_MCP_TOOLS,
+const MODULE_BUILTIN_CATALOG: Partial<Record<ModuleKey, BuiltinToolRegistration[]>> = {
+  database: DATABASE_MODULE_TOOLS,
+  terminal: TERMINAL_MODULE_TOOLS,
 };
 
-/** Rust 内置 knowledge MCP 工具（与 omnipanel-store DEFAULT_MCP_TOOLS 对齐） */
-const KNOWLEDGE_BUILTIN_CATALOG: McpToolRegistration[] = [
+/** Rust 内置 knowledge 工具（与 omnipanel-store BUILTIN_TOOL_SPECS 对齐） */
+const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_knowledge_create_document",
     description: "在知识库中创建文档。",
@@ -44,26 +44,26 @@ const KNOWLEDGE_BUILTIN_CATALOG: McpToolRegistration[] = [
   },
 ];
 
-MODULE_MCP_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_MCP_TOOLS];
+MODULE_BUILTIN_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_TOOLS];
 
 export function parseModuleKeyFromToolName(toolName: string): ModuleKey | null {
   if (!toolName.startsWith("omni_")) return null;
   const parts = toolName.split("_");
   if (parts.length < 3) return null;
   const moduleKey = parts[1] as ModuleKey;
-  return moduleKey in MODULE_MCP_CATALOG ? moduleKey : null;
+  return moduleKey in MODULE_BUILTIN_CATALOG ? moduleKey : null;
 }
 
-export function getModuleMcpToolsFromCatalog(moduleKey: ModuleKey): McpToolRegistration[] {
-  return MODULE_MCP_CATALOG[moduleKey] ?? [];
+export function getModuleBuiltinToolsFromCatalog(moduleKey: ModuleKey): BuiltinToolRegistration[] {
+  return MODULE_BUILTIN_CATALOG[moduleKey] ?? [];
 }
 
 /** 供 DB 同步与设置页使用的完整目录 */
-export function getAllMcpCatalogEntries(): McpToolCatalogEntry[] {
-  const items: McpToolCatalogEntry[] = [];
-  for (const [moduleKey, tools] of Object.entries(MODULE_MCP_CATALOG) as [
+export function getAllBuiltinCatalogEntries(): BuiltinToolCatalogEntry[] {
+  const items: BuiltinToolCatalogEntry[] = [];
+  for (const [moduleKey, tools] of Object.entries(MODULE_BUILTIN_CATALOG) as [
     ModuleKey,
-    McpToolRegistration[] | undefined,
+    BuiltinToolRegistration[] | undefined,
   ][]) {
     if (!tools) continue;
     for (const tool of tools) {
@@ -78,8 +78,8 @@ export function getAllMcpCatalogEntries(): McpToolCatalogEntry[] {
 }
 
 /** 供设置页 OmniMCP 工具列表合并展示 */
-export function getAllModuleMcpToolInfos(): McpToolInfo[] {
-  return getAllMcpCatalogEntries().map((entry) => ({
+export function getAllModuleBuiltinToolInfos(): ToolInfo[] {
+  return getAllBuiltinCatalogEntries().map((entry) => ({
     name: entry.tool_name,
     description: entry.description,
   }));

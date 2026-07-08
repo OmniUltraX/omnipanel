@@ -27,5 +27,7 @@ rmcp = { version = "1.7.0", features = [
     "transport-child-process",
 ] }
 axum = "0.8"
-http = "1"
 tower-http = { version = "0.6", features = ["cors"] }
+http = "1"
+reqwest = { workspace = true, features = ["json"] }
+url = "2"

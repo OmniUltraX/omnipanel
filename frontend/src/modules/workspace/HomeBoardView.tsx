@@ -1,8 +1,11 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { navigateToFeature, switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
+import {
+  enterEngineeringWorkspaceFullscreen,
+  navigateToFeature,
+} from "../../lib/workspaceNavigation";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
-import { MODULE_PATHS, WORKSPACE_PATHS } from "../../lib/paths";
+import { MODULE_PATHS } from "../../lib/paths";
 import { useI18n } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { DashboardIcon } from "./DashboardIcon";
@@ -55,10 +58,9 @@ export function HomeBoardView() {
 
   const openWorkspace = useCallback(
     (workspaceId: string) => {
-      switchEmbeddedWorkspace(workspaceId);
-      go(WORKSPACE_PATHS.detail(workspaceId));
+      enterEngineeringWorkspaceFullscreen(workspaceId, navigate);
     },
-    [go],
+    [navigate],
   );
 
   const openConnection = useCallback(

@@ -6,7 +6,7 @@ export interface DockviewInstanceScope {
   /** 返回 dockview 根节点，用于测量 layout 尺寸 */
   getContainer?: () => HTMLElement | null;
   /** panel 被拖离本 dock 时回调（仅从布局移除，不销毁业务数据） */
-  onPanelTransferredOut?: (panelId: string) => void;
+  onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
 }
 
 export interface TransferredPanelMeta {
@@ -135,7 +135,7 @@ export function transferPanelToTarget(
   });
 
   // 须在 removePanel 之前标记，否则 onDidRemovePanel 会误触发 onCloseTab 销毁源 tab 数据
-  source.onPanelTransferredOut?.(data.panelId);
+  source.onPanelTransferredOut?.(data.panelId, target.scope);
   source.api.removePanel(sourcePanel);
 
   return true;

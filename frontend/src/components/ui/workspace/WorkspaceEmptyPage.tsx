@@ -22,6 +22,8 @@ export interface WorkspaceEmptyPageProps {
     items: WorkspaceEmptyActionItem[];
   };
   className?: string;
+  /** 隐藏 Logo、标题、标语与 Banner（半屏嵌入用） */
+  hideBranding?: boolean;
 }
 
 /** 工作区无内容时的通用空页面：品牌 Logo、名称与 Banner。 */
@@ -31,22 +33,31 @@ export function WorkspaceEmptyPage({
   actions,
   actionList,
   className,
+  hideBranding = false,
 }: WorkspaceEmptyPageProps) {
   const { t } = useI18n();
-  const rootClass = className
-    ? `workspace-empty-page ${className}`
-    : "workspace-empty-page";
+  const rootClass = [
+    "workspace-empty-page",
+    className,
+    hideBranding ? "workspace-empty-page--no-branding" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className={rootClass}>
-      <div className="workspace-empty-page__logo" aria-hidden>
-        <AppLogo size={56} className="app-logo app-logo--hero" />
-      </div>
-      <h1 className="workspace-empty-page__name">{title ?? t("routes.default")}</h1>
-      <p className="workspace-empty-page__tagline">{t("app.tagline")}</p>
-      <div className="workspace-empty-page__banner" role="presentation">
-        {t("app.banner")}
-      </div>
+      {!hideBranding ? (
+        <>
+          <div className="workspace-empty-page__logo" aria-hidden>
+            <AppLogo size={56} className="app-logo app-logo--hero" />
+          </div>
+          <h1 className="workspace-empty-page__name">{title ?? t("routes.default")}</h1>
+          <p className="workspace-empty-page__tagline">{t("app.tagline")}</p>
+          <div className="workspace-empty-page__banner" role="presentation">
+            {t("app.banner")}
+          </div>
+        </>
+      ) : null}
       {prompt ? <p className="workspace-empty-page__prompt">{prompt}</p> : null}
       {actions ? <div className="workspace-empty-page__actions">{actions}</div> : null}
       {actionList && actionList.items.length > 0 ? (

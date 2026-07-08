@@ -98,7 +98,7 @@ pub async fn mcp_set_service_running(
 pub async fn mcp_list_service_tools(
     state: State<'_, AppState>,
     id: String,
-) -> Result<Vec<omnipanel_mcp::McpToolInfo>, String> {
+) -> Result<Vec<omnipanel_mcp::ToolInfo>, String> {
     let manager = state.mcp_manager.lock().await;
     manager.list_service_tools(&id).await.map_err(map_err)
 }
@@ -110,7 +110,7 @@ pub async fn mcp_call_tool(
     service_id: String,
     tool_name: String,
     tool_arguments: String,
-) -> Result<omnipanel_mcp::McpToolCallResult, String> {
+) -> Result<omnipanel_mcp::ToolCallResult, String> {
     let parsed: serde_json::Value =
         serde_json::from_str(&tool_arguments).unwrap_or(serde_json::Value::Object(Default::default()));
     let manager = state.mcp_manager.lock().await;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
 import type { ModuleKey } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
-import { useMcpToolStore } from "../../stores/mcpToolStore";
+import { useBuiltinToolStore } from "../../stores/builtinToolStore";
 
 function SettingToggle({
   value,
@@ -46,17 +46,18 @@ const MODULE_LABEL_KEYS: Record<string, string> = {
   protocol: "routes.protocol",
   workflow: "routes.workflow",
   knowledge: "routes.knowledge",
+  web: "routes.web",
 };
 
 function moduleLabelKey(moduleKey: string): string {
   return MODULE_LABEL_KEYS[moduleKey] ?? moduleKey;
 }
 
-export function McpToolsSettingsSection() {
+export function BuiltinToolsSettingsSection() {
   const { t } = useI18n();
-  const tools = useMcpToolStore((s) => s.tools);
-  const hydrate = useMcpToolStore((s) => s.hydrate);
-  const setInternalEnabled = useMcpToolStore((s) => s.setInternalEnabled);
+  const tools = useBuiltinToolStore((s) => s.tools);
+  const hydrate = useBuiltinToolStore((s) => s.hydrate);
+  const setInternalEnabled = useBuiltinToolStore((s) => s.setInternalEnabled);
   const modules = useAppModuleStore((s) => s.modules);
 
   useEffect(() => {

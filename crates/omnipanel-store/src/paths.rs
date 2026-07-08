@@ -102,6 +102,16 @@ pub fn cli_providers_path() -> OmniResult<PathBuf> {
     Ok(ai_config_dir()?.join("cli-providers.json"))
 }
 
+/// Web 搜索配置：`~/.omnipd/ai/web-search.json`。
+pub fn web_search_config_path() -> OmniResult<PathBuf> {
+    Ok(ai_config_dir()?.join("web-search.json"))
+}
+
+/// HTTP 代理配置：`~/.omnipd/ai/http-proxy.json`。
+pub fn http_proxy_config_path() -> OmniResult<PathBuf> {
+    Ok(ai_config_dir()?.join("http-proxy.json"))
+}
+
 /// 默认文件索引存储目录：`~/.omnipd/files/index`。
 pub fn default_file_index_storage_dir() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::FILES)?.join("index"))

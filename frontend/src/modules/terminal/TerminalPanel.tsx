@@ -171,6 +171,22 @@ export function TerminalPanel() {
     return subscribeDockviewTransfer((meta) => {
       if (!meta.newPanelId.startsWith("terminal:")) return;
       if (!meta.originScope.startsWith("workspace-bottom-")) return;
+      // 工作区 payload terminal tab 的 id 形如 ws-payload:terminal:<sessionId>
+      // 拖回终端时需把对应 terminal tab 从 workspaceOnly 移回终端并激活
+      const TERMINAL_PAYLOAD_PREFIX = "ws-payload:terminal:";
+      if (meta.originPanelId.startsWith(TERMINAL_PAYLOAD_PREFIX)) {
+        const terminalId = meta.originPanelId.slice(TERMINAL_PAYLOAD_PREFIX.length);
+        const store = useTerminalStore.getState();
+        const existing = store.tabs.find((tab) => tab.id === terminalId);
+        if (existing) {
+          if (existing.workspaceOnly) {
+            store.setTabWorkspaceOnly(terminalId, false);
+          }
+          store.setActiveTab(terminalId);
+          return;
+        }
+      }
+      // 兜底：旧版镜像 tab 仍按 originScope 前缀提取
       const prefix = `${meta.originScope}:`;
       const originTerminalId = meta.originPanelId.startsWith(prefix)
         ? meta.originPanelId.slice(prefix.length)

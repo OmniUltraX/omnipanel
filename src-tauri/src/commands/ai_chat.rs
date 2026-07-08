@@ -27,6 +27,7 @@ struct RegistryToolExecutor {
     conversation_id: String,
     pending_internal: Arc<Mutex<HashMap<String, oneshot::Sender<(String, bool)>>>>,
     mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
+    proxy_config: Arc<Mutex<crate::state::ProxyConfig>>,
 }
 
 #[async_trait::async_trait]
@@ -55,7 +56,18 @@ impl ToolExecutor for RegistryToolExecutor {
                 let manager = self.mcp_manager.lock().await;
                 manager.tool_registry.storage_handle()
             };
-            return match ToolRegistry::execute_isolated(storage, name, args).await {
+            let proxy = {
+                let p = self.proxy_config.lock().await;
+                omnipanel_store::HttpProxyConfig {
+                    enabled: p.enabled,
+                    protocol: p.protocol.clone(),
+                    host: p.host.clone(),
+                    port: p.port,
+                    username: p.username.clone(),
+                    password: p.password.clone(),
+                }
+            };
+            return match ToolRegistry::execute_isolated(storage, name, args, Some(proxy)).await {
                 Ok(pair) => pair,
                 Err(err) => (format!("Error: {err}"), false),
             };
@@ -82,7 +94,7 @@ impl ToolExecutor for RegistryToolExecutor {
                     Ok(result) => (result.content.clone(), !result.is_error),
                     Err(err) => (format!("Error: {err}"), false),
                 };
-                let _ = storage.lock().await.mcp_tool_audit_append(
+                let _ = storage.lock().await.builtin_tool_audit_append(
                     "mcp_external",
                     &audit_name,
                     elapsed,
@@ -365,6 +377,7 @@ pub async fn ai_chat_stream(
         conversation_id: conversation_id.clone(),
         pending_internal: state.pending_internal_tool_results.clone(),
         mcp_external_require_approval: state.mcp_external_require_approval.clone(),
+        proxy_config: state.proxy_config.clone(),
     };
     let exec_ref: Option<&dyn ToolExecutor> = match &internal.tools_mode {
         InternalToolsMode::DirectInject { .. } => Some(&tool_executor),

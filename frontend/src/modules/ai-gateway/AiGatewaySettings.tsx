@@ -8,7 +8,7 @@ import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TraceListView } from "./TraceListView";
 import { OmniMcpToolsExposureSection } from "../../components/settings/OmniMcpToolsExposureSection";
 import { McpServiceToolList } from "../../components/settings/McpServiceToolList";
-import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleMcpCatalog";
+import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleBuiltinCatalog";
 
 type Tab = "router" | "omnimcp" | "traces";
 

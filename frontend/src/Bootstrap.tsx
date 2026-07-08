@@ -13,7 +13,7 @@ import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initBackgroundTasks } from "./stores/backgroundTaskStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
-import { initMcpToolStore } from "./stores/mcpToolStore";
+import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 
@@ -77,8 +77,8 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.modules"));
         await initAppModuleStore();
 
-        await pushLog(t("app.splash.logs.mcpTools"));
-        await initMcpToolStore();
+        await pushLog(t("app.splash.logs.builtinTools"));
+        await initBuiltinToolStore();
         const { registerToolHandlers } = await import("./lib/ai/toolHost");
         registerToolHandlers();
         const { syncGatewayConfig } = await import("./lib/ai/gatewayConfig");

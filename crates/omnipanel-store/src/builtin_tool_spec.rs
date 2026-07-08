@@ -2,7 +2,7 @@
 //!
 //! 工具的名称 / 所属模块 / 描述 / 参数 schema / 执行类型全部集中在此，
 //! 供以下各处共用，杜绝多处各写一份导致的漂移：
-//! - `mcp_tools` 表种子与修复（`repair_mcp_tools`）
+//! - `builtin_tools` 表种子与修复（`repair_builtin_tools`）
 //! - `omnipanel-mcp` 的 ToolRegistry 装配（schema、执行类型）
 //! - HTTP / ACP / OmniMCP 三条注入路径
 
@@ -121,6 +121,24 @@ const SCHEMA_LOAD_SKILL: &str = r#"{
   "required": ["name"]
 }"#;
 
+const SCHEMA_WEB_SEARCH: &str = r#"{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "搜索关键词或自然语言问题" },
+    "max_results": { "type": "integer", "description": "最多返回条数，默认 10" }
+  },
+  "required": ["query"]
+}"#;
+
+const SCHEMA_WEB_FETCH: &str = r#"{
+  "type": "object",
+  "properties": {
+    "url": { "type": "string", "description": "要抓取的网页 URL" },
+    "format": { "type": "string", "description": "返回格式：markdown 或 text，默认 markdown" }
+  },
+  "required": ["url"]
+}"#;
+
 /// 全部内置工具规格（单一真相源）。
 pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
@@ -208,6 +226,22 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         module_key: "knowledge",
         description: "加载指定 Skill 的完整 SKILL.md 正文（渐进式披露）",
         input_schema: SCHEMA_LOAD_SKILL,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_web_search",
+        module_key: "web",
+        description: "全网语义/关键词搜索，返回标题、摘要与链接列表。",
+        input_schema: SCHEMA_WEB_SEARCH,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_web_fetch",
+        module_key: "web",
+        description: "抓取指定 URL 的网页正文（Markdown 格式）。",
+        input_schema: SCHEMA_WEB_FETCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },

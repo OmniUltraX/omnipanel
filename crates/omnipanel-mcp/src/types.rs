@@ -87,7 +87,7 @@ pub struct McpServiceView {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct McpToolInfo {
+pub struct ToolInfo {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -98,7 +98,7 @@ pub struct McpToolInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct McpToolCallResult {
+pub struct ToolCallResult {
     pub content: String,
     pub is_error: bool,
 }

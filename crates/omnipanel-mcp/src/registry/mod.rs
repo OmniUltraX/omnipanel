@@ -3,11 +3,12 @@ pub mod external;
 pub mod native;
 pub mod omnimcp_execute;
 pub mod terminal_tools;
+pub mod web_tools;
 
 use std::sync::Arc;
 
 use omnipanel_ai::types::{FunctionDef, ToolDef};
-use omnipanel_store::Storage;
+use omnipanel_store::{HttpProxyConfig, Storage};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -56,10 +57,10 @@ impl ToolRegistry {
     pub async fn list_enabled(&self, module_filter: Option<&str>) -> Result<Vec<RegisteredTool>, String> {
         let storage = self.storage.lock().await;
         let records = storage
-            .mcp_tool_list()
+            .builtin_tool_list()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .filter(|r| r.internal_enabled && storage.mcp_tool_is_available(&r.tool_name).unwrap_or(false))
+            .filter(|r| r.internal_enabled && storage.builtin_tool_is_available(&r.tool_name).unwrap_or(false))
             .collect::<Vec<_>>();
 
         let mut tools = Vec::new();
@@ -121,16 +122,17 @@ impl ToolRegistry {
         storage: Arc<Mutex<Storage>>,
         name: &str,
         arguments: Value,
+        proxy: Option<HttpProxyConfig>,
     ) -> Result<(String, bool), String> {
         {
             let storage = storage.lock().await;
-            if !storage.mcp_tool_is_available(name).unwrap_or(false) {
+            if !storage.builtin_tool_is_available(name).unwrap_or(false) {
                 return Err(format!("MCP 工具不可用: {name}"));
             }
         }
 
         if Self::is_native_tool(name) {
-            return native::execute(name, arguments, storage).await;
+            return native::execute(name, arguments, storage, proxy).await;
         }
 
         if external::is_external_mcp_registry_name(name) {
@@ -181,7 +183,7 @@ mod tests {
         storage
             .lock()
             .await
-            .mcp_tool_set_internal_enabled("omni_terminal_run_terminal_command", false)
+            .builtin_tool_set_internal_enabled("omni_terminal_run_terminal_command", false)
             .unwrap();
         let tools = registry.list_enabled(None).await.unwrap();
         assert!(!tools

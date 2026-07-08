@@ -11,7 +11,7 @@ use rmcp::{
 };
 use std::collections::HashMap;
 
-use crate::types::{McpStdioTransport, McpToolCallResult, McpToolInfo, X_OMNI_MODULE_HEADER};
+use crate::types::{McpStdioTransport, ToolCallResult, ToolInfo, X_OMNI_MODULE_HEADER};
 use crate::process::stdio_command;
 
 #[derive(Clone, Default)]
@@ -34,14 +34,14 @@ fn http_transport_config(
     Ok(config)
 }
 
-pub async fn list_tools_http(url: &str) -> anyhow::Result<Vec<McpToolInfo>> {
+pub async fn list_tools_http(url: &str) -> anyhow::Result<Vec<ToolInfo>> {
     list_tools_http_for_module(url, None).await
 }
 
 pub async fn list_tools_http_for_module(
     url: &str,
     module_key: Option<&str>,
-) -> anyhow::Result<Vec<McpToolInfo>> {
+) -> anyhow::Result<Vec<ToolInfo>> {
     let transport =
         StreamableHttpClientTransport::from_config(http_transport_config(url, module_key)?);
     let mut client = ToolListClient
@@ -51,7 +51,7 @@ pub async fn list_tools_http_for_module(
     collect_tools(&mut client).await
 }
 
-pub async fn list_tools_stdio(config: &McpStdioTransport) -> anyhow::Result<Vec<McpToolInfo>> {
+pub async fn list_tools_stdio(config: &McpStdioTransport) -> anyhow::Result<Vec<ToolInfo>> {
     let command = stdio_command(config);
     let transport = TokioChildProcess::new(command).context("spawn MCP stdio 客户端失败")?;
     let mut client = ToolListClient
@@ -61,7 +61,7 @@ pub async fn list_tools_stdio(config: &McpStdioTransport) -> anyhow::Result<Vec<
     collect_tools(&mut client).await
 }
 
-async fn collect_tools(client: &mut RunningService<RoleClient, ToolListClient>) -> anyhow::Result<Vec<McpToolInfo>> {
+async fn collect_tools(client: &mut RunningService<RoleClient, ToolListClient>) -> anyhow::Result<Vec<ToolInfo>> {
     let tools = client
         .list_all_tools()
         .await
@@ -75,7 +75,7 @@ async fn collect_tools(client: &mut RunningService<RoleClient, ToolListClient>) 
             } else {
                 Some(serde_json::Value::Object((*tool.input_schema).clone()))
             };
-            McpToolInfo {
+            ToolInfo {
                 name: tool.name.to_string(),
                 description: tool.description.map(|d| d.to_string()),
                 input_schema,
@@ -88,7 +88,7 @@ pub async fn call_tool_http(
     url: &str,
     tool_name: &str,
     arguments: serde_json::Value,
-) -> anyhow::Result<McpToolCallResult> {
+) -> anyhow::Result<ToolCallResult> {
     call_tool_http_for_module(url, None, tool_name, arguments).await
 }
 
@@ -97,7 +97,7 @@ pub async fn call_tool_http_for_module(
     module_key: Option<&str>,
     tool_name: &str,
     arguments: serde_json::Value,
-) -> anyhow::Result<McpToolCallResult> {
+) -> anyhow::Result<ToolCallResult> {
     let transport =
         StreamableHttpClientTransport::from_config(http_transport_config(url, module_key)?);
     let mut client = ToolListClient
@@ -113,7 +113,7 @@ pub async fn call_tool_stdio(
     config: &McpStdioTransport,
     tool_name: &str,
     arguments: serde_json::Value,
-) -> anyhow::Result<McpToolCallResult> {
+) -> anyhow::Result<ToolCallResult> {
     let command = stdio_command(config);
     let transport = TokioChildProcess::new(command).context("spawn MCP stdio 客户端失败")?;
     let mut client = ToolListClient
@@ -129,7 +129,7 @@ async fn invoke_tool(
     client: &mut RunningService<RoleClient, ToolListClient>,
     tool_name: &str,
     arguments: serde_json::Value,
-) -> anyhow::Result<McpToolCallResult> {
+) -> anyhow::Result<ToolCallResult> {
     let args = match arguments {
         serde_json::Value::Object(map) => map,
         serde_json::Value::Null => serde_json::Map::new(),
@@ -148,7 +148,7 @@ async fn invoke_tool(
     Ok(format_call_tool_result(result))
 }
 
-fn format_call_tool_result(result: rmcp::model::CallToolResult) -> McpToolCallResult {
+fn format_call_tool_result(result: rmcp::model::CallToolResult) -> ToolCallResult {
     let is_error = result.is_error.unwrap_or(false);
     let content = if let Some(structured) = result.structured_content {
         structured.to_string()
@@ -157,5 +157,5 @@ fn format_call_tool_result(result: rmcp::model::CallToolResult) -> McpToolCallRe
     } else {
         serde_json::to_string(&result.content).unwrap_or_default()
     };
-    McpToolCallResult { content, is_error }
+    ToolCallResult { content, is_error }
 }

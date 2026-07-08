@@ -382,7 +382,7 @@ a {
 /* task-bar 固定高度：须在宿主层定义，供 dock-panel-bottom 继承（勿依赖 .workspace-taskbar-strip） */
 .workspace-preview--task-bar,
 .workspace-host--taskbar {
-    --ws-taskbar-h: 40px;
+    --ws-taskbar-h: var(--topbar-h, 44px);
 }
 
 .workspace-preview--collapsed {
@@ -502,10 +502,8 @@ a {
     flex-direction: column;
 }
 
-/* task-bar 模式底栏（浏览器标签页风格） */
+/* task-bar 模式底栏（与半屏/全屏工程工作区 dock tab 栏视觉对齐） */
 .workspace-preview-taskbar {
-    --ws-preview-tab-min-w: 140px;
-    --ws-preview-tab-max-w: 240px;
     flex: 1 1 auto;
     display: flex;
     flex-direction: row;
@@ -514,7 +512,7 @@ a {
     height: 100%;
     min-height: 0;
     max-height: 100%;
-    background: var(--bg-deeper);
+    background: var(--bg);
     border-top: 1px solid var(--border);
     overflow: hidden;
     box-sizing: border-box;
@@ -529,15 +527,122 @@ a {
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
-    align-items: center;
-    align-content: center;
-    gap: 4px;
-    padding: 4px 6px;
+    align-items: stretch;
+    align-content: stretch;
+    gap: 0;
+    padding: 0;
     box-sizing: border-box;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
-    background: var(--bg-deeper);
+    background: var(--bg);
+}
+
+/* taskbar tab：贴满栏高，顶边 inset 指示条（避免 border 挤出上边距） */
+.workspace-preview-taskbar .workspace-taskbar-tab {
+    flex: 0 0 auto;
+    align-self: stretch;
+    display: inline-flex;
+    align-items: stretch;
+    gap: 0;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg-2);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    box-sizing: border-box;
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: inset 0 2px 0 transparent;
+    transition: color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab:hover {
+    color: var(--fg);
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab.is-active {
+    color: var(--fg);
+    box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab__main {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+    max-width: 220px;
+    height: auto;
+    flex: 1 1 auto;
+    padding: 0 var(--sp-4);
+    overflow: hidden;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab__close {
+    flex-shrink: 0;
+    align-self: center;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    margin-right: 2px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, background-color 0.12s ease;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab:hover .workspace-taskbar-tab__close,
+.workspace-preview-taskbar .workspace-taskbar-tab.is-active .workspace-taskbar-tab__close {
+    opacity: 0.75;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-tab__close:hover {
+    opacity: 1;
+    background: var(--surface-hover);
+}
+
+.workspace-preview-taskbar .workspace-taskbar-strip__switcher .workspace-switcher-trigger {
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+    min-height: 0;
+    padding: 0 var(--sp-3);
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg-2);
+    font-size: 14px;
+}
+
+.workspace-preview-taskbar .workspace-taskbar-strip__switcher .workspace-switcher-trigger:hover,
+.workspace-preview-taskbar .workspace-taskbar-strip__switcher .workspace-switcher-trigger.is-open {
+    background: var(--surface-hover);
+    color: var(--fg);
 }
 
 .workspace-preview-taskbar__controls {
@@ -559,163 +664,6 @@ a {
 
 .workspace-preview-taskbar__panels::-webkit-scrollbar {
     display: none;
-}
-
-.workspace-preview-taskbar__tile {
-    position: relative;
-    flex: 0 0 auto;
-    width: auto;
-    display: flex;
-    align-items: stretch;
-    height: calc(100% - 4px);
-    max-height: calc(100% - 4px);
-    border-radius: var(--r-sm, 6px);
-    overflow: visible;
-}
-
-.workspace-preview-taskbar-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    width: max-content;
-    min-width: var(--ws-preview-tab-min-w);
-    max-width: var(--ws-preview-tab-max-w);
-    height: 100%;
-    padding: 0 4px 0 0;
-    border: none;
-    border-bottom: 2px solid transparent;
-    border-radius: var(--r-sm, 6px);
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: 12px;
-    line-height: 1.2;
-    overflow: hidden;
-    box-sizing: border-box;
-    transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
-    position: relative;
-}
-
-.workspace-preview-taskbar-tab.is-active::after,
-.workspace-preview-taskbar__tile.is-active .workspace-preview-taskbar-tab::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(100% - 24px);
-    height: 2px;
-    background: var(--accent);
-    border-radius: 2px 2px 0 0;
-}
-
-.workspace-preview-taskbar-tab__main {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 100%;
-    padding: 0 8px 0 12px;
-    border: none;
-    border-radius: var(--r-sm, 6px);
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    cursor: pointer;
-    overflow: hidden;
-    box-sizing: border-box;
-}
-
-.workspace-preview-taskbar-tab__close {
-    flex-shrink: 0;
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    margin-right: 4px;
-    padding: 0;
-    border: none;
-    border-radius: var(--r-sm, 4px);
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s ease, background-color 0.12s ease;
-}
-
-.workspace-preview-taskbar-tab__close svg {
-    width: 12px;
-    height: 12px;
-}
-
-.workspace-preview-taskbar-tab:hover {
-    color: var(--fg-2);
-    background: color-mix(in srgb, var(--surface-hover) 40%, transparent);
-}
-
-.workspace-preview-taskbar-tab:hover .workspace-preview-taskbar-tab__close,
-.workspace-preview-taskbar-tab.is-active .workspace-preview-taskbar-tab__close {
-    opacity: 0.65;
-}
-
-.workspace-preview-taskbar-tab__close:hover {
-    opacity: 1;
-    background: var(--surface-hover);
-}
-
-.workspace-preview-taskbar-tab.is-active,
-.workspace-preview-taskbar__tile.is-active .workspace-preview-taskbar-tab {
-    color: var(--fg);
-    background: color-mix(in srgb, var(--surface) 50%, transparent);
-}
-
-.workspace-preview-taskbar-tab__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--accent);
-}
-
-.workspace-preview-taskbar-tab__icon[data-kind="terminal"],
-.workspace-preview-taskbar-tab__icon[data-kind="docker-terminal"] {
-    color: #2d8f4e;
-}
-
-.workspace-preview-taskbar-tab__icon[data-kind="database-sql"],
-.workspace-preview-taskbar-tab__icon[data-kind="database-table"] {
-    color: #2b6cb0;
-}
-
-.workspace-preview-taskbar-tab__icon[data-kind="docker-logs"] {
-    color: #0e7490;
-}
-
-.workspace-preview-taskbar-tab__icon[data-kind="board"] {
-    color: var(--accent);
-}
-
-.workspace-preview-taskbar-tab__icon[data-kind="ai"] {
-    color: #7c3aed;
-}
-
-.workspace-preview-taskbar-tab__icon svg {
-    width: 14px;
-    height: 14px;
-}
-
-.workspace-preview-taskbar-tab__label {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: left;
 }
 
 .workspace-preview-taskbar__empty {
@@ -1266,6 +1214,27 @@ a {
     height: 100%;
 }
 
+/* 空工作区顶栏已由 workspace-panel-empty-topbar 承载，隐藏 dockview 空 group 残留 tab 栏 */
+.workspace-panel-frame.workspace-panel--empty
+    .workspace-panel-dock.dockable-workspace
+    .dockable-workspace__dockview
+    .dv-tabs-and-actions-container {
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    border: none !important;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.workspace-panel-frame.workspace-panel--empty
+    .workspace-panel-dock.dockable-workspace
+    .dockable-workspace__dockview
+    .dv-content-container {
+    display: none !important;
+}
+
 /* 用户工作区详情页（/workspace/:id） */
 .user-workspace {
     display: flex;
@@ -1577,7 +1546,7 @@ a {
     display: flex;
     align-items: stretch;
     border-right: 1px solid var(--border);
-    background: var(--surface);
+    background: var(--bg);
 }
 
 .workspace-taskbar-strip__switcher .workspace-switcher {
@@ -2881,93 +2850,20 @@ a {
     white-space: nowrap;
 }
 
-.workspace-dock-empty {
-    flex: 1;
-    min-height: 0;
+/* 半屏嵌入：与全屏空页相同，仅在有限高度内可滚动 */
+.workspace-empty-page--embedded {
     height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--sp-4);
+    justify-content: flex-start;
     overflow-y: auto;
-    user-select: none;
 }
 
-.workspace-dock-empty--compact {
-    color: var(--text-secondary);
+.workspace-empty-page--embedded.workspace-empty-page--no-branding {
+    justify-content: center;
+    padding: var(--sp-4) var(--sp-6);
 }
 
-.workspace-dock-empty__card {
-    width: min(420px, 100%);
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--sp-3);
-}
-
-.workspace-dock-empty__prompt {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--meta);
-    text-align: center;
-}
-
-.workspace-dock-empty__recent {
-    width: 100%;
-}
-
-.workspace-dock-empty__recent-title {
-    margin-bottom: var(--sp-2);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--meta);
-}
-
-.workspace-dock-empty__recent-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.workspace-dock-empty__recent-item {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    padding: 8px 10px;
-    color: var(--fg);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    cursor: pointer;
-    font: inherit;
-    text-align: left;
-    transition: border-color 0.12s, background 0.12s;
-}
-
-.workspace-dock-empty__recent-item:hover {
-    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-    background: color-mix(in srgb, var(--accent) 6%, var(--bg-elevated));
-}
-
-.workspace-dock-empty__recent-item span {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-}
-
-.workspace-dock-empty__recent-item small {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--meta);
-    white-space: nowrap;
+.workspace-empty-page--embedded.workspace-empty-page--no-branding .workspace-empty-page__action-list {
+    margin-top: 0;
 }
 
 .empty-state.compact {

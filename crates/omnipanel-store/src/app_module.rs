@@ -49,6 +49,7 @@ pub const DEFAULT_APP_MODULES: &[(&str, i32, AppModuleStatus)] = &[
     ("protocol", 6, AppModuleStatus::Open),
     ("workflow", 7, AppModuleStatus::Disabled),
     ("knowledge", 8, AppModuleStatus::Open),
+    ("web", 9, AppModuleStatus::Open),
 ];
 
 /// 持久化的模块配置条目。
@@ -150,9 +151,9 @@ impl Storage {
 
         // 由非 open 转为 open 时恢复其下工具；转为非 open 时禁用其下工具。
         if status == AppModuleStatus::Open && current.status != AppModuleStatus::Open {
-            self.mcp_tool_restore_for_module(module_key)?;
+            self.builtin_tool_restore_for_module(module_key)?;
         } else {
-            self.mcp_tool_sync_with_module(module_key)?;
+            self.builtin_tool_sync_with_module(module_key)?;
         }
 
         self.app_module_get(module_key)

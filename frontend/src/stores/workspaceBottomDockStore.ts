@@ -107,7 +107,12 @@ interface WorkspaceBottomDockState {
     workspace: WorkspaceInfo,
     tab: Omit<WorkspaceDockTab, "kind"> & { payload: WorkspaceTabSnapshot },
   ) => WorkspaceDockTab;
-  removeTab: (workspaceId: string, workspace: WorkspaceInfo, tabId: string) => void;
+  removeTab: (
+    workspaceId: string,
+    workspace: WorkspaceInfo,
+    tabId: string,
+    options?: { skipRecentClosed?: boolean },
+  ) => void;
   removeRecentClosedTab: (workspaceId: string, closedAt: number) => void;
   /** 删除工作区时清理底部 dock 持久化数据 */
   removeWorkspaceData: (workspaceId: string) => void;
@@ -228,7 +233,7 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
         return nextTab;
       },
 
-      removeTab: (workspaceId, _workspace, tabId) => {
+      removeTab: (workspaceId, _workspace, tabId, options) => {
         set((state) => {
           const current = state.tabsByWorkspace[workspaceId] ?? [];
           const removed = current.find((tab) => tab.id === tabId);
@@ -239,15 +244,18 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
           const active = state.activeTabByWorkspace[workspaceId];
           const nextActive =
             active === tabId ? (tabs[0]?.id ?? "") : (active ?? tabs[0]?.id ?? "");
+          const skipRecent = options?.skipRecentClosed === true;
           const prevRecent = state.recentClosedByWorkspace[workspaceId] ?? [];
           const recentEntry: WorkspaceDockClosedEntry = {
             closedAt: Date.now(),
             tab: structuredClone(removed),
           };
-          const nextRecent = [
-            recentEntry,
-            ...prevRecent.filter((entry) => entry.tab.id !== removed.id),
-          ].slice(0, WORKSPACE_RECENT_CLOSED_LIMIT);
+          const nextRecent = skipRecent
+            ? prevRecent.filter((entry) => entry.tab.id !== removed.id)
+            : [
+                recentEntry,
+                ...prevRecent.filter((entry) => entry.tab.id !== removed.id),
+              ].slice(0, WORKSPACE_RECENT_CLOSED_LIMIT);
           return {
             tabsByWorkspace: { ...state.tabsByWorkspace, [workspaceId]: tabs },
             layoutByWorkspace: {

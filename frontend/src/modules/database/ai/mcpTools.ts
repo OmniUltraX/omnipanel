@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { McpToolRegistration } from "../../../lib/ai/context";
+import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
 import {
   introspectTable,
@@ -147,7 +147,7 @@ const keywordSchema = {
 };
 
 /** 数据库模块向 AI 注册的 MCP 工具（omni_{module}_{function_name}） */
-export const DATABASE_MODULE_MCP_TOOLS: McpToolRegistration[] = [
+export const DATABASE_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_database_get_databases_from_connection",
     description: "根据连接名获取该连接下的数据库列表，可选关键字过滤。",

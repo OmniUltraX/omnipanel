@@ -10,7 +10,7 @@ export function useDockTabBarHidden(tabId: string, hidden: boolean) {
     const tabEl =
       (el.closest(".dv-tab") as HTMLElement | null) ??
       (el
-        .closest(".dockable-workspace")
+        .closest(".dockable-workspace__dockview")
         ?.querySelector<HTMLElement>(
           `.dv-default-tab[data-dock-tab-id="${CSS.escape(tabId)}"]`,
         )
