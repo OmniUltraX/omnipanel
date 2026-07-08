@@ -1,5 +1,6 @@
 import { Group } from "react-resizable-panels";
 import type { GroupProps } from "react-resizable-panels";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 
 type DockLayoutProps = {
   children: React.ReactNode;
@@ -8,6 +9,8 @@ type DockLayoutProps = {
   defaultLayout?: GroupProps["defaultLayout"];
   onLayoutChange?: GroupProps["onLayoutChange"];
   onLayoutChanged?: GroupProps["onLayoutChanged"];
+  /** 显式禁用；未指定时跟随 ModuleVisibility（叠层非激活模块自动禁用） */
+  disabled?: boolean;
 };
 
 export function DockLayout({
@@ -17,10 +20,15 @@ export function DockLayout({
   defaultLayout,
   onLayoutChange,
   onLayoutChanged,
+  disabled: disabledProp,
 }: DockLayoutProps) {
+  const { active: moduleActive } = useModuleVisibility();
+  const disabled = disabledProp ?? !moduleActive;
+
   return (
     <Group
       orientation={direction}
+      disabled={disabled}
       className={`dock-layout dock-layout--${direction}${className ? ` ${className}` : ""}`}
       defaultLayout={defaultLayout}
       onLayoutChange={onLayoutChange}

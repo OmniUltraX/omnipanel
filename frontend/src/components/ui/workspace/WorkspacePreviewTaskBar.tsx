@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { appConfirm } from "../../../lib/appConfirm";
+import { dispatchDebouncedWindowResize } from "../../../lib/subWindowResize";
 import { isWorkspaceBuiltinTab } from "../../../lib/workspaceBuiltinPanels";
 import { syncWorkspaceDockActiveTabSideEffects } from "../../../lib/syncWorkspaceDockActiveTab";
 import { cleanupWorkspaceDockTab } from "../../../lib/workspaceTabActions";
@@ -94,6 +95,7 @@ export function WorkspacePreviewTaskBar() {
   const removeTab = useWorkspaceBottomDockStore((state) => state.removeTab);
   const shiftWorkspaceModeUp = useBottomPanelStore((state) => state.shiftWorkspaceModeUp);
   const shiftWorkspaceModeDown = useBottomPanelStore((state) => state.shiftWorkspaceModeDown);
+  const setTaskbarSubWindowTabId = useBottomPanelStore((state) => state.setTaskbarSubWindowTabId);
   const rawTabs = useWorkspaceBottomDockStore(
     (state) => state.tabsByWorkspace[workspace.id],
   );
@@ -112,6 +114,23 @@ export function WorkspacePreviewTaskBar() {
   useEffect(() => {
     setSubWindowTabId(null);
   }, [workspace.id]);
+
+  useEffect(() => {
+    setTaskbarSubWindowTabId(subWindowTabId);
+  }, [setTaskbarSubWindowTabId, subWindowTabId]);
+
+  useEffect(
+    () => () => setTaskbarSubWindowTabId(null),
+    [setTaskbarSubWindowTabId],
+  );
+
+  useEffect(() => {
+    if (!subWindowTabId) return;
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+      dispatchDebouncedWindowResize();
+    });
+  }, [subWindowTabId]);
 
   const tabs = useMemo(
     () => resolveWorkspaceTabs(workspace, rawTabs),

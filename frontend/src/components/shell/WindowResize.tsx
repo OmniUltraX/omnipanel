@@ -81,9 +81,9 @@ export function WindowResize() {
           newY = startWindowPos.current.y + heightChange;
         }
 
-        appWindow.setSize(new LogicalSize(newWidth, newHeight));
+        appWindow.setSize(new LogicalSize(newWidth, newHeight)).catch(() => undefined);
         if (activeEdge.includes("left") || activeEdge.includes("top")) {
-          appWindow.setPosition(new LogicalPosition(newX, newY));
+          appWindow.setPosition(new LogicalPosition(newX, newY)).catch(() => undefined);
         }
       } else {
         const edge = getEdge(e);

@@ -303,6 +303,15 @@ a {
 .workspace--bottom-fullscreen .ai-dockview-resize-handle {
     visibility: hidden;
     pointer-events: none;
+    width: 0 !important;
+    min-width: 0 !important;
+    flex: 0 0 0 !important;
+    border-left: none;
+    overflow: hidden;
+}
+
+.workspace--bottom-fullscreen .ai-dockview-resize-handle {
+    display: none;
 }
 
 .workspace--bottom-fullscreen .content-bottom .dock-panel-main > .dock-layout > .dock-panel:not(.dock-panel-bottom),
@@ -311,7 +320,7 @@ a {
     pointer-events: none;
 }
 
-.workspace--bottom-fullscreen .content-bottom .dock-panel-bottom {
+.workspace--bottom-fullscreen .content-bottom .dock-panel-bottom:not(.dock-panel-bottom--workspace) {
     flex: 0 0 0 !important;
     min-height: 0 !important;
     max-height: 0 !important;
@@ -357,10 +366,8 @@ a {
     min-height: 0;
 }
 
-.ws-state-full .content-routes {
-    visibility: hidden;
-    pointer-events: none;
-}
+/* 全屏时由 workspace-preview__main 隐藏主区，勿再 visibility:hidden content-routes，
+   否则 navigate→exit 时多一层可见性切换，退出全屏会闪空白帧 */
 
 /* ─── 工作区预览（WorkspacePreview · split-window / task-bar）────────── */
 .workspace-preview {
@@ -723,6 +730,11 @@ a {
 .workspace-taskbar-subwindow-panel .subwindow-body {
     padding: 0;
     overflow: hidden;
+    min-height: 0;
+}
+
+.workspace-taskbar-subwindow-panel.subwindow-panel--windowed {
+    z-index: var(--z-subwindow-overlay);
 }
 
 .workspace-taskbar-subwindow {
@@ -3297,29 +3309,130 @@ a {
     overflow: hidden;
 }
 
-.route-panel:not(.route-panel--active) {
+/* 普通模块：非激活直接卸载布局（轻量、切换快） */
+.route-panel:not(.route-panel--overlay):not(.route-panel--active) {
     display: none;
+}
+
+.route-panel:not(.route-panel--overlay).route-panel--active {
+    position: relative;
+    z-index: 0;
+}
+
+/*
+ * 含 dockview 的模块（终端/数据库）：始终叠层占满 content-routes，
+ * 仅切 visibility，禁止 display:none / relative↔absolute 切换。
+ * 否则 dockview 量到 0 宽后 api.layout 会把整页锁死在 ~38px 压扁态。
+ */
+.route-panel--overlay {
+    position: absolute;
+    inset: 0;
+    flex: none;
+    width: 100%;
+    height: 100%;
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+    z-index: -1;
+    isolation: isolate;
+    overflow: hidden;
+    clip-path: inset(100% 100% 0 0);
+}
+
+.route-panel--overlay.route-panel--active {
+    visibility: visible;
+    pointer-events: auto;
+    opacity: 1;
+    z-index: 2;
+    clip-path: none;
 }
 
 /* === 工作区全屏态：dock 容器 position:fixed 占满视口 ===
    dockview 始终在 WorkspacePreview 内挂载（不 unmount），
    全屏时用 position:fixed 脱离 SidebarBottom 的 panel size 限制。 */
-.workspace-preview--fullscreen .workspace-preview__dock {
+/* 覆盖 workspace--bottom-fullscreen 对 dock-panel-bottom 的 collapse，fixed dock 须可交互 */
+.workspace--bottom-fullscreen .workspace-preview--fullscreen .dock-panel-bottom--workspace {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    border-top: none;
+}
+
+.workspace-preview--fullscreen .workspace-preview__bottom-stack {
     position: fixed !important;
     top: 0 !important;
     left: var(--sidebar-w) !important;
     right: 0 !important;
     bottom: 26px !important;
-    z-index: 50 !important;
+    width: auto !important;
     height: auto !important;
-    max-height: none !important;
-    background: var(--bg);
+    z-index: 90;
+    pointer-events: auto !important;
     visibility: visible !important;
+    overflow: hidden !important;
+}
+
+.workspace-preview--fullscreen.dock-workspace,
+.workspace-preview--fullscreen .dock-panel-main,
+.workspace-preview--fullscreen .dock-panel-bottom--workspace {
     overflow: visible !important;
 }
 
+.workspace-preview--fullscreen .workspace-preview__dock {
+    position: absolute !important;
+    inset: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    z-index: 1 !important;
+    height: 100% !important;
+    max-height: none !important;
+    background: var(--bg);
+    visibility: visible !important;
+    overflow: hidden !important;
+    pointer-events: auto !important;
+}
+
+.workspace-preview--fullscreen .workspace-bottom-host,
+.workspace-preview--fullscreen .workspace-panel-frame,
+.workspace-preview--fullscreen .workspace-panel-dock,
+.workspace-preview--fullscreen .dockable-workspace,
+.workspace-preview--fullscreen .dockable-workspace__dockview {
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+
+.workspace-preview--fullscreen .dock-handle--vertical {
+    display: none;
+    pointer-events: none;
+}
+
 .workspace-preview--fullscreen .workspace-preview__main {
-    display: none !important;
+    /* 不用 display:none，保持子树 layout 尺寸，退出全屏时 dockview 无需从 0 重算 */
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+    overflow: hidden;
+    clip-path: inset(100%);
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
+
+/* 子 route-panel 的 visibility:visible 会穿透父级 hidden，全屏时强制裁切 */
+.workspace-preview--fullscreen .workspace-preview__main .route-panel,
+.workspace-preview--fullscreen .workspace-preview__main .content-routes {
+    visibility: hidden !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+    clip-path: inset(100%) !important;
 }
 
 .workspace-preview--fullscreen .workspace-preview__taskbar-slot {
@@ -3328,8 +3441,19 @@ a {
 
 .route-panel--active {
     visibility: visible;
-    position: relative;
-    z-index: 0;
+}
+
+/* dockview 从窄宽/隐藏恢复：整棵 dock 先不可见，避免压扁中间帧 */
+.dockable-workspace--recovering .dockable-workspace__dockview {
+    visibility: hidden !important;
+}
+
+.dockable-workspace--recovering.advance-terminal-side-dock
+    .dv-split-view-container
+    > .dv-view-container
+    > .dv-view {
+    width: 100% !important;
+    transform: none !important;
 }
 
 .route-module-fallback {

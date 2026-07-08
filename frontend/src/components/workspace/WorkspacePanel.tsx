@@ -157,7 +157,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     [workspace, isEngineeringFullscreen],
   );
 
-  if (embeddedMode === "taskbar") {
+  if (embeddedMode === "taskbar" && !isEngineeringFullscreen) {
     return null;
   }
 

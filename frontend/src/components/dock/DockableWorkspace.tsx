@@ -57,12 +57,16 @@ import {
 } from "./dockHeaderPosition";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DockableTab } from "./dockableTab";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 
 export type { DockableTab } from "./dockableTab";
 
 const VOID_WINDOW_DRAG_THRESHOLD_PX = 3;
 const VOID_DOUBLE_CLICK_MS = 500;
 const VOID_DOUBLE_CLICK_DISTANCE_PX = 12;
+/** 顶栏 dock 低于此宽度时不调用 layout，避免把整页锁死在压扁态 */
+const TOP_HEADER_MIN_LAYOUT_PX = 160;
+const SIDE_HEADER_MIN_LAYOUT_PX = 36;
 
 const TAB_BAR_INTERACTIVE_SELECTOR = [
   ".dv-tab",
@@ -632,6 +636,69 @@ export function DockableWorkspace({
 
   // 自定义 tab 关闭按钮 drag-ignore；windowControl 时整段 Tab 栏标记 no-drag
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const { active: moduleActive } = useModuleVisibility();
+  const wasHiddenRef = useRef(true);
+  const lastMeasuredRef = useRef({ w: 0, h: 0 });
+
+  const relayoutFromContainer = useCallback(() => {
+    const api = apiRef.current;
+    const wrapper = wrapperRef.current;
+    const dockRoot = wrapper?.querySelector<HTMLElement>(
+      ".dockable-workspace__dockview",
+    );
+    if (!api || !layoutLoadedRef.current || !dockRoot || !wrapper) return;
+
+    const w = dockRoot.clientWidth;
+    const h = dockRoot.clientHeight;
+    const headerPos = defaultHeaderPositionRef.current;
+    const minLayoutW =
+      headerPos === "top" ? TOP_HEADER_MIN_LAYOUT_PX : SIDE_HEADER_MIN_LAYOUT_PX;
+
+    if (w <= 0 || h <= 0) {
+      wasHiddenRef.current = true;
+      lastMeasuredRef.current = { w: 0, h: 0 };
+      return;
+    }
+
+    // 容器尚未展开到可用宽度：跳过 layout，保留上次正确布局，等下一帧再量
+    if (w < minLayoutW) {
+      wasHiddenRef.current = true;
+      return;
+    }
+
+    const recovering =
+      wasHiddenRef.current ||
+      (lastMeasuredRef.current.w < minLayoutW && w >= minLayoutW);
+    wasHiddenRef.current = false;
+    lastMeasuredRef.current = { w, h };
+
+    if (headerPos !== "top") {
+      syncGroupHeaderPosition(api, headerPos);
+    }
+
+    if (recovering) {
+      wrapper.classList.add("dockable-workspace--recovering");
+    }
+
+    api.layout(w, h, true);
+
+    if (recovering) {
+      requestAnimationFrame(() => {
+        wrapper.classList.remove("dockable-workspace--recovering");
+        const nextW = dockRoot.clientWidth;
+        const nextH = dockRoot.clientHeight;
+        if (
+          apiRef.current &&
+          layoutLoadedRef.current &&
+          nextW >= minLayoutW &&
+          nextH > 0
+        ) {
+          apiRef.current.layout(nextW, nextH, true);
+        }
+      });
+    }
+  }, []);
+
   const pressedActiveTabIdRef = useRef<string | null>(null);
   useEffect(() => {
     const root = wrapperRef.current;
@@ -1184,34 +1251,42 @@ export function DockableWorkspace({
     });
   }, [layoutReady, defaultHeaderPosition]);
 
+  // 模块路由 / 父容器从 display:none 恢复可见：绘制前同步 relayout
+  useLayoutEffect(() => {
+    if (!moduleActive) {
+      const wrapper = wrapperRef.current;
+      const dockRoot = wrapper?.querySelector<HTMLElement>(
+        ".dockable-workspace__dockview",
+      );
+      if (dockRoot) {
+        const headerPos = defaultHeaderPositionRef.current;
+        const minLayoutW =
+          headerPos === "top" ? TOP_HEADER_MIN_LAYOUT_PX : SIDE_HEADER_MIN_LAYOUT_PX;
+        const w = dockRoot.clientWidth;
+        const h = dockRoot.clientHeight;
+        // 叠层路由仅切 visibility，容器仍全尺寸：勿误标 hidden，避免切回闪 recovering
+        if (w >= minLayoutW && h > 0) {
+          return;
+        }
+      }
+      wasHiddenRef.current = true;
+      return;
+    }
+    if (!layoutReady) return;
+    relayoutFromContainer();
+  }, [moduleActive, layoutReady, relayoutFromContainer]);
+
   // 同步重排入口：外层在改变 dock 宽度后、paint 前手动触发，消除异步重排的错位帧。
   useEffect(() => {
     if (!relayoutRef) return;
-    const fn = () => {
-      const api = apiRef.current;
-      if (!api || !layoutLoadedRef.current) return;
-      const dockRoot = wrapperRef.current?.querySelector<HTMLElement>(
-        ".dockable-workspace__dockview",
-      );
-      if (!dockRoot) return;
-      const w = dockRoot.clientWidth;
-      const h = dockRoot.clientHeight;
-      if (w <= 0 || h <= 0) return;
-      if (defaultHeaderPositionRef.current !== "top") {
-        syncGroupHeaderPosition(api, defaultHeaderPositionRef.current);
-      }
-      api.layout(w, h);
-    };
-    relayoutRef.current = fn;
+    relayoutRef.current = relayoutFromContainer;
     return () => {
-      if (relayoutRef.current === fn) relayoutRef.current = null;
+      if (relayoutRef.current === relayoutFromContainer) relayoutRef.current = null;
     };
-  }, [relayoutRef]);
+  }, [relayoutRef, relayoutFromContainer]);
 
-  // 侧栏 header：容器尺寸变化时（如底部半屏工作区展开/收起）重新 layout，
-  // 仅作用于 defaultHeaderPosition !== top 的 dock（如 advance-terminal-side-dock）。
+  // 容器尺寸变化时（侧栏展开、工作区高度变化）重新 layout
   useEffect(() => {
-    if (defaultHeaderPosition === "top") return;
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
@@ -1220,24 +1295,14 @@ export function DockableWorkspace({
     );
     if (!dockRoot) return;
 
-    const relayout = () => {
-      const api = apiRef.current;
-      if (!api || !layoutLoadedRef.current) return;
-      const w = dockRoot.clientWidth;
-      const h = dockRoot.clientHeight;
-      if (w <= 0 || h <= 0) return;
-      syncGroupHeaderPosition(api, defaultHeaderPositionRef.current);
-      api.layout(w, h);
-    };
-
     const observer = new ResizeObserver(() => {
-      relayout();
+      relayoutFromContainer();
     });
     observer.observe(dockRoot);
-    relayout();
+    relayoutFromContainer();
 
     return () => observer.disconnect();
-  }, [layoutReady, defaultHeaderPosition]);
+  }, [layoutReady, relayoutFromContainer]);
 
   // 同步 activeTabId
   useEffect(() => {
@@ -1334,14 +1399,6 @@ export function DockableWorkspace({
     (event: DockviewReadyEvent) => {
       const api = event.api;
       apiRef.current = api;
-
-      // #region debug-point C:onready
-      const __t0 = performance.now();
-      fetch("http://127.0.0.1:7778/event", {
-        method: "POST",
-        body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "C", location: "DockableWorkspace.tsx:onReady", msg: "[DEBUG] onReady START", data: { scope: dockScopeRef.current, tabCount: tabsRef.current.length }, ts: Date.now() }),
-      }).catch(() => {});
-      // #endregion
 
       // 避免 onReady 重复触发时重复订阅
       for (const d of disposablesRef.current) d.dispose();
@@ -1486,14 +1543,6 @@ export function DockableWorkspace({
           }
         }
       }
-
-      // #region debug-point C:onready-end
-      const __t1 = performance.now();
-      fetch("http://127.0.0.1:7778/event", {
-        method: "POST",
-        body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "C", location: "DockableWorkspace.tsx:onReady", msg: "[DEBUG] onReady END", data: { scope: dockScopeRef.current, durationMs: Math.round(__t1 - __t0), panelCount: api.panels.length, groupCount: api.groups.length }, ts: Date.now() }),
-      }).catch(() => {});
-      // #endregion
     },
     [applyInitialLayout, syncTabGroups],
   );

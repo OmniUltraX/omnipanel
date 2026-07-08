@@ -65,6 +65,8 @@ interface DockWorkspaceProps {
   /** 用户按下底部分隔条时触发（用于取消程序化 snap 的短暂忽略窗口） */
   onBottomHandlePointerDown?: () => void;
   className?: string;
+  /** 禁用整组 resize（全屏时避免与 fixed 工作区叠层冲突） */
+  disabled?: boolean;
 }
 
 export function DockWorkspace({
@@ -96,6 +98,7 @@ export function DockWorkspace({
   bottomHandleDisabled = false,
   onBottomHandlePointerDown,
   className,
+  disabled,
 }: DockWorkspaceProps) {
   const handleBottomHeight = useCallback(
     (heightPx: number) => {
@@ -133,6 +136,7 @@ export function DockWorkspace({
   const mainContent = bottom ? (
     <DockLayout
       direction="vertical"
+      disabled={disabled}
       onLayoutChange={onBottomLayoutChange}
       onLayoutChanged={onBottomResizeEnd}
     >
@@ -167,7 +171,7 @@ export function DockWorkspace({
 
   return (
     <div className={`dock-workspace${className ? ` ${className}` : ""}`}>
-      <DockLayout onLayoutChanged={handleHorizontalLayoutChanged}>
+      <DockLayout disabled={disabled} onLayoutChanged={handleHorizontalLayoutChanged}>
         {left && (
           <>
             <DockPanel

@@ -23,6 +23,25 @@ function formatError(reason: unknown): string {
   }
 }
 
+/** react-resizable-panels 在叠层/全屏切换时偶发 stacking-order 断言失败（非业务错误） */
+function isBenignResizablePanelsStackingError(reason: unknown): boolean {
+  const message =
+    reason instanceof Error
+      ? reason.message
+      : typeof reason === "string"
+        ? reason
+        : "";
+  return message.includes(
+    "Stacking order can only be calculated for elements with a common ancestor",
+  );
+}
+
+/** Tauri onResized 使用 async 回调时，reject 会以 event 对象冒泡为 unhandledrejection */
+function isBenignTauriResizeRejection(reason: unknown): boolean {
+  if (reason == null || typeof reason !== "object") return false;
+  return (reason as { event?: string }).event === "tauri://resize";
+}
+
 /** 浏览器在 ResizeObserver 同帧反馈布局时的已知无害告警，非应用逻辑错误。 */
 function isBenignResizeObserverNoise(message: string): boolean {
   return (
@@ -191,11 +210,23 @@ export async function openDevtools(): Promise<void> {
 export function initProductionDiagnostics(): void {
   window.addEventListener("error", (event) => {
     if (isBenignResizeObserverNoise(event.message)) return;
+    if (isBenignResizablePanelsStackingError(event.error)) {
+      event.preventDefault();
+      return;
+    }
     const detail = event.error ? formatError(event.error) : event.message;
     pushError(`[error] ${detail}`);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
+    if (isBenignTauriResizeRejection(event.reason)) {
+      event.preventDefault();
+      return;
+    }
+    if (isBenignResizablePanelsStackingError(event.reason)) {
+      event.preventDefault();
+      return;
+    }
     pushError(`[unhandledrejection] ${formatError(event.reason)}`);
   });
 

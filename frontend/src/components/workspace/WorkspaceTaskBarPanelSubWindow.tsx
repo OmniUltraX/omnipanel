@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { SubWindow } from "../ui/window/SubWindow";
+import { ModuleVisibilityProvider } from "../../lib/moduleVisibility";
 import {
   resolveWorkspaceTabPreview,
   stripWorkspaceTabCopySuffix,
@@ -28,20 +29,13 @@ export function WorkspaceTaskBarPanelSubWindow({
 
   const handleMaximizeToWorkspace = useCallback(() => {
     if (!tab) return;
-    // 关闭弹窗
-    onClose();
-    // 进入全屏工作区
     const workspaceId = useWorkspaceStore.getState().workspace.id;
+    // 先进入全屏并激活 tab，再关闭 SubWindow（taskbar 卸载后弹窗自然销毁）
     enterEngineeringWorkspaceFullscreen(workspaceId, navigate);
-    // 激活当前 tab
     const dockStore = useWorkspaceBottomDockStore.getState();
     dockStore.setActiveTabId(workspaceId, tab.id);
     syncWorkspaceDockActiveTabSideEffects(tab);
-    window.dispatchEvent(
-      new CustomEvent("omnipanel-workspace-dock-activate", {
-        detail: { workspaceId, tabId: tab.id },
-      }),
-    );
+    onClose();
   }, [tab, onClose, navigate]);
 
   if (!tab) return null;
@@ -62,7 +56,9 @@ export function WorkspaceTaskBarPanelSubWindow({
       onMaximizeToWorkspace={handleMaximizeToWorkspace}
     >
       <div className="workspace-taskbar-subwindow">
-        <WorkspaceDockTabPanel tab={tab} isActive={open} />
+        <ModuleVisibilityProvider active suspended={false}>
+          <WorkspaceDockTabPanel tab={tab} isActive={open} hostContext="taskbar-subwindow" />
+        </ModuleVisibilityProvider>
       </div>
     </SubWindow>
   );

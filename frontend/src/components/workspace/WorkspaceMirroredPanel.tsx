@@ -2,15 +2,31 @@ import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
 import { DockerWorkspaceTabPane } from "../../modules/docker/DockerWorkspaceTabPane";
+import type { WorkspaceDockTabHostContext } from "./WorkspaceDockTabPanel";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 
 interface WorkspaceMirroredPanelProps {
   tab: WorkspaceDockTab;
   isActive: boolean;
+  hostContext?: WorkspaceDockTabHostContext;
+}
+
+function resolveMirrorSideDockScope(
+  tabId: string,
+  hostContext: WorkspaceDockTabHostContext,
+): string {
+  if (hostContext === "taskbar-subwindow") {
+    return `workspace-taskbar-mirror-side-${tabId}`;
+  }
+  return `workspace-bottom-mirror-side-${tabId}`;
 }
 
 /** 从其他模块拖入底部工作区后的镜像面板内容 */
-export function WorkspaceMirroredPanel({ tab, isActive }: WorkspaceMirroredPanelProps) {
+export function WorkspaceMirroredPanel({
+  tab,
+  isActive,
+  hostContext = "workspace-dock",
+}: WorkspaceMirroredPanelProps) {
   const { t } = useI18n();
 
   if (tab.originScope === "terminal" && tab.originPanelId) {
@@ -19,6 +35,7 @@ export function WorkspaceMirroredPanel({ tab, isActive }: WorkspaceMirroredPanel
         <TerminalTabDockPane
           tabId={tab.originPanelId}
           isActive={isActive}
+          sideDockScope={resolveMirrorSideDockScope(tab.originPanelId, hostContext)}
         />
       </div>
     );

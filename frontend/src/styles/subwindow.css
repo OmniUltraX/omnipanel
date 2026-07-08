@@ -172,7 +172,8 @@
 }
 
 .subwindow-panel--windowed {
-    position: absolute;
+    position: fixed;
+    z-index: var(--z-subwindow-overlay);
     max-width: none;
     max-height: none;
     box-sizing: border-box;

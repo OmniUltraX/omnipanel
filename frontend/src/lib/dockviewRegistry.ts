@@ -28,17 +28,6 @@ export function relayoutDockviewInstances(
   scopePrefix?: string,
   size?: { width: number; height: number },
 ): void {
-  // #region debug-point D:relayout
-  let __hits = 0;
-  for (const instance of instancesByViewId.values()) {
-    if (scopePrefix && !instance.scope.startsWith(scopePrefix)) continue;
-    __hits++;
-  }
-  fetch("http://127.0.0.1:7778/event", {
-    method: "POST",
-    body: JSON.stringify({ sessionId: "workspace-fullscreen-lag", runId: "pre", hypothesisId: "D", location: "dockviewRegistry.ts:relayout", msg: "[DEBUG] relayout called", data: { scopePrefix, hits: __hits, totalInstances: instancesByViewId.size, size }, ts: Date.now() }),
-  }).catch(() => {});
-  // #endregion
   for (const instance of instancesByViewId.values()) {
     if (scopePrefix && !instance.scope.startsWith(scopePrefix)) continue;
     try {
@@ -46,17 +35,28 @@ export function relayoutDockviewInstances(
         layout?: (width: number, height: number, force?: boolean) => void;
         element?: HTMLElement;
       };
-      const container =
+      const dockviewRoot =
         instance.getContainer?.() ??
         (api.element?.closest(".dockable-workspace__dockview") as HTMLElement | null) ??
         api.element ??
         null;
-      const measured = container?.getBoundingClientRect();
+      const layoutShell =
+        (dockviewRoot?.closest(".dockable-workspace") as HTMLElement | null) ??
+        dockviewRoot;
+      const measured = layoutShell?.getBoundingClientRect();
       const width = Math.round(
-        (measured && measured.width > 0 ? measured.width : size?.width) ?? 0,
+        size?.width && size.width > 0
+          ? size.width
+          : measured && measured.width > 0
+            ? measured.width
+            : 0,
       );
       const height = Math.round(
-        (measured && measured.height > 0 ? measured.height : size?.height) ?? 0,
+        size?.height && size.height > 0
+          ? size.height
+          : measured && measured.height > 0
+            ? measured.height
+            : 0,
       );
 
       if (typeof api.layout === "function" && width > 0 && height > 0) {

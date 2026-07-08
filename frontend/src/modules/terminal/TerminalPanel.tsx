@@ -13,6 +13,7 @@ import {
   useSshHostResources,
 } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
@@ -142,6 +143,7 @@ export function TerminalPanel() {
   const selectResource = useWorkspaceStore((state) => state.selectResource);
 
   const activeWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
+  const taskbarSubWindowTabId = useBottomPanelStore((s) => s.taskbarSubWindowTabId);
 
   const activeTerminalTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
@@ -675,12 +677,14 @@ export function TerminalPanel() {
       return (
         <TerminalTabDockPane
           tabId={tabId}
-          isActive={tabId === effectiveDockActiveId}
+          isActive={
+            tabId === effectiveDockActiveId && tabId !== taskbarSubWindowTabId
+          }
           onActivate={() => handleDockActiveChange(tabId)}
         />
       );
     },
-    [effectiveDockActiveId, handleDockActiveChange],
+    [effectiveDockActiveId, handleDockActiveChange, taskbarSubWindowTabId],
   );
 
   const sshDockPanelContentKey = useMemo(
