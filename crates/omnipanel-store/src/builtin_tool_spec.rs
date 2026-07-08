@@ -251,7 +251,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_web_search",
         module_key: "web",
-        description: "全网搜索，默认 scope=web。涉及中文经验/讨论/评测类问题，或全网结果不满意时，可改用 omni_zhihu_search 穿插补充。",
+        description: "联网搜索公开网页信息；query 宜具体可检索。默认 scope=web，中文讨论可改 zhihu 或 omni_zhihu_search。",
         input_schema: SCHEMA_WEB_SEARCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -259,7 +259,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_zhihu_search",
         module_key: "web",
-        description: "知乎站内搜索(问题/回答/文章/用户)，适合中文知识、经验、讨论、评测类问题，或全网结果不足时补充。",
+        description: "知乎站内搜索(问题/回答/文章/用户)，适合中文经验、讨论与评测类问题。",
         input_schema: SCHEMA_ZHIHU_SEARCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,

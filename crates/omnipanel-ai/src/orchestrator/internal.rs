@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use chrono::Local;
 use futures::StreamExt;
 
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
@@ -226,6 +227,18 @@ fn build_messages(
 
 fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) -> Option<ChatMessage> {
     let mut lines = Vec::new();
+
+    let now = Local::now();
+    lines.push(format!("Current local date-time: {}", now.format("%Y-%m-%d %H:%M %Z")));
+
+    if let Some(ctx) = context
+        .terminal_context_append
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(String::new());
+        lines.push(ctx.to_string());
+    }
 
     if let Some(cwd) = context.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("Current working directory: {cwd}"));
