@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use super::database_tools;
 use super::native;
 use super::terminal_tools;
-use super::web_tools;
+use super::web;
 
 /// 在 OmniMCP HTTP 路径执行工具；返回 JSON 文本。
 pub async fn execute_omnimcp_tool(
@@ -51,12 +51,17 @@ pub async fn execute_omnimcp_tool(
         "omni_terminal_run_terminal_command" => terminal_tools::run_terminal_command(arguments).await,
         "omni_web_search" => {
             let proxy = load_http_proxy_config().ok();
-            let (text, _) = web_tools::search(arguments, storage, proxy).await?;
+            let (text, _) = web::search::dispatch(arguments, storage, proxy).await?;
+            Ok(text)
+        }
+        "omni_zhihu_search" => {
+            let proxy = load_http_proxy_config().ok();
+            let (text, _) = web::search::dispatch_zhihu_only(arguments, storage, proxy).await?;
             Ok(text)
         }
         "omni_web_fetch" => {
             let proxy = load_http_proxy_config().ok();
-            let (text, _) = web_tools::fetch(arguments, storage, proxy).await?;
+            let (text, _) = web::fetch::dispatch(arguments, storage, proxy).await?;
             Ok(text)
         }
         other => Err(format!("工具 {other} 未注册 OmniMCP 执行器")),

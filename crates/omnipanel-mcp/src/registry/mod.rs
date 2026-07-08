@@ -3,6 +3,7 @@ pub mod external;
 pub mod native;
 pub mod omnimcp_execute;
 pub mod terminal_tools;
+pub mod web;
 pub mod web_tools;
 
 use std::sync::Arc;

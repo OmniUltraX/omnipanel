@@ -31,3 +31,6 @@ tower-http = { version = "0.6", features = ["cors"] }
 http = "1"
 reqwest = { workspace = true, features = ["json"] }
 url = "2"
+html2md = "0.2"
+rs-trafilatura = "0.2.2"
+scraper = "0.27.0"

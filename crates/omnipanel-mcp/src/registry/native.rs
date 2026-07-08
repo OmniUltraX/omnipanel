@@ -45,10 +45,11 @@ pub async fn execute(
         "omni_database_list_connections" => list_database_connections(arguments).await,
         "omni_ssh_list_connections" => list_ssh_connections(arguments, storage).await,
         "load_skill" => load_skill(arguments).await,
-        "omni_web_search" => {
-            super::web_tools::search(arguments, storage, proxy).await
+        "omni_web_search" => super::web::search::dispatch(arguments, storage, proxy).await,
+        "omni_zhihu_search" => {
+            super::web::search::dispatch_zhihu_only(arguments, storage, proxy).await
         }
-        "omni_web_fetch" => super::web_tools::fetch(arguments, storage, proxy).await,
+        "omni_web_fetch" => super::web::fetch::dispatch(arguments, storage, proxy).await,
         _ => Err(format!("未知 Native 工具: {name}")),
     }
 }

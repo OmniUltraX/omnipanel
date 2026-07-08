@@ -57,9 +57,13 @@ pub use knowledge_vector::{
 };
 pub use http_proxy::{load_http_proxy_config, save_http_proxy_config, HttpProxyConfig};
 pub use web_search::{
-    delete_exa_api_key, exa_api_key_configured, load_exa_api_key, load_web_search_config,
-    save_exa_api_key, save_web_search_config, WebSearchBackend, WebSearchConfig,
-    WEB_SEARCH_EXA_KEY_REF,
+    default_auto_order, delete_exa_api_key, delete_jina_api_key, delete_zhihu_secret,
+    exa_api_key_configured, jina_api_key_configured, load_exa_api_key, load_jina_api_key,
+    load_web_search_config, load_zhihu_secret, save_exa_api_key, save_jina_api_key,
+    save_web_search_config, save_zhihu_secret, zhihu_secret_configured, FetchConfig, JinaDomainMode,
+    JinaOpts, SearchConfig, WebFetchBackend, WebSearchBackend, WebSearchConfig,
+    WEB_SEARCH_CONFIG_VERSION, WEB_SEARCH_EXA_KEY_REF, WEB_SEARCH_JINA_KEY_REF,
+    WEB_SEARCH_ZHIHU_SECRET_REF,
 };
 pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,

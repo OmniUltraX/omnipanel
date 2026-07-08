@@ -125,7 +125,22 @@ const SCHEMA_WEB_SEARCH: &str = r#"{
   "type": "object",
   "properties": {
     "query": { "type": "string", "description": "搜索关键词或自然语言问题" },
-    "max_results": { "type": "integer", "description": "最多返回条数，默认 10" }
+    "max_results": { "type": "integer", "description": "最多返回条数，默认 10，全网上限 20" },
+    "scope": {
+      "type": "string",
+      "enum": ["web", "zhihu"],
+      "default": "web",
+      "description": "web=全网搜索(默认,自动降级); zhihu=仅知乎站内"
+    }
+  },
+  "required": ["query"]
+}"#;
+
+const SCHEMA_ZHIHU_SEARCH: &str = r#"{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "搜索关键词或自然语言问题" },
+    "max_results": { "type": "integer", "description": "最多返回条数，默认 10，上限 10" }
   },
   "required": ["query"]
 }"#;
@@ -134,7 +149,11 @@ const SCHEMA_WEB_FETCH: &str = r#"{
   "type": "object",
   "properties": {
     "url": { "type": "string", "description": "要抓取的网页 URL" },
-    "format": { "type": "string", "description": "返回格式：markdown 或 text，默认 markdown" }
+    "format": {
+      "type": "string",
+      "enum": ["markdown", "text", "html"],
+      "description": "返回格式，默认 markdown"
+    }
   },
   "required": ["url"]
 }"#;
@@ -232,15 +251,23 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_web_search",
         module_key: "web",
-        description: "全网语义/关键词搜索，返回标题、摘要与链接列表。",
+        description: "全网搜索，默认 scope=web。涉及中文经验/讨论/评测类问题，或全网结果不满意时，可改用 omni_zhihu_search 穿插补充。",
         input_schema: SCHEMA_WEB_SEARCH,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_zhihu_search",
+        module_key: "web",
+        description: "知乎站内搜索(问题/回答/文章/用户)，适合中文知识、经验、讨论、评测类问题，或全网结果不足时补充。",
+        input_schema: SCHEMA_ZHIHU_SEARCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
         tool_name: "omni_web_fetch",
         module_key: "web",
-        description: "抓取指定 URL 的网页正文（Markdown 格式）。",
+        description: "抓取指定 URL 的网页正文（默认本地直连转 Markdown，失败时降级 Jina Reader）。",
         input_schema: SCHEMA_WEB_FETCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,

@@ -3243,6 +3243,15 @@ a {
     clip-path: none;
 }
 
+/*
+ * 隐藏的非 dockview overlay：跳过子树布局与绘制，减轻后台模块的渲染开销。
+ * keep-layout 模块（终端/数据库 dockview）不参与，避免量到 0 宽后 api.layout 压扁。
+ * 元素自身仍 absolute inset:0 占位，切回时子树按既有 box 恢复布局，无尺寸塌陷。
+ */
+.route-panel--overlay:not(.route-panel--active):not(.route-panel--keep-layout) {
+    content-visibility: hidden;
+}
+
 /* === 工作区全屏态：dock 容器 position:fixed 占满视口 ===
    dockview 始终在 WorkspacePreview 内挂载（不 unmount），
    全屏时用 position:fixed 脱离 SidebarBottom 的 panel size 限制。 */
@@ -14631,6 +14640,78 @@ a {
     margin: 0;
     font-size: 11px;
     color: var(--danger);
+}
+
+/* Web search settings */
+.web-search-settings .settings-section-divider {
+    margin-top: var(--sp-1);
+}
+
+.web-search-settings > .settings-subsection-title:first-of-type {
+    margin-top: 0;
+}
+
+.web-search-secret-control {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: min(420px, 46vw);
+    min-width: 280px;
+}
+
+.web-search-secret-control .input-field {
+    flex: 1;
+    min-width: 0;
+}
+
+.web-search-secret-status {
+    color: var(--success);
+}
+
+.web-search-test-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.web-search-test-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: min(520px, 100%);
+}
+
+.web-search-test-input-row .input-field {
+    flex: 1;
+    min-width: 0;
+}
+
+.web-search-test-result {
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--r-sm);
+    background: var(--bg-deeper);
+    border: 1px solid var(--border-soft);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--muted);
+    word-break: break-word;
+    box-sizing: border-box;
+}
+
+.web-search-test-result.is-error {
+    color: var(--warn);
+    border-color: color-mix(in oklch, var(--warn) 35%, var(--border-soft));
+    background: color-mix(in oklch, var(--warn) 8%, var(--bg-deeper));
+}
+
+.setting-hint--warn {
+    color: var(--warn);
 }
 
 /* Update progress bar */
