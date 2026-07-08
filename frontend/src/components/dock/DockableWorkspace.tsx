@@ -218,11 +218,18 @@ function isExternalPanelDrop(
   return Boolean(data?.panelId && data.viewId !== targetViewId);
 }
 
-/** 保留可接收外部拖放的空 group，避免 clear 后只剩 watermark 无法落点 */
-function ensureExternalDropTarget(api: DockviewApi): void {
+/** 无 panel 时保留空 group，供外部拖放落点或 tab 栏窗口控制 chrome */
+function ensureEmptyDockGroup(api: DockviewApi): void {
   if (api.groups.length === 0) {
     api.addGroup();
   }
+}
+
+function keepEmptyDockMounted(
+  acceptExternalDrops: boolean,
+  windowControl: boolean,
+): boolean {
+  return acceptExternalDrops || windowControl;
 }
 
 export function DockableWorkspace({
@@ -848,11 +855,14 @@ export function DockableWorkspace({
 
   // 加载初始布局（在 onReady 中执行）
   const applyInitialLayout = useCallback((api: DockviewApi) => {
-    if (tabsRef.current.length === 0 && acceptExternalDropsRef.current) {
+    if (
+      tabsRef.current.length === 0 &&
+      (acceptExternalDropsRef.current || windowControlRef.current)
+    ) {
       for (const panel of [...api.panels]) {
         api.removePanel(panel);
       }
-      ensureExternalDropTarget(api);
+      ensureEmptyDockGroup(api);
       markLayoutReady();
       syncWindowChromeHostRef.current(api);
       return;
@@ -907,7 +917,7 @@ export function DockableWorkspace({
       markLayoutReady();
       syncTabGroups(api);
       if (acceptExternalDropsRef.current) {
-        ensureExternalDropTarget(api);
+        ensureEmptyDockGroup(api);
       }
       bumpPanelContentRev(api);
       syncWindowChromeHostRef.current(api);
@@ -949,7 +959,7 @@ export function DockableWorkspace({
     markLayoutReady();
     syncTabGroups(api);
     if (acceptExternalDropsRef.current) {
-      ensureExternalDropTarget(api);
+      ensureEmptyDockGroup(api);
     }
     bumpPanelContentRev(api);
     syncWindowChromeHostRef.current(api);
@@ -1006,7 +1016,10 @@ export function DockableWorkspace({
         isSyncingRef.current = true;
         try {
           if (api.panels.length > 0) {
-            if (acceptExternalDropsRef.current) {
+            if (
+              acceptExternalDropsRef.current ||
+              windowControlRef.current
+            ) {
               for (const panel of [...api.panels]) {
                 try {
                   api.removePanel(panel);
@@ -1014,7 +1027,7 @@ export function DockableWorkspace({
                   // panel 可能已被 clear 释放
                 }
               }
-              ensureExternalDropTarget(api);
+              ensureEmptyDockGroup(api);
             } else {
               try {
                 api.clear();
@@ -1022,10 +1035,13 @@ export function DockableWorkspace({
                 // 忽略重复 clear 导致的 disposed 错误
               }
             }
+          } else if (windowControlRef.current || acceptExternalDropsRef.current) {
+            ensureEmptyDockGroup(api);
           }
           persistEmptyLayout();
         } finally {
           isSyncingRef.current = false;
+          syncWindowChromeHostRef.current(api);
         }
         return;
       }
@@ -1142,7 +1158,10 @@ export function DockableWorkspace({
   // 无 tab 且未保留 dockview 挂载时，DockviewReact 会卸载；须重置 api/布局状态，
   // 避免 tabs 再次增加时 syncTabsToApi 误用已 disposed 的 apiRef。
   useLayoutEffect(() => {
-    if (tabs.length === 0 && !acceptExternalDrops) {
+    if (
+      tabs.length === 0 &&
+      !keepEmptyDockMounted(acceptExternalDrops, windowControl)
+    ) {
       for (const d of disposablesRef.current) d.dispose();
       disposablesRef.current = [];
       if (viewIdRef.current) {
@@ -1153,7 +1172,7 @@ export function DockableWorkspace({
       layoutLoadedRef.current = false;
       setLayoutReady(false);
     }
-  }, [tabs.length, acceptExternalDrops]);
+  }, [tabs.length, acceptExternalDrops, windowControl]);
 
   useEffect(() => {
     const api = apiRef.current;
@@ -1511,7 +1530,10 @@ export function DockableWorkspace({
   }, []);
 
   // 作为跨实例拖放目标或嵌入窗口控制时，即使无 tab 也需保持 dockview 挂载
-  const keepDockviewMounted = acceptExternalDrops || windowControl;
+  const keepDockviewMounted = keepEmptyDockMounted(
+    acceptExternalDrops,
+    windowControl,
+  );
 
   if (tabs.length === 0 && !keepDockviewMounted) {
     return (
