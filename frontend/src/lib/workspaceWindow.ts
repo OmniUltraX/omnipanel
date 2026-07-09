@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isTauriRuntime } from "./isTauriRuntime";
 import { useWorkspaceWindowStore } from "../stores/workspaceWindowStore";
+import { syncEmbeddedWorkspacePanelVisibility, hideMainWindowWorkspaceEmbedding } from "./workspaceTabActions";
 import {
   buildWorkspaceWindowHandoffJson,
   prepareWorkspaceWindowHandoff,
@@ -125,6 +126,10 @@ export async function openWorkspaceWindow(
   prepareWorkspaceWindowHandoff(workspaceId);
   const handoffJson = buildWorkspaceWindowHandoffJson(workspaceId);
 
+  // 乐观更新：invoke 完成前先收起主窗底栏，避免弹出过程闪一下 taskbar
+  useWorkspaceWindowStore.getState().markPoppedOut(workspaceId);
+  hideMainWindowWorkspaceEmbedding(workspaceId);
+
   try {
     const label = await invoke<string>("open_workspace_window", {
       workspaceId,
@@ -132,7 +137,7 @@ export async function openWorkspaceWindow(
       handoffJson,
     });
 
-    useWorkspaceWindowStore.getState().markPoppedOut(workspaceId);
+    syncEmbeddedWorkspacePanelVisibility(workspaceId);
     await workspaceWindowDebugLog(`open ok label=${label}`);
 
     const win = await WebviewWindow.getByLabel(label);
@@ -160,12 +165,17 @@ export async function initMainWindowWorkspaceSync(): Promise<() => void> {
   useWorkspaceWindowStore.getState().setPoppedOut([]);
   const ids = await listOpenWorkspaceWindowIds();
   useWorkspaceWindowStore.getState().setPoppedOut(ids);
+  for (const id of ids) {
+    syncEmbeddedWorkspacePanelVisibility(id);
+  }
 
   const unlisteners: UnlistenFn[] = [];
   unlisteners.push(
     await listen<WorkspaceWindowEventPayload>(WORKSPACE_WINDOW_OPENED_EVENT, (event) => {
       const id = event.payload?.workspaceId;
-      if (id) useWorkspaceWindowStore.getState().markPoppedOut(id);
+      if (!id) return;
+      useWorkspaceWindowStore.getState().markPoppedOut(id);
+      syncEmbeddedWorkspacePanelVisibility(id);
     }),
   );
   unlisteners.push(
@@ -216,6 +226,9 @@ export async function initMainWindowWorkspaceSync(): Promise<() => void> {
         return;
       }
       useWorkspaceWindowStore.getState().setPoppedOut(liveIds);
+      for (const id of liveIds) {
+        syncEmbeddedWorkspacePanelVisibility(id);
+      }
     });
   }, 3000);
 

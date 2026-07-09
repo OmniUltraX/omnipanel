@@ -44,15 +44,25 @@ export function currentWorkspaceDockTabCount(workspaceId?: string): number {
   return resolveWorkspaceTabs(workspace, rawTabs).length;
 }
 
-/** 已弹出独立 OS 窗的工作区不在主窗底栏展示；仅收起嵌入态，不因空 Tab 自动隐藏。 */
-export function syncEmbeddedWorkspacePanelVisibility(workspaceId?: string): void {
-  const bottom = useBottomPanelStore.getState();
-  if (bottom.isFullscreen || bottom.workspaceMode === "fullscreen") return;
+/** 主窗口不再展示某工作区的嵌入底栏（taskbar / 半屏 / 全屏）。 */
+export function hideMainWindowWorkspaceEmbedding(workspaceId?: string): void {
   const id = workspaceId ?? useWorkspaceStore.getState().workspace.id;
-  if (!isWorkspacePoppedOut(id)) return;
+  if (useWorkspaceStore.getState().workspace.id !== id) return;
+
+  const bottom = useBottomPanelStore.getState();
+  if (bottom.isFullscreen || bottom.workspaceMode === "fullscreen") {
+    bottom.exitFullscreen();
+  }
   if (bottom.workspaceMode !== "hidden") {
     bottom.requestCollapse();
   }
+}
+
+/** 已弹出独立 OS 窗的工作区不在主窗底栏展示。 */
+export function syncEmbeddedWorkspacePanelVisibility(workspaceId?: string): void {
+  const id = workspaceId ?? useWorkspaceStore.getState().workspace.id;
+  if (!isWorkspacePoppedOut(id)) return;
+  hideMainWindowWorkspaceEmbedding(id);
 }
 
 // --- Snapshot factories ---

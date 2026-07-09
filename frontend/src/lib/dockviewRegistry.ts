@@ -70,6 +70,15 @@ export function relayoutDockviewInstances(
   }
 }
 
+export const DOCK_SCOPE_RESYNC_EVENT = "omnipanel-dock-scope-resync";
+
+/** 请求指定 scope 的 DockableWorkspace 从 store 重新同步缺失的 panel */
+export function requestDockScopeResync(scope: string): void {
+  window.dispatchEvent(
+    new CustomEvent(DOCK_SCOPE_RESYNC_EVENT, { detail: { scope } }),
+  );
+}
+
 export function registerDockviewInstance(
   viewId: string,
   instance: DockviewInstanceScope,

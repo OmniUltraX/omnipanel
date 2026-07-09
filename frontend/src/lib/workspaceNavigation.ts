@@ -203,6 +203,8 @@ export function goWorkspaceHome(navigate?: NavigateFunction): void {
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {
     bottom.requestDeferExitFullscreen(DASHBOARD_PATH, "home");
+  } else if (isWorkspacePoppedOut(nextId)) {
+    bottom.requestCollapse();
   }
   dispatchNavigate(DASHBOARD_PATH, navigate);
 }

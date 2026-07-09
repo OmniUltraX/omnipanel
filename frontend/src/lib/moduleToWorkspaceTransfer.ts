@@ -55,7 +55,19 @@ export function resolveTerminalIdFromWorkspacePanel(
   if (workspacePanelId.startsWith(TERMINAL_PAYLOAD_PREFIX)) {
     return workspacePanelId.slice(TERMINAL_PAYLOAD_PREFIX.length);
   }
+  if (workspacePanelId.startsWith(WORKSPACE_BOTTOM_PREFIX)) {
+    const colonIdx = workspacePanelId.indexOf(":", WORKSPACE_BOTTOM_PREFIX.length);
+    if (colonIdx > WORKSPACE_BOTTOM_PREFIX.length) {
+      const bareId = workspacePanelId.slice(colonIdx + 1);
+      if (bareId) return bareId;
+    }
+  }
   if (originScope?.startsWith(WORKSPACE_BOTTOM_PREFIX)) {
+    const scopePrefix = `${originScope}:`;
+    if (workspacePanelId.startsWith(scopePrefix)) {
+      const bareId = workspacePanelId.slice(scopePrefix.length);
+      if (bareId) return bareId;
+    }
     const workspaceId = originScope.slice(WORKSPACE_BOTTOM_PREFIX.length);
     const wsTab = useWorkspaceBottomDockStore
       .getState()
@@ -426,7 +438,50 @@ export function applyCrossWindowWorkspaceTabToModule(
       originPanelId: tab.id,
       params: {},
     };
-    return restoreTerminalTabFromWorkspaceTransfer(meta);
+    if (restoreTerminalTabFromWorkspaceTransfer(meta)) {
+      return true;
+    }
+    const terminalId = tab.payload.id;
+    const store = useTerminalStore.getState();
+    if (!store.tabs.some((item) => item.id === terminalId)) return false;
+    store.setTabWorkspaceOnly(terminalId, false);
+    store.setActiveTab(terminalId);
+    window.dispatchEvent(
+      new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId: terminalId } }),
+    );
+    requestAnimationFrame(() => relayoutDockviewInstances(targetModuleScope));
+    return true;
+  }
+
+  if (
+    tab.kind === "mirrored" &&
+    (tab.originScope === "terminal" || tab.panelType === "terminal")
+  ) {
+    const sourceScope = `${WORKSPACE_BOTTOM_PREFIX}${sourceWorkspaceId}`;
+    const terminalId = resolveTerminalIdFromWorkspacePanel(
+      tab.originPanelId ?? tab.id,
+      tab.originScope ?? sourceScope,
+    );
+    if (!terminalId) return false;
+    const meta: TransferredPanelMeta = {
+      newPanelId: `${targetModuleScope}:${terminalId}`,
+      title: tab.label,
+      originScope: tab.originScope ?? sourceScope,
+      originPanelId: tab.originPanelId ?? tab.id,
+      params: {},
+    };
+    if (restoreTerminalTabFromWorkspaceTransfer(meta)) {
+      return true;
+    }
+    const store = useTerminalStore.getState();
+    if (!store.tabs.some((item) => item.id === terminalId)) return false;
+    store.setTabWorkspaceOnly(terminalId, false);
+    store.setActiveTab(terminalId);
+    window.dispatchEvent(
+      new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId: terminalId } }),
+    );
+    requestAnimationFrame(() => relayoutDockviewInstances(targetModuleScope));
+    return true;
   }
 
   if (tab.kind === "payload" && tab.payload?.module === "database") {

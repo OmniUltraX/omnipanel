@@ -52,6 +52,7 @@ import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
 import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
+import { syncEmbeddedWorkspacePanelVisibility } from "./lib/workspaceTabActions";
 import "./lib/workspaceComponentRegistry";
 import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
 import { useTopbarStore } from "./stores/topbarStore";
@@ -218,13 +219,13 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // 当前工作区被弹出为独立窗口时，主窗口让位回首页看板。
-  // 仅在「核实窗口仍存活」后才让位，避免脏标记把用户踢回首页、切换无反应。
+  // 当前工作区已弹出为独立窗口时，仅收起主窗底栏；不强制跳转首页。
   useEffect(() => {
     let cancelled = false;
     const handle = () => {
       const curId = useWorkspaceStore.getState().workspace.id;
       if (!useWorkspaceWindowStore.getState().isPoppedOut(curId)) return;
+      syncEmbeddedWorkspacePanelVisibility(curId);
       void (async () => {
         try {
           const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -233,9 +234,7 @@ function AppShell() {
           if (cancelled) return;
           if (!existing) {
             useWorkspaceWindowStore.getState().clearPoppedOut(curId);
-            return;
           }
-          goWorkspaceHome(navigate);
         } catch {
           if (!cancelled) {
             useWorkspaceWindowStore.getState().clearPoppedOut(curId);
@@ -249,7 +248,7 @@ function AppShell() {
       cancelled = true;
       unsub();
     };
-  }, [navigate]);
+  }, []);
 
   const title = getRouteTitle(location.pathname);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
@@ -407,8 +406,18 @@ function AppShell() {
   const setAiDockWidth = useSettingsStore((s) => s.setAiDockWidth);
   const workspaceMode = useBottomPanelStore((s) => s.workspaceMode);
   const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
+  const workspaceId = useWorkspaceStore((s) => s.workspace.id);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const poppedOutIds = useWorkspaceWindowStore((s) => s.poppedOutIds);
+  const hasHostedWorkspace = workspaces.some((ws) => !poppedOutIds.includes(ws.id));
+  const isCurrentWorkspacePoppedOut = poppedOutIds.includes(workspaceId);
+  const hideMainEmbeddedWorkspace =
+    isCurrentWorkspacePoppedOut && !(isBottomFullscreen && hasHostedWorkspace);
   const deferExitPath = useBottomPanelStore((s) => s.deferExitFullscreenUntilPath);
-  const wsState = workspaceShellState(workspaceMode);
+  const wsState = hideMainEmbeddedWorkspace
+    ? "off"
+    : workspaceShellState(workspaceMode);
+  const showBottomFullscreen = isBottomFullscreen && !hideMainEmbeddedWorkspace;
 
   // 全屏延迟退出：路由 commit 后同一 layout 阶段再解除全屏，避免闪旧页面
   // deferExitPath 入 deps：navigate 同路径 noop 时 pathname 不变，仍需完成退出
@@ -417,7 +426,9 @@ function AppShell() {
   }, [location.pathname, deferExitPath]);
 
   const embeddedModeClass =
-    workspaceMode !== "fullscreen" && workspaceMode !== "hidden"
+    !hideMainEmbeddedWorkspace &&
+    workspaceMode !== "fullscreen" &&
+    workspaceMode !== "hidden"
       ? ` workspace--mode-${workspaceMode}`
       : "";
   const dockWidth =
@@ -428,6 +439,7 @@ function AppShell() {
   // 工程工作区全屏时同步 URL 到 /workspace/:id（Logo 先 navigate 看板时勿拉回工作区）
   useEffect(() => {
     if (workspaceMode !== "fullscreen" && workspaceMode !== "home") return;
+    if (hideMainEmbeddedWorkspace) return;
     if (isWorkspacePath(location.pathname)) return;
     if (isShellRoutePath(location.pathname) || isOverlayModulePath(location.pathname)) {
       return;
@@ -570,7 +582,7 @@ function AppShell() {
       <div className="app">
       <Sidebar />
       <div
-        className={`workspace workspace--${wsState}${isBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
+        className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
         style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
       >
         <Topbar title={title} hidden>

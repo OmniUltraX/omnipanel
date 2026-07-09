@@ -35,7 +35,9 @@ import {
   transferPanelToTarget,
   unregisterDockviewInstance,
   getDockviewInstance,
+  DOCK_SCOPE_RESYNC_EVENT,
 } from "../../lib/dockviewRegistry";
+import { isWorkspaceDockOutboundTransfer } from "../../lib/crossWindowDockTransfer";
 import {
   shouldTransferModuleToWorkspace,
   shouldTransferWorkspaceToModule,
@@ -1371,6 +1373,20 @@ export function DockableWorkspace({
     syncTabsToApi(api);
   }, [tabIdsKey, syncTabsToApi]);
 
+  useEffect(() => {
+    const scope = dockScopeRef.current;
+    if (!scope) return;
+    const onResync = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope?: string }>).detail;
+      if (detail?.scope !== scope) return;
+      const api = apiRef.current;
+      if (!api || !layoutLoadedRef.current) return;
+      syncTabsToApi(api);
+    };
+    window.addEventListener(DOCK_SCOPE_RESYNC_EVENT, onResync);
+    return () => window.removeEventListener(DOCK_SCOPE_RESYNC_EVENT, onResync);
+  }, [syncTabsToApi]);
+
   // 侧栏 header 等非常规方位：布局就绪后强制同步 group 方位并触发一次 layout，
   // 避免 custom scrollable + overflow 检测把 tab 全部收进底部折叠菜单。
   useLayoutEffect(() => {
@@ -1560,6 +1576,13 @@ export function DockableWorkspace({
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         if (isSyncingRef.current) return;
         if (transferredOutRef.current.delete(panel.id)) return;
+        if (
+          dockScopeRef.current?.startsWith("workspace-bottom-") &&
+          isWorkspaceDockOutboundTransfer(panel.id)
+        ) {
+          transferredOutRef.current.add(panel.id);
+          return;
+        }
         // 若该 panel 仍出现在外部 tabs 中 => 用户主动关闭
         if (!tabsRef.current.some((t) => t.id === panel.id)) return;
         onCloseTabRef.current(panel.id);

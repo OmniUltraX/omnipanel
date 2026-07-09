@@ -26,7 +26,17 @@ export const useWorkspaceWindowStore = create<WorkspaceWindowState>((set, get) =
       if (!state.poppedOutIds.includes(workspaceId)) return state;
       return { poppedOutIds: state.poppedOutIds.filter((id) => id !== workspaceId) };
     }),
-  setPoppedOut: (ids) => set({ poppedOutIds: [...new Set(ids)] }),
+  setPoppedOut: (ids) =>
+    set((state) => {
+      const next = [...new Set(ids)];
+      if (
+        next.length === state.poppedOutIds.length &&
+        next.every((id) => state.poppedOutIds.includes(id))
+      ) {
+        return state;
+      }
+      return { poppedOutIds: next };
+    }),
 }));
 
 /** 非组件上下文（navigation 等）读取当前弹出状态。 */
