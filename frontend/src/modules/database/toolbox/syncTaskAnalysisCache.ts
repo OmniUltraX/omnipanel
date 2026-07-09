@@ -1,9 +1,6 @@
 import type { SchemaTableDiff } from "./schemaDiff";
-import type {
-  DataAnalysisResult,
-  SyncTaskAnalysisCache,
-  ToolboxTabId,
-} from "./types";
+import { normalizeIgnoredFieldEntry, parseIgnoredFieldsInput } from "./ignoredFields";
+import type { DataAnalysisResult, SyncTaskAnalysisCache, ToolboxTabId } from "./types";
 
 export function buildSyncAnalysisConfigKey(input: {
   tab: ToolboxTabId;
@@ -14,7 +11,15 @@ export function buildSyncAnalysisConfigKey(input: {
   schemaCaseSensitive?: boolean;
   schemaTableNameCase?: string;
   schemaCreateMissingTables?: boolean;
+  ignoredFields?: string[];
 }): string {
+  const ignoredKey =
+    input.tab === "dataSync"
+      ? parseIgnoredFieldsInput(input.ignoredFields)
+          .map((entry) => normalizeIgnoredFieldEntry(entry) ?? entry)
+          .sort()
+          .join(",")
+      : "";
   return [
     input.tab,
     input.sourceConnId,
@@ -24,6 +29,7 @@ export function buildSyncAnalysisConfigKey(input: {
     input.tab === "schemaSync" ? (input.schemaCaseSensitive !== false ? "1" : "0") : "",
     input.tab === "schemaSync" ? (input.schemaTableNameCase ?? "lower") : "",
     input.tab === "schemaSync" ? (input.schemaCreateMissingTables !== false ? "1" : "0") : "",
+    ignoredKey,
   ].join("|");
 }
 

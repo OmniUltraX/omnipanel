@@ -103,7 +103,13 @@ function escapeRegExp(value: string): string {
 }
 
 function strategyLabel(strategy: DataSyncStrategy): string {
-  return strategy;
+  const labels: Record<DataSyncStrategy, string> = {
+    source: "源",
+    mergeSource: "合并（源）",
+    mergeTarget: "合并（目标）",
+    target: "目标",
+  };
+  return labels[strategy];
 }
 
 function buildInsertPreviewSql(
@@ -300,14 +306,19 @@ async function buildDataTablePreview(
 
   lines.push(`-- 策略: ${strategyLabel(strategy)}`);
 
-  if (strategy === "target") {
-    lines.push("-- 保留目标表数据，跳过该表数据同步");
+  if (strategy === "target" || strategy === "mergeTarget") {
+    lines.push(
+      strategy === "mergeTarget"
+        ? "-- 合并（目标）：忽略源表独有行，冲突字段保留目标表"
+        : "-- 保留目标表数据，跳过该表数据同步",
+    );
     return lines;
   }
 
-  if (strategy === "merge") {
-    lines.push("-- 合并：仅插入目标中不存在的行，忽略主键冲突行");
+  if (strategy === "mergeSource") {
+    lines.push("-- 合并（源）：插入目标缺失行，双方均存在的行以源表字段更新冲突列");
     lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
+    lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
     const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
     if (pkCols.length > 0) {
       lines.push(`-- 主键: ${pkCols.join(", ")}`);

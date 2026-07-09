@@ -20,6 +20,29 @@ const listeners = new Set<() => void>();
 /** 无元数据 Tab 的稳定快照；getSnapshot 必须返回可缓存的同一引用 */
 const EMPTY_TAB_META: DockTabLiveMeta = Object.freeze({ rev: 0 });
 
+function sameOptionalFlag(a: boolean | undefined, b: boolean | undefined): boolean {
+  return Boolean(a) === Boolean(b);
+}
+
+function tabMetaFingerprint(tabs: DockableTab[]): string {
+  return tabs
+    .map((tab) =>
+      [
+        tab.id,
+        tab.label,
+        tab.icon ?? "",
+        tab.type ?? "",
+        tab.dirty ? "1" : "0",
+        tab.saved ? "1" : "0",
+        tab.preview ? "1" : "0",
+        tab.tabBarHidden ? "1" : "0",
+      ].join("|"),
+    )
+    .join("\n");
+}
+
+let lastPublishedTabMetaFingerprint = "";
+
 function emit() {
   for (const listener of listeners) {
     listener();
@@ -37,6 +60,11 @@ function getSnapshot(tabId: string): DockTabLiveMeta {
 
 /** 将业务 tabs 元数据同步到 Tab 头可订阅的快照（不依赖 dockview params 重绘时机）。 */
 export function publishDockTabMeta(tabs: DockableTab[]): void {
+  const fingerprint = tabMetaFingerprint(tabs);
+  if (fingerprint === lastPublishedTabMetaFingerprint) {
+    return;
+  }
+
   const nextIds = new Set(tabs.map((tab) => tab.id));
   let changed = false;
 
@@ -50,12 +78,12 @@ export function publishDockTabMeta(tabs: DockableTab[]): void {
     if (
       prev &&
       prev.type === tab.type &&
-      prev.dirty === tab.dirty &&
-      prev.saved === tab.saved &&
-      Boolean(prev.preview) === nextPreview &&
+      sameOptionalFlag(prev.dirty, tab.dirty) &&
+      sameOptionalFlag(prev.saved, tab.saved) &&
+      sameOptionalFlag(prev.preview, nextPreview) &&
       prev.icon === tab.icon &&
       prev.label === tab.label &&
-      prev.tabBarHidden === tab.tabBarHidden
+      sameOptionalFlag(prev.tabBarHidden, tab.tabBarHidden)
     ) {
       continue;
     }
@@ -80,6 +108,7 @@ export function publishDockTabMeta(tabs: DockableTab[]): void {
   }
 
   if (changed) {
+    lastPublishedTabMetaFingerprint = fingerprint;
     emit();
   }
 }

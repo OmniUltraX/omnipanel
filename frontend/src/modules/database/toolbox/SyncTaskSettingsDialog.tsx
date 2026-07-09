@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
+import { formatIgnoredFieldsForInput, parseIgnoredFieldsInput } from "./ignoredFields";
 import type { SchemaTableNameCase, ToolboxTabId } from "./types";
 
 export interface SyncTaskSettings {
@@ -10,6 +11,7 @@ export interface SyncTaskSettings {
   schemaCaseSensitive: boolean;
   schemaTableNameCase: SchemaTableNameCase;
   schemaCreateMissingTables: boolean;
+  ignoredFieldsText?: string;
 }
 
 interface SyncTaskSettingsDialogProps {
@@ -20,6 +22,7 @@ interface SyncTaskSettingsDialogProps {
   schemaCaseSensitive: boolean;
   schemaTableNameCase: SchemaTableNameCase;
   schemaCreateMissingTables: boolean;
+  ignoredFields?: string[];
   onApply: (settings: SyncTaskSettings) => void;
 }
 
@@ -31,6 +34,7 @@ export function SyncTaskSettingsDialog({
   schemaCaseSensitive,
   schemaTableNameCase,
   schemaCreateMissingTables,
+  ignoredFields = [],
   onApply,
 }: SyncTaskSettingsDialogProps) {
   const { t } = useI18n();
@@ -38,6 +42,7 @@ export function SyncTaskSettingsDialog({
   const [draftCaseSensitive, setDraftCaseSensitive] = useState(schemaCaseSensitive);
   const [draftTableNameCase, setDraftTableNameCase] = useState(schemaTableNameCase);
   const [draftCreateMissingTables, setDraftCreateMissingTables] = useState(schemaCreateMissingTables);
+  const [draftIgnoredFieldsText, setDraftIgnoredFieldsText] = useState(formatIgnoredFieldsForInput(ignoredFields));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +51,7 @@ export function SyncTaskSettingsDialog({
     setDraftCaseSensitive(schemaCaseSensitive);
     setDraftTableNameCase(schemaTableNameCase);
     setDraftCreateMissingTables(schemaCreateMissingTables);
+    setDraftIgnoredFieldsText(formatIgnoredFieldsForInput(ignoredFields));
     setError(null);
   }, [
     open,
@@ -53,6 +59,7 @@ export function SyncTaskSettingsDialog({
     schemaCaseSensitive,
     schemaTableNameCase,
     schemaCreateMissingTables,
+    ignoredFields,
   ]);
 
   const handleApply = () => {
@@ -61,11 +68,25 @@ export function SyncTaskSettingsDialog({
       setError(t("database.syncTasks.nameRequired"));
       return;
     }
+    if (tab === "dataSync") {
+      const lines = draftIgnoredFieldsText.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+        if (!trimmed.includes(".") || trimmed.startsWith(".") || trimmed.endsWith(".")) {
+          setError(t("database.toolbox.settingsIgnoredFieldsInvalid"));
+          return;
+        }
+      }
+    }
     onApply({
       taskName: name,
       schemaCaseSensitive: draftCaseSensitive,
       schemaTableNameCase: draftTableNameCase,
       schemaCreateMissingTables: draftCreateMissingTables,
+      ignoredFieldsText: tab === "dataSync" ? draftIgnoredFieldsText : undefined,
     });
     onClose();
   };
@@ -106,6 +127,27 @@ export function SyncTaskSettingsDialog({
           }}
         />
       </FormField>
+      {tab === "dataSync" ? (
+        <FormField
+          layout="horizontal"
+          label={t("database.toolbox.settingsIgnoredFields")}
+          description={t("database.toolbox.settingsIgnoredFieldsHint")}
+          htmlFor="sync-settings-ignored-fields"
+        >
+          <textarea
+            id="sync-settings-ignored-fields"
+            className="input db-sync-task-settings-ignored-fields"
+            rows={6}
+            spellCheck={false}
+            placeholder={t("database.toolbox.settingsIgnoredFieldsPlaceholder")}
+            value={draftIgnoredFieldsText}
+            onChange={(event) => {
+              setDraftIgnoredFieldsText(event.target.value);
+              if (error) setError(null);
+            }}
+          />
+        </FormField>
+      ) : null}
       {tab === "schemaSync" ? (
         <>
           <FormField

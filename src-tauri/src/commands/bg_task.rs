@@ -38,7 +38,9 @@ pub async fn bg_task_submit_db_data_sync(
     source: DbConnectionConfig,
     target: DbConnectionConfig,
     tables: Vec<DbSyncTableSpec>,
+    ignored_fields: Option<Vec<String>>,
 ) -> Result<String, OmniError> {
+    let ignored_fields = ignored_fields.unwrap_or_default();
     let total = tables.len().max(1) as u32;
     let title = format!("数据同步对比分析（{total} 张表）");
     let app = state.app_handle.clone();
@@ -51,7 +53,16 @@ pub async fn bg_task_submit_db_data_sync(
         title,
         total,
         move |task_id, cancel, progress| {
-            run_db_data_sync_analysis(app, task_id, source, target, tables, cancel, progress)
+            run_db_data_sync_analysis(
+                app,
+                task_id,
+                source,
+                target,
+                tables,
+                ignored_fields,
+                cancel,
+                progress,
+            )
         },
     )
     .await

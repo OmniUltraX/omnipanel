@@ -200,6 +200,7 @@ export async function startDbDataSyncBackgroundTask(
   targetDb: string,
   tables: string[],
   sourceTableColumns: Record<string, DbColumnMeta[]>,
+  ignoredFields: string[] = [],
 ): Promise<string> {
   const specs = tables.map((name) => ({
     name,
@@ -209,6 +210,7 @@ export async function startDbDataSyncBackgroundTask(
     { ...sourceConn, database: sourceDb },
     { ...targetConn, database: targetDb },
     specs,
+    ignoredFields,
   );
 }
 

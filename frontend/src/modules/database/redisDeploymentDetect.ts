@@ -154,7 +154,7 @@ export async function probeRedisDeployment(
     return { kind: "unknown", reason: "no_pid_file", dir };
   }
 
-  const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+  const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
     return { kind: "unknown", reason: "no_ssh", pidFile, dir };
   }

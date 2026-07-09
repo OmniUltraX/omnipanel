@@ -86,8 +86,8 @@ export function shouldKeepDataSyncStrategy(
   );
 }
 
-/** 冲突表的数据同步策略：源 = 全部采用源表；目标 = 保留目标表；合并 = 仅追加目标缺失行 */
-export type DataSyncStrategy = "source" | "target" | "merge";
+/** 冲突表的数据同步策略 */
+export type DataSyncStrategy = "source" | "mergeSource" | "mergeTarget" | "target";
 
 export function normalizeDataSyncStrategy(
   value: string | undefined | null,
@@ -96,8 +96,11 @@ export function normalizeDataSyncStrategy(
   if (value === "target") {
     return "target";
   }
-  if (value === "merge" || value === "append") {
-    return "merge";
+  if (value === "mergeTarget" || value === "merge_target") {
+    return "mergeTarget";
+  }
+  if (value === "mergeSource" || value === "merge_source" || value === "merge" || value === "append") {
+    return "mergeSource";
   }
   if (value === "source" || value === "rewrite" || value === "update") {
     return "source";
@@ -257,6 +260,8 @@ export interface SyncTaskConfig {
   schemaTableSearch?: string;
   /** 上次分析结果缓存 */
   analysisCache?: SyncTaskAnalysisCache;
+  /** 数据同步：对比分析时忽略的字段（表.字段，每行一条） */
+  ignoredFields?: string[];
 }
 
 export interface SyncTask {

@@ -15,7 +15,7 @@ import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
 } from "../mysqlDeploymentDetect";
-import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
@@ -198,7 +198,7 @@ function MysqlDeploymentTags({
     if (deployment?.serverName?.trim()) {
       return deployment.serverName.trim();
     }
-    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 
@@ -255,7 +255,7 @@ export function DatabaseConnectionInfoPanel({
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
-  useSshConnectionStore((state) => state.sessionActiveMap);
+  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
   const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("connections");
   const [search, setSearch] = useState("");
   const [connectionsLoading, setConnectionsLoading] = useState(capable);
@@ -368,24 +368,18 @@ export function DatabaseConnectionInfoPanel({
   }, [capable, connection]);
 
   const refreshDeployment = useCallback(async () => {
-    console.debug("[MySQL Deployment] refreshDeployment called, capable:", capable);
     if (!capable) {
-      console.debug("[MySQL Deployment] Not capable, setting deployment to null");
       setDeployment(null);
       setDeploymentLoading(false);
       return;
     }
 
-    console.debug("[MySQL Deployment] Starting deployment probe, connection:", connection.name);
-    console.debug("[MySQL Deployment] SSH connections available:", sshConnections.length);
     setDeploymentLoading(true);
     try {
       const info = await probeMysqlDeployment(connection, sshConnections);
-      console.debug("[MySQL Deployment] Probe completed, result:", info);
       writeMysqlDeploymentCache(connection, info);
       setDeployment(info);
-    } catch (e) {
-      console.debug("[MySQL Deployment] Probe failed with exception:", e);
+    } catch {
       const fallback: MysqlDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
       writeMysqlDeploymentCache(connection, fallback);
       setDeployment(fallback);
@@ -433,7 +427,34 @@ export function DatabaseConnectionInfoPanel({
     }
     void refreshConnections();
     void refreshDeployment();
-  }, [active, capable, connection.id, refreshConnections, refreshDeployment]);
+  }, [active, capable, connection.id, sshConnections.length, refreshConnections, refreshDeployment]);
+
+  /** SSH 列表或会话就绪后重试（避免面板打开瞬间探测时 SSH 尚未连接） */
+  useEffect(() => {
+    if (!active || !capable || deploymentLoading) {
+      return;
+    }
+    if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
+      return;
+    }
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
+    if (!ssh) {
+      return;
+    }
+    if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
+      return;
+    }
+    void refreshDeployment();
+  }, [
+    active,
+    capable,
+    deploymentLoading,
+    deployment?.reason,
+    connection.host,
+    sshConnections,
+    sshSessionActiveMap,
+    refreshDeployment,
+  ]);
 
   useEffect(() => {
     if (!active || !capable || subTab !== "status") {
@@ -872,9 +893,6 @@ export function DatabaseConnectionInfoPanel({
       <div className="db-tables-panel-meta">
         <DbPanelMetaRefreshButton
           onClick={() => {
-            console.debug("[MySQL Deployment] Refresh button clicked");
-            console.debug("[MySQL Deployment] capable:", capable, "tabLoading:", tabLoading, "deploymentLoading:", deploymentLoading);
-            console.debug("[MySQL Deployment] connection:", connection.name, "db_type:", connection.db_type);
             void refreshActiveTab();
             void refreshDeployment();
           }}
