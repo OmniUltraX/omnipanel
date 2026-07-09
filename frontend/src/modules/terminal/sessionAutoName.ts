@@ -5,7 +5,7 @@
  * - 手动重新命名：右键菜单「AI 重新命名」以首/末几轮上下文重新生成。
  *
  * 增强项：
- * - 动态上下文：< 5 条全取，> 5 条取首3末3
+ * - 动态上下文：< 5 条全取，> 5 条取首3末3；shell 块仅用命令，不含输出
  * - i18n prompt：根据用户语言切换中英文
  * - 请求队列：手动命名时如果已有命名在进行中，排队而非丢弃
  * - 重试机制：首次失败后延迟 3s 重试一次
@@ -168,8 +168,7 @@ export function extractNamingContext(blocks: TerminalBlock[]): string {
     } else {
       const cmd = block.command.trim();
       if (cmd) {
-        const outputSnippet = blockEffectiveOutput(block).trim().slice(0, 200);
-        lines.push(outputSnippet ? `[命令] ${cmd}\n输出: ${outputSnippet}` : `[命令] ${cmd}`);
+        lines.push(`[命令] ${cmd}`);
       } else if (block.directoryPreview || block.attachedListing) {
         lines.push(`[目录] ${block.cwd || "~"}`);
       }
@@ -196,7 +195,7 @@ function summarizeAiThread(thread: AiThreadItem[]): string {
 function buildSystemPrompt(lang: string): string {
   const isZh = lang.startsWith("zh");
   if (isZh) {
-    return `你是一个终端会话命名助手。根据用户在终端中执行的命令和 AI 对话内容，生成一个简短、有描述性的会话标题。
+    return `你是一个终端会话命名助手。根据用户在终端中执行的命令和 AI 对话内容，生成一个简短、有描述性的会话标题。不要依据命令输出内容命名。
 
 要求：
 - 不超过 ${MAX_TITLE_CHARS} 个字符
@@ -204,7 +203,7 @@ function buildSystemPrompt(lang: string): string {
 - 使用中文
 - 概括这组操作的核心目的（如：编译 Rust 项目、排查端口占用、部署 Docker 服务）`;
   }
-  return `You are a terminal session naming assistant. Based on the commands and AI conversations executed in the terminal, generate a short, descriptive session title.
+  return `You are a terminal session naming assistant. Based on the commands and AI conversations executed in the terminal, generate a short, descriptive session title. Do not use command output for naming.
 
 Requirements:
 - No more than ${MAX_TITLE_CHARS} characters
