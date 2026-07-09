@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceWindowStore } from "../../stores/workspaceWindowStore";
 import { WorkspacePanel } from "./WorkspacePanel";
 
 const WORKSPACE_FULLSCREEN_STATUSBAR_PX = 26;
@@ -27,6 +28,18 @@ export function WorkspaceBottomHost() {
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const currentId = useWorkspaceStore((state) => state.workspace.id);
+  // 已弹出为独立窗口的工作区不在主窗口渲染。
+  // 安全阀：若过滤后一个都不剩（脏标记残留），清掉标记并全部渲染，避免主窗口空白。
+  const poppedOutIds = useWorkspaceWindowStore((state) => state.poppedOutIds);
+  const renderWorkspaces = (() => {
+    const kept = workspaces.filter((ws) => !poppedOutIds.includes(ws.id));
+    if (kept.length > 0) return kept;
+    if (poppedOutIds.length > 0) {
+      // 同步清脏标记（下一帧订阅会收敛）；本帧先 fail-open 保证可交互。
+      queueMicrotask(() => useWorkspaceWindowStore.getState().setPoppedOut([]));
+    }
+    return workspaces;
+  })();
 
   useEffect(() => {
     const el = hostRef.current;
@@ -80,9 +93,11 @@ export function WorkspaceBottomHost() {
 
   return (
     <div ref={hostRef} className="workspace-bottom-host" style={{ position: "relative", width: "100%", height: "100%" }}>
-      {workspaces.map((ws) => (
+      {renderWorkspaces.map((ws) => (
         <div
           key={ws.id}
+          data-workspace-id={ws.id}
+          className="workspace-bottom-host-panel"
           style={{
             display: ws.id === currentId ? "block" : "none",
             width: "100%",

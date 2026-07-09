@@ -16,6 +16,8 @@ export interface DatabaseWorkspaceDockProps {
   panelContentKeysByTab?: Record<string, string>;
   onTabContextMenu: (event: React.MouseEvent, tabId: string, index: number) => void;
   onTabDoubleClick?: (tabId: string) => void;
+  onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
+  acceptExternalDrops?: boolean;
   recentClosedActionItems: Array<{ id: string; label: string; meta: string; onClick: () => void }>;
   emptyPrompt: string;
   recentClosedTitle: string;
@@ -36,6 +38,8 @@ export function DatabaseWorkspaceDock({
   panelContentKeysByTab,
   onTabContextMenu,
   onTabDoubleClick,
+  onPanelTransferredOut,
+  acceptExternalDrops = true,
   recentClosedActionItems,
   emptyPrompt,
   recentClosedTitle,
@@ -69,6 +73,8 @@ export function DatabaseWorkspaceDock({
       panelContentKeysByTab={panelContentKeysByTab}
       onTabContextMenu={onTabContextMenu}
       onTabDoubleClick={onTabDoubleClick}
+      onPanelTransferredOut={onPanelTransferredOut}
+      acceptExternalDrops={acceptExternalDrops}
       emptyContent={
         <WorkspaceEmptyPage
           title={t("routes.database")}

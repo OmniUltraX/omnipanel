@@ -4,6 +4,9 @@ import { WorkspacePreviewTaskBar } from "./WorkspacePreviewTaskBar";
 import { WorkspaceBottomHost } from "../../workspace/WorkspaceBottomHost";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../../stores/bottomPanelStore";
 import { relayoutDockviewInstances } from "../../../lib/dockviewRegistry";
+import { syncEmbeddedWorkspacePanelVisibility } from "../../../lib/workspaceTabActions";
+import { isWorkspacePoppedOut } from "../../../stores/workspaceWindowStore";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import {
   WS_HEIGHT_HIDDEN_MAX,
   type WorkspaceDisplayPreference,
@@ -113,13 +116,18 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const embeddedMode = useEmbeddedWorkspaceMode();
   /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循环 */
-  const isPreviewOpen =
-    !isFullscreen && workspaceMode !== "hidden" && embeddedMode !== "hidden";
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const isCurrentWorkspacePoppedOut = isWorkspacePoppedOut(workspace.id);
   const workspaceDisplayPreference = useBottomPanelStore(
     (state) => state.workspaceDisplayPreference,
   );
 
   const displayMode = resolveDisplayMode(embeddedMode, workspaceDisplayPreference);
+  const isPreviewOpen =
+    !isFullscreen &&
+    workspaceMode !== "hidden" &&
+    embeddedMode !== "hidden" &&
+    !isCurrentWorkspacePoppedOut;
   const isPreviewCollapsed = !isPreviewOpen;
   const isBottomPanelOpen = isPreviewOpen;
   const showSplitWindow = isBottomPanelOpen && displayMode === "split-window";
@@ -165,6 +173,10 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     relayoutDockviewInstances("workflow");
     relayoutDockviewInstances("knowledge");
   }, [isFullscreen]);
+
+  useEffect(() => {
+    syncEmbeddedWorkspacePanelVisibility(workspace.id);
+  }, [workspace.id, isCurrentWorkspacePoppedOut, isFullscreen]);
 
   const [keepBottomMounted, setKeepBottomMounted] = useState(
     () =>

@@ -9,11 +9,13 @@ import type {
   DockerTabSnapshot,
 } from "../stores/workspaceTabStore";
 import {
+  resolveWorkspaceTabs,
   useWorkspaceBottomDockStore,
   type WorkspaceDockClosedEntry,
   type WorkspaceDockTab,
 } from "../stores/workspaceBottomDockStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
+import { isWorkspacePoppedOut } from "../stores/workspaceWindowStore";
 import { formatTerminalTabLabel } from "../modules/terminal/terminalSessionDisplay";
 import {
   useTerminalStore,
@@ -31,6 +33,27 @@ import {
 import { getWorkspaceComponentDefinition } from "./workspaceComponentTypes";
 import { workspaceComponentRegistry } from "./workspaceComponentRegistry";
 import { syncWorkspaceDockActiveTabSideEffects } from "./syncWorkspaceDockActiveTab";
+
+/** 当前工程工作区底部 dock 中的用户面板数（不含旧版内置 Tab）。 */
+export function currentWorkspaceDockTabCount(workspaceId?: string): number {
+  const id = workspaceId ?? useWorkspaceStore.getState().workspace.id;
+  const workspace =
+    useWorkspaceStore.getState().workspaces.find((item) => item.id === id) ??
+    useWorkspaceStore.getState().workspace;
+  const rawTabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[id];
+  return resolveWorkspaceTabs(workspace, rawTabs).length;
+}
+
+/** 已弹出独立 OS 窗的工作区不在主窗底栏展示；仅收起嵌入态，不因空 Tab 自动隐藏。 */
+export function syncEmbeddedWorkspacePanelVisibility(workspaceId?: string): void {
+  const bottom = useBottomPanelStore.getState();
+  if (bottom.isFullscreen || bottom.workspaceMode === "fullscreen") return;
+  const id = workspaceId ?? useWorkspaceStore.getState().workspace.id;
+  if (!isWorkspacePoppedOut(id)) return;
+  if (bottom.workspaceMode !== "hidden") {
+    bottom.requestCollapse();
+  }
+}
 
 // --- Snapshot factories ---
 

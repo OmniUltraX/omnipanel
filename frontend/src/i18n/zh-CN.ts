@@ -507,6 +507,7 @@ export const zhCN = {
       collapseWorkspace: "收起工作区",
       switchToTaskBar: "切换为标签栏模式",
       switchToSplitWindow: "切换为分屏模式",
+      workspacePoppedOutHint: "当前工作区已在独立窗口中，主窗不展示底栏",
       copyLog: "点击复制完整内容",
       agent: {
         connected: "已连接",
@@ -580,6 +581,9 @@ export const zhCN = {
       welcomePrompt: "从其他模块拖入面板到此自由布局，或切换到模块继续工作",
       fullscreen: "全屏显示工作区",
       exitFullscreen: "退出全屏",
+      popOutWindow: "弹出为独立窗口",
+      popOutWindowFailed: "弹出独立窗口失败",
+      dockBackToMain: "收回主窗口",
       modeUp: "切换到上一级布局",
       modeDown: "切换到下一级布局",
       mirroredDatabase: "数据库面板已迁入工程工作区",

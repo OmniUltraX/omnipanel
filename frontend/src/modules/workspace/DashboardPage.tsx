@@ -19,7 +19,7 @@ export function DashboardPage() {
     [t],
   );
 
-  const preActions = useMemo(() => <WorkspaceSwitcher placement="below" />, []);
+  const preActions = useMemo(() => <WorkspaceSwitcher placement="below" context="home" />, []);
 
   const renderPanel = useCallback((tabId: string) => {
     if (tabId !== DASHBOARD_TAB_ID) return null;

@@ -819,6 +819,16 @@ pub fn run() {
             commands::proxy::get_proxy_config,
             // Debug（排查打包问题）
             commands::debug::debug_open_devtools,
+            // 工作区独立窗口
+            commands::workspace_window::open_workspace_window,
+            commands::workspace_window::close_all_workspace_windows,
+            commands::workspace_window::read_workspace_window_handoff,
+            commands::workspace_window::write_workspace_window_handoff,
+            commands::workspace_window::clear_workspace_window_handoff,
+            commands::workspace_window::workspace_window_debug_log,
+            commands::workspace_window::workspace_window_debug_log_read,
+            commands::workspace_window::workspace_window_debug_log_path,
+            commands::workspace_window::window_label_at_screen_point,
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,

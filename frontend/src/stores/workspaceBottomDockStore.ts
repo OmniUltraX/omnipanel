@@ -2,12 +2,13 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { SerializedDockview } from "dockview-core";
 import {
+  removePanelFromLayout,
   collectPanelIds,
   createDefaultLayout,
   mergePanelsIntoLayout,
-  removePanelFromLayout,
   isLayoutUsable,
 } from "../components/dock/dockViewLayout";
+import { syncEmbeddedWorkspacePanelVisibility } from "../lib/workspaceTabActions";
 import type { WorkspaceTabSnapshot } from "./workspaceTabStore";
 import type { WorkspaceInfo } from "./workspaceStore";
 import {
@@ -272,6 +273,7 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
             },
           };
         });
+        syncEmbeddedWorkspacePanelVisibility(workspaceId);
       },
 
       removeRecentClosedTab: (workspaceId, closedAt) =>

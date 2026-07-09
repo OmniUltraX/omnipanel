@@ -16,6 +16,7 @@ import { initAppModuleStore } from "./stores/appModuleStore";
 import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
+import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 
 const MIN_SPLASH_MS = 1400;
 const EXIT_ANIM_MS = 520;
@@ -23,7 +24,7 @@ const EXIT_ANIM_MS = 520;
 type BootPhase = "splash" | "exit" | "app";
 
 function removeHtmlBootSplash() {
-  document.getElementById("boot-splash")?.remove();
+  dismissHtmlBootSplash();
 }
 
 function wait(ms: number) {

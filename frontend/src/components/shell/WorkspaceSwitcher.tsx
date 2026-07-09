@@ -1,10 +1,14 @@
 import { useCallback, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { isEmbeddedWorkspaceMode } from "../../lib/workspaceMode";
 import { isDashboardPath } from "../../lib/paths";
-import { switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
+import {
+  selectWorkspaceForMainContext,
+  selectWorkspaceFromBoundContext,
+  selectWorkspaceUniversally,
+} from "../../lib/workspaceNavigation";
 import { useI18n } from "../../i18n";
 import { WorkspacePopover } from "./WorkspacePopover";
 
@@ -14,16 +18,19 @@ interface WorkspaceSwitcherProps {
   /** dock：模块 Tab 栏；statusbar：状态栏右侧 */
   variant?: "dock" | "statusbar";
   /**
-   * main：主内容区顶栏（首页 / 工程工作区页），可展示并切换首页；
-   * embedded：底部半屏 / taskbar 工程工作区，仅切换工程工作区，不导航。
+   * home：首页顶栏，非独立窗工作区 → 进入工程工作区全屏；
+   * statusbar：模块页右下角，仅切换当前工作区上下文；
+   * bound：独立 OS 窗 / 全屏工程工作区面板，选择其他工作区不切换本窗。
    */
-  context?: "main" | "embedded";
+  context?: "home" | "statusbar" | "bound";
   /** 任务栏紧凑模式 */
   compact?: boolean;
   className?: string;
+  /** 绑定的工作区（context=bound 时必填；决定左上角标签与下拉选中态） */
+  boundWorkspace?: WorkspaceInfo;
   /** 自定义选择工作区行为；未提供时按 context 默认处理 */
   onSelectWorkspace?: (ws: WorkspaceInfo) => void;
-  /** 覆盖是否在下拉中展示首页；默认 main 展示、embedded 不展示 */
+  /** 覆盖是否在下拉中展示首页；默认 home 展示、bound/statusbar 不展示 */
   showHomeOption?: boolean;
 }
 
@@ -50,42 +57,66 @@ function WorkspaceSwitcherIcon() {
 export function WorkspaceSwitcher({
   placement = "below",
   variant = "dock",
-  context = "main",
+  context = "home",
   compact = false,
   className,
+  boundWorkspace,
   onSelectWorkspace,
   showHomeOption: showHomeOptionProp,
 }: WorkspaceSwitcherProps) {
   const { t } = useI18n();
   const location = useLocation();
-  const workspace = useWorkspaceStore((state) => state.workspace);
+  const navigate = useNavigate();
+  const storeWorkspace = useWorkspaceStore((state) => state.workspace);
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const isEmbeddedContext = context === "embedded";
+  const isBoundContext = context === "bound";
+  const isHomeContext = context === "home";
+  const displayWorkspace = boundWorkspace ?? storeWorkspace;
   const isBottomEmbedded =
     isEmbeddedWorkspaceMode(workspaceMode) && workspaceMode !== "hidden";
-  const showHomeOption = showHomeOptionProp ?? !isEmbeddedContext;
+  const showHomeOption = showHomeOptionProp ?? isHomeContext;
   const isHomeRoute = isDashboardPath(location.pathname);
-  const isHomeDisplay = isHomeRoute && !isEmbeddedContext;
+  const isHomeDisplay = isHomeRoute && isHomeContext;
   const displayLabel = isHomeDisplay
     ? t("shell.workspacePopover.home")
-    : workspace.name;
+    : displayWorkspace.name;
 
-  const handleEmbeddedSelect = useCallback(
+  const handleHomeSelect = useCallback(
     (ws: WorkspaceInfo) => {
-      switchEmbeddedWorkspace(ws.id);
+      void selectWorkspaceUniversally(ws.id, navigate);
     },
-    [],
+    [navigate],
+  );
+
+  const handleStatusbarSelect = useCallback(
+    (ws: WorkspaceInfo) => {
+      void selectWorkspaceForMainContext(ws.id, navigate);
+    },
+    [navigate],
+  );
+
+  const handleBoundSelect = useCallback(
+    (ws: WorkspaceInfo) => {
+      if (!boundWorkspace) return;
+      void selectWorkspaceFromBoundContext(ws.id, boundWorkspace.id, navigate);
+    },
+    [boundWorkspace, navigate],
   );
 
   const resolvedSelectWorkspace =
-    onSelectWorkspace ?? (isEmbeddedContext ? handleEmbeddedSelect : undefined);
+    onSelectWorkspace ??
+    (isBoundContext && boundWorkspace
+      ? handleBoundSelect
+      : context === "statusbar"
+        ? handleStatusbarSelect
+        : handleHomeSelect);
 
   /** 底部嵌入工作区（taskbar/缩略图/半屏）弹层向上展开，避免被屏幕底边裁切 */
   const popoverPlacement =
-    isEmbeddedContext && isBottomEmbedded ? "above" : placement;
+    isBoundContext && isBottomEmbedded ? "above" : placement;
 
   const togglePopover = useCallback(() => {
     setOpen((v) => !v);
@@ -108,6 +139,7 @@ export function WorkspaceSwitcher({
       onClose={() => setOpen(false)}
       onSelectWorkspace={resolvedSelectWorkspace}
       showHomeOption={showHomeOption}
+      activeWorkspaceId={displayWorkspace.id}
     />
   ) : null;
 

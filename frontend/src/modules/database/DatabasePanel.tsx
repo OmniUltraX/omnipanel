@@ -3677,6 +3677,31 @@ export function DatabasePanel() {
     [workspaceTabs, tabModes, tableDesignerStates, updateTableDesignerState, activeWorkspaceId],
   );
 
+  const handlePanelTransferredToWorkspace = useCallback(
+    (tabId: string, targetScope: string) => {
+      if (!targetScope.startsWith("workspace-bottom-")) return;
+      const ctxTab = workspaceTabsRef.current.find((tab) => tab.id === tabId);
+      if (!ctxTab) return;
+      const prevTabs = workspaceTabsRef.current;
+      const idx = prevTabs.findIndex((item) => item.id === ctxTab.id);
+      const closingActive = activeWorkspaceTabIdRef.current === ctxTab.id;
+
+      setWorkspaceTabs((prev) =>
+        prev.map((t) => (t.id === ctxTab.id ? { ...t, workspaceOnly: true } : t)),
+      );
+
+      const currentLayout = useDbDockLayoutStore.getState().savedLayout;
+      setDockLayout(removeTabFromLayout(currentLayout, ctxTab.id));
+
+      if (closingActive) {
+        const nextTabs = prevTabs.filter((item) => item.id !== ctxTab.id && !item.workspaceOnly);
+        const fallback = nextTabs[Math.min(idx, Math.max(0, nextTabs.length - 1))];
+        activateWorkspaceTab(fallback?.id ?? "");
+      }
+    },
+    [activateWorkspaceTab, setDockLayout],
+  );
+
   const handleContextAction = useCallback(
     (action: TabContextMenuAction) => {
       if (!ctxMenu) return;
@@ -4870,6 +4895,7 @@ export function DatabasePanel() {
             panelContentKeysByTab={panelContentKeysByTab}
             onTabContextMenu={handleDockTabContextMenu}
             onTabDoubleClick={handleDockTabDoubleClick}
+            onPanelTransferredOut={handlePanelTransferredToWorkspace}
             recentClosedActionItems={recentClosedActionItems}
             emptyPrompt={t("database.workspace.emptyTabs")}
             recentClosedTitle={t("database.workspace.recentClosed")}

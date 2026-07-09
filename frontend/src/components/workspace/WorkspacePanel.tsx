@@ -5,7 +5,10 @@ import { WinControls } from "../shell/WinControls";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
+import { shouldShowWorkspaceSwitcher } from "../../lib/workspaceMode";
 import { toggleEngineeringWorkspaceFullscreen } from "../../lib/workspaceNavigation";
+import { openWorkspaceWindow, dockWorkspaceWindowToMain } from "../../lib/workspaceWindow";
+import { showToast } from "../../stores/toastStore";
 import {
   resolveWorkspaceTabs,
   useWorkspaceBottomDockStore,
@@ -16,6 +19,8 @@ import { WorkspaceFullscreenDragHandle } from "./WorkspaceFullscreenDragHandle";
 
 interface WorkspacePanelProps {
   workspace: WorkspaceInfo;
+  /** 独立 OS 窗口：布局等同工程工作区全屏，无弹出按钮 */
+  detached?: boolean;
 }
 
 function workspaceDockScope(workspaceId: string): string {
@@ -67,7 +72,7 @@ function WorkspaceModeStepControls({
   );
 }
 
-export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
+export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const workspaceId = workspace.id;
@@ -75,8 +80,30 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const shiftWorkspaceModeUp = useBottomPanelStore((state) => state.shiftWorkspaceModeUp);
   const shiftWorkspaceModeDown = useBottomPanelStore((state) => state.shiftWorkspaceModeDown);
-  const isEngineeringFullscreen = workspaceMode === "fullscreen";
+  const isEngineeringFullscreen = detached || workspaceMode === "fullscreen";
   const embeddedMode = useEmbeddedWorkspaceMode();
+  const showWorkspaceSwitcher = shouldShowWorkspaceSwitcher({
+    context: "embedded",
+    workspaceMode,
+    isFullscreen: isEngineeringFullscreen,
+  });
+
+  const workspaceSwitcherContext = isEngineeringFullscreen ? "bound" : "statusbar";
+
+  const workspaceSwitcher = useMemo(
+    () =>
+      showWorkspaceSwitcher ? (
+        <WorkspaceSwitcher
+          placement="below"
+          context={workspaceSwitcherContext}
+          boundWorkspace={isEngineeringFullscreen ? workspace : undefined}
+          showHomeOption={isEngineeringFullscreen}
+        />
+      ) : null,
+    [isEngineeringFullscreen, showWorkspaceSwitcher, workspace, workspaceSwitcherContext],
+  );
+
+  const preActions = workspaceSwitcher;
 
   const rawTabs = useWorkspaceBottomDockStore(
     (state) => state.tabsByWorkspace[workspaceId],
@@ -106,20 +133,60 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
     [navigate],
   );
 
-  const preActions = useMemo(
+  const handlePopOutWindow = useCallback(() => {
+    void openWorkspaceWindow(workspaceId, workspace.name).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[workspacePanel] 弹出独立窗口失败", err);
+      showToast(message || t("shell.workspacePanel.popOutWindowFailed"), 8000);
+    });
+  }, [workspaceId, workspace.name, t]);
+
+  const handleDockBackToMain = useCallback(() => {
+    void dockWorkspaceWindowToMain(workspaceId);
+  }, [workspaceId]);
+
+  const dockBackButton = useMemo(
     () => (
-      <WorkspaceSwitcher
-        placement="below"
-        context="embedded"
-        showHomeOption={isEngineeringFullscreen}
-      />
+      <button
+        type="button"
+        className="workspace-panel-mode-btn drag-ignore"
+        title={t("shell.workspacePanel.dockBackToMain")}
+        aria-label={t("shell.workspacePanel.dockBackToMain")}
+        onClick={handleDockBackToMain}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+          <path d="M15 4h5v5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M20 4L9 15" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M14 20H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
     ),
-    [isEngineeringFullscreen],
+    [handleDockBackToMain, t],
+  );
+
+  const popOutButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className="workspace-panel-mode-btn drag-ignore"
+        title={t("shell.workspacePanel.popOutWindow")}
+        aria-label={t("shell.workspacePanel.popOutWindow")}
+        onClick={handlePopOutWindow}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+          <path d="M14 4h6v6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M20 4l-8 8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    ),
+    [handlePopOutWindow, t],
   );
 
   const windowChromeLeftActions = useMemo(
     () => (
       <>
+        {detached ? dockBackButton : popOutButton}
         {!isEngineeringFullscreen ? (
           <WorkspaceModeStepControls
             onStepUp={shiftWorkspaceModeUp}
@@ -129,7 +196,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
             upTitle={t("shell.workspacePanel.modeUp")}
             downTitle={t("shell.workspacePanel.modeDown")}
           />
-        ) : (
+        ) : detached ? null : (
           <button
             type="button"
             className="workspace-panel-mode-btn drag-ignore"
@@ -145,11 +212,14 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
       </>
     ),
     [
+      detached,
+      dockBackButton,
       isEngineeringFullscreen,
       t,
       navigate,
       shiftWorkspaceModeUp,
       shiftWorkspaceModeDown,
+      popOutButton,
     ],
   );
 
@@ -167,6 +237,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   const frameClassName = [
     "workspace-panel-frame",
     isEngineeringFullscreen ? "workspace-panel-frame--engineering-full" : "",
+    detached ? "workspace-panel-frame--detached" : "",
     isEmpty ? "workspace-panel--empty" : "",
   ]
     .filter(Boolean)
@@ -177,11 +248,7 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   // 此时改用独立顶栏承载，确保切换器与窗口控制按钮始终可见。
   const emptyTopbar = isEmpty ? (
     <div className="workspace-panel-empty-topbar">
-      <WorkspaceSwitcher
-        placement="below"
-        context="embedded"
-        showHomeOption={isEngineeringFullscreen}
-      />
+      {workspaceSwitcher}
       <div className="workspace-panel-empty-spacer" />
       {isEngineeringFullscreen ? (
         <>
@@ -197,9 +264,10 @@ export function WorkspacePanel({ workspace }: WorkspacePanelProps) {
   return (
     <div
       className={frameClassName}
+      data-workspace-id={workspaceId}
       onDoubleClickCapture={handleTopbarDoubleClick}
     >
-      {isEngineeringFullscreen ? <WorkspaceFullscreenDragHandle /> : null}
+      {isEngineeringFullscreen && !detached ? <WorkspaceFullscreenDragHandle /> : null}
       {!isEngineeringFullscreen && !isEmpty ? (
         <div className="workspace-panel-mode-controls">
           {windowChromeLeftActions}

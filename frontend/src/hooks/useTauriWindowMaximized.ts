@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
+import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 
 /** 订阅 Tauri 窗口最大化状态；onResized 回调必须同步，async 会导致 unhandledrejection */
 export function useTauriWindowMaximized(enabled = true): boolean {
@@ -10,7 +11,7 @@ export function useTauriWindowMaximized(enabled = true): boolean {
 
     const win = getCurrentWindow();
     let alive = true;
-    let unlisten: (() => void) | undefined;
+    let unlisten: (() => void | Promise<void>) | undefined;
 
     const refresh = () => {
       void win
@@ -27,13 +28,18 @@ export function useTauriWindowMaximized(enabled = true): boolean {
         refresh();
       })
       .then((fn) => {
+        if (!alive) {
+          safeTauriUnlisten(fn);
+          return;
+        }
         unlisten = fn;
       })
       .catch(() => undefined);
 
     return () => {
       alive = false;
-      unlisten?.();
+      safeTauriUnlisten(unlisten);
+      unlisten = undefined;
     };
   }, [enabled]);
 
