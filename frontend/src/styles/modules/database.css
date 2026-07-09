@@ -677,6 +677,43 @@
         min-height: 0;
     }
 
+    .db-sync-execute-confirm {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        height: 100%;
+        min-height: 0;
+        padding: var(--sp-3) var(--sp-4);
+        box-sizing: border-box;
+    }
+
+    .db-sync-execute-confirm__hint {
+        margin: 0;
+        color: var(--meta);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .db-sync-execute-confirm__preview {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg-deeper);
+    }
+
+    .db-sync-execute-confirm__preview .content-preview-view {
+        height: 100%;
+    }
+
+    .db-sync-execute-confirm__actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
     .db-sync-run-history__empty {
         margin: 0;
         padding: var(--sp-6) var(--sp-4);
@@ -3907,8 +3944,8 @@
     }
 
     .db-toolbox-sync-strategy-select {
-        min-width: 6.5rem;
-        max-width: 9rem;
+        min-width: 10rem;
+        max-width: 14rem;
     }
 
     .db-toolbox-sync-strategy-submit {

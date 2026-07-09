@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { HttpKvPair } from "./ProtocolHttpContext";
+import { buildHeaderMap } from "./httpHeaderUtils";
+import type { HttpHeaderPair } from "./httpHeaderUtils";
 
 type WsStatus = "disconnected" | "connecting" | "connected";
 
@@ -24,17 +25,7 @@ function nowTime(): string {
   return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
 }
 
-function buildHeaderMap(headers: HttpKvPair[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const header of headers) {
-    if (header.enabled && header.key) {
-      map[header.key] = header.value;
-    }
-  }
-  return map;
-}
-
-export function useWebSocketSession(url: string, headers: HttpKvPair[]) {
+export function useWebSocketSession(url: string, headers: HttpHeaderPair[]) {
   const [status, setStatus] = useState<WsStatus>("disconnected");
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<WsMessage[]>([]);

@@ -107,6 +107,8 @@ function strategyLabel(strategy: DataSyncStrategy): string {
     source: "源",
     mergeSource: "合并（源）",
     mergeTarget: "合并（目标）",
+    conflictSource: "仅冲突（源）",
+    conflictTarget: "仅冲突（目标）",
     target: "目标",
   };
   return labels[strategy];
@@ -306,11 +308,13 @@ async function buildDataTablePreview(
 
   lines.push(`-- 策略: ${strategyLabel(strategy)}`);
 
-  if (strategy === "target" || strategy === "mergeTarget") {
+  if (strategy === "target" || strategy === "mergeTarget" || strategy === "conflictTarget") {
     lines.push(
       strategy === "mergeTarget"
         ? "-- 合并（目标）：忽略源表独有行，冲突字段保留目标表"
-        : "-- 保留目标表数据，跳过该表数据同步",
+        : strategy === "conflictTarget"
+          ? "-- 仅冲突（目标）：仅处理双方均存在的冲突行，冲突字段保留目标表"
+          : "-- 保留目标表数据，跳过该表数据同步",
     );
     return lines;
   }
@@ -318,6 +322,16 @@ async function buildDataTablePreview(
   if (strategy === "mergeSource") {
     lines.push("-- 合并（源）：插入目标缺失行，双方均存在的行以源表字段更新冲突列");
     lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
+    lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
+    const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
+    if (pkCols.length > 0) {
+      lines.push(`-- 主键: ${pkCols.join(", ")}`);
+    }
+    return lines;
+  }
+
+  if (strategy === "conflictSource") {
+    lines.push("-- 仅冲突（源）：仅处理双方均存在的冲突行，以源表字段更新冲突列");
     lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
     const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
     if (pkCols.length > 0) {

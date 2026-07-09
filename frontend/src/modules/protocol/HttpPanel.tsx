@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { CodeEditor } from "../../components/ui/CodeEditor";
@@ -15,14 +15,21 @@ import {
   type HttpMethod,
   type HttpKvPair,
 } from "./ProtocolHttpContext";
+import { buildHeaderMap, createEmptyHeader, type HttpHeaderPair } from "./httpHeaderUtils";
 import { HttpHeaderKvRow } from "./HttpHeaderKvRow";
 import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
 import { useWebSocketSession } from "./useWebSocketSession";
 import type { HttpResponseData } from "./httpResponseState";
 import { resolveHttpRequestUrl } from "./httpEnvironment";
+import {
+  extractPathParamNames,
+  hasUnresolvedPathParams,
+  syncPathParamsFromUrl,
+} from "./httpPathParams";
+import type { HttpPathParamPair } from "./httpPathParams";
 
-type ReqTab = "params" | "headers" | "body" | "auth" | "scripts";
+type ReqTab = "path" | "params" | "headers" | "body" | "auth" | "scripts";
 
 const AUTH_TYPE_KEYS: Record<
   AuthType,
@@ -86,13 +93,15 @@ export function HttpPanel() {
     addResponseSession,
   } = useProtocolHttp();
 
-  const { method, environmentId, url, params, headers, body, bodyType, authType, authValue } =
+  const { method, environmentId, url, pathParams, params, headers, body, bodyType, authType, authValue } =
     editor;
   const isWebSocket = isWebSocketMethod(method);
 
+  const pathParamNames = useMemo(() => extractPathParamNames(url), [url]);
+
   const resolvedRequestUrl = useMemo(
-    () => resolveHttpRequestUrl(url, environmentId, environments),
-    [url, environmentId, environments],
+    () => resolveHttpRequestUrl(url, environmentId, environments, pathParams),
+    [url, environmentId, environments, pathParams],
   );
 
   const {
@@ -119,9 +128,15 @@ export function HttpPanel() {
     setEditor({ method: value });
   };
   const setEnvironmentId = (value: string) => setEditor({ environmentId: value || null });
-  const setUrl = (value: string) => setEditor({ url: value });
+  const setUrl = (value: string) => {
+    setEditor({
+      url: value,
+      pathParams: syncPathParamsFromUrl(value, pathParams),
+    });
+  };
+  const setPathParams = (value: HttpPathParamPair[]) => setEditor({ pathParams: value });
   const setParams = (value: HttpKvPair[]) => setEditor({ params: value });
-  const setHeaders = (value: HttpKvPair[]) => setEditor({ headers: value });
+  const setHeaders = (value: HttpHeaderPair[]) => setEditor({ headers: value });
   const setBody = (value: string) => setEditor({ body: value });
   const setBodyType = (value: BodyType) => setEditor({ bodyType: value });
   const setAuthType = (value: AuthType) => setEditor({ authType: value });
@@ -162,22 +177,30 @@ export function HttpPanel() {
     setList([...list, { key: "", value: "", enabled: true }]);
   };
 
+  const removeHeader = (idx: number) => {
+    setHeaders(headers.filter((_, i) => i !== idx));
+  };
+
+  const addPresetHeader = () => {
+    setHeaders([...headers, createEmptyHeader("preset")]);
+  };
+
+  const addCustomHeader = () => {
+    setHeaders([...headers, createEmptyHeader("custom")]);
+  };
+
   const handleSend = useCallback(async () => {
     if (!resolvedRequestUrl) return;
     setSending(true);
     try {
       const enabledParams = params.filter((p) => p.enabled && p.key);
-      const enabledHeaders = headers.filter((h) => h.enabled && h.key);
 
       const queryParams: Record<string, string> = {};
       for (const p of enabledParams) {
         queryParams[p.key] = p.value;
       }
 
-      const headerMap: Record<string, string> = {};
-      for (const h of enabledHeaders) {
-        headerMap[h.key] = h.value;
-      }
+      const headerMap = buildHeaderMap(headers);
 
       const trimmedAuthValue = authValue.trim();
       const config = {
@@ -282,10 +305,29 @@ export function HttpPanel() {
     await renameSavedRequest(selectedRequestId, trimmed);
   }, [renameSavedRequest, requestNameDraft, selectedRequest?.name, selectedRequestId]);
 
-  const tabs: ReqTab[] = ["params", "headers", "body", "auth", "scripts"];
+  const tabs: ReqTab[] = useMemo(() => {
+    const base: ReqTab[] = pathParamNames.length > 0 ? ["path"] : [];
+    return [...base, "params", "headers", "body", "auth", "scripts"];
+  }, [pathParamNames.length]);
+
+  useEffect(() => {
+    if (activeTab === "path" && pathParamNames.length === 0) {
+      setActiveTab("params");
+    }
+  }, [activeTab, pathParamNames.length]);
+
+  const prevPathParamCountRef = useRef(0);
+  useEffect(() => {
+    if (pathParamNames.length > prevPathParamCountRef.current && pathParamNames.length > 0) {
+      setActiveTab("path");
+    }
+    prevPathParamCountRef.current = pathParamNames.length;
+  }, [pathParamNames.length]);
+
   const bodyFill = !isWebSocket && activeTab === "body";
   const hasResponsePanel = !isWebSocket && responseSessions.length > 0;
-  const canSendRequest = Boolean(resolvedRequestUrl?.trim());
+  const pathParamsReady = pathParamNames.length === 0 || !hasUnresolvedPathParams(url, pathParams);
+  const canSendRequest = Boolean(resolvedRequestUrl?.trim()) && pathParamsReady;
   const environmentOptions = useMemo(
     () => environments.map((env) => ({ value: env.id, label: env.name })),
     [environments],
@@ -448,13 +490,18 @@ export function HttpPanel() {
                       next[i] = { ...next[i], ...patch };
                       setHeaders(next);
                     }}
-                    onRemove={() => removeKv(headers, setHeaders, i)}
+                    onRemove={() => removeHeader(i)}
                   />
                 ))}
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => addKv(headers, setHeaders)}>
-                + {t("protocol.common.addHeader")}
-              </button>
+              <div className="kv-editor-actions">
+                <button className="btn btn-ghost btn-sm" onClick={addPresetHeader}>
+                  + {t("protocol.http.addPresetHeader")}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={addCustomHeader}>
+                  + {t("protocol.http.addCustomHeader")}
+                </button>
+              </div>
             </div>
             <HttpWebSocketPanel
               messages={wsMessages}
@@ -463,6 +510,34 @@ export function HttpPanel() {
               onSend={() => void sendWsMessage()}
               connected={wsStatus === "connected"}
             />
+          </div>
+        ) : null}
+
+        {!isWebSocket && activeTab === "path" ? (
+          <div className="req-panel active">
+            <div className="kv-editor">
+              {pathParams.map((p, i) => (
+                <div className="kv-row kv-row--path-param" key={p.key}>
+                  <input
+                    type="checkbox"
+                    className="kv-check"
+                    checked={p.enabled}
+                    onChange={(e) =>
+                      updateKv(pathParams, setPathParams, i, "enabled", e.target.checked)
+                    }
+                  />
+                  <span className="http-path-param-key" title={p.key}>
+                    :{p.key}
+                  </span>
+                  <TextInput
+                    className="http-path-param-value"
+                    placeholder={t("protocol.http.pathParamValue")}
+                    value={p.value}
+                    onChange={(value) => updateKv(pathParams, setPathParams, i, "value", value)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -511,13 +586,18 @@ export function HttpPanel() {
                     next[i] = { ...next[i], ...patch };
                     setHeaders(next);
                   }}
-                  onRemove={() => removeKv(headers, setHeaders, i)}
+                  onRemove={() => removeHeader(i)}
                 />
               ))}
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={() => addKv(headers, setHeaders)}>
-              + {t("protocol.common.addHeader")}
-            </button>
+            <div className="kv-editor-actions">
+              <button className="btn btn-ghost btn-sm" onClick={addPresetHeader}>
+                + {t("protocol.http.addPresetHeader")}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={addCustomHeader}>
+                + {t("protocol.http.addCustomHeader")}
+              </button>
+            </div>
           </div>
         ) : null}
 

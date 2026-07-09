@@ -59,8 +59,14 @@ export interface BgTaskDbEventPayload {
   } | null;
 }
 
+interface DbSyncBackgroundTaskMatchContext {
+  table?: string;
+  eventType?: string;
+}
+
 interface DbSyncBackgroundTaskHandlers {
-  active: boolean;
+  /** 仅处理属于当前 Panel 的后台分析任务（按 bg task id 过滤） */
+  matchTaskId: (taskId: string, context?: DbSyncBackgroundTaskMatchContext) => boolean;
   sourceTableColumns: Record<string, DbColumnMeta[]>;
   sourceTableIndexes: Record<string, DbIndexMeta[]>;
   targetKey: string;
@@ -72,7 +78,7 @@ interface DbSyncBackgroundTaskHandlers {
 }
 
 export function useDbSyncBackgroundTaskEvents({
-  active,
+  matchTaskId,
   sourceTableColumns,
   sourceTableIndexes,
   targetKey,
@@ -83,16 +89,27 @@ export function useDbSyncBackgroundTaskEvents({
   onTargetCounting,
 }: DbSyncBackgroundTaskHandlers) {
   useEffect(() => {
-    if (!active) return;
-
     const unsubs: Array<() => void> = [];
     listen<BgTaskDbEventPayload>("bg-task-db-event", (event) => {
       const payload = event.payload;
+      // 同步执行任务也会 emit bg-task-db-event(exec_result)，不得进入分析任务 match 逻辑
+      if (payload.eventType === "exec_result") {
+        return;
+      }
       const table =
         payload.table ??
         payload.count?.table ??
         payload.rowResult?.table ??
-        payload.schemaResult?.table;
+        payload.schemaResult?.table ??
+        undefined;
+      if (
+        !matchTaskId(payload.taskId, {
+          table,
+          eventType: payload.eventType,
+        })
+      ) {
+        return;
+      }
       if (!table) return;
 
       if (payload.eventType === "count" && payload.count) {
@@ -172,7 +189,7 @@ export function useDbSyncBackgroundTaskEvents({
       for (const fn of unsubs) fn();
     };
   }, [
-    active,
+    matchTaskId,
     onAnalysisTablesPending,
     onSchemaDiff,
     onTableAnalysis,

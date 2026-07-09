@@ -87,7 +87,13 @@ export function shouldKeepDataSyncStrategy(
 }
 
 /** 冲突表的数据同步策略 */
-export type DataSyncStrategy = "source" | "mergeSource" | "mergeTarget" | "target";
+export type DataSyncStrategy =
+  | "source"
+  | "mergeSource"
+  | "mergeTarget"
+  | "conflictSource"
+  | "conflictTarget"
+  | "target";
 
 export function normalizeDataSyncStrategy(
   value: string | undefined | null,
@@ -99,8 +105,14 @@ export function normalizeDataSyncStrategy(
   if (value === "mergeTarget" || value === "merge_target") {
     return "mergeTarget";
   }
+  if (value === "conflictTarget" || value === "conflict_target") {
+    return "conflictTarget";
+  }
   if (value === "mergeSource" || value === "merge_source" || value === "merge" || value === "append") {
     return "mergeSource";
+  }
+  if (value === "conflictSource" || value === "conflict_source") {
+    return "conflictSource";
   }
   if (value === "source" || value === "rewrite" || value === "update") {
     return "source";

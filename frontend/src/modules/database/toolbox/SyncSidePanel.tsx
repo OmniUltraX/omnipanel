@@ -332,7 +332,14 @@ function TableTargetTag({
   );
 }
 
-const SYNC_STRATEGIES: DataSyncStrategy[] = ["source", "mergeSource", "mergeTarget", "target"];
+const SYNC_STRATEGIES: DataSyncStrategy[] = [
+  "source",
+  "mergeSource",
+  "mergeTarget",
+  "conflictSource",
+  "conflictTarget",
+  "target",
+];
 
 function SyncStrategyControls({
   tableName,
@@ -353,12 +360,16 @@ function SyncStrategyControls({
     source: t("database.toolbox.side.strategySource"),
     mergeSource: t("database.toolbox.side.strategyMergeSource"),
     mergeTarget: t("database.toolbox.side.strategyMergeTarget"),
+    conflictSource: t("database.toolbox.side.strategyConflictSource"),
+    conflictTarget: t("database.toolbox.side.strategyConflictTarget"),
     target: t("database.toolbox.side.strategyTarget"),
   };
   const hints: Record<DataSyncStrategy, string> = {
     source: t("database.toolbox.side.strategySourceHint"),
     mergeSource: t("database.toolbox.side.strategyMergeSourceHint"),
     mergeTarget: t("database.toolbox.side.strategyMergeTargetHint"),
+    conflictSource: t("database.toolbox.side.strategyConflictSourceHint"),
+    conflictTarget: t("database.toolbox.side.strategyConflictTargetHint"),
     target: t("database.toolbox.side.strategyTargetHint"),
   };
 
@@ -387,6 +398,7 @@ function SyncStrategyControls({
         onChange={(value) => onChange?.(tableName, value as DataSyncStrategy)}
         options={options}
         disabled={disabled}
+        panelMinWidth={168}
         aria-label={t("database.toolbox.side.strategySelectLabel")}
         title={hints[strategy]}
       />

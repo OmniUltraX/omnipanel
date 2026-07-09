@@ -810,6 +810,54 @@
         min-width: 0;
     }
 
+    .kv-row--header .kv-select--header-key,
+    .kv-row--header .kv-input--header-key {
+        flex: 1.1;
+        min-width: 120px;
+    }
+
+    .kv-row--header .kv-select--value-type {
+        flex: 0 0 132px;
+        min-width: 132px;
+        max-width: 160px;
+    }
+
+    .kv-row--header .kv-combo,
+    .kv-row--header .kv-input--header-value {
+        flex: 1.2;
+        min-width: 0;
+    }
+
+    .kv-row--header .kv-input--header-key,
+    .kv-row--header .kv-input--header-value {
+        padding: 4px 8px;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        font-size: 11px;
+    }
+
+    .kv-row--header .kv-input--header-key:focus,
+    .kv-row--header .kv-input--header-value:focus {
+        border-color: var(--accent);
+        outline: none;
+    }
+
+    .kv-row .kv-combo--disabled {
+        opacity: 0.72;
+    }
+
+    .kv-row .kv-combo--disabled .kv-combo__input {
+        cursor: not-allowed;
+    }
+
+    .kv-editor-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+    }
+
     .kv-row .kv-select .omni-select-trigger {
         min-height: 26px;
         font-size: 11px;
@@ -879,6 +927,26 @@
     .req-tab.active {
         color: var(--fg);
         border-bottom-color: var(--accent);
+    }
+
+    .http-path-param-key {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        min-width: 5rem;
+        max-width: 8rem;
+        padding: 0 var(--sp-2);
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 11px;
+        color: var(--accent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .kv-row--path-param .http-path-param-value {
+        flex: 1;
+        min-width: 0;
     }
 
     .req-panel {

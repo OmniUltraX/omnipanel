@@ -37,6 +37,7 @@ import { useSchemaRowHeightSync, EMPTY_SCHEMA_SYNC_TABLE_NAMES } from "./useSche
 import { SyncTaskSettingsDialog, type SyncTaskSettings } from "./SyncTaskSettingsDialog";
 import { SyncTaskHistoryPanel } from "./SyncTaskHistoryPanel";
 import { SyncTaskScriptPreviewPanel } from "./SyncTaskScriptPreviewPanel";
+import { SyncTaskExecuteConfirmDialog } from "./SyncTaskExecuteConfirmDialog";
 import type { SyncTaskSqlPreviewInput } from "./syncTaskSqlPreview";
 import {
   buildSchemaAlignedTableNames,
@@ -91,6 +92,17 @@ const LARGE_TABLE_ROW_THRESHOLD = 10_000;
 
 const EXECUTE_TASK_KINDS = new Set(["dbDataSyncExecute", "dbSchemaSyncExecute"]);
 const TERMINAL_EXECUTE_STATUSES = new Set(["completed", "failed"]);
+
+/** 跨组件实例去重：避免 Strict Mode / 重复订阅导致同步完成回调触发两次分析 */
+const globalProcessedExecuteTaskIds = new Set<string>();
+
+function claimExecuteTaskCompletion(taskId: string): boolean {
+  if (globalProcessedExecuteTaskIds.has(taskId)) {
+    return false;
+  }
+  globalProcessedExecuteTaskIds.add(taskId);
+  return true;
+}
 
 interface DatabaseToolboxProps {
   connections: DbConnectionConfig[];
@@ -163,6 +175,9 @@ export function DatabaseToolbox({
   const [taskSettingsOpen, setTaskSettingsOpen] = useState(false);
   const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
   const [taskScriptPreviewOpen, setTaskScriptPreviewOpen] = useState(false);
+  const [executeConfirmTableNames, setExecuteConfirmTableNames] = useState<string[] | null>(
+    null,
+  );
   const [taskName, setTaskName] = useState("");
   const analyzingRef = useRef(new Set<string>());
   /** 递增后使进行中的统计/比对任务全部失效 */
@@ -188,6 +203,13 @@ export function DatabaseToolbox({
   const analysisAnalyzedAtRef = useRef<number | null>(null);
   const lastAnalyzedSelectionRef = useRef<Set<string>>(new Set());
   const bgDataTaskIdRef = useRef<string | null>(null);
+  const ownedDataAnalysisTaskIdsRef = useRef(new Set<string>());
+  const ownedDataExecuteTaskIdsRef = useRef(new Set<string>());
+  const executeTaskTablesRef = useRef(new Map<string, string[]>());
+  const submittingTablesRef = useRef(new Set<string>());
+  const dataAnalysisBatchByTaskRef = useRef(new Map<string, string[]>());
+  /** await 拿到 taskId 之前的事件窗口；仅匹配 batch 内表名，避免误收其它 Panel 事件 */
+  const analysisPendingBatchRef = useRef<string[] | null>(null);
   const bgSchemaTaskIdRef = useRef<string | null>(null);
   const dataAnalysisStartedAtRef = useRef<number | null>(null);
 
@@ -210,14 +232,15 @@ export function DatabaseToolbox({
   const prevSourceConnIdRef = useRef<string | null>(null);
   const prevTargetConnIdRef = useRef<string | null>(null);
   const prevSourceSideKeyRef = useRef<string | null>(null);
+  const prevTargetSideKeyRef = useRef<string | null>(null);
   const cachedAnalysisLoadedKeyRef = useRef<string | null>(null);
 
   const activeRef = useRef(active);
   activeRef.current = active;
-  const processedExecuteBgTaskIdsRef = useRef(new Set<string>());
   const pendingPostExecuteAnalysisRef = useRef(false);
+  const pendingPostExecuteTablesRef = useRef<string[]>([]);
   const postExecuteReanalysisTablesRef = useRef(new Set<string>());
-  const handlePostExecuteAnalyzeRef = useRef<() => void>(() => {});
+  const handlePostExecuteAnalyzeRef = useRef<(tableNames?: string[]) => void>(() => {});
 
   const targetConfigured = Boolean(targetConnId && targetDb.trim());
   const schemaCompareCaseSensitive = isSchemaCaseSensitive(schemaCaseSensitive);
@@ -578,9 +601,11 @@ export function DatabaseToolbox({
   }, [active, tab, loadTargetTableNames]);
 
   useEffect(() => {
-    if (!active) {
+    const targetKey = `${targetConnId}\0${targetDb.trim()}`;
+    if (prevTargetSideKeyRef.current === targetKey) {
       return;
     }
+    prevTargetSideKeyRef.current = targetKey;
     // 任务加载期间会恢复 analysisCache 中的 targetRowCounts，此处跳过清空避免目标侧一直「检测中」
     if (taskLoadRef.current) {
       return;
@@ -589,7 +614,7 @@ export function DatabaseToolbox({
     targetCountingRef.current.clear();
     setTargetCountingTables(new Set());
     setTargetRowCounts({});
-  }, [active, targetConnId, targetDb]);
+  }, [targetConnId, targetDb]);
 
   const loadSideSnapshot = useCallback(
     async (connId: string, database: string, mode: ToolboxTabId) => {
@@ -868,8 +893,6 @@ export function DatabaseToolbox({
   /** 已勾选源表：按源/目标行数判定冲突或新增 */
   useEffect(() => {
     if (!active || !targetConfigured || tab !== "dataSync") {
-      setTableTargetStatus({});
-      setTableSyncStrategies({});
       return;
     }
 
@@ -1426,8 +1449,67 @@ export function DatabaseToolbox({
     });
   }, []);
 
+  const finalizeDataAnalysisTask = useCallback(
+    (taskId: string) => {
+      const batch = dataAnalysisBatchByTaskRef.current.get(taskId) ?? [];
+      if (batch.length > 0) {
+        handleBgTargetCounting(batch, false);
+        for (const name of batch) {
+          analyzingRef.current.delete(name);
+        }
+        setTableAnalysis((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const name of batch) {
+            if (next[name]?.status === "analyzing") {
+              delete next[name];
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
+      ownedDataAnalysisTaskIdsRef.current.delete(taskId);
+      dataAnalysisBatchByTaskRef.current.delete(taskId);
+      if (bgDataTaskIdRef.current === taskId) {
+        bgDataTaskIdRef.current = null;
+      }
+    },
+    [handleBgTargetCounting],
+  );
+
+  const matchDbSyncBgTaskId = useCallback(
+    (taskId: string, context?: { table?: string; eventType?: string }) => {
+      if (ownedDataExecuteTaskIdsRef.current.has(taskId)) {
+        return false;
+      }
+      if (ownedDataAnalysisTaskIdsRef.current.has(taskId)) {
+        return true;
+      }
+      if (bgDataTaskIdRef.current === taskId) {
+        return true;
+      }
+      const pending = analysisPendingBatchRef.current;
+      if (pending && !bgDataTaskIdRef.current) {
+        const eventType = context?.eventType;
+        if (eventType !== "count" && eventType !== "row_result") {
+          return false;
+        }
+        if (context?.table && !pending.includes(context.table)) {
+          return false;
+        }
+        ownedDataAnalysisTaskIdsRef.current.add(taskId);
+        bgDataTaskIdRef.current = taskId;
+        dataAnalysisBatchByTaskRef.current.set(taskId, pending);
+        return true;
+      }
+      return false;
+    },
+    [],
+  );
+
   useDbSyncBackgroundTaskEvents({
-    active,
+    matchTaskId: matchDbSyncBgTaskId,
     sourceTableColumns,
     sourceTableIndexes,
     targetKey: schemaTargetKey,
@@ -1447,8 +1529,14 @@ export function DatabaseToolbox({
       if (!sourceConn || !targetConn || !sourceDb.trim() || !targetDb.trim()) return;
 
       const runId = syncRunIdRef.current;
-      await cancelDbBackgroundTask(bgDataTaskIdRef.current);
+      const previousTaskId = bgDataTaskIdRef.current;
+      if (previousTaskId && ownedDataAnalysisTaskIdsRef.current.has(previousTaskId)) {
+        await cancelDbBackgroundTask(previousTaskId);
+        ownedDataAnalysisTaskIdsRef.current.delete(previousTaskId);
+        dataAnalysisBatchByTaskRef.current.delete(previousTaskId);
+      }
       bgDataTaskIdRef.current = null;
+      analysisPendingBatchRef.current = tableNames;
 
       handleBgTargetCounting(tableNames, true);
       handleBgAnalysisPending(tableNames, true);
@@ -1463,12 +1551,20 @@ export function DatabaseToolbox({
           sourceTableColumns,
           ignoredFields,
         );
+        analysisPendingBatchRef.current = null;
         if (syncRunIdRef.current !== runId) {
           await cancelDbBackgroundTask(taskId);
+          ownedDataAnalysisTaskIdsRef.current.delete(taskId);
+          dataAnalysisBatchByTaskRef.current.delete(taskId);
+          handleBgTargetCounting(tableNames, false);
+          handleBgAnalysisPending(tableNames, false);
           return;
         }
+        ownedDataAnalysisTaskIdsRef.current.add(taskId);
+        dataAnalysisBatchByTaskRef.current.set(taskId, tableNames);
         bgDataTaskIdRef.current = taskId;
       } catch (e) {
+        analysisPendingBatchRef.current = null;
         handleBgTargetCounting(tableNames, false);
         handleBgAnalysisPending(tableNames, false);
         for (const name of tableNames) {
@@ -1550,20 +1646,38 @@ export function DatabaseToolbox({
   }, []);
 
   useEffect(() => {
-    if (!active) return;
-
     let dispose: (() => void) | undefined;
     listen<BackgroundTaskInfo>("bg-task-update", (event) => {
       const task = event.payload;
-      if (task.module !== "database" || task.status !== "cancelled") return;
+      if (task.module !== "database") return;
 
-      if (task.id === bgDataTaskIdRef.current) {
-        bgDataTaskIdRef.current = null;
-        applyAnalysisCancelled("data");
+      const ownsDataAnalysisTask =
+        task.kind === "dbDataSyncAnalysis" &&
+        (ownedDataAnalysisTaskIdsRef.current.has(task.id) ||
+          task.id === bgDataTaskIdRef.current);
+      if (ownsDataAnalysisTask) {
+        if (task.status === "cancelled") {
+          applyAnalysisCancelled("data");
+        }
+        if (
+          task.status === "completed" ||
+          task.status === "failed" ||
+          task.status === "cancelled"
+        ) {
+          finalizeDataAnalysisTask(task.id);
+        }
       }
       if (task.id === bgSchemaTaskIdRef.current) {
-        bgSchemaTaskIdRef.current = null;
-        applyAnalysisCancelled("schema");
+        if (task.status === "cancelled") {
+          applyAnalysisCancelled("schema");
+        }
+        if (
+          task.status === "completed" ||
+          task.status === "failed" ||
+          task.status === "cancelled"
+        ) {
+          bgSchemaTaskIdRef.current = null;
+        }
       }
     })
       .then((fn) => {
@@ -1574,7 +1688,14 @@ export function DatabaseToolbox({
     return () => {
       dispose?.();
     };
-  }, [active, applyAnalysisCancelled]);
+  }, [applyAnalysisCancelled, finalizeDataAnalysisTask]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void useBackgroundTaskStore.getState().refreshRunning();
+  }, [active]);
 
   const syncAnalysisBusy = useMemo(() => {
     if (tab !== "dataSync") return false;
@@ -1666,6 +1787,7 @@ export function DatabaseToolbox({
   useEffect(() => {
     if (!active || tab !== "dataSync" || !targetConfigured || targetTablesLoading) return;
     if (taskLoadRef.current || autoSavePausedRef.current) return;
+    if (syncLockedTables.size > 0) return;
 
     const eligible = new Set(
       sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
@@ -1744,6 +1866,7 @@ export function DatabaseToolbox({
     targetRowCounts,
     tableAnalysis,
     runBackgroundDataSync,
+    syncLockedTables.size,
     t,
   ]);
 
@@ -1865,6 +1988,7 @@ export function DatabaseToolbox({
     prevSourceConnIdRef.current = config.sourceConnId;
     prevTargetConnIdRef.current = config.targetConnId;
     prevSourceSideKeyRef.current = `${tab}\0${config.sourceConnId}\0${(config.sourceDb ?? "").trim()}`;
+    prevTargetSideKeyRef.current = `${config.targetConnId}\0${(config.targetDb ?? "").trim()}`;
     setSourceConnId(config.sourceConnId);
     setTargetConnId(config.targetConnId);
     setSourceDb(config.sourceDb ?? "");
@@ -2286,19 +2410,36 @@ export function DatabaseToolbox({
     runDataSyncAnalysis();
   }, [runDataSyncAnalysis]);
 
-  const handlePostExecuteAnalyze = useCallback(() => {
-    if (tab === "schemaSync") {
-      handleSchemaAnalyze();
-      return;
-    }
-    runDataSyncAnalysis({ skipLargeTableConfirm: true });
-  }, [tab, handleSchemaAnalyze, runDataSyncAnalysis]);
+  const runAnalysisForTables = useCallback(
+    (tableNames: string[]) => {
+      const eligible = tableNames.filter((name) => targetTableNames.has(name));
+      if (eligible.length === 0) {
+        return;
+      }
+      for (const name of eligible) {
+        lastAnalyzedSelectionRef.current.add(name);
+      }
+      void runBackgroundDataSync(eligible);
+    },
+    [targetTableNames, runBackgroundDataSync],
+  );
+
+  const handlePostExecuteAnalyze = useCallback(
+    (tableNames?: string[]) => {
+      if (tab === "schemaSync") {
+        handleSchemaAnalyze();
+        return;
+      }
+      if (tableNames && tableNames.length > 0) {
+        runAnalysisForTables(tableNames);
+        return;
+      }
+      runDataSyncAnalysis({ skipLargeTableConfirm: true });
+    },
+    [tab, handleSchemaAnalyze, runDataSyncAnalysis, runAnalysisForTables],
+  );
 
   handlePostExecuteAnalyzeRef.current = handlePostExecuteAnalyze;
-
-  useEffect(() => {
-    processedExecuteBgTaskIdsRef.current.clear();
-  }, [syncTaskId]);
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -2310,31 +2451,62 @@ export function DatabaseToolbox({
       if (!TERMINAL_EXECUTE_STATUSES.has(task.status)) {
         return;
       }
-      if (processedExecuteBgTaskIdsRef.current.has(task.id)) {
+      if (!claimExecuteTaskCompletion(task.id)) {
         return;
       }
 
+      const tablesFromSubmit = executeTaskTablesRef.current.get(task.id);
       const runs = useDbSyncTaskStore.getState().runHistory[syncTaskId] ?? [];
       const matchedRun = runs.find((run) => run.bgTaskId === task.id && run.kind === tab);
-      if (!matchedRun) {
+      const ownedExecute = ownedDataExecuteTaskIdsRef.current.has(task.id);
+      if (!ownedExecute && !matchedRun) {
         return;
       }
 
-      processedExecuteBgTaskIdsRef.current.add(task.id);
+      const tablesToReanalyze = matchedRun?.tableNames ?? tablesFromSubmit ?? [];
+      ownedDataExecuteTaskIdsRef.current.delete(task.id);
+      executeTaskTablesRef.current.delete(task.id);
+
+      if (task.status === "failed") {
+        if (task.error?.trim()) {
+          setSubmitNotice(task.error);
+        }
+        if (tab === "dataSync") {
+          for (const name of tablesToReanalyze) {
+            postExecuteReanalysisTablesRef.current.delete(name);
+          }
+          if (tablesToReanalyze.length > 0) {
+            setSyncLockedTables((prev) => {
+              const next = new Set(prev);
+              for (const name of tablesToReanalyze) {
+                next.delete(name);
+              }
+              return next.size === prev.size ? prev : next;
+            });
+          }
+        }
+        return;
+      }
+
+      if (task.status !== "completed") {
+        return;
+      }
+
       if (tab === "dataSync") {
-        for (const name of matchedRun.tableNames) {
+        for (const name of tablesToReanalyze) {
           postExecuteReanalysisTablesRef.current.add(name);
         }
       }
-      if (task.status === "failed" && task.error?.trim()) {
-        setSubmitNotice(task.error);
+      if (tablesToReanalyze.length === 0) {
+        return;
       }
       if (activeRef.current) {
         queueMicrotask(() => {
-          handlePostExecuteAnalyzeRef.current();
+          handlePostExecuteAnalyzeRef.current(tablesToReanalyze);
         });
       } else {
         pendingPostExecuteAnalysisRef.current = true;
+        pendingPostExecuteTablesRef.current = tablesToReanalyze;
       }
     })
       .then((fn) => {
@@ -2346,27 +2518,6 @@ export function DatabaseToolbox({
       dispose?.();
     };
   }, [syncTaskId, tab]);
-
-  useEffect(() => {
-    if (!active || !pendingPostExecuteAnalysisRef.current) {
-      return;
-    }
-    if (taskLoadRef.current || sourceSnapshot.loading || targetSnapshot.loading) {
-      return;
-    }
-    if (tab === "dataSync" && targetTablesLoading) {
-      return;
-    }
-    pendingPostExecuteAnalysisRef.current = false;
-    handlePostExecuteAnalyze();
-  }, [
-    active,
-    tab,
-    sourceSnapshot.loading,
-    targetSnapshot.loading,
-    targetTablesLoading,
-    handlePostExecuteAnalyze,
-  ]);
 
   const handleAnalyze =
     tab === "schemaSync" ? handleSchemaAnalyze : handleDataAnalyze;
@@ -2406,12 +2557,51 @@ export function DatabaseToolbox({
   }, [backgroundTasks, syncTaskId, tab]);
 
   useEffect(() => {
+    if (!active || !pendingPostExecuteAnalysisRef.current) {
+      return;
+    }
+    if (taskLoadRef.current || sourceSnapshot.loading || targetSnapshot.loading) {
+      return;
+    }
+    if (tab === "dataSync" && targetTablesLoading) {
+      return;
+    }
+    if (runningSyncExecuteTables.size > 0) {
+      return;
+    }
+    const analysisTaskId = bgDataTaskIdRef.current;
+    if (analysisTaskId) {
+      const analysisTask = backgroundTasks[analysisTaskId];
+      if (
+        analysisTask &&
+        (analysisTask.status === "pending" || analysisTask.status === "running")
+      ) {
+        return;
+      }
+    }
+    pendingPostExecuteAnalysisRef.current = false;
+    const tables = pendingPostExecuteTablesRef.current;
+    pendingPostExecuteTablesRef.current = [];
+    handlePostExecuteAnalyze(tables.length > 0 ? tables : undefined);
+  }, [
+    active,
+    tab,
+    sourceSnapshot.loading,
+    targetSnapshot.loading,
+    targetTablesLoading,
+    handlePostExecuteAnalyze,
+    runningSyncExecuteTables,
+    backgroundTasks,
+  ]);
+
+  useEffect(() => {
     tryUnlockSyncTables(runningSyncExecuteTables);
   }, [tableAnalysis, runningSyncExecuteTables, tryUnlockSyncTables]);
 
   useEffect(() => {
     setSyncLockedTables(new Set());
     postExecuteReanalysisTablesRef.current.clear();
+    ownedDataExecuteTaskIdsRef.current.clear();
   }, [syncTaskId]);
 
   useEffect(() => {
@@ -2448,12 +2638,15 @@ export function DatabaseToolbox({
     if (tab !== "dataSync") {
       return null;
     }
+    const running = Object.values(backgroundTasks).filter(
+      (task) =>
+        (task.kind === "dbDataSyncExecute" || task.kind === "dbDataSyncAnalysis") &&
+        (task.status === "pending" || task.status === "running"),
+    );
     return (
-      Object.values(backgroundTasks).find(
-        (task) =>
-          (task.kind === "dbDataSyncExecute" || task.kind === "dbDataSyncAnalysis") &&
-          (task.status === "pending" || task.status === "running"),
-      ) ?? null
+      running.find((task) => task.kind === "dbDataSyncExecute") ??
+      running.find((task) => task.kind === "dbDataSyncAnalysis") ??
+      null
     );
   }, [backgroundTasks, tab]);
 
@@ -2479,54 +2672,81 @@ export function DatabaseToolbox({
     return counts;
   }, [sourceSnapshot.tables]);
 
-  const scriptPreviewInput = useMemo((): SyncTaskSqlPreviewInput | null => {
-    const sourceConn = connections.find((c) => c.id === sourceConnId);
-    const targetConn = connections.find((c) => c.id === targetConnId);
-    if (!sourceConn || !targetConn || !sourceDb.trim() || !targetDb.trim()) {
-      return null;
-    }
-    const tableNames = Array.from(sourceSelected).sort((a, b) => a.localeCompare(b));
-    if (tableNames.length === 0) {
-      return null;
-    }
-    return {
-      tab,
-      sourceConn,
+  const buildSqlPreviewInput = useCallback(
+    (tableNames: string[]): SyncTaskSqlPreviewInput | null => {
+      const sourceConn = connections.find((c) => c.id === sourceConnId);
+      const targetConn = connections.find((c) => c.id === targetConnId);
+      if (!sourceConn || !targetConn || !sourceDb.trim() || !targetDb.trim()) {
+        return null;
+      }
+      const names = [...tableNames].sort((a, b) => a.localeCompare(b));
+      if (names.length === 0) {
+        return null;
+      }
+      return {
+        tab,
+        sourceConn,
+        sourceDb,
+        targetConn,
+        targetDb,
+        tableNames: names,
+        tableTargetStatus,
+        tableSyncStrategies,
+        sourceTableColumns,
+        sourceTableIndexes,
+        schemaAnalysisDiffs: tab === "schemaSync" ? schemaDiffsForView : schemaAnalysisDiffs,
+        sourceRowCounts: sourceRowCountsForPreview,
+        targetTables: targetSnapshot.tables,
+        schemaCaseSensitive: schemaCompareCaseSensitive,
+        schemaTableNameCase: resolvedSchemaTableNameCase,
+        schemaCreateMissingTables,
+      };
+    },
+    [
+      connections,
+      sourceConnId,
+      targetConnId,
       sourceDb,
-      targetConn,
       targetDb,
-      tableNames,
+      tab,
       tableTargetStatus,
       tableSyncStrategies,
       sourceTableColumns,
       sourceTableIndexes,
-      schemaAnalysisDiffs: tab === "schemaSync" ? schemaDiffsForView : schemaAnalysisDiffs,
-      sourceRowCounts: sourceRowCountsForPreview,
-      targetTables: targetSnapshot.tables,
-      schemaCaseSensitive: schemaCompareCaseSensitive,
-      schemaTableNameCase: resolvedSchemaTableNameCase,
+      schemaAnalysisDiffs,
+      schemaDiffsForView,
+      sourceRowCountsForPreview,
+      targetSnapshot.tables,
+      schemaCompareCaseSensitive,
+      resolvedSchemaTableNameCase,
       schemaCreateMissingTables,
-    };
-  }, [
-    connections,
-    sourceConnId,
-    targetConnId,
-    sourceDb,
-    targetDb,
-    sourceSelected,
-    tab,
-    tableTargetStatus,
-    tableSyncStrategies,
-    sourceTableColumns,
-    sourceTableIndexes,
-    schemaAnalysisDiffs,
-    schemaDiffsForView,
-    sourceRowCountsForPreview,
-    targetSnapshot.tables,
-    schemaCompareCaseSensitive,
-    resolvedSchemaTableNameCase,
-    schemaCreateMissingTables,
-  ]);
+    ],
+  );
+
+  const scriptPreviewInput = useMemo((): SyncTaskSqlPreviewInput | null => {
+    return buildSqlPreviewInput(Array.from(sourceSelected));
+  }, [buildSqlPreviewInput, sourceSelected]);
+
+  const executeConfirmInput = useMemo((): SyncTaskSqlPreviewInput | null => {
+    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
+      return null;
+    }
+    return buildSqlPreviewInput(executeConfirmTableNames);
+  }, [buildSqlPreviewInput, executeConfirmTableNames]);
+
+  const executeConfirmTitle = useMemo(() => {
+    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
+      return t("database.toolbox.executeConfirmTitle");
+    }
+    if (executeConfirmTableNames.length === 1) {
+      return t("database.toolbox.executeConfirmTitleTable", {
+        table: executeConfirmTableNames[0],
+      });
+    }
+    return t("database.toolbox.executeConfirmTitleBatch", {
+      count: executeConfirmTableNames.length,
+    });
+  }, [executeConfirmTableNames, t]);
 
   useEffect(() => {
     if (!active || !canPersistTask) {
@@ -2671,14 +2891,10 @@ export function DatabaseToolbox({
     ],
   );
 
-  const handleSingleTableSubmit = useCallback(
-    async (tableName: string) => {
-      if (!canSubmitTable(tableName) || submitting) {
+  const executeConfirmedTables = useCallback(
+    async (tableNames: string[]) => {
+      if (tableNames.length === 0) {
         return;
-      }
-
-      if (canSaveTask) {
-        persistTask();
       }
 
       const sourceConn = connections.find((c) => c.id === sourceConnId);
@@ -2687,81 +2903,130 @@ export function DatabaseToolbox({
         return;
       }
 
-      lockTablesForSync([tableName]);
+      setSubmitting(true);
       setSubmitNotice(null);
 
+      if (tab === "dataSync") {
+        lockTablesForSync(tableNames);
+        for (const name of tableNames) {
+          submittingTablesRef.current.add(name);
+        }
+      }
+
       try {
-        const bgTaskId = await startDbDataSyncExecute(
-          sourceConn,
-          targetConn,
-          sourceDb,
-          targetDb,
-          [
-            {
-              name: tableName,
-              columns: sourceTableColumns[tableName] ?? [],
+        let bgTaskId: string;
+        if (tab === "dataSync") {
+          bgTaskId = await startDbDataSyncExecute(
+            sourceConn,
+            targetConn,
+            sourceDb,
+            targetDb,
+            tableNames.map((name) => ({
+              name,
+              columns: sourceTableColumns[name] ?? [],
               strategy:
-                tableTargetStatus[tableName] === "new"
+                tableTargetStatus[name] === "new"
                   ? "source"
-                  : normalizeDataSyncStrategy(tableSyncStrategies[tableName]),
-            },
-          ],
-        );
-        recordSyncTaskRun([tableName], bgTaskId);
+                  : normalizeDataSyncStrategy(tableSyncStrategies[name]),
+            })),
+          );
+          executeTaskTablesRef.current.set(bgTaskId, tableNames);
+          ownedDataExecuteTaskIdsRef.current.add(bgTaskId);
+        } else {
+          bgTaskId = await startDbSchemaSyncExecute(
+            sourceConn,
+            targetConn,
+            sourceDb,
+            targetDb,
+            tableNames,
+            sourceTableColumns,
+            sourceTableIndexes,
+            targetSnapshot.tables,
+            schemaCompareCaseSensitive,
+            resolvedSchemaTableNameCase,
+            schemaCreateMissingTables,
+          );
+          executeTaskTablesRef.current.set(bgTaskId, []);
+        }
+        recordSyncTaskRun(tableNames, bgTaskId);
+        void useBackgroundTaskStore.getState().refreshRunning();
         setSubmitNotice(t("database.toolbox.submitSuccess"));
       } catch (error) {
-        postExecuteReanalysisTablesRef.current.delete(tableName);
-        setSyncLockedTables((prev) => {
-          if (!prev.has(tableName)) {
-            return prev;
+        if (tab === "dataSync") {
+          for (const name of tableNames) {
+            postExecuteReanalysisTablesRef.current.delete(name);
           }
-          const next = new Set(prev);
-          next.delete(tableName);
-          return next;
-        });
+          setSyncLockedTables((prev) => {
+            const next = new Set(prev);
+            for (const name of tableNames) {
+              next.delete(name);
+            }
+            return next.size === prev.size ? prev : next;
+          });
+        }
         setSubmitNotice(String(error));
+      } finally {
+        setSubmitting(false);
+        if (tab === "dataSync") {
+          for (const name of tableNames) {
+            submittingTablesRef.current.delete(name);
+          }
+        }
       }
     },
     [
-      canSubmitTable,
-      submitting,
-      canSaveTask,
-      persistTask,
       connections,
       sourceConnId,
       targetConnId,
       sourceDb,
       targetDb,
+      tab,
       lockTablesForSync,
       sourceTableColumns,
       tableTargetStatus,
       tableSyncStrategies,
+      sourceTableIndexes,
+      targetSnapshot.tables,
+      schemaCompareCaseSensitive,
+      resolvedSchemaTableNameCase,
+      schemaCreateMissingTables,
       recordSyncTaskRun,
       t,
     ],
   );
 
-  const handleSubmit = useCallback(async (): Promise<boolean> => {
-    if (!canSubmit || submitting) return false;
-
-    if (canSaveTask) {
-      persistTask();
+  const handleExecuteConfirm = useCallback(() => {
+    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
+      return;
     }
+    const tableNames = executeConfirmTableNames;
+    setExecuteConfirmTableNames(null);
+    void executeConfirmedTables(tableNames);
+  }, [executeConfirmTableNames, executeConfirmedTables]);
 
-    const sourceConn = connections.find((c) => c.id === sourceConnId);
-    const targetConn = connections.find((c) => c.id === targetConnId);
-    if (!sourceConn || !targetConn) return false;
+  const handleSingleTableSubmit = useCallback(
+    (tableName: string) => {
+      if (!canSubmitTable(tableName) || submitting || executeConfirmTableNames) {
+        return;
+      }
+      if (canSaveTask) {
+        persistTask();
+      }
+      setExecuteConfirmTableNames([tableName]);
+    },
+    [canSubmitTable, submitting, executeConfirmTableNames, canSaveTask, persistTask],
+  );
 
-    setSubmitting(true);
-    setSubmitNotice(null);
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!canSubmit || submitting || executeConfirmTableNames) {
+      return false;
+    }
 
     const tableNames = Array.from(sourceSelected).sort((a, b) => a.localeCompare(b));
-    if (tab === "dataSync") {
-      lockTablesForSync(tableNames);
-    }
+    let namesToRun = tableNames;
 
     if (tab === "schemaSync") {
-      const executableNames = tableNames.filter(
+      namesToRun = tableNames.filter(
         (name) =>
           schemaCreateMissingTables ||
           !isSchemaSyncSourceTableMissingInTarget(
@@ -2770,89 +3035,29 @@ export function DatabaseToolbox({
             schemaCompareCaseSensitive,
           ),
       );
-      if (executableNames.length === 0) {
+      if (namesToRun.length === 0) {
         setSubmitNotice(t("database.toolbox.submitHintSchemaNoExecutable"));
-        setSubmitting(false);
         return false;
       }
     }
 
-    try {
-      let bgTaskId: string;
-      if (tab === "dataSync") {
-        bgTaskId = await startDbDataSyncExecute(
-          sourceConn,
-          targetConn,
-          sourceDb,
-          targetDb,
-          tableNames.map((name) => ({
-            name,
-            columns: sourceTableColumns[name] ?? [],
-            strategy:
-              tableTargetStatus[name] === "new"
-                ? "source"
-                : normalizeDataSyncStrategy(tableSyncStrategies[name]),
-          })),
-        );
-      } else {
-        bgTaskId = await startDbSchemaSyncExecute(
-          sourceConn,
-          targetConn,
-          sourceDb,
-          targetDb,
-          tableNames,
-          sourceTableColumns,
-          sourceTableIndexes,
-          targetSnapshot.tables,
-          schemaCompareCaseSensitive,
-          resolvedSchemaTableNameCase,
-          schemaCreateMissingTables,
-        );
-      }
-      recordSyncTaskRun(tableNames, bgTaskId);
-      setSubmitNotice(t("database.toolbox.submitSuccess"));
-      return true;
-    } catch (error) {
-      if (tab === "dataSync") {
-        for (const name of tableNames) {
-          postExecuteReanalysisTablesRef.current.delete(name);
-        }
-        setSyncLockedTables((prev) => {
-          const next = new Set(prev);
-          for (const name of tableNames) {
-            next.delete(name);
-          }
-          return next.size === prev.size ? prev : next;
-        });
-      }
-      setSubmitNotice(String(error));
-      return false;
-    } finally {
-      setSubmitting(false);
+    if (canSaveTask) {
+      persistTask();
     }
+    setExecuteConfirmTableNames(namesToRun);
+    return false;
   }, [
     canSubmit,
     submitting,
-    connections,
-    sourceConnId,
-    targetConnId,
-    sourceDb,
-    targetDb,
+    executeConfirmTableNames,
     sourceSelected,
     tab,
-    sourceTableColumns,
-    sourceTableIndexes,
-    tableSyncStrategies,
-    tableTargetStatus,
-    recordSyncTaskRun,
-    canSaveTask,
-    persistTask,
-    lockTablesForSync,
-    t,
     schemaCreateMissingTables,
     schemaCompareCaseSensitive,
-    resolvedSchemaTableNameCase,
     targetSnapshot.tables,
+    canSaveTask,
+    persistTask,
+    t,
   ]);
 
   useEffect(() => {
@@ -3083,6 +3288,15 @@ export function DatabaseToolbox({
       >
         <SyncTaskScriptPreviewPanel input={taskScriptPreviewOpen ? scriptPreviewInput : null} />
       </SubWindow>
+
+      <SyncTaskExecuteConfirmDialog
+        open={executeConfirmTableNames !== null}
+        title={executeConfirmTitle}
+        input={executeConfirmInput}
+        confirming={submitting}
+        onClose={() => setExecuteConfirmTableNames(null)}
+        onConfirm={handleExecuteConfirm}
+      />
 
       <SubWindow
         open={conflictDetailTable !== null}

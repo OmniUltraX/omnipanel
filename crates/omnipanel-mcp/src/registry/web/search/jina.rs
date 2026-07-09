@@ -3,7 +3,7 @@ use omnipanel_store::{JinaDomainMode, WebSearchBackend};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, jina_host, map_http_status, BackendError,
+    build_http_client, classify_reqwest_error, map_http_status, BackendError,
     RequestCtx, SearchHit, SearchRequest, WebSecrets,
 };
 use super::SearchProvider;
@@ -76,9 +76,7 @@ async fn search_jina_on_host(
     secrets: &WebSecrets,
     host: &str,
 ) -> Result<Vec<SearchHit>, BackendError> {
-    let encoded =
-        url::form_urlencoded::byte_serialize(req.query.as_bytes()).collect::<String>();
-    let url = format!("https://s.{host}/{encoded}");
+    let url = jina_search_url(&req.query, host);
     let client = build_http_client(&url, ctx.proxy, ctx.timeout)?;
 
     let mut req_builder = client.get(&url);
@@ -144,13 +142,9 @@ fn parse_jina_search_text(text: &str, max_results: usize) -> Result<Vec<SearchHi
     Ok(hits)
 }
 
-pub fn jina_search_url(query: &str, host: &str) -> String {
+fn jina_search_url(query: &str, host: &str) -> String {
     let encoded = url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
     format!("https://s.{host}/{encoded}")
-}
-
-pub fn resolve_jina_search_host(mode: JinaDomainMode, prefer_cn: bool) -> &'static str {
-    jina_host(mode, prefer_cn)
 }
 
 #[cfg(test)]
