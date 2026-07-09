@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "../../../components/ui/primitives/Button";
 import { MultiSelect } from "../../../components/ui/form/MultiSelect";
 import { useI18n } from "../../../i18n";
 import { DataLoading, type DataLoadingProps } from "../../../components/ui/feedback/DataLoading";
 import { Select } from "../../../components/ui/form/Select";
-import { TextInput } from "../../../components/ui/form/TextInput";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type {
   DataAnalysisResult,
-  DataSyncStrategy,
+  DataSyncModes,
   SyncSideSnapshot,
   SyncTableInfo,
   TableTargetStatus,
@@ -17,7 +16,10 @@ import type {
 } from "./types";
 import {
   ALL_SCHEMA_TARGET_ROW_STATUSES,
+  DEFAULT_DATA_SYNC_MODES,
+  hasAnyDataSyncMode,
   isSchemaTargetStatusFilterShowAll,
+  normalizeDataSyncModes,
 } from "./types";
 import type { SchemaColumnDiff, SchemaIndexDiff, SchemaTableDiff } from "./schemaDiff";
 import {
@@ -41,6 +43,10 @@ interface SyncSidePanelProps {
   databases: string[];
   databasesLoading: boolean;
   snapshot: SyncSideSnapshot;
+  /** 源侧：正在加载库内表名目录 */
+  catalogLoading?: boolean;
+  /** 源侧：表名目录加载失败 */
+  catalogError?: string | null;
   /** 加载中时传入 DataLoading 的进度参数 */
   loadingProgress?: Pick<DataLoadingProps, "total" | "current" | "message">;
   tab: ToolboxTabId;
@@ -48,7 +54,12 @@ interface SyncSidePanelProps {
   onToggleTable: (tableName: string) => void;
   selectedTables: Set<string>;
   onToggleSelect: (tableName: string) => void;
-  onSelectAllTables: (tableNames: string[], selected: boolean) => void;
+  /** 源侧：库内全部表名（用于下拉添加） */
+  catalogTableNames?: string[];
+  /** 源侧：将所选表加入列表 */
+  onAddTables?: (tableNames: string[]) => void;
+  /** 源侧：正在加载新添加表的结构 */
+  addingTables?: boolean;
   /** 正在统计行数的表名 */
   countingTables?: Set<string>;
   /** 目标同步列表：源侧已勾选的表名（有序） */
@@ -56,8 +67,8 @@ interface SyncSidePanelProps {
   targetConfigured?: boolean;
   targetTablesLoading?: boolean;
   tableTargetStatus?: Record<string, TableTargetStatus>;
-  tableSyncStrategies?: Record<string, DataSyncStrategy>;
-  onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  tableSyncModes?: Record<string, DataSyncModes>;
+  onSyncModeChange?: (tableName: string, mode: keyof DataSyncModes, enabled: boolean) => void;
   /** 正在同步或等待同步后重新分析的表（禁用该行下拉与确定） */
   syncLockedTables?: Set<string>;
   onSyncTableSubmit?: (tableName: string) => void;
@@ -90,10 +101,14 @@ interface SyncSidePanelProps {
   schemaCaseSensitive?: boolean;
   /** 结构同步：列表滚动容器 ref（用于同步滚动） */
   scrollListRef?: RefObject<HTMLDivElement | null>;
-  /** 目标侧：手动分析 / 重新分析 */
+  /** 结构同步目标侧：手动分析 / 重新分析 */
   onAnalyze?: () => void;
   analyzeBusy?: boolean;
   hasAnalysisResult?: boolean;
+  /** 数据同步目标侧：逐表分析 / 重新分析 */
+  onAnalyzeTable?: (tableName: string) => void;
+  /** 数据同步：正在分析或统计行数的表 */
+  analyzingTables?: Set<string>;
 }
 
 function TableSelectCheckbox({
@@ -132,15 +147,13 @@ function ConnectionDatabaseFilters({
   onDatabaseChange,
   databases,
   databasesLoading,
-  showSelectAll,
-  selectAllRef,
-  allVisibleSelected,
-  visibleNames,
-  onSelectAllTables,
-  search,
-  onSearchChange,
-  onSearchKeyDown,
-  searchPlaceholder,
+  showAddTables,
+  tablePickValue,
+  tablePickOptions,
+  onTablePickChange,
+  catalogTablesLoading,
+  addingTables,
+  onAddTable,
   toolbarLayout = "default",
   schemaStatusFilters,
   onSchemaStatusFiltersChange,
@@ -155,15 +168,13 @@ function ConnectionDatabaseFilters({
   onDatabaseChange: (db: string) => void;
   databases: string[];
   databasesLoading: boolean;
-  showSelectAll: boolean;
-  selectAllRef: RefObject<HTMLInputElement | null>;
-  allVisibleSelected: boolean;
-  visibleNames: string[];
-  onSelectAllTables: (tableNames: string[], selected: boolean) => void;
-  search?: string;
-  onSearchChange?: (value: string) => void;
-  onSearchKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  searchPlaceholder?: string;
+  showAddTables: boolean;
+  tablePickValue: string;
+  tablePickOptions: string[];
+  onTablePickChange?: (value: string) => void;
+  catalogTablesLoading?: boolean;
+  addingTables: boolean;
+  onAddTable?: () => void;
   toolbarLayout?: "default" | "sourceRow" | "targetRow";
   schemaStatusFilters?: SchemaTargetRowStatus[];
   onSchemaStatusFiltersChange?: (value: SchemaTargetRowStatus[]) => void;
@@ -213,29 +224,46 @@ function ConnectionDatabaseFilters({
             : databases.map((dbName) => ({ value: dbName, label: dbName }))
         }
       />
-      {search !== undefined && onSearchChange && (
-        <TextInput
-          copyable={false}
-          className="input db-toolbox-search"
-          value={search}
-          onChange={onSearchChange}
-          onKeyDown={onSearchKeyDown}
-          placeholder={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
-          aria-label={searchPlaceholder ?? t("database.toolbox.side.searchTables")}
+      {showAddTables && onTablePickChange && (
+        <Select
+          className="db-select db-toolbox-table-picker"
+          value={tablePickValue}
+          onChange={onTablePickChange}
+          disabled={catalogTablesLoading || tablePickOptions.length === 0}
+          searchable
+          title={t("database.toolbox.side.selectTableToAdd")}
+          placeholder={t("database.toolbox.side.selectTableToAdd")}
+          aria-label={t("database.toolbox.side.selectTableToAdd")}
+          emptyText={t("database.toolbox.side.noAddableTables")}
+          searchPlaceholder={t("database.toolbox.side.searchTables")}
+          options={
+            tablePickOptions.length === 0
+              ? [{ value: "", label: t("database.toolbox.side.noAddableTables"), disabled: true }]
+              : tablePickOptions.map((name) => ({ value: name, label: name }))
+          }
         />
       )}
-      {showSelectAll && (
-        <label className="db-toolbox-select-all">
-          <input
-            ref={selectAllRef}
-            type="checkbox"
-            checked={allVisibleSelected}
-            disabled={visibleNames.length === 0}
-            onChange={() => onSelectAllTables(visibleNames, !allVisibleSelected)}
-            aria-label={t("database.toolbox.side.selectAll")}
-          />
-          <span>{t("database.toolbox.side.selectAll")}</span>
-        </label>
+      {showAddTables && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="db-toolbox-add-tables-btn"
+          disabled={!tablePickValue || addingTables}
+          title={
+            !tablePickValue
+              ? t("database.toolbox.side.addTablesSelectFirst")
+              : t("database.toolbox.side.addTablesHint")
+          }
+          aria-label={t("database.toolbox.side.addTables")}
+          onClick={() => {
+            if (tablePickValue) {
+              onAddTable?.();
+            }
+          }}
+        >
+          {addingTables ? t("database.toolbox.side.loading") : t("database.toolbox.side.addTables")}
+        </Button>
       )}
       {schemaStatusFilters !== undefined && onSchemaStatusFiltersChange && (
         <MultiSelect
@@ -332,82 +360,67 @@ function TableTargetTag({
   );
 }
 
-const SYNC_STRATEGIES: DataSyncStrategy[] = [
-  "source",
-  "mergeSource",
-  "mergeTarget",
-  "conflictSource",
-  "conflictTarget",
-  "target",
-];
+const SYNC_MODE_KEYS: Array<keyof DataSyncModes> = ["insert", "merge", "delete"];
 
-function SyncStrategyControls({
+function SyncModeControls({
   tableName,
-  strategy,
-  disabled = false,
+  modes,
+  modesDisabled = false,
+  submitDisabled = false,
   onChange,
   onSubmit,
 }: {
   tableName: string;
-  strategy: DataSyncStrategy;
-  disabled?: boolean;
-  onChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  modes: DataSyncModes;
+  modesDisabled?: boolean;
+  submitDisabled?: boolean;
+  onChange?: (tableName: string, mode: keyof DataSyncModes, enabled: boolean) => void;
   onSubmit?: (tableName: string) => void;
 }) {
   const { t } = useI18n();
 
-  const labels: Record<DataSyncStrategy, string> = {
-    source: t("database.toolbox.side.strategySource"),
-    mergeSource: t("database.toolbox.side.strategyMergeSource"),
-    mergeTarget: t("database.toolbox.side.strategyMergeTarget"),
-    conflictSource: t("database.toolbox.side.strategyConflictSource"),
-    conflictTarget: t("database.toolbox.side.strategyConflictTarget"),
-    target: t("database.toolbox.side.strategyTarget"),
+  const labels: Record<keyof DataSyncModes, string> = {
+    insert: t("database.toolbox.side.syncModeInsert"),
+    merge: t("database.toolbox.side.syncModeMerge"),
+    delete: t("database.toolbox.side.syncModeDelete"),
   };
-  const hints: Record<DataSyncStrategy, string> = {
-    source: t("database.toolbox.side.strategySourceHint"),
-    mergeSource: t("database.toolbox.side.strategyMergeSourceHint"),
-    mergeTarget: t("database.toolbox.side.strategyMergeTargetHint"),
-    conflictSource: t("database.toolbox.side.strategyConflictSourceHint"),
-    conflictTarget: t("database.toolbox.side.strategyConflictTargetHint"),
-    target: t("database.toolbox.side.strategyTargetHint"),
+  const hints: Record<keyof DataSyncModes, string> = {
+    insert: t("database.toolbox.side.syncModeInsertHint"),
+    merge: t("database.toolbox.side.syncModeMergeHint"),
+    delete: t("database.toolbox.side.syncModeDeleteHint"),
   };
-
-  const options = useMemo(
-    () =>
-      SYNC_STRATEGIES.map((mode) => ({
-        value: mode,
-        label: labels[mode],
-        title: hints[mode],
-      })),
-    [labels, hints],
-  );
 
   return (
     <div
-      className="db-toolbox-sync-strategy-controls"
+      className="db-toolbox-sync-strategy-controls db-toolbox-sync-mode-controls"
       role="group"
-      aria-label={t("database.toolbox.side.strategySelectLabel")}
+      aria-label={t("database.toolbox.side.syncModeSelectLabel")}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <Select
-        className="db-toolbox-sync-strategy-select"
-        size="sm"
-        value={strategy}
-        onChange={(value) => onChange?.(tableName, value as DataSyncStrategy)}
-        options={options}
-        disabled={disabled}
-        panelMinWidth={168}
-        aria-label={t("database.toolbox.side.strategySelectLabel")}
-        title={hints[strategy]}
-      />
+      <div className="db-toolbox-sync-mode-options">
+        {SYNC_MODE_KEYS.map((mode) => (
+          <label
+            key={mode}
+            className={`db-toolbox-sync-mode-option${modes[mode] ? " is-active" : ""}`}
+            title={hints[mode]}
+          >
+            <input
+              type="checkbox"
+              checked={modes[mode]}
+              disabled={modesDisabled}
+              onChange={(e) => onChange?.(tableName, mode, e.target.checked)}
+            />
+            <span>{labels[mode]}</span>
+          </label>
+        ))}
+      </div>
       <Button
         type="button"
         variant="default"
         size="xs"
         className="db-toolbox-sync-strategy-submit"
-        disabled={disabled}
+        disabled={submitDisabled || !hasAnyDataSyncMode(modes)}
         title={t("database.toolbox.side.syncTableSubmitHint")}
         onClick={() => onSubmit?.(tableName)}
       >
@@ -417,34 +430,49 @@ function SyncStrategyControls({
   );
 }
 
+function hasActionableDataAnalysis(analysis?: DataAnalysisResult): boolean {
+  return analysis?.status === "match" || analysis?.status === "diff";
+}
+
 function TargetSyncTableRow({
   tableName,
   targetStatus,
-  syncStrategy = "source",
-  onSyncStrategyChange,
+  syncModes = DEFAULT_DATA_SYNC_MODES,
+  onSyncModeChange,
   syncLocked = false,
   canSubmitTable,
   onSyncTableSubmit,
+  onAnalyzeTable,
+  analyzeBusy = false,
   analysis,
   detailOpen = false,
   onViewConflictDetail,
 }: {
   tableName: string;
   targetStatus?: TableTargetStatus;
-  syncStrategy?: DataSyncStrategy;
-  onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  syncModes?: DataSyncModes;
+  onSyncModeChange?: (tableName: string, mode: keyof DataSyncModes, enabled: boolean) => void;
   syncLocked?: boolean;
   canSubmitTable?: (tableName: string) => boolean;
   onSyncTableSubmit?: (tableName: string) => void;
+  onAnalyzeTable?: (tableName: string) => void;
+  analyzeBusy?: boolean;
   analysis?: DataAnalysisResult;
   detailOpen?: boolean;
   onViewConflictDetail?: (tableName: string) => void;
 }) {
   const { t } = useI18n();
-  const showStrategies =
-    targetStatus === "conflict" && Boolean(onSyncStrategyChange && onSyncTableSubmit);
-  const strategyControlsDisabled =
-    syncLocked || (canSubmitTable ? !canSubmitTable(tableName) : false);
+  const showSyncModes =
+    Boolean(onSyncModeChange && onSyncTableSubmit) && hasActionableDataAnalysis(analysis);
+  const controlsBusy =
+    syncLocked || analyzeBusy || analysis?.status === "analyzing";
+  const modesDisabled = controlsBusy;
+  const submitDisabled =
+    controlsBusy || (canSubmitTable ? !canSubmitTable(tableName) : false);
+  const hasCompletedAnalysis =
+    analysis?.status === "match" ||
+    analysis?.status === "diff" ||
+    analysis?.status === "error";
   const analysisStatus = analysis?.status;
   const analysisLabel =
     analysisStatus === "analyzing"
@@ -465,7 +493,7 @@ function TargetSyncTableRow({
 
   return (
     <li
-      className={`db-toolbox-table-row db-toolbox-table-row--target db-toolbox-table-row--target-sync${showStrategies ? " db-toolbox-table-row--conflict" : ""}`}
+      className={`db-toolbox-table-row db-toolbox-table-row--target db-toolbox-table-row--target-sync${showSyncModes ? " db-toolbox-table-row--conflict" : ""}`}
     >
       <span className="db-toolbox-table-row__name">{tableName}</span>
       {targetStatus && (
@@ -499,14 +527,43 @@ function TargetSyncTableRow({
           </span>
         )
       )}
-      {showStrategies && (
-        <SyncStrategyControls
-          tableName={tableName}
-          strategy={syncStrategy}
-          disabled={strategyControlsDisabled}
-          onChange={onSyncStrategyChange}
-          onSubmit={onSyncTableSubmit}
-        />
+      {(onAnalyzeTable || showSyncModes) && (
+        <div className="db-toolbox-target-row-actions">
+          {onAnalyzeTable && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="db-toolbox-target-row-analyze"
+              disabled={analyzeBusy || syncLocked}
+              title={
+                hasCompletedAnalysis
+                  ? t("database.toolbox.side.reanalyze")
+                  : t("database.toolbox.side.analyze")
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onAnalyzeTable(tableName);
+              }}
+            >
+              {analyzeBusy
+                ? t("database.toolbox.side.analysisAnalyzing")
+                : hasCompletedAnalysis
+                  ? t("database.toolbox.side.reanalyze")
+                  : t("database.toolbox.side.analyze")}
+            </Button>
+          )}
+          {showSyncModes && (
+            <SyncModeControls
+              tableName={tableName}
+              modes={syncModes}
+              modesDisabled={modesDisabled}
+              submitDisabled={submitDisabled}
+              onChange={onSyncModeChange}
+              onSubmit={onSyncTableSubmit}
+            />
+          )}
+        </div>
       )}
     </li>
   );
@@ -1036,20 +1093,24 @@ export function SyncSidePanel({
   databases,
   databasesLoading,
   snapshot,
+  catalogLoading = false,
+  catalogError = null,
   loadingProgress,
   tab,
   expandedTables,
   onToggleTable,
   selectedTables,
   onToggleSelect,
-  onSelectAllTables,
+  catalogTableNames = [],
+  onAddTables,
+  addingTables = false,
   countingTables,
   sourceSelectedTableNames = [],
   targetConfigured = false,
   targetTablesLoading = false,
   tableTargetStatus = {},
-  tableSyncStrategies = {},
-  onSyncStrategyChange,
+  tableSyncModes = {},
+  onSyncModeChange,
   syncLockedTables,
   onSyncTableSubmit,
   canSubmitTable,
@@ -1071,10 +1132,11 @@ export function SyncSidePanel({
   onAnalyze,
   analyzeBusy,
   hasAnalysisResult = false,
+  onAnalyzeTable,
+  analyzingTables,
 }: SyncSidePanelProps) {
   const { t } = useI18n();
-  const [search, setSearch] = useState("");
-  const selectAllRef = useRef<HTMLInputElement>(null);
+  const [tablePickValue, setTablePickValue] = useState("");
   const isTargetSync = tableListMode === "targetSync";
   const isSchemaAligned = tab === "schemaSync" && alignedTableNames !== undefined;
   const schemaCompareCaseSensitive = isSchemaCaseSensitive(schemaCaseSensitive);
@@ -1149,29 +1211,52 @@ export function SyncSidePanel({
   );
 
   useEffect(() => {
-    setSearch("");
+    setTablePickValue("");
   }, [connectionId, database, tab]);
 
   const filteredTables = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return snapshot.tables;
-    return snapshot.tables.filter((tbl) => tbl.name.toLowerCase().includes(q));
-  }, [snapshot.tables, search]);
+    return [...snapshot.tables].sort((a, b) => a.name.localeCompare(b.name));
+  }, [snapshot.tables]);
 
-  const visibleNames = useMemo(() => filteredTables.map((tbl) => tbl.name), [filteredTables]);
+  const tablePickOptions = useMemo(() => {
+    if (isTargetSync) {
+      return [];
+    }
+    const added = new Set(snapshot.tables.map((tbl) => tbl.name));
+    return catalogTableNames.filter((name) => !added.has(name));
+  }, [isTargetSync, catalogTableNames, snapshot.tables]);
+
+  useEffect(() => {
+    if (tablePickValue && !tablePickOptions.includes(tablePickValue)) {
+      setTablePickValue("");
+    }
+  }, [tablePickValue, tablePickOptions]);
+
+  const handleAddTable = useCallback(() => {
+    if (!tablePickValue || addingTables) {
+      return;
+    }
+    onAddTables?.([tablePickValue]);
+    setTablePickValue("");
+  }, [tablePickValue, addingTables, onAddTables]);
 
   const targetSyncRows = useMemo(() => {
     const names = [...sourceSelectedTableNames].sort((a, b) => a.localeCompare(b));
     return names.map((name) => ({
       name,
       status: tableTargetStatus[name] ?? (targetTablesLoading ? "checking" : undefined),
-      strategy: tableSyncStrategies[name] ?? "source",
+      modes: normalizeDataSyncModes(
+        tableSyncModes[name],
+        tableTargetStatus[name] === "new"
+          ? { insert: true, merge: false, delete: false }
+          : DEFAULT_DATA_SYNC_MODES,
+      ),
       analysis: tableAnalysis[name],
     }));
   }, [
     sourceSelectedTableNames,
     tableTargetStatus,
-    tableSyncStrategies,
+    tableSyncModes,
     targetTablesLoading,
     tableAnalysis,
   ]);
@@ -1202,45 +1287,6 @@ export function SyncSidePanel({
     resolveTargetTable,
   ]);
 
-  const selectAllVisibleNames = useMemo(() => {
-    if (isSchemaAligned) {
-      return schemaTargetTableNames.filter((name) => resolveSourceTable(name) !== undefined);
-    }
-    return visibleNames;
-  }, [isSchemaAligned, schemaTargetTableNames, resolveSourceTable, visibleNames]);
-
-  const allVisibleSelected =
-    selectAllVisibleNames.length > 0 &&
-    selectAllVisibleNames.every((name) => selectedTables.has(name));
-  const someVisibleSelected = selectAllVisibleNames.some((name) => selectedTables.has(name));
-
-  useEffect(() => {
-    const el = selectAllRef.current;
-    if (!el) return;
-    el.indeterminate = someVisibleSelected && !allVisibleSelected;
-  }, [someVisibleSelected, allVisibleSelected]);
-
-  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (selectAllVisibleNames.length > 0) {
-        onSelectAllTables(selectAllVisibleNames, true);
-      }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      if (isSchemaAligned) {
-        onSchemaTableSearchChange?.("");
-      } else {
-        setSearch("");
-      }
-    }
-  };
-
-  const sourceSearchValue = isSchemaAligned ? (schemaTableSearch ?? "") : search;
-  const handleSourceSearchChange = isSchemaAligned
-    ? (value: string) => onSchemaTableSearchChange?.(value)
-    : setSearch;
-
   const showSchemaStatusFilter =
     isTargetSync &&
     tab === "schemaSync" &&
@@ -1248,7 +1294,8 @@ export function SyncSidePanel({
     schemaStatusFilters !== undefined &&
     onSchemaStatusFiltersChange;
 
-  const showTargetAnalyze = isTargetSync && onAnalyze !== undefined;
+  const showTargetAnalyze = isTargetSync && tab === "schemaSync" && onAnalyze !== undefined;
+  const showPerTableAnalyze = isTargetSync && tab === "dataSync" && onAnalyzeTable !== undefined;
 
   return (
     <section className={`db-toolbox-side${isTargetSync ? " db-toolbox-side--target-sync" : ""}`}>
@@ -1262,15 +1309,13 @@ export function SyncSidePanel({
           onDatabaseChange={onDatabaseChange}
           databases={databases}
           databasesLoading={databasesLoading}
-          showSelectAll={!isTargetSync}
-          selectAllRef={selectAllRef}
-          allVisibleSelected={allVisibleSelected}
-          visibleNames={selectAllVisibleNames}
-          onSelectAllTables={onSelectAllTables}
-          search={!isTargetSync ? sourceSearchValue : undefined}
-          onSearchChange={!isTargetSync ? handleSourceSearchChange : undefined}
-          onSearchKeyDown={!isTargetSync && !isSchemaAligned ? handleSearchKeyDown : undefined}
-          searchPlaceholder={t("database.toolbox.side.searchTables")}
+          showAddTables={!isTargetSync}
+          tablePickValue={tablePickValue}
+          tablePickOptions={tablePickOptions}
+          onTablePickChange={!isTargetSync ? setTablePickValue : undefined}
+          catalogTablesLoading={catalogLoading}
+          addingTables={addingTables}
+          onAddTable={handleAddTable}
           toolbarLayout={
             showSchemaStatusFilter || showTargetAnalyze
               ? "targetRow"
@@ -1374,11 +1419,13 @@ export function SyncSidePanel({
                   key={row.name}
                   tableName={row.name}
                   targetStatus={row.status}
-                  syncStrategy={row.strategy}
-                  onSyncStrategyChange={onSyncStrategyChange}
+                  syncModes={row.modes}
+                  onSyncModeChange={onSyncModeChange}
                   syncLocked={syncLockedTables?.has(row.name) ?? false}
                   canSubmitTable={canSubmitTable}
                   onSyncTableSubmit={onSyncTableSubmit}
+                  onAnalyzeTable={showPerTableAnalyze ? onAnalyzeTable : undefined}
+                  analyzeBusy={analyzingTables?.has(row.name) ?? false}
                   analysis={row.analysis}
                   detailOpen={conflictDetailTable === row.name}
                   onViewConflictDetail={onViewConflictDetail}
@@ -1386,19 +1433,23 @@ export function SyncSidePanel({
               ))}
             </ul>
           )
-        ) : snapshot.loading ? (
+        ) : catalogLoading ? (
           <DataLoading
             total={loadingProgress?.total ?? 1}
             current={loadingProgress?.current ?? 0}
             message={loadingProgress?.message}
             className="db-toolbox-side__loading"
           />
+        ) : catalogError ? (
+          <div className="db-toolbox-side__empty db-toolbox-side__empty--error">{catalogError}</div>
         ) : snapshot.error ? (
           <div className="db-toolbox-side__empty db-toolbox-side__empty--error">{snapshot.error}</div>
-        ) : snapshot.tables.length === 0 ? (
-          <div className="db-toolbox-side__empty">{t("database.toolbox.side.emptyTables")}</div>
         ) : filteredTables.length === 0 && !isSchemaAligned ? (
-          <div className="db-toolbox-side__empty">{t("database.toolbox.side.noSearchMatch")}</div>
+          <div className="db-toolbox-side__empty">
+            {catalogTableNames.length === 0
+              ? t("database.toolbox.side.emptyTables")
+              : t("database.toolbox.side.emptyAddedTables")}
+          </div>
         ) : tab === "schemaSync" && isSchemaAligned ? (
           snapshot.loading ? (
             <DataLoading

@@ -127,7 +127,7 @@ export function applyIgnoredFieldsToAnalysisResult<T extends {
       status: "match",
       diffRows: 0,
       diffs: [],
-      diffCacheId: undefined,
+      diffCacheId: result.diffCacheId,
     };
   }
 

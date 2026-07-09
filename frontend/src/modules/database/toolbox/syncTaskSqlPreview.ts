@@ -7,13 +7,20 @@ import {
 import type { SchemaTableDiff } from "./schemaDiff";
 import { formatIndexDetail } from "./schemaDiff";
 import {
-  type DataSyncStrategy,
+  type DataAnalysisResult,
+  type DataSyncModes,
   type SchemaTableNameCase,
   type SyncTableInfo,
   type TableTargetStatus,
   type ToolboxTabId,
-  normalizeDataSyncStrategy,
+  DEFAULT_DATA_SYNC_MODES,
+  hasAnyDataSyncMode,
+  normalizeDataSyncModes,
 } from "./types";
+import {
+  syncExecuteConfirmLog,
+  syncExecuteConfirmWarn,
+} from "./syncExecuteConfirmDebug";
 
 export interface SyncTaskSqlPreviewInput {
   tab: ToolboxTabId;
@@ -23,7 +30,7 @@ export interface SyncTaskSqlPreviewInput {
   targetDb: string;
   tableNames: string[];
   tableTargetStatus: Record<string, TableTargetStatus>;
-  tableSyncStrategies: Record<string, DataSyncStrategy>;
+  tableSyncModes: Record<string, DataSyncModes>;
   sourceTableColumns: Record<string, DbColumnMeta[]>;
   sourceTableIndexes: Record<string, DbIndexMeta[]>;
   schemaAnalysisDiffs: Record<string, SchemaTableDiff>;
@@ -32,6 +39,8 @@ export interface SyncTaskSqlPreviewInput {
   schemaCaseSensitive: boolean;
   schemaTableNameCase: SchemaTableNameCase;
   schemaCreateMissingTables: boolean;
+  /** 数据同步行级分析结果（用于预览冲突行统计） */
+  tableAnalysis?: Record<string, DataAnalysisResult>;
 }
 
 function isMysqlEngine(dbType: string): boolean {
@@ -102,16 +111,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function strategyLabel(strategy: DataSyncStrategy): string {
-  const labels: Record<DataSyncStrategy, string> = {
-    source: "源",
-    mergeSource: "合并（源）",
-    mergeTarget: "合并（目标）",
-    conflictSource: "仅冲突（源）",
-    conflictTarget: "仅冲突（目标）",
-    target: "目标",
-  };
-  return labels[strategy];
+function formatSyncModesLabel(modes: DataSyncModes): string {
+  if (!hasAnyDataSyncMode(modes)) {
+    return "未启用";
+  }
+  const parts: string[] = [];
+  if (modes.insert) parts.push("新增");
+  if (modes.merge) parts.push("合并");
+  if (modes.delete) parts.push("删除");
+  return parts.join(" + ");
 }
 
 function buildInsertPreviewSql(
@@ -283,6 +291,45 @@ async function buildSchemaTablePreview(
   return lines;
 }
 
+function appendDataAnalysisSummary(
+  lines: string[],
+  analysis: DataAnalysisResult | undefined,
+): void {
+  if (!analysis) {
+    lines.push("-- 分析: 尚未完成行级对比");
+    return;
+  }
+  if (analysis.status === "error") {
+    lines.push(`-- 分析失败: ${analysis.error ?? "未知错误"}`);
+    return;
+  }
+  if (analysis.status === "unchecked" || analysis.status === "analyzing") {
+    lines.push("-- 分析: 行级对比进行中或未开始");
+    return;
+  }
+  if (analysis.status === "match") {
+    lines.push("-- 分析: 双方数据一致，无冲突行");
+    return;
+  }
+  if (analysis.status === "diff") {
+    const diffs = analysis.diffs ?? [];
+    const sourceOnly = diffs.filter((d) => d.kind === "sourceOnly").length;
+    const changed = diffs.filter((d) => d.kind === "changed").length;
+    const targetOnly = diffs.filter((d) => d.kind === "targetOnly").length;
+    const total = analysis.diffRows ?? diffs.length;
+    if (diffs.length > 0 && !analysis.truncated && !analysis.diffCacheId) {
+      lines.push(
+        `-- 分析: 新增 ${sourceOnly} / 冲突 ${changed} / 目标多余 ${targetOnly} 行`,
+      );
+    } else {
+      lines.push(`-- 分析: 差异合计 ${total} 行（含新增、冲突、目标多余）`);
+    }
+    if (analysis.truncated || analysis.diffCacheId) {
+      lines.push("-- 分析明细已截断或分页缓存，可在「行差异」面板按类型筛选查看");
+    }
+  }
+}
+
 async function buildDataTablePreview(
   input: SyncTaskSqlPreviewInput,
   tableName: string,
@@ -290,12 +337,13 @@ async function buildDataTablePreview(
   const lines: string[] = [];
   const dbType = input.targetConn.db_type;
   const status = input.tableTargetStatus[tableName];
-  const strategy =
-    status === "new"
-      ? "source"
-      : normalizeDataSyncStrategy(input.tableSyncStrategies[tableName]);
+  const modes = normalizeDataSyncModes(
+    input.tableSyncModes[tableName],
+    status === "new" ? { insert: true, merge: false, delete: false } : DEFAULT_DATA_SYNC_MODES,
+  );
   const columns = input.sourceTableColumns[tableName] ?? [];
   const rowCount = input.sourceRowCounts[tableName] ?? null;
+  const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
 
   if (status === "new") {
     try {
@@ -306,56 +354,40 @@ async function buildDataTablePreview(
     }
   }
 
-  lines.push(`-- 策略: ${strategyLabel(strategy)}`);
-
-  if (strategy === "target" || strategy === "mergeTarget" || strategy === "conflictTarget") {
-    if (strategy === "mergeTarget") {
-      lines.push("-- 合并（目标）：忽略源表独有行，冲突字段保留目标表");
-    } else if (strategy === "conflictTarget") {
-      lines.push("-- 仅冲突（目标）：仅处理双方均存在的冲突行，冲突字段保留目标表");
-      lines.push("-- 冲突行保留目标表现有取值，无需 UPDATE；源表独有行与目标独有行均不写入");
-    } else {
-      lines.push("-- 保留目标表数据，跳过该表数据同步");
-    }
-    lines.push("-- 预计不向目标库执行 INSERT / UPDATE / DELETE");
-    return lines;
-  }
-
-  if (strategy === "mergeSource") {
-    lines.push("-- 合并（源）：插入目标缺失行，双方均存在的行以源表字段更新冲突列");
-    lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
-    lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
-    const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
-    if (pkCols.length > 0) {
-      lines.push(`-- 主键: ${pkCols.join(", ")}`);
-    }
-    return lines;
-  }
-
-  if (strategy === "conflictSource") {
-    lines.push("-- 仅冲突（源）：仅处理双方均存在的冲突行，以源表字段更新冲突列");
-    lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
-    const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
-    if (pkCols.length > 0) {
-      lines.push(`-- 主键: ${pkCols.join(", ")}`);
-    }
-    return lines;
-  }
-
+  lines.push(`-- 同步方式: ${formatSyncModesLabel(modes)}`);
   if (status !== "new") {
-    lines.push(`${buildTruncateSql(dbType, tableName)};`);
+    appendDataAnalysisSummary(lines, input.tableAnalysis?.[tableName]);
   }
 
-  lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
-
-  const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
-  if (pkCols.length > 0) {
-    lines.push(`-- 主键: ${pkCols.join(", ")}`);
+  if (!hasAnyDataSyncMode(modes)) {
+    lines.push("-- 未启用任何同步方式，预计不向目标库执行 DML");
+    return lines;
   }
 
-  const idxList = input.sourceTableIndexes[tableName] ?? [];
-  if (idxList.length > 0) {
-    lines.push(`-- 索引: ${idxList.map((i) => `${i.name} ${formatIndexDetail(i)}`).join("; ")}`);
+  if (modes.insert) {
+    lines.push("-- 新增：将源表有、目标表无的行 INSERT 到目标表");
+    const diffs = input.tableAnalysis?.[tableName]?.diffs ?? [];
+    const sourceOnly = diffs.filter((d) => d.kind === "sourceOnly").length;
+    if (sourceOnly > 0) {
+      lines.push(`-- 预计新增约 ${sourceOnly} 行（来自行级分析）`);
+    }
+    lines.push(buildInsertPreviewSql(dbType, tableName, columns, rowCount));
+  }
+
+  if (modes.merge) {
+    lines.push("-- 合并：双方均存在且字段冲突的行，以源表取值 UPDATE 目标表");
+    lines.push(`-- UPDATE ${quoteIdent(dbType, tableName)} SET ... WHERE <主键>`);
+    if (pkCols.length > 0) {
+      lines.push(`-- 主键: ${pkCols.join(", ")}`);
+    }
+  }
+
+  if (modes.delete) {
+    lines.push("-- 删除：将目标表有、源表无的行从目标表 DELETE");
+    lines.push(`-- DELETE FROM ${quoteIdent(dbType, tableName)} WHERE <主键>`);
+    if (pkCols.length > 0) {
+      lines.push(`-- 主键: ${pkCols.join(", ")}`);
+    }
   }
 
   return lines;
@@ -363,6 +395,12 @@ async function buildDataTablePreview(
 
 /** 根据当前任务配置生成预计执行的 SQL 脚本（预览，不含真实行数据）。 */
 export async function buildSyncTaskSqlPreview(input: SyncTaskSqlPreviewInput): Promise<string> {
+  syncExecuteConfirmLog("buildPreview:start", {
+    tab: input.tab,
+    tableNames: input.tableNames,
+    targetDbType: input.targetConn.db_type,
+  });
+
   const header = [
     `-- ${input.tab === "dataSync" ? "数据同步" : "结构同步"} · 脚本预览`,
     `-- 源: ${input.sourceConn.name}/${input.sourceDb}`,
@@ -377,7 +415,12 @@ export async function buildSyncTaskSqlPreview(input: SyncTaskSqlPreviewInput): P
 
   const dbType = input.targetConn.db_type.toLowerCase();
   if (!isMysqlEngine(dbType) && !isPostgresEngine(dbType) && dbType !== "sqlite") {
-    return [...header, `-- 暂不支持 ${input.targetConn.db_type} 的脚本预览`].join("\n");
+    const unsupported = [...header, `-- 暂不支持 ${input.targetConn.db_type} 的脚本预览`].join("\n");
+    syncExecuteConfirmWarn("buildPreview:unsupported-db", {
+      dbType: input.targetConn.db_type,
+      textLength: unsupported.length,
+    });
+    return unsupported;
   }
 
   const sections: string[] = [...header];
@@ -388,9 +431,19 @@ export async function buildSyncTaskSqlPreview(input: SyncTaskSqlPreviewInput): P
       input.tab === "schemaSync"
         ? await buildSchemaTablePreview(input, name)
         : await buildDataTablePreview(input, name);
+    syncExecuteConfirmLog("buildPreview:table", {
+      table: name,
+      lineCount: body.length,
+      previewHead: body.slice(0, 3).join(" | "),
+    });
     sections.push(...body);
     sections.push("");
   }
 
-  return `${sections.join("\n").trimEnd()}\n`;
+  const result = `${sections.join("\n").trimEnd()}\n`;
+  syncExecuteConfirmLog("buildPreview:done", {
+    textLength: result.length,
+    lineCount: result.split("\n").length,
+  });
+  return result;
 }

@@ -492,16 +492,34 @@ function resolveHoverTarget(
   return null;
 }
 
+function isPosInLineComment(lineText: string, offsetInLine: number): boolean {
+  const before = lineText.slice(0, Math.max(0, offsetInLine));
+  const commentStart = before.indexOf("--");
+  if (commentStart < 0) {
+    return false;
+  }
+  const beforeComment = before.slice(0, commentStart);
+  const singleQuotes = (beforeComment.match(/'/g) ?? []).length;
+  return singleQuotes % 2 === 0;
+}
+
 /** 表/列 Hover 提示（Metadata Catalog + 语句内别名解析）。 */
 export function createSqlHoverTooltip(
   getSchemas: () => DatabaseSchema[],
   getDbType?: () => string | undefined,
+  getReadOnly?: () => boolean,
 ) {
   return hoverTooltip(
     (view, pos) => {
+      if (getReadOnly?.()) {
+        return null;
+      }
       const catalog = Catalog.fromSchemas(getSchemas());
       const line = view.state.doc.lineAt(pos);
       const offsetInLine = pos - line.from;
+      if (isPosInLineComment(line.text, offsetInLine)) {
+        return null;
+      }
       const ident = identifierAtPos(line.text, offsetInLine);
       if (!ident) return null;
 
@@ -510,7 +528,12 @@ export function createSqlHoverTooltip(
       const statement = sliceStatementAtOffset(doc, pos);
       const offsetInStatement = statementOffsetAtPos(doc, pos);
       const dbType = getDbType?.();
-      const analysis = analyzeStatementAtOffset(statement, offsetInStatement, dbType);
+      let analysis: StatementAnalysis | null = null;
+      try {
+        analysis = analyzeStatementAtOffset(statement, offsetInStatement, dbType);
+      } catch {
+        return null;
+      }
       const qualifier = qualifierBeforePos(line.text, ident.from);
       const target = resolveHoverTarget(catalog, analysis, statement, dbType, word, qualifier);
       const missingTable = target

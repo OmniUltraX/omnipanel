@@ -6,11 +6,11 @@ use futures::stream::{self, StreamExt};
 use omnipanel_store::DbConnectionConfig;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::background::worker_pool::default_worker_count;
 use crate::commands::database::{self, DbColumnMeta, DbIndexMeta};
-use crate::commands::db_sync_diff_cache::{build_row_diff_cache_id, save_row_diff_cache};
+use crate::commands::db_sync_diff_cache::{build_row_diff_cache_id, load_row_diff_cache_all, save_row_diff_cache};
 
 const PAGE_SIZE: i64 = 2000;
 const MAX_DIFF_DETAIL_ROWS: usize = 100;
@@ -120,6 +120,23 @@ pub struct BgTaskDbEvent {
     pub exec_result: Option<SyncExecResultEvent>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataSyncModes {
+    #[serde(default)]
+    pub insert: bool,
+    #[serde(default)]
+    pub merge: bool,
+    #[serde(default)]
+    pub delete: bool,
+}
+
+impl DataSyncModes {
+    fn any_enabled(&self) -> bool {
+        self.insert || self.merge || self.delete
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbSyncExecTableSpec {
@@ -129,6 +146,10 @@ pub struct DbSyncExecTableSpec {
     pub indexes: Vec<DbIndexMeta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_modes: Option<DataSyncModes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_cache_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,13 +446,21 @@ async fn compare_table_rows(
 
     if diff_count == 0 {
         report_rows(row_total, row_total);
+        let cache_id = build_row_diff_cache_id(source, target, table_name, ignored_fields);
+        let diff_cache_id = match save_row_diff_cache(app, &cache_id, table_name, &[]) {
+            Ok(()) => Some(cache_id),
+            Err(e) => {
+                eprintln!("[db_sync] 保存行差异缓存失败: {e}");
+                None
+            }
+        };
         TableRowCompareEvent {
             table: table_name.to_string(),
             status: "match".to_string(),
             diff_rows: Some(0),
             diffs: Vec::new(),
             truncated: None,
-            diff_cache_id: None,
+            diff_cache_id,
             error: None,
         }
     } else {
@@ -1124,43 +1153,119 @@ async fn ensure_table_from_source(
     Ok(())
 }
 
-async fn truncate_target_table(
-    target: &DbConnectionConfig,
-    target_db: &str,
-    table: &str,
-) -> Result<(), String> {
-    let ident = quote_ident(&target.db_type, table);
-    let sql = if is_mysql_engine(&target.db_type) {
-        format!("TRUNCATE TABLE {ident}")
-    } else if is_postgres_engine(&target.db_type) {
-        format!("TRUNCATE TABLE {ident}")
-    } else {
-        format!("DELETE FROM {ident}")
-    };
-    database::db_run_sql(target.clone(), Some(target_db.to_string()), sql)
-        .await?;
-    Ok(())
+
+fn resolve_data_sync_modes(spec: &DbSyncExecTableSpec) -> DataSyncModes {
+    if let Some(modes) = spec.sync_modes.clone() {
+        return modes;
+    }
+    migrate_legacy_data_sync_strategy(spec.strategy.as_deref())
 }
 
-fn normalize_data_sync_strategy(strategy: Option<&str>) -> &'static str {
-    match strategy.unwrap_or("source") {
-        "target" => "target",
-        "mergeTarget" | "merge_target" => "mergeTarget",
-        "conflictTarget" | "conflict_target" => "conflictTarget",
-        "mergeSource" | "merge_source" | "merge" | "append" => "mergeSource",
-        "conflictSource" | "conflict_source" => "conflictSource",
-        "source" | "rewrite" | "update" => "source",
-        _ => "source",
+fn migrate_legacy_data_sync_strategy(strategy: Option<&str>) -> DataSyncModes {
+    match normalize_data_sync_strategy(strategy) {
+        "target" | "mergeTarget" | "conflictTarget" => DataSyncModes {
+            insert: false,
+            merge: false,
+            delete: false,
+        },
+        "conflictSource" => DataSyncModes {
+            insert: false,
+            merge: true,
+            delete: false,
+        },
+        "source" => DataSyncModes {
+            insert: true,
+            merge: true,
+            delete: true,
+        },
+        _ => DataSyncModes {
+            insert: true,
+            merge: true,
+            delete: false,
+        },
+    }
+}
+
+fn rows_have_conflict(
+    source_row: &HashMap<String, serde_json::Value>,
+    target_row: &HashMap<String, serde_json::Value>,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+) -> bool {
+    for col in columns {
+        if pk_columns
+            .iter()
+            .any(|pk| pk.eq_ignore_ascii_case(&col.name))
+        {
+            continue;
+        }
+        if normalize_value(&row_value(source_row, &col.name))
+            != normalize_value(&row_value(target_row, &col.name))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn build_delete_statement(
+    db_type: &str,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    row: &HashMap<String, serde_json::Value>,
+) -> Result<Option<String>, String> {
+    if pk_columns.is_empty() {
+        return Ok(None);
+    }
+    let table_ident = quote_ident(db_type, table);
+    let mut where_parts: Vec<String> = Vec::new();
+    for pk in pk_columns {
+        let col = columns
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(pk))
+            .ok_or_else(|| format!("无法生成 DELETE：缺少主键列 {pk}"))?;
+        where_parts.push(format!(
+            "{} = {}",
+            quote_ident(db_type, &col.name),
+            sql_literal(&row_value(row, &col.name), db_type)
+        ));
+    }
+    Ok(Some(format!(
+        "DELETE FROM {table_ident} WHERE {}",
+        where_parts.join(" AND ")
+    )))
+}
+
+struct SyncWriteStats {
+    inserted: u64,
+    updated: u64,
+    deleted: u64,
+}
+
+impl SyncWriteStats {
+    fn total(&self) -> u64 {
+        self.inserted
+            .saturating_add(self.updated)
+            .saturating_add(self.deleted)
     }
 }
 
 async fn fetch_table_row_keys(
     connection: &DbConnectionConfig,
     table_name: &str,
-    pk_columns: &[String],
-    all_columns: &[String],
+    columns: &[DbColumnMeta],
     cancel: &AtomicBool,
 ) -> Result<HashSet<String>, String> {
+    let pk_columns: Vec<String> = columns
+        .iter()
+        .filter(|c| c.is_pk)
+        .map(|c| c.name.clone())
+        .collect();
+    let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let fetch_columns = build_fetch_columns(table_name, columns, &pk_columns, &HashSet::new());
+    let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
+
     let total = database::db_count_table(
         connection.clone(),
         None,
@@ -1172,28 +1277,31 @@ async fn fetch_table_row_keys(
         return Ok(HashSet::new());
     }
 
+    let driver = database::open_db_driver(connection).await?;
+    let db_type = connection.db_type.clone();
     let mut keys = HashSet::new();
     let mut offset = 0i64;
     while offset < total {
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
         }
-        let page = database::db_preview_table(
-            connection.clone(),
-            table_name.to_string(),
-            PAGE_SIZE as u32,
-            offset as u32,
-            None,
-            None,
+        let page_rows = preview_table_column_page(
+            driver.as_ref(),
+            &db_type,
+            table_name,
+            &fetch_columns,
+            PAGE_SIZE,
+            offset,
+            order_by.as_deref(),
         )
         .await?;
-        if page.rows.is_empty() {
+        if page_rows.is_empty() {
             break;
         }
-        for row in &page.rows {
-            keys.insert(build_row_key(row, pk_columns, all_columns));
+        let batch_len = page_rows.len();
+        for row in page_rows {
+            keys.insert(build_row_key(&row, &pk_columns, &all_column_names));
         }
-        let batch_len = page.rows.len();
         offset += PAGE_SIZE;
         if batch_len < PAGE_SIZE as usize {
             break;
@@ -1202,7 +1310,66 @@ async fn fetch_table_row_keys(
     Ok(keys)
 }
 
-async fn copy_table_data_merge_source(
+async fn fetch_table_rows_map(
+    connection: &DbConnectionConfig,
+    table_name: &str,
+    columns: &[DbColumnMeta],
+    cancel: &AtomicBool,
+) -> Result<HashMap<String, HashMap<String, serde_json::Value>>, String> {
+    let pk_columns: Vec<String> = columns
+        .iter()
+        .filter(|c| c.is_pk)
+        .map(|c| c.name.clone())
+        .collect();
+    let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
+
+    let total = database::db_count_table(
+        connection.clone(),
+        None,
+        table_name.to_string(),
+        None,
+    )
+    .await?;
+    if total <= 0 {
+        return Ok(HashMap::new());
+    }
+
+    let driver = database::open_db_driver(connection).await?;
+    let db_type = connection.db_type.clone();
+    let mut rows_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+    let mut offset = 0i64;
+    while offset < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page_rows = preview_table_column_page(
+            driver.as_ref(),
+            &db_type,
+            table_name,
+            &all_column_names,
+            PAGE_SIZE,
+            offset,
+            order_by.as_deref(),
+        )
+        .await?;
+        if page_rows.is_empty() {
+            break;
+        }
+        let batch_len = page_rows.len();
+        for row in page_rows {
+            let key = build_row_key(&row, &pk_columns, &all_column_names);
+            rows_map.insert(key, row);
+        }
+        offset += PAGE_SIZE;
+        if batch_len < PAGE_SIZE as usize {
+            break;
+        }
+    }
+    Ok(rows_map)
+}
+
+async fn copy_table_data_with_modes(
     source: &DbConnectionConfig,
     source_db: &str,
     target: &DbConnectionConfig,
@@ -1210,13 +1377,22 @@ async fn copy_table_data_merge_source(
     spec: &DbSyncExecTableSpec,
     cancel: &AtomicBool,
     report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
-    insert_missing: bool,
-) -> Result<u64, String> {
+    modes: DataSyncModes,
+) -> Result<SyncWriteStats, String> {
     let table = spec.name.as_str();
-    let columns: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
-    if columns.is_empty() {
+    let column_names: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
+    if spec.columns.is_empty() {
         return Err("缺少表字段信息".to_string());
     }
+    if !modes.any_enabled() {
+        report_rows(0, 1);
+        return Ok(SyncWriteStats {
+            inserted: 0,
+            updated: 0,
+            deleted: 0,
+        });
+    }
+
     let pk_columns: Vec<String> = spec
         .columns
         .iter()
@@ -1229,77 +1405,809 @@ async fn copy_table_data_merge_source(
     let mut target_conn = target.clone();
     target_conn.database = target_db.to_string();
 
-    let target_keys =
-        fetch_table_row_keys(&target_conn, table, &pk_columns, &columns, cancel).await?;
+    let source_order = build_pk_order_clause(&source_conn.db_type, &pk_columns);
+    let target_order = build_pk_order_clause(&target_conn.db_type, &pk_columns);
 
-    let total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
+    let needs_target_keys = modes.insert || modes.merge;
+    let target_keys = if needs_target_keys {
+        Some(
+            fetch_table_row_keys(&target_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let target_rows = if modes.merge {
+        Some(
+            fetch_table_rows_map(&target_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let source_keys = if modes.delete {
+        Some(
+            fetch_table_row_keys(&source_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let source_total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
         .await
         .unwrap_or(0)
         .max(0) as u32;
-    let mut written = 0u64;
-    let mut offset = 0i64;
+    let target_total = database::db_count_table(target_conn.clone(), None, table.to_string(), None)
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
 
-    while offset < i64::from(total.max(1)) || (total == 0 && offset == 0) {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let page = database::db_preview_table(
-            source_conn.clone(),
-            table.to_string(),
-            PAGE_SIZE as u32,
-            offset as u32,
-            None,
-            None,
-        )
-        .await?;
-        if page.rows.is_empty() {
-            break;
-        }
-        let batch_len = page.rows.len();
-        let mut rows_to_insert: Vec<HashMap<String, serde_json::Value>> = Vec::new();
-        let mut rows_to_update: Vec<HashMap<String, serde_json::Value>> = Vec::new();
-        for row in page.rows {
-            let key = build_row_key(&row, &pk_columns, &columns);
-            if target_keys.contains(&key) {
-                rows_to_update.push(row);
-            } else {
-                rows_to_insert.push(row);
+    let mut stats = SyncWriteStats {
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+    };
+
+    if modes.insert || modes.merge {
+        let mut offset = 0i64;
+        while offset < i64::from(source_total.max(1)) || (source_total == 0 && offset == 0) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
             }
-        }
-        for chunk in rows_to_insert.chunks(INSERT_BATCH_SIZE) {
-            if !insert_missing {
+            let page = database::db_preview_table(
+                source_conn.clone(),
+                table.to_string(),
+                PAGE_SIZE as u32,
+                offset as u32,
+                source_order.clone(),
+                None,
+            )
+            .await?;
+            if page.rows.is_empty() {
                 break;
             }
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".to_string());
+            let batch_len = page.rows.len();
+            let mut rows_to_insert: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+            for row in page.rows {
+                let key = build_row_key(&row, &pk_columns, &column_names);
+                let in_target = target_keys
+                    .as_ref()
+                    .map(|keys| keys.contains(&key))
+                    .unwrap_or(false);
+                if modes.insert && !in_target {
+                    rows_to_insert.push(row);
+                    continue;
+                }
+                if modes.merge && in_target {
+                    if let Some(target_row) = target_rows.as_ref().and_then(|map| map.get(&key)) {
+                        if rows_have_conflict(&row, target_row, &spec.columns, &pk_columns) {
+                            if let Some(sql) = build_update_statement(
+                                &target.db_type,
+                                table,
+                                &spec.columns,
+                                &pk_columns,
+                                &row,
+                            )? {
+                                let affected =
+                                    execute_insert_statements(&target_conn, vec![sql], cancel, table)
+                                        .await?;
+                                if affected > 0 {
+                                    stats.updated += 1;
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            let statements =
-                build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
-            written += execute_insert_statements(&target_conn, statements, cancel).await?;
-        }
-        for row in &rows_to_update {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".to_string());
+            for chunk in rows_to_insert.chunks(INSERT_BATCH_SIZE) {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                let statements =
+                    build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
+                if statements.is_empty() {
+                    continue;
+                }
+                execute_insert_statements(&target_conn, statements, cancel, table).await?;
+                stats.inserted = stats
+                    .inserted
+                    .saturating_add(chunk.len() as u64);
             }
-            if let Some(sql) = build_update_statement(
-                &target.db_type,
-                table,
-                &spec.columns,
-                &pk_columns,
-                row,
-            )? {
-                written += execute_insert_statements(&target_conn, vec![sql], cancel).await?;
+            report_rows(stats.total() as u32, source_total.max(1));
+            offset += PAGE_SIZE;
+            if batch_len < PAGE_SIZE as usize {
+                break;
             }
-        }
-        let done = (offset as u32 + batch_len as u32).min(total.max(batch_len as u32));
-        report_rows(done, total.max(1));
-        offset += PAGE_SIZE;
-        if batch_len < PAGE_SIZE as usize {
-            break;
         }
     }
 
-    Ok(written)
+    if modes.delete {
+        if let Some(source_key_set) = source_keys.as_ref() {
+            let mut offset = 0i64;
+            while offset < i64::from(target_total.max(1)) || (target_total == 0 && offset == 0) {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                let page = database::db_preview_table(
+                    target_conn.clone(),
+                    table.to_string(),
+                    PAGE_SIZE as u32,
+                    offset as u32,
+                    target_order.clone(),
+                    None,
+                )
+                .await?;
+                if page.rows.is_empty() {
+                    break;
+                }
+                let batch_len = page.rows.len();
+                for row in page.rows {
+                    let key = build_row_key(&row, &pk_columns, &column_names);
+                    if source_key_set.contains(&key) {
+                        continue;
+                    }
+                    if let Some(sql) = build_delete_statement(
+                        &target.db_type,
+                        table,
+                        &spec.columns,
+                        &pk_columns,
+                        &row,
+                    )? {
+                        let affected =
+                            execute_insert_statements(&target_conn, vec![sql], cancel, table)
+                                .await?;
+                        if affected > 0 {
+                            stats.deleted += 1;
+                        }
+                    }
+                }
+                report_rows(stats.total() as u32, target_total.max(1));
+                offset += PAGE_SIZE;
+                if batch_len < PAGE_SIZE as usize {
+                    break;
+                }
+            }
+        }
+    }
+
+    report_rows(stats.total() as u32, stats.total().max(1) as u32);
+    Ok(stats)
+}
+
+fn format_sql_statement(sql: &str) -> String {
+    let trimmed = sql.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.ends_with(';') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed};")
+    }
+}
+
+fn format_sync_modes_label(modes: &DataSyncModes) -> String {
+    if !modes.any_enabled() {
+        return "未启用".to_string();
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    if modes.insert {
+        parts.push("新增");
+    }
+    if modes.merge {
+        parts.push("合并");
+    }
+    if modes.delete {
+        parts.push("删除");
+    }
+    parts.join("+")
+}
+
+fn parse_table_marker(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("-- ── ") || !trimmed.ends_with(" ──") {
+        return None;
+    }
+    let inner = trimmed
+        .trim_start_matches("-- ── ")
+        .trim_end_matches(" ──")
+        .trim();
+    if inner.is_empty() {
+        None
+    } else {
+        Some(inner.to_string())
+    }
+}
+
+fn parse_sql_file_statements(content: &str) -> Vec<(Option<String>, String)> {
+    let mut current_table: Option<String> = None;
+    let mut statements: Vec<(Option<String>, String)> = Vec::new();
+    let mut buffer = String::new();
+
+    for line in content.lines() {
+        if let Some(table) = parse_table_marker(line) {
+            current_table = Some(table);
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            continue;
+        }
+        buffer.push_str(line);
+        buffer.push('\n');
+        if trimmed.ends_with(';') {
+            let stmt = buffer.trim().trim_end_matches(';').trim();
+            if !stmt.is_empty() {
+                statements.push((current_table.clone(), stmt.to_string()));
+            }
+            buffer.clear();
+        }
+    }
+
+    let tail = buffer.trim().trim_end_matches(';').trim();
+    if !tail.is_empty() {
+        statements.push((current_table, tail.to_string()));
+    }
+    statements
+}
+
+async fn generate_create_table_statement(
+    source: &DbConnectionConfig,
+    source_db: &str,
+    target: &DbConnectionConfig,
+    target_db: &str,
+    source_table: &str,
+    target_table: &str,
+) -> Result<Option<String>, String> {
+    if target_table_exists(target, target_db, target_table).await {
+        return Ok(None);
+    }
+    let ddl = database::db_table_ddl(
+        source.clone(),
+        Some(source_db.to_string()),
+        source_table.to_string(),
+    )
+    .await?;
+    let sql = normalize_create_table_ddl(&ddl, &target.db_type);
+    let sql = rewrite_create_table_ddl_name(&sql, source_table, target_table, &target.db_type);
+    Ok(Some(format_sql_statement(&sql)))
+}
+
+async fn collect_table_sync_sql(
+    source: &DbConnectionConfig,
+    source_db: &str,
+    target: &DbConnectionConfig,
+    target_db: &str,
+    spec: &DbSyncExecTableSpec,
+    cancel: &AtomicBool,
+    modes: DataSyncModes,
+) -> Result<(Vec<String>, SyncWriteStats), String> {
+    let table = spec.name.as_str();
+    let column_names: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
+    if spec.columns.is_empty() {
+        return Err("缺少表字段信息".to_string());
+    }
+    if !modes.any_enabled() {
+        return Ok((
+            vec!["-- 未启用任何同步方式，无 DML".to_string()],
+            SyncWriteStats {
+                inserted: 0,
+                updated: 0,
+                deleted: 0,
+            },
+        ));
+    }
+
+    let pk_columns: Vec<String> = spec
+        .columns
+        .iter()
+        .filter(|c| c.is_pk)
+        .map(|c| c.name.clone())
+        .collect();
+
+    let mut source_conn = source.clone();
+    source_conn.database = source_db.to_string();
+    let mut target_conn = target.clone();
+    target_conn.database = target_db.to_string();
+
+    let source_order = build_pk_order_clause(&source_conn.db_type, &pk_columns);
+    let target_order = build_pk_order_clause(&target_conn.db_type, &pk_columns);
+
+    let needs_target_keys = modes.insert || modes.merge;
+    let target_keys = if needs_target_keys {
+        Some(
+            fetch_table_row_keys(&target_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let target_rows = if modes.merge {
+        Some(
+            fetch_table_rows_map(&target_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let source_keys = if modes.delete {
+        Some(
+            fetch_table_row_keys(&source_conn, table, &spec.columns, cancel).await?,
+        )
+    } else {
+        None
+    };
+
+    let source_total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
+    let target_total = database::db_count_table(target_conn.clone(), None, table.to_string(), None)
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
+
+    let mut stats = SyncWriteStats {
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+    };
+    let mut statements: Vec<String> = Vec::new();
+
+    if modes.insert || modes.merge {
+        let mut offset = 0i64;
+        while offset < i64::from(source_total.max(1)) || (source_total == 0 && offset == 0) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
+            }
+            let page = database::db_preview_table(
+                source_conn.clone(),
+                table.to_string(),
+                PAGE_SIZE as u32,
+                offset as u32,
+                source_order.clone(),
+                None,
+            )
+            .await?;
+            if page.rows.is_empty() {
+                break;
+            }
+            let batch_len = page.rows.len();
+            let mut rows_to_insert: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+            for row in page.rows {
+                let key = build_row_key(&row, &pk_columns, &column_names);
+                let in_target = target_keys
+                    .as_ref()
+                    .map(|keys| keys.contains(&key))
+                    .unwrap_or(false);
+                if modes.insert && !in_target {
+                    rows_to_insert.push(row);
+                    continue;
+                }
+                if modes.merge && in_target {
+                    if let Some(target_row) = target_rows.as_ref().and_then(|map| map.get(&key)) {
+                        if rows_have_conflict(&row, target_row, &spec.columns, &pk_columns) {
+                            if let Some(sql) = build_update_statement(
+                                &target.db_type,
+                                table,
+                                &spec.columns,
+                                &pk_columns,
+                                &row,
+                            )? {
+                                statements.push(format_sql_statement(&sql));
+                                stats.updated += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            for chunk in rows_to_insert.chunks(INSERT_BATCH_SIZE) {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                let batch =
+                    build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
+                for sql in batch {
+                    statements.push(format_sql_statement(&sql));
+                }
+                stats.inserted = stats.inserted.saturating_add(chunk.len() as u64);
+            }
+            offset += PAGE_SIZE;
+            if batch_len < PAGE_SIZE as usize {
+                break;
+            }
+        }
+    }
+
+    if modes.delete {
+        if let Some(source_key_set) = source_keys.as_ref() {
+            let mut offset = 0i64;
+            while offset < i64::from(target_total.max(1)) || (target_total == 0 && offset == 0) {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                let page = database::db_preview_table(
+                    target_conn.clone(),
+                    table.to_string(),
+                    PAGE_SIZE as u32,
+                    offset as u32,
+                    target_order.clone(),
+                    None,
+                )
+                .await?;
+                if page.rows.is_empty() {
+                    break;
+                }
+                let batch_len = page.rows.len();
+                for row in page.rows {
+                    let key = build_row_key(&row, &pk_columns, &column_names);
+                    if source_key_set.contains(&key) {
+                        continue;
+                    }
+                    if let Some(sql) = build_delete_statement(
+                        &target.db_type,
+                        table,
+                        &spec.columns,
+                        &pk_columns,
+                        &row,
+                    )? {
+                        statements.push(format_sql_statement(&sql));
+                        stats.deleted += 1;
+                    }
+                }
+                offset += PAGE_SIZE;
+                if batch_len < PAGE_SIZE as usize {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok((statements, stats))
+}
+
+fn collect_table_sync_sql_from_diffs(
+    db_type: &str,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    diffs: &[TableRowDiffPayload],
+    modes: DataSyncModes,
+) -> Result<(Vec<String>, SyncWriteStats), String> {
+    let mut statements: Vec<String> = Vec::new();
+    let mut stats = SyncWriteStats {
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+    };
+
+    if !modes.any_enabled() {
+        return Ok((vec!["-- 未启用任何同步方式，无 DML".to_string()], stats));
+    }
+
+    for diff in diffs {
+        match diff.kind.as_str() {
+            "sourceOnly" if modes.insert => {
+                if let Some(row) = &diff.source_row {
+                    for sql in build_insert_statement(db_type, table, columns, std::slice::from_ref(row))? {
+                        statements.push(format_sql_statement(&sql));
+                    }
+                    stats.inserted += 1;
+                }
+            }
+            "changed" if modes.merge => {
+                if let Some(row) = &diff.source_row {
+                    if let Some(sql) =
+                        build_update_statement(db_type, table, columns, pk_columns, row)?
+                    {
+                        statements.push(format_sql_statement(&sql));
+                        stats.updated += 1;
+                    }
+                }
+            }
+            "targetOnly" if modes.delete => {
+                if let Some(row) = &diff.target_row {
+                    if let Some(sql) =
+                        build_delete_statement(db_type, table, columns, pk_columns, row)?
+                    {
+                        statements.push(format_sql_statement(&sql));
+                        stats.deleted += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok((statements, stats))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbDataSyncSqlGenerateResult {
+    pub file_path: String,
+    pub statement_count: u32,
+}
+
+fn sync_sql_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    use std::fs;
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录: {e}"))?
+        .join("data-sync-sql");
+    fs::create_dir_all(&dir).map_err(|e| format!("创建 SQL 缓存目录失败: {e}"))?;
+    Ok(dir)
+}
+
+fn write_sync_sql_file(app: &AppHandle, sql: &str) -> Result<String, String> {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let dir = sync_sql_dir(app)?;
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path: PathBuf = dir.join(format!("sync-{millis}.sql"));
+    fs::write(&path, sql).map_err(|e| format!("写入 SQL 文件失败: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+pub fn read_sync_sql_file(app: &AppHandle, sql_file_path: &str) -> Result<String, String> {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let dir = sync_sql_dir(app)?;
+    let dir_canonical = dir.canonicalize().unwrap_or(dir);
+    let requested = PathBuf::from(sql_file_path);
+    let resolved = requested
+        .canonicalize()
+        .map_err(|e| format!("SQL 文件不存在或无法访问: {e}"))?;
+    if !resolved.starts_with(&dir_canonical) {
+        return Err("不允许读取该 SQL 文件路径".to_string());
+    }
+    fs::read_to_string(resolved).map_err(|e| format!("读取 SQL 文件失败: {e}"))
+}
+
+pub async fn generate_data_sync_sql_script(
+    app: &AppHandle,
+    source: DbConnectionConfig,
+    target: DbConnectionConfig,
+    tables: Vec<DbSyncExecTableSpec>,
+) -> Result<DbDataSyncSqlGenerateResult, String> {
+    let source_db = source.database.clone();
+    let target_db = target.database.clone();
+    let mut lines: Vec<String> = Vec::new();
+    let mut statement_count = 0u32;
+
+    lines.push("-- 数据同步 SQL 脚本".to_string());
+    lines.push(format!("-- 源库: {source_db}"));
+    lines.push(format!("-- 目标库: {target_db}"));
+    lines.push(format!("-- 表数量: {}", tables.len()));
+    lines.push(String::new());
+
+    for spec in &tables {
+        let table = spec.name.clone();
+        lines.push(format!("-- ── {table} ──"));
+
+        let mut exec_spec = spec.clone();
+        exec_spec.columns = resolve_exec_table_columns(&source, &source_db, spec).await?;
+
+        if let Some(create_sql) = generate_create_table_statement(
+            &source,
+            &source_db,
+            &target,
+            &target_db,
+            &exec_spec.name,
+            &exec_spec.name,
+        )
+        .await?
+        {
+            lines.push(create_sql);
+            statement_count += 1;
+        }
+
+        let modes = resolve_data_sync_modes(&exec_spec);
+        lines.push(format!("-- 同步方式: {}", format_sync_modes_label(&modes)));
+
+        let pk_columns: Vec<String> = exec_spec
+            .columns
+            .iter()
+            .filter(|c| c.is_pk)
+            .map(|c| c.name.clone())
+            .collect();
+
+        let (mut stmts, stats) = if let Some(cache_id) = exec_spec.diff_cache_id.as_deref() {
+            let diffs = load_row_diff_cache_all(app, cache_id).map_err(|err| {
+                format!("无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}")
+            })?;
+            collect_table_sync_sql_from_diffs(
+                &target.db_type,
+                &exec_spec.name,
+                &exec_spec.columns,
+                &pk_columns,
+                &diffs,
+                modes.clone(),
+            )?
+        } else {
+            return Err(format!(
+                "表 {table} 尚未完成行级分析，请先在目标侧点击「分析」后再生成 SQL"
+            ));
+        };
+        statement_count = statement_count.saturating_add(stmts.len() as u32);
+        lines.append(&mut stmts);
+        lines.push(format!(
+            "-- 预计: 新增 {} / 合并 {} / 删除 {} 行",
+            stats.inserted, stats.updated, stats.deleted
+        ));
+        lines.push(String::new());
+    }
+
+    let sql = format!("{}\n", lines.join("\n").trim_end());
+    let file_path = write_sync_sql_file(app, &sql)?;
+    Ok(DbDataSyncSqlGenerateResult {
+        file_path,
+        statement_count,
+    })
+}
+
+pub async fn run_db_data_sync_sql_file_execute(
+    app: AppHandle,
+    task_id: String,
+    target: DbConnectionConfig,
+    target_db: String,
+    sql_file_path: String,
+    table_names: Vec<String>,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
+) -> Result<(), String> {
+    use std::fs;
+
+    let content = fs::read_to_string(&sql_file_path)
+        .map_err(|e| format!("读取 SQL 文件失败 ({sql_file_path}): {e}"))?;
+    let statements = parse_sql_file_statements(&content);
+    if statements.is_empty() {
+        return Err("SQL 文件中没有可执行的语句".to_string());
+    }
+
+    let total = statements.len().max(1) as u32;
+    let mut table_stats: HashMap<String, (u32, Option<String>)> = HashMap::new();
+    let mut current_table = table_names.first().cloned();
+    for name in &table_names {
+        table_stats.insert(name.clone(), (0, None));
+    }
+    let mut rows_written_total = 0u32;
+
+    for (idx, (marker_table, sql)) in statements.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        if let Some(name) = marker_table {
+            current_table = Some(name.clone());
+        }
+        let index = (idx + 1) as u32;
+        let table_label = current_table.as_deref().unwrap_or("SQL");
+        progress(
+            format!("正在执行 ({index}/{total})：{table_label}"),
+            index,
+            total,
+            Some(rows_written_total),
+            None,
+        );
+
+        match database::db_run_sql(target.clone(), Some(target_db.clone()), sql.clone()).await {
+            Ok(affected) => {
+                rows_written_total = rows_written_total.saturating_add(affected.min(u32::MAX as u64) as u32);
+                if let Some(table) = current_table.as_ref() {
+                    let entry = table_stats.entry(table.clone()).or_insert((0, None));
+                    entry.0 = entry.0.saturating_add(affected.min(u32::MAX as u64) as u32);
+                }
+            }
+            Err(err) => {
+                let formatted = if let Some(table) = current_table.as_ref() {
+                    format_sync_foreign_key_error(table, &err)
+                } else {
+                    err
+                };
+                if let Some(table) = current_table.as_ref() {
+                    if let Some(entry) = table_stats.get_mut(table) {
+                        entry.1 = Some(formatted.clone());
+                    }
+                }
+                progress(
+                    format!("执行失败 ({index}/{total})：{formatted}"),
+                    index,
+                    total,
+                    Some(rows_written_total),
+                    None,
+                );
+                if let Some(table) = current_table.clone() {
+                    emit_exec_event(
+                        &app,
+                        &task_id,
+                        SyncExecResultEvent {
+                            table,
+                            status: "error".to_string(),
+                            rows_written: None,
+                            message: None,
+                            error: Some(formatted.clone()),
+                        },
+                    )
+                    .await;
+                }
+                return Err(formatted);
+            }
+        }
+    }
+
+    for name in &table_names {
+        let (rows, error) = table_stats.get(name).cloned().unwrap_or((0, None));
+        emit_exec_event(
+            &app,
+            &task_id,
+            SyncExecResultEvent {
+                table: name.clone(),
+                status: if error.is_some() {
+                    "error".to_string()
+                } else {
+                    "success".to_string()
+                },
+                rows_written: Some(u64::from(rows)),
+                message: error
+                    .clone()
+                    .is_none()
+                    .then(|| format!("已从 SQL 文件执行，影响 {rows} 行")),
+                error,
+            },
+        )
+        .await;
+    }
+
+    progress(
+        format!("SQL 文件执行完成，共影响 {rows_written_total} 行"),
+        total,
+        total,
+        Some(rows_written_total),
+        None,
+    );
+    Ok(())
+}
+
+fn format_sync_modes_message(modes: &DataSyncModes, stats: &SyncWriteStats) -> String {
+    if !modes.any_enabled() {
+        return "未启用任何同步方式，已跳过".to_string();
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    if modes.insert {
+        parts.push("新增");
+    }
+    if modes.merge {
+        parts.push("合并");
+    }
+    if modes.delete {
+        parts.push("删除");
+    }
+    format!(
+        "已执行 {}（新增 {} / 合并 {} / 删除 {} 行）",
+        parts.join("+"),
+        stats.inserted,
+        stats.updated,
+        stats.deleted
+    )
+}
+
+fn normalize_data_sync_strategy(strategy: Option<&str>) -> &'static str {
+    match strategy.unwrap_or("source") {
+        "target" => "target",
+        "mergeTarget" | "merge_target" => "mergeTarget",
+        "conflictTarget" | "conflict_target" => "conflictTarget",
+        "mergeSource" | "merge_source" | "merge" | "append" => "mergeSource",
+        "conflictSource" | "conflict_source" => "conflictSource",
+        "source" | "rewrite" | "update" => "source",
+        _ => "source",
+    }
 }
 
 fn should_include_insert_column(row: &HashMap<String, serde_json::Value>, col: &DbColumnMeta) -> bool {
@@ -1429,10 +2337,179 @@ fn build_update_statement(
     )))
 }
 
+struct ForeignKeyViolation {
+    child_table: Option<String>,
+    child_column: Option<String>,
+    parent_table: String,
+    parent_column: Option<String>,
+    is_parent_row_violation: bool,
+}
+
+fn parse_backtick_ident(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+    if !input.starts_with('`') {
+        return None;
+    }
+    let inner = &input[1..];
+    let end = inner.find('`')?;
+    Some((&inner[..end], &inner[end + 1..]))
+}
+
+fn parse_ident_in_parens(input: &str) -> Option<String> {
+    let input = input.trim_start();
+    if !input.starts_with('(') {
+        return None;
+    }
+    let inner = &input[1..];
+    let end = inner.find(')')?;
+    let token = inner[..end].trim();
+    if let Some((name, _)) = parse_backtick_ident(token) {
+        return Some(name.to_string());
+    }
+    if let Some((name, _)) = parse_double_quote_ident(token) {
+        return Some(name.to_string());
+    }
+    let cleaned = token.trim_matches('`').trim_matches('"');
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
+}
+
+fn parse_double_quote_ident(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+    if !input.starts_with('"') {
+        return None;
+    }
+    let inner = &input[1..];
+    let end = inner.find('"')?;
+    Some((&inner[..end], &inner[end + 1..]))
+}
+
+fn parse_child_table_from_fails_clause(error: &str) -> Option<String> {
+    let marker = "foreign key constraint fails";
+    let idx = error.to_ascii_lowercase().find(marker)?;
+    let tail = &error[idx + marker.len()..];
+    let paren_start = tail.find('(')?;
+    let inner = tail[paren_start + 1..].trim_start();
+    if let Some((first, rest)) = parse_backtick_ident(inner) {
+        let rest = rest.trim_start();
+        if rest.starts_with('.') {
+            let after_dot = rest[1..].trim_start();
+            if let Some((table, _)) = parse_backtick_ident(after_dot) {
+                return Some(table.to_string());
+            }
+        }
+        return Some(first.to_string());
+    }
+    None
+}
+
+fn parse_mysql_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation> {
+    let upper = error.to_ascii_uppercase();
+    if !upper.contains("FOREIGN KEY") {
+        return None;
+    }
+    let fk_idx = upper.rfind("FOREIGN KEY (")?;
+    let segment = &error[fk_idx..];
+    let refs_idx = segment.to_ascii_uppercase().find("REFERENCES")?;
+    let fk_clause = segment[..refs_idx].trim_end();
+    let after_refs = segment[refs_idx + "REFERENCES".len()..].trim_start();
+    let (parent_table, rest) = parse_backtick_ident(after_refs)?;
+    let child_column = parse_ident_in_parens(
+        fk_clause
+            .strip_prefix("FOREIGN KEY")
+            .or_else(|| fk_clause.strip_prefix("foreign key"))
+            .unwrap_or(fk_clause)
+            .trim_start(),
+    );
+    Some(ForeignKeyViolation {
+        child_table: parse_child_table_from_fails_clause(error),
+        child_column,
+        parent_table: parent_table.to_string(),
+        parent_column: parse_ident_in_parens(rest.trim_start()),
+        is_parent_row_violation: error.contains("Cannot delete or update a parent row"),
+    })
+}
+
+fn parse_postgres_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation> {
+    let lower = error.to_ascii_lowercase();
+    if !lower.contains("violates foreign key constraint") && !lower.contains("is not present in table")
+    {
+        return None;
+    }
+    let marker = "is not present in table";
+    let idx = lower.find(marker)?;
+    let tail = &error[idx + marker.len()..];
+    let tail = tail.trim_start();
+    let parent_table = if let Some((name, _)) = parse_double_quote_ident(tail) {
+        name.to_string()
+    } else if let Some((name, _)) = parse_backtick_ident(tail) {
+        name.to_string()
+    } else {
+        return None;
+    };
+    let child_column = error
+        .find("Key (")
+        .and_then(|key_idx| {
+            let part = &error[key_idx + 4..];
+            part.find(')').map(|end| part[..end].trim().to_string())
+        })
+        .filter(|name| !name.is_empty());
+    Some(ForeignKeyViolation {
+        child_table: None,
+        child_column,
+        parent_table,
+        parent_column: None,
+        is_parent_row_violation: false,
+    })
+}
+
+fn parse_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation> {
+    parse_mysql_foreign_key_violation(error).or_else(|| parse_postgres_foreign_key_violation(error))
+}
+
+fn format_sync_foreign_key_error(syncing_table: &str, error: &str) -> String {
+    let Some(fk) = parse_foreign_key_violation(error) else {
+        if error.to_ascii_lowercase().contains("foreign key constraint") {
+            return format!(
+                "表 `{syncing_table}` 写入失败：外键约束不满足，请先同步被引用的父表后再重试。\n原始错误：{}",
+                error.trim()
+            );
+        }
+        return error.to_string();
+    };
+
+    if fk.is_parent_row_violation {
+        let child = fk
+            .child_table
+            .as_deref()
+            .unwrap_or("子表");
+        return format!(
+            "表 `{syncing_table}` 操作失败：仍有子表 `{child}` 引用本表数据。请先处理子表 `{child}` 的数据同步。"
+        );
+    }
+
+    let link = match (&fk.child_column, &fk.parent_column) {
+        (Some(child_col), Some(parent_col)) => {
+            format!("本表字段 `{child_col}` → `{}`.`{parent_col}`", fk.parent_table)
+        }
+        (Some(child_col), None) => format!("本表字段 `{child_col}` → `{}`", fk.parent_table),
+        _ => format!("引用表 `{}`", fk.parent_table),
+    };
+
+    format!(
+        "表 `{syncing_table}` 写入失败：目标库缺少外键关联数据（{link}）。\n请先同步父表 `{}` 到目标库，再同步 `{syncing_table}`。",
+        fk.parent_table
+    )
+}
+
 async fn execute_insert_statements(
     target_conn: &DbConnectionConfig,
     statements: Vec<String>,
     cancel: &AtomicBool,
+    syncing_table: &str,
 ) -> Result<u64, String> {
     let mut written = 0u64;
     for sql in statements {
@@ -1442,9 +2519,38 @@ async fn execute_insert_statements(
         if sql.is_empty() {
             continue;
         }
-        written += database::db_run_sql(target_conn.clone(), None, sql).await?;
+        written += database::db_run_sql(target_conn.clone(), None, sql)
+            .await
+            .map_err(|err| format_sync_foreign_key_error(syncing_table, &err))?;
     }
     Ok(written)
+}
+
+#[cfg(test)]
+mod fk_error_tests {
+    use super::{
+        format_sync_foreign_key_error, parse_mysql_foreign_key_violation,
+    };
+
+    #[test]
+    fn parse_mysql_child_insert_fk_error() {
+        let err = "error returned from database: 1452 (23000): Cannot add or update a child row: a foreign key constraint fails (`teacher-chat`.`edu_english_word`, CONSTRAINT `edu_english_word_ibfk_1` FOREIGN KEY (`unit_id`) REFERENCES `edu_english_unit` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT)";
+        let fk = parse_mysql_foreign_key_violation(err).expect("fk");
+        assert_eq!(fk.child_table.as_deref(), Some("edu_english_word"));
+        assert_eq!(fk.child_column.as_deref(), Some("unit_id"));
+        assert_eq!(fk.parent_table, "edu_english_unit");
+        assert_eq!(fk.parent_column.as_deref(), Some("id"));
+        assert!(!fk.is_parent_row_violation);
+    }
+
+    #[test]
+    fn format_sync_fk_error_message() {
+        let err = "数据库操作失败: error returned from database: 1452 (23000): Cannot add or update a child row: a foreign key constraint fails (`teacher-chat`.`edu_english_word`, CONSTRAINT `edu_english_word_ibfk_1` FOREIGN KEY (`unit_id`) REFERENCES `edu_english_unit` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT)";
+        let msg = format_sync_foreign_key_error("edu_english_word", err);
+        assert!(msg.contains("edu_english_unit"));
+        assert!(msg.contains("unit_id"));
+        assert!(msg.contains("请先同步父表"));
+    }
 }
 
 async fn copy_table_data(
@@ -1455,95 +2561,19 @@ async fn copy_table_data(
     spec: &DbSyncExecTableSpec,
     cancel: &AtomicBool,
     report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
-) -> Result<u64, String> {
-    let table = spec.name.as_str();
-    let columns: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
-    if columns.is_empty() {
-        return Err("缺少表字段信息".to_string());
-    }
-    let strategy = normalize_data_sync_strategy(spec.strategy.as_deref());
-
-    if strategy == "target" || strategy == "mergeTarget" || strategy == "conflictTarget" {
-        report_rows(0, 1);
-        return Ok(0);
-    }
-
-    if strategy == "mergeSource" {
-        return copy_table_data_merge_source(
-            source,
-            source_db,
-            target,
-            target_db,
-            spec,
-            cancel,
-            report_rows,
-            true,
-        )
-        .await;
-    }
-
-    if strategy == "conflictSource" {
-        return copy_table_data_merge_source(
-            source,
-            source_db,
-            target,
-            target_db,
-            spec,
-            cancel,
-            report_rows,
-            false,
-        )
-        .await;
-    }
-
-    truncate_target_table(target, target_db, table).await?;
-
-    let mut source_conn = source.clone();
-    source_conn.database = source_db.to_string();
-    let mut target_conn = target.clone();
-    target_conn.database = target_db.to_string();
-
-    let total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
-        .await
-        .unwrap_or(0)
-        .max(0) as u32;
-    let mut written = 0u64;
-    let mut offset = 0i64;
-
-    while offset < i64::from(total.max(1)) || (total == 0 && offset == 0) {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let page = database::db_preview_table(
-            source_conn.clone(),
-            table.to_string(),
-            PAGE_SIZE as u32,
-            offset as u32,
-            None,
-            None,
-        )
-        .await?;
-        if page.rows.is_empty() {
-            break;
-        }
-        let batch_len = page.rows.len();
-        for chunk in page.rows.chunks(INSERT_BATCH_SIZE) {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".to_string());
-            }
-            let statements =
-                build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
-            written += execute_insert_statements(&target_conn, statements, cancel).await?;
-        }
-        let done = (offset as u32 + batch_len as u32).min(total.max(batch_len as u32));
-        report_rows(done, total.max(1));
-        offset += PAGE_SIZE;
-        if batch_len < PAGE_SIZE as usize {
-            break;
-        }
-    }
-
-    Ok(written)
+) -> Result<SyncWriteStats, String> {
+    let modes = resolve_data_sync_modes(spec);
+    copy_table_data_with_modes(
+        source,
+        source_db,
+        target,
+        target_db,
+        spec,
+        cancel,
+        report_rows,
+        modes,
+    )
+    .await
 }
 
 async fn resolve_exec_table_columns(
@@ -1633,18 +2663,14 @@ async fn execute_data_sync_table(
     )
     .await
     {
-        Ok(rows) => SyncExecResultEvent {
+        Ok(stats) => SyncExecResultEvent {
             table,
             status: "success".to_string(),
-            rows_written: Some(rows),
-            message: Some(match normalize_data_sync_strategy(spec.strategy.as_deref()) {
-                "target" => "已保留目标表数据，跳过同步".to_string(),
-                "mergeTarget" => "已保留目标表冲突字段，忽略源表独有行".to_string(),
-                "conflictTarget" => "已保留目标表冲突字段（仅冲突范围）".to_string(),
-                "mergeSource" => format!("已合并 {rows} 行（追加缺失行并更新冲突字段）"),
-                "conflictSource" => format!("已更新 {rows} 行冲突字段（仅冲突范围）"),
-                _ => format!("已同步 {rows} 行"),
-            }),
+            rows_written: Some(stats.total()),
+            message: Some(format_sync_modes_message(
+                &resolve_data_sync_modes(spec),
+                &stats,
+            )),
             error: None,
         },
         Err(err) if err == "cancelled" => SyncExecResultEvent {
@@ -1914,24 +2940,7 @@ pub async fn run_db_data_sync_execute(
     let target_db = target.database.clone();
     let total = tables.len().max(1) as u32;
     let mut failed_tables: Vec<String> = Vec::new();
-
-    let mut table_row_totals: Vec<u32> = Vec::with_capacity(tables.len());
-    let mut grand_row_total = 0u32;
-    for spec in &tables {
-        let count = database::db_count_table(
-            source.clone(),
-            Some(source_db.clone()),
-            spec.name.clone(),
-            None,
-        )
-        .await
-        .unwrap_or(0)
-        .max(0) as u32;
-        table_row_totals.push(count);
-        grand_row_total = grand_row_total.saturating_add(count);
-    }
-    let grand_row_total = grand_row_total.max(1);
-    let mut rows_done_before_table = 0u32;
+    let mut rows_written_total = 0u32;
 
     for (idx, spec) in tables.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -1939,27 +2948,25 @@ pub async fn run_db_data_sync_execute(
         }
         let index = (idx + 1) as u32;
         let table = spec.name.clone();
-        let table_row_total = table_row_totals.get(idx).copied().unwrap_or(0).max(1);
         progress(
             format!("正在同步数据 ({index}/{total})：{table}"),
             index,
             total,
-            Some(rows_done_before_table.min(grand_row_total)),
-            Some(grand_row_total),
+            Some(rows_written_total),
+            None,
         );
 
         let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> = {
             let progress = progress.clone();
             let table_for_rows = table.clone();
-            let rows_before = rows_done_before_table;
-            Arc::new(move |row_completed, _row_total| {
-                let overall = rows_before.saturating_add(row_completed).min(grand_row_total);
+            let rows_before = rows_written_total;
+            Arc::new(move |rows_written, _estimated_total| {
                 progress(
-                    format!("正在写入 {table_for_rows} ({row_completed}/{table_row_total})"),
+                    format!("正在同步 {table_for_rows}（已写入 {rows_written} 行）"),
                     index,
                     total,
-                    Some(overall),
-                    Some(grand_row_total),
+                    Some(rows_before.saturating_add(rows_written)),
+                    None,
                 );
             })
         };
@@ -1980,9 +2987,12 @@ pub async fn run_db_data_sync_execute(
                 .clone()
                 .unwrap_or_else(|| "未知错误".to_string());
             failed_tables.push(format!("{table}: {detail}"));
+        } else {
+            rows_written_total = rows_written_total.saturating_add(
+                result.rows_written.unwrap_or(0).min(u64::from(u32::MAX)) as u32,
+            );
         }
         emit_exec_event(&app, &task_id, result).await;
-        rows_done_before_table = rows_done_before_table.saturating_add(table_row_totals[idx]);
     }
 
     if !failed_tables.is_empty() {
@@ -1990,18 +3000,18 @@ pub async fn run_db_data_sync_execute(
             format!("数据同步完成，{}/{} 张表失败", failed_tables.len(), total),
             total,
             total,
-            Some(grand_row_total),
-            Some(grand_row_total),
+            Some(rows_written_total),
+            None,
         );
         return Err(failed_tables.join("；"));
     }
 
     progress(
-        format!("数据同步已完成 ({total}/{total})"),
+        format!("数据同步已完成，共写入 {rows_written_total} 行"),
         total,
         total,
-        Some(grand_row_total),
-        Some(grand_row_total),
+        Some(rows_written_total),
+        None,
     );
     Ok(())
 }

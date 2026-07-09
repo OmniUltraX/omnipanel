@@ -156,6 +156,11 @@ pub fn save_row_diff_cache(
     Ok(())
 }
 
+/// 读取差异缓存中的全部行（供 SQL 生成使用）。
+pub fn load_row_diff_cache_all(app: &AppHandle, cache_id: &str) -> Result<Vec<TableRowDiffPayload>, String> {
+    Ok(load_cache_file(app, cache_id)?.diffs)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn db_sync_row_diff_page(
