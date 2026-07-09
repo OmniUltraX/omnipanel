@@ -16,8 +16,10 @@ import { useDbWorkspaceTabStore } from "../stores/dbWorkspaceTabStore";
 import {
   addSnapshotToWorkspace,
   dbTabToSnapshot,
+  ensureTerminalTabFromSnapshot,
   moveTerminalTabToWorkspaceSnapshot,
 } from "./workspaceTabActions";
+
 export function isEngineeringWorkspaceScope(scope: string | undefined): boolean {
   return Boolean(scope?.startsWith("workspace-bottom-"));
 }
@@ -316,6 +318,145 @@ export function buildModuleTransferTabForWorkspace(
     originPanelId,
     params,
   });
+}
+
+/** 跨 OS 窗口拖拽：在源窗序列化模块 Tab 快照（不依赖目标窗 store）。 */
+export function buildModuleTabSnapshotForCrossWindowDrag(
+  originScope: string,
+  originPanelId: string,
+  title: string,
+  params: Record<string, unknown> = {},
+): WorkspaceDockTab | null {
+  if (originScope === "terminal") {
+    const tab = useTerminalStore.getState().tabs.find((item) => item.id === originPanelId);
+    if (!tab) return null;
+    const snapshot = moveTerminalTabToWorkspaceSnapshot(tab);
+    return {
+      id: `xwin-pending:${originPanelId}`,
+      label: formatTerminalTabLabel(
+        tab.session.resourceId,
+        tab.title,
+        undefined,
+        tab.session.shellLabel,
+      ),
+      kind: "payload",
+      payload: snapshot,
+      originScope: "terminal",
+      originPanelId,
+      panelType: "terminal",
+    };
+  }
+
+  if (originScope === "database") {
+    const mirrored = getMirroredDbTabSnapshot(originPanelId);
+    const dbTab = mirrored?.tab;
+    if (dbTab) {
+      const tabMode = useDbWorkspaceTabStore.getState().tabModes[originPanelId];
+      return {
+        id: `xwin-pending:${originPanelId}`,
+        label: dbTab.label,
+        kind: "payload",
+        payload: dbTabToSnapshot(dbTab, tabMode),
+        originScope: "database",
+        originPanelId,
+        panelType: "database",
+      };
+    }
+  }
+
+  const label =
+    typeof params.label === "string" && params.label.trim() ? params.label : title;
+  return {
+    id: `xwin-pending:${originPanelId}`,
+    label,
+    kind: "mirrored",
+    originScope,
+    originPanelId,
+    panelType:
+      originScope === "files-browser"
+        ? "file-connection"
+        : originScope === "database"
+          ? "database"
+          : originScope,
+    payload: params,
+  };
+}
+
+export function remapWorkspaceTabForTarget(
+  tab: WorkspaceDockTab,
+  targetWorkspaceId: string,
+  originPanelId: string,
+): WorkspaceDockTab {
+  const dockScope = `${WORKSPACE_BOTTOM_PREFIX}${targetWorkspaceId}`;
+  const bareId = originPanelId.includes(":")
+    ? originPanelId.slice(originPanelId.lastIndexOf(":") + 1)
+    : originPanelId;
+  const newId = `${dockScope}:${bareId}`;
+  if (tab.kind === "payload") {
+    return { ...tab, id: newId };
+  }
+  return {
+    ...tab,
+    id: newId,
+    originPanelId: bareId,
+    originScope: tab.originScope ?? dockScope,
+  };
+}
+
+/**
+ * 跨窗：工程工作区 Tab 落入模块 dock（终端 / 数据库 / 文件等）。
+ */
+export function applyCrossWindowWorkspaceTabToModule(
+  tab: WorkspaceDockTab,
+  sourceWorkspaceId: string,
+  targetModuleScope: string,
+  backendSessionId?: string | null,
+): boolean {
+  const sourceScope = `${WORKSPACE_BOTTOM_PREFIX}${sourceWorkspaceId}`;
+
+  if (tab.kind === "payload" && tab.payload?.module === "terminal") {
+    ensureTerminalTabFromSnapshot(tab.payload);
+    if (backendSessionId) {
+      useTerminalStore.getState().setBackendSessionId(tab.payload.id, backendSessionId);
+    }
+    const meta: TransferredPanelMeta = {
+      newPanelId: `${targetModuleScope}:${tab.payload.id}`,
+      title: tab.label,
+      originScope: sourceScope,
+      originPanelId: tab.id,
+      params: {},
+    };
+    return restoreTerminalTabFromWorkspaceTransfer(meta);
+  }
+
+  if (tab.kind === "payload" && tab.payload?.module === "database") {
+    window.dispatchEvent(
+      new CustomEvent("omnipanel:restore-db-workspace-tab", {
+        detail: { snapshot: tab.payload },
+      }),
+    );
+    return true;
+  }
+
+  if (
+    tab.kind === "mirrored" &&
+    (tab.originScope === "database" || tab.panelType === "database")
+  ) {
+    window.dispatchEvent(
+      new CustomEvent("omnipanel:restore-db-workspace-tab", {
+        detail: {
+          snapshot: {
+            module: "database",
+            id: tab.originPanelId ?? tab.id,
+            label: tab.label,
+          },
+        },
+      }),
+    );
+    return true;
+  }
+
+  return false;
 }
 
 export function applyModuleTransferToWorkspace(

@@ -38,6 +38,17 @@ export function resolveTargetWorkspaceIdForTransfer(
   return workspaceIdFromLabel(targetLabel) ?? sourceWorkspaceId;
 }
 
+/** 屏幕坐标 → 当前 WebView 内 client 坐标（跨窗落点命中检测）。 */
+export function screenPointToClient(
+  screenX: number,
+  screenY: number,
+): { clientX: number; clientY: number } {
+  return {
+    clientX: screenX - window.screenX,
+    clientY: screenY - window.screenY,
+  };
+}
+
 export async function findWindowLabelAtScreenPoint(
   screenX?: number,
   screenY?: number,

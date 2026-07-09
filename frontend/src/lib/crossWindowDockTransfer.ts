@@ -4,7 +4,12 @@ import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import {
   findWindowLabelAtScreenPoint,
   resolveTargetWorkspaceIdForTransfer,
+  screenPointToClient,
 } from "./crossWindowDragUtils";
+import {
+  applyCrossWindowWorkspaceTabToModule,
+  isModuleDockScope,
+} from "./moduleToWorkspaceTransfer";
 import {
   useWorkspaceBottomDockStore,
   type WorkspaceDockTab,
@@ -15,12 +20,15 @@ import { cleanupWorkspaceDockTab, ensureTerminalTabFromSnapshot } from "./worksp
 import { isTauriRuntime } from "./isTauriRuntime";
 import {
   findEngineeringWorkspaceDockAt,
+  findModuleDockAt,
   relayoutDockviewInstances,
   getDockviewInstanceByScope,
 } from "./dockviewRegistry";
 
 export const CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-dock-drag-active";
 export const CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT = "omnipanel:cross-window-dock-drag-complete";
+export const CROSS_WINDOW_DOCK_SOURCE_CLEANUP_EVENT =
+  "omnipanel:cross-window-dock-source-cleanup";
 export const WORKSPACE_DOCK_TAB_GRAB_EVENT = "omnipanel:workspace-dock-tab-grab";
 
 interface CrossWindowDockDragPayload {
@@ -34,6 +42,11 @@ interface CrossWindowDockDragPayload {
 interface CrossWindowDockDragCompletePayload extends CrossWindowDockDragPayload {
   targetWindowLabel: string;
   targetWorkspaceId: string;
+  dropScreenX: number;
+  dropScreenY: number;
+  /** module：落入模块 dock；workspace：落入工程工作区 dock */
+  transferTarget?: "workspace" | "module";
+  targetModuleScope?: string;
 }
 
 const WORKSPACE_DOCK_SCOPE_PREFIX = "workspace-bottom-";
@@ -257,6 +270,7 @@ function removeOutgoingTab(
   panelId: string,
   tab: WorkspaceDockTab,
   targetWorkspaceId: string,
+  options?: { targetModuleScope?: string },
 ): void {
   const workspace =
     useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId) ??
@@ -264,7 +278,14 @@ function removeOutgoingTab(
   const tabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
   const resolvedId =
     tabs.find((item) => item.id === panelId || item.id === tab.id)?.id ?? panelId;
-  const targetScope = `${WORKSPACE_DOCK_SCOPE_PREFIX}${targetWorkspaceId}`;
+  const targetModuleScope = options?.targetModuleScope;
+  const targetScope =
+    targetModuleScope ?? `${WORKSPACE_DOCK_SCOPE_PREFIX}${targetWorkspaceId}`;
+
+  const isTerminalMoveToModule =
+    targetModuleScope === "terminal" &&
+    tab.kind === "payload" &&
+    tab.payload?.module === "terminal";
 
   const removeDockPanel = () => {
     const dockInstance = getDockviewInstanceByScope(
@@ -281,7 +302,9 @@ function removeOutgoingTab(
     }
   };
 
-  cleanupWorkspaceDockTab(tab);
+  if (!isTerminalMoveToModule) {
+    cleanupWorkspaceDockTab(tab);
+  }
   useWorkspaceBottomDockStore.getState().removeTab(workspaceId, workspace, resolvedId, {
     skipRecentClosed: true,
   });
@@ -295,6 +318,8 @@ async function completeCrossWindowTransfer(
   session: CrossWindowDockDragPayload,
   targetLabel: string,
   targetWorkspaceId?: string | null,
+  dropScreenX = 0,
+  dropScreenY = 0,
 ): Promise<void> {
   const resolvedWorkspaceId =
     targetWorkspaceId ??
@@ -312,6 +337,8 @@ async function completeCrossWindowTransfer(
     ...session,
     targetWindowLabel: targetLabel,
     targetWorkspaceId: resolvedWorkspaceId,
+    dropScreenX,
+    dropScreenY,
   };
   crossDockLog(
     `complete ${session.sourceWindowLabel} -> ${targetLabel} panel=${session.panelId}`,
@@ -376,13 +403,21 @@ export function initCrossWindowDockTransfer(): () => void {
           remote,
           currentLabel,
           dockWorkspaceId ?? remote.sourceWorkspaceId,
+          screenX,
+          screenY,
         );
         clearRemoteDrag();
         return true;
       }
 
       if (session && session.sourceWindowLabel === currentLabel && targetLabel !== currentLabel) {
-        await completeCrossWindowTransfer(session, targetLabel, dockWorkspaceId);
+        await completeCrossWindowTransfer(
+          session,
+          targetLabel,
+          dockWorkspaceId,
+          screenX,
+          screenY,
+        );
         return true;
       }
 
@@ -580,27 +615,68 @@ export function initCrossWindowDockTransfer(): () => void {
       crossDockLog(
         `complete event current=${currentLabel} src=${payload.sourceWindowLabel} tgt=${payload.targetWindowLabel}`,
       );
+
       if (payload.targetWindowLabel === currentLabel) {
-        applyIncomingTab(
-          payload.targetWorkspaceId,
-          payload.tab,
-          payload.backendSessionId,
+        const { clientX, clientY } = screenPointToClient(
+          payload.dropScreenX,
+          payload.dropScreenY,
         );
+        const moduleDock = findModuleDockAt(clientX, clientY);
+        if (moduleDock && isModuleDockScope(moduleDock.scope)) {
+          const applied = applyCrossWindowWorkspaceTabToModule(
+            payload.tab,
+            payload.sourceWorkspaceId,
+            moduleDock.scope,
+            payload.backendSessionId,
+          );
+          if (applied) {
+            crossDockLog(`applied workspace tab to module scope=${moduleDock.scope}`);
+            requestAnimationFrame(() => relayoutDockviewInstances(moduleDock.scope));
+          }
+          void emitTo(payload.sourceWindowLabel, CROSS_WINDOW_DOCK_SOURCE_CLEANUP_EVENT, {
+            ...payload,
+            transferTarget: "module" as const,
+            targetModuleScope: moduleDock.scope,
+          }).catch(() => {});
+        } else {
+          applyIncomingTab(
+            payload.targetWorkspaceId,
+            payload.tab,
+            payload.backendSessionId,
+          );
+          void emitTo(payload.sourceWindowLabel, CROSS_WINDOW_DOCK_SOURCE_CLEANUP_EVENT, {
+            ...payload,
+            transferTarget: "workspace" as const,
+          }).catch(() => {});
+        }
       }
-      if (payload.sourceWindowLabel === currentLabel) {
-        removeOutgoingTab(
-          payload.sourceWorkspaceId,
-          payload.panelId,
-          payload.tab,
-          payload.targetWorkspaceId,
-        );
-      }
+
       document.body.classList.remove("omnipanel-cross-window-dock-drag");
       localDrag = null;
       resetPointerSeed();
       if (remoteDrag?.sourceWindowLabel === payload.sourceWindowLabel) {
         clearRemoteDrag();
       }
+    },
+    { target: { kind: "Any" } },
+  ).then((fn) => unlisteners.push(fn));
+
+  void listen<CrossWindowDockDragCompletePayload>(
+    CROSS_WINDOW_DOCK_SOURCE_CLEANUP_EVENT,
+    (event) => {
+      const payload = event.payload;
+      if (!payload) return;
+      const currentLabel = getCurrentWebviewWindow().label;
+      if (payload.sourceWindowLabel !== currentLabel) return;
+      removeOutgoingTab(
+        payload.sourceWorkspaceId,
+        payload.panelId,
+        payload.tab,
+        payload.targetWorkspaceId,
+        payload.transferTarget === "module"
+          ? { targetModuleScope: payload.targetModuleScope }
+          : undefined,
+      );
     },
     { target: { kind: "Any" } },
   ).then((fn) => unlisteners.push(fn));

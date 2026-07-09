@@ -48,6 +48,7 @@ import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
 import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
+import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
 import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";

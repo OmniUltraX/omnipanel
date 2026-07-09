@@ -8,9 +8,11 @@ import {
   relayoutDockviewInstances,
 } from "./dockviewRegistry";
 import {
+  buildModuleTabSnapshotForCrossWindowDrag,
   buildModuleTransferTabForWorkspace,
   findModuleDropTargetWorkspace,
   isModuleDockScope,
+  remapWorkspaceTabForTarget,
 } from "./moduleToWorkspaceTransfer";
 import { findWindowLabelAtScreenPoint, resolveTargetWorkspaceIdForTransfer } from "./crossWindowDragUtils";
 import { isTauriRuntime } from "./isTauriRuntime";
@@ -18,6 +20,7 @@ import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorkspaceBottomDockStore, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
 
 export const CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT =
@@ -33,6 +36,8 @@ interface CrossWindowModuleDragPayload {
   title: string;
   params: Record<string, unknown>;
   backendSessionId?: string | null;
+  /** 源窗序列化的工作区 Tab 快照，跨窗时目标窗不依赖本地模块 store */
+  serializedTab?: WorkspaceDockTab | null;
 }
 
 interface CrossWindowModuleDragCompletePayload extends CrossWindowModuleDragPayload {
@@ -171,6 +176,12 @@ function buildLocalDragSession(
     title,
     params,
     backendSessionId: backendSessionIdForModule(source.scope, panelId),
+    serializedTab: buildModuleTabSnapshotForCrossWindowDrag(
+      source.scope,
+      panelId,
+      title,
+      params,
+    ),
   };
 }
 
@@ -210,22 +221,25 @@ function applyIncomingModuleTab(
   targetWorkspaceId: string,
   session: CrossWindowModuleDragPayload,
 ): void {
-  const tab = buildModuleTransferTabForWorkspace(
-    targetWorkspaceId,
-    session.originScope,
-    session.panelId,
-    session.title,
-    session.params,
-  );
-  if (!tab) {
-    bridgeLog(`apply incoming failed panel=${session.panelId} scope=${session.originScope}`);
-    return;
-  }
-
   const workspace =
     useWorkspaceStore.getState().workspaces.find((w) => w.id === targetWorkspaceId) ??
     useWorkspaceStore.getState().workspace;
   const dock = useWorkspaceBottomDockStore.getState();
+
+  let tab =
+    session.serializedTab != null
+      ? remapWorkspaceTabForTarget(session.serializedTab, targetWorkspaceId, session.panelId)
+      : buildModuleTransferTabForWorkspace(
+          targetWorkspaceId,
+          session.originScope,
+          session.panelId,
+          session.title,
+          session.params,
+        );
+  if (!tab) {
+    bridgeLog(`apply incoming failed panel=${session.panelId} scope=${session.originScope}`);
+    return;
+  }
 
   if (tab.kind === "payload" && tab.payload) {
     if (tab.payload.module === "terminal") {
@@ -239,6 +253,9 @@ function applyIncomingModuleTab(
     dock.addMirroredTab(targetWorkspaceId, workspace, tab as WorkspaceDockTab);
   }
   dock.setActiveTabId(targetWorkspaceId, tab.id);
+  if (getCurrentWebviewWindow().label === "main") {
+    useBottomPanelStore.getState().requestExpand();
+  }
   requestAnimationFrame(() => {
     relayoutDockviewInstances("workspace-bottom");
   });
