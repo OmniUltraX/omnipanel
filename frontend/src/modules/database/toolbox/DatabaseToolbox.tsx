@@ -175,9 +175,8 @@ export function DatabaseToolbox({
   const [taskSettingsOpen, setTaskSettingsOpen] = useState(false);
   const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
   const [taskScriptPreviewOpen, setTaskScriptPreviewOpen] = useState(false);
-  const [executeConfirmTableNames, setExecuteConfirmTableNames] = useState<string[] | null>(
-    null,
-  );
+  const [executeConfirmSnapshot, setExecuteConfirmSnapshot] =
+    useState<SyncTaskSqlPreviewInput | null>(null);
   const [taskName, setTaskName] = useState("");
   const analyzingRef = useRef(new Set<string>());
   /** 递增后使进行中的统计/比对任务全部失效 */
@@ -2727,26 +2726,35 @@ export function DatabaseToolbox({
     return buildSqlPreviewInput(Array.from(sourceSelected));
   }, [buildSqlPreviewInput, sourceSelected]);
 
-  const executeConfirmInput = useMemo((): SyncTaskSqlPreviewInput | null => {
-    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
-      return null;
-    }
-    return buildSqlPreviewInput(executeConfirmTableNames);
-  }, [buildSqlPreviewInput, executeConfirmTableNames]);
-
   const executeConfirmTitle = useMemo(() => {
-    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
+    if (!executeConfirmSnapshot) {
       return t("database.toolbox.executeConfirmTitle");
     }
-    if (executeConfirmTableNames.length === 1) {
+    if (executeConfirmSnapshot.tableNames.length === 1) {
       return t("database.toolbox.executeConfirmTitleTable", {
-        table: executeConfirmTableNames[0],
+        table: executeConfirmSnapshot.tableNames[0],
       });
     }
     return t("database.toolbox.executeConfirmTitleBatch", {
-      count: executeConfirmTableNames.length,
+      count: executeConfirmSnapshot.tableNames.length,
     });
-  }, [executeConfirmTableNames, t]);
+  }, [executeConfirmSnapshot, t]);
+
+  const openExecuteConfirmDialog = useCallback(
+    (tableNames: string[]) => {
+      const input = buildSqlPreviewInput(tableNames);
+      if (!input) {
+        setSubmitNotice(t("database.toolbox.submitHintNoDatabase"));
+        return;
+      }
+      setExecuteConfirmSnapshot(input);
+    },
+    [buildSqlPreviewInput, t],
+  );
+
+  const closeExecuteConfirmDialog = useCallback(() => {
+    setExecuteConfirmSnapshot(null);
+  }, []);
 
   useEffect(() => {
     if (!active || !canPersistTask) {
@@ -2996,29 +3004,36 @@ export function DatabaseToolbox({
   );
 
   const handleExecuteConfirm = useCallback(() => {
-    if (!executeConfirmTableNames || executeConfirmTableNames.length === 0) {
+    if (!executeConfirmSnapshot) {
       return;
     }
-    const tableNames = executeConfirmTableNames;
-    setExecuteConfirmTableNames(null);
+    const tableNames = executeConfirmSnapshot.tableNames;
+    setExecuteConfirmSnapshot(null);
     void executeConfirmedTables(tableNames);
-  }, [executeConfirmTableNames, executeConfirmedTables]);
+  }, [executeConfirmSnapshot, executeConfirmedTables]);
 
   const handleSingleTableSubmit = useCallback(
     (tableName: string) => {
-      if (!canSubmitTable(tableName) || submitting || executeConfirmTableNames) {
+      if (!canSubmitTable(tableName) || submitting || executeConfirmSnapshot) {
         return;
       }
       if (canSaveTask) {
         persistTask();
       }
-      setExecuteConfirmTableNames([tableName]);
+      openExecuteConfirmDialog([tableName]);
     },
-    [canSubmitTable, submitting, executeConfirmTableNames, canSaveTask, persistTask],
+    [
+      canSubmitTable,
+      submitting,
+      executeConfirmSnapshot,
+      canSaveTask,
+      persistTask,
+      openExecuteConfirmDialog,
+    ],
   );
 
   const handleSubmit = useCallback(async (): Promise<boolean> => {
-    if (!canSubmit || submitting || executeConfirmTableNames) {
+    if (!canSubmit || submitting || executeConfirmSnapshot) {
       return false;
     }
 
@@ -3044,12 +3059,12 @@ export function DatabaseToolbox({
     if (canSaveTask) {
       persistTask();
     }
-    setExecuteConfirmTableNames(namesToRun);
+    openExecuteConfirmDialog(namesToRun);
     return false;
   }, [
     canSubmit,
     submitting,
-    executeConfirmTableNames,
+    executeConfirmSnapshot,
     sourceSelected,
     tab,
     schemaCreateMissingTables,
@@ -3057,6 +3072,7 @@ export function DatabaseToolbox({
     targetSnapshot.tables,
     canSaveTask,
     persistTask,
+    openExecuteConfirmDialog,
     t,
   ]);
 
@@ -3290,11 +3306,11 @@ export function DatabaseToolbox({
       </SubWindow>
 
       <SyncTaskExecuteConfirmDialog
-        open={executeConfirmTableNames !== null}
+        open={executeConfirmSnapshot !== null}
         title={executeConfirmTitle}
-        input={executeConfirmInput}
+        input={executeConfirmSnapshot}
         confirming={submitting}
-        onClose={() => setExecuteConfirmTableNames(null)}
+        onClose={closeExecuteConfirmDialog}
         onConfirm={handleExecuteConfirm}
       />
 

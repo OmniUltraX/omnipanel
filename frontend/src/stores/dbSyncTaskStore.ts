@@ -35,6 +35,8 @@ interface DbSyncTaskState {
   updateRunByBgTaskId: (bgTaskId: string, patch: Partial<SyncTaskRunRecord>) => void;
   getRunsForTask: (taskId: string) => SyncTaskRunRecord[];
   getAnalysisForTask: (taskId: string) => SyncTaskAnalysisRecord[];
+  clearRunHistory: (taskId: string) => void;
+  clearAnalysisHistory: (taskId: string) => void;
   deleteTask: (id: string) => void;
   setActiveTaskId: (id: string | null) => void;
   requestLoad: (taskId: string, runAfterLoad?: boolean) => void;
@@ -134,6 +136,24 @@ export const useDbSyncTaskStore = create<DbSyncTaskState>()(
       },
       getRunsForTask: (taskId) => get().runHistory[taskId] ?? [],
       getAnalysisForTask: (taskId) => get().analysisHistory[taskId] ?? [],
+      clearRunHistory: (taskId) => {
+        set((state) => {
+          if (!state.runHistory[taskId]?.length) {
+            return state;
+          }
+          const { [taskId]: _removed, ...runHistory } = state.runHistory;
+          return { runHistory };
+        });
+      },
+      clearAnalysisHistory: (taskId) => {
+        set((state) => {
+          if (!state.analysisHistory[taskId]?.length) {
+            return state;
+          }
+          const { [taskId]: _removed, ...analysisHistory } = state.analysisHistory;
+          return { analysisHistory };
+        });
+      },
       deleteTask: (id) => {
         set((state) => {
           const { [id]: _removedRuns, ...runHistory } = state.runHistory;

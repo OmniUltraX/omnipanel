@@ -637,8 +637,21 @@
     .db-sync-task-history__tabs {
         display: flex;
         gap: var(--sp-1);
+        flex: 1;
+        min-width: 0;
+    }
+
+    .db-sync-task-history__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
         padding: var(--sp-3) var(--sp-4) var(--sp-2);
         border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .db-sync-task-history__clear {
         flex-shrink: 0;
     }
 

@@ -1542,6 +1542,13 @@ export const enUS: TranslationDict = {
       taskHistoryTitleNamed: "Task history · {name}",
       historyTabAnalysis: "Analysis",
       historyTabExecution: "Execution",
+      historyClear: "Clear",
+      historyClearAnalysisTitle: "Clear analysis history",
+      historyClearExecutionTitle: "Clear execution history",
+      historyClearAnalysisConfirm:
+        "Clear all analysis history for task \"{name}\"? This cannot be undone.",
+      historyClearExecutionConfirm:
+        "Clear all execution history for task \"{name}\"? This cannot be undone.",
       historyAnalysisEmpty: "No analysis records for \"{name}\"",
       historyExecutionEmpty: "No execution records for \"{name}\"",
       historyAnalysisStatusCompleted: "Completed",
@@ -3581,14 +3588,18 @@ export const enUS: TranslationDict = {
       headerValueType: "Value type",
       headerValueAutoTimestamp: "Auto-generated on send",
       headerValueBase64Input: "Raw value (Base64-encoded on send)",
+      headerValueFunctionInput:
+        "Expression, e.g. hmac_sha256('key', '1panel:' + unix_timestamp)",
       headerValueTypes: {
         string: "String",
         currentUnixTimestamp: "Current timestamp",
         base64: "Base64",
+        function: "Function",
       },
       tabs: { path: "Path", params: "Params", headers: "Headers", body: "Body", auth: "Auth", scripts: "Scripts" },
       pathParamValue: "Path parameter value",
-      responseTabs: { headers: "Headers", body: "Body" },
+      responseTabs: { headers: "Headers", body: "Body", curl: "cURL" },
+      noResponseCurl: "No cURL command available",
       noResponseHeaders: "No response headers",
       requestBody: "Request body…",
       preRequestScript: "Pre-request Script",

@@ -1,7 +1,12 @@
 import { HTTP_HEADER_KEYS } from "./httpHeaderPresets";
+import { evaluateHeaderExpression } from "./httpHeaderExpression";
 
 export type HttpHeaderKeyKind = "preset" | "custom";
-export type HttpHeaderValueType = "string" | "current_unix_timestamp" | "base64";
+export type HttpHeaderValueType =
+  | "string"
+  | "current_unix_timestamp"
+  | "base64"
+  | "function";
 
 export interface HttpHeaderPair {
   key: string;
@@ -15,6 +20,7 @@ export const HTTP_HEADER_VALUE_TYPES: readonly HttpHeaderValueType[] = [
   "string",
   "current_unix_timestamp",
   "base64",
+  "function",
 ] as const;
 
 export function createEmptyHeader(keyKind: HttpHeaderKeyKind): HttpHeaderPair {
@@ -48,7 +54,8 @@ function normalizeHeaderPair(raw: unknown): HttpHeaderPair {
   const valueType =
     item.valueType === "string" ||
     item.valueType === "current_unix_timestamp" ||
-    item.valueType === "base64"
+    item.valueType === "base64" ||
+    item.valueType === "function"
       ? item.valueType
       : "string";
   return { key, value, enabled, keyKind, valueType };
@@ -101,22 +108,35 @@ function encodeBase64(value: string): string {
   return btoa(binary);
 }
 
-export function resolveHeaderValue(pair: HttpHeaderPair): string {
+export async function resolveHeaderValue(
+  pair: HttpHeaderPair,
+  context?: { requestNowMs?: number; requestTimestampSec?: number },
+): Promise<string> {
+  const requestNowMs = context?.requestNowMs ?? Date.now();
+  const requestTimestampSec =
+    context?.requestTimestampSec ?? Math.floor(requestNowMs / 1000);
   switch (pair.valueType) {
     case "current_unix_timestamp":
-      return String(Math.floor(Date.now() / 1000));
+      return String(requestTimestampSec);
     case "base64":
       return encodeBase64(pair.value);
+    case "function":
+      return evaluateHeaderExpression(pair.value, { nowMs: requestNowMs });
     default:
       return pair.value;
   }
 }
 
-export function buildHeaderMap(headers: HttpHeaderPair[]): Record<string, string> {
+export async function buildHeaderMap(headers: HttpHeaderPair[]): Promise<Record<string, string>> {
+  const requestNowMs = Date.now();
+  const requestTimestampSec = Math.floor(requestNowMs / 1000);
   const map: Record<string, string> = {};
   for (const header of headers) {
     if (header.enabled && header.key.trim()) {
-      map[header.key.trim()] = resolveHeaderValue(header);
+      map[header.key.trim()] = await resolveHeaderValue(header, {
+        requestNowMs,
+        requestTimestampSec,
+      });
     }
   }
   return map;

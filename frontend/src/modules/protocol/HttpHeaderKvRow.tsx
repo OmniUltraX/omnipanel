@@ -89,6 +89,8 @@ function valueTypeLabel(
       return t("protocol.http.headerValueTypes.currentUnixTimestamp");
     case "base64":
       return t("protocol.http.headerValueTypes.base64");
+    case "function":
+      return t("protocol.http.headerValueTypes.function");
     default:
       return t("protocol.http.headerValueTypes.string");
   }
@@ -117,7 +119,9 @@ export function HttpHeaderKvRow({ pair, onChange, onRemove }: Props) {
       ? t("protocol.http.headerValueAutoTimestamp")
       : pair.valueType === "base64"
         ? t("protocol.http.headerValueBase64Input")
-        : t("protocol.common.value");
+        : pair.valueType === "function"
+          ? t("protocol.http.headerValueFunctionInput")
+          : t("protocol.common.value");
 
   return (
     <div className="kv-row kv-row--header">

@@ -56,3 +56,40 @@ export function hasUnresolvedPathParams(path: string, pathParams: HttpPathParamP
   PATH_PARAM_NAME_RE.lastIndex = 0;
   return PATH_PARAM_NAME_RE.test(resolved);
 }
+
+function normalizePathParamPair(raw: unknown): HttpPathParamPair {
+  if (typeof raw !== "object" || raw === null) {
+    return { key: "", value: "", enabled: true };
+  }
+  const item = raw as Record<string, unknown>;
+  return {
+    key: typeof item.key === "string" ? item.key : "",
+    value: typeof item.value === "string" ? item.value : "",
+    enabled: typeof item.enabled === "boolean" ? item.enabled : true,
+  };
+}
+
+export function parsePathParams(raw: string | null | undefined): HttpPathParamPair[] {
+  if (!raw?.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map(normalizePathParamPair);
+  } catch {
+    return [];
+  }
+}
+
+export function serializePathParams(pathParams: HttpPathParamPair[]): string {
+  return JSON.stringify(
+    pathParams.map((pair) => ({
+      key: pair.key,
+      value: pair.value,
+      enabled: pair.enabled,
+    })),
+  );
+}

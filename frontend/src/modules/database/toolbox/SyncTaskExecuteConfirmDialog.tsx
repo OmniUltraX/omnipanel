@@ -27,29 +27,52 @@ export function SyncTaskExecuteConfirmDialog({
   const [sql, setSql] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [previewResolved, setPreviewResolved] = useState(false);
+
+  const previewInputKey = useMemo(() => {
+    if (!input) {
+      return "";
+    }
+    return [
+      input.tab,
+      input.sourceConn.id,
+      input.sourceDb,
+      input.targetConn.id,
+      input.targetDb,
+      input.tableNames.join("\0"),
+      ...input.tableNames.map(
+        (name) =>
+          `${name}|${input.tableSyncStrategies[name] ?? ""}|${input.tableTargetStatus[name] ?? ""}`,
+      ),
+    ].join("\n");
+  }, [input]);
 
   useEffect(() => {
-    if (!open || !input) {
+    if (!open || !input || !previewInputKey) {
       setSql("");
       setError(null);
       setLoading(false);
+      setPreviewResolved(false);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setPreviewResolved(false);
 
     void buildSyncTaskSqlPreview(input)
       .then((text) => {
         if (!cancelled) {
           setSql(text);
+          setPreviewResolved(true);
         }
       })
       .catch((e) => {
         if (!cancelled) {
           setError(String(e));
           setSql("");
+          setPreviewResolved(false);
         }
       })
       .finally(() => {
@@ -61,25 +84,22 @@ export function SyncTaskExecuteConfirmDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, input]);
+  }, [open, input, previewInputKey]);
 
   const previewStatus: ContentPreviewStatus = loading
     ? "loading"
     : error
       ? "error"
-      : sql.trim()
+      : previewResolved
         ? "ready"
         : "empty";
 
   const previewContent: ContentPreviewPayload | undefined = useMemo(
-    () => (sql.trim() ? { kind: "text", text: sql } : undefined),
-    [sql],
+    () => (previewResolved ? { kind: "text", text: sql } : undefined),
+    [previewResolved, sql],
   );
 
-  const previewResetKey = useMemo(
-    () => (input ? `${input.tab}:${input.tableNames.join("\0")}` : ""),
-    [input],
-  );
+  const previewResetKey = previewInputKey;
 
   return (
     <SubWindow
@@ -112,7 +132,7 @@ export function SyncTaskExecuteConfirmDialog({
             type="button"
             variant="default"
             onClick={onConfirm}
-            disabled={loading || Boolean(error) || confirming || !sql.trim()}
+            disabled={loading || Boolean(error) || confirming || !previewResolved}
           >
             {confirming
               ? t("database.toolbox.executeConfirmRunning")

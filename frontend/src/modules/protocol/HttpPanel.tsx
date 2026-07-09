@@ -16,6 +16,7 @@ import {
   type HttpKvPair,
 } from "./ProtocolHttpContext";
 import { buildHeaderMap, createEmptyHeader, type HttpHeaderPair } from "./httpHeaderUtils";
+import { buildHttpCurlCommand } from "./httpCurlCommand";
 import { HttpHeaderKvRow } from "./HttpHeaderKvRow";
 import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
@@ -200,9 +201,18 @@ export function HttpPanel() {
         queryParams[p.key] = p.value;
       }
 
-      const headerMap = buildHeaderMap(headers);
+      const headerMap = await buildHeaderMap(headers);
 
       const trimmedAuthValue = authValue.trim();
+      const curlCommand = buildHttpCurlCommand({
+        method,
+        url: resolvedRequestUrl,
+        headers: headerMap,
+        queryParams,
+        body: bodyType !== "Binary" ? body : null,
+        authType: trimmedAuthValue ? authType : null,
+        authValue: trimmedAuthValue || null,
+      });
       const config = {
         method,
         url: resolvedRequestUrl,
@@ -228,9 +238,10 @@ export function HttpPanel() {
           requestSize: body ? new TextEncoder().encode(body).length : 0,
           responseSize: result.size_bytes,
           response,
+          curlCommand,
         });
       } catch {
-        addResponseSession(response, null);
+        addResponseSession(response, null, curlCommand);
       }
     } catch (e) {
       const response: HttpResponseData = {

@@ -383,7 +383,7 @@
         justify-content: space-between;
         gap: var(--sp-3);
         padding: var(--sp-2) var(--sp-3);
-        border-bottom: 1px solid var(--border-subtle, var(--border));
+        border-top: 1px solid var(--border-subtle, var(--border));
         font-size: var(--text-xs, 11px);
         background: var(--bg);
     }
@@ -438,9 +438,22 @@
     .http-response-toolbar {
         flex-shrink: 0;
         display: flex;
-        align-items: stretch;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
         border-bottom: 1px solid var(--border-subtle, var(--border));
         background: var(--bg);
+    }
+
+    .http-response-toolbar .http-response-summary-toolbar {
+        margin-left: auto;
+        padding-right: var(--sp-2);
+    }
+
+    .http-response-curl-empty {
+        padding: var(--sp-4);
+        color: var(--meta);
+        font-size: var(--text-sm, 12px);
     }
 
     .http-response-tabs {
@@ -1551,7 +1564,7 @@
 
     .history-item-details {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-columns: minmax(0, 1fr) auto auto auto;
         align-items: center;
         gap: var(--sp-2);
         font-size: 10px;
@@ -1573,6 +1586,12 @@
     .history-item-time {
         font-variant-numeric: tabular-nums;
         text-align: right;
+    }
+
+    .history-item-size {
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        color: var(--meta);
     }
 
     .history-item-status {
@@ -1818,7 +1837,8 @@
         flex-shrink: 0;
         font-size: 10px;
         font-weight: 700;
-        width: 34px;
+        white-space: nowrap;
+        width: auto;
     }
 
     .proto-tree-root .tree-node--drop-before::before,

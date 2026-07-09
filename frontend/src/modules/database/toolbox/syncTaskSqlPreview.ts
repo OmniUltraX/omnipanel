@@ -309,13 +309,15 @@ async function buildDataTablePreview(
   lines.push(`-- 策略: ${strategyLabel(strategy)}`);
 
   if (strategy === "target" || strategy === "mergeTarget" || strategy === "conflictTarget") {
-    lines.push(
-      strategy === "mergeTarget"
-        ? "-- 合并（目标）：忽略源表独有行，冲突字段保留目标表"
-        : strategy === "conflictTarget"
-          ? "-- 仅冲突（目标）：仅处理双方均存在的冲突行，冲突字段保留目标表"
-          : "-- 保留目标表数据，跳过该表数据同步",
-    );
+    if (strategy === "mergeTarget") {
+      lines.push("-- 合并（目标）：忽略源表独有行，冲突字段保留目标表");
+    } else if (strategy === "conflictTarget") {
+      lines.push("-- 仅冲突（目标）：仅处理双方均存在的冲突行，冲突字段保留目标表");
+      lines.push("-- 冲突行保留目标表现有取值，无需 UPDATE；源表独有行与目标独有行均不写入");
+    } else {
+      lines.push("-- 保留目标表数据，跳过该表数据同步");
+    }
+    lines.push("-- 预计不向目标库执行 INSERT / UPDATE / DELETE");
     return lines;
   }
 

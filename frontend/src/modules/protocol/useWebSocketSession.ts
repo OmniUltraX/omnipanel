@@ -76,7 +76,7 @@ export function useWebSocketSession(url: string, headers: HttpHeaderPair[]) {
         ]);
       };
 
-      const config = { url, headers: buildHeaderMap(headers) };
+      const config = { url, headers: await buildHeaderMap(headers) };
       const id = await invoke<string>("ws_connect", { config, onMessage });
       sessionIdRef.current = id;
 
