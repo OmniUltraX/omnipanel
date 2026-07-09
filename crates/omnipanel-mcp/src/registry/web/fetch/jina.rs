@@ -3,7 +3,7 @@ use omnipanel_store::{FetchConfig, JinaDomainMode};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, jina_host, map_http_status, BackendError,
+    build_http_client, classify_reqwest_error, map_http_status, BackendError,
     FetchRequest, FetchResult, RequestCtx, WebSecrets,
 };
 use super::FetchProvider;
@@ -55,7 +55,7 @@ async fn fetch_on_host(
     fetch_cfg: &FetchConfig,
     host: &str,
 ) -> Result<FetchResult, BackendError> {
-    let jina_url = format!("https://r.{host}/{}", req.url.trim());
+    let jina_url = jina_reader_url(&req.url, host);
     let client = build_http_client(&jina_url, ctx.proxy, ctx.timeout)?;
 
     let return_format = normalize_format(&req.format);
@@ -117,19 +117,17 @@ fn normalize_format(format: &str) -> &'static str {
     }
 }
 
-pub fn jina_fetch_url(target: &str, mode: JinaDomainMode, prefer_cn: bool) -> String {
-    let host = jina_host(mode, prefer_cn);
+fn jina_reader_url(target: &str, host: &str) -> String {
     format!("https://r.{host}/{}", target.trim())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omnipanel_store::JinaDomainMode;
 
     #[test]
-    fn jina_fetch_url_uses_cn_mirror() {
-        let url = jina_fetch_url("https://example.com", JinaDomainMode::Cn, true);
+    fn jina_reader_url_uses_cn_mirror() {
+        let url = jina_reader_url("https://example.com", "jinaai.cn");
         assert!(url.starts_with("https://r.jinaai.cn/"));
     }
 

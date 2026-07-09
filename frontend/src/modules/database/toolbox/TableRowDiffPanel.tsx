@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Button } from "../../../components/ui/Button";
 import { useI18n } from "../../../i18n";
 import { DataLoading } from "../../../components/ui/DataLoading";
@@ -20,6 +20,12 @@ import {
   type RowDiffFieldSide,
 } from "./rowDiffResolutions";
 import type { DataAnalysisResult, TableRowDiff } from "./types";
+import {
+  copyRowDiffText,
+  formatRowDiffCopyValue,
+} from "./rowDiffCellCopy";
+import { filterTableRowDiffByIgnoredColumns } from "./ignoredFields";
+import { showToast } from "../../../stores/toastStore";
 
 const ROW_DIFF_PAGE_SIZE = 50;
 
@@ -28,9 +34,7 @@ export type RowDiffKind = TableRowDiff["kind"];
 const ALL_ROW_DIFF_KINDS: RowDiffKind[] = ["sourceOnly", "changed", "targetOnly"];
 
 function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "object") return JSON.stringify(value);
-  const text = String(value);
+  const text = formatRowDiffCopyValue(value);
   return text.length > 120 ? `${text.slice(0, 117)}…` : text;
 }
 
@@ -66,10 +70,12 @@ export function TableRowDiffPanel({
   tableName,
   analysis,
   columns,
+  ignoredColumns = new Set<string>(),
 }: {
   tableName: string;
   analysis?: DataAnalysisResult;
   columns: DbColumnMeta[];
+  ignoredColumns?: Set<string>;
 }) {
   const { t } = useI18n();
   const [page, setPage] = useState(0);
@@ -84,6 +90,23 @@ export function TableRowDiffPanel({
   const inlineDiffs = useInlineDiffs(analysis);
   const useCache = Boolean(cacheId && analysis?.status === "diff");
   const columnNames = useMemo(() => columns.map((col) => col.name), [columns]);
+  const isIgnoredColumn = useCallback(
+    (name: string) => ignoredColumns.has(name.toLowerCase()),
+    [ignoredColumns],
+  );
+  const ignoredColumnsKey = useMemo(
+    () => Array.from(ignoredColumns).sort().join("\0"),
+    [ignoredColumns],
+  );
+  const filterIgnoredDiff = useCallback(
+    (diff: TableRowDiff): TableRowDiff | null => {
+      if (ignoredColumns.size === 0) {
+        return diff;
+      }
+      return filterTableRowDiffByIgnoredColumns(diff, ignoredColumns) as TableRowDiff | null;
+    },
+    [ignoredColumnsKey, ignoredColumns],
+  );
   const {
     scrollRef,
     columnIds,
@@ -104,6 +127,30 @@ export function TableRowDiffPanel({
 
   const kindFilterKey = kindFilters.slice().sort().join(",");
 
+  const filteredInlineDiffs = useMemo(() => {
+    const withoutIgnored = inlineDiffs.flatMap((diff) => {
+      const next = filterIgnoredDiff(diff);
+      return next ? [next] : [];
+    });
+    if (kindFilters.length === 0) {
+      return [];
+    }
+    if (kindFilters.length >= ALL_ROW_DIFF_KINDS.length) {
+      return withoutIgnored;
+    }
+    const allowed = new Set(kindFilters);
+    return withoutIgnored.filter((diff) => allowed.has(diff.kind));
+  }, [inlineDiffs, kindFilters, filterIgnoredDiff]);
+
+  const inlineTotalRows = filteredInlineDiffs.length;
+  const displayTotalRows = useCache ? totalRows : inlineTotalRows;
+  const totalPages = Math.max(1, Math.ceil(displayTotalRows / ROW_DIFF_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const inlinePageDiffs = useMemo(() => {
+    const start = safePage * ROW_DIFF_PAGE_SIZE;
+    return filteredInlineDiffs.slice(start, start + ROW_DIFF_PAGE_SIZE);
+  }, [filteredInlineDiffs, safePage]);
+
   useEffect(() => {
     if (!useCache || !cacheId) {
       return;
@@ -118,10 +165,14 @@ export function TableRowDiffPanel({
         ? kindFilters
         : undefined;
 
-    void fetchRowDiffPage(cacheId, page * ROW_DIFF_PAGE_SIZE, ROW_DIFF_PAGE_SIZE, kinds)
+    void fetchRowDiffPage(cacheId, safePage * ROW_DIFF_PAGE_SIZE, ROW_DIFF_PAGE_SIZE, kinds)
       .then((result) => {
         if (cancelled) return;
-        setPageDiffs(result.diffs);
+        const filtered = result.diffs.flatMap((diff) => {
+          const next = filterIgnoredDiff(diff);
+          return next ? [next] : [];
+        });
+        setPageDiffs(filtered);
         setTotalRows(result.total);
       })
       .catch((error) => {
@@ -139,38 +190,9 @@ export function TableRowDiffPanel({
     return () => {
       cancelled = true;
     };
-  }, [useCache, cacheId, page, kindFilterKey, kindFilters]);
-
-  const filteredInlineDiffs = useMemo(() => {
-    if (kindFilters.length === 0) {
-      return [];
-    }
-    if (kindFilters.length >= ALL_ROW_DIFF_KINDS.length) {
-      return inlineDiffs;
-    }
-    const allowed = new Set(kindFilters);
-    return inlineDiffs.filter((diff) => allowed.has(diff.kind));
-  }, [inlineDiffs, kindFilters]);
-
-  const inlineTotalRows = filteredInlineDiffs.length;
-  const inlineTotalPages = Math.max(1, Math.ceil(inlineTotalRows / ROW_DIFF_PAGE_SIZE));
-  const inlineSafePage = Math.min(page, inlineTotalPages - 1);
-
-  const inlinePageDiffs = useMemo(() => {
-    const start = inlineSafePage * ROW_DIFF_PAGE_SIZE;
-    return filteredInlineDiffs.slice(start, start + ROW_DIFF_PAGE_SIZE);
-  }, [filteredInlineDiffs, inlineSafePage]);
+  }, [useCache, cacheId, safePage, kindFilterKey, kindFilters, filterIgnoredDiff]);
 
   const displayDiffs = useCache ? pageDiffs : inlinePageDiffs;
-  const displayTotalRows = useCache ? totalRows : inlineTotalRows;
-  const totalPages = Math.max(1, Math.ceil(displayTotalRows / ROW_DIFF_PAGE_SIZE));
-  const safePage = useCache ? Math.min(page, totalPages - 1) : inlineSafePage;
-
-  useEffect(() => {
-    if (safePage !== page) {
-      setPage(safePage);
-    }
-  }, [safePage, page]);
 
   const showingFrom = displayTotalRows === 0 ? 0 : safePage * ROW_DIFF_PAGE_SIZE + 1;
   const showingTo = Math.min((safePage + 1) * ROW_DIFF_PAGE_SIZE, displayTotalRows);
@@ -185,6 +207,30 @@ export function TableRowDiffPanel({
   const handlePickCell = useCallback((rowKey: string, columnName: string, side: RowDiffFieldSide) => {
     setFieldResolutions((prev) => setRowDiffFieldResolution(prev, rowKey, columnName, side));
   }, []);
+
+  const handleCopyCell = useCallback(
+    (text: string) => {
+      void copyRowDiffText(text).then((ok) => {
+        if (ok) {
+          showToast(t("common.copied"));
+        }
+      });
+    },
+    [t],
+  );
+
+  const copyCellProps = useCallback(
+    (text: string, extraClassName?: string) => ({
+      className: ["db-toolbox-row-diff-cell--copyable", extraClassName].filter(Boolean).join(" "),
+      title: text,
+      onDoubleClick: (event: MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleCopyCell(text);
+      },
+    }),
+    [handleCopyCell],
+  );
 
   const handlePickRow = useCallback((diff: TableRowDiff, side: RowDiffFieldSide) => {
     const changedFields = diff.changedFields ?? [];
@@ -318,17 +364,28 @@ export function TableRowDiffPanel({
                   >
                     {t("database.toolbox.side.rowDiffKind")}
                   </RowDiffResizableTh>
-                  {columnNames.map((name) => (
+                  {columnNames.map((name) => {
+                    const ignored = isIgnoredColumn(name);
+                    return (
                     <RowDiffResizableTh
                       key={name}
                       colId={name}
                       width={resolveColumnWidth(name)}
+                      className={ignored ? "db-toolbox-row-diff-th--ignored" : undefined}
                       onResizeStart={beginColumnResize}
                       onResizeReset={resetColumnWidth}
                     >
-                      {name}
+                      <>
+                        <span className="db-toolbox-row-diff-th-name">{name}</span>
+                        {ignored ? (
+                          <span className="db-toolbox-row-diff-col-tag">
+                            {t("database.toolbox.side.rowDiffIgnoredTag")}
+                          </span>
+                        ) : null}
+                      </>
                     </RowDiffResizableTh>
-                  ))}
+                    );
+                  })}
                   <RowDiffResizableTh
                     colId={ROW_DIFF_COL_ACTIONS}
                     width={resolveColumnWidth(ROW_DIFF_COL_ACTIONS)}
@@ -351,20 +408,54 @@ export function TableRowDiffPanel({
                       className={`db-toolbox-row-diff-row db-toolbox-row-diff-row--${diff.kind}`}
                     >
                       <td
-                        className="db-toolbox-row-diff-key"
+                        className="db-toolbox-row-diff-key db-toolbox-row-diff-cell--copyable"
                         {...rowDiffTdProps(ROW_DIFF_COL_KEY, resolveColumnWidth(ROW_DIFF_COL_KEY))}
+                        title={diff.displayKey}
+                        onDoubleClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleCopyCell(diff.displayKey);
+                        }}
                       >
                         {diff.displayKey}
                       </td>
-                      <td {...rowDiffTdProps(ROW_DIFF_COL_KIND, resolveColumnWidth(ROW_DIFF_COL_KIND))}>
+                      <td
+                        {...rowDiffTdProps(ROW_DIFF_COL_KIND, resolveColumnWidth(ROW_DIFF_COL_KIND))}
+                        {...copyCellProps(kindLabel)}
+                      >
                         <span className={`db-toolbox-row-diff-kind db-toolbox-row-diff-kind--${diff.kind}`}>
                           {kindLabel}
                         </span>
                       </td>
                       {columnNames.map((colName) => {
-                        const isChanged = diff.changedFields?.includes(colName) ?? false;
+                        const ignored = isIgnoredColumn(colName);
+                        const isChanged = !ignored && (diff.changedFields?.includes(colName) ?? false);
                         const sourceVal = diff.sourceRow?.[colName];
                         const targetVal = diff.targetRow?.[colName];
+
+                        if (ignored) {
+                          let cellText: string;
+                          let copyText: string;
+                          if (diff.kind === "sourceOnly") {
+                            copyText = formatRowDiffCopyValue(sourceVal);
+                            cellText = formatCellValue(sourceVal);
+                          } else if (diff.kind === "targetOnly") {
+                            copyText = formatRowDiffCopyValue(targetVal);
+                            cellText = formatCellValue(targetVal);
+                          } else {
+                            copyText = formatRowDiffCopyValue(sourceVal ?? targetVal);
+                            cellText = formatCellValue(sourceVal ?? targetVal);
+                          }
+                          return (
+                            <td
+                              key={colName}
+                              {...rowDiffTdProps(colName, resolveColumnWidth(colName))}
+                              {...copyCellProps(copyText, "db-toolbox-row-diff-cell--ignored")}
+                            >
+                              {cellText}
+                            </td>
+                          );
+                        }
 
                         if (diff.kind === "changed" && isChanged) {
                           return (
@@ -381,24 +472,29 @@ export function TableRowDiffPanel({
                                 colName,
                               )}
                               onPick={handlePickCell}
+                              onCopy={handleCopyCell}
                             />
                           );
                         }
 
                         let cellText: string;
+                        let copyText: string;
                         if (diff.kind === "sourceOnly") {
+                          copyText = formatRowDiffCopyValue(sourceVal);
                           cellText = formatCellValue(sourceVal);
                         } else if (diff.kind === "targetOnly") {
+                          copyText = formatRowDiffCopyValue(targetVal);
                           cellText = formatCellValue(targetVal);
                         } else {
+                          copyText = formatRowDiffCopyValue(sourceVal ?? targetVal);
                           cellText = formatCellValue(sourceVal ?? targetVal);
                         }
 
                         return (
                           <td
                             key={colName}
-                            title={cellText}
                             {...rowDiffTdProps(colName, resolveColumnWidth(colName))}
+                            {...copyCellProps(copyText)}
                           >
                             {cellText}
                           </td>

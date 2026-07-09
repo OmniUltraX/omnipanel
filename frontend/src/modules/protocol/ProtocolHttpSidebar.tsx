@@ -44,6 +44,7 @@ import {
   historyEntryDisplayLabel,
   resolveHistoryEnvironmentName,
 } from "./httpResponseState";
+import { formatHttpBodySize } from "./httpJsonBody";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
@@ -853,6 +854,9 @@ export function ProtocolHttpSidebar() {
                     </span>
                     <span className="history-item-detail history-item-time">
                       {entry.responseTimeMs != null ? `${entry.responseTimeMs}ms` : "—"}
+                    </span>
+                    <span className="history-item-detail history-item-size">
+                      {entry.responseSize != null ? formatHttpBodySize(entry.responseSize) : "—"}
                     </span>
                     <span
                       className={cn(

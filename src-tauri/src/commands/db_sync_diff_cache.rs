@@ -1,5 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -101,11 +101,12 @@ fn load_cache_file(app: &AppHandle, cache_id: &str) -> Result<RowDiffCacheFile, 
     Ok(file)
 }
 
-/// 根据源/目标连接与表名生成稳定的本地缓存 ID。
+/// 根据源/目标连接、表名与忽略字段生成稳定的本地缓存 ID。
 pub fn build_row_diff_cache_id(
     source: &DbConnectionConfig,
     target: &DbConnectionConfig,
     table_name: &str,
+    ignored_fields: &HashSet<String>,
 ) -> String {
     let mut hasher = DefaultHasher::new();
     source.host.hash(&mut hasher);
@@ -117,6 +118,11 @@ pub fn build_row_diff_cache_id(
     target.db_type.hash(&mut hasher);
     target.database.hash(&mut hasher);
     table_name.hash(&mut hasher);
+    let mut ignored: Vec<&String> = ignored_fields.iter().collect();
+    ignored.sort();
+    for entry in ignored {
+        entry.hash(&mut hasher);
+    }
     format!("{:016x}", hasher.finish())
 }
 

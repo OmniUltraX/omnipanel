@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use omnipanel_db::{DbParams, QueryResult, RedisSearchKeysResult, mysql_connect_options};
+use omnipanel_db::{DbDriver, DbParams, QueryResult, RedisSearchKeysResult, mysql_connect_options};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
@@ -437,6 +437,28 @@ pub struct TableRowCount {
 /// 将领域错误转为前端可读文案（含底层 cause）。
 fn err_msg(e: OmniError) -> String {
     e.user_message()
+}
+
+/// 打开可复用的数据库驱动（供后台同步任务分页读取，避免每页新建连接池）。
+pub(crate) async fn open_db_driver(c: &DbConnectionConfig) -> Result<Box<dyn DbDriver>, String> {
+    omnipanel_db::connect(&to_params(c)).await.map_err(err_msg)
+}
+
+pub(crate) fn query_result_to_row_maps(
+    result: QueryResult,
+) -> Vec<HashMap<String, serde_json::Value>> {
+    let columns = result.columns;
+    result
+        .rows
+        .into_iter()
+        .map(|record| {
+            columns
+                .iter()
+                .cloned()
+                .zip(record)
+                .collect::<HashMap<String, serde_json::Value>>()
+        })
+        .collect()
 }
 
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。

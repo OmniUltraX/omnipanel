@@ -12,6 +12,8 @@ import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEn
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { formatHttpJsonBody } from "./httpJsonBody";
+import { parseHttpHeaders, serializeHttpHeaders } from "./httpHeaderUtils";
+import { parsePathParams, serializePathParams, syncPathParamsFromUrl } from "./httpPathParams";
 import {
   historyEntryToSession,
   hasStoredResponse,
@@ -28,6 +30,7 @@ import {
   splitUrlByEnvironment,
   writeStoredActiveEnvironmentId,
 } from "./httpEnvironment";
+import type { HttpPathParamPair } from "./httpPathParams";
 
 export type { HttpResponseData, HttpResponseSession };
 
@@ -64,12 +67,19 @@ export interface HttpKvPair {
   enabled: boolean;
 }
 
+export type {
+  HttpHeaderKeyKind,
+  HttpHeaderPair,
+  HttpHeaderValueType,
+} from "./httpHeaderUtils";
+
 export interface HttpEditorState {
   method: HttpMethod;
   environmentId: string | null;
   url: string;
+  pathParams: HttpPathParamPair[];
   params: HttpKvPair[];
-  headers: HttpKvPair[];
+  headers: import("./httpHeaderUtils").HttpHeaderPair[];
   body: string;
   bodyType: BodyType;
   authType: AuthType;
@@ -112,7 +122,11 @@ interface ProtocolHttpContextValue {
   activeResponseSessionId: string | null;
   setActiveResponseSession: (sessionId: string) => void;
   closeResponseSession: (sessionId: string) => void;
-  addResponseSession: (response: HttpResponseData, historyId: string | null) => void;
+  addResponseSession: (
+    response: HttpResponseData,
+    historyId: string | null,
+    curlCommand?: string | null,
+  ) => void;
   recordSendHistory: (data: {
     method: string;
     url: string;
@@ -122,6 +136,7 @@ interface ProtocolHttpContextValue {
     requestSize: number | null;
     responseSize: number | null;
     response: HttpResponseData;
+    curlCommand?: string | null;
   }) => Promise<void>;
 }
 
@@ -135,15 +150,34 @@ const DEFAULT_EDITOR: HttpEditorState = {
   method: "GET",
   environmentId: null,
   url: "/v1/users",
+  pathParams: [],
   params: [
     { key: "page", value: "1", enabled: true },
     { key: "limit", value: "20", enabled: true },
     { key: "sort", value: "created_at", enabled: false },
   ],
   headers: [
-    { key: "Content-Type", value: "application/json", enabled: true },
-    { key: "Authorization", value: "Bearer eyJhbG...token", enabled: true },
-    { key: "Accept", value: "application/json", enabled: true },
+    {
+      key: "Content-Type",
+      value: "application/json",
+      enabled: true,
+      keyKind: "preset",
+      valueType: "string",
+    },
+    {
+      key: "Authorization",
+      value: "Bearer eyJhbG...token",
+      enabled: true,
+      keyKind: "preset",
+      valueType: "string",
+    },
+    {
+      key: "Accept",
+      value: "application/json",
+      enabled: true,
+      keyKind: "preset",
+      valueType: "string",
+    },
   ],
   body: '{\n  "name": "John Doe",\n  "email": "john@example.com",\n  "role": "admin"\n}',
   bodyType: "JSON",
@@ -176,11 +210,6 @@ function editorToSavedRequest(
     updatedAt: number;
   },
 ): SavedHttpRequest {
-  const enabledHeaders = editor.headers.filter((h) => h.enabled && h.key);
-  const headerMap: Record<string, string> = {};
-  for (const h of enabledHeaders) {
-    headerMap[h.key] = h.value;
-  }
   const body =
     editor.bodyType === "JSON" ? formatHttpJsonBody(editor.body) : editor.body;
   return {
@@ -188,7 +217,8 @@ function editorToSavedRequest(
     name: meta.name.trim(),
     method: editor.method,
     url: editor.url,
-    headers: JSON.stringify(headerMap),
+    headers: serializeHttpHeaders(editor.headers),
+    pathParams: serializePathParams(editor.pathParams),
     body,
     authType: authTypeToStorage(editor.authType),
     authValue: editor.authValue,
@@ -247,7 +277,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   );
 
   const addResponseSession = useCallback(
-    (response: HttpResponseData, historyId: string | null) => {
+    (response: HttpResponseData, historyId: string | null, curlCommand?: string | null) => {
       const requestKey = resolveResponseRequestKey(selectedRequestId);
       const sessionId = historyId ?? makeHttpResponseSessionId();
       setResponseSessionsByRequest((prev) => {
@@ -261,6 +291,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
           label: makeHttpResponseSessionLabel(existing.length + 1, response.status),
           response,
           createdAt: Date.now(),
+          curlCommand: curlCommand?.trim() || null,
         };
         return { ...prev, [requestKey]: [...existing, session] };
       });
@@ -529,22 +560,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     [environments, selectedRequestId],
   );
 
-  const parseHeaders = useCallback((raw: string): HttpKvPair[] => {
-    if (!raw.trim()) {
-      return [{ key: "", value: "", enabled: true }];
-    }
-    try {
-      const map = JSON.parse(raw) as Record<string, string>;
-      const pairs = Object.entries(map).map(([key, value]) => ({
-        key,
-        value,
-        enabled: true,
-      }));
-      return pairs.length > 0 ? pairs : [{ key: "", value: "", enabled: true }];
-    } catch {
-      return [{ key: "", value: "", enabled: true }];
-    }
-  }, []);
+  const parseHeaders = useCallback((raw: string) => parseHttpHeaders(raw), []);
 
   const applySavedRequest = useCallback(
     (req: SavedHttpRequest) => {
@@ -568,10 +584,15 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         environments[0]?.id ??
         null;
 
+      const storedPathParams = parsePathParams(
+        (req as SavedHttpRequest & { pathParams?: string }).pathParams,
+      );
+
       setEditorState({
         method: req.method as HttpMethod,
         environmentId,
         url: split.path,
+        pathParams: syncPathParamsFromUrl(split.path, storedPathParams),
         body: req.body ?? "",
         bodyType: "JSON",
         authType,
@@ -618,6 +639,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         method: "GET",
         url: "",
         headers: "{}",
+        pathParams: "[]",
         body: "",
         authType: "",
         authValue: "",
@@ -742,10 +764,11 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       requestSize: number | null;
       responseSize: number | null;
       response: HttpResponseData;
+      curlCommand?: string | null;
     }) => {
       const historyId = generateId();
       const responseFields = responseDataToHistoryFields(data.response);
-      const entry: HttpHistoryEntry = {
+      const entry = {
         id: historyId,
         label: "",
         method: data.method,
@@ -761,10 +784,11 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         responseContentType: responseFields.responseContentType,
         responseHeaders: responseFields.responseHeaders,
         responseBody: responseFields.responseBody,
-      };
+        requestCurl: data.curlCommand?.trim() || "",
+      } as HttpHistoryEntry & { requestCurl?: string };
       const res = await commands.httpAddHistory(entry);
       if (res.status === "ok") {
-        addResponseSession(data.response, historyId);
+        addResponseSession(data.response, historyId, data.curlCommand);
         await loadHistory();
       }
     },

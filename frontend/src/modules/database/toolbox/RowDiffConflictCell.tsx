@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../../i18n";
 import type { RowDiffFieldSide } from "./rowDiffResolutions";
+import { formatConflictCellCopyText, formatRowDiffCopyValue } from "./rowDiffCellCopy";
 
 const PICKER_HIDE_DELAY_MS = 100;
 
 function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "object") return JSON.stringify(value);
-  const text = String(value);
+  const text = formatRowDiffCopyValue(value);
   return text.length > 120 ? `${text.slice(0, 117)}…` : text;
 }
 
@@ -20,6 +19,7 @@ export function RowDiffConflictCell({
   targetVal,
   resolution,
   onPick,
+  onCopy,
 }: {
   rowKey: string;
   columnName: string;
@@ -28,6 +28,7 @@ export function RowDiffConflictCell({
   targetVal: unknown;
   resolution?: RowDiffFieldSide;
   onPick: (rowKey: string, columnName: string, side: RowDiffFieldSide) => void;
+  onCopy: (text: string) => void;
 }) {
   const { t } = useI18n();
   const cellRef = useRef<HTMLTableCellElement>(null);
@@ -109,8 +110,18 @@ export function RowDiffConflictCell({
 
   const sourceText = formatCellValue(sourceVal);
   const targetText = formatCellValue(targetVal);
+  const copyText = formatConflictCellCopyText(sourceVal, targetVal, resolution);
   const pickedText =
     resolution === "source" ? sourceText : resolution === "target" ? targetText : null;
+
+  const handleDoubleClick = useCallback(
+    (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onCopy(copyText);
+    },
+    [copyText, onCopy],
+  );
 
   const pickerNode =
     pickerOpen && pickerStyle
@@ -165,7 +176,9 @@ export function RowDiffConflictCell({
         ref={cellRef}
         data-col-id={columnName}
         style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
-        className={`db-toolbox-row-diff-cell--conflict${pickerOpen ? " db-toolbox-row-diff-cell--picker-open" : ""}${resolution ? ` db-toolbox-row-diff-cell--resolved-${resolution}` : ""}`}
+        className={`db-toolbox-row-diff-cell--conflict db-toolbox-row-diff-cell--copyable${pickerOpen ? " db-toolbox-row-diff-cell--picker-open" : ""}${resolution ? ` db-toolbox-row-diff-cell--resolved-${resolution}` : ""}`}
+        title={copyText}
+        onDoubleClick={handleDoubleClick}
         onMouseEnter={openPicker}
         onMouseLeave={scheduleClosePicker}
       >

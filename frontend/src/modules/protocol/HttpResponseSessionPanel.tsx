@@ -19,7 +19,7 @@ import {
 } from "./httpJsonBody";
 import type { HttpResponseSession } from "./httpResponseState";
 
-type ResponseTab = "headers" | "body";
+type ResponseTab = "headers" | "body" | "curl";
 type JsonBodyViewMode = "structured" | "source";
 
 interface Props {
@@ -69,6 +69,7 @@ interface SessionBodyProps {
   session: HttpResponseSession;
   isActive: boolean;
   responseTab: ResponseTab;
+  curlCommand: string | null;
   jsonViewMode: JsonBodyViewMode;
   setJsonViewMode: (mode: JsonBodyViewMode) => void;
   showFullPlainBody: boolean;
@@ -158,6 +159,7 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
   session,
   isActive,
   responseTab,
+  curlCommand,
   jsonViewMode,
   setJsonViewMode,
   showFullPlainBody,
@@ -361,6 +363,25 @@ const HttpResponseSessionBody = memo(function HttpResponseSessionBody({
     );
   }
 
+  if (responseTab === "curl") {
+    if (!curlCommand) {
+      return (
+        <div className="http-response-curl-empty">{t("protocol.http.noResponseCurl")}</div>
+      );
+    }
+    return (
+      <div className="content-preview-view content-preview-view--embedded http-response-session__body-preview">
+        <div className="content-preview-code">
+          <ResponseCodeEditor
+            className="content-preview-code-editor"
+            language="text"
+            value={curlCommand}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return renderBody();
 });
 
@@ -470,6 +491,7 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
   const showJsonToolbar =
     isActive && responseTab === "body" && isJsonPreview(bodyPreview);
   const treeTabDisabled = bodyPreview?.kind === "json-source";
+  const curlCommand = session.curlCommand?.trim() || null;
 
   return (
     <ScopedSearch
@@ -480,31 +502,21 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
       enabled={isActive}
     >
       <div className="http-response-session">
-        <div className="http-response-summary">
-          <div className="http-response-summary-main">
-            <span
-              className={cn(
-                "http-response-status",
-                response.status >= 200 && response.status < 400
-                  ? "http-response-status--success"
-                  : "http-response-status--danger",
-              )}
-            >
-              {response.status} {response.statusText}
-            </span>
-            <span className="http-response-meta">{response.timeMs}ms</span>
-            <span className="http-response-meta-sep" aria-hidden>
-              ·
-            </span>
-            <span className="http-response-meta">
-              {(response.sizeBytes / 1024).toFixed(1)} KB
-            </span>
-            <span className="http-response-meta-sep" aria-hidden>
-              ·
-            </span>
-            <span className="http-response-meta http-response-meta--type" title={response.contentType}>
-              {response.contentType}
-            </span>
+        <div className="http-response-toolbar">
+          <div className="http-response-tabs" role="tablist">
+            {(["headers", "body", "curl"] as ResponseTab[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={responseTab === tab}
+                className={cn("http-response-tab", responseTab === tab && "is-active")}
+                onClick={() => setResponseTab(tab)}
+              >
+                {t(`protocol.http.responseTabs.${tab}`)}
+                {tab === "headers" ? ` (${responseHeaderCount})` : ""}
+              </button>
+            ))}
           </div>
           {showJsonToolbar ? (
             <HttpResponseJsonModeToolbar
@@ -519,29 +531,12 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
           ) : null}
         </div>
 
-        <div className="http-response-toolbar">
-          <div className="http-response-tabs" role="tablist">
-            {(["headers", "body"] as ResponseTab[]).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={responseTab === tab}
-                className={cn("http-response-tab", responseTab === tab && "is-active")}
-                onClick={() => setResponseTab(tab)}
-              >
-                {t(`protocol.http.responseTabs.${tab}`)}
-                {tab === "headers" ? ` (${responseHeaderCount})` : ""}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="http-response-content">
           <HttpResponseSessionBody
             session={session}
             isActive={isActive}
             responseTab={responseTab}
+            curlCommand={curlCommand}
             jsonViewMode={jsonViewMode}
             setJsonViewMode={setJsonViewMode}
             showFullPlainBody={showFullPlainBody}
@@ -560,6 +555,34 @@ export const HttpResponseSessionPanel = memo(function HttpResponseSessionPanel({
             canFormatLargeJson={canFormatLargeJson}
             handleFormatJson={handleFormatJson}
           />
+        </div>
+
+        <div className="http-response-summary">
+          <div className="http-response-summary-main">
+            <span
+              className={cn(
+                "http-response-status",
+                response.status >= 200 && response.status < 400
+                  ? "http-response-status--success"
+                  : "http-response-status--danger",
+              )}
+            >
+              {response.status} {response.statusText}
+            </span>
+            <span className="http-response-meta">{response.timeMs}ms</span>
+            <span className="http-response-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span className="http-response-meta">
+              {formatHttpBodySize(response.sizeBytes)}
+            </span>
+            <span className="http-response-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span className="http-response-meta http-response-meta--type" title={response.contentType}>
+              {response.contentType}
+            </span>
+          </div>
         </div>
       </div>
     </ScopedSearch>

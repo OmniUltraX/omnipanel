@@ -2,12 +2,16 @@ import { useId, useMemo } from "react";
 import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
-import type { HttpKvPair } from "./ProtocolHttpContext";
-import { headerKeyOptions, headerValueOptions } from "./httpHeaderPresets";
+import {
+  HTTP_HEADER_VALUE_TYPES,
+  type HttpHeaderPair,
+  type HttpHeaderValueType,
+} from "./httpHeaderUtils";
+import { HTTP_HEADER_KEYS, headerValueOptions } from "./httpHeaderPresets";
 
 interface Props {
-  pair: HttpKvPair;
-  onChange: (patch: Partial<HttpKvPair>) => void;
+  pair: HttpHeaderPair;
+  onChange: (patch: Partial<HttpHeaderPair>) => void;
   onRemove: () => void;
 }
 
@@ -17,16 +21,18 @@ interface HttpHeaderComboFieldProps {
   options: string[];
   placeholder: string;
   pickTitle: string;
+  disabled?: boolean;
   showPicker?: boolean;
 }
 
-/** 请求头键/值：TextInput 自定义输入 + 预设下拉选择 + datalist 补全 */
+/** 请求头值：TextInput 自定义输入 + 预设下拉选择 + datalist 补全 */
 function HttpHeaderComboField({
   value,
   onChange,
   options,
   placeholder,
   pickTitle,
+  disabled = false,
   showPicker = true,
 }: HttpHeaderComboFieldProps) {
   const listId = useId();
@@ -36,7 +42,7 @@ function HttpHeaderComboField({
   );
 
   return (
-    <div className="kv-combo">
+    <div className={`kv-combo${disabled ? " kv-combo--disabled" : ""}`}>
       <TextInput
         copyable={false}
         clearable={false}
@@ -45,8 +51,9 @@ function HttpHeaderComboField({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        list={presetOptions.length > 0 ? listId : undefined}
+        list={!disabled && presetOptions.length > 0 ? listId : undefined}
         aria-label={placeholder}
+        disabled={disabled}
       />
       {presetOptions.length > 0 ? (
         <datalist id={listId}>
@@ -55,7 +62,7 @@ function HttpHeaderComboField({
           ))}
         </datalist>
       ) : null}
-      {showPicker && presetOptions.length > 0 ? (
+      {!disabled && showPicker && presetOptions.length > 0 ? (
         <Select
           className="kv-combo__pick"
           size="sm"
@@ -73,37 +80,111 @@ function HttpHeaderComboField({
   );
 }
 
+function valueTypeLabel(
+  valueType: HttpHeaderValueType,
+  t: (key: string) => string,
+): string {
+  switch (valueType) {
+    case "current_unix_timestamp":
+      return t("protocol.http.headerValueTypes.currentUnixTimestamp");
+    case "base64":
+      return t("protocol.http.headerValueTypes.base64");
+    case "function":
+      return t("protocol.http.headerValueTypes.function");
+    default:
+      return t("protocol.http.headerValueTypes.string");
+  }
+}
+
 export function HttpHeaderKvRow({ pair, onChange, onRemove }: Props) {
   const { t } = useI18n();
 
-  const keyOptions = useMemo(() => headerKeyOptions(pair.key), [pair.key]);
   const valueOptions = useMemo(
     () => headerValueOptions(pair.key, pair.value),
     [pair.key, pair.value],
   );
 
+  const valueTypeOptions = useMemo(
+    () =>
+      HTTP_HEADER_VALUE_TYPES.map((valueType) => ({
+        value: valueType,
+        label: valueTypeLabel(valueType, t),
+      })),
+    [t],
+  );
+
+  const valueDisabled = pair.valueType === "current_unix_timestamp";
+  const valuePlaceholder =
+    pair.valueType === "current_unix_timestamp"
+      ? t("protocol.http.headerValueAutoTimestamp")
+      : pair.valueType === "base64"
+        ? t("protocol.http.headerValueBase64Input")
+        : pair.valueType === "function"
+          ? t("protocol.http.headerValueFunctionInput")
+          : t("protocol.common.value");
+
   return (
-    <div className="kv-row">
+    <div className="kv-row kv-row--header">
       <input
         type="checkbox"
         className="kv-check"
         checked={pair.enabled}
         onChange={(e) => onChange({ enabled: e.target.checked })}
       />
-      <HttpHeaderComboField
-        value={pair.key}
-        onChange={(key) => onChange({ key })}
-        options={keyOptions}
-        placeholder={t("protocol.common.key")}
-        pickTitle={t("protocol.http.pickHeaderKey")}
+      {pair.keyKind === "preset" ? (
+        <Select
+          className="kv-select kv-select--header-key"
+          size="sm"
+          value={pair.key}
+          onChange={(key) => onChange({ key })}
+          options={[...HTTP_HEADER_KEYS]}
+          placeholder={t("protocol.http.pickHeaderKey")}
+          searchable
+          aria-label={t("protocol.common.key")}
+        />
+      ) : (
+        <TextInput
+          copyable={false}
+          clearable={false}
+          size="sm"
+          className="kv-input kv-input--header-key"
+          value={pair.key}
+          onChange={(key) => onChange({ key })}
+          placeholder={t("protocol.http.customHeaderKey")}
+          aria-label={t("protocol.common.key")}
+        />
+      )}
+      <Select
+        className="kv-select kv-select--value-type"
+        size="sm"
+        value={pair.valueType}
+        onChange={(valueType) =>
+          onChange({ valueType: valueType as HttpHeaderValueType })
+        }
+        options={valueTypeOptions}
+        aria-label={t("protocol.http.headerValueType")}
       />
-      <HttpHeaderComboField
-        value={pair.value}
-        onChange={(value) => onChange({ value })}
-        options={valueOptions}
-        placeholder={t("protocol.common.value")}
-        pickTitle={t("protocol.http.pickHeaderValue")}
-      />
+      {pair.valueType === "string" && pair.keyKind === "preset" ? (
+        <HttpHeaderComboField
+          value={pair.value}
+          onChange={(value) => onChange({ value })}
+          options={valueOptions}
+          placeholder={valuePlaceholder}
+          pickTitle={t("protocol.http.pickHeaderValue")}
+        />
+      ) : (
+        <TextInput
+          copyable={false}
+          clearable={false}
+          size="sm"
+          className="kv-input kv-input--header-value"
+          value={pair.value}
+          onChange={(value) => onChange({ value })}
+          placeholder={valuePlaceholder}
+          aria-label={t("protocol.common.value")}
+          disabled={valueDisabled}
+        />
+      )}
       <div className="kv-del" onClick={onRemove}>
         {"×"}
       </div>

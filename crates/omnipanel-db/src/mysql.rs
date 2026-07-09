@@ -3,6 +3,7 @@ use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow, MySqlSslMode};
 use sqlx::types::Json;
+use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
@@ -218,6 +219,26 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     if type_name.contains("json") {
         if let Some(v) = decode_json_column(row, index) {
             return v;
+        }
+    }
+    if type_name.contains("datetime") {
+        if let Ok(v) = row.try_get::<NaiveDateTime, _>(index) {
+            return Value::String(v.format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+    } else if type_name.contains("timestamp") {
+        if let Ok(v) = row.try_get::<DateTime<Utc>, _>(index) {
+            return Value::String(v.naive_utc().format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+        if let Ok(v) = row.try_get::<NaiveDateTime, _>(index) {
+            return Value::String(v.format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+    } else if type_name == "date" {
+        if let Ok(v) = row.try_get::<NaiveDate, _>(index) {
+            return Value::String(v.format("%Y-%m-%d").to_string());
+        }
+    } else if type_name == "time" {
+        if let Ok(v) = row.try_get::<String, _>(index) {
+            return Value::String(v);
         }
     }
     match row.try_get::<String, _>(index) {

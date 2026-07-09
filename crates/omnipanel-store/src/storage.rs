@@ -526,6 +526,24 @@ impl Storage {
                 return Err(map_sqlite(err));
             }
         }
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_requests ADD COLUMN path_params TEXT NOT NULL DEFAULT '[]'",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_history ADD COLUMN request_curl TEXT NOT NULL DEFAULT ''",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
         self.conn
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS http_environments (

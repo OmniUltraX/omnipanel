@@ -7,7 +7,7 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
 import type { Connection } from "../../../ipc/bindings";
 import { isRedisConnection, redisGetClientList, redisGetConfigAll, type DbConnectionConfig } from "../api";
-import { findSshConnectionForDbHost } from "../mysqlSlowQueryLog";
+import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
   probeRedisDeployment,
   type RedisDeploymentInfo,
@@ -159,7 +159,7 @@ function RedisDeploymentTags({
     if (deployment?.serverName?.trim()) {
       return deployment.serverName.trim();
     }
-    const ssh = findSshConnectionForDbHost(sshConnections, connection.host);
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 
@@ -239,7 +239,7 @@ export function RedisConnectionInfoPanel({
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
-  useSshConnectionStore((state) => state.sessionActiveMap);
+  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
   const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("connections");
   const [search, setSearch] = useState("");
   const [clientsLoading, setClientsLoading] = useState(capable);
@@ -432,7 +432,34 @@ export function RedisConnectionInfoPanel({
       return;
     }
     void refreshDeployment();
-  }, [active, capable, connection.id, refreshDeployment]);
+  }, [active, capable, connection.id, sshConnections.length, refreshDeployment]);
+
+  /** SSH 列表或会话就绪后重试（避免面板打开瞬间探测时 SSH 尚未连接） */
+  useEffect(() => {
+    if (!active || !capable || deploymentLoading) {
+      return;
+    }
+    if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
+      return;
+    }
+    const ssh = findSshConnectionForDbHostSync(sshConnections, connection.host);
+    if (!ssh) {
+      return;
+    }
+    if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
+      return;
+    }
+    void refreshDeployment();
+  }, [
+    active,
+    capable,
+    deploymentLoading,
+    deployment?.reason,
+    connection.host,
+    sshConnections,
+    sshSessionActiveMap,
+    refreshDeployment,
+  ]);
 
   const clientColumns = clientsResult?.columns ?? [];
   const clientRows = useMemo(

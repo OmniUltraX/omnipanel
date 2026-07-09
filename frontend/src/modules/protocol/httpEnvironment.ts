@@ -1,4 +1,5 @@
 import type { HttpEnvironment } from "../../ipc/bindings";
+import { applyPathParamsToPath, type HttpPathParamPair } from "./httpPathParams";
 
 export const HTTP_ACTIVE_ENV_STORAGE_KEY = "omnipanel-protocol-http-active-environment-id";
 
@@ -29,8 +30,10 @@ export function resolveHttpRequestUrl(
   path: string,
   environmentId: string | null,
   environments: HttpEnvironment[],
+  pathParams: HttpPathParamPair[] = [],
 ): string | null {
-  const trimmedPath = path.trim();
+  const pathWithParams = applyPathParamsToPath(path.trim(), pathParams);
+  const trimmedPath = pathWithParams.trim();
   if (isAbsoluteHttpUrl(trimmedPath)) {
     return trimmedPath;
   }

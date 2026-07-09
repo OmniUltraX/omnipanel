@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { Button } from "../../../components/ui/primitives/Button";
+import { appConfirm } from "../../../lib/appConfirm";
 import { useI18n } from "../../../i18n";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import type {
@@ -41,6 +43,9 @@ export function SyncTaskHistoryPanel({ taskId, taskName }: SyncTaskHistoryPanelP
     taskId ? (s.analysisHistory[taskId] ?? EMPTY_ANALYSIS) : EMPTY_ANALYSIS,
   );
 
+  const clearRunHistory = useDbSyncTaskStore((s) => s.clearRunHistory);
+  const clearAnalysisHistory = useDbSyncTaskStore((s) => s.clearAnalysisHistory);
+
   const sortedRuns = useMemo(
     () => [...runs].sort((a, b) => b.startedAt - a.startedAt),
     [runs],
@@ -73,6 +78,37 @@ export function SyncTaskHistoryPanel({ taskId, taskName }: SyncTaskHistoryPanelP
   const kindLabel = (kind: SyncTaskRunRecord["kind"]) =>
     kind === "dataSync" ? t("database.syncTasks.kindData") : t("database.syncTasks.kindSchema");
 
+  const handleClearHistory = async () => {
+    if (!taskId) {
+      return;
+    }
+    const isAnalysisTab = activeTab === "analysis";
+    const count = isAnalysisTab ? sortedAnalysis.length : sortedRuns.length;
+    if (count === 0) {
+      return;
+    }
+    const confirmed = await appConfirm(
+      isAnalysisTab
+        ? t("database.toolbox.historyClearAnalysisConfirm", { name: taskName })
+        : t("database.toolbox.historyClearExecutionConfirm", { name: taskName }),
+      isAnalysisTab
+        ? t("database.toolbox.historyClearAnalysisTitle")
+        : t("database.toolbox.historyClearExecutionTitle"),
+      {
+        confirmLabel: t("database.toolbox.historyClear"),
+        cancelLabel: t("common.cancel"),
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+    if (isAnalysisTab) {
+      clearAnalysisHistory(taskId);
+    } else {
+      clearRunHistory(taskId);
+    }
+  };
+
   if (!taskId) {
     return (
       <div className="db-sync-task-history">
@@ -83,25 +119,37 @@ export function SyncTaskHistoryPanel({ taskId, taskName }: SyncTaskHistoryPanelP
 
   return (
     <div className="db-sync-task-history">
-      <div className="db-sync-task-history__tabs" role="tablist">
-        <button
+      <div className="db-sync-task-history__head">
+        <div className="db-sync-task-history__tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${activeTab === "analysis" ? " active" : ""}`}
+            aria-selected={activeTab === "analysis"}
+            onClick={() => setActiveTab("analysis")}
+          >
+            {t("database.toolbox.historyTabAnalysis")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${activeTab === "execution" ? " active" : ""}`}
+            aria-selected={activeTab === "execution"}
+            onClick={() => setActiveTab("execution")}
+          >
+            {t("database.toolbox.historyTabExecution")}
+          </button>
+        </div>
+        <Button
           type="button"
-          role="tab"
-          className={`db-toolbox-tab${activeTab === "analysis" ? " active" : ""}`}
-          aria-selected={activeTab === "analysis"}
-          onClick={() => setActiveTab("analysis")}
+          variant="ghost"
+          size="sm"
+          className="db-sync-task-history__clear"
+          disabled={activeTab === "analysis" ? sortedAnalysis.length === 0 : sortedRuns.length === 0}
+          onClick={() => void handleClearHistory()}
         >
-          {t("database.toolbox.historyTabAnalysis")}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`db-toolbox-tab${activeTab === "execution" ? " active" : ""}`}
-          aria-selected={activeTab === "execution"}
-          onClick={() => setActiveTab("execution")}
-        >
-          {t("database.toolbox.historyTabExecution")}
-        </button>
+          {t("database.toolbox.historyClear")}
+        </Button>
       </div>
 
       {activeTab === "analysis" ? (

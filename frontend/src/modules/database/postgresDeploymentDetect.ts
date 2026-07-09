@@ -3,13 +3,6 @@ import { commands } from "../../ipc/bindings";
 import type { Connection } from "../../ipc/bindings";
 import type { DbConnectionConfig } from "./api";
 import {
-  deployDetectLog,
-  deployDetectWarn,
-  summarizeDbConnection,
-  summarizeDeploymentInfo,
-  summarizeSshExecResult,
-} from "./deploymentDetectDebug";
-import {
   buildFindDockerContainerByPortCommand,
   buildFindDockerContainerByPortFallbackCommand,
   parseDockerPsFormatLine,
@@ -19,7 +12,6 @@ import {
 import {
   ensureSshReady,
   findSshConnectionForDbHost,
-  findSshConnectionForDbHostSync,
 } from "./mysqlSlowQueryLog";
 import { makeQueryRunId } from "./sql/queryRun";
 import type { QueryResult } from "./workspace/dbWorkspaceState";
@@ -54,8 +46,6 @@ interface PostgresDeployVariables {
   configFile: string;
 }
 
-const SERVICE = "postgresql" as const;
-
 function isPostgresConnection(connection: Pick<DbConnectionConfig, "db_type">): boolean {
   const engine = connection.db_type.toLowerCase();
   return engine === "postgresql" || engine === "postgres";
@@ -69,46 +59,30 @@ async function sshExec(
   sshConnectionId: string,
   command: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  deployDetectLog(SERVICE, "ssh.exec.start", { sshConnectionId, command });
   const res = await commands.sshPoolExecCommand(sshConnectionId, command);
   if (res.status !== "ok") {
-    deployDetectWarn(SERVICE, "ssh.exec.fail", {
-      sshConnectionId,
-      command,
-      error: res.error.message,
-    });
     throw new Error(res.error.message);
   }
-  const payload = { stdout: res.data.stdout, stderr: res.data.stderr };
-  deployDetectLog(SERVICE, "ssh.exec.ok", {
-    sshConnectionId,
-    command,
-    ...summarizeSshExecResult(payload),
-  });
-  return payload;
+  return { stdout: res.data.stdout, stderr: res.data.stderr };
 }
 
 async function queryPostgresDeployVariables(
   connection: DbConnectionConfig,
 ): Promise<PostgresDeployVariables> {
-  const sql =
-    "SELECT name, setting FROM pg_settings WHERE name IN ('data_directory', 'external_pid_file', 'config_file')";
-  deployDetectLog(SERVICE, "query.settings.start", { sql });
   const queryResult = await invoke<QueryResult>("db_execute_query", {
     connection,
-    sql,
+    sql:
+      "SELECT name, setting FROM pg_settings WHERE name IN ('data_directory', 'external_pid_file', 'config_file')",
     runId: makeQueryRunId(),
   });
   const rows = rowsToRecord(queryResult.columns, queryResult.rows);
   const read = (name: string) =>
     String(rows.find((row) => row.name === name)?.setting ?? "").trim();
-  const variables = {
+  return {
     dataDirectory: read("data_directory"),
     externalPidFile: read("external_pid_file"),
     configFile: read("config_file"),
   };
-  deployDetectLog(SERVICE, "query.settings.ok", variables);
-  return variables;
 }
 
 function resolvePidFile(variables: PostgresDeployVariables): string {
@@ -127,9 +101,7 @@ async function remoteFileExists(sshConnectionId: string, filePath: string): Prom
     sshConnectionId,
     `[ -f ${quoted} ] && echo 1 || echo 0`,
   );
-  const exists = stdout.trim() === "1";
-  deployDetectLog(SERVICE, "remoteFileExists", { filePath, exists });
-  return exists;
+  return stdout.trim() === "1";
 }
 
 function resolveHostLocation(variables: PostgresDeployVariables, pidFile: string): string {
@@ -155,28 +127,19 @@ async function findDockerContainerByPort(
   sshConnectionId: string,
   port: number,
 ): Promise<DockerContainerRef | null> {
-  const primaryCommand = buildFindDockerContainerByPortCommand(port);
-  let { stdout } = await sshExec(sshConnectionId, primaryCommand);
+  let { stdout } = await sshExec(
+    sshConnectionId,
+    buildFindDockerContainerByPortCommand(port),
+  );
   let parsed = parseDockerPsFormatLine(stdout.split("\n")[0] ?? "");
-  deployDetectLog(SERVICE, "docker.findByPort.primary", {
-    port,
-    command: primaryCommand,
-    rawLine: stdout.split("\n")[0] ?? "",
-    parsed,
-  });
   if (parsed) {
     return parsed;
   }
-
-  const fallbackCommand = buildFindDockerContainerByPortFallbackCommand(port);
-  ({ stdout } = await sshExec(sshConnectionId, fallbackCommand));
+  ({ stdout } = await sshExec(
+    sshConnectionId,
+    buildFindDockerContainerByPortFallbackCommand(port),
+  ));
   parsed = parseDockerPsPortsFallbackLine(stdout.split("\n")[0] ?? "");
-  deployDetectLog(SERVICE, "docker.findByPort.fallback", {
-    port,
-    command: fallbackCommand,
-    rawLine: stdout.split("\n")[0] ?? "",
-    parsed,
-  });
   return parsed;
 }
 
@@ -187,41 +150,31 @@ async function dockerContainerFileExists(
 ): Promise<boolean> {
   const id = shellQuote(containerId);
   const file = shellQuote(filePath);
-  const command = `docker exec ${id} sh -c "[ -f ${file} ] && echo 1 || echo 0" 2>/dev/null`;
-  const { stdout } = await sshExec(sshConnectionId, command);
-  const exists = stdout.trim() === "1";
-  deployDetectLog(SERVICE, "dockerContainerFileExists", { containerId, filePath, exists });
-  return exists;
+  const { stdout } = await sshExec(
+    sshConnectionId,
+    `docker exec ${id} sh -c "[ -f ${file} ] && echo 1 || echo 0" 2>/dev/null`,
+  );
+  return stdout.trim() === "1";
 }
 
-/** 探测 PostgreSQL 服务部署方式（主�?/ Docker / 未知）�?*/
+/** ?? PostgreSQL ????????? / Docker / ???? */
 export async function probePostgresDeployment(
   connection: DbConnectionConfig,
   sshConnections: Connection[],
 ): Promise<PostgresDeploymentInfo> {
-  deployDetectLog(SERVICE, "probe.start", {
-    connection: summarizeDbConnection(connection),
-    sshConnectionCount: sshConnections.length,
-  });
-
   if (!isPostgresConnection(connection)) {
-    deployDetectWarn(SERVICE, "probe.skip.unsupportedEngine", {
-      dbType: connection.db_type,
-    });
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   let variables: PostgresDeployVariables;
   try {
     variables = await queryPostgresDeployVariables(connection);
-  } catch (e) {
-    deployDetectWarn(SERVICE, "probe.fail.querySettings", { error: String(e) });
+  } catch {
     return { kind: "unknown", reason: "probe_failed" };
   }
 
   const pidFile = resolvePidFile(variables);
   if (!pidFile) {
-    deployDetectWarn(SERVICE, "probe.fail.noPidFile", variables);
     return {
       kind: "unknown",
       reason: "no_pid_file",
@@ -230,18 +183,8 @@ export async function probePostgresDeployment(
     };
   }
 
-  const syncSsh = findSshConnectionForDbHostSync(sshConnections, connection.host);
-  deployDetectLog(SERVICE, "ssh.match.sync", {
-    dbHost: connection.host,
-    matched: syncSsh ? { id: syncSsh.id, name: syncSsh.name } : null,
-  });
-
   const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
-    deployDetectWarn(SERVICE, "probe.fail.noSsh", {
-      dbHost: connection.host,
-      sshHosts: sshConnections.map((conn) => conn.name),
-    });
     return {
       kind: "unknown",
       reason: "no_ssh",
@@ -252,11 +195,6 @@ export async function probePostgresDeployment(
   }
 
   const sshReady = await ensureSshReady(ssh.id);
-  deployDetectLog(SERVICE, "ssh.ready", {
-    sshConnectionId: ssh.id,
-    serverName: ssh.name,
-    ready: sshReady,
-  });
   if (!sshReady) {
     return {
       kind: "unknown",
@@ -273,7 +211,7 @@ export async function probePostgresDeployment(
 
   try {
     if (await remoteFileExists(ssh.id, pidFile)) {
-      const info: PostgresDeploymentInfo = {
+      return {
         kind: "host",
         pidFile,
         dataDirectory: variables.dataDirectory,
@@ -281,17 +219,11 @@ export async function probePostgresDeployment(
         locationTag: resolveHostLocation(variables, pidFile),
         ...sshMeta,
       };
-      deployDetectLog(SERVICE, "probe.done", summarizeDeploymentInfo(info));
-      return info;
     }
 
-    deployDetectLog(SERVICE, "probe.hostPidMissing.tryDocker", {
-      pidFile,
-      port: connection.port,
-    });
     const container = await findDockerContainerByPort(ssh.id, connection.port);
     if (!container) {
-      const info: PostgresDeploymentInfo = {
+      return {
         kind: "unknown",
         reason: "no_container",
         pidFile,
@@ -299,12 +231,10 @@ export async function probePostgresDeployment(
         configFile: variables.configFile,
         ...sshMeta,
       };
-      deployDetectWarn(SERVICE, "probe.done", summarizeDeploymentInfo(info));
-      return info;
     }
 
     if (await dockerContainerFileExists(ssh.id, container.id, pidFile)) {
-      const info: PostgresDeploymentInfo = {
+      return {
         kind: "docker",
         pidFile,
         dataDirectory: variables.dataDirectory,
@@ -314,11 +244,9 @@ export async function probePostgresDeployment(
         locationTag: container.name || container.id,
         ...sshMeta,
       };
-      deployDetectLog(SERVICE, "probe.done", summarizeDeploymentInfo(info));
-      return info;
     }
 
-    const info: PostgresDeploymentInfo = {
+    return {
       kind: "unknown",
       reason: "pid_not_in_container",
       pidFile,
@@ -328,10 +256,7 @@ export async function probePostgresDeployment(
       containerName: container.name,
       ...sshMeta,
     };
-    deployDetectWarn(SERVICE, "probe.done", summarizeDeploymentInfo(info));
-    return info;
-  } catch (e) {
-    deployDetectWarn(SERVICE, "probe.fail.exception", { error: String(e), pidFile });
+  } catch {
     return {
       kind: "unknown",
       reason: "probe_failed",

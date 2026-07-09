@@ -77,6 +77,7 @@ export const HttpResponseSessionsDock = memo(function HttpResponseSessionsDock({
       onSavedLayoutChange={handleLayoutChange}
       renderPanel={renderPanel}
       panelContentKeysByTab={panelContentKeysByTab}
+      softRefreshKey={resolvedActiveId}
       enableTabGroups={false}
       defaultHeaderPosition="top"
       windowControl={false}

@@ -88,8 +88,14 @@ export async function submitDbDataSyncAnalysis(
   source: unknown,
   target: unknown,
   tables: unknown[],
+  ignoredFields: string[] = [],
 ): Promise<string> {
-  return invoke<string>("bg_task_submit_db_data_sync", { source, target, tables });
+  return invoke<string>("bg_task_submit_db_data_sync", {
+    source,
+    target,
+    tables,
+    ignoredFields,
+  });
 }
 
 export async function submitDbSchemaSyncAnalysis(

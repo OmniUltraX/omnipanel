@@ -1307,8 +1307,8 @@ export function DockableWorkspace({
     [syncTabGroups],
   );
 
-  // 同步 tab 变更（添加/删除/重命名）
-  useLayoutEffect(() => {
+  // 同步 tab 变更（添加/删除/重命名）；使用 useEffect 避免 layout 阶段 emit 触发 useSyncExternalStore 嵌套更新
+  useEffect(() => {
     publishDockTabMeta(tabs);
   }, [tabs]);
 

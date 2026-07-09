@@ -58,6 +58,10 @@ interface SyncSidePanelProps {
   tableTargetStatus?: Record<string, TableTargetStatus>;
   tableSyncStrategies?: Record<string, DataSyncStrategy>;
   onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  /** 正在同步或等待同步后重新分析的表（禁用该行下拉与确定） */
+  syncLockedTables?: Set<string>;
+  onSyncTableSubmit?: (tableName: string) => void;
+  canSubmitTable?: (tableName: string) => boolean;
   /** 结构同步：源表与目标表的字段差异 */
   schemaTableDiffs?: Record<string, SchemaTableDiff>;
   /** 数据同步：逐条比对结果（行级 diff） */
@@ -328,50 +332,87 @@ function TableTargetTag({
   );
 }
 
-const SYNC_STRATEGIES: DataSyncStrategy[] = ["source", "merge", "target"];
+const SYNC_STRATEGIES: DataSyncStrategy[] = [
+  "source",
+  "mergeSource",
+  "mergeTarget",
+  "conflictSource",
+  "conflictTarget",
+  "target",
+];
 
-function SyncStrategyButtons({
+function SyncStrategyControls({
   tableName,
   strategy,
+  disabled = false,
   onChange,
+  onSubmit,
 }: {
   tableName: string;
   strategy: DataSyncStrategy;
+  disabled?: boolean;
   onChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  onSubmit?: (tableName: string) => void;
 }) {
   const { t } = useI18n();
 
   const labels: Record<DataSyncStrategy, string> = {
     source: t("database.toolbox.side.strategySource"),
-    merge: t("database.toolbox.side.strategyMerge"),
+    mergeSource: t("database.toolbox.side.strategyMergeSource"),
+    mergeTarget: t("database.toolbox.side.strategyMergeTarget"),
+    conflictSource: t("database.toolbox.side.strategyConflictSource"),
+    conflictTarget: t("database.toolbox.side.strategyConflictTarget"),
     target: t("database.toolbox.side.strategyTarget"),
   };
   const hints: Record<DataSyncStrategy, string> = {
     source: t("database.toolbox.side.strategySourceHint"),
-    merge: t("database.toolbox.side.strategyMergeHint"),
+    mergeSource: t("database.toolbox.side.strategyMergeSourceHint"),
+    mergeTarget: t("database.toolbox.side.strategyMergeTargetHint"),
+    conflictSource: t("database.toolbox.side.strategyConflictSourceHint"),
+    conflictTarget: t("database.toolbox.side.strategyConflictTargetHint"),
     target: t("database.toolbox.side.strategyTargetHint"),
   };
 
+  const options = useMemo(
+    () =>
+      SYNC_STRATEGIES.map((mode) => ({
+        value: mode,
+        label: labels[mode],
+        title: hints[mode],
+      })),
+    [labels, hints],
+  );
+
   return (
     <div
-      className="db-toolbox-sync-strategies"
+      className="db-toolbox-sync-strategy-controls"
       role="group"
-      aria-label={t("database.toolbox.side.tagConflict")}
+      aria-label={t("database.toolbox.side.strategySelectLabel")}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      {SYNC_STRATEGIES.map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          className={`db-toolbox-sync-strategy${strategy === mode ? " active" : ""}`}
-          aria-pressed={strategy === mode}
-          title={hints[mode]}
-          onClick={() => onChange?.(tableName, mode)}
-        >
-          {labels[mode]}
-        </button>
-      ))}
+      <Select
+        className="db-toolbox-sync-strategy-select"
+        size="sm"
+        value={strategy}
+        onChange={(value) => onChange?.(tableName, value as DataSyncStrategy)}
+        options={options}
+        disabled={disabled}
+        panelMinWidth={168}
+        aria-label={t("database.toolbox.side.strategySelectLabel")}
+        title={hints[strategy]}
+      />
+      <Button
+        type="button"
+        variant="default"
+        size="xs"
+        className="db-toolbox-sync-strategy-submit"
+        disabled={disabled}
+        title={t("database.toolbox.side.syncTableSubmitHint")}
+        onClick={() => onSubmit?.(tableName)}
+      >
+        {t("database.toolbox.side.syncTableSubmit")}
+      </Button>
     </div>
   );
 }
@@ -381,6 +422,9 @@ function TargetSyncTableRow({
   targetStatus,
   syncStrategy = "source",
   onSyncStrategyChange,
+  syncLocked = false,
+  canSubmitTable,
+  onSyncTableSubmit,
   analysis,
   detailOpen = false,
   onViewConflictDetail,
@@ -389,12 +433,18 @@ function TargetSyncTableRow({
   targetStatus?: TableTargetStatus;
   syncStrategy?: DataSyncStrategy;
   onSyncStrategyChange?: (tableName: string, strategy: DataSyncStrategy) => void;
+  syncLocked?: boolean;
+  canSubmitTable?: (tableName: string) => boolean;
+  onSyncTableSubmit?: (tableName: string) => void;
   analysis?: DataAnalysisResult;
   detailOpen?: boolean;
   onViewConflictDetail?: (tableName: string) => void;
 }) {
   const { t } = useI18n();
-  const showStrategies = targetStatus === "conflict" && Boolean(onSyncStrategyChange);
+  const showStrategies =
+    targetStatus === "conflict" && Boolean(onSyncStrategyChange && onSyncTableSubmit);
+  const strategyControlsDisabled =
+    syncLocked || (canSubmitTable ? !canSubmitTable(tableName) : false);
   const analysisStatus = analysis?.status;
   const analysisLabel =
     analysisStatus === "analyzing"
@@ -450,10 +500,12 @@ function TargetSyncTableRow({
         )
       )}
       {showStrategies && (
-        <SyncStrategyButtons
+        <SyncStrategyControls
           tableName={tableName}
           strategy={syncStrategy}
+          disabled={strategyControlsDisabled}
           onChange={onSyncStrategyChange}
+          onSubmit={onSyncTableSubmit}
         />
       )}
     </li>
@@ -998,6 +1050,9 @@ export function SyncSidePanel({
   tableTargetStatus = {},
   tableSyncStrategies = {},
   onSyncStrategyChange,
+  syncLockedTables,
+  onSyncTableSubmit,
+  canSubmitTable,
   schemaTableDiffs = {},
   tableAnalysis = {},
   conflictDetailTable = null,
@@ -1321,6 +1376,9 @@ export function SyncSidePanel({
                   targetStatus={row.status}
                   syncStrategy={row.strategy}
                   onSyncStrategyChange={onSyncStrategyChange}
+                  syncLocked={syncLockedTables?.has(row.name) ?? false}
+                  canSubmitTable={canSubmitTable}
+                  onSyncTableSubmit={onSyncTableSubmit}
                   analysis={row.analysis}
                   detailOpen={conflictDetailTable === row.name}
                   onViewConflictDetail={onViewConflictDetail}

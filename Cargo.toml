@@ -32,7 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Database
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "mysql", "postgres", "json"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "mysql", "postgres", "json", "chrono"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # Error handling

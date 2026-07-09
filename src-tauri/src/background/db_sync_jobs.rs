@@ -12,7 +12,7 @@ use crate::background::worker_pool::default_worker_count;
 use crate::commands::database::{self, DbColumnMeta, DbIndexMeta};
 use crate::commands::db_sync_diff_cache::{build_row_diff_cache_id, save_row_diff_cache};
 
-const PAGE_SIZE: i64 = 500;
+const PAGE_SIZE: i64 = 2000;
 const MAX_DIFF_DETAIL_ROWS: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -163,7 +163,7 @@ fn build_row_key(
         pk_columns
     };
     keys.iter()
-        .map(|col| normalize_value(row.get(col).unwrap_or(&serde_json::Value::Null)))
+        .map(|col| normalize_value(&row_value(row, col)))
         .collect::<Vec<_>>()
         .join("\0")
 }
@@ -182,7 +182,7 @@ fn format_row_display_key(
         .map(|col| {
             format!(
                 "{col}={}",
-                normalize_value(row.get(col).unwrap_or(&serde_json::Value::Null))
+                normalize_value(&row_value(row, col))
             )
         })
         .collect::<Vec<_>>()
@@ -199,49 +199,21 @@ fn clamp_row_count(count: i64) -> u32 {
     }
 }
 
-async fn fetch_all_rows(
-    connection: &DbConnectionConfig,
-    table_name: &str,
-    cancel: &AtomicBool,
-    row_total: u32,
-    row_completed: &mut u32,
-    report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
-) -> Result<Vec<HashMap<String, serde_json::Value>>, String> {
-    let total = database::db_count_table(
-        connection.clone(),
-        None,
-        table_name.to_string(),
-        None,
-    )
-    .await?;
-    if total <= 0 {
-        return Ok(Vec::new());
-    }
+fn build_ignored_field_set(fields: &[String]) -> HashSet<String> {
+    fields
+        .iter()
+        .map(|entry| entry.trim().to_ascii_lowercase())
+        .filter(|entry| !entry.is_empty() && entry.contains('.'))
+        .collect()
+}
 
-    let mut rows = Vec::new();
-    let mut offset = 0i64;
-    while offset < total {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let page = database::db_preview_table(
-            connection.clone(),
-            table_name.to_string(),
-            PAGE_SIZE as u32,
-            offset as u32,
-            None,
-            None,
-        )
-        .await?;
-        let fetched = page.rows.len() as u32;
-        rows.extend(page.rows);
-        *row_completed = row_completed.saturating_add(fetched);
-        if row_total > 0 {
-            report_rows(*row_completed, row_total);
-        }
-        offset += PAGE_SIZE;
+fn is_ignored_compare_field(table: &str, column: &str, ignored: &HashSet<String>) -> bool {
+    let key = format!("{}.{}", table.to_ascii_lowercase(), column.to_ascii_lowercase());
+    if ignored.contains(&key) {
+        return true;
     }
-    Ok(rows)
+    let wildcard = format!("*.{}", column.to_ascii_lowercase());
+    ignored.contains(&wildcard)
 }
 
 async fn compare_table_rows(
@@ -250,6 +222,7 @@ async fn compare_table_rows(
     target: &DbConnectionConfig,
     table_name: &str,
     columns: &[DbColumnMeta],
+    ignored_fields: &HashSet<String>,
     cancel: Arc<AtomicBool>,
     report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
 ) -> TableRowCompareEvent {
@@ -260,37 +233,63 @@ async fn compare_table_rows(
         .collect();
     let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
 
-    let source_total = database::db_count_table(
-        source.clone(),
-        None,
-        table_name.to_string(),
-        None,
-    )
-    .await
-    .map(clamp_row_count)
-    .unwrap_or(0);
-    let target_total = database::db_count_table(
-        target.clone(),
-        None,
-        table_name.to_string(),
-        None,
-    )
-    .await
-    .map(clamp_row_count)
-    .unwrap_or(0);
-    let row_total = source_total.saturating_add(target_total).max(1);
-    let mut row_completed = 0u32;
+    let fetch_columns = build_fetch_columns(table_name, columns, &pk_columns, ignored_fields);
+    let source_order = build_pk_order_clause(&source.db_type, &pk_columns);
+    let target_order = build_pk_order_clause(&target.db_type, &pk_columns);
 
-    let source_rows = match fetch_all_rows(
-        source,
-        table_name,
-        &cancel,
-        row_total,
-        &mut row_completed,
-        report_rows.clone(),
-    )
-    .await
-    {
+    let (source_count, target_count) = tokio::join!(
+        database::db_count_table(
+            source.clone(),
+            None,
+            table_name.to_string(),
+            None,
+        ),
+        database::db_count_table(
+            target.clone(),
+            None,
+            table_name.to_string(),
+            None,
+        ),
+    );
+    let source_total = source_count.map(clamp_row_count).unwrap_or(0);
+    let target_total = target_count.map(clamp_row_count).unwrap_or(0);
+    let row_total = source_total.saturating_add(target_total).max(1);
+    let row_completed = Arc::new(AtomicU32::new(0));
+
+    let table = table_name.to_string();
+    let cancel_source = cancel.clone();
+    let cancel_target = cancel.clone();
+    let row_completed_source = row_completed.clone();
+    let row_completed_target = row_completed.clone();
+    let report_source = report_rows.clone();
+    let report_target = report_rows.clone();
+    let source_conn = source.clone();
+    let target_conn = target.clone();
+
+    let (source_rows, target_rows) = match tokio::try_join!(
+        fetch_all_rows(
+            &source_conn,
+            &table,
+            &fetch_columns,
+            source_order.as_deref(),
+            i64::from(source_total),
+            &cancel_source,
+            row_completed_source,
+            row_total,
+            report_source,
+        ),
+        fetch_all_rows(
+            &target_conn,
+            &table,
+            &fetch_columns,
+            target_order.as_deref(),
+            i64::from(target_total),
+            &cancel_target,
+            row_completed_target,
+            row_total,
+            report_target,
+        ),
+    ) {
         Ok(rows) => rows,
         Err(e) => {
             if e == "cancelled" {
@@ -328,31 +327,7 @@ async fn compare_table_rows(
         };
     }
 
-    let target_rows = match fetch_all_rows(
-        target,
-        table_name,
-        &cancel,
-        row_total,
-        &mut row_completed,
-        report_rows.clone(),
-    )
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            return TableRowCompareEvent {
-                table: table_name.to_string(),
-                status: "error".to_string(),
-                diff_rows: None,
-                diffs: Vec::new(),
-                truncated: None,
-                diff_cache_id: None,
-                error: Some(e),
-            };
-        }
-    };
-
-    report_rows(row_completed.min(row_total), row_total);
+    report_rows(row_total, row_total);
 
     let mut source_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
     for row in source_rows {
@@ -394,8 +369,11 @@ async fn compare_table_rows(
             Some(target_row) => {
                 let mut changed: Vec<String> = Vec::new();
                 for col in &all_column_names {
-                    let sv = normalize_value(source_row.get(col).unwrap_or(&serde_json::Value::Null));
-                    let tv = normalize_value(target_row.get(col).unwrap_or(&serde_json::Value::Null));
+                    if is_ignored_compare_field(table_name, col, ignored_fields) {
+                        continue;
+                    }
+                    let sv = normalize_value(&row_value(source_row, col));
+                    let tv = normalize_value(&row_value(target_row, col));
                     if sv != tv {
                         changed.push(col.clone());
                     }
@@ -458,7 +436,7 @@ async fn compare_table_rows(
         }
     } else {
         report_rows(row_total, row_total);
-        let cache_id = build_row_diff_cache_id(source, target, table_name);
+        let cache_id = build_row_diff_cache_id(source, target, table_name, ignored_fields);
         let diff_cache_id = match save_row_diff_cache(app, &cache_id, table_name, &all_diffs) {
             Ok(()) => Some(cache_id),
             Err(e) => {
@@ -632,105 +610,159 @@ pub async fn run_db_data_sync_analysis(
     source: DbConnectionConfig,
     target: DbConnectionConfig,
     tables: Vec<DbSyncTableSpec>,
+    ignored_fields: Vec<String>,
     cancel: Arc<AtomicBool>,
     progress: Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
 ) -> Result<(), String> {
     let total = tables.len().max(1) as u32;
     let source_db = source.database.clone();
     let target_db = target.database.clone();
+    let ignored = Arc::new(build_ignored_field_set(&ignored_fields));
 
-    for (idx, spec) in tables.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let index = (idx + 1) as u32;
-        let table = spec.name.clone();
-
+    if tables.is_empty() {
         progress(
-            format!("正在统计目标表行数 ({index}/{total})：{table}"),
-            index,
+            format!("对比分析已完成 ({total}/{total})"),
+            total,
             total,
             None,
             None,
         );
+        return Ok(());
+    }
 
-        let target_count = database::db_count_table(
-            target.clone(),
-            Some(target_db.clone()),
-            table.clone(),
-            None,
-        )
-        .await
-        .ok();
+    let concurrency = default_worker_count().max(1) as usize;
+    let completed = Arc::new(AtomicU32::new(0));
 
-        emit_db_event(
-            &app,
-            BgTaskDbEvent {
-                task_id: task_id.clone(),
-                event_type: "count".to_string(),
-                table: Some(table.clone()),
-                count: Some(TableCountEvent {
-                    table: table.clone(),
-                    side: "target".to_string(),
-                    count: target_count,
-                }),
-                row_result: None,
-                schema_result: None,
-                exec_result: None,
-            },
-        )
+    stream::iter(tables.into_iter())
+        .map(|spec| {
+            let app = app.clone();
+            let task_id = task_id.clone();
+            let source = source.clone();
+            let target = target.clone();
+            let source_db = source_db.clone();
+            let target_db = target_db.clone();
+            let ignored = ignored.clone();
+            let cancel = cancel.clone();
+            let progress = progress.clone();
+            let completed = completed.clone();
+
+            async move {
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                let table = spec.name.clone();
+                let index = completed.load(Ordering::Relaxed) + 1;
+
+                progress(
+                    format!("正在统计目标表行数 ({index}/{total})：{table}"),
+                    index,
+                    total,
+                    None,
+                    None,
+                );
+
+                let mut target_for_count = target.clone();
+                target_for_count.database = target_db.clone();
+                let target_count = database::db_count_table(
+                    target_for_count,
+                    None,
+                    table.clone(),
+                    None,
+                )
+                .await
+                .ok();
+
+                emit_db_event(
+                    &app,
+                    BgTaskDbEvent {
+                        task_id: task_id.clone(),
+                        event_type: "count".to_string(),
+                        table: Some(table.clone()),
+                        count: Some(TableCountEvent {
+                            table: table.clone(),
+                            side: "target".to_string(),
+                            count: target_count,
+                        }),
+                        row_result: None,
+                        schema_result: None,
+                        exec_result: None,
+                    },
+                )
+                .await;
+
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                let progress_for_rows = progress.clone();
+                let table_for_rows = table.clone();
+                let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> =
+                    Arc::new(move |row_completed, row_total| {
+                        progress_for_rows(
+                            format!("正在逐行比对 ({index}/{total})：{table_for_rows}"),
+                            index,
+                            total,
+                            Some(row_completed),
+                            Some(row_total),
+                        );
+                    });
+
+                progress(
+                    format!("正在逐行比对 ({index}/{total})：{table}"),
+                    index,
+                    total,
+                    Some(0),
+                    None,
+                );
+
+                let mut source_for_compare = source.clone();
+                source_for_compare.database = source_db.clone();
+                let mut target_for_compare = target.clone();
+                target_for_compare.database = target_db.clone();
+
+                let row_result = compare_table_rows(
+                    &app,
+                    &source_for_compare,
+                    &target_for_compare,
+                    &table,
+                    &spec.columns,
+                    &ignored,
+                    cancel.clone(),
+                    report_rows,
+                )
+                .await;
+
+                emit_db_event(
+                    &app,
+                    BgTaskDbEvent {
+                        task_id: task_id.clone(),
+                        event_type: "row_result".to_string(),
+                        table: Some(table.clone()),
+                        count: None,
+                        row_result: Some(row_result),
+                        schema_result: None,
+                        exec_result: None,
+                    },
+                )
+                .await;
+
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                progress(
+                    format!("对比分析已完成 ({done}/{total})：{table}"),
+                    done,
+                    total,
+                    None,
+                    None,
+                );
+            }
+        })
+        .buffer_unordered(concurrency)
+        .collect::<Vec<_>>()
         .await;
 
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let progress_for_rows = progress.clone();
-        let table_for_rows = table.clone();
-        let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> = Arc::new(move |row_completed, row_total| {
-            progress_for_rows(
-                format!("正在逐行比对 ({index}/{total})：{table_for_rows}"),
-                index,
-                total,
-                Some(row_completed),
-                Some(row_total),
-            );
-        });
-
-        progress(
-            format!("正在逐行比对 ({index}/{total})：{table}"),
-            index,
-            total,
-            Some(0),
-            None,
-        );
-
-        let row_result = compare_table_rows(
-            &app,
-            &source,
-            &target,
-            &table,
-            &spec.columns,
-            cancel.clone(),
-            report_rows,
-        )
-        .await;
-        emit_db_event(
-            &app,
-            BgTaskDbEvent {
-                task_id: task_id.clone(),
-                event_type: "row_result".to_string(),
-                table: Some(table.clone()),
-                count: None,
-                row_result: Some(row_result),
-                schema_result: None,
-                exec_result: None,
-            },
-        )
-        .await;
-
-        let _ = source_db.as_str();
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(());
     }
 
     progress(
@@ -853,11 +885,152 @@ fn quote_ident(db_type: &str, name: &str) -> String {
     }
 }
 
-fn sql_literal(value: &serde_json::Value) -> String {
+fn build_fetch_columns(
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    ignored: &HashSet<String>,
+) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for pk in pk_columns {
+        if seen.insert(pk.clone()) {
+            out.push(pk.clone());
+        }
+    }
+    for col in columns {
+        if !seen.insert(col.name.clone()) {
+            continue;
+        }
+        if is_ignored_compare_field(table, &col.name, ignored) {
+            continue;
+        }
+        out.push(col.name.clone());
+    }
+    out
+}
+
+fn build_pk_order_clause(db_type: &str, pk_columns: &[String]) -> Option<String> {
+    if pk_columns.is_empty() {
+        return None;
+    }
+    Some(
+        pk_columns
+            .iter()
+            .map(|name| quote_ident(db_type, name))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+async fn preview_table_column_page(
+    driver: &dyn omnipanel_db::DbDriver,
+    db_type: &str,
+    table: &str,
+    columns: &[String],
+    limit: i64,
+    offset: i64,
+    order_by: Option<&str>,
+) -> Result<Vec<HashMap<String, serde_json::Value>>, String> {
+    if columns.is_empty() {
+        return Err("缺少表字段信息".to_string());
+    }
+    let col_list = columns
+        .iter()
+        .map(|name| quote_ident(db_type, name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let table_ident = quote_ident(db_type, table);
+    let order_clause = order_by
+        .filter(|clause| !clause.is_empty())
+        .map(|clause| format!(" ORDER BY {clause}"))
+        .unwrap_or_default();
+    let sql = format!(
+        "SELECT {col_list} FROM {table_ident}{order_clause} LIMIT {} OFFSET {}",
+        limit.max(0),
+        offset.max(0)
+    );
+    let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
+    Ok(database::query_result_to_row_maps(result))
+}
+
+async fn fetch_all_rows(
+    connection: &DbConnectionConfig,
+    table_name: &str,
+    fetch_columns: &[String],
+    order_by: Option<&str>,
+    total: i64,
+    cancel: &AtomicBool,
+    row_completed: Arc<AtomicU32>,
+    row_total: u32,
+    report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
+) -> Result<Vec<HashMap<String, serde_json::Value>>, String> {
+    if total <= 0 {
+        return Ok(Vec::new());
+    }
+
+    let driver = database::open_db_driver(connection).await?;
+    let db_type = connection.db_type.clone();
+    let mut rows = Vec::new();
+    let mut offset = 0i64;
+    while offset < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page_rows = preview_table_column_page(
+            driver.as_ref(),
+            &db_type,
+            table_name,
+            fetch_columns,
+            PAGE_SIZE,
+            offset,
+            order_by,
+        )
+        .await?;
+        let fetched = page_rows.len() as u32;
+        rows.extend(page_rows);
+        let done = row_completed.fetch_add(fetched, Ordering::Relaxed) + fetched;
+        if row_total > 0 {
+            report_rows(done.min(row_total), row_total);
+        }
+        offset += PAGE_SIZE;
+        if fetched < PAGE_SIZE as u32 {
+            break;
+        }
+    }
+    Ok(rows)
+}
+
+fn row_has_column(row: &HashMap<String, serde_json::Value>, col: &str) -> bool {
+    if row.contains_key(col) {
+        return true;
+    }
+    row.keys().any(|key| key.eq_ignore_ascii_case(col))
+}
+
+fn row_value(row: &HashMap<String, serde_json::Value>, col: &str) -> serde_json::Value {
+    if let Some(value) = row.get(col) {
+        return value.clone();
+    }
+    for (key, value) in row {
+        if key.eq_ignore_ascii_case(col) {
+            return value.clone();
+        }
+    }
+    serde_json::Value::Null
+}
+
+fn sql_literal(value: &serde_json::Value, db_type: &str) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => {
-            if *b {
+            if is_postgres_engine(db_type) {
+                if *b {
+                    "TRUE".to_string()
+                } else {
+                    "FALSE".to_string()
+                }
+            } else if *b {
                 "1".to_string()
             } else {
                 "0".to_string()
@@ -972,7 +1145,10 @@ async fn truncate_target_table(
 fn normalize_data_sync_strategy(strategy: Option<&str>) -> &'static str {
     match strategy.unwrap_or("source") {
         "target" => "target",
-        "merge" | "append" => "merge",
+        "mergeTarget" | "merge_target" => "mergeTarget",
+        "conflictTarget" | "conflict_target" => "conflictTarget",
+        "mergeSource" | "merge_source" | "merge" | "append" => "mergeSource",
+        "conflictSource" | "conflict_source" => "conflictSource",
         "source" | "rewrite" | "update" => "source",
         _ => "source",
     }
@@ -1026,7 +1202,7 @@ async fn fetch_table_row_keys(
     Ok(keys)
 }
 
-async fn copy_table_data_merge(
+async fn copy_table_data_merge_source(
     source: &DbConnectionConfig,
     source_db: &str,
     target: &DbConnectionConfig,
@@ -1034,6 +1210,7 @@ async fn copy_table_data_merge(
     spec: &DbSyncExecTableSpec,
     cancel: &AtomicBool,
     report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
+    insert_missing: bool,
 ) -> Result<u64, String> {
     let table = spec.name.as_str();
     let columns: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
@@ -1079,23 +1256,40 @@ async fn copy_table_data_merge(
             break;
         }
         let batch_len = page.rows.len();
-        let rows_to_insert: Vec<HashMap<String, serde_json::Value>> = page
-            .rows
-            .into_iter()
-            .filter(|row| {
-                let key = build_row_key(row, &pk_columns, &columns);
-                !target_keys.contains(&key)
-            })
-            .collect();
+        let mut rows_to_insert: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+        let mut rows_to_update: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+        for row in page.rows {
+            let key = build_row_key(&row, &pk_columns, &columns);
+            if target_keys.contains(&key) {
+                rows_to_update.push(row);
+            } else {
+                rows_to_insert.push(row);
+            }
+        }
         for chunk in rows_to_insert.chunks(INSERT_BATCH_SIZE) {
+            if !insert_missing {
+                break;
+            }
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".to_string());
             }
-            let sql = build_insert_statement(&target.db_type, table, &columns, chunk)?;
-            if sql.is_empty() {
-                continue;
+            let statements =
+                build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
+            written += execute_insert_statements(&target_conn, statements, cancel).await?;
+        }
+        for row in &rows_to_update {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
             }
-            written += database::db_run_sql(target_conn.clone(), None, sql).await?;
+            if let Some(sql) = build_update_statement(
+                &target.db_type,
+                table,
+                &spec.columns,
+                &pk_columns,
+                row,
+            )? {
+                written += execute_insert_statements(&target_conn, vec![sql], cancel).await?;
+            }
         }
         let done = (offset as u32 + batch_len as u32).min(total.max(batch_len as u32));
         report_rows(done, total.max(1));
@@ -1108,34 +1302,149 @@ async fn copy_table_data_merge(
     Ok(written)
 }
 
+fn should_include_insert_column(row: &HashMap<String, serde_json::Value>, col: &DbColumnMeta) -> bool {
+    if !row_has_column(row, &col.name) {
+        return false;
+    }
+    let value = row_value(row, &col.name);
+    if value.is_null() {
+        // 预览未取到值 / 源端为 NULL：省略该列，让目标库 DEFAULT 生效（如 create_time）
+        return false;
+    }
+    if !col.nullable {
+        if let serde_json::Value::String(text) = &value {
+            if text.is_empty() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn is_temporal_column_type(column_type: &str) -> bool {
+    let t = column_type.to_ascii_lowercase();
+    t.contains("datetime") || t.contains("timestamp") || t == "date" || t == "time"
+}
+
+fn temporal_default_expr(db_type: &str) -> String {
+    if is_postgres_engine(db_type) {
+        "CURRENT_TIMESTAMP".to_string()
+    } else {
+        "CURRENT_TIMESTAMP".to_string()
+    }
+}
+
+fn insert_field_expr(
+    row: &HashMap<String, serde_json::Value>,
+    col: &DbColumnMeta,
+    db_type: &str,
+) -> Option<String> {
+    if should_include_insert_column(row, col) {
+        return Some(sql_literal(&row_value(row, &col.name), db_type));
+    }
+    if !col.nullable && is_temporal_column_type(&col.column_type) {
+        return Some(temporal_default_expr(db_type));
+    }
+    None
+}
+
 fn build_insert_statement(
     db_type: &str,
     table: &str,
-    columns: &[String],
+    columns: &[DbColumnMeta],
     rows: &[HashMap<String, serde_json::Value>],
-) -> Result<String, String> {
+) -> Result<Vec<String>, String> {
     if rows.is_empty() {
-        return Ok(String::new());
+        return Ok(Vec::new());
     }
     let table_ident = quote_ident(db_type, table);
-    let col_idents: Vec<String> = columns
-        .iter()
-        .map(|name| quote_ident(db_type, name))
-        .collect();
-    let col_list = col_idents.join(", ");
-    let mut values_parts = Vec::with_capacity(rows.len());
+    let mut statements = Vec::with_capacity(rows.len());
     for row in rows {
-        let values = columns
-            .iter()
-            .map(|col| sql_literal(row.get(col).unwrap_or(&serde_json::Value::Null)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        values_parts.push(format!("({values})"));
+        let mut col_names: Vec<String> = Vec::new();
+        let mut value_exprs: Vec<String> = Vec::new();
+        for col in columns {
+            if let Some(expr) = insert_field_expr(row, col, db_type) {
+                col_names.push(quote_ident(db_type, &col.name));
+                value_exprs.push(expr);
+            }
+        }
+        if col_names.is_empty() {
+            continue;
+        }
+        statements.push(format!(
+            "INSERT INTO {table_ident} ({}) VALUES ({})",
+            col_names.join(", "),
+            value_exprs.join(", ")
+        ));
     }
-    let values_sql = values_parts.join(", ");
-    Ok(format!(
-        "INSERT INTO {table_ident} ({col_list}) VALUES {values_sql}"
-    ))
+    Ok(statements)
+}
+
+fn build_update_statement(
+    db_type: &str,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    row: &HashMap<String, serde_json::Value>,
+) -> Result<Option<String>, String> {
+    if pk_columns.is_empty() {
+        return Ok(None);
+    }
+    let table_ident = quote_ident(db_type, table);
+    let mut set_parts: Vec<String> = Vec::new();
+    for col in columns {
+        if pk_columns
+            .iter()
+            .any(|pk| pk.eq_ignore_ascii_case(&col.name))
+        {
+            continue;
+        }
+        if let Some(expr) = insert_field_expr(row, col, db_type) {
+            set_parts.push(format!(
+                "{} = {}",
+                quote_ident(db_type, &col.name),
+                expr
+            ));
+        }
+    }
+    if set_parts.is_empty() {
+        return Ok(None);
+    }
+    let mut where_parts: Vec<String> = Vec::new();
+    for pk in pk_columns {
+        let col = columns
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(pk))
+            .ok_or_else(|| format!("无法生成 UPDATE：缺少主键列 {pk}"))?;
+        where_parts.push(format!(
+            "{} = {}",
+            quote_ident(db_type, &col.name),
+            sql_literal(&row_value(row, &col.name), db_type)
+        ));
+    }
+    Ok(Some(format!(
+        "UPDATE {table_ident} SET {} WHERE {}",
+        set_parts.join(", "),
+        where_parts.join(" AND ")
+    )))
+}
+
+async fn execute_insert_statements(
+    target_conn: &DbConnectionConfig,
+    statements: Vec<String>,
+    cancel: &AtomicBool,
+) -> Result<u64, String> {
+    let mut written = 0u64;
+    for sql in statements {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        if sql.is_empty() {
+            continue;
+        }
+        written += database::db_run_sql(target_conn.clone(), None, sql).await?;
+    }
+    Ok(written)
 }
 
 async fn copy_table_data(
@@ -1154,13 +1463,13 @@ async fn copy_table_data(
     }
     let strategy = normalize_data_sync_strategy(spec.strategy.as_deref());
 
-    if strategy == "target" {
+    if strategy == "target" || strategy == "mergeTarget" || strategy == "conflictTarget" {
         report_rows(0, 1);
         return Ok(0);
     }
 
-    if strategy == "merge" {
-        return copy_table_data_merge(
+    if strategy == "mergeSource" {
+        return copy_table_data_merge_source(
             source,
             source_db,
             target,
@@ -1168,6 +1477,21 @@ async fn copy_table_data(
             spec,
             cancel,
             report_rows,
+            true,
+        )
+        .await;
+    }
+
+    if strategy == "conflictSource" {
+        return copy_table_data_merge_source(
+            source,
+            source_db,
+            target,
+            target_db,
+            spec,
+            cancel,
+            report_rows,
+            false,
         )
         .await;
     }
@@ -1207,16 +1531,9 @@ async fn copy_table_data(
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".to_string());
             }
-            let sql = build_insert_statement(
-                &target.db_type,
-                table,
-                &columns,
-                chunk,
-            )?;
-            if sql.is_empty() {
-                continue;
-            }
-            written += database::db_run_sql(target_conn.clone(), None, sql).await?;
+            let statements =
+                build_insert_statement(&target.db_type, table, &spec.columns, chunk)?;
+            written += execute_insert_statements(&target_conn, statements, cancel).await?;
         }
         let done = (offset as u32 + batch_len as u32).min(total.max(batch_len as u32));
         report_rows(done, total.max(1));
@@ -1227,6 +1544,26 @@ async fn copy_table_data(
     }
 
     Ok(written)
+}
+
+async fn resolve_exec_table_columns(
+    source: &DbConnectionConfig,
+    source_db: &str,
+    spec: &DbSyncExecTableSpec,
+) -> Result<Vec<DbColumnMeta>, String> {
+    if !spec.columns.is_empty() {
+        return Ok(spec.columns.clone());
+    }
+    let schema = database::db_introspect_table(
+        source.clone(),
+        Some(source_db.to_string()),
+        spec.name.clone(),
+    )
+    .await?;
+    if schema.columns.is_empty() {
+        return Err(format!("表 {} 缺少字段信息", spec.name));
+    }
+    Ok(schema.columns)
 }
 
 async fn execute_data_sync_table(
@@ -1252,13 +1589,27 @@ async fn execute_data_sync_table(
         };
     }
 
+    let mut exec_spec = spec.clone();
+    match resolve_exec_table_columns(source, source_db, spec).await {
+        Ok(columns) => exec_spec.columns = columns,
+        Err(err) => {
+            return SyncExecResultEvent {
+                table,
+                status: "error".to_string(),
+                rows_written: None,
+                message: None,
+                error: Some(err),
+            };
+        }
+    }
+
     if let Err(err) = ensure_table_from_source(
         source,
         source_db,
         target,
         target_db,
-        &spec.name,
-        &spec.name,
+        &exec_spec.name,
+        &exec_spec.name,
     )
     .await
     {
@@ -1276,7 +1627,7 @@ async fn execute_data_sync_table(
         source_db,
         target,
         target_db,
-        spec,
+        &exec_spec,
         cancel,
         report_rows,
     )
@@ -1288,7 +1639,10 @@ async fn execute_data_sync_table(
             rows_written: Some(rows),
             message: Some(match normalize_data_sync_strategy(spec.strategy.as_deref()) {
                 "target" => "已保留目标表数据，跳过同步".to_string(),
-                "merge" => format!("已追加 {rows} 行（忽略冲突行）"),
+                "mergeTarget" => "已保留目标表冲突字段，忽略源表独有行".to_string(),
+                "conflictTarget" => "已保留目标表冲突字段（仅冲突范围）".to_string(),
+                "mergeSource" => format!("已合并 {rows} 行（追加缺失行并更新冲突字段）"),
+                "conflictSource" => format!("已更新 {rows} 行冲突字段（仅冲突范围）"),
                 _ => format!("已同步 {rows} 行"),
             }),
             error: None,
@@ -1559,6 +1913,25 @@ pub async fn run_db_data_sync_execute(
     let source_db = source.database.clone();
     let target_db = target.database.clone();
     let total = tables.len().max(1) as u32;
+    let mut failed_tables: Vec<String> = Vec::new();
+
+    let mut table_row_totals: Vec<u32> = Vec::with_capacity(tables.len());
+    let mut grand_row_total = 0u32;
+    for spec in &tables {
+        let count = database::db_count_table(
+            source.clone(),
+            Some(source_db.clone()),
+            spec.name.clone(),
+            None,
+        )
+        .await
+        .unwrap_or(0)
+        .max(0) as u32;
+        table_row_totals.push(count);
+        grand_row_total = grand_row_total.saturating_add(count);
+    }
+    let grand_row_total = grand_row_total.max(1);
+    let mut rows_done_before_table = 0u32;
 
     for (idx, spec) in tables.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -1566,24 +1939,27 @@ pub async fn run_db_data_sync_execute(
         }
         let index = (idx + 1) as u32;
         let table = spec.name.clone();
+        let table_row_total = table_row_totals.get(idx).copied().unwrap_or(0).max(1);
         progress(
             format!("正在同步数据 ({index}/{total})：{table}"),
             index,
             total,
-            None,
-            None,
+            Some(rows_done_before_table.min(grand_row_total)),
+            Some(grand_row_total),
         );
 
         let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> = {
             let progress = progress.clone();
             let table_for_rows = table.clone();
-            Arc::new(move |row_completed, row_total| {
+            let rows_before = rows_done_before_table;
+            Arc::new(move |row_completed, _row_total| {
+                let overall = rows_before.saturating_add(row_completed).min(grand_row_total);
                 progress(
-                    format!("正在写入 {table_for_rows} ({row_completed}/{row_total})"),
+                    format!("正在写入 {table_for_rows} ({row_completed}/{table_row_total})"),
                     index,
                     total,
-                    Some(row_completed),
-                    Some(row_total),
+                    Some(overall),
+                    Some(grand_row_total),
                 );
             })
         };
@@ -1598,15 +1974,34 @@ pub async fn run_db_data_sync_execute(
             report_rows,
         )
         .await;
+        if result.status == "error" {
+            let detail = result
+                .error
+                .clone()
+                .unwrap_or_else(|| "未知错误".to_string());
+            failed_tables.push(format!("{table}: {detail}"));
+        }
         emit_exec_event(&app, &task_id, result).await;
+        rows_done_before_table = rows_done_before_table.saturating_add(table_row_totals[idx]);
+    }
+
+    if !failed_tables.is_empty() {
+        progress(
+            format!("数据同步完成，{}/{} 张表失败", failed_tables.len(), total),
+            total,
+            total,
+            Some(grand_row_total),
+            Some(grand_row_total),
+        );
+        return Err(failed_tables.join("；"));
     }
 
     progress(
         format!("数据同步已完成 ({total}/{total})"),
         total,
         total,
-        None,
-        None,
+        Some(grand_row_total),
+        Some(grand_row_total),
     );
     Ok(())
 }
