@@ -415,8 +415,8 @@ export function analyzeStatementAtOffset(
     return analyzeStatement(trimmed, dbType);
   }
 
-  const root = (Array.isArray(ast) ? ast[0] : ast) as SelectAst;
-  if (root.type !== "select") {
+  const root = (Array.isArray(ast) ? ast[0] : ast) as SelectAst | undefined;
+  if (!root || typeof root !== "object" || root.type !== "select") {
     return analyzeStatement(trimmed, dbType);
   }
 

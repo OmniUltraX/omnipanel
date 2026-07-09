@@ -3,8 +3,9 @@ use omnipanel_store::DbConnectionConfig;
 use tauri::State;
 
 use crate::background::db_sync_jobs::{
-    DbSyncExecTableSpec, DbSyncTableSpec, run_db_data_sync_analysis, run_db_data_sync_execute,
-    run_db_schema_sync_analysis, run_db_schema_sync_execute,
+    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncTableSpec, generate_data_sync_sql_script,
+    read_sync_sql_file, run_db_data_sync_analysis, run_db_data_sync_execute,
+    run_db_data_sync_sql_file_execute, run_db_schema_sync_analysis, run_db_schema_sync_execute,
 };
 use crate::background::knowledge_vector_jobs::run_knowledge_vectorize_background;
 use crate::background::schema_cache_jobs::run_db_schema_cache_refresh;
@@ -209,6 +210,69 @@ pub async fn bg_task_submit_db_data_sync_execute(
         total,
         move |task_id, cancel, progress| {
             run_db_data_sync_execute(app, task_id, source, target, tables, cancel, progress)
+        },
+    )
+    .await
+}
+
+/// 生成数据同步可执行 SQL 脚本并写入缓存文件。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_data_sync_generate_sql(
+    app: tauri::AppHandle,
+    source: DbConnectionConfig,
+    target: DbConnectionConfig,
+    tables: Vec<DbSyncExecTableSpec>,
+) -> Result<DbDataSyncSqlGenerateResult, OmniError> {
+    Ok(generate_data_sync_sql_script(&app, source, target, tables).await?)
+}
+
+/// 读取数据同步 SQL 缓存文件（仅限 app_cache/data-sync-sql 目录）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_data_sync_read_sql_file(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> Result<String, OmniError> {
+    Ok(read_sync_sql_file(&app, &file_path)?)
+}
+
+/// 提交数据同步 SQL 文件执行后台任务。
+#[tauri::command]
+#[specta::specta]
+pub async fn bg_task_submit_db_data_sync_sql_execute(
+    state: State<'_, AppState>,
+    target: DbConnectionConfig,
+    sql_file_path: String,
+    table_names: Vec<String>,
+) -> Result<String, OmniError> {
+    let total = table_names.len().max(1) as u32;
+    let title = if table_names.len() == 1 {
+        format!("执行同步 SQL：{}", table_names[0])
+    } else {
+        format!("执行同步 SQL（{} 张表）", table_names.len())
+    };
+    let target_db = target.database.clone();
+    let app = state.app_handle.clone();
+    let pool = state.worker_pool.clone();
+
+    pool.spawn(
+        app.clone(),
+        "database",
+        "dbDataSyncSqlExecute",
+        title,
+        total,
+        move |task_id, cancel, progress| {
+            run_db_data_sync_sql_file_execute(
+                app,
+                task_id,
+                target,
+                target_db,
+                sql_file_path,
+                table_names,
+                cancel,
+                progress,
+            )
         },
     )
     .await

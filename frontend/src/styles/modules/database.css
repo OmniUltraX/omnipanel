@@ -714,6 +714,13 @@
         border: 1px solid var(--border);
         border-radius: var(--r-md);
         background: var(--bg-deeper);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .db-sync-execute-confirm__preview .table-ddl-viewer {
+        flex: 1;
+        min-height: 0;
     }
 
     .db-sync-execute-confirm__preview .content-preview-view {
@@ -3150,10 +3157,24 @@
         min-width: 160px;
     }
 
+    .db-toolbox-side__filters--source-row .db-toolbox-table-picker {
+        flex: 1 1 120px;
+        min-width: 120px;
+        width: auto;
+    }
+
     .db-toolbox-side__filters--source-row .db-toolbox-search {
         flex: 1 1 120px;
         min-width: 72px;
         width: auto;
+    }
+
+    .db-toolbox-add-tables-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+        font-size: 11px;
+        padding-inline: var(--sp-2);
+        min-height: 26px;
     }
 
     .db-toolbox-select-all {
@@ -3954,6 +3975,60 @@
         margin-left: auto;
         align-items: center;
         gap: var(--sp-2);
+    }
+
+    .db-toolbox-target-row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .db-toolbox-target-row-analyze {
+        flex-shrink: 0;
+    }
+
+    .db-toolbox-target-row-actions .db-toolbox-sync-strategy-controls {
+        margin-left: 0;
+    }
+
+    .db-toolbox-sync-mode-controls {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .db-toolbox-sync-mode-options {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-wrap: wrap;
+    }
+
+    .db-toolbox-sync-mode-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.2;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .db-toolbox-sync-mode-option.is-active {
+        color: var(--fg);
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    }
+
+    .db-toolbox-sync-mode-option input {
+        margin: 0;
+        accent-color: var(--accent);
     }
 
     .db-toolbox-sync-strategy-select {

@@ -86,7 +86,47 @@ export function shouldKeepDataSyncStrategy(
   );
 }
 
-/** 冲突表的数据同步策略 */
+/** 数据同步方式（可多选组合） */
+export interface DataSyncModes {
+  /** 新增：源有、目标无 → INSERT */
+  insert: boolean;
+  /** 合并：双方均有且字段冲突 → UPDATE（以源为准） */
+  merge: boolean;
+  /** 删除：目标有、源无 → DELETE */
+  delete: boolean;
+}
+
+export const DEFAULT_DATA_SYNC_MODES: DataSyncModes = {
+  insert: true,
+  merge: true,
+  delete: false,
+};
+
+export const EMPTY_DATA_SYNC_MODES: DataSyncModes = {
+  insert: false,
+  merge: false,
+  delete: false,
+};
+
+export function hasAnyDataSyncMode(modes: DataSyncModes): boolean {
+  return modes.insert || modes.merge || modes.delete;
+}
+
+export function normalizeDataSyncModes(
+  value: Partial<DataSyncModes> | undefined | null,
+  fallback: DataSyncModes = DEFAULT_DATA_SYNC_MODES,
+): DataSyncModes {
+  if (!value || typeof value !== "object") {
+    return { ...fallback };
+  }
+  return {
+    insert: Boolean(value.insert),
+    merge: Boolean(value.merge),
+    delete: Boolean(value.delete),
+  };
+}
+
+/** @deprecated 旧版单选策略，读取任务配置时迁移为 DataSyncModes */
 export type DataSyncStrategy =
   | "source"
   | "mergeSource"
@@ -94,6 +134,25 @@ export type DataSyncStrategy =
   | "conflictSource"
   | "conflictTarget"
   | "target";
+
+export function migrateLegacyDataSyncStrategy(
+  strategy: string | undefined | null,
+): DataSyncModes {
+  const normalized = normalizeDataSyncStrategy(strategy, "mergeSource");
+  switch (normalized) {
+    case "target":
+    case "mergeTarget":
+    case "conflictTarget":
+      return { ...EMPTY_DATA_SYNC_MODES };
+    case "conflictSource":
+      return { insert: false, merge: true, delete: false };
+    case "source":
+      return { insert: true, merge: true, delete: true };
+    case "mergeSource":
+    default:
+      return { insert: true, merge: true, delete: false };
+  }
+}
 
 export function normalizeDataSyncStrategy(
   value: string | undefined | null,
@@ -120,6 +179,27 @@ export function normalizeDataSyncStrategy(
   return fallback;
 }
 
+export function normalizeTableSyncModes(
+  modes: Record<string, Partial<DataSyncModes>> | undefined,
+  legacyStrategies?: Record<string, string>,
+): Record<string, DataSyncModes> {
+  const next: Record<string, DataSyncModes> = {};
+  if (modes) {
+    for (const [name, value] of Object.entries(modes)) {
+      next[name] = normalizeDataSyncModes(value);
+    }
+  }
+  if (legacyStrategies) {
+    for (const [name, strategy] of Object.entries(legacyStrategies)) {
+      if (!next[name]) {
+        next[name] = migrateLegacyDataSyncStrategy(strategy);
+      }
+    }
+  }
+  return next;
+}
+
+/** @deprecated 使用 normalizeTableSyncModes */
 export function normalizeTableSyncStrategies(
   strategies: Record<string, string> | undefined,
 ): Record<string, DataSyncStrategy> {
@@ -258,7 +338,11 @@ export interface SyncTaskConfig {
   targetConnId: string;
   targetDb: string;
   selectedTables: string[];
+  /** 源侧已添加到列表的表（未持久化时回退为 selectedTables） */
+  addedTables?: string[];
   expandedTables?: string[];
+  tableSyncModes?: Record<string, DataSyncModes>;
+  /** @deprecated 旧版单选策略，加载时迁移为 tableSyncModes */
   tableSyncStrategies?: Record<string, DataSyncStrategy>;
   /** 结构同步：比较表名时是否区分大小写，默认 true */
   schemaCaseSensitive?: boolean;

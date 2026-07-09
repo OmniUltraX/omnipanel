@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { resolveSchemaSyncTargetTableName, isSchemaSyncSourceTableMissingInTarget } from "./schemaSyncAlignedTables";
 import type { SyncTableInfo } from "./types";
@@ -11,6 +12,7 @@ import {
   cancelBackgroundTask,
   submitDbDataSyncAnalysis,
   submitDbDataSyncExecute,
+  submitDbDataSyncSqlExecute,
   submitDbSchemaSyncAnalysis,
   submitDbSchemaSyncExecute,
 } from "../../../stores/backgroundTaskStore";
@@ -246,6 +248,56 @@ export async function startDbSchemaSyncBackgroundTask(
   return submitDbSchemaSyncAnalysis({ ...targetConn, database: targetDb }, targetDb, specs);
 }
 
+export interface DbDataSyncSqlGenerateResult {
+  filePath: string;
+  statementCount: number;
+}
+
+export async function generateDataSyncSql(
+  sourceConn: DbConnectionConfig,
+  targetConn: DbConnectionConfig,
+  sourceDb: string,
+  targetDb: string,
+  tables: Array<{
+    name: string;
+    columns: DbColumnMeta[];
+    syncModes?: { insert: boolean; merge: boolean; delete: boolean };
+    diffCacheId?: string | null;
+    /** @deprecated */
+    strategy?: string;
+  }>,
+): Promise<DbDataSyncSqlGenerateResult> {
+  const specs = tables.map((table) => ({
+    name: table.name,
+    columns: table.columns,
+    syncModes: table.syncModes ?? null,
+    diffCacheId: table.diffCacheId ?? null,
+    strategy: table.strategy ?? null,
+  }));
+  return invoke<DbDataSyncSqlGenerateResult>("db_data_sync_generate_sql", {
+    source: { ...sourceConn, database: sourceDb },
+    target: { ...targetConn, database: targetDb },
+    tables: specs,
+  });
+}
+
+export async function readDataSyncSqlFile(filePath: string): Promise<string> {
+  return invoke<string>("db_data_sync_read_sql_file", { filePath });
+}
+
+export async function startDbDataSyncSqlExecute(
+  targetConn: DbConnectionConfig,
+  targetDb: string,
+  sqlFilePath: string,
+  tableNames: string[],
+): Promise<string> {
+  return submitDbDataSyncSqlExecute(
+    { ...targetConn, database: targetDb },
+    sqlFilePath,
+    tableNames,
+  );
+}
+
 export async function startDbDataSyncExecute(
   sourceConn: DbConnectionConfig,
   targetConn: DbConnectionConfig,
@@ -254,12 +306,15 @@ export async function startDbDataSyncExecute(
   tables: Array<{
     name: string;
     columns: DbColumnMeta[];
+    syncModes?: { insert: boolean; merge: boolean; delete: boolean };
+    /** @deprecated */
     strategy?: string;
   }>,
 ): Promise<string> {
   const specs = tables.map((table) => ({
     name: table.name,
     columns: table.columns,
+    syncModes: table.syncModes ?? null,
     strategy: table.strategy ?? null,
   }));
   return submitDbDataSyncExecute(

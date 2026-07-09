@@ -89,7 +89,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     getSearchHighlightExtension(),
     createFunctionSignaturePlugin(getDbType),
     createSqlLinter(getDbType, getSchemas),
-    createSqlHoverTooltip(getSchemas, getDbType),
+    createSqlHoverTooltip(getSchemas, getDbType, getReadOnly),
     autocompletion({
       activateOnTyping: true,
       maxRenderedOptions: 80,

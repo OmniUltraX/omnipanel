@@ -134,6 +134,18 @@ export async function submitDbDataSyncExecute(
   });
 }
 
+export async function submitDbDataSyncSqlExecute(
+  target: unknown,
+  sqlFilePath: string,
+  tableNames: string[],
+): Promise<string> {
+  return invoke<string>("bg_task_submit_db_data_sync_sql_execute", {
+    target,
+    sqlFilePath,
+    tableNames,
+  });
+}
+
 export async function submitDbSchemaSyncExecute(
   source: unknown,
   target: unknown,
