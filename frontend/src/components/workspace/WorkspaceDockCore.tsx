@@ -14,6 +14,10 @@ import { isWorkspaceBuiltinTabId } from "../../lib/workspaceBuiltinPanels";
 import { isLayoutUsable, collectPanelIds, mergePanelsIntoLayout } from "../dock/dockViewLayout";
 import { syncWorkspaceDockActiveTabSideEffects } from "../../lib/syncWorkspaceDockActiveTab";
 import { cleanupWorkspaceDockTab } from "../../lib/workspaceTabActions";
+import {
+  applyModuleTransferToWorkspace,
+  isModuleDockScope,
+} from "../../lib/moduleToWorkspaceTransfer";
 import { WorkspaceDockTabPanel } from "./WorkspaceDockTabPanel";
 
 export interface WorkspaceDockCoreProps {
@@ -61,6 +65,7 @@ export function WorkspaceDockCore({
   const setLayout = useWorkspaceBottomDockStore((state) => state.setLayout);
   const setActiveTabId = useWorkspaceBottomDockStore((state) => state.setActiveTabId);
   const addMirroredTab = useWorkspaceBottomDockStore((state) => state.addMirroredTab);
+  const addPayloadTab = useWorkspaceBottomDockStore((state) => state.addPayloadTab);
   const removeTab = useWorkspaceBottomDockStore((state) => state.removeTab);
 
   useEffect(() => {
@@ -108,6 +113,17 @@ export function WorkspaceDockCore({
   useEffect(() => {
     return subscribeDockviewTransfer((meta) => {
       if (!meta.newPanelId.startsWith(`${dockScope}:`)) return;
+      if (isModuleDockScope(meta.originScope)) {
+        applyModuleTransferToWorkspace(
+          workspaceId,
+          workspace,
+          meta,
+          addPayloadTab,
+          addMirroredTab,
+          setActiveTabId,
+        );
+        return;
+      }
       addMirroredTab(workspaceId, workspace, {
         id: meta.newPanelId,
         label:
@@ -118,7 +134,7 @@ export function WorkspaceDockCore({
         originPanelId: meta.originPanelId,
       });
     });
-  }, [addMirroredTab, dockScope, workspaceId, workspace]);
+  }, [addMirroredTab, addPayloadTab, dockScope, setActiveTabId, workspaceId, workspace]);
 
   const renderPanel = useCallback(
     (tabId: string) => {

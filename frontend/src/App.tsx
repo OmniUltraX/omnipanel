@@ -28,7 +28,6 @@ import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { Button } from "./components/ui/primitives/Button";
 import { SuspendedModulePanel, OverlayModuleRoutePanel } from "./components/ui/feedback";
 import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
-import { WorkspaceBottomHost } from "./components/workspace/WorkspaceBottomHost";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
@@ -47,6 +46,10 @@ import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
+import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
+import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
+import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
+import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
 import "./lib/workspaceComponentRegistry";
 import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
@@ -176,8 +179,77 @@ function AppShell() {
     };
   }, []);
 
+  // 主窗口：与工作区独立窗口保持同步（打开/关闭时更新 poppedOut 集合）。
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    void initMainWindowWorkspaceSync().then((fn) => {
+      cleanup = fn;
+    });
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
+    try {
+      return initCrossWindowDockTransfer();
+    } catch (e) {
+      console.warn("[crossWindowDock] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      return initModuleToWorkspaceDragBridge();
+    } catch (e) {
+      console.warn("[moduleToWorkspaceDrag] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  // 跨窗口同步工作区 dock tabs/layout（独立窗口增删 tab 后主窗口实时可见）。
+  useEffect(() => {
+    return subscribePersistStoreCrossWindow(
+      "omnipanel.workspace-bottom-dock.v3",
+      useWorkspaceBottomDockStore,
+    );
+  }, []);
+
   const location = useLocation();
   const navigate = useNavigate();
+
+  // 当前工作区被弹出为独立窗口时，主窗口让位回首页看板。
+  // 仅在「核实窗口仍存活」后才让位，避免脏标记把用户踢回首页、切换无反应。
+  useEffect(() => {
+    let cancelled = false;
+    const handle = () => {
+      const curId = useWorkspaceStore.getState().workspace.id;
+      if (!useWorkspaceWindowStore.getState().isPoppedOut(curId)) return;
+      void (async () => {
+        try {
+          const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+          const { workspaceWindowLabel } = await import("./lib/workspaceWindow");
+          const existing = await WebviewWindow.getByLabel(workspaceWindowLabel(curId));
+          if (cancelled) return;
+          if (!existing) {
+            useWorkspaceWindowStore.getState().clearPoppedOut(curId);
+            return;
+          }
+          goWorkspaceHome(navigate);
+        } catch {
+          if (!cancelled) {
+            useWorkspaceWindowStore.getState().clearPoppedOut(curId);
+          }
+        }
+      })();
+    };
+    handle();
+    const unsub = useWorkspaceWindowStore.subscribe(handle);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [navigate]);
+
   const title = getRouteTitle(location.pathname);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const isTerminal = location.pathname === MODULE_PATHS.terminal;
@@ -199,7 +271,6 @@ function AppShell() {
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const setActivePath = useWorkspaceStore((state) => state.setActivePath);
-  const currentWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
   const workspaceActivePath = useWorkspaceStore((state) => state.activePath);
   const confirmAction = useActionStore((state) => state.confirmAction);
   const cancelAction = useActionStore((state) => state.cancelAction);

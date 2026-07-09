@@ -4,6 +4,7 @@ import {
   commands,
 } from "../ipc/bindings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -585,7 +586,7 @@ export function useTerminal(
         id: backendSid,
         data: toBytes(data),
       }).catch((err) => {
-        if (isSessionNotFoundError(err) || isSessionClosedError(err)) {
+        if (isSessionClosedError(err)) {
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
           useTerminalRunStateStore.getState().enterRecovering(sessionId);
@@ -1338,8 +1339,8 @@ export function useTerminal(
       for (const disposable of disposables) {
         disposable.dispose();
       }
-      unlistenOutput?.();
-      unlistenEvent?.();
+      safeTauriUnlisten(unlistenOutput ?? undefined);
+      safeTauriUnlisten(unlistenEvent ?? undefined);
       outputBatcher?.dispose();
       webglAddon?.dispose();
       if (term) {

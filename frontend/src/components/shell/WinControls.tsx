@@ -18,8 +18,10 @@ export function WinControls({ className }: WinControlsProps) {
     await getCurrentWindow().toggleMaximize();
   };
 
-  const handleClose = async () => {
-    await getCurrentWindow().close();
+  const handleClose = () => {
+    void getCurrentWindow().close().catch((e) => {
+      console.error("[WinControls] close failed", e);
+    });
   };
 
   return (

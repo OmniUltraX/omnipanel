@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
 import { useLocation } from "react-router-dom";
-import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
-import { switchEmbeddedWorkspace } from "../../lib/workspaceNavigation";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { isWorkspacePoppedOut } from "../../stores/workspaceWindowStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { isWorkspacePath } from "../../lib/paths";
@@ -18,7 +18,6 @@ import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { BackgroundTasksWindow } from "./BackgroundTasksWindow";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
-import { StatusBarAgentIndicator } from "./StatusBarAgentIndicator";
 import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
 
 /** 全局后台任务进度（切换模块后仍展示） */
@@ -140,6 +139,7 @@ function StatusBarModuleLog() {
 
 function StatusBarWorkspacePanelToggle() {
   const { t } = useI18n();
+  const workspaceId = useWorkspaceStore((state) => state.workspace.id);
   const embeddedMode = useEmbeddedWorkspaceMode();
   const workspaceDisplayPreference = useBottomPanelStore(
     (state) => state.workspaceDisplayPreference,
@@ -148,14 +148,17 @@ function StatusBarWorkspacePanelToggle() {
     (state) => state.toggleWorkspaceDisplayPreference,
   );
 
+  const isPoppedOut = isWorkspacePoppedOut(workspaceId);
   const isHidden = embeddedMode === "hidden";
   const isTaskBar = workspaceDisplayPreference === "task-bar";
 
-  const toggleLabel = isHidden
-    ? t("shell.statusbar.expandWorkspace")
-    : isTaskBar
-      ? t("shell.statusbar.switchToSplitWindow")
-      : t("shell.statusbar.switchToTaskBar");
+  const toggleLabel = isPoppedOut
+    ? t("shell.statusbar.workspacePoppedOutHint")
+    : isHidden
+      ? t("shell.statusbar.expandWorkspace")
+      : isTaskBar
+        ? t("shell.statusbar.switchToSplitWindow")
+        : t("shell.statusbar.switchToTaskBar");
 
   return (
     <button
@@ -165,6 +168,7 @@ function StatusBarWorkspacePanelToggle() {
       title={toggleLabel}
       aria-label={toggleLabel}
       aria-pressed={!isHidden && !isTaskBar}
+      disabled={isPoppedOut}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
         <rect x="3" y="4" width="18" height="16" rx="1.5" />
@@ -180,23 +184,12 @@ function StatusBarWorkspacePanelToggle() {
 }
 
 function StatusBarWorkspaceControls() {
-  const requestExpand = useBottomPanelStore((state) => state.requestExpand);
-
-  const handleSelectWorkspace = useCallback(
-    (ws: WorkspaceInfo) => {
-      switchEmbeddedWorkspace(ws.id);
-      requestExpand();
-    },
-    [requestExpand],
-  );
-
   return (
     <div className="statusbar-workspace-controls">
       <WorkspaceSwitcher
         variant="statusbar"
         placement="above"
-        context="embedded"
-        onSelectWorkspace={handleSelectWorkspace}
+        context="statusbar"
       />
       <StatusBarWorkspacePanelToggle />
     </div>
@@ -253,7 +246,6 @@ export function StatusBar() {
         <span className="statusbar-item">GPU: wgpu</span>
         <span className="statusbar-item">UTF-8</span>
         <span className="statusbar-item">LF</span>
-        <StatusBarAgentIndicator />
         <StatusBarAiServicesIndicator />
         {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
       </div>
@@ -267,7 +259,6 @@ export function StatusBar() {
       <StatusBarModuleLog />
       <BackgroundTasksWindow />
       <span className="statusbar-spacer" />
-      <StatusBarAgentIndicator />
       <StatusBarAiServicesIndicator />
       {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
     </div>

@@ -15,6 +15,9 @@ import {
   type WorkspaceDisplayPreference,
   type WorkspaceMode,
 } from "../lib/workspaceMode";
+import { resolveWorkspaceTabs, useWorkspaceBottomDockStore } from "./workspaceBottomDockStore";
+import { useWorkspaceStore } from "./workspaceStore";
+import { isWorkspacePoppedOut } from "./workspaceWindowStore";
 
 /** 底部嵌入区展示态：off=隐藏，half=半屏 */
 export type WorkspaceEmbeddedMode = "off" | "half";
@@ -49,7 +52,7 @@ interface BottomPanelState {
   /** task-bar SubWindow 当前展示的 tab（overlay 模块让出 isActive） */
   taskbarSubWindowTabId: string | null;
 
-  requestExpand: () => void;
+  requestExpand: (options?: { force?: boolean }) => void;
   requestCollapse: () => void;
   setIsOpen: (open: boolean) => void;
   setWorkspaceHeight: (
@@ -126,7 +129,15 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       deferExitFullscreenMode: null,
       taskbarSubWindowTabId: null,
 
-      requestExpand: () => {
+      requestExpand: (options) => {
+        if (!options?.force) {
+          const workspace = useWorkspaceStore.getState().workspace;
+          const rawTabs =
+            useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspace.id];
+          if (resolveWorkspaceTabs(workspace, rawTabs).length === 0) {
+            return;
+          }
+        }
         const { workspaceMode, workspaceDisplayPreference } = get();
         const normalized = normalizeWorkspaceMode(workspaceMode);
         if (
@@ -241,6 +252,10 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         }
 
         if (normalized === "hidden") {
+          const workspaceId = useWorkspaceStore.getState().workspace.id;
+          if (isWorkspacePoppedOut(workspaceId)) {
+            return;
+          }
           get().applyWorkspaceDisplayPreference(state.workspaceDisplayPreference);
           set((s) => ({ expandSignal: s.expandSignal + 1 }));
           return;
@@ -371,8 +386,7 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           return;
         }
         if (normalized === "hidden") {
-          get().applyWorkspaceDisplayPreference("task-bar");
-          set((state) => ({ expandSignal: state.expandSignal + 1 }));
+          get().requestExpand();
           return;
         }
         if (normalized === "taskbar" || normalized === "thumbnail") {

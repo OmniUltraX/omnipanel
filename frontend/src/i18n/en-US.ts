@@ -509,6 +509,7 @@ export const enUS: TranslationDict = {
       collapseWorkspace: "Collapse workspace",
       switchToTaskBar: "Switch to tab bar mode",
       switchToSplitWindow: "Switch to split window mode",
+      workspacePoppedOutHint: "This workspace is in a separate window; the main window does not show the bottom panel",
       copyLog: "Click to copy full message",
       agent: {
         connected: "Connected",
@@ -582,6 +583,9 @@ export const enUS: TranslationDict = {
       welcomePrompt: "Drag panels from other modules here to arrange freely, or switch modules to continue",
       fullscreen: "Fullscreen workspace",
       exitFullscreen: "Exit fullscreen",
+      popOutWindow: "Pop out as separate window",
+      popOutWindowFailed: "Failed to pop out workspace window",
+      dockBackToMain: "Dock back to main window",
       modeUp: "Move workspace up one level",
       modeDown: "Move workspace down one level",
       mirroredDatabase: "Database panel moved to engineering workspace",

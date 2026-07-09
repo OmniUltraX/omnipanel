@@ -150,3 +150,24 @@ export function embeddedModeToDisplayPreference(
 ): WorkspaceDisplayPreference {
   return mode === "taskbar" || mode === "thumbnail" ? "task-bar" : "split-window";
 }
+
+/** 半屏 / taskbar / 缩略图等嵌入底栏是否处于展开态 */
+export function isEmbeddedWorkspacePanelOpen(mode: WorkspaceMode): boolean {
+  if (mode === "fullscreen" || mode === "home") return false;
+  return mode !== "hidden";
+}
+
+/**
+ * 工程工作区切换器展示规则：
+ * - 首页 / 主内容区顶栏：始终展示
+ * - 嵌入底栏（taskbar / 半屏 / 全屏工程工作区）：展示
+ */
+export function shouldShowWorkspaceSwitcher(options: {
+  context: "main" | "embedded";
+  workspaceMode: WorkspaceMode;
+  isFullscreen?: boolean;
+}): boolean {
+  if (options.context === "main") return true;
+  if (options.isFullscreen || options.workspaceMode === "fullscreen") return true;
+  return isEmbeddedWorkspaceMode(options.workspaceMode) && options.workspaceMode !== "hidden";
+}

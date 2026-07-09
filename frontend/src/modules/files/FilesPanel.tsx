@@ -368,6 +368,16 @@ function FilesBrowserView() {
     activeNavigateRef.current = navigate;
   }, []);
 
+  const handlePanelTransferredOut = useCallback(
+    (panelId: string, targetScope: string) => {
+      if (!targetScope.startsWith("workspace-bottom-")) return;
+      const connId = parseFileConnPanelId(panelId);
+      if (!connId) return;
+      closeConnection(connId);
+    },
+    [closeConnection],
+  );
+
   const renderDockPanel = useCallback(
     (panelId: string) => {
       const connId = parseFileConnPanelId(panelId);
@@ -456,6 +466,8 @@ function FilesBrowserView() {
               activeTabId={activePanelId ?? ""}
               onActiveTabChange={setActivePanelId}
               onCloseTab={handleCloseTab}
+              onPanelTransferredOut={handlePanelTransferredOut}
+              acceptExternalDrops
               savedLayout={savedLayout}
               onSavedLayoutChange={setSavedLayout}
               renderPanel={renderDockPanel}

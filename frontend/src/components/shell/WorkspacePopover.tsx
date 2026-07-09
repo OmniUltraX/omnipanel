@@ -19,10 +19,11 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
+import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 
 import {
-  enterEngineeringWorkspaceFullscreen,
-  goWorkspaceHome,
+  goHomeUniversally,
+  selectWorkspaceUniversally,
 } from "../../lib/workspaceNavigation";
 
 import { isDashboardPath } from "../../lib/paths";
@@ -52,6 +53,10 @@ interface WorkspacePopoverProps {
 
   showHomeOption?: boolean;
 
+  /** 下拉列表中标记为当前选中的工作区 id；未提供时使用全局 store */
+
+  activeWorkspaceId?: string;
+
 }
 
 
@@ -80,6 +85,8 @@ export function WorkspacePopover({
 
   showHomeOption = true,
 
+  activeWorkspaceId: activeWorkspaceIdProp,
+
 }: WorkspacePopoverProps) {
 
   const { t } = useI18n();
@@ -90,13 +97,17 @@ export function WorkspacePopover({
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
 
-  const currentId = useWorkspaceStore((state) => state.workspace.id);
+  const storeWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
+
+  const currentId = activeWorkspaceIdProp ?? storeWorkspaceId;
 
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace);
 
   const renameWorkspace = useWorkspaceStore((state) => state.renameWorkspace);
 
   const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
+
+  const requestExpand = useBottomPanelStore((state) => state.requestExpand);
 
   const removeWorkspaceData = useWorkspaceBottomDockStore(
 
@@ -292,13 +303,15 @@ export function WorkspacePopover({
 
     const ws = addWorkspace(trimmed);
 
+    requestExpand({ force: true });
+
     if (onSelectWorkspace) {
 
       onSelectWorkspace(ws);
 
     } else {
 
-      enterEngineeringWorkspaceFullscreen(ws.id, navigate);
+      void selectWorkspaceUniversally(ws.id, navigate);
 
     }
 
@@ -320,7 +333,7 @@ export function WorkspacePopover({
 
     }
 
-    enterEngineeringWorkspaceFullscreen(target.id, navigate);
+    void selectWorkspaceUniversally(target.id, navigate);
 
     onClose();
 
@@ -330,7 +343,7 @@ export function WorkspacePopover({
 
   function handleSelectHome() {
 
-    goWorkspaceHome(navigate);
+    void goHomeUniversally(navigate);
 
     onClose();
 

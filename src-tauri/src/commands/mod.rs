@@ -39,3 +39,4 @@ pub mod skills;
 pub mod web_search;
 pub mod third_party_account;
 pub mod workflow;
+pub mod workspace_window;

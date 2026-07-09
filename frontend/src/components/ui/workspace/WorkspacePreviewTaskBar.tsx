@@ -16,8 +16,8 @@ import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { useI18n } from "../../../i18n";
 import type { WorkspaceDockTab } from "../../../stores/workspaceBottomDockStore";
 import { WorkspaceTaskBarPanelSubWindow } from "../../workspace/WorkspaceTaskBarPanelSubWindow";
-import { WorkspaceSwitcher } from "../../shell/WorkspaceSwitcher";
 import { useBottomPanelStore } from "../../../stores/bottomPanelStore";
+import { WorkspaceSwitcher } from "../../shell/WorkspaceSwitcher";
 
 function taskbarTabStatusClass(status?: string) {
   if (status === "connected" || status === "online") return "online";
@@ -206,7 +206,7 @@ export function WorkspacePreviewTaskBar() {
     <>
       <div className="workspace-preview-taskbar">
         <div className="workspace-taskbar-strip__switcher drag-ignore">
-          <WorkspaceSwitcher placement="below" context="embedded" compact />
+          <WorkspaceSwitcher placement="above" context="statusbar" />
         </div>
         <div className="workspace-preview-taskbar__panels" role="tablist">
           {tabs.length === 0 ? (

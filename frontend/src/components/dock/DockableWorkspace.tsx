@@ -34,7 +34,12 @@ import {
   registerDockviewInstance,
   transferPanelToTarget,
   unregisterDockviewInstance,
+  getDockviewInstance,
 } from "../../lib/dockviewRegistry";
+import {
+  shouldTransferModuleToWorkspace,
+  shouldTransferWorkspaceToModule,
+} from "../../lib/moduleToWorkspaceTransfer";
 import { syncTabGroupsByPanelType, clearTabGroups } from "./dockTabGroups";
 import { DockWorkspaceTabHeader } from "./DockWorkspaceTabHeader";
 import {
@@ -220,6 +225,43 @@ function isExternalPanelDrop(
 ): boolean {
   const data = event.getData();
   return Boolean(data?.panelId && data.viewId !== targetViewId);
+}
+
+function resolveExternalDropScopes(
+  event: { getData: () => ReturnType<DockviewDidDropEvent["getData"]> },
+  targetViewId: string,
+  targetScope: string | undefined,
+): { sourceScope: string | undefined } {
+  const data = event.getData();
+  if (!data?.viewId) return { sourceScope: undefined };
+  const sourceScope = getDockviewInstance(data.viewId)?.scope;
+  return { sourceScope };
+}
+
+function shouldInterceptExternalDrop(
+  event: DockviewWillDropEvent,
+  targetViewId: string,
+  targetScope: string | undefined,
+  api: DockviewApi,
+  tabCount: number,
+  acceptExternalDrops: boolean,
+): boolean {
+  if (!isExternalPanelDrop(event, targetViewId)) return false;
+  const data = event.getData();
+  const panelId = data?.panelId;
+  const { sourceScope } = resolveExternalDropScopes(event, targetViewId, targetScope);
+  if (shouldTransferModuleToWorkspace(targetScope, sourceScope)) {
+    return true;
+  }
+  if (shouldTransferWorkspaceToModule(targetScope, sourceScope)) {
+    return true;
+  }
+  // 兜底：工作区 payload panel 拖向模块 dock（sourceScope 偶发解析失败）
+  if (panelId?.startsWith("ws-payload:") && isModuleDockScope(targetScope)) {
+    return true;
+  }
+  if (event.kind === "edge") return true;
+  return acceptExternalDrops && tabCount === 0 && api.panels.length === 0;
 }
 
 /** 无 panel 时保留空 group，供外部拖放落点或 tab 栏窗口控制 chrome */
@@ -914,6 +956,64 @@ export function DockableWorkspace({
     };
   }, [onTabClick, tabs.length]);
 
+  // 工程工作区 dock：pointerdown 时广播 tab 抓取，供跨窗口拖拽桥接
+  useEffect(() => {
+    if (!dockScope?.startsWith("workspace-bottom-")) return;
+    const root = wrapperRef.current;
+    if (!root) return;
+
+    const onGrab = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+      const panelId = tabHeader?.dataset.dockTabId;
+      if (!panelId) return;
+      window.dispatchEvent(
+        new CustomEvent("omnipanel:workspace-dock-tab-grab", {
+          detail: {
+            panelId,
+            dockScope,
+            screenX: event.screenX,
+            screenY: event.screenY,
+          },
+        }),
+      );
+    };
+
+    root.addEventListener("pointerdown", onGrab, true);
+    return () => root.removeEventListener("pointerdown", onGrab, true);
+  }, [dockScope, tabs.length]);
+
+  // 终端/数据库等模块 dock：pointerdown 时广播 tab 抓取，供模块→工作区拖拽桥接
+  useEffect(() => {
+    if (!dockScope || dockScope.startsWith("workspace-bottom-")) return;
+    const root = wrapperRef.current;
+    if (!root) return;
+
+    const onGrab = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+      const panelId = tabHeader?.dataset.dockTabId;
+      if (!panelId) return;
+      window.dispatchEvent(
+        new CustomEvent("omnipanel:module-dock-tab-grab", {
+          detail: {
+            panelId,
+            dockScope,
+            screenX: event.screenX,
+            screenY: event.screenY,
+          },
+        }),
+      );
+    };
+
+    root.addEventListener("pointerdown", onGrab, true);
+    return () => root.removeEventListener("pointerdown", onGrab, true);
+  }, [dockScope, tabs.length]);
+
   // Tab 双击：拦截冒泡，避免触发无边框窗口 drag-region 最大化；具体行为由 onTabDoubleClick 决定
   useEffect(() => {
     const root = wrapperRef.current;
@@ -1524,16 +1624,20 @@ export function DockableWorkspace({
             }
           }),
           api.onWillDrop((event) => {
-            if (!isExternalPanelDrop(event, api.id)) return;
-            const emptyDropTarget =
-              acceptExternalDropsRef.current &&
-              tabsRef.current.length === 0 &&
-              api.panels.length === 0;
-            // 根级 edge 落点，或空工作区内容区：阻止 moveGroupOrPanel，改走 transfer
-            if (event.kind === "edge" || emptyDropTarget) {
-              event.preventDefault();
-              handleExternalDrop(event);
+            if (
+              !shouldInterceptExternalDrop(
+                event,
+                api.id,
+                dockScopeRef.current,
+                api,
+                tabsRef.current.length,
+                Boolean(acceptExternalDropsRef.current),
+              )
+            ) {
+              return;
             }
+            event.preventDefault();
+            handleExternalDrop(event);
           }),
         );
       }

@@ -37,6 +37,9 @@ warp/
 .env
 .env.local
 
+# 本地调试日志（绝不能进 src-tauri，会触发 tauri watch 热重载）
+**/workspace-window-debug.log
+
 
 frontend/tauri-signing.key
 frontend/tauri-signing.key.pub

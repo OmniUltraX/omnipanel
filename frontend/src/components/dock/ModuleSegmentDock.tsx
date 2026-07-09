@@ -52,6 +52,8 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   onTabDoubleClick?: (tabId: string) => void;
   emptyContent?: ReactNode;
   dockScope?: string;
+  /** panel 被拖离本 dock 时回调 */
+  onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
   /** 是否接受其他 dockview 拖入的 panel */
   acceptExternalDrops?: boolean;
   /** Tab 栏左侧模块标题（对齐设计稿 .topbar-title） */
@@ -88,6 +90,7 @@ export function ModuleSegmentDock({
   emptyContent,
   dockScope,
   acceptExternalDrops,
+  onPanelTransferredOut,
   moduleTitle,
   preActions,
   variant = "function",
@@ -161,6 +164,7 @@ export function ModuleSegmentDock({
       emptyContent={emptyContent}
       preActions={composedPreActions}
       acceptExternalDrops={acceptExternalDrops}
+      onPanelTransferredOut={onPanelTransferredOut}
       windowChromeVariant="segment"
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
