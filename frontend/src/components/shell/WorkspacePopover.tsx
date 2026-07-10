@@ -19,7 +19,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
-import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 
 import {
   goHomeUniversally,
@@ -106,8 +105,6 @@ export function WorkspacePopover({
   const renameWorkspace = useWorkspaceStore((state) => state.renameWorkspace);
 
   const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
-
-  const requestExpand = useBottomPanelStore((state) => state.requestExpand);
 
   const removeWorkspaceData = useWorkspaceBottomDockStore(
 
@@ -302,8 +299,6 @@ export function WorkspacePopover({
     }
 
     const ws = addWorkspace(trimmed);
-
-    requestExpand({ force: true });
 
     if (onSelectWorkspace) {
 

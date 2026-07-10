@@ -1,5 +1,5 @@
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   findEngineeringWorkspaceDockAt,
   findModuleDockPanelById,
@@ -14,7 +14,20 @@ import {
   isModuleDockScope,
   remapWorkspaceTabForTarget,
 } from "./moduleToWorkspaceTransfer";
-import { findWindowLabelAtScreenPoint, resolveTargetWorkspaceIdForTransfer } from "./crossWindowDragUtils";
+import {
+  clearWebviewWindowLabelCache,
+  emitToOtherWebviews,
+  findWindowLabelAtScreenPoint,
+  isPointerOutsideCurrentWindow,
+  isWindowChromePointerTarget,
+  resolveTargetWorkspaceIdForTransfer,
+  screenPointToClient,
+} from "./crossWindowDragUtils";
+import {
+  bindDockviewPointerDragController,
+  cancelDockviewPointerDrag,
+  forceEndDockviewPointerDrag,
+} from "./dockviewPointerDrag";
 import { isTauriRuntime } from "./isTauriRuntime";
 import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import { useWorkspaceStore } from "../stores/workspaceStore";
@@ -25,6 +38,8 @@ import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
 import {
   broadcastCrossWindowDragEnd,
   broadcastCrossWindowDragMove,
+  CROSS_WINDOW_DRAG_END_EVENT,
+  useCrossWindowDragVisualStore,
 } from "./crossWindowDragVisual";
 
 export const CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT =
@@ -51,6 +66,7 @@ interface CrossWindowModuleDragCompletePayload extends CrossWindowModuleDragPayl
 
 const REMOTE_DRAG_TTL_MS = 30_000;
 const DRAG_THRESHOLD_PX = 4;
+const DRAG_COMPLETION_LOCK_TIMEOUT_MS = 800;
 const MODULE_DRAG_BODY_CLASS = "omnipanel-cross-window-module-drag";
 
 interface ModulePointerSeed {
@@ -66,6 +82,7 @@ let localDrag: CrossWindowModuleDragPayload | null = null;
 let remoteDrag: (CrossWindowModuleDragPayload & { expiresAt: number }) | null = null;
 let activeBroadcast = false;
 let dragCompletionLock = false;
+let dragCompletionLockTimer: ReturnType<typeof setTimeout> | null = null;
 let dragFinishToken = 0;
 const recentTransferKeys = new Set<string>();
 
@@ -90,6 +107,20 @@ function panelIdFromActiveModuleDrag(): string | null {
   return pointerSeed?.panelId ?? null;
 }
 
+function clearLocalModuleDockDragArtifacts(): void {
+  document
+    .querySelectorAll(
+      ".dockable-workspace:not(.workspace-panel-dock) .dv-tab-dragging, .dockable-workspace:not(.workspace-panel-dock) .dv-tab--dragging, .dockable-workspace:not(.workspace-panel-dock) .dv-resize-container-dragging",
+    )
+    .forEach((el) => {
+      el.classList.remove(
+        "dv-tab-dragging",
+        "dv-tab--dragging",
+        "dv-resize-container-dragging",
+      );
+    });
+}
+
 function seedPointerFromModulePanelId(
   panelId: string,
   dockScope: string | undefined,
@@ -112,7 +143,6 @@ function seedPointerFromModulePanelId(
     startScreenY: screenY,
   };
   activeBroadcast = false;
-  document.body.classList.add(MODULE_DRAG_BODY_CLASS);
   bridgeLog(`grab ${found.scope}:${panelId}`);
   return true;
 }
@@ -120,7 +150,9 @@ function seedPointerFromModulePanelId(
 function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
   if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
   if (localDrag) return true;
-  if (!pointerSeed) return isModuleDockDragActive();
+  if (!pointerSeed) {
+    return isModuleDockDragActive() && Boolean(panelIdFromActiveModuleDrag());
+  }
   if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
     return isModuleDockDragActive();
   }
@@ -202,17 +234,75 @@ function resolveDragSession(): CrossWindowModuleDragPayload | null {
   return ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
 }
 
-async function broadcastDragActive(session: CrossWindowModuleDragPayload): Promise<void> {
+function acquireDragCompletionLock(): void {
+  dragCompletionLock = true;
+  if (dragCompletionLockTimer) {
+    clearTimeout(dragCompletionLockTimer);
+  }
+  dragCompletionLockTimer = setTimeout(() => {
+    dragCompletionLock = false;
+    dragCompletionLockTimer = null;
+    bridgeLog("dragCompletionLock timeout released");
+  }, DRAG_COMPLETION_LOCK_TIMEOUT_MS);
+}
+
+function releaseDragCompletionLock(): void {
+  dragCompletionLock = false;
+  if (dragCompletionLockTimer) {
+    clearTimeout(dragCompletionLockTimer);
+    dragCompletionLockTimer = null;
+  }
+}
+
+function hasStaleModuleDragSession(): boolean {
+  if (localDrag || activeBroadcast) return true;
+  if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
+  if (document.body.classList.contains(MODULE_DRAG_BODY_CLASS)) return true;
+  const visual = useCrossWindowDragVisualStore.getState();
+  if (visual.active && !pointerSeed && !isModuleDockDragActive()) return true;
+  return false;
+}
+
+function resetModuleDragSession(options?: { broadcastEnd?: boolean }): void {
+  const shouldBroadcast =
+    options?.broadcastEnd ??
+    Boolean(
+      activeBroadcast ||
+        localDrag ||
+        document.body.classList.contains(MODULE_DRAG_BODY_CLASS) ||
+        useCrossWindowDragVisualStore.getState().active,
+    );
+  if (!remoteDrag) {
+    localDrag = null;
+  }
+  resetPointerSeed();
+  clearRemoteDrag();
+  clearLocalModuleDockDragArtifacts();
+  document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
+  releaseDragCompletionLock();
+  clearWebviewWindowLabelCache();
+  if (shouldBroadcast) {
+    void broadcastCrossWindowDragEnd();
+  }
+}
+
+async function broadcastDragActive(
+  session: CrossWindowModuleDragPayload,
+  screenX = 0,
+  screenY = 0,
+): Promise<void> {
   if (activeBroadcast) return;
   activeBroadcast = true;
   try {
-    const wins = await getAllWebviewWindows();
-    await Promise.all(
-      wins
-        .filter((w) => w.label !== session.sourceWindowLabel)
-        .map((w) =>
-          emitTo(w.label, CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT, session).catch(() => {}),
-        ),
+    const current = getCurrentWebviewWindow().label;
+    await emitToOtherWebviews(
+      CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
+      {
+        ...session,
+        screenX,
+        screenY,
+      },
+      current,
     );
     bridgeLog(`broadcast active from ${session.sourceWindowLabel} panel=${session.panelId}`);
   } catch (e) {
@@ -221,18 +311,27 @@ async function broadcastDragActive(session: CrossWindowModuleDragPayload): Promi
   }
 }
 
-function broadcastDragMove(
+function broadcastModuleDragMove(
   session: CrossWindowModuleDragPayload,
   screenX: number,
   screenY: number,
 ): void {
-  void broadcastCrossWindowDragMove({
+  broadcastCrossWindowDragMove({
     sourceWindowLabel: session.sourceWindowLabel,
     label: session.title?.trim() || session.panelId,
     screenX,
     screenY,
     kind: "module-tab",
   });
+}
+
+function maybeBroadcastModuleActiveOnMove(
+  session: CrossWindowModuleDragPayload,
+  screenX: number,
+  screenY: number,
+): void {
+  void broadcastDragActive(session, screenX, screenY);
+  broadcastModuleDragMove(session, screenX, screenY);
 }
 
 function applyIncomingModuleTab(
@@ -286,6 +385,7 @@ function removeOutgoingModulePanel(
 ): void {
   const targetScope = `workspace-bottom-${targetWorkspaceId}`;
   const deferRemove = () => {
+    cancelDockviewPointerDrag();
     const source = getDockviewInstanceByScope(session.originScope);
     if (!source) return;
     const panel = source.api.getPanel(session.panelId);
@@ -358,17 +458,20 @@ async function finishModuleDragAtScreenPoint(
   session: CrossWindowModuleDragPayload | null,
   remote: CrossWindowModuleDragPayload | null,
   finishToken: number,
+  knownTargetLabel?: string | null,
 ): Promise<boolean> {
   if (dragCompletionLock) return false;
   if (finishToken !== dragFinishToken) return false;
-  dragCompletionLock = true;
+  acquireDragCompletionLock();
   try {
-    const source = getDockviewInstance(sourceViewId);
-    if (!source || !isModuleDockScope(source.scope)) return false;
     if (!isTauriRuntime()) return false;
 
-    const targetLabel = await findWindowLabelAtScreenPoint(screenX, screenY, bridgeLog);
-    if (!targetLabel || targetLabel === currentLabel) {
+    const targetLabel =
+      knownTargetLabel ??
+      (isPointerOutsideCurrentWindow(screenX, screenY)
+        ? await findWindowLabelAtScreenPoint(screenX, screenY, bridgeLog, currentLabel)
+        : currentLabel);
+    if (!targetLabel) {
       return false;
     }
 
@@ -392,6 +495,13 @@ async function finishModuleDragAtScreenPoint(
       return true;
     }
 
+    if (targetLabel === currentLabel) {
+      return false;
+    }
+
+    const source = getDockviewInstance(sourceViewId);
+    if (!source || !isModuleDockScope(source.scope)) return false;
+
     if (session && session.sourceWindowLabel === currentLabel && targetLabel !== currentLabel) {
       if (!source.api.getPanel(panelId)) return false;
       await completeCrossWindowModuleTransfer(session, targetLabel, dockWorkspaceId);
@@ -400,7 +510,7 @@ async function finishModuleDragAtScreenPoint(
 
     return false;
   } finally {
-    dragCompletionLock = false;
+    releaseDragCompletionLock();
   }
 }
 
@@ -416,14 +526,16 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   let dragStartClientY = 0;
   let dragSourceViewId: string | null = null;
 
-  const cleanupDragState = (): void => {
-    if (!remoteDrag) {
-      localDrag = null;
-    }
-    resetPointerSeed();
+  const quietAbortDrag = (): void => {
+    cancelDockviewPointerDrag();
     dragSourceViewId = null;
-    document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
-    void broadcastCrossWindowDragEnd();
+    resetModuleDragSession({ broadcastEnd: activeBroadcast });
+  };
+
+  const cleanupDragState = (): void => {
+    cancelDockviewPointerDrag();
+    dragSourceViewId = null;
+    resetModuleDragSession({ broadcastEnd: true });
   };
 
   void (async () => {
@@ -435,6 +547,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       if (disposed) return;
 
       const dragController = PointerDragController.getInstance();
+      bindDockviewPointerDragController(dragController);
 
       disposables.push(
         dragController.onDragStart((event) => {
@@ -446,6 +559,11 @@ export function initModuleToWorkspaceDragBridge(): () => void {
 
           const source = getDockviewInstance(data.viewId);
           if (!source || !isModuleDockScope(source.scope)) return;
+
+          dragFinishToken += 1;
+          if (hasStaleModuleDragSession()) {
+            resetModuleDragSession({ broadcastEnd: true });
+          }
 
           pointerSeed = {
             panelId: data.panelId,
@@ -465,8 +583,11 @@ export function initModuleToWorkspaceDragBridge(): () => void {
           if (!pointerSeed) return;
           const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
           if (session && isTauriRuntime()) {
-            void broadcastDragActive(session);
-            broadcastDragMove(session, event.pointerEvent.screenX, event.pointerEvent.screenY);
+            maybeBroadcastModuleActiveOnMove(
+              session,
+              event.pointerEvent.screenX,
+              event.pointerEvent.screenY,
+            );
           }
         }),
       );
@@ -474,7 +595,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       disposables.push(
         dragController.onDragEnd(() => {
           if (!pointerSeed && !localDrag) {
-            cleanupDragState();
+            quietAbortDrag();
           }
         }),
       );
@@ -487,29 +608,44 @@ export function initModuleToWorkspaceDragBridge(): () => void {
 
   const onPointerMove = (event: PointerEvent) => {
     if (!(event.buttons & 1)) return;
-    if (!pointerSeed && !isModuleDockDragActive()) return;
+    // dockview 拖拽中也要续发 MOVE，否则出窗后目标窗 ghost 停更
+    if (!pointerSeed && !localDrag) return;
 
-    if (pointerSeed && pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
-      pointerSeed.startScreenX = event.screenX;
-      pointerSeed.startScreenY = event.screenY;
+    if (pointerSeed) {
+      if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
+        pointerSeed.startScreenX = event.screenX;
+        pointerSeed.startScreenY = event.screenY;
+      }
     }
 
-    if (!pointerSeed) return;
     const movedEnough =
+      !pointerSeed ||
       pointerSeed.startScreenX === 0 ||
-      Math.hypot(event.screenX - pointerSeed.startScreenX, event.screenY - pointerSeed.startScreenY) >=
-        DRAG_THRESHOLD_PX ||
-      isModuleDockDragActive();
+      Math.hypot(
+        event.screenX - pointerSeed.startScreenX,
+        event.screenY - pointerSeed.startScreenY,
+      ) >= DRAG_THRESHOLD_PX ||
+      isModuleDockDragActive() ||
+      isPointerOutsideCurrentWindow(event.screenX, event.screenY);
+
     if (!movedEnough) return;
 
-    const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
+    const session =
+      localDrag ??
+      (pointerSeed
+        ? ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId)
+        : null);
     if (session && isTauriRuntime()) {
-      void broadcastDragActive(session);
-      broadcastDragMove(session, event.screenX, event.screenY);
+      maybeBroadcastModuleActiveOnMove(session, event.screenX, event.screenY);
     }
   };
 
   const onPointerUp = (event: PointerEvent) => {
+    if (isWindowChromePointerTarget(event.target)) {
+      quietAbortDrag();
+      return;
+    }
+
     const remote =
       remoteDrag && remoteDrag.expiresAt > Date.now() ? remoteDrag : null;
 
@@ -518,73 +654,85 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     }
 
     if (!remote && !dragMovedEnoughAt(event.screenX, event.screenY)) {
-      cleanupDragState();
+      quietAbortDrag();
       return;
     }
 
-    void (async () => {
-      const currentLabel = isTauriRuntime()
-        ? getCurrentWebviewWindow().label
-        : "main";
+    const currentLabel = isTauriRuntime()
+      ? getCurrentWebviewWindow().label
+      : "main";
 
-      if (!remote && isTauriRuntime()) {
-        const targetLabel = await findWindowLabelAtScreenPoint(
+    const outside = isPointerOutsideCurrentWindow(event.screenX, event.screenY);
+    if (remote || outside) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cancelDockviewPointerDrag();
+    }
+
+    if (!remote && !outside) {
+      resetModuleDragSession({ broadcastEnd: activeBroadcast });
+      return;
+    }
+
+    const panelId = pointerSeed?.panelId ?? panelIdFromActiveModuleDrag();
+    let sourceViewId = dragSourceViewId ?? pointerSeed?.sourceViewId ?? null;
+    if (!sourceViewId && panelId) {
+      sourceViewId = findModuleDockPanelById(panelId)?.viewId ?? null;
+    }
+
+    const finishToken = ++dragFinishToken;
+
+    void (async (): Promise<boolean | "aborted"> => {
+      let knownTarget: string | null = null;
+      if (!remote) {
+        knownTarget = await findWindowLabelAtScreenPoint(
           event.screenX,
           event.screenY,
           bridgeLog,
+          currentLabel,
         );
-        if (!targetLabel || targetLabel === currentLabel) {
-          // 同窗：dockview onWillDrop → transferPanelBetweenInstances 原生处理
-          return;
+        if (finishToken !== dragFinishToken) return "aborted";
+        if (!knownTarget || knownTarget === currentLabel) {
+          resetModuleDragSession({ broadcastEnd: activeBroadcast });
+          return "aborted";
         }
-      } else if (!remote && !isTauriRuntime()) {
-        return;
       }
 
-      const panelId = pointerSeed?.panelId ?? panelIdFromActiveModuleDrag();
-      let sourceViewId = dragSourceViewId ?? pointerSeed?.sourceViewId ?? null;
-      if (!sourceViewId && panelId) {
-        sourceViewId = findModuleDockPanelById(panelId)?.viewId ?? null;
+      if (!remote && (!panelId || !sourceViewId)) {
+        quietAbortDrag();
+        return "aborted";
       }
-      if (!panelId || !sourceViewId) return;
 
       const session = resolveDragSession();
-      const finishToken = ++dragFinishToken;
+      if (!session && !remote) {
+        quietAbortDrag();
+        return "aborted";
+      }
 
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      await finishModuleDragAtScreenPoint(
+      return finishModuleDragAtScreenPoint(
         event.screenX,
         event.screenY,
         event.clientX,
         event.clientY,
         currentLabel,
-        panelId,
-        sourceViewId,
+        panelId ?? remote?.panelId ?? "",
+        sourceViewId ?? "",
         session,
         remote,
         finishToken,
+        knownTarget,
       );
     })()
       .catch((e) => {
         console.warn("[moduleToWorkspaceDrag] pointerup failed", e);
+        return false as boolean | "aborted";
       })
-      .finally(cleanupDragState);
+      .then((result) => {
+        if (result === "aborted") return;
+        if (finishToken !== dragFinishToken) return;
+        cleanupDragState();
+      });
   };
-
-  const observer = new MutationObserver(() => {
-    if (!isModuleDockDragActive() || !pointerSeed) return;
-    const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-    if (session && isTauriRuntime()) {
-      void broadcastDragActive(session);
-    }
-  });
-  observer.observe(document.body, {
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class"],
-  });
 
   const onTabGrab = (event: Event) => {
     const detail = (event as CustomEvent<{
@@ -595,6 +743,10 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     }>).detail;
     const panelId = detail?.panelId;
     if (!panelId) return;
+    dragFinishToken += 1;
+    if (hasStaleModuleDragSession()) {
+      resetModuleDragSession({ broadcastEnd: true });
+    }
     seedPointerFromModulePanelId(
       panelId,
       detail.dockScope,
@@ -609,6 +761,12 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   document.addEventListener("pointercancel", onPointerUp, true);
 
   if (isTauriRuntime()) {
+    void listen(CROSS_WINDOW_DRAG_END_EVENT, () => {
+      forceEndDockviewPointerDrag();
+      clearRemoteDrag();
+      document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
+    }, { target: { kind: "Any" } }).then((fn) => unlisteners.push(fn));
+
     void listen<CrossWindowModuleDragPayload>(
       CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
       (event) => {
@@ -631,6 +789,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         bridgeLog(
           `complete event current=${currentLabel} src=${payload.sourceWindowLabel} tgt=${payload.targetWindowLabel}`,
         );
+        forceEndDockviewPointerDrag();
         if (payload.targetWindowLabel === currentLabel) {
           applyIncomingModuleTab(payload.targetWorkspaceId, payload);
         }
@@ -651,20 +810,15 @@ export function initModuleToWorkspaceDragBridge(): () => void {
 
   return () => {
     disposed = true;
-    observer.disconnect();
     for (const d of disposables) d.dispose();
     window.removeEventListener(MODULE_DOCK_TAB_GRAB_EVENT, onTabGrab);
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("pointerup", onPointerUp, true);
     document.removeEventListener("pointercancel", onPointerUp, true);
     for (const fn of unlisteners) safeTauriUnlisten(fn);
-    document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
-    pointerSeed = null;
-    localDrag = null;
-    clearRemoteDrag();
-    activeBroadcast = false;
-    dragCompletionLock = false;
-    dragFinishToken = 0;
+    resetModuleDragSession({ broadcastEnd: false });
+    dragSourceViewId = null;
     recentTransferKeys.clear();
+    dragFinishToken = 0;
   };
 }

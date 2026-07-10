@@ -68,3 +68,23 @@ export const LazyUserWorkspace = lazyNamedModule(
   () => import("../modules/workspace/UserWorkspace"),
   "UserWorkspace",
 );
+
+const MODULE_CHUNK_LOADERS = [
+  () => import("../modules/terminal/TerminalPanel"),
+  () => import("../modules/database/DatabasePanel"),
+  () => import("../modules/docker/DockerPanel"),
+  () => import("../modules/server/ServerPanel"),
+  () => import("../modules/protocol/ProtocolPanel"),
+  () => import("../modules/workflow/WorkflowPanel"),
+  () => import("../modules/knowledge/KnowledgePanel"),
+  () => import("../modules/files/FilesPanel"),
+  () => import("../modules/workspace/DashboardPage"),
+  () => import("../modules/workspace/UserWorkspace"),
+] as const;
+
+/** 空闲时预拉取模块 chunk，首次点击侧栏即可秒开 */
+export function preloadModuleChunks(): void {
+  for (const load of MODULE_CHUNK_LOADERS) {
+    void load().catch(() => {});
+  }
+}

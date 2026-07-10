@@ -20,16 +20,18 @@ function measureWorkspaceBottomHostSize(isFullscreen: boolean): { width: number;
   return { width: 0, height: 0 };
 }
 
+function workspaceDockScope(workspaceId: string): string {
+  return `workspace-bottom-${workspaceId}`;
+}
+
 /**
- * 工作区容器：按当前工作区挂载 dockview 面板。
+ * 工作区容器：仅挂载当前活动工作区的 dockview，切换时卸载其余实例。
  */
 export function WorkspaceBottomHost() {
   const hostRef = useRef<HTMLDivElement>(null);
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const currentId = useWorkspaceStore((state) => state.workspace.id);
-  // 已弹出为独立窗口的工作区不在主窗口渲染。
-  // 安全阀：若过滤后一个都不剩（脏标记残留），清掉标记并全部渲染，避免主窗口空白。
   const poppedOutIds = useWorkspaceWindowStore((state) => state.poppedOutIds);
   const renderWorkspaces = workspaces.filter((ws) => !poppedOutIds.includes(ws.id));
   const activeHostId =
@@ -37,14 +39,15 @@ export function WorkspaceBottomHost() {
       ? (renderWorkspaces.find((ws) => ws.id === currentId)?.id ??
           renderWorkspaces[0]?.id)
       : currentId;
+  const activeWorkspace = renderWorkspaces.find((ws) => ws.id === activeHostId);
 
   useEffect(() => {
+    if (isFullscreen) return;
     const el = hostRef.current;
     if (!el) return;
     let lastWidth = 0;
     let lastHeight = 0;
     const observer = new ResizeObserver((entries) => {
-      if (useBottomPanelStore.getState().isFullscreen) return;
       const rect = entries[0]?.contentRect;
       if (!rect) return;
       const { width, height } = rect;
@@ -55,58 +58,69 @@ export function WorkspaceBottomHost() {
       lastWidth = width;
       lastHeight = height;
       requestAnimationFrame(() => {
-        relayoutDockviewInstances("workspace-bottom", { width, height });
+        relayoutDockviewInstances(workspaceDockScope(activeHostId), { width, height });
       });
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [currentId]);
+  }, [isFullscreen, activeHostId]);
 
   useEffect(() => {
     if (!isFullscreen) return;
     const relayout = () => {
       const { width, height } = measureWorkspaceBottomHostSize(true);
       if (width > 0 && height > 0) {
-        relayoutDockviewInstances("workspace-bottom", { width, height });
+        relayoutDockviewInstances(workspaceDockScope(activeHostId), { width, height });
       }
     };
-    relayout();
     window.addEventListener("resize", relayout);
     return () => window.removeEventListener("resize", relayout);
-  }, [isFullscreen, currentId]);
+  }, [isFullscreen, activeHostId]);
 
-  // 当工作区切换时，手动触发一次 relayout，确保 display:block 后正确计算尺寸
   useEffect(() => {
-    if (isFullscreen) return;
-    if (hostRef.current) {
+    if (!activeWorkspace) return;
+    const scope = workspaceDockScope(activeHostId);
+    const timer = window.setTimeout(() => {
+      if (isFullscreen) {
+        const { width, height } = measureWorkspaceBottomHostSize(true);
+        if (width > 0 && height > 0) {
+          relayoutDockviewInstances(scope, { width, height });
+        }
+        return;
+      }
+      if (!hostRef.current) return;
       const rect = hostRef.current.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        requestAnimationFrame(() => {
-          relayoutDockviewInstances("workspace-bottom", { width: rect.width, height: rect.height });
-        });
+        relayoutDockviewInstances(scope, { width: rect.width, height: rect.height });
       }
-    }
-  }, [currentId, isFullscreen]);
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [activeHostId, activeWorkspace, isFullscreen]);
+
+  if (!activeWorkspace) {
+    return (
+      <div
+        ref={hostRef}
+        className="workspace-bottom-host"
+        style={{ position: "relative", width: "100%", height: "100%" }}
+      />
+    );
+  }
 
   return (
-    <div ref={hostRef} className="workspace-bottom-host" style={{ position: "relative", width: "100%", height: "100%" }}>
-      {renderWorkspaces.map((ws) => (
-        <div
-          key={ws.id}
-          data-workspace-id={ws.id}
-          className="workspace-bottom-host-panel"
-          style={{
-            display: ws.id === activeHostId ? "block" : "none",
-            width: "100%",
-            height: "100%",
-            position: "absolute",
-            top: 0,
-            left: 0,
-          }}
-        >
-          <WorkspacePanel workspace={ws} />
-        </div>
-      ))}
+    <div
+      ref={hostRef}
+      className="workspace-bottom-host"
+      style={{ position: "relative", width: "100%", height: "100%" }}
+    >
+      <div
+        key={activeWorkspace.id}
+        data-workspace-id={activeWorkspace.id}
+        className="workspace-bottom-host-panel"
+        style={{ width: "100%", height: "100%", position: "relative" }}
+      >
+        <WorkspacePanel workspace={activeWorkspace} />
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   findEngineeringWorkspaceDockAt,
   getDockviewInstanceByScope,
   relayoutDockviewInstances,
+  requestDockScopeResync,
 } from "./dockviewRegistry";
 import type { WorkspaceInfo } from "../stores/workspaceStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";

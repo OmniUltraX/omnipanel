@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { DockableWorkspace } from "../dock";
-import { relayoutDockviewInstances, subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
+import { requestDockScopeResync, subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
-import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import {
   resolveWorkspaceActiveTabId,
   resolveWorkspaceDockPanelType,
@@ -122,6 +121,7 @@ export function WorkspaceDockCore({
           addMirroredTab,
           setActiveTabId,
         );
+        requestDockScopeResync(dockScope);
         return;
       }
       addMirroredTab(workspaceId, workspace, {
@@ -133,6 +133,7 @@ export function WorkspaceDockCore({
         originScope: meta.originScope,
         originPanelId: meta.originPanelId,
       });
+      requestDockScopeResync(dockScope);
     });
   }, [addMirroredTab, addPayloadTab, dockScope, setActiveTabId, workspaceId, workspace]);
 
@@ -185,25 +186,6 @@ export function WorkspaceDockCore({
     },
     [setActiveTabId, tabs, workspaceId],
   );
-
-  const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
-
-  // task-bar 首次最大化时 dock 才挂载，注册后补一次全屏 relayout
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const sidebarW = parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"),
-    ) || 56;
-    const run = () => {
-      relayoutDockviewInstances("workspace-bottom", {
-        width: Math.max(0, window.innerWidth - sidebarW),
-        height: Math.max(0, window.innerHeight - 26),
-      });
-    };
-    run();
-    const raf = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(raf);
-  }, [isFullscreen, dockScope]);
 
   return (
     <DockableWorkspace

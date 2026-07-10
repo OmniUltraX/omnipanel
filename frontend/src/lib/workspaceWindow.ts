@@ -230,7 +230,7 @@ export async function initMainWindowWorkspaceSync(): Promise<() => void> {
         syncEmbeddedWorkspacePanelVisibility(id);
       }
     });
-  }, 3000);
+  }, 30000);
 
   return () => {
     window.clearInterval(timer);

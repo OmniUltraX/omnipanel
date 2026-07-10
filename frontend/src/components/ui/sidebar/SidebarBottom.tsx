@@ -58,8 +58,10 @@ export interface SidebarBottomProps {
   sidebarMinPx?: number;
   sidebarMaxPx?: number;
   className?: string;
-  /** task-bar ??????40px??????????*/
+  /** task-bar 模式锁定 40px 高度 */
   bottomResizeLocked?: boolean;
+  /** 首页等场景强制收起底部工作区，不占高度 */
+  forceCollapsed?: boolean;
 }
 
 /**
@@ -73,14 +75,19 @@ export function SidebarBottom({
   sidebarMaxPx: sidebarMaxPxProp,
   className,
   bottomResizeLocked = false,
+  forceCollapsed = false,
 }: SidebarBottomProps) {
   const { maxPx: computedMaxPx, fullscreenThresholdPx } = useBottomPanelDragMetrics();
-  const sidebarMaxPx = bottomResizeLocked
-    ? WS_HEIGHT_TASKBAR_MAX
-    : (sidebarMaxPxProp ?? computedMaxPx);
-  const sidebarMinPxEffective = bottomResizeLocked
-    ? WS_HEIGHT_TASKBAR_MAX
-    : sidebarMinPx;
+  const sidebarMaxPx = forceCollapsed
+    ? 0
+    : bottomResizeLocked
+      ? WS_HEIGHT_TASKBAR_MAX
+      : (sidebarMaxPxProp ?? computedMaxPx);
+  const sidebarMinPxEffective = forceCollapsed
+    ? 0
+    : bottomResizeLocked
+      ? WS_HEIGHT_TASKBAR_MAX
+      : sidebarMinPx;
   const bottomPanelRef = useRef<PanelImperativeHandle | null>(null);
   const isSnappingRef = useRef(false);
   const programmaticSyncRef = useRef(false);
@@ -105,19 +112,21 @@ export function SidebarBottom({
   );
   const setWorkspaceHeight = useBottomPanelStore((state) => state.setWorkspaceHeight);
 
-  const targetBottomPx = bottomResizeLocked
-    ? WS_HEIGHT_TASKBAR_MAX
-    : workspaceMode === "hidden"
-      ? 0
-      : workspaceMode === "half" && workspaceDisplayPreference === "split-window"
-        ? splitWindowHeightFromRatio(lastExpandedHeightRatio)
-        : workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
-          ? workspaceHeightPx
-          : lastExpandedHeightPx > WS_HEIGHT_HIDDEN_MAX
-            ? lastExpandedHeightPx
-            : defaultHeightForMode(
-                lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode,
-              );
+  const targetBottomPx = forceCollapsed
+    ? 0
+    : bottomResizeLocked
+      ? WS_HEIGHT_TASKBAR_MAX
+      : workspaceMode === "hidden"
+        ? 0
+        : workspaceMode === "half" && workspaceDisplayPreference === "split-window"
+          ? splitWindowHeightFromRatio(lastExpandedHeightRatio)
+          : workspaceHeightPx > WS_HEIGHT_HIDDEN_MAX
+            ? workspaceHeightPx
+            : lastExpandedHeightPx > WS_HEIGHT_HIDDEN_MAX
+              ? lastExpandedHeightPx
+              : defaultHeightForMode(
+                  lastNonFullscreenMode === "hidden" ? "half" : lastNonFullscreenMode,
+                );
 
   const shouldIgnorePanelResize = useCallback(() => {
     return (
@@ -140,7 +149,8 @@ export function SidebarBottom({
     if (!handle) return;
     const { workspaceMode: mode } = useBottomPanelStore.getState();
     const shouldExpand =
-      mode === "half" || mode === "taskbar" || mode === "thumbnail";
+      !forceCollapsed &&
+      (mode === "half" || mode === "taskbar" || mode === "thumbnail");
     const needsExpand = shouldExpand && handle.isCollapsed();
     const needsCollapse = !shouldExpand && !handle.isCollapsed();
     if (!needsExpand && !needsCollapse) return;
@@ -158,7 +168,7 @@ export function SidebarBottom({
         programmaticSyncRef.current = false;
       });
     }
-  }, []);
+  }, [forceCollapsed]);
 
   const scheduleWorkspaceDockRelayout = useCallback(() => {
     requestAnimationFrame(() => {
@@ -244,11 +254,11 @@ export function SidebarBottom({
 
   useLayoutEffect(() => {
     syncOpenState();
-  }, [workspaceMode, isFullscreen, syncOpenState]);
+  }, [workspaceMode, isFullscreen, forceCollapsed, syncOpenState]);
 
-  // ?????task-bar ??split-window??????????????????dockview ?? 40px ????layout
+  // task-bar / split-window 切换时同步高度，避免 dockview 卡在 40px 错误 layout
   useLayoutEffect(() => {
-    if (isFullscreen) return;
+    if (isFullscreen || forceCollapsed) return;
     const mode = useBottomPanelStore.getState().workspaceMode;
     if (mode !== "half" && mode !== "taskbar" && mode !== "thumbnail") return;
     applyTargetHeight();
@@ -258,6 +268,7 @@ export function SidebarBottom({
     workspaceMode,
     workspaceHeightPx,
     isFullscreen,
+    forceCollapsed,
     applyTargetHeight,
   ]);
 
@@ -400,7 +411,7 @@ export function SidebarBottom({
       bottomSizePx={targetBottomPx}
       bottomMinPx={sidebarMinPxEffective}
       bottomMaxPx={sidebarMaxPx}
-      bottomHandleDisabled={bottomResizeLocked || isFullscreen}
+      bottomHandleDisabled={bottomResizeLocked || isFullscreen || forceCollapsed}
       bottomPanelRef={bottomPanelRef}
       onBottomLayoutChange={handleBottomLayoutChange}
       onBottomResizeEnd={handleBottomLayoutChanged}

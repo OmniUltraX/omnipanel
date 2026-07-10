@@ -23,8 +23,16 @@ const instancesByViewId = new Map<string, DockviewInstanceScope>();
 const scopeByViewId = new Map<string, string>();
 const transferListeners = new Set<TransferListener>();
 
+type RelayoutRequest = {
+  scopePrefix?: string;
+  size?: { width: number; height: number };
+};
+
+const pendingRelayouts: RelayoutRequest[] = [];
+let relayoutScheduled = false;
+
 /** 容器尺寸变化后触发布局刷新（折叠/展开后 dockview 需重算） */
-export function relayoutDockviewInstances(
+function relayoutDockviewInstancesNow(
   scopePrefix?: string,
   size?: { width: number; height: number },
 ): void {
@@ -44,6 +52,14 @@ export function relayoutDockviewInstances(
         (dockviewRoot?.closest(".dockable-workspace") as HTMLElement | null) ??
         dockviewRoot;
       const measured = layoutShell?.getBoundingClientRect();
+      // 显式传入全屏尺寸时，跳过 display:none 的隐藏工作区 dock，避免 N 份无效 layout
+      if (
+        size &&
+        layoutShell &&
+        (!measured || measured.width <= 0 || measured.height <= 0)
+      ) {
+        continue;
+      }
       const width = Math.round(
         size?.width && size.width > 0
           ? size.width
@@ -61,13 +77,35 @@ export function relayoutDockviewInstances(
 
       if (typeof api.layout === "function" && width > 0 && height > 0) {
         api.layout(width, height, true);
-      } else {
+      } else if (!size) {
         window.dispatchEvent(new Event("resize"));
       }
     } catch {
       // teardown 或 transient 状态下 layout 可能失败，忽略
     }
   }
+}
+
+/** 同帧内合并多次 relayout 请求，避免切换/resize 时重复 layout。 */
+export function relayoutDockviewInstances(
+  scopePrefix?: string,
+  size?: { width: number; height: number },
+): void {
+  const existing = pendingRelayouts.find((r) => r.scopePrefix === scopePrefix);
+  if (existing) {
+    if (size) existing.size = size;
+  } else {
+    pendingRelayouts.push({ scopePrefix, size });
+  }
+  if (relayoutScheduled) return;
+  relayoutScheduled = true;
+  requestAnimationFrame(() => {
+    relayoutScheduled = false;
+    const batch = pendingRelayouts.splice(0, pendingRelayouts.length);
+    for (const req of batch) {
+      relayoutDockviewInstancesNow(req.scopePrefix, req.size);
+    }
+  });
 }
 
 export const DOCK_SCOPE_RESYNC_EVENT = "omnipanel-dock-scope-resync";
@@ -129,19 +167,19 @@ export function findEngineeringWorkspaceDockAt(
   clientX: number,
   clientY: number,
 ): (DockviewInstanceScope & { viewId: string }) | undefined {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (hit) {
+    const hostPanel = hit.closest<HTMLElement>("[data-workspace-id]");
+    if (hostPanel?.dataset.workspaceId) {
+      const inst = getDockviewInstanceByScope(
+        `workspace-bottom-${hostPanel.dataset.workspaceId}`,
+      );
+      if (inst) return inst;
+    }
+  }
+
   const elements = document.elementsFromPoint(clientX, clientY);
   if (elements.length === 0) return undefined;
-
-  const findInHost = (host: Element): (DockviewInstanceScope & { viewId: string }) | undefined => {
-    for (const [viewId, instance] of instancesByViewId) {
-      if (!instance.scope.startsWith("workspace-bottom-")) continue;
-      const container = instance.getContainer?.();
-      if (container && host.contains(container)) {
-        return { ...instance, viewId };
-      }
-    }
-    return undefined;
-  };
 
   for (const el of elements) {
     for (const [viewId, instance] of instancesByViewId) {
@@ -153,14 +191,6 @@ export function findEngineeringWorkspaceDockAt(
       if (container?.contains(el)) {
         return { ...instance, viewId };
       }
-    }
-
-    const host = el.closest(
-      ".workspace-bottom-host, .workspace-panel-dock, .dock-panel-bottom--workspace, .workspace-panel-frame",
-    );
-    if (host) {
-      const found = findInHost(host);
-      if (found) return found;
     }
   }
 

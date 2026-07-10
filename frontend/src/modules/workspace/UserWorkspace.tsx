@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
@@ -10,9 +10,10 @@ export function UserWorkspace() {
   const params = useParams<{ workspaceId: string }>();
   const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const id = params.workspaceId;
-    if (id) switchWorkspace(id);
+    if (!id) return;
+    switchWorkspace(id);
   }, [params.workspaceId, switchWorkspace]);
 
   return null;

@@ -41,6 +41,33 @@ function syncTabCounterFromTabs(tabs: Array<{ id: string }>): void {
   tabCounter = max;
 }
 
+/** 关闭 tab 后优先激活紧邻左侧；无左侧则取右侧。 */
+function resolveAdjacentActiveTabId(
+  tabs: TerminalTab[],
+  closedTabId: string,
+  currentActiveId: string | null,
+): string | null {
+  const remaining = tabs.filter((tab) => tab.id !== closedTabId);
+  if (currentActiveId && currentActiveId !== closedTabId) {
+    return remaining.some((tab) => tab.id === currentActiveId)
+      ? currentActiveId
+      : remaining[0]?.id ?? null;
+  }
+
+  const closed = tabs.find((tab) => tab.id === closedTabId);
+  const pool = closed
+    ? tabs.filter((tab) => Boolean(tab.workspaceOnly) === Boolean(closed.workspaceOnly))
+    : tabs;
+  const index = pool.findIndex((tab) => tab.id === closedTabId);
+  if (index < 0) {
+    return remaining.find((tab) => !tab.workspaceOnly)?.id ?? remaining[0]?.id ?? null;
+  }
+
+  const left = index > 0 ? pool[index - 1] : undefined;
+  const right = index < pool.length - 1 ? pool[index + 1] : undefined;
+  return left?.id ?? right?.id ?? remaining[0]?.id ?? null;
+}
+
 interface TerminalState {
   sessions: TerminalSession[];
   tabs: TerminalTab[];
@@ -318,12 +345,11 @@ export const useTerminalStore = create<TerminalState>()(
           };
 
           const remaining = state.tabs.filter((t) => t.id !== tab.id);
-          const nextActive =
-            state.activeTabId === tab.id
-              ? remaining.length > 0
-                ? remaining[Math.max(remaining.length - 1, 0)].id
-                : null
-              : state.activeTabId;
+          const nextActive = resolveAdjacentActiveTabId(
+            state.tabs,
+            tab.id,
+            state.activeTabId,
+          );
           const nextSessionId = nextActive
             ? remaining.find((t) => t.id === nextActive)?.sessionId ?? null
             : null;
@@ -345,12 +371,12 @@ export const useTerminalStore = create<TerminalState>()(
         set((state) => {
           const { [sessionId]: _d, ...restDetached } = state.detachedRuntime;
           const remainingTabs = state.tabs.filter((t) => t.sessionId !== sessionId);
-          const nextActive =
-            state.activeSessionId === sessionId
-              ? remainingTabs.length > 0
-                ? remainingTabs[Math.max(remainingTabs.length - 1, 0)].id
-                : null
-              : state.activeTabId;
+          const closedTab = state.tabs.find((t) => t.sessionId === sessionId);
+          const nextActive = closedTab
+            ? resolveAdjacentActiveTabId(state.tabs, closedTab.id, state.activeTabId)
+            : state.activeTabId && remainingTabs.some((t) => t.id === state.activeTabId)
+              ? state.activeTabId
+              : remainingTabs[0]?.id ?? null;
           return {
             sessions: state.sessions.map((s) =>
               s.id === sessionId ? { ...s, lifecycle: "ended" as const } : s,

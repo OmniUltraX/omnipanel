@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
@@ -46,7 +46,7 @@ export function WorkspaceMirroredPanel({
   const [terminalTabId, setTerminalTabId] = useState<string | null>(null);
 
   // 独立窗口等新上下文中 terminalStore 可能为空：按镜像信息补齐 tab，避免空白。
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (tab.originScope !== "terminal" || !tab.originPanelId) {
       setTerminalTabId(null);
       return;

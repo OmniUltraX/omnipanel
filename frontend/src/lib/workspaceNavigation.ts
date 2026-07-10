@@ -84,11 +84,24 @@ function doEnterEngineeringWorkspaceFullscreen(
   id: string,
   navigate?: NavigateFunction,
 ): void {
-  useWorkspaceStore.getState().switchWorkspace(id);
+  const targetPath = WORKSPACE_PATHS.detail(id);
+  const store = useWorkspaceStore.getState();
   const bottom = useBottomPanelStore.getState();
+  if (
+    store.workspace.id === id &&
+    bottom.isFullscreen &&
+    window.location.pathname === targetPath
+  ) {
+    bottom.clearDeferExitFullscreen();
+    return;
+  }
+  store.switchWorkspace(id);
   bottom.clearDeferExitFullscreen();
-  dispatchNavigate(WORKSPACE_PATHS.detail(id), navigate);
+  // 先进入全屏再改路由，避免 /workspace/:id 短暂处于嵌入 taskbar 态（主区空白 + 底栏）
   bottom.enterWorkspaceFullscreen();
+  if (window.location.pathname !== targetPath) {
+    dispatchNavigate(targetPath, navigate);
+  }
 }
 
 /**
@@ -106,14 +119,15 @@ export async function selectWorkspaceUniversally(
     await tryFocusLiveWorkspaceWindow(id);
     return;
   }
-  await focusMainWindow();
+  // 同步进入全屏再 await，避免 focusMainWindow 让出事件循环后 defer/expand 抢先改状态
   doEnterEngineeringWorkspaceFullscreen(id, navigate);
+  await focusMainWindow();
 }
 
 /** 任意窗口统一回首页：聚焦主窗并回到看板。 */
 export async function goHomeUniversally(navigate?: NavigateFunction): Promise<void> {
-  await focusMainWindow();
   goWorkspaceHome(navigate);
+  await focusMainWindow();
 }
 
 /**
@@ -123,12 +137,18 @@ export async function goHomeUniversally(navigate?: NavigateFunction): Promise<vo
  */
 export async function selectWorkspaceForMainContext(
   id: string,
-  _navigate?: NavigateFunction,
+  navigate?: NavigateFunction,
 ): Promise<void> {
   if (isWorkspacePoppedOut(id)) {
     useWorkspaceStore.getState().switchWorkspace(id);
     useBottomPanelStore.getState().requestCollapse();
     await tryFocusLiveWorkspaceWindow(id);
+    return;
+  }
+  const activePath = useWorkspaceStore.getState().activePath;
+  // 看板 / 工程工作区路由：只能进入全屏或独立窗，禁止嵌入 taskbar
+  if (isDashboardPath(activePath) || isWorkspacePath(activePath)) {
+    void selectWorkspaceUniversally(id, navigate);
     return;
   }
   await focusMainWindow();
@@ -143,16 +163,20 @@ export async function selectWorkspaceForMainContext(
 export async function selectWorkspaceFromBoundContext(
   targetId: string,
   boundWorkspaceId: string,
-  _navigate?: NavigateFunction,
+  navigate?: NavigateFunction,
 ): Promise<void> {
   if (targetId === boundWorkspaceId) return;
   if (isWorkspacePoppedOut(targetId)) {
     await tryFocusLiveWorkspaceWindow(targetId);
     return;
   }
-  await focusMainWindow();
-  useWorkspaceStore.getState().switchWorkspace(targetId);
-  useBottomPanelStore.getState().requestExpand();
+  if (isDetachedWorkspaceWindow()) {
+    await focusMainWindow();
+    useWorkspaceStore.getState().switchWorkspace(targetId);
+    useBottomPanelStore.getState().requestExpand();
+    return;
+  }
+  void selectWorkspaceUniversally(targetId, navigate);
 }
 
 /** 嵌入态顶栏（历史）：与状态栏一致，不进入全屏工作区路由。 */
@@ -269,6 +293,10 @@ export function navigateToSshManagement(navigate: NavigateFunction): void {
 }
 
 export function navigateToFeature(path: string, navigate: NavigateFunction): void {
+  if (window.location.pathname === path) {
+    useWorkspaceStore.getState().setActivePath(path);
+    return;
+  }
   useWorkspaceStore.getState().setActivePath(path);
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {

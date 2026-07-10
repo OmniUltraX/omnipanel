@@ -147,40 +147,12 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
 
   const wasFullscreenRef = useRef(isFullscreen);
   useLayoutEffect(() => {
-    if (!isFullscreen) return;
-    const run = () => {
-      const { width, height } = measureWorkspaceBottomDockSize(
-        bottomStackRef.current,
-        true,
-      );
-      if (width > 0 && height > 0) {
-        relayoutDockviewInstances("workspace-bottom", { width, height });
-      }
-    };
-    run();
-    const raf1 = requestAnimationFrame(run);
-    const raf2 = requestAnimationFrame(() => requestAnimationFrame(run));
-    const timer = window.setTimeout(run, 80);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      window.clearTimeout(timer);
-    };
-  }, [isFullscreen]);
-
-  // 退出全屏工作区：主内容区从 display:none 恢复，绘制前同步 relayout 模块 dock
-  useLayoutEffect(() => {
     const wasFullscreen = wasFullscreenRef.current;
     wasFullscreenRef.current = isFullscreen;
     if (!wasFullscreen || isFullscreen) return;
-    relayoutDockviewInstances("terminal");
-    relayoutDockviewInstances("database");
-    relayoutDockviewInstances("docker");
-    relayoutDockviewInstances("files");
-    relayoutDockviewInstances("server");
-    relayoutDockviewInstances("protocol");
-    relayoutDockviewInstances("workflow");
-    relayoutDockviewInstances("knowledge");
+    requestAnimationFrame(() => {
+      relayoutDockviewInstances();
+    });
   }, [isFullscreen]);
 
   useEffect(() => {
@@ -210,6 +182,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     .join(" ");
 
   // dockview 始终挂载，用 CSS display 控制显隐（零 unmount）
+  // 首页通过 forceCollapsed 把底部高度压到 0，避免空工作区壳占位
   const showBottomStack = keepBottomMounted;
   const dockVisible = (showSplitWindow || isFullscreen) && !isCurrentWorkspacePoppedOut;
 
@@ -241,6 +214,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
       className={rootClass}
       sidebar={bottomPanel}
       bottomResizeLocked={showTaskBar}
+      forceCollapsed={isHomeRoute && !isFullscreen}
       sidebarMinPx={WS_HEIGHT_HIDDEN_MAX + 1}
     >
       <div className="workspace-preview__main">{children}</div>

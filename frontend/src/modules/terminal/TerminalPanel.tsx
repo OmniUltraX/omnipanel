@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
@@ -89,6 +89,19 @@ function resolveSessionIdFromTabId(tabId: string): string | null {
   return tab?.sessionId ?? tabId;
 }
 
+/** 模块 dock 中会话 tab 离开后，优先激活紧邻左侧（跳过即将隐藏的 tab） */
+function resolveNextVisibleSessionTabId(removedTabId: string): string {
+  const visible = useTerminalStore
+    .getState()
+    .tabs.filter((tab) => !tab.workspaceOnly && tab.id !== removedTabId);
+  const before = useTerminalStore
+    .getState()
+    .tabs.filter((tab) => !tab.workspaceOnly);
+  const index = before.findIndex((tab) => tab.id === removedTabId);
+  if (index < 0) return visible[0]?.id ?? "";
+  return before[index - 1]?.id ?? before[index + 1]?.id ?? "";
+}
+
 function TerminalModuleDock({
   moduleDockProps,
 }: {
@@ -116,6 +129,30 @@ export function TerminalPanel() {
   const sshSection = useSshWorkspaceNavStore((s) => s.section);
   const [dockActiveId, setDockActiveId] = useState("");
   const sshModePrevRef = useRef(isSshMode);
+  /** 关闭/拖出会话 tab 期间忽略 dockview 误激活 SSH 管理页 */
+  const suppressSshDockActivationRef = useRef(false);
+  const suppressSshDockActivationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const beginSuppressSshDockActivation = useCallback(() => {
+    suppressSshDockActivationRef.current = true;
+    if (suppressSshDockActivationTimerRef.current) {
+      clearTimeout(suppressSshDockActivationTimerRef.current);
+    }
+    // 跨 dock 拖出时 removePanel 会再延迟两个 rAF，抑制窗口须覆盖到那之后
+    suppressSshDockActivationTimerRef.current = setTimeout(() => {
+      suppressSshDockActivationRef.current = false;
+      suppressSshDockActivationTimerRef.current = null;
+    }, 120);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (suppressSshDockActivationTimerRef.current) {
+        clearTimeout(suppressSshDockActivationTimerRef.current);
+      }
+    },
+    [],
+  );
   const allTabs = useTerminalStore((state) => state.tabs);
   const tabs = useMemo(
     () => allTabs.filter((tab) => !tab.workspaceOnly),
@@ -159,16 +196,18 @@ export function TerminalPanel() {
   const sessionBlocks = useBlocksStore((state) =>
     activeSessionId ? state.blocks[activeSessionId] ?? EMPTY_TERMINAL_BLOCKS : EMPTY_TERMINAL_BLOCKS,
   );
-  const terminalAiContext = useMemo(
-    () =>
-      buildTerminalModuleContext({
-        activeSessionId,
-        session: activeTerminalTab?.session ?? null,
-        resource: activeTerminalResource,
-        blocks: sessionBlocks,
-      }),
-    [activeTerminalResource, activeTerminalTab?.session, activeSessionId, sessionBlocks],
-  );
+  const terminalAiContext = useMemo(() => {
+    const blocks =
+      activeSessionId
+        ? useBlocksStore.getState().blocks[activeSessionId] ?? EMPTY_TERMINAL_BLOCKS
+        : EMPTY_TERMINAL_BLOCKS;
+    return buildTerminalModuleContext({
+      activeSessionId,
+      session: activeTerminalTab?.session ?? null,
+      resource: activeTerminalResource,
+      blocks,
+    });
+  }, [activeTerminalResource, activeTerminalTab?.session, activeSessionId]);
 
   useEffect(() => {
     return subscribeDockviewTransfer((meta) => {
@@ -262,7 +301,9 @@ export function TerminalPanel() {
   useEffect(() => {
     if (!isActiveRoute || !activeTab?.session.resourceId) return;
     if (activeTab.session.resourceId !== workspaceActiveResourceId) {
-      selectResource(activeTab.session.resourceId);
+      startTransition(() => {
+        selectResource(activeTab.session.resourceId);
+      });
     }
   }, [
     activeTab?.session.resourceId,
@@ -274,28 +315,59 @@ export function TerminalPanel() {
   const detachTabView = useCallback((tabId: string) => {
     const sessionId = resolveSessionIdFromTabId(tabId);
     if (!sessionId) return;
+
+    beginSuppressSshDockActivation();
     clearTerminalPaneSender(sessionId);
     clearPaneBackendPending(sessionId);
     touchTerminalBackendSession(sessionId);
     closeTabOnly(sessionId);
+
+    const nextActive = useTerminalStore.getState().activeTabId;
+    if (nextActive) {
+      setActiveTab(nextActive);
+      setDockActiveId(nextActive);
+      focusSessionsPanel();
+    } else {
+      setDockActiveId("");
+    }
+
     setDockLayout(
-      removeTabFromTerminalLayout(useTerminalDockLayoutStore.getState().savedLayout, tabId),
+      removeTabFromTerminalLayout(
+        useTerminalDockLayoutStore.getState().savedLayout,
+        tabId,
+        nextActive ?? undefined,
+      ),
     );
-  }, [closeTabOnly, setDockLayout]);
+  }, [beginSuppressSshDockActivation, closeTabOnly, focusSessionsPanel, setActiveTab, setDockLayout]);
 
   const handleEndSession = useCallback((sessionId: string) => {
     const openTab = useTerminalStore.getState().tabs.find((tab) => tab.sessionId === sessionId);
+    beginSuppressSshDockActivation();
     clearTerminalPaneSender(sessionId);
     clearPaneBackendPending(sessionId);
     disposeSessionBackend(sessionId);
     clearTerminalBackendSessionTouch(sessionId);
     endSession(sessionId);
+
+    const nextActive = useTerminalStore.getState().activeTabId;
+    if (nextActive) {
+      setActiveTab(nextActive);
+      setDockActiveId(nextActive);
+      focusSessionsPanel();
+    } else {
+      setDockActiveId("");
+    }
+
     if (openTab) {
       setDockLayout(
-        removeTabFromTerminalLayout(useTerminalDockLayoutStore.getState().savedLayout, openTab.id),
+        removeTabFromTerminalLayout(
+          useTerminalDockLayoutStore.getState().savedLayout,
+          openTab.id,
+          nextActive ?? undefined,
+        ),
       );
     }
-  }, [endSession, setDockLayout]);
+  }, [beginSuppressSshDockActivation, endSession, focusSessionsPanel, setActiveTab, setDockLayout]);
 
   useEffect(() => {
     const validIds = new Set(sshHosts.map((host) => host.id));
@@ -376,13 +448,6 @@ export function TerminalPanel() {
     if (next) setDockActiveId(next);
   }, [activeTabId, dockActiveId, isSshMode, visibleTabs]);
 
-  useLayoutEffect(() => {
-    if (isSshMode) return;
-    if (!activeTabId || isTerminalSshManagementTab(activeTabId)) return;
-    if (!tabs.some((tab) => tab.id === activeTabId)) return;
-    setDockActiveId(activeTabId);
-  }, [activeTabId, isSshMode, tabs]);
-
   useEffect(() => {
     const handler = (event: Event) => {
       const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
@@ -455,13 +520,17 @@ export function TerminalPanel() {
   const handleDockActiveChange = useCallback(
     (tabId: string) => {
       if (isTerminalSshManagementTab(tabId)) {
+        // 关闭/拖出会话 tab 时 dockview 常会落到最左的 SSH 管理页，忽略这次误激活
+        if (suppressSshDockActivationRef.current) return;
         focusSshPanel();
         setDockActiveId(tabId);
         return;
       }
       focusSessionsPanel();
       setDockActiveId(tabId);
-      setActiveTab(tabId);
+      startTransition(() => {
+        setActiveTab(tabId);
+      });
     },
     [focusSessionsPanel, focusSshPanel, setActiveTab],
   );
@@ -586,16 +655,28 @@ export function TerminalPanel() {
       const ctxTab = useTerminalStore.getState().tabs.find((tab) => tab.id === tabId);
       if (!ctxTab || ctxTab.workspaceOnly) return;
 
+      beginSuppressSshDockActivation();
+      const prevActive = useTerminalStore.getState().activeTabId;
+      const nextActive = resolveNextVisibleSessionTabId(ctxTab.id);
+
       const currentLayout = useTerminalDockLayoutStore.getState().savedLayout;
-      setDockLayout(removeTabFromTerminalLayout(currentLayout, ctxTab.id));
+      setDockLayout(removeTabFromTerminalLayout(currentLayout, ctxTab.id, nextActive || undefined));
       useTerminalStore.getState().setTabWorkspaceOnly(ctxTab.id, true);
+
       const visibleAfter = useTerminalStore
         .getState()
         .tabs.filter((tab) => !tab.workspaceOnly);
-      const activeId = useTerminalStore.getState().activeTabId;
-      if (!activeId || !visibleAfter.some((tab) => tab.id === activeId)) {
-        setActiveTab(visibleAfter[0]?.id ?? "");
+      if (prevActive === ctxTab.id || !visibleAfter.some((tab) => tab.id === prevActive)) {
+        if (nextActive) {
+          setActiveTab(nextActive);
+          setDockActiveId(nextActive);
+        } else {
+          setDockActiveId("");
+        }
+      } else if (prevActive) {
+        setDockActiveId(prevActive);
       }
+      focusSessionsPanel();
 
       void deliverSnapshotToWorkspace(
         targetWorkspaceId,
@@ -604,7 +685,7 @@ export function TerminalPanel() {
       );
       setCtxMenu(null);
     },
-    [setActiveTab, setDockLayout],
+    [beginSuppressSshDockActivation, focusSessionsPanel, setActiveTab, setDockLayout],
   );
 
   const handleContextAction = useCallback(
@@ -697,19 +778,37 @@ export function TerminalPanel() {
       if (isTerminalSshManagementTab(panelId)) return;
       const ctxTab = useTerminalStore.getState().tabs.find((tab) => tab.id === panelId);
       if (!ctxTab) return;
+
+      beginSuppressSshDockActivation();
+      const prevActive = useTerminalStore.getState().activeTabId;
+      const nextActive = resolveNextVisibleSessionTabId(panelId);
+
       setDockLayout(
-        removeTabFromTerminalLayout(useTerminalDockLayoutStore.getState().savedLayout, panelId),
+        removeTabFromTerminalLayout(
+          useTerminalDockLayoutStore.getState().savedLayout,
+          panelId,
+          nextActive || undefined,
+        ),
       );
       useTerminalStore.getState().setTabWorkspaceOnly(panelId, true);
+
       const visibleAfter = useTerminalStore
         .getState()
         .tabs.filter((tab) => !tab.workspaceOnly);
-      const activeId = useTerminalStore.getState().activeTabId;
-      if (!activeId || !visibleAfter.some((tab) => tab.id === activeId)) {
-        setActiveTab(visibleAfter[0]?.id ?? "");
+      if (prevActive === panelId || !visibleAfter.some((tab) => tab.id === prevActive)) {
+        if (nextActive) {
+          setActiveTab(nextActive);
+          setDockActiveId(nextActive);
+        } else {
+          setDockActiveId("");
+        }
+      } else if (prevActive) {
+        setDockActiveId(prevActive);
       }
+      // 拖出后 dockview 常会落到 SSH 管理页，强制留在会话侧
+      focusSessionsPanel();
     },
-    [setActiveTab, setDockLayout],
+    [beginSuppressSshDockActivation, focusSessionsPanel, setActiveTab, setDockLayout],
   );
 
   const renderDockPanel = useCallback(
@@ -723,11 +822,10 @@ export function TerminalPanel() {
           isActive={
             tabId === effectiveDockActiveId && tabId !== taskbarSubWindowTabId
           }
-          onActivate={() => handleDockActiveChange(tabId)}
         />
       );
     },
-    [effectiveDockActiveId, handleDockActiveChange, taskbarSubWindowTabId],
+    [effectiveDockActiveId, taskbarSubWindowTabId],
   );
 
   const sshDockPanelContentKey = useMemo(

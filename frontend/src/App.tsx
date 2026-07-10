@@ -11,7 +11,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
 } from "react";
 import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
@@ -32,8 +31,7 @@ import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import {
-  createInitialOverlayMounted,
-  isOverlayModuleKey,
+  createOverlayMountedAll,
   isOverlayModulePath,
   isShellRoutePath,
 } from "./lib/routePanels";
@@ -48,12 +46,11 @@ import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
 import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
-import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
-import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
+import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
-import { initCrossWindowDragVisual } from "./lib/crossWindowDragVisual";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
+import { isCrossWindowDragRuntime } from "./lib/crossWindowDragEnabled";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
 import { syncEmbeddedWorkspacePanelVisibility } from "./lib/workspaceTabActions";
 import "./lib/workspaceComponentRegistry";
@@ -81,7 +78,10 @@ import {
   LazyTerminalPanel,
   LazyUserWorkspace,
   LazyWorkflowPanel,
+  preloadModuleChunks,
 } from "./routes/lazyModules";
+
+const OVERLAY_MOUNTED = createOverlayMountedAll();
 
 function TopbarPageActions() {
   const { t } = useI18n();
@@ -193,23 +193,7 @@ function AppShell() {
     return () => cleanup?.();
   }, []);
 
-  useEffect(() => {
-    try {
-      return initCrossWindowDockTransfer();
-    } catch (e) {
-      console.warn("[crossWindowDock] init failed", e);
-      return () => {};
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      return initModuleToWorkspaceDragBridge();
-    } catch (e) {
-      console.warn("[moduleToWorkspaceDrag] init failed", e);
-      return () => {};
-    }
-  }, []);
+  useCrossWindowDragInit();
 
   useEffect(() => {
     try {
@@ -220,21 +204,23 @@ function AppShell() {
     }
   }, []);
 
+  // 跨窗口同步工作区 dock tabs/layout（Tauri 下始终订阅，弹出独立窗时即可同步）
   useEffect(() => {
-    try {
-      return initCrossWindowDragVisual();
-    } catch (e) {
-      console.warn("[crossWindowDragVisual] init failed", e);
-      return () => {};
-    }
-  }, []);
-
-  // 跨窗口同步工作区 dock tabs/layout（独立窗口增删 tab 后主窗口实时可见）。
-  useEffect(() => {
+    if (!isCrossWindowDragRuntime()) return;
     return subscribePersistStoreCrossWindow(
       "omnipanel.workspace-bottom-dock.v3",
       useWorkspaceBottomDockStore,
     );
+  }, []);
+
+  useEffect(() => {
+    const schedule = () => preloadModuleChunks();
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(schedule, { timeout: 4000 });
+      return () => cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(schedule, 800);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const location = useLocation();
@@ -283,12 +269,6 @@ function AppShell() {
   const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
   const isShellRoute = isShellRoutePath(location.pathname);
 
-  const [overlayMounted, setOverlayMounted] = useState(() =>
-    createInitialOverlayMounted(location.pathname),
-  );
-  const [shellRoutesMounted, setShellRoutesMounted] = useState(() =>
-    isShellRoutePath(location.pathname),
-  );
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const setActivePath = useWorkspaceStore((state) => state.setActivePath);
@@ -301,36 +281,6 @@ function AppShell() {
   const pendingRiskAction = getPendingRiskAction();
   const appModules = useAppModuleStore((s) => s.modules);
   const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
-
-  useEffect(() => {
-    const key = moduleKeyFromPath(location.pathname);
-    if (isOverlayModuleKey(key)) {
-      setOverlayMounted((prev) =>
-        prev[key] ? prev : { ...prev, [key]: true },
-      );
-    }
-    if (isShellRoutePath(location.pathname)) {
-      setShellRoutesMounted(true);
-    }
-  }, [location.pathname]);
-
-  // 工作区已有数据库 Tab 时预挂载，避免切到其他功能后底部 SQL 失效
-  useEffect(() => {
-    const { tabsByWorkspace } = useWorkspaceBottomDockStore.getState();
-    for (const tabs of Object.values(tabsByWorkspace)) {
-      for (const tab of tabs ?? []) {
-        if (
-          (tab.kind === "mirrored" && tab.originScope === "database") ||
-          (tab.kind === "payload" && tab.payload?.module === "database")
-        ) {
-          setOverlayMounted((prev) =>
-            prev.database ? prev : { ...prev, database: true },
-          );
-          return;
-        }
-      }
-    }
-  }, []);
 
   useEffect(() => {
     if (location.pathname !== "/settings") return;
@@ -511,57 +461,56 @@ function AppShell() {
     <div className="content-routes">
       <OverlayModuleRoutePanel
         active={isTerminal}
-        mounted={overlayMounted.terminal}
+        mounted={OVERLAY_MOUNTED.terminal}
         keepLayout
       >
         <LazyTerminalPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDocker}
-        mounted={overlayMounted.docker}
+        mounted={OVERLAY_MOUNTED.docker}
       >
         <LazyDockerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDatabase}
-        mounted={overlayMounted.database}
+        mounted={OVERLAY_MOUNTED.database}
         keepLayout
       >
         <LazyDatabasePanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isFiles}
-        mounted={overlayMounted.files}
+        mounted={OVERLAY_MOUNTED.files}
       >
         <LazyFilesPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isServer}
-        mounted={overlayMounted.server}
+        mounted={OVERLAY_MOUNTED.server}
       >
         <LazyServerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isProtocol}
-        mounted={overlayMounted.protocol}
+        mounted={OVERLAY_MOUNTED.protocol}
       >
         <LazyProtocolPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isWorkflow}
-        mounted={overlayMounted.workflow}
+        mounted={OVERLAY_MOUNTED.workflow}
       >
         <LazyWorkflowPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isKnowledge}
-        mounted={overlayMounted.knowledge}
+        mounted={OVERLAY_MOUNTED.knowledge}
       >
         <LazyKnowledgePanel />
       </OverlayModuleRoutePanel>
       <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
-        {shellRoutesMounted && (
-          <Routes>
+        <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
             <Route
               path={DASHBOARD_PATH}
@@ -593,7 +542,6 @@ function AppShell() {
             <Route path={MODULE_PATHS.files} element={null} />
             <Route path="*" element={<Navigate to={DASHBOARD_PATH} replace />} />
           </Routes>
-        )}
       </div>
     </div>
   );

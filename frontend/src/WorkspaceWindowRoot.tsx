@@ -16,10 +16,8 @@ import { useTerminalStore } from "./stores/terminalStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { initWorkspaceWindowLifecycle, workspaceWindowDebugLog } from "./lib/workspaceWindow";
 import { hydrateWorkspaceWindowFromHandoff } from "./lib/workspaceWindowHandoff";
-import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
-import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
+import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
-import { initCrossWindowDragVisual } from "./lib/crossWindowDragVisual";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
@@ -123,38 +121,13 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
     return () => cleanup?.();
   }, [workspaceId]);
 
-  useEffect(() => {
-    try {
-      return initCrossWindowDockTransfer();
-    } catch (e) {
-      console.warn("[crossWindowDock] init failed", e);
-      return () => {};
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      return initModuleToWorkspaceDragBridge();
-    } catch (e) {
-      console.warn("[moduleToWorkspaceDrag] init failed", e);
-      return () => {};
-    }
-  }, []);
+  useCrossWindowDragInit();
 
   useEffect(() => {
     try {
       return initWorkspaceAddSnapshotListener();
     } catch (e) {
       console.warn("[workspaceSnapshotDelivery] init failed", e);
-      return () => {};
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      return initCrossWindowDragVisual();
-    } catch (e) {
-      console.warn("[crossWindowDragVisual] init failed", e);
       return () => {};
     }
   }, []);

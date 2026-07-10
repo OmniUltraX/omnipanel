@@ -28,6 +28,7 @@ import {
   isLayoutUsable,
   describeDockLayout,
   reorderLayoutViews,
+  layoutStructureFingerprint,
 } from "./dockViewLayout";
 import { DockErrorBoundary } from "./DockErrorBoundary";
 import {
@@ -335,6 +336,10 @@ export function DockableWorkspace({
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
   // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
   const lastWrittenLayoutRef = useRef<SerializedDockview | null>(null);
+  /** 拖拽/resize 期间合并 layout 写回，避免高频 localStorage persist */
+  const pendingLayoutPersistRef = useRef<SerializedDockview | null>(null);
+  const layoutPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastStructureFingerprintRef = useRef<string | null>(null);
   /** 上一轮 effect 见到的 savedLayout prop；区分「始终 null」与「外部主动清空持久化布局」 */
   const prevSavedLayoutPropRef = useRef<SerializedDockview | null | undefined>(undefined);
 
@@ -687,6 +692,67 @@ export function DockableWorkspace({
 
   // 自定义 tab 关闭按钮 drag-ignore；windowControl 时整段 Tab 栏标记 no-drag
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const isDockLayoutDragActive = useCallback(() => {
+    const root = wrapperRef.current;
+    if (!root) return false;
+    return Boolean(
+      root.querySelector(
+        ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging",
+      ),
+    );
+  }, []);
+
+  const flushPendingLayoutPersist = useCallback(() => {
+    if (layoutPersistTimerRef.current) {
+      clearTimeout(layoutPersistTimerRef.current);
+      layoutPersistTimerRef.current = null;
+    }
+    const next = pendingLayoutPersistRef.current;
+    if (!next) return;
+    pendingLayoutPersistRef.current = null;
+    onSavedLayoutChangeRef.current(next);
+  }, []);
+
+  const scheduleLayoutPersist = useCallback(
+    (next: SerializedDockview) => {
+      pendingLayoutPersistRef.current = next;
+      lastWrittenLayoutRef.current = next;
+
+      const fp = layoutStructureFingerprint(next);
+      const activeOnly =
+        lastStructureFingerprintRef.current !== null &&
+        lastStructureFingerprintRef.current === fp;
+
+      if (layoutPersistTimerRef.current) {
+        clearTimeout(layoutPersistTimerRef.current);
+      }
+
+      const delay = isDockLayoutDragActive() ? 120 : activeOnly ? 1000 : 80;
+      layoutPersistTimerRef.current = setTimeout(() => {
+        layoutPersistTimerRef.current = null;
+        if (isDockLayoutDragActive()) {
+          scheduleLayoutPersist(pendingLayoutPersistRef.current ?? next);
+          return;
+        }
+        if (!activeOnly && fp) {
+          lastStructureFingerprintRef.current = fp;
+        }
+        flushPendingLayoutPersist();
+      }, delay);
+    },
+    [flushPendingLayoutPersist, isDockLayoutDragActive],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (layoutPersistTimerRef.current) {
+        clearTimeout(layoutPersistTimerRef.current);
+        layoutPersistTimerRef.current = null;
+      }
+      flushPendingLayoutPersist();
+    };
+  }, [flushPendingLayoutPersist]);
   const { active: moduleActive } = useModuleVisibility();
   const wasHiddenRef = useRef(true);
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
@@ -1432,6 +1498,23 @@ export function DockableWorkspace({
       return;
     }
     if (!layoutReady) return;
+    const wrapper = wrapperRef.current;
+    const dockRoot = wrapper?.querySelector<HTMLElement>(
+      ".dockable-workspace__dockview",
+    );
+    // 叠层保活切回：尺寸未变且未经历 hidden 时跳过 layout，避免 recovering 闪帧
+    if (!wasHiddenRef.current && dockRoot) {
+      const w = dockRoot.clientWidth;
+      const h = dockRoot.clientHeight;
+      if (
+        w > 0 &&
+        h > 0 &&
+        w === lastMeasuredRef.current.w &&
+        h === lastMeasuredRef.current.h
+      ) {
+        return;
+      }
+    }
     relayoutFromContainer();
   }, [moduleActive, layoutReady, relayoutFromContainer]);
 
@@ -1570,7 +1653,7 @@ export function DockableWorkspace({
         const normalized = normalizeDockLayout(raw) ?? raw;
         const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
         lastWrittenLayoutRef.current = next;
-        onSavedLayoutChangeRef.current(next);
+        scheduleLayoutPersist(next);
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
@@ -1714,7 +1797,7 @@ export function DockableWorkspace({
         }
       }
     },
-    [applyInitialLayout, syncTabGroups],
+    [applyInitialLayout, syncTabGroups, scheduleLayoutPersist],
   );
 
   // 卸载时清理

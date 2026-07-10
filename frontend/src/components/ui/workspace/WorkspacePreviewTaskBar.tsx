@@ -18,6 +18,8 @@ import type { WorkspaceDockTab } from "../../../stores/workspaceBottomDockStore"
 import { WorkspaceTaskBarPanelSubWindow } from "../../workspace/WorkspaceTaskBarPanelSubWindow";
 import { useBottomPanelStore } from "../../../stores/bottomPanelStore";
 import { WorkspaceSwitcher } from "../../shell/WorkspaceSwitcher";
+import { openWorkspaceWindow } from "../../../lib/workspaceWindow";
+import { showToast } from "../../../stores/toastStore";
 
 function taskbarTabStatusClass(status?: string) {
   if (status === "connected" || status === "online") return "online";
@@ -202,6 +204,14 @@ export function WorkspacePreviewTaskBar() {
     [removeTab, subWindowTabId, tabs, workspace],
   );
 
+  const handlePopOutWindow = useCallback(() => {
+    void openWorkspaceWindow(workspace.id, workspace.name).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[workspacePreviewTaskBar] 弹出独立窗口失败", err);
+      showToast(message || t("shell.workspacePanel.popOutWindowFailed"), 8000);
+    });
+  }, [workspace.id, workspace.name, t]);
+
   return (
     <>
       <div className="workspace-preview-taskbar">
@@ -226,6 +236,19 @@ export function WorkspacePreviewTaskBar() {
           )}
         </div>
         <div className="workspace-preview-taskbar__controls drag-ignore">
+          <button
+            type="button"
+            className="workspace-panel-mode-btn"
+            title={t("shell.workspacePanel.popOutWindow")}
+            aria-label={t("shell.workspacePanel.popOutWindow")}
+            onClick={handlePopOutWindow}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+              <path d="M14 4h6v6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M20 4l-8 8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
           <button
             type="button"
             className="workspace-panel-mode-btn"

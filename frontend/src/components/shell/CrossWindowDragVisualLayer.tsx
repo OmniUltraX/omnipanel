@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useShallow } from "zustand/react/shallow";
 import { useCrossWindowDragVisualStore } from "../../lib/crossWindowDragVisual";
 import { screenPointToClient } from "../../lib/crossWindowDragUtils";
 
@@ -7,12 +8,17 @@ import { screenPointToClient } from "../../lib/crossWindowDragUtils";
  * 跨窗拖拽视觉层：目标窗内 ghost tab + 落点高亮（仿 dockview 原生效果）。
  */
 export function CrossWindowDragVisualLayer() {
-  const active = useCrossWindowDragVisualStore((s) => s.active);
-  const label = useCrossWindowDragVisualStore((s) => s.label);
-  const screenX = useCrossWindowDragVisualStore((s) => s.screenX);
-  const screenY = useCrossWindowDragVisualStore((s) => s.screenY);
-  const showGhost = useCrossWindowDragVisualStore((s) => s.showGhost);
-  const dropPreview = useCrossWindowDragVisualStore((s) => s.dropPreview);
+  const { active, label, screenX, screenY, showGhost, dropPreview } =
+    useCrossWindowDragVisualStore(
+      useShallow((s) => ({
+        active: s.active,
+        label: s.label,
+        screenX: s.screenX,
+        screenY: s.screenY,
+        showGhost: s.showGhost,
+        dropPreview: s.dropPreview,
+      })),
+    );
 
   useEffect(() => {
     if (!active) {
@@ -30,7 +36,8 @@ export function CrossWindowDragVisualLayer() {
   }
 
   const { clientX, clientY } = screenPointToClient(screenX, screenY);
-  const hasPointer = screenX !== 0 || screenY !== 0;
+  // 远程首包可能暂无坐标；仍渲染 ghost，pointermove/MOVE 会立刻纠正位置
+  const showGhostAtPointer = showGhost;
 
   return createPortal(
     <div className="cross-window-drag-visual-root" aria-hidden>
@@ -45,7 +52,7 @@ export function CrossWindowDragVisualLayer() {
           }}
         />
       ) : null}
-      {showGhost && hasPointer ? (
+      {showGhostAtPointer ? (
         <div
           className="cross-window-drag-ghost"
           style={{

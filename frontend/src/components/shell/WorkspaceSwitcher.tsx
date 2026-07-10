@@ -93,9 +93,14 @@ export function WorkspaceSwitcher({
 
   const handleStatusbarSelect = useCallback(
     (ws: WorkspaceInfo) => {
+      // 看板页底栏切换器与首页顶栏一致：进入全屏工程工作区或聚焦独立窗
+      if (isDashboardPath(location.pathname)) {
+        void selectWorkspaceUniversally(ws.id, navigate);
+        return;
+      }
       void selectWorkspaceForMainContext(ws.id, navigate);
     },
-    [navigate],
+    [location.pathname, navigate],
   );
 
   const handleBoundSelect = useCallback(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/primitives/Button";
@@ -49,9 +49,12 @@ export function WorkspacePayloadPanel({ tab, isActive }: WorkspacePayloadPanelPr
   const payload = tab.payload;
   const [terminalTabId, setTerminalTabId] = useState<string | null>(null);
 
-  // 把"确保 tab 存在"的副作用从 render 期挪到 effect，避免 setState during render warning
-  useEffect(() => {
-    if (!payload || payload.module !== "terminal") return;
+  // useLayoutEffect：拖入后首帧即挂载终端，避免空白等待一帧以上
+  useLayoutEffect(() => {
+    if (!payload || payload.module !== "terminal") {
+      setTerminalTabId(null);
+      return;
+    }
     const id = ensureTerminalTabFromSnapshot(payload);
     setTerminalTabId(id);
   }, [payload]);

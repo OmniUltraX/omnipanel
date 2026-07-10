@@ -11,6 +11,7 @@ import {
   toggleWorkspaceFromChromeIcon,
 } from "../../lib/workspaceNavigation";
 import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
+import { isOverlayModulePath } from "../../lib/routePanels";
 import { isModulePathEnabled, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 
@@ -126,8 +127,8 @@ export function Sidebar() {
   };
 
   const go = (path: string) => {
-    // 全屏切模块须同步完成，startTransition 会延迟 navigate 导致延迟退出卡住
-    if (isBottomFullscreen) {
+    // 叠层模块（终端/数据库等）须同步 navigate，避免 startTransition 延迟造成切换钝感
+    if (isBottomFullscreen || isOverlayModulePath(path)) {
       navigateToFeature(path, navigate);
       return;
     }

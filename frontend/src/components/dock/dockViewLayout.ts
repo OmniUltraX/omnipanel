@@ -163,10 +163,29 @@ function filterGroupViews(
   group: GroupPanelViewState,
   allowed: Set<string>,
 ): GroupPanelViewState {
-  const views = (group.views ?? []).filter((id) => allowed.has(id));
+  const oldViews = group.views ?? [];
+  const views = oldViews.filter((id) => allowed.has(id));
   const next: GroupPanelViewState = { ...group, views };
   if (group.activeView && !allowed.has(group.activeView)) {
-    next.activeView = views[0];
+    const oldIndex = oldViews.indexOf(group.activeView);
+    let nextActive: string | undefined;
+    if (oldIndex >= 0) {
+      for (let i = oldIndex - 1; i >= 0; i -= 1) {
+        if (allowed.has(oldViews[i])) {
+          nextActive = oldViews[i];
+          break;
+        }
+      }
+      if (!nextActive) {
+        for (let i = oldIndex + 1; i < oldViews.length; i += 1) {
+          if (allowed.has(oldViews[i])) {
+            nextActive = oldViews[i];
+            break;
+          }
+        }
+      }
+    }
+    next.activeView = nextActive ?? views[0];
   }
   return next;
 }
@@ -320,15 +339,39 @@ export function reorderLayoutViews(
   const next = cloneLayout(layout);
   const root = fromGridNode(next.grid.root);
   const updated = mapRoot(root, (leaf) => {
-    const views = (leaf.data.views ?? []).filter((id) => allowed.has(id));
+    const originalViews = leaf.data.views ?? [];
+    const views = originalViews.filter((id) => allowed.has(id));
     if (views.length === 0) return leaf;
     const ordered = tabIds.filter((id) => views.includes(id));
     const trailing = views.filter((id) => !ordered.includes(id));
     const finalViews = [...ordered, ...trailing];
-    const activeView =
+    let activeView =
       leaf.data.activeView && allowed.has(leaf.data.activeView)
         ? leaf.data.activeView
-        : finalViews[0];
+        : undefined;
+    if (!activeView) {
+      // active 已失效时优先紧邻左侧，避免落到固定置首 Tab（如 SSH）
+      const oldIndex = leaf.data.activeView
+        ? originalViews.indexOf(leaf.data.activeView)
+        : -1;
+      if (oldIndex >= 0) {
+        for (let i = oldIndex - 1; i >= 0; i -= 1) {
+          if (allowed.has(originalViews[i])) {
+            activeView = originalViews[i];
+            break;
+          }
+        }
+        if (!activeView) {
+          for (let i = oldIndex + 1; i < originalViews.length; i += 1) {
+            if (allowed.has(originalViews[i])) {
+              activeView = originalViews[i];
+              break;
+            }
+          }
+        }
+      }
+      activeView = activeView ?? finalViews[0];
+    }
     return {
       ...leaf,
       data: { ...leaf.data, views: finalViews, activeView },
@@ -408,6 +451,59 @@ function collectViewIds(layout: SerializedDockview): Set<string> {
   };
   walk(layout.grid?.root as SerializedNode | undefined);
   return ids;
+}
+
+/** 按布局中 tab 栏顺序收集 views（用于关闭后选紧邻 tab）。 */
+function collectViewOrder(layout: SerializedDockview): string[] {
+  const order: string[] = [];
+  const walk = (node: SerializedNode | null | undefined) => {
+    if (!node) return;
+    if (isLeaf(node)) {
+      for (const id of node.data.views ?? []) {
+        if (!order.includes(id)) order.push(id);
+      }
+      return;
+    }
+    if (isBranch(node)) {
+      for (const child of node.data) walk(child);
+    }
+  };
+  walk(layout.grid?.root as SerializedNode | undefined);
+  return order;
+}
+
+/**
+ * 关闭 panel 后选择下一个 active：显式指定 > 紧邻左侧 > 紧邻右侧 > 剩余第一个。
+ * 避免回落到 panels 字典的 insertion-order 首项（终端里常是固定的 SSH 管理页）。
+ */
+function resolveActiveAfterRemove(
+  layout: SerializedDockview,
+  removedIds: string[],
+  remaining: Set<string>,
+  preferredActiveId?: string,
+): string {
+  if (preferredActiveId && remaining.has(preferredActiveId)) {
+    return preferredActiveId;
+  }
+
+  const viewOrder = collectViewOrder(layout);
+  for (const removedId of removedIds) {
+    const index = viewOrder.indexOf(removedId);
+    if (index < 0) continue;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const candidate = viewOrder[i];
+      if (remaining.has(candidate)) return candidate;
+    }
+    for (let i = index + 1; i < viewOrder.length; i += 1) {
+      const candidate = viewOrder[i];
+      if (remaining.has(candidate)) return candidate;
+    }
+  }
+
+  for (const id of viewOrder) {
+    if (remaining.has(id)) return id;
+  }
+  return [...remaining][0];
 }
 
 /** 校验已合并布局是否结构完好（panels↔views 一致 + 每个 leaf 有合法 id）。 */
@@ -510,9 +606,8 @@ export function removePanelsFromLayout(
     allowed.delete(panelId);
   }
   if (allowed.size === 0) return null;
+  const fallback = resolveActiveAfterRemove(layout, panelIds, allowed, activeTabId);
   const remaining = [...allowed];
-  const fallback =
-    activeTabId && allowed.has(activeTabId) ? activeTabId : remaining[0];
   return (
     mergePanelsIntoLayout(layout, remaining, fallback) ??
     createDefaultLayout(remaining, fallback)
@@ -523,8 +618,9 @@ export function removePanelsFromLayout(
 export function removePanelFromLayout(
   layout: SerializedDockview | null,
   panelId: string,
+  activeTabId?: string,
 ): SerializedDockview | null {
-  return removePanelsFromLayout(layout, [panelId]);
+  return removePanelsFromLayout(layout, [panelId], activeTabId);
 }
 
 /** 剥除侧/底 Tab 栏等已废弃的布局字段，避免 fromJSON 恢复旧状态 */
@@ -533,6 +629,39 @@ export function normalizeDockLayout(
 ): SerializedDockview | null {
   if (!layout) return null;
   return stripSideHeaderLayout(layout);
+}
+
+/** 布局结构指纹（忽略 activeView / activeGroup），用于判断「仅切换激活 Tab」 */
+export function layoutStructureFingerprint(layout: SerializedDockview): string {
+  const normalized = normalizeDockLayout(layout);
+  if (!normalized?.grid?.root) return "";
+  const stripNode = (
+    node: NonNullable<SerializedDockview["grid"]["root"]>,
+  ): SerializedNode => {
+    if (node.type === "leaf") {
+      const data = { ...(node.data as GroupPanelViewState) };
+      delete data.activeView;
+      return {
+        type: "leaf",
+        data,
+        size: node.size,
+        visible: node.visible,
+      };
+    }
+    return {
+      type: "branch",
+      data: (node.data ?? []).map((child) => stripNode(child)),
+      size: node.size,
+    };
+  };
+  try {
+    return JSON.stringify({
+      grid: { root: stripNode(normalized.grid.root) },
+      panels: normalized.panels,
+    });
+  } catch {
+    return "";
+  }
 }
 
 export interface DockLayoutTabMeta {

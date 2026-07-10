@@ -1,11 +1,20 @@
-import { emit, emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import {
+  clearWebviewWindowLabelCache,
+  emitToOtherWebviews,
   findWindowLabelAtScreenPoint,
+  isPointerOutsideCurrentWindow,
+  isWindowChromePointerTarget,
   resolveTargetWorkspaceIdForTransfer,
   screenPointToClient,
 } from "./crossWindowDragUtils";
+import {
+  bindDockviewPointerDragController,
+  cancelDockviewPointerDrag,
+  forceEndDockviewPointerDrag,
+} from "./dockviewPointerDrag";
 import {
   applyCrossWindowWorkspaceTabToModule,
   findModuleDropTargetWorkspace,
@@ -34,6 +43,9 @@ import { MODULE_PATHS } from "./paths";
 import {
   broadcastCrossWindowDragEnd,
   broadcastCrossWindowDragMove,
+  CROSS_WINDOW_DRAG_END_EVENT,
+  updateLocalOutboundDragVisual,
+  useCrossWindowDragVisualStore,
 } from "./crossWindowDragVisual";
 
 export const CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-dock-drag-active";
@@ -102,6 +114,7 @@ function emitSourceCleanup(
 }
 const REMOTE_DRAG_TTL_MS = 30_000;
 const DRAG_THRESHOLD_PX = 4;
+const DRAG_COMPLETION_LOCK_TIMEOUT_MS = 800;
 const WORKSPACE_DOCK_SELECTOR = ".workspace-panel-dock";
 const WORKSPACE_DOCK_SCOPE_PREFIX = "workspace-bottom-";
 
@@ -118,6 +131,7 @@ let localDrag: CrossWindowDockDragPayload | null = null;
 let remoteDrag: (CrossWindowDockDragPayload & { expiresAt: number }) | null = null;
 let activeBroadcast = false;
 let dragCompletionLock = false;
+let dragCompletionLockTimer: ReturnType<typeof setTimeout> | null = null;
 let dragFinishToken = 0;
 const recentTransferKeys = new Set<string>();
 /** 跨窗拖出进行中：阻止 dockview onDidRemovePanel 提前销毁 store 中的 tab */
@@ -219,10 +233,26 @@ function isWorkspaceDockElement(el: Element | null | undefined): boolean {
   return Boolean(el?.closest(WORKSPACE_DOCK_SELECTOR));
 }
 
+function clearLocalWorkspaceDockDragArtifacts(): void {
+  document
+    .querySelectorAll(
+      `${WORKSPACE_DOCK_SELECTOR} .dv-tab-dragging, ${WORKSPACE_DOCK_SELECTOR} .dv-tab--dragging, ${WORKSPACE_DOCK_SELECTOR} .dv-resize-container-dragging`,
+    )
+    .forEach((el) => {
+      el.classList.remove(
+        "dv-tab-dragging",
+        "dv-tab--dragging",
+        "dv-resize-container-dragging",
+      );
+    });
+}
+
 function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
   if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
   if (localDrag) return true;
-  if (!pointerSeed) return isWorkspaceDockDragActive();
+  if (!pointerSeed) {
+    return isWorkspaceDockDragActive() && Boolean(panelIdFromActiveDrag());
+  }
   if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
     return isWorkspaceDockDragActive();
   }
@@ -276,7 +306,6 @@ function seedPointerFromPanelId(
     startScreenX: screenX,
     startScreenY: screenY,
   };
-  trackOutboundPanel(panelId);
   activeBroadcast = false;
   crossDockLog(`seed panelId=${panelId} ws=${found.workspaceId}`);
   return true;
@@ -334,6 +363,7 @@ function ensureLocalDrag(panelId: string): CrossWindowDockDragPayload | null {
   const found = findWorkspaceTab(panelId);
   if (!found) return null;
   const normalizedTab = normalizeTabForCrossWindowTransfer(cloneWorkspaceDockTab(found.tab));
+  trackOutboundPanel(panelId);
   localDrag = {
     sourceWindowLabel: getCurrentWebviewWindow().label,
     sourceWorkspaceId: found.workspaceId,
@@ -418,18 +448,76 @@ function resolveIncomingWorkspaceTargetId(
   return null;
 }
 
-async function broadcastDragActive(session: CrossWindowDockDragPayload): Promise<void> {
+function acquireDragCompletionLock(): void {
+  dragCompletionLock = true;
+  if (dragCompletionLockTimer) {
+    clearTimeout(dragCompletionLockTimer);
+  }
+  dragCompletionLockTimer = setTimeout(() => {
+    dragCompletionLock = false;
+    dragCompletionLockTimer = null;
+    crossDockLog("dragCompletionLock timeout released");
+  }, DRAG_COMPLETION_LOCK_TIMEOUT_MS);
+}
+
+function releaseDragCompletionLock(): void {
+  dragCompletionLock = false;
+  if (dragCompletionLockTimer) {
+    clearTimeout(dragCompletionLockTimer);
+    dragCompletionLockTimer = null;
+  }
+}
+
+function hasStaleOutboundSession(): boolean {
+  if (localDrag || activeBroadcast) return true;
+  if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
+  if (document.body.classList.contains("omnipanel-cross-window-dock-drag")) return true;
+  const visual = useCrossWindowDragVisualStore.getState();
+  if (visual.active && !pointerSeed && !isWorkspaceDockDragActive()) return true;
+  return false;
+}
+
+function resetDragSession(options?: { broadcastEnd?: boolean }): void {
+  const shouldBroadcast =
+    options?.broadcastEnd ??
+    Boolean(
+      activeBroadcast ||
+        localDrag ||
+        document.body.classList.contains("omnipanel-cross-window-dock-drag") ||
+        useCrossWindowDragVisualStore.getState().active,
+    );
+  if (!remoteDrag) {
+    localDrag = null;
+  }
+  resetPointerSeed();
+  clearRemoteDrag();
+  clearLocalWorkspaceDockDragArtifacts();
+  document.body.classList.remove("omnipanel-cross-window-dock-drag");
+  releaseDragCompletionLock();
+  clearWebviewWindowLabelCache();
+  if (shouldBroadcast) {
+    void broadcastCrossWindowDragEnd();
+  }
+}
+
+async function broadcastDragActive(
+  session: CrossWindowDockDragPayload,
+  screenX = 0,
+  screenY = 0,
+): Promise<void> {
   trackOutboundPanel(session.panelId);
   if (activeBroadcast) return;
   activeBroadcast = true;
   try {
-    const wins = await getAllWebviewWindows();
-    await Promise.all(
-      wins
-        .filter((w) => w.label !== session.sourceWindowLabel)
-        .map((w) =>
-          emitTo(w.label, CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT, session).catch(() => {}),
-        ),
+    const current = getCurrentWebviewWindow().label;
+    await emitToOtherWebviews(
+      CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT,
+      {
+        ...session,
+        screenX,
+        screenY,
+      },
+      current,
     );
     crossDockLog(`broadcast active from ${session.sourceWindowLabel}`);
   } catch (e) {
@@ -443,13 +531,22 @@ function broadcastDragMove(
   screenX: number,
   screenY: number,
 ): void {
-  void broadcastCrossWindowDragMove({
+  broadcastCrossWindowDragMove({
     sourceWindowLabel: session.sourceWindowLabel,
     label: session.tab.label?.trim() || session.panelId,
     screenX,
     screenY,
     kind: "workspace-tab",
   });
+}
+
+function maybeBroadcastActiveOnMove(
+  session: CrossWindowDockDragPayload,
+  screenX: number,
+  screenY: number,
+): void {
+  void broadcastDragActive(session, screenX, screenY);
+  broadcastDragMove(session, screenX, screenY);
 }
 
 function applyIncomingTab(
@@ -580,6 +677,7 @@ function removeOutgoingTab(
     tab.payload?.module === "terminal";
 
   const removeDockPanel = () => {
+    cancelDockviewPointerDrag();
     const dockInstance = getDockviewInstanceByScope(
       `${WORKSPACE_DOCK_SCOPE_PREFIX}${workspaceId}`,
     );
@@ -675,12 +773,22 @@ export function initCrossWindowDockTransfer(): () => void {
     session: CrossWindowDockDragPayload | null,
     remote: CrossWindowDockDragPayload | null,
     finishToken: number,
+    knownTargetLabel?: string | null,
   ): Promise<boolean> => {
     if (dragCompletionLock) return false;
     if (finishToken !== dragFinishToken) return false;
-    dragCompletionLock = true;
+    acquireDragCompletionLock();
     try {
-      const targetLabel = await findWindowLabelAtScreenPoint(screenX, screenY, crossDockLog);
+      const targetLabel =
+        knownTargetLabel ??
+        (isPointerOutsideCurrentWindow(screenX, screenY)
+          ? await findWindowLabelAtScreenPoint(
+              screenX,
+              screenY,
+              crossDockLog,
+              currentLabel,
+            )
+          : currentLabel);
       if (!targetLabel) {
         crossDockLog("drop: no window at cursor");
         return false;
@@ -716,18 +824,22 @@ export function initCrossWindowDockTransfer(): () => void {
       );
       return false;
     } finally {
-      dragCompletionLock = false;
+      releaseDragCompletionLock();
     }
   };
 
-  const cleanupDragState = (session: CrossWindowDockDragPayload | null, transferCompleted: boolean): void => {
+  const quietAbortDrag = (): void => {
+    cancelDockviewPointerDrag();
+    resetDragSession({ broadcastEnd: activeBroadcast });
+  };
+
+  const cleanupDragState = (
+    session: CrossWindowDockDragPayload | null,
+    transferCompleted: boolean,
+  ): void => {
+    cancelDockviewPointerDrag();
     scheduleOutboundDockRecovery(session, transferCompleted);
-    if (!remoteDrag) {
-      localDrag = null;
-    }
-    resetPointerSeed();
-    document.body.classList.remove("omnipanel-cross-window-dock-drag");
-    void broadcastCrossWindowDragEnd();
+    resetDragSession({ broadcastEnd: true });
   };
 
   const onTabGrab = (event: Event) => {
@@ -738,6 +850,11 @@ export function initCrossWindowDockTransfer(): () => void {
     }>).detail;
     const panelId = detail?.panelId;
     if (!panelId) return;
+    // 作废上一轮尚未完成的 pointerup 异步清理，避免连拖被误清
+    dragFinishToken += 1;
+    if (hasStaleOutboundSession()) {
+      resetDragSession({ broadcastEnd: true });
+    }
     seedPointerFromPanelId(panelId, detail.screenX ?? 0, detail.screenY ?? 0);
   };
 
@@ -749,6 +866,7 @@ export function initCrossWindowDockTransfer(): () => void {
       ]);
       if (disposed) return;
       const dragController = PointerDragController.getInstance();
+      bindDockviewPointerDragController(dragController);
 
       dockDisposables.push(
         dragController.onDragStart((event) => {
@@ -759,6 +877,10 @@ export function initCrossWindowDockTransfer(): () => void {
           if (!panelId) {
             crossDockLog("dragStart: no panel data");
             return;
+          }
+          dragFinishToken += 1;
+          if (hasStaleOutboundSession()) {
+            resetDragSession({ broadcastEnd: true });
           }
           seedPointerFromPanelId(
             panelId,
@@ -774,8 +896,11 @@ export function initCrossWindowDockTransfer(): () => void {
           if (!panelId) return;
           const session = ensureLocalDrag(panelId);
           if (!session) return;
-          void broadcastDragActive(session);
-          broadcastDragMove(session, event.pointerEvent.screenX, event.pointerEvent.screenY);
+          maybeBroadcastActiveOnMove(
+            session,
+            event.pointerEvent.screenX,
+            event.pointerEvent.screenY,
+          );
         }),
       );
 
@@ -783,7 +908,7 @@ export function initCrossWindowDockTransfer(): () => void {
         dragController.onDragEnd(() => {
           // 跨窗完成仅在 pointerup 处理，避免与 dockview _handleEnd 竞态导致 Invalid grid element
           if (!pointerSeed && !localDrag) {
-            cleanupDragState(null, false);
+            quietAbortDrag();
           }
         }),
       );
@@ -796,33 +921,43 @@ export function initCrossWindowDockTransfer(): () => void {
 
   const onPointerMove = (event: PointerEvent) => {
     if (!(event.buttons & 1)) return;
-    if (!pointerSeed && !isWorkspaceDockDragActive()) return;
+    // dockview 拖拽进行中也要继续广播 MOVE：出窗后 onDragMove 可能停更，
+    // 目标窗 ghost 全靠这条 document 捕获路径续命
+    if (!pointerSeed && !localDrag) return;
 
-    if (pointerSeed && pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
-      pointerSeed.startScreenX = event.screenX;
-      pointerSeed.startScreenY = event.screenY;
+    if (pointerSeed) {
+      if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
+        pointerSeed.startScreenX = event.screenX;
+        pointerSeed.startScreenY = event.screenY;
+      }
     }
-
-    const panelId = panelIdFromActiveDrag();
-    if (!panelId) return;
 
     const movedEnough =
       !pointerSeed ||
       pointerSeed.startScreenX === 0 ||
-      Math.hypot(event.screenX - pointerSeed.startScreenX, event.screenY - pointerSeed.startScreenY) >=
-        DRAG_THRESHOLD_PX ||
-      isWorkspaceDockDragActive();
+      Math.hypot(
+        event.screenX - pointerSeed.startScreenX,
+        event.screenY - pointerSeed.startScreenY,
+      ) >= DRAG_THRESHOLD_PX ||
+      isWorkspaceDockDragActive() ||
+      isPointerOutsideCurrentWindow(event.screenX, event.screenY);
 
     if (!movedEnough) return;
 
-    const session = ensureLocalDrag(panelId);
+    const session =
+      localDrag ??
+      (pointerSeed ? ensureLocalDrag(pointerSeed.panelId) : null);
     if (session) {
-      void broadcastDragActive(session);
-      broadcastDragMove(session, event.screenX, event.screenY);
+      maybeBroadcastActiveOnMove(session, event.screenX, event.screenY);
     }
   };
 
   const onPointerUp = (event: PointerEvent) => {
+    if (isWindowChromePointerTarget(event.target)) {
+      quietAbortDrag();
+      return;
+    }
+
     const currentLabel = getCurrentWebviewWindow().label;
     const remote =
       remoteDrag && remoteDrag.expiresAt > Date.now() ? remoteDrag : null;
@@ -832,36 +967,51 @@ export function initCrossWindowDockTransfer(): () => void {
     }
 
     if (!remote && !dragMovedEnoughAt(event.screenX, event.screenY)) {
-      cleanupDragState(resolveDragSession(), false);
+      quietAbortDrag();
+      return;
+    }
+
+    const outside = isPointerOutsideCurrentWindow(event.screenX, event.screenY);
+    // 跨窗：必须在 await 之前同步抢走 dockview drop，否则 _handleEnd 会
+    // moveGroupOrPanel 到已不存在的 group（Failed to find group id）
+    if (remote || outside) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cancelDockviewPointerDrag();
+    }
+
+    if (!remote && !outside) {
+      resetDragSession({ broadcastEnd: activeBroadcast });
       return;
     }
 
     const sessionAtUp = resolveDragSession();
-    void (async () => {
+    const finishToken = ++dragFinishToken;
+
+    void (async (): Promise<boolean | "aborted"> => {
+      let knownTarget: string | null = null;
       if (!remote) {
-        const targetLabel = await findWindowLabelAtScreenPoint(
+        knownTarget = await findWindowLabelAtScreenPoint(
           event.screenX,
           event.screenY,
           crossDockLog,
+          currentLabel,
         );
-        if (!targetLabel || targetLabel === currentLabel) {
-          // 同窗：可能拖回终端/模块 dock，交给 dockview onWillDrop，不拦截 pointerup
-          return;
+        if (finishToken !== dragFinishToken) return "aborted";
+        if (!knownTarget || knownTarget === currentLabel) {
+          resetDragSession({ broadcastEnd: activeBroadcast });
+          return "aborted";
         }
       }
 
       const session = sessionAtUp ?? resolveDragSession();
-      // 目标窗松开时仅有 remoteDrag（源窗发起的跨窗拖放），无本地 session
       if (!session && !remote) {
         crossDockLog("pointerup: no drag session");
-        return;
+        quietAbortDrag();
+        return "aborted";
       }
-      const finishToken = ++dragFinishToken;
 
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      const transferCompleted = await finishDragAtScreenPoint(
+      return finishDragAtScreenPoint(
         event.screenX,
         event.screenY,
         event.clientX,
@@ -870,37 +1020,31 @@ export function initCrossWindowDockTransfer(): () => void {
         session,
         remote,
         finishToken,
+        knownTarget,
       );
-      return transferCompleted;
     })()
       .catch((e) => {
         console.warn("[crossWindowDock] pointerup failed", e);
-        return false;
+        return false as boolean | "aborted";
       })
       .then((transferCompleted) => {
+        // 异步命中测试期间若已开始新拖拽 / 已自行 abort，勿清掉新会话
+        if (transferCompleted === "aborted") return;
+        if (finishToken !== dragFinishToken) return;
         cleanupDragState(sessionAtUp, transferCompleted === true);
       });
   };
-
-  const observer = new MutationObserver(() => {
-    if (!isWorkspaceDockDragActive()) return;
-    const panelId = panelIdFromActiveDrag();
-    if (!panelId) return;
-    const session = ensureLocalDrag(panelId);
-    if (session) {
-      void broadcastDragActive(session);
-    }
-  });
-  observer.observe(document.body, {
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class"],
-  });
 
   window.addEventListener(WORKSPACE_DOCK_TAB_GRAB_EVENT, onTabGrab);
   document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("pointerup", onPointerUp, true);
   document.addEventListener("pointercancel", onPointerUp, true);
+
+  void listen(CROSS_WINDOW_DRAG_END_EVENT, () => {
+    forceEndDockviewPointerDrag();
+    clearRemoteDrag();
+    document.body.classList.remove("omnipanel-cross-window-dock-drag");
+  }, { target: { kind: "Any" } }).then((fn) => unlisteners.push(fn));
 
   void listen<CrossWindowDockDragPayload>(
     CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT,
@@ -924,6 +1068,9 @@ export function initCrossWindowDockTransfer(): () => void {
       crossDockLog(
         `complete event current=${currentLabel} src=${payload.sourceWindowLabel} tgt=${payload.targetWindowLabel}`,
       );
+
+      // 源窗跨窗松手时通常收不到 pointerup，必须在此强制拆掉原生 ghost
+      forceEndDockviewPointerDrag();
 
       if (payload.targetWindowLabel === currentLabel) {
         const { clientX, clientY } = screenPointToClient(
@@ -951,6 +1098,7 @@ export function initCrossWindowDockTransfer(): () => void {
       if (!payload) return;
       const currentLabel = getCurrentWebviewWindow().label;
       if (payload.sourceWindowLabel !== currentLabel) return;
+      forceEndDockviewPointerDrag();
       removeOutgoingTab(
         payload.sourceWorkspaceId,
         payload.panelId,
@@ -972,22 +1120,16 @@ export function initCrossWindowDockTransfer(): () => void {
 
   const cleanup = () => {
     disposed = true;
-    observer.disconnect();
     for (const d of dockDisposables) d.dispose();
     window.removeEventListener(WORKSPACE_DOCK_TAB_GRAB_EVENT, onTabGrab);
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("pointerup", onPointerUp, true);
     document.removeEventListener("pointercancel", onPointerUp, true);
     for (const fn of unlisteners) safeTauriUnlisten(fn);
-    document.body.classList.remove("omnipanel-cross-window-dock-drag");
-    pointerSeed = null;
-    localDrag = null;
-    clearRemoteDrag();
-    activeBroadcast = false;
-    dragCompletionLock = false;
-    dragFinishToken = 0;
+    resetDragSession({ broadcastEnd: false });
     recentTransferKeys.clear();
     pendingOutboundPanelIds.clear();
+    dragFinishToken = 0;
     if (crossWindowDockTransferCleanup === cleanup) {
       crossWindowDockTransferCleanup = null;
     }

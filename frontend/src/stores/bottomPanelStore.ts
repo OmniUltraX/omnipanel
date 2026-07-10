@@ -140,6 +140,9 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         }
         const { workspaceMode, workspaceDisplayPreference } = get();
         const normalized = normalizeWorkspaceMode(workspaceMode);
+        if (normalized === "fullscreen") {
+          return;
+        }
         if (
           isEmbeddedWorkspaceMode(normalized) &&
           normalized !== "hidden"
@@ -173,6 +176,7 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           workspaceHeightPx: 0,
           lastNonFullscreenMode: remembered,
           lastExpandedHeightPx,
+          taskbarSubWindowTabId: null,
           ...syncDerivedFlags("hidden"),
         }));
       },
@@ -277,6 +281,13 @@ export const useBottomPanelStore = create<BottomPanelState>()(
       enterWorkspaceFullscreen: () => {
         const state = get();
         const normalized = normalizeWorkspaceMode(state.workspaceMode);
+        if (
+          normalized === "fullscreen" &&
+          !state.deferExitFullscreenUntilPath &&
+          !state.deferExitFullscreenMode
+        ) {
+          return;
+        }
         const rememberedMode: EmbeddedWorkspaceMode =
           isEmbeddedWorkspaceMode(normalized) && normalized !== "hidden"
             ? normalized
@@ -284,6 +295,7 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         set(() => ({
           deferExitFullscreenUntilPath: null,
           deferExitFullscreenMode: null,
+          taskbarSubWindowTabId: null,
           lastNonFullscreenMode: rememberedMode,
           workspaceMode: "fullscreen",
           ...syncDerivedFlags("fullscreen"),
@@ -338,6 +350,7 @@ export const useBottomPanelStore = create<BottomPanelState>()(
           set((state) => ({
             deferExitFullscreenUntilPath: null,
             deferExitFullscreenMode: null,
+            taskbarSubWindowTabId: null,
             expandSignal: state.expandSignal + 1,
           }));
         } else if (mode === "drag-half") {

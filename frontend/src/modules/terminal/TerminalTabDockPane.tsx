@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { AdvanceTerminal } from "./AdvanceTerminal";
 
 interface TerminalTabDockPaneProps {
@@ -9,7 +10,7 @@ interface TerminalTabDockPaneProps {
 }
 
 /** 终端模块 dock 与底部工作区镜像共用的完整面板（终端 + 可选右侧工具栏） */
-export function TerminalTabDockPane({
+export const TerminalTabDockPane = memo(function TerminalTabDockPane({
   tabId,
   isActive,
   onActivate,
@@ -23,4 +24,4 @@ export function TerminalTabDockPane({
       sideDockScope={sideDockScope}
     />
   );
-}
+});

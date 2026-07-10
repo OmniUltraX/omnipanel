@@ -1,9 +1,10 @@
 import { useCallback, useMemo } from "react";
+import { startTransition } from "react";
 import {
   resolveResourceById,
 } from "../../stores/connectionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { useI18n } from "../../i18n";
+import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";import { useI18n } from "../../i18n";
 import { requestTerminalExecution } from "./executeTerminalCommand";
 import { tryOpenSshFromTerminalCommand } from "./openSshFromTerminalCommand";
 import { registerUserShellCommand } from "./postShellAiTrigger";
@@ -18,13 +19,12 @@ export function useTerminalTabDockPane(
   onActivate?: () => void,
 ) {
   const { t } = useI18n();
-  const tabs = useTerminalStore((state) => state.tabs);
-
-  const tab = useMemo(
-    () => tabs.find((item) => item.id === tabId) ?? null,
-    [tabs, tabId],
-  );
-  const resource = useMemo(
+  const tab = useTerminalStore((state) => {
+    for (const item of state.tabs) {
+      if (item.id === tabId) return item;
+    }
+    return null;
+  });  const resource = useMemo(
     () => resolveResourceById(tab?.session.resourceId ?? null) ?? null,
     [tab?.session.resourceId],
   );
@@ -76,8 +76,15 @@ export function useTerminalTabDockPane(
   );
 
   const handleActivate = useCallback(() => {
-    onActivate?.();
-  }, [onActivate]);
+    if (onActivate) {
+      onActivate();
+      return;
+    }
+    useTerminalLeftPanelStore.getState().focusSessions();
+    startTransition(() => {
+      useTerminalStore.getState().setActiveTab(tabId);
+    });
+  }, [onActivate, tabId]);
 
   return {
     tab,

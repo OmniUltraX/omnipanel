@@ -39,12 +39,13 @@ export const useTerminalDockLayoutStore = create<TerminalDockLayoutState>()(
   ),
 );
 
-/** 关闭 tab 时从 dockview 布局中移除 */
+/** 关闭 tab 时从 dockview 布局中移除；nextActiveTabId 为关闭后应激活的 tab */
 export function removeTabFromTerminalLayout(
   savedLayout: SerializedDockview | null,
   tabId: string,
+  nextActiveTabId?: string,
 ): SerializedDockview | null {
-  const next = removePanelFromLayout(savedLayout, tabId);
+  const next = removePanelFromLayout(savedLayout, tabId, nextActiveTabId);
   if (next && collectPanelIds(next).size === 0) return null;
   return next;
 }
