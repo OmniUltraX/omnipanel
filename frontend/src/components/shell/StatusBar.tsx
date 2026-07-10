@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { isWorkspacePoppedOut } from "../../stores/workspaceWindowStore";
+import { useWorkspaceWindowStore } from "../../stores/workspaceWindowStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { isWorkspacePath } from "../../lib/paths";
@@ -150,7 +150,9 @@ function StatusBarWorkspacePanelToggle() {
     (state) => state.toggleWorkspaceDisplayPreference,
   );
 
-  const isPoppedOut = isWorkspacePoppedOut(workspaceId);
+  const isPoppedOut = useWorkspaceWindowStore((state) =>
+    state.poppedOutIds.includes(workspaceId),
+  );
   const isHidden = embeddedMode === "hidden";
   const isTaskBar = workspaceDisplayPreference === "task-bar";
 
@@ -186,6 +188,11 @@ function StatusBarWorkspacePanelToggle() {
 }
 
 function StatusBarWorkspaceControls() {
+  const workspaceId = useWorkspaceStore((state) => state.workspace.id);
+  const isPoppedOut = useWorkspaceWindowStore((state) =>
+    state.poppedOutIds.includes(workspaceId),
+  );
+
   return (
     <div className="statusbar-workspace-controls">
       <WorkspaceSwitcher
@@ -193,7 +200,7 @@ function StatusBarWorkspaceControls() {
         placement="above"
         context="statusbar"
       />
-      <StatusBarWorkspacePanelToggle />
+      {!isPoppedOut ? <StatusBarWorkspacePanelToggle /> : null}
     </div>
   );
 }

@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { SidebarBottom } from "../sidebar/SidebarBottom";
 import { WorkspacePreviewTaskBar } from "./WorkspacePreviewTaskBar";
 import { WorkspaceBottomHost } from "../../workspace/WorkspaceBottomHost";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../../stores/bottomPanelStore";
 import { relayoutDockviewInstances } from "../../../lib/dockviewRegistry";
 import { syncEmbeddedWorkspacePanelVisibility } from "../../../lib/workspaceTabActions";
-import { isWorkspacePoppedOut } from "../../../stores/workspaceWindowStore";
+import { useWorkspaceWindowStore } from "../../../stores/workspaceWindowStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import {
   WS_HEIGHT_HIDDEN_MAX,
   type WorkspaceDisplayPreference,
 } from "../../../lib/workspaceMode";
+import { isDashboardPath } from "../../../lib/paths";
 
 export type WorkspacePreviewDisplayMode = "split-window" | "task-bar";
 
@@ -112,18 +114,25 @@ function useWorkspacePreviewDockRelayout(
  * 显示模式由 `workspaceDisplayPreference` 用户偏好决定，持久化于 bottomPanelStore。
  */
 export function WorkspacePreview({ children, className }: WorkspacePreviewProps) {
+  const location = useLocation();
+  const isHomeRoute = isDashboardPath(location.pathname);
   const workspaceMode = useBottomPanelStore((state) => state.workspaceMode);
   const isFullscreen = useBottomPanelStore((state) => state.isFullscreen);
   const embeddedMode = useEmbeddedWorkspaceMode();
   /** 底部工作区是否展开：以 bottomPanelStore 为唯一来源，避免与 preview store 双向同步死循环 */
   const workspace = useWorkspaceStore((state) => state.workspace);
-  const isCurrentWorkspacePoppedOut = isWorkspacePoppedOut(workspace.id);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const poppedOutIds = useWorkspaceWindowStore((state) => state.poppedOutIds);
+  const hasHostedWorkspace = workspaces.some((ws) => !poppedOutIds.includes(ws.id));
+  const isCurrentWorkspacePoppedOut =
+    poppedOutIds.includes(workspace.id) && !(isFullscreen && hasHostedWorkspace);
   const workspaceDisplayPreference = useBottomPanelStore(
     (state) => state.workspaceDisplayPreference,
   );
 
   const displayMode = resolveDisplayMode(embeddedMode, workspaceDisplayPreference);
   const isPreviewOpen =
+    !isHomeRoute &&
     !isFullscreen &&
     workspaceMode !== "hidden" &&
     embeddedMode !== "hidden" &&
@@ -202,7 +211,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
 
   // dockview 始终挂载，用 CSS display 控制显隐（零 unmount）
   const showBottomStack = keepBottomMounted;
-  const dockVisible = showSplitWindow || isFullscreen;
+  const dockVisible = (showSplitWindow || isFullscreen) && !isCurrentWorkspacePoppedOut;
 
   const bottomPanel = showBottomStack ? (
     <div ref={bottomStackRef} className="workspace-preview__bottom-stack">

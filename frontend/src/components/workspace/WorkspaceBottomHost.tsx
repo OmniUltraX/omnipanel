@@ -31,15 +31,12 @@ export function WorkspaceBottomHost() {
   // 已弹出为独立窗口的工作区不在主窗口渲染。
   // 安全阀：若过滤后一个都不剩（脏标记残留），清掉标记并全部渲染，避免主窗口空白。
   const poppedOutIds = useWorkspaceWindowStore((state) => state.poppedOutIds);
-  const renderWorkspaces = (() => {
-    const kept = workspaces.filter((ws) => !poppedOutIds.includes(ws.id));
-    if (kept.length > 0) return kept;
-    if (poppedOutIds.length > 0) {
-      // 同步清脏标记（下一帧订阅会收敛）；本帧先 fail-open 保证可交互。
-      queueMicrotask(() => useWorkspaceWindowStore.getState().setPoppedOut([]));
-    }
-    return workspaces;
-  })();
+  const renderWorkspaces = workspaces.filter((ws) => !poppedOutIds.includes(ws.id));
+  const activeHostId =
+    isFullscreen && renderWorkspaces.length > 0
+      ? (renderWorkspaces.find((ws) => ws.id === currentId)?.id ??
+          renderWorkspaces[0]?.id)
+      : currentId;
 
   useEffect(() => {
     const el = hostRef.current;
@@ -99,7 +96,7 @@ export function WorkspaceBottomHost() {
           data-workspace-id={ws.id}
           className="workspace-bottom-host-panel"
           style={{
-            display: ws.id === currentId ? "block" : "none",
+            display: ws.id === activeHostId ? "block" : "none",
             width: "100%",
             height: "100%",
             position: "absolute",

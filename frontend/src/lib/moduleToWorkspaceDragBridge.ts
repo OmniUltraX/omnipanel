@@ -8,9 +8,11 @@ import {
   relayoutDockviewInstances,
 } from "./dockviewRegistry";
 import {
+  buildModuleTabSnapshotForCrossWindowDrag,
   buildModuleTransferTabForWorkspace,
   findModuleDropTargetWorkspace,
   isModuleDockScope,
+  remapWorkspaceTabForTarget,
 } from "./moduleToWorkspaceTransfer";
 import { findWindowLabelAtScreenPoint, resolveTargetWorkspaceIdForTransfer } from "./crossWindowDragUtils";
 import { isTauriRuntime } from "./isTauriRuntime";
@@ -18,7 +20,12 @@ import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorkspaceBottomDockStore, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
+import {
+  broadcastCrossWindowDragEnd,
+  broadcastCrossWindowDragMove,
+} from "./crossWindowDragVisual";
 
 export const CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT =
   "omnipanel:cross-window-module-drag-active";
@@ -33,6 +40,8 @@ interface CrossWindowModuleDragPayload {
   title: string;
   params: Record<string, unknown>;
   backendSessionId?: string | null;
+  /** 源窗序列化的工作区 Tab 快照，跨窗时目标窗不依赖本地模块 store */
+  serializedTab?: WorkspaceDockTab | null;
 }
 
 interface CrossWindowModuleDragCompletePayload extends CrossWindowModuleDragPayload {
@@ -171,6 +180,12 @@ function buildLocalDragSession(
     title,
     params,
     backendSessionId: backendSessionIdForModule(source.scope, panelId),
+    serializedTab: buildModuleTabSnapshotForCrossWindowDrag(
+      source.scope,
+      panelId,
+      title,
+      params,
+    ),
   };
 }
 
@@ -206,26 +221,43 @@ async function broadcastDragActive(session: CrossWindowModuleDragPayload): Promi
   }
 }
 
+function broadcastDragMove(
+  session: CrossWindowModuleDragPayload,
+  screenX: number,
+  screenY: number,
+): void {
+  void broadcastCrossWindowDragMove({
+    sourceWindowLabel: session.sourceWindowLabel,
+    label: session.title?.trim() || session.panelId,
+    screenX,
+    screenY,
+    kind: "module-tab",
+  });
+}
+
 function applyIncomingModuleTab(
   targetWorkspaceId: string,
   session: CrossWindowModuleDragPayload,
 ): void {
-  const tab = buildModuleTransferTabForWorkspace(
-    targetWorkspaceId,
-    session.originScope,
-    session.panelId,
-    session.title,
-    session.params,
-  );
-  if (!tab) {
-    bridgeLog(`apply incoming failed panel=${session.panelId} scope=${session.originScope}`);
-    return;
-  }
-
   const workspace =
     useWorkspaceStore.getState().workspaces.find((w) => w.id === targetWorkspaceId) ??
     useWorkspaceStore.getState().workspace;
   const dock = useWorkspaceBottomDockStore.getState();
+
+  let tab =
+    session.serializedTab != null
+      ? remapWorkspaceTabForTarget(session.serializedTab, targetWorkspaceId, session.panelId)
+      : buildModuleTransferTabForWorkspace(
+          targetWorkspaceId,
+          session.originScope,
+          session.panelId,
+          session.title,
+          session.params,
+        );
+  if (!tab) {
+    bridgeLog(`apply incoming failed panel=${session.panelId} scope=${session.originScope}`);
+    return;
+  }
 
   if (tab.kind === "payload" && tab.payload) {
     if (tab.payload.module === "terminal") {
@@ -239,6 +271,9 @@ function applyIncomingModuleTab(
     dock.addMirroredTab(targetWorkspaceId, workspace, tab as WorkspaceDockTab);
   }
   dock.setActiveTabId(targetWorkspaceId, tab.id);
+  if (getCurrentWebviewWindow().label === "main") {
+    useBottomPanelStore.getState().requestExpand();
+  }
   requestAnimationFrame(() => {
     relayoutDockviewInstances("workspace-bottom");
   });
@@ -388,6 +423,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     resetPointerSeed();
     dragSourceViewId = null;
     document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
+    void broadcastCrossWindowDragEnd();
   };
 
   void (async () => {
@@ -425,10 +461,13 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       );
 
       disposables.push(
-        dragController.onDragMove(() => {
+        dragController.onDragMove((event) => {
           if (!pointerSeed) return;
           const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-          if (session && isTauriRuntime()) void broadcastDragActive(session);
+          if (session && isTauriRuntime()) {
+            void broadcastDragActive(session);
+            broadcastDragMove(session, event.pointerEvent.screenX, event.pointerEvent.screenY);
+          }
         }),
       );
 
@@ -464,7 +503,10 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     if (!movedEnough) return;
 
     const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-    if (session && isTauriRuntime()) void broadcastDragActive(session);
+    if (session && isTauriRuntime()) {
+      void broadcastDragActive(session);
+      broadcastDragMove(session, event.screenX, event.screenY);
+    }
   };
 
   const onPointerUp = (event: PointerEvent) => {
@@ -534,7 +576,9 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   const observer = new MutationObserver(() => {
     if (!isModuleDockDragActive() || !pointerSeed) return;
     const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-    if (session && isTauriRuntime()) void broadcastDragActive(session);
+    if (session && isTauriRuntime()) {
+      void broadcastDragActive(session);
+    }
   });
   observer.observe(document.body, {
     subtree: true,
@@ -599,6 +643,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         if (remoteDrag?.sourceWindowLabel === payload.sourceWindowLabel) {
           clearRemoteDrag();
         }
+        void broadcastCrossWindowDragEnd();
       },
       { target: { kind: "Any" } },
     ).then((fn) => unlisteners.push(fn));

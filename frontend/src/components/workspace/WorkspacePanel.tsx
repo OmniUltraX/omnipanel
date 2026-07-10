@@ -1,13 +1,12 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { WorkspaceSwitcher } from "../shell/WorkspaceSwitcher";
-import { WinControls } from "../shell/WinControls";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../stores/bottomPanelStore";
 import { shouldShowWorkspaceSwitcher } from "../../lib/workspaceMode";
 import { toggleEngineeringWorkspaceFullscreen } from "../../lib/workspaceNavigation";
-import { openWorkspaceWindow, dockWorkspaceWindowToMain } from "../../lib/workspaceWindow";
+import { openWorkspaceWindow } from "../../lib/workspaceWindow";
 import { showToast } from "../../stores/toastStore";
 import {
   resolveWorkspaceTabs,
@@ -141,29 +140,6 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
     });
   }, [workspaceId, workspace.name, t]);
 
-  const handleDockBackToMain = useCallback(() => {
-    void dockWorkspaceWindowToMain(workspaceId);
-  }, [workspaceId]);
-
-  const dockBackButton = useMemo(
-    () => (
-      <button
-        type="button"
-        className="workspace-panel-mode-btn drag-ignore"
-        title={t("shell.workspacePanel.dockBackToMain")}
-        aria-label={t("shell.workspacePanel.dockBackToMain")}
-        onClick={handleDockBackToMain}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
-          <path d="M15 4h5v5" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M20 4L9 15" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M14 20H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-    ),
-    [handleDockBackToMain, t],
-  );
-
   const popOutButton = useMemo(
     () => (
       <button
@@ -183,10 +159,11 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
     [handlePopOutWindow, t],
   );
 
-  const windowChromeLeftActions = useMemo(
-    () => (
+  const windowChromeLeftActions = useMemo(() => {
+    if (detached) return null;
+    return (
       <>
-        {detached ? dockBackButton : popOutButton}
+        {popOutButton}
         {!isEngineeringFullscreen ? (
           <WorkspaceModeStepControls
             onStepUp={shiftWorkspaceModeUp}
@@ -196,7 +173,7 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
             upTitle={t("shell.workspacePanel.modeUp")}
             downTitle={t("shell.workspacePanel.modeDown")}
           />
-        ) : detached ? null : (
+        ) : (
           <button
             type="button"
             className="workspace-panel-mode-btn drag-ignore"
@@ -210,18 +187,16 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
           </button>
         )}
       </>
-    ),
-    [
-      detached,
-      dockBackButton,
-      isEngineeringFullscreen,
-      t,
-      navigate,
-      shiftWorkspaceModeUp,
-      shiftWorkspaceModeDown,
-      popOutButton,
-    ],
-  );
+    );
+  }, [
+    detached,
+    isEngineeringFullscreen,
+    t,
+    navigate,
+    shiftWorkspaceModeUp,
+    shiftWorkspaceModeDown,
+    popOutButton,
+  ]);
 
   const emptyContent = useMemo(
     () => <WorkspaceDockEmpty workspace={workspace} compact={!isEngineeringFullscreen} />,
@@ -243,21 +218,13 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
     .filter(Boolean)
     .join(" ");
 
-  // 空工作区时 dockview 空 group 的 tab 栏可能不渲染 header，
-  // 导致 preActions(切换器) 和 rightHeaderActions(窗口按钮) 无处挂载。
-  // 此时改用独立顶栏承载，确保切换器与窗口控制按钮始终可见。
-  const emptyTopbar = isEmpty ? (
+  // 半屏嵌入且无 Tab 时 dockview 空 group 可能不渲染顶栏，改用独立顶栏承载切换器。
+  // 工程工作区全屏 / 独立 OS 窗：空态也走 dock windowControl，与有 Tab 时右上角样式一致。
+  const emptyTopbar = isEmpty && !isEngineeringFullscreen ? (
     <div className="workspace-panel-empty-topbar">
       {workspaceSwitcher}
       <div className="workspace-panel-empty-spacer" />
-      {isEngineeringFullscreen ? (
-        <>
-          {windowChromeLeftActions}
-          <WinControls />
-        </>
-      ) : (
-        windowChromeLeftActions
-      )}
+      {windowChromeLeftActions}
     </div>
   ) : null;
 
@@ -277,10 +244,12 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
       <WorkspaceDockCore
         workspace={workspace}
         dockScope={dockScope}
-        preActions={isEmpty ? undefined : preActions}
-        windowControl={isEngineeringFullscreen && !isEmpty}
+        preActions={isEngineeringFullscreen || !isEmpty ? preActions : undefined}
+        windowControl={isEngineeringFullscreen}
         windowChromeLeftActions={
-          isEngineeringFullscreen && !isEmpty ? windowChromeLeftActions : undefined
+          isEngineeringFullscreen && windowChromeLeftActions
+            ? windowChromeLeftActions
+            : undefined
         }
         emptyContent={emptyContent}
       />

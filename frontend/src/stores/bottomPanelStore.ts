@@ -329,7 +329,12 @@ export const useBottomPanelStore = create<BottomPanelState>()(
         if (!matchesDeferredExitPath(pathname, pending)) return false;
 
         if (mode === "home") {
-          get().applyWorkspaceDisplayPreference("task-bar");
+          const curId = useWorkspaceStore.getState().workspace.id;
+          if (isWorkspacePoppedOut(curId)) {
+            get().requestCollapse();
+          } else {
+            get().applyWorkspaceDisplayPreference("task-bar");
+          }
           set((state) => ({
             deferExitFullscreenUntilPath: null,
             deferExitFullscreenMode: null,

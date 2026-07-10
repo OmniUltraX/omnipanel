@@ -70,6 +70,15 @@ export function relayoutDockviewInstances(
   }
 }
 
+export const DOCK_SCOPE_RESYNC_EVENT = "omnipanel-dock-scope-resync";
+
+/** 请求指定 scope 的 DockableWorkspace 从 store 重新同步缺失的 panel */
+export function requestDockScopeResync(scope: string): void {
+  window.dispatchEvent(
+    new CustomEvent(DOCK_SCOPE_RESYNC_EVENT, { detail: { scope } }),
+  );
+}
+
 export function registerDockviewInstance(
   viewId: string,
   instance: DockviewInstanceScope,
@@ -157,6 +166,63 @@ export function findEngineeringWorkspaceDockAt(
 
   for (const [viewId, instance] of instancesByViewId) {
     if (!instance.scope.startsWith("workspace-bottom-")) continue;
+    const container =
+      instance.getContainer?.() ??
+      (instance.api as DockviewApi & { element?: HTMLElement }).element ??
+      null;
+    if (!container) continue;
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    if (
+      clientX >= rect.left &&
+      clientX < rect.right &&
+      clientY >= rect.top &&
+      clientY < rect.bottom
+    ) {
+      return { ...instance, viewId };
+    }
+  }
+
+  return undefined;
+}
+
+/** 指针落点是否落在某模块 dockview 容器内（终端 / 数据库 / 文件等）。 */
+export function findModuleDockAt(
+  clientX: number,
+  clientY: number,
+): (DockviewInstanceScope & { viewId: string }) | undefined {
+  const elements = document.elementsFromPoint(clientX, clientY);
+  if (elements.length === 0) return undefined;
+
+  const isModuleScope = (scope: string) => !scope.startsWith("workspace-bottom-");
+
+  for (const el of elements) {
+    for (const [viewId, instance] of instancesByViewId) {
+      if (!isModuleScope(instance.scope)) continue;
+      const container =
+        instance.getContainer?.() ??
+        (instance.api as DockviewApi & { element?: HTMLElement }).element ??
+        null;
+      if (container?.contains(el)) {
+        return { ...instance, viewId };
+      }
+    }
+
+    const host = el.closest(
+      ".dockable-workspace:not(.workspace-panel-dock), .module-segment-dock, .terminal-module-dock, .database-module-dock, .files-workspace",
+    );
+    if (!host) continue;
+    for (const [viewId, instance] of instancesByViewId) {
+      if (!isModuleScope(instance.scope)) continue;
+      const container = instance.getContainer?.();
+      if (container && host.contains(container)) {
+        return { ...instance, viewId };
+      }
+    }
+  }
+
+  for (const [viewId, instance] of instancesByViewId) {
+    if (!isModuleScope(instance.scope)) continue;
     const container =
       instance.getContainer?.() ??
       (instance.api as DockviewApi & { element?: HTMLElement }).element ??

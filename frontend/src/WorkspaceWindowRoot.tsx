@@ -18,6 +18,9 @@ import { initWorkspaceWindowLifecycle, workspaceWindowDebugLog } from "./lib/wor
 import { hydrateWorkspaceWindowFromHandoff } from "./lib/workspaceWindowHandoff";
 import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
 import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
+import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
+import { initCrossWindowDragVisual } from "./lib/crossWindowDragVisual";
+import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
 import { useI18n } from "./i18n";
@@ -139,6 +142,24 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
   }, []);
 
   useEffect(() => {
+    try {
+      return initWorkspaceAddSnapshotListener();
+    } catch (e) {
+      console.warn("[workspaceSnapshotDelivery] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      return initCrossWindowDragVisual();
+    } catch (e) {
+      console.warn("[crossWindowDragVisual] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const boot = async () => {
@@ -207,6 +228,7 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
       <QuickInputHost />
       <AppDialogHost />
       <ToastHost />
+      <CrossWindowDragVisualLayer />
     </MemoryRouter>
   );
 }
