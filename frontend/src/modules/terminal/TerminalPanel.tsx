@@ -28,10 +28,9 @@ import {
   bootstrapTerminalHistory,
 } from "./terminalHistorySync";
 import {
-  copyTerminalTabToWorkspaceSnapshot,
   moveTerminalTabToWorkspaceSnapshot,
-  addSnapshotToWorkspace,
 } from "../../lib/workspaceTabActions";
+import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import { subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import { restoreTerminalTabFromWorkspaceTransfer } from "../../lib/moduleToWorkspaceTransfer";
 import { ModuleSegmentDock } from "../../components/dock";
@@ -42,9 +41,11 @@ import {
 import { ContextMenu } from "../../components/ui/menu/ContextMenu";
 import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import {
-  buildTabCloseMenuItems,
+  buildWorkspaceTabMenuItems,
+  buildTabBulkCloseSubmenuItems,
   type TabContextMenuAction,
 } from "../../components/ui/menu/contextMenuItems";
+import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import { TerminalSessionsWorkspaceView } from "./TerminalSessionsWorkspaceView";
 import { useTerminalSessionsChrome } from "./TerminalSessionsChromeContext";
 import {
@@ -144,6 +145,7 @@ export function TerminalPanel() {
   const selectResource = useWorkspaceStore((state) => state.selectResource);
 
   const activeWorkspaceId = useWorkspaceStore((s) => s.workspace.id);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const taskbarSubWindowTabId = useBottomPanelStore((s) => s.taskbarSubWindowTabId);
 
   const activeTerminalTab = useMemo(
@@ -539,8 +541,74 @@ export function TerminalPanel() {
     [],
   );
 
+  const handleEndSessionsForTabs = useCallback(
+    (ids: string[]) => {
+      const sessionIds = new Set<string>();
+      for (const id of ids) {
+        const sessionId = resolveSessionIdFromTabId(id);
+        if (sessionId) sessionIds.add(sessionId);
+      }
+      for (const sessionId of sessionIds) {
+        cancelAutoReconnectSsh(sessionId);
+        handleEndSession(sessionId);
+      }
+    },
+    [handleEndSession],
+  );
+
+  const handleCopyTab = useCallback(
+    (tabId: string) => {
+      const ctxTab = useTerminalStore.getState().tabs.find((tab) => tab.id === tabId);
+      if (!ctxTab) return;
+      const copyTitle = `${ctxTab.title} (副本)`;
+      const newSessionId = `sess-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const store = useTerminalStore.getState();
+      store.createSession(copyTitle, ctxTab.session, newSessionId);
+      const newTabId = store.openSessionTab(newSessionId);
+      if (newTabId) setActiveTab(newTabId);
+    },
+    [setActiveTab],
+  );
+
+  const reconnectSession = useCallback((sessionId: string) => {
+    clearTerminalPaneSender(sessionId);
+    clearPaneBackendPending(sessionId);
+    disposeSessionBackend(sessionId);
+    cancelAutoReconnectSsh(sessionId);
+    useTerminalStore.getState().setBackendSessionId(sessionId, null);
+    useTerminalStore.getState().setStatus(sessionId, "connecting");
+    useTerminalStore.getState().bumpReconnect(sessionId);
+  }, []);
+
+  const performMoveTabToWorkspace = useCallback(
+    (tabId: string, targetWorkspaceId: string) => {
+      if (!targetWorkspaceId) return;
+      const ctxTab = useTerminalStore.getState().tabs.find((tab) => tab.id === tabId);
+      if (!ctxTab || ctxTab.workspaceOnly) return;
+
+      const currentLayout = useTerminalDockLayoutStore.getState().savedLayout;
+      setDockLayout(removeTabFromTerminalLayout(currentLayout, ctxTab.id));
+      useTerminalStore.getState().setTabWorkspaceOnly(ctxTab.id, true);
+      const visibleAfter = useTerminalStore
+        .getState()
+        .tabs.filter((tab) => !tab.workspaceOnly);
+      const activeId = useTerminalStore.getState().activeTabId;
+      if (!activeId || !visibleAfter.some((tab) => tab.id === activeId)) {
+        setActiveTab(visibleAfter[0]?.id ?? "");
+      }
+
+      void deliverSnapshotToWorkspace(
+        targetWorkspaceId,
+        moveTerminalTabToWorkspaceSnapshot(ctxTab),
+        { backendSessionId: ctxTab.backendSessionId },
+      );
+      setCtxMenu(null);
+    },
+    [setActiveTab, setDockLayout],
+  );
+
   const handleContextAction = useCallback(
-    (action: TabContextMenuAction | "endSession" | "reconnect") => {
+    (action: TabContextMenuAction | "closeAndEnd" | "copy") => {
       if (!ctxMenu) return;
       const dockVisibleTabs = useTerminalStore
         .getState()
@@ -576,92 +644,40 @@ export function TerminalPanel() {
         setCtxMenu(null);
         return;
       }
-      if (action === "endSession") {
-        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
-        if (sessionId) handleEndSession(sessionId);
+      if (action === "copy") {
+        handleCopyTab(ctxMenu.tabId);
         setCtxMenu(null);
         return;
       }
-      if (action === "reconnect") {
-        const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
-        if (sessionId) {
-          // 先关后端会话（释放 PTY/SSH），再自增 reconnect 版本号，
-          // 触发 useTerminal 重建后端会话并把 UI 切到「重新连接中」。
-          clearTerminalPaneSender(sessionId);
-          clearPaneBackendPending(sessionId);
-          disposeSessionBackend(sessionId);
-          useTerminalStore.getState().setBackendSessionId(sessionId, null);
-          useTerminalStore.getState().setStatus(sessionId, "connecting");
-          useTerminalStore.getState().bumpReconnect(sessionId);
-        }
-        setCtxMenu(null);
-        return;
-      }
-      if (action === "copyToWorkspace") {
-        if (!activeWorkspaceId) return;
-        const ctxTab = dockVisibleTabs.find((tab) => tab.id === ctxMenu.tabId);
-        if (ctxTab) {
-          addSnapshotToWorkspace(activeWorkspaceId, copyTerminalTabToWorkspaceSnapshot(ctxTab));
-        }
-        setCtxMenu(null);
-        return;
-      }
-      if (action === "moveToWorkspace") {
-        if (!activeWorkspaceId) return;
-        const ctxTab = dockVisibleTabs.find((tab) => tab.id === ctxMenu.tabId);
-        if (ctxTab) {
-          const currentLayout = useTerminalDockLayoutStore.getState().savedLayout;
-          setDockLayout(removeTabFromTerminalLayout(currentLayout, ctxTab.id));
-          useTerminalStore.getState().setTabWorkspaceOnly(ctxTab.id, true);
-          const visibleAfter = useTerminalStore
-            .getState()
-            .tabs.filter((tab) => !tab.workspaceOnly);
-          const activeId = useTerminalStore.getState().activeTabId;
-          if (!activeId || !visibleAfter.some((tab) => tab.id === activeId)) {
-            setActiveTab(visibleAfter[0]?.id ?? "");
-          }
-          addSnapshotToWorkspace(activeWorkspaceId, moveTerminalTabToWorkspaceSnapshot(ctxTab));
-        }
-        setCtxMenu(null);
-        return;
-      }
-      if (action === "refresh") {
+      if (action === "closeAndEnd") {
         const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
         if (sessionId) {
-          // 真正的「重新连接」：关后端会话 + 自增版本号让 useTerminal 重建。
-          clearTerminalPaneSender(sessionId);
-          clearPaneBackendPending(sessionId);
-          disposeSessionBackend(sessionId);
           cancelAutoReconnectSsh(sessionId);
-          useTerminalStore.getState().setBackendSessionId(sessionId, null);
-          useTerminalStore.getState().setStatus(sessionId, "connecting");
-          useTerminalStore.getState().bumpReconnect(sessionId);
+          handleEndSession(sessionId);
         }
         setCtxMenu(null);
         return;
       }
-      if (action === "close") {
-        handleCloseTab(ctxMenu.tabId);
-      } else if (action === "closeLeft") {
+      if (action === "closeLeft") {
         if (idx > 0) {
-          handleCloseTabs(dockVisibleTabs.slice(0, idx).map((tab) => tab.id));
+          handleEndSessionsForTabs(dockVisibleTabs.slice(0, idx).map((tab) => tab.id));
         }
       } else if (action === "closeRight") {
         if (idx >= 0 && idx < dockVisibleTabs.length - 1) {
-          handleCloseTabs(dockVisibleTabs.slice(idx + 1).map((tab) => tab.id));
+          handleEndSessionsForTabs(dockVisibleTabs.slice(idx + 1).map((tab) => tab.id));
         }
       } else if (action === "closeOthers") {
         if (idx >= 0) {
-          handleCloseTabs(
+          handleEndSessionsForTabs(
             dockVisibleTabs.filter((tab) => tab.id !== ctxMenu.tabId).map((tab) => tab.id),
           );
         }
       } else if (action === "closeAll") {
-        handleCloseTabs(dockVisibleTabs.map((tab) => tab.id));
+        handleEndSessionsForTabs(dockVisibleTabs.map((tab) => tab.id));
       }
       setCtxMenu(null);
     },
-    [ctxMenu, handleCloseTab, handleCloseTabs, handleEndSession, activeWorkspaceId, setActiveTab, setDockLayout],
+    [ctxMenu, handleCopyTab, handleEndSession, handleEndSessionsForTabs, t],
   );
 
   const handleConfirmRename = useCallback(
@@ -776,37 +792,61 @@ export function TerminalPanel() {
       <TerminalFilePreviewSubWindow />
       {ctxMenu && (() => {
         const menuTabIndex = visibleTabs.findIndex((tab) => tab.id === ctxMenu.tabId);
-        const closeItems = buildTabCloseMenuItems(
-          t,
-          visibleTabs.length,
-          menuTabIndex >= 0 ? menuTabIndex : 0,
-          handleContextAction,
-{ showWorkspaceActions: true, showRefresh: true, showRename: true, showAiRename: true },
-        );
-        const reconnectItem = {
-          id: "tab-reconnect",
-          label: t("terminal.reconnect.menu"),
-          icon: (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 12a9 9 0 0115.5-6.36L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 01-15.5 6.36L3 16" />
-              <path d="M3 21v-5h5" />
-            </svg>
-          ),
-          onClick: () => handleContextAction("reconnect"),
-        };
-        const endSessionItem = {
-          id: "tab-end-session",
-          label: t("terminal.sessions.end"),
-          onClick: () => handleContextAction("endSession"),
-        };
-        const items = [
-          reconnectItem,
+        const tabCount = visibleTabs.length;
+        const tabIndex = menuTabIndex >= 0 ? menuTabIndex : 0;
+        const items: ContextMenuItem[] = [
+          {
+            id: "tab-reconnect",
+            label: t("terminal.reconnect.menu"),
+            icon: (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 12a9 9 0 0115.5-6.36L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 01-15.5 6.36L3 16" />
+                <path d="M3 21v-5h5" />
+              </svg>
+            ),
+            onClick: () => {
+              const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
+              if (sessionId) reconnectSession(sessionId);
+              setCtxMenu(null);
+            },
+          },
           { id: "tab-sep-reconnect", separator: true, label: "" },
-          endSessionItem,
-          { id: "tab-sep-end", separator: true, label: "" },
-          ...closeItems,
+          {
+            id: "tab-rename",
+            label: t("shell.topbar.rename"),
+            onClick: () => handleContextAction("rename"),
+          },
+          {
+            id: "tab-ai-rename",
+            label: t("terminal.sessions.aiRename"),
+            onClick: () => handleContextAction("aiRename"),
+          },
+          { id: "tab-sep-rename", separator: true, label: "" },
+          {
+            id: "tab-copy",
+            label: t("terminal.sessions.copy"),
+            onClick: () => handleContextAction("copy"),
+          },
+          { id: "tab-sep-copy", separator: true, label: "" },
+          ...buildWorkspaceTabMenuItems(t, {
+            showWorkspaceActions: true,
+            currentWorkspaceId: activeWorkspaceId,
+            workspaces,
+            onMoveToWorkspace: (workspaceId) =>
+              performMoveTabToWorkspace(ctxMenu.tabId, workspaceId),
+          }),
+          {
+            id: "tab-close-and-end",
+            label: t("shell.topbar.close"),
+            onClick: () => handleContextAction("closeAndEnd"),
+          },
+          {
+            id: "tab-close-bulk",
+            label: t("shell.topbar.closeTabs"),
+            children: buildTabBulkCloseSubmenuItems(t, tabCount, tabIndex, handleContextAction),
+          },
         ];
         return (
           <ContextMenu

@@ -207,7 +207,8 @@ import {
 } from "../../stores/dbWorkspaceTabStore";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { dbTabToSnapshot, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
+import { dbTabToSnapshot } from "../../lib/workspaceTabActions";
+import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
 import { connectionNodeId } from "./schema/schemaTreeExpanded";
 import { loadNavicatImportPreview } from "./navicatImport/loadNavicatNcxFile";
@@ -3615,66 +3616,39 @@ export function DatabasePanel() {
   );
 
   const activeWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
 
-  const performCopyTabToWorkspace = useCallback(
-    (tabId: string) => {
-      if (!activeWorkspaceId) return;
+  const performMoveTabToWorkspace = useCallback(
+    (tabId: string, targetWorkspaceId: string) => {
+      if (!targetWorkspaceId) return;
       const ctxTab = workspaceTabs.find((tab) => tab.id === tabId);
-      if (!ctxTab) return;
+      if (!ctxTab || ctxTab.workspaceOnly) return;
 
-      // Generate a new ID based on kind
-      const newTabId =
-        ctxTab.kind === "designer"
-          ? `designer:${ctxTab.connId}:${ctxTab.dbName}:${ctxTab.tableName}:${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-          : `sql:${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const prevTabs = workspaceTabsRef.current;
+      const idx = prevTabs.findIndex((item) => item.id === ctxTab.id);
+      const closingActive = activeWorkspaceTabIdRef.current === ctxTab.id;
 
-      const newTab = { ...ctxTab, id: newTabId, workspaceOnly: true } as DbWorkspaceTab;
+      setWorkspaceTabs((prev) =>
+        prev.map((t) => (t.id === ctxTab.id ? { ...t, workspaceOnly: true } : t)),
+      );
 
-      setWorkspaceTabs((prev) => [...prev, newTab]);
-      setTabModes((prev) => ({ ...prev, [newTabId]: tabModes[ctxTab.id] }));
+      const currentLayout = useDbDockLayoutStore.getState().savedLayout;
+      setDockLayout(removeTabFromLayout(currentLayout, ctxTab.id));
+
+      if (closingActive) {
+        const nextTabs = prevTabs.filter((item) => item.id !== ctxTab.id && !item.workspaceOnly);
+        const fallback = nextTabs[Math.min(idx, Math.max(0, nextTabs.length - 1))];
+        activateWorkspaceTab(fallback?.id ?? "");
+      }
 
       const tabStoreState = useDbWorkspaceTabStore.getState();
-      const sqlTabStates = tabStoreState.sqlTabStates;
-      const tablePreviews = tabStoreState.tablePreviews;
-      const tableColumnMeta = tabStoreState.tableColumnMeta;
-      const tabDirtyRows = tabStoreState.tabDirtyRows;
-      const setTableColumnMeta = useDbWorkspaceTabStore.getState().setTableColumnMeta;
-      const setTabDirtyRows = useDbWorkspaceTabStore.getState().setTabDirtyRows;
-      
-      if (sqlTabStates[ctxTab.id]) {
-        setSqlTabStates((prev) => ({
-          ...prev,
-          [newTabId]: { ...sqlTabStates[ctxTab.id] },
-        }));
-      }
-      if (tablePreviews[ctxTab.id]) {
-        setTablePreviews((prev) => ({
-          ...prev,
-          [newTabId]: { ...tablePreviews[ctxTab.id] },
-        }));
-      }
-      if (tableColumnMeta[ctxTab.id]) {
-        setTableColumnMeta((prev) => ({
-          ...prev,
-          [newTabId]: [...tableColumnMeta[ctxTab.id]],
-        }));
-      }
-      if (tabDirtyRows[ctxTab.id]) {
-        setTabDirtyRows((prev) => ({
-          ...prev,
-          [newTabId]: { ...tabDirtyRows[ctxTab.id] },
-        }));
-      }
-      if (tableDesignerStates[ctxTab.id]) {
-        updateTableDesignerState(newTabId, tableDesignerStates[ctxTab.id]);
-      }
-
-      addSnapshotToWorkspace(
-        activeWorkspaceId,
-        dbTabToSnapshot(newTab, tabModes[ctxTab.id]),
+      void deliverSnapshotToWorkspace(
+        targetWorkspaceId,
+        dbTabToSnapshot(ctxTab, tabStoreState.tabModes[ctxTab.id]),
       );
+      setCtxMenu(null);
     },
-    [workspaceTabs, tabModes, tableDesignerStates, updateTableDesignerState, activeWorkspaceId],
+    [workspaceTabs, setDockLayout, activateWorkspaceTab],
   );
 
   const handlePanelTransferredToWorkspace = useCallback(
@@ -3714,41 +3688,6 @@ export function DatabasePanel() {
         void handleRenameTab(tabId);
         return;
       }
-      if (action === "copyToWorkspace") {
-        performCopyTabToWorkspace(ctxMenu.tabId);
-        setCtxMenu(null);
-        return;
-      }
-      if (action === "moveToWorkspace") {
-        if (!activeWorkspaceId) return;
-        const ctxTab = workspaceTabs.find((tab) => tab.id === ctxMenu.tabId);
-        if (ctxTab) {
-          const prevTabs = workspaceTabsRef.current;
-          const idx = prevTabs.findIndex((item) => item.id === ctxTab.id);
-          const closingActive = activeWorkspaceTabIdRef.current === ctxTab.id;
-
-          setWorkspaceTabs((prev) =>
-            prev.map((t) => (t.id === ctxTab.id ? { ...t, workspaceOnly: true } : t)),
-          );
-
-          const currentLayout = useDbDockLayoutStore.getState().savedLayout;
-          setDockLayout(removeTabFromLayout(currentLayout, ctxTab.id));
-
-          if (closingActive) {
-            const nextTabs = prevTabs.filter((item) => item.id !== ctxTab.id && !item.workspaceOnly);
-            const fallback = nextTabs[Math.min(idx, Math.max(0, nextTabs.length - 1))];
-            activateWorkspaceTab(fallback?.id ?? "");
-          }
-
-          const tabStoreState = useDbWorkspaceTabStore.getState();
-          addSnapshotToWorkspace(
-            activeWorkspaceId,
-            dbTabToSnapshot(ctxTab, tabStoreState.tabModes[ctxTab.id]),
-          );
-        }
-        setCtxMenu(null);
-        return;
-      }
 
       if (action === "close") {
         closeWorkspaceTab(tabId);
@@ -3769,7 +3708,7 @@ export function DatabasePanel() {
       }
       setCtxMenu(null);
     },
-    [ctxMenu, workspaceTabs, closeWorkspaceTab, closeWorkspaceTabs, handleRenameTab, setDockLayout, performCopyTabToWorkspace, activeWorkspaceId, tabModes],
+    [ctxMenu, workspaceTabs, closeWorkspaceTab, closeWorkspaceTabs, handleRenameTab, setDockLayout],
   );
 
 
@@ -4970,7 +4909,14 @@ export function DatabasePanel() {
           visibleDockTabs.length,
           menuTabIndex >= 0 ? menuTabIndex : 0,
           handleContextAction,
-          { showWorkspaceActions: true, showRename: true },
+          {
+            showWorkspaceActions: true,
+            showRename: true,
+            currentWorkspaceId: activeWorkspaceId,
+            workspaces,
+            onMoveToWorkspace: (workspaceId) =>
+              performMoveTabToWorkspace(ctxMenu.tabId, workspaceId),
+          },
         );
       return (
         <ContextMenu

@@ -31,6 +31,10 @@ import { isWorkspacePoppedOut, useWorkspaceWindowStore } from "../stores/workspa
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { workspaceIdFromLabel } from "./workspaceWindow";
 import { MODULE_PATHS } from "./paths";
+import {
+  broadcastCrossWindowDragEnd,
+  broadcastCrossWindowDragMove,
+} from "./crossWindowDragVisual";
 
 export const CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-dock-drag-active";
 export const CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT = "omnipanel:cross-window-dock-drag-complete";
@@ -434,6 +438,20 @@ async function broadcastDragActive(session: CrossWindowDockDragPayload): Promise
   }
 }
 
+function broadcastDragMove(
+  session: CrossWindowDockDragPayload,
+  screenX: number,
+  screenY: number,
+): void {
+  void broadcastCrossWindowDragMove({
+    sourceWindowLabel: session.sourceWindowLabel,
+    label: session.tab.label?.trim() || session.panelId,
+    screenX,
+    screenY,
+    kind: "workspace-tab",
+  });
+}
+
 function applyIncomingTab(
   targetWorkspaceId: string,
   tab: WorkspaceDockTab,
@@ -709,6 +727,7 @@ export function initCrossWindowDockTransfer(): () => void {
     }
     resetPointerSeed();
     document.body.classList.remove("omnipanel-cross-window-dock-drag");
+    void broadcastCrossWindowDragEnd();
   };
 
   const onTabGrab = (event: Event) => {
@@ -750,11 +769,13 @@ export function initCrossWindowDockTransfer(): () => void {
       );
 
       dockDisposables.push(
-        dragController.onDragMove(() => {
+        dragController.onDragMove((event) => {
           const panelId = panelIdFromActiveDrag();
           if (!panelId) return;
           const session = ensureLocalDrag(panelId);
-          if (session) void broadcastDragActive(session);
+          if (!session) return;
+          void broadcastDragActive(session);
+          broadcastDragMove(session, event.pointerEvent.screenX, event.pointerEvent.screenY);
         }),
       );
 
@@ -795,7 +816,10 @@ export function initCrossWindowDockTransfer(): () => void {
     if (!movedEnough) return;
 
     const session = ensureLocalDrag(panelId);
-    if (session) void broadcastDragActive(session);
+    if (session) {
+      void broadcastDragActive(session);
+      broadcastDragMove(session, event.screenX, event.screenY);
+    }
   };
 
   const onPointerUp = (event: PointerEvent) => {
@@ -827,7 +851,8 @@ export function initCrossWindowDockTransfer(): () => void {
       }
 
       const session = sessionAtUp ?? resolveDragSession();
-      if (!session) {
+      // 目标窗松开时仅有 remoteDrag（源窗发起的跨窗拖放），无本地 session
+      if (!session && !remote) {
         crossDockLog("pointerup: no drag session");
         return;
       }
@@ -862,7 +887,9 @@ export function initCrossWindowDockTransfer(): () => void {
     const panelId = panelIdFromActiveDrag();
     if (!panelId) return;
     const session = ensureLocalDrag(panelId);
-    if (session) void broadcastDragActive(session);
+    if (session) {
+      void broadcastDragActive(session);
+    }
   });
   observer.observe(document.body, {
     subtree: true,
@@ -912,6 +939,7 @@ export function initCrossWindowDockTransfer(): () => void {
       if (remoteDrag?.sourceWindowLabel === payload.sourceWindowLabel) {
         clearRemoteDrag();
       }
+      void broadcastCrossWindowDragEnd();
     },
     { target: { kind: "Any" } },
   ).then((fn) => unlisteners.push(fn));

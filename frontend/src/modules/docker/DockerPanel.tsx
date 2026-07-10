@@ -55,8 +55,6 @@ import {
   TagIcon,
   TrashIcon,
 } from "./icons";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { dockerTabToSnapshot, addSnapshotToWorkspace } from "../../lib/workspaceTabActions";
 import type {
   Connection,
   DockerContainerDetail,
@@ -97,7 +95,6 @@ export function DockerPanel() {
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/docker";
   const navigate = useNavigate();
-  const activeWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const setAiDraft = useAiStore((s) => s.setDraftPrompt);
   const openAiDrawer = useAiStore((s) => s.openDrawer);
@@ -1359,7 +1356,6 @@ export function DockerPanel() {
             key={`${selectedConnectionId ?? "unknown"}:${drawerId}`}
             connectionId={selectedConnectionId}
             containerId={drawerId}
-            activeWorkspaceId={activeWorkspaceId}
             canExec={probe?.capabilities?.canContainerExec ?? false}
             canStreamLogs={probe?.capabilities?.canStreamLogs ?? false}
             hostLabel={selectedConnection?.hostLabel ?? null}
@@ -1533,7 +1529,6 @@ function portLabel(p: { ip: string | null; publicPort: number | null; privatePor
 interface ContainerDrawerBodyProps {
   connectionId: string | null;
   containerId: string | null;
-  activeWorkspaceId: string;
   canExec: boolean;
   canStreamLogs: boolean;
   hostLabel: string | null;
@@ -1554,7 +1549,6 @@ type DrawerTab = "info" | "logs" | "terminal";
 function ContainerDrawerBody({
   connectionId,
   containerId,
-  activeWorkspaceId,
   canExec,
   canStreamLogs,
   hostLabel,
@@ -1629,24 +1623,6 @@ function ContainerDrawerBody({
         </button>
         {canExec && detail?.summary.running && (
           <button className={`subtab${drawerTab === "terminal" ? " active" : ""}`} onClick={() => onTabChange("terminal")}>终端</button>
-        )}
-        {(drawerTab === "logs" || drawerTab === "terminal") && connectionId && containerId && (
-          <button
-            className="subtab subtab--action"
-            title="复制到工作区"
-            onClick={() => {
-              if (!activeWorkspaceId) return;
-              const name = detail?.summary.name ?? containerId;
-              const snapshot = dockerTabToSnapshot(drawerTab, connectionId, containerId, name);
-              addSnapshotToWorkspace(activeWorkspaceId, snapshot);
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-              <polyline points="17 21 17 13 7 13 7 21" />
-              <polyline points="7 3 7 8 15 8" />
-            </svg>
-          </button>
         )}
       </div>
 

@@ -50,6 +50,9 @@ import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
 import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
 import { initCrossWindowDockTransfer } from "./lib/crossWindowDockTransfer";
 import { initModuleToWorkspaceDragBridge } from "./lib/moduleToWorkspaceDragBridge";
+import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
+import { initCrossWindowDragVisual } from "./lib/crossWindowDragVisual";
+import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
 import { syncEmbeddedWorkspacePanelVisibility } from "./lib/workspaceTabActions";
@@ -204,6 +207,24 @@ function AppShell() {
       return initModuleToWorkspaceDragBridge();
     } catch (e) {
       console.warn("[moduleToWorkspaceDrag] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      return initWorkspaceAddSnapshotListener();
+    } catch (e) {
+      console.warn("[workspaceSnapshotDelivery] init failed", e);
+      return () => {};
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      return initCrossWindowDragVisual();
+    } catch (e) {
+      console.warn("[crossWindowDragVisual] init failed", e);
       return () => {};
     }
   }, []);
@@ -610,6 +631,7 @@ function AppShell() {
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
       <ToastHost />
+      <CrossWindowDragVisualLayer />
       <SettingsWindow />
       <SubWindowMinimizedStack />
       {pendingRiskActionId && pendingRiskAction && riskResult && (

@@ -1222,8 +1222,8 @@ a {
     height: 100%;
 }
 
-/* 空工作区顶栏已由 workspace-panel-empty-topbar 承载，隐藏 dockview 空 group 残留 tab 栏 */
-.workspace-panel-frame.workspace-panel--empty
+/* 半屏嵌入空工作区：顶栏由 workspace-panel-empty-topbar 承载，隐藏 dockview 空 group 残留 tab 栏 */
+.workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
     .dv-tabs-and-actions-container {
@@ -1236,8 +1236,8 @@ a {
     pointer-events: none;
 }
 
-/* 保留 dv-content-container 尺寸供 dockview 空 group 接收跨 dock 拖放（与空终端/数据库一致） */
-.workspace-panel-frame.workspace-panel--empty
+/* 保留 dv-content-container 尺寸供 dockview 空 group 接收跨 dock 拖放（半屏嵌入空态） */
+.workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
     .dv-content-container {
@@ -17117,9 +17117,79 @@ textarea.content-preview-text--editable {
     word-break: break-word;
 }
 
-/* 跨窗口 tab 拖拽：目标窗可放置提示 */
-body.omnipanel-cross-window-dock-drag .workspace-panel-dock .dockable-workspace__dockview,
-body.omnipanel-cross-window-module-drag .workspace-panel-dock .dockable-workspace__dockview {
+/* 跨窗口 tab 拖拽：目标窗可放置提示（旧版虚线，有落点预览时由 cross-window-drag-drop-preview 替代） */
+body.omnipanel-cross-window-dock-drag:not(.omnipanel-cross-window-drag-visual-active)
+    .workspace-panel-dock
+    .dockable-workspace__dockview,
+body.omnipanel-cross-window-module-drag:not(.omnipanel-cross-window-drag-visual-active)
+    .workspace-panel-dock
+    .dockable-workspace__dockview {
     outline: 2px dashed var(--accent);
     outline-offset: -2px;
+}
+
+/* 跨窗拖拽视觉层：ghost tab + 落点高亮 */
+.cross-window-drag-visual-root {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    pointer-events: none;
+}
+
+.cross-window-drag-ghost {
+    position: fixed;
+    z-index: 100002;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    max-width: min(360px, 70vw);
+    height: var(--shell-dv-tab-bar-h, 32px);
+    padding: 0 var(--sp-3);
+    border: 1px solid var(--border);
+    border-bottom: 2px solid var(--accent);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    color: var(--fg);
+    font-size: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: translate(-50%, -50%);
+}
+
+.cross-window-drag-ghost__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cross-window-drag-ghost__close {
+    flex-shrink: 0;
+    opacity: 0.55;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.cross-window-drag-drop-preview {
+    position: fixed;
+    z-index: 100001;
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+    pointer-events: none;
+    transition: left 0.05s ease, top 0.05s ease, width 0.05s ease, height 0.05s ease;
+}
+
+.cross-window-drag-drop-preview--split-left,
+.cross-window-drag-drop-preview--split-right {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-workspace__dockview {
+    outline: none !important;
 }

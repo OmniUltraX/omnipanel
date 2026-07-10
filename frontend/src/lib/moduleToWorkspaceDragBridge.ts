@@ -22,6 +22,10 @@ import { useWorkspaceBottomDockStore, type WorkspaceDockTab } from "../stores/wo
 import { useTerminalStore } from "../stores/terminalStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
+import {
+  broadcastCrossWindowDragEnd,
+  broadcastCrossWindowDragMove,
+} from "./crossWindowDragVisual";
 
 export const CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT =
   "omnipanel:cross-window-module-drag-active";
@@ -217,6 +221,20 @@ async function broadcastDragActive(session: CrossWindowModuleDragPayload): Promi
   }
 }
 
+function broadcastDragMove(
+  session: CrossWindowModuleDragPayload,
+  screenX: number,
+  screenY: number,
+): void {
+  void broadcastCrossWindowDragMove({
+    sourceWindowLabel: session.sourceWindowLabel,
+    label: session.title?.trim() || session.panelId,
+    screenX,
+    screenY,
+    kind: "module-tab",
+  });
+}
+
 function applyIncomingModuleTab(
   targetWorkspaceId: string,
   session: CrossWindowModuleDragPayload,
@@ -405,6 +423,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     resetPointerSeed();
     dragSourceViewId = null;
     document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
+    void broadcastCrossWindowDragEnd();
   };
 
   void (async () => {
@@ -442,10 +461,13 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       );
 
       disposables.push(
-        dragController.onDragMove(() => {
+        dragController.onDragMove((event) => {
           if (!pointerSeed) return;
           const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-          if (session && isTauriRuntime()) void broadcastDragActive(session);
+          if (session && isTauriRuntime()) {
+            void broadcastDragActive(session);
+            broadcastDragMove(session, event.pointerEvent.screenX, event.pointerEvent.screenY);
+          }
         }),
       );
 
@@ -481,7 +503,10 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     if (!movedEnough) return;
 
     const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-    if (session && isTauriRuntime()) void broadcastDragActive(session);
+    if (session && isTauriRuntime()) {
+      void broadcastDragActive(session);
+      broadcastDragMove(session, event.screenX, event.screenY);
+    }
   };
 
   const onPointerUp = (event: PointerEvent) => {
@@ -551,7 +576,9 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   const observer = new MutationObserver(() => {
     if (!isModuleDockDragActive() || !pointerSeed) return;
     const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-    if (session && isTauriRuntime()) void broadcastDragActive(session);
+    if (session && isTauriRuntime()) {
+      void broadcastDragActive(session);
+    }
   });
   observer.observe(document.body, {
     subtree: true,
@@ -616,6 +643,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         if (remoteDrag?.sourceWindowLabel === payload.sourceWindowLabel) {
           clearRemoteDrag();
         }
+        void broadcastCrossWindowDragEnd();
       },
       { target: { kind: "Any" } },
     ).then((fn) => unlisteners.push(fn));
