@@ -69,10 +69,13 @@ interface PanelLayoutState {
   leftSizes: Record<string, number>;
   rightSizes: Record<string, number>;
   splitRatios: Record<string, number>;
+  /** 所有模块左侧资源侧栏共用折叠状态 */
+  moduleLeftSidebarCollapsed: boolean;
   /** 递增信号：Shell 侧栏重复点击当前模块时触发侧栏折叠切换 */
   moduleSidebarToggleNonce: number;
   setLeftSize: (key: string, size: number) => void;
   setModuleLeftSidebarSize: (size: number) => void;
+  setModuleLeftSidebarCollapsed: (collapsed: boolean) => void;
   setRightSize: (key: string, size: number) => void;
   setSplitRatio: (key: string, percent: number) => void;
   toggleModuleSidebar: () => void;
@@ -84,6 +87,7 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
       leftSizes: {},
       rightSizes: {},
       splitRatios: {},
+      moduleLeftSidebarCollapsed: false,
       moduleSidebarToggleNonce: 0,
 
       setLeftSize: (key, size) =>
@@ -95,6 +99,9 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
         set((state) => ({
           leftSizes: { ...state.leftSizes, [MODULE_LEFT_SIDEBAR_LAYOUT_KEY]: size },
         })),
+
+      setModuleLeftSidebarCollapsed: (collapsed) =>
+        set({ moduleLeftSidebarCollapsed: collapsed }),
 
       setRightSize: (key, size) =>
         set((state) => ({
@@ -113,24 +120,27 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
     }),
     {
       name: "omnipanel-panel-layout",
-      version: 3,
+      version: 4,
       migrate: (persistedState) => {
         const state = persistedState as {
           leftSizes?: Record<string, number>;
           rightSizes?: Record<string, number>;
           splitRatios?: Record<string, number>;
+          moduleLeftSidebarCollapsed?: boolean;
         };
         const leftSizes = migrateLegacyLeftSidebarSizes(state.leftSizes ?? {});
         return {
           ...state,
           leftSizes,
           splitRatios: state.splitRatios ?? {},
+          moduleLeftSidebarCollapsed: state.moduleLeftSidebarCollapsed ?? false,
         };
       },
       partialize: (state) => ({
         leftSizes: state.leftSizes,
         rightSizes: state.rightSizes,
         splitRatios: state.splitRatios,
+        moduleLeftSidebarCollapsed: state.moduleLeftSidebarCollapsed,
       }),
     },
   ),

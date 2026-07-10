@@ -11539,75 +11539,6 @@ a {
         display: none;
     }
 
-    .server-tree-root {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .server-tree-node {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        min-height: 28px;
-        padding: 2px 8px 2px 0;
-        border-radius: var(--r-sm);
-        cursor: pointer;
-        font-size: 12px;
-        transition: background 0.1s;
-    }
-
-    .server-tree-node:hover {
-        background: var(--surface-hover);
-    }
-
-    .server-tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .server-tree-node--muted {
-        color: var(--meta);
-    }
-
-    .server-tree-arrow {
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--meta);
-        transition: transform 0.15s;
-    }
-
-    .server-tree-arrow--open {
-        transform: rotate(90deg);
-    }
-
-    .server-tree-arrow--leaf {
-        color: transparent;
-    }
-
-    .server-tree-dot {
-        width: 4px;
-        height: 4px;
-        border-radius: 50%;
-        background: var(--border);
-    }
-
-    .server-tree-label {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .server-tree-trailing {
-        flex-shrink: 0;
-        margin-left: auto;
-    }
-
     .server-tree-badge {
         font-size: 10px;
         color: var(--meta);
@@ -11627,9 +11558,33 @@ a {
         white-space: nowrap;
     }
 
-    .server-tree-empty {
-        padding: 4px 8px 4px 34px;
-        font-size: 11px;
+    .server-sidebar-body .server-tree-node--server .tree-icon {
+        color: var(--accent);
+    }
+
+    .server-sidebar-body .server-tree-node--server.server-tree-node--bt .tree-icon {
+        color: #e6a23c;
+    }
+
+    .server-sidebar-body .server-tree-node--server.server-tree-node--onepanel .tree-icon {
+        color: var(--success);
+    }
+
+    .server-sidebar-body .server-tree-node--apps .tree-icon {
+        color: var(--accent);
+    }
+
+    .server-sidebar-body .server-tree-node--websites .tree-icon {
+        color: var(--success);
+    }
+
+    .server-sidebar-body .server-tree-node--certificates .tree-icon {
+        color: var(--warn);
+    }
+
+    .server-sidebar-body .server-tree-node--app .tree-icon,
+    .server-sidebar-body .server-tree-node--website .tree-icon,
+    .server-sidebar-body .server-tree-node--certificate .tree-icon {
         color: var(--meta);
     }
 

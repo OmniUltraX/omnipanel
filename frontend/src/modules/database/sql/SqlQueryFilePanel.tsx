@@ -22,6 +22,7 @@ import {
   describeSqlFileDragTarget,
   sqlFileDndLog,
 } from "./sqlQueryFileDnDDebug";
+import { SidebarTreeNode } from "@/components/ui/sidebar-tree";
 import {
   SQL_QUERY_FILE_POINTER_DRAG_THRESHOLD_PX,
   isSqlQueryFilePointerDragExcluded,
@@ -111,50 +112,38 @@ function FolderTree({
   return (
     <>
       {visibleItems.map((item) => {
-        const indent = depth * 16 + 8;
         if (item.kind === "sql-folder") {
           const node = item.node;
           const expanded = expandedIds.has(node.id);
           const isDropTarget = dropTargetId === node.id && canDropOnFolder(node.id);
           const nodeStyle: CSSProperties = {
-            paddingLeft: indent,
             ["--tree-depth" as string]: depth,
           };
           return (
             <div key={node.id}>
-              <div
+              <SidebarTreeNode
+                depth={depth}
+                indentStep={16}
+                indentBase={8}
+                expanded={expanded}
+                hasChildren
                 className={`sql-file-tree-node sql-file-tree-node--folder${expanded ? " sql-file-tree-node--sticky" : ""}${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}${isDropTarget ? " sql-file-tree-node--drop-target" : ""}`}
                 style={nodeStyle}
-                data-sql-file-node-id={node.id}
-                data-sql-file-node-type="folder"
-                onPointerDown={(event) => onNodePointerDown(node.id, event)}
-                onContextMenu={(event) => onContextMenuSql(node, event)}
-              >
-                <span
-                  className={`tree-arrow${expanded ? " tree-arrow--open" : ""}`}
-                  draggable={false}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleFolder(node.id);
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </span>
-                <span className="tree-icon" draggable={false}>
+                dataAttrs={{
+                  "data-sql-file-node-id": node.id,
+                  "data-sql-file-node-type": "folder",
+                }}
+                icon={
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                   </svg>
-                </span>
-                <span
-                  className="tree-label"
-                  draggable={false}
-                  onClick={() => onToggleFolder(node.id)}
-                >
-                  {node.name}
-                </span>
-              </div>
+                }
+                label={node.name}
+                onToggle={() => onToggleFolder(node.id)}
+                onClick={() => onToggleFolder(node.id)}
+                onPointerDown={(event) => onNodePointerDown(node.id, event)}
+                onContextMenu={(event) => onContextMenuSql(node, event)}
+              />
               {expanded && (
                 <FolderTree
                   sqlNodes={sqlNodes}
@@ -184,28 +173,32 @@ function FolderTree({
           const node = item.node;
           const isActive = activeTreeChartFileId === node.id;
           return (
-            <div
+            <SidebarTreeNode
               key={node.id}
+              depth={depth}
+              indentStep={16}
+              indentBase={8}
+              expanded={false}
+              hasChildren={false}
+              active={isActive}
               className={`sql-file-tree-node sql-file-tree-node--file sql-file-tree-node--tree-chart${isActive ? " sql-file-tree-node--active" : ""}${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}`}
-              style={{ paddingLeft: indent }}
-              data-sql-file-node-id={node.id}
-              data-sql-file-node-type="tree-chart"
-              onPointerDown={(event) => onNodePointerDown(node.id, event)}
-              onClick={() => onOpenTreeChartFile(node)}
-              onContextMenu={(event) => onContextMenuTreeChart(node, event)}
-            >
-              <span className="tree-arrow tree-leaf" draggable={false}>
-                <span className="tree-dot" />
-              </span>
-              <span className="tree-icon" draggable={false}>
+              dataAttrs={{
+                "data-sql-file-node-id": node.id,
+                "data-sql-file-node-type": "tree-chart",
+              }}
+              icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
                   <rect x="3" y="3" width="7" height="18" rx="1.5" />
                   <rect x="14" y="3" width="7" height="10" rx="1.5" />
                   <rect x="14" y="16" width="7" height="5" rx="1.5" />
                 </svg>
-              </span>
-              <span className="tree-label" draggable={false}>{node.name}</span>
-            </div>
+              }
+              label={node.name}
+              onToggle={() => {}}
+              onClick={() => onOpenTreeChartFile(node)}
+              onPointerDown={(event) => onNodePointerDown(node.id, event)}
+              onContextMenu={(event) => onContextMenuTreeChart(node, event)}
+            />
           );
         }
 
@@ -213,28 +206,32 @@ function FolderTree({
         const isActive = activeFileId === node.id;
 
         return (
-          <div
+          <SidebarTreeNode
             key={node.id}
+            depth={depth}
+            indentStep={16}
+            indentBase={8}
+            expanded={false}
+            hasChildren={false}
+            active={isActive}
             className={`sql-file-tree-node sql-file-tree-node--file${isActive ? " sql-file-tree-node--active" : ""}${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}`}
-            style={{ paddingLeft: indent }}
-            data-sql-file-node-id={node.id}
-            data-sql-file-node-type="file"
-            onPointerDown={(event) => onNodePointerDown(node.id, event)}
-            onClick={() => onOpenFile(node)}
-            onContextMenu={(event) => onContextMenuSql(node, event)}
-          >
-            <span className="tree-arrow tree-leaf" draggable={false}>
-              <span className="tree-dot" />
-            </span>
-            <span className="tree-icon" draggable={false}>
+            dataAttrs={{
+              "data-sql-file-node-id": node.id,
+              "data-sql-file-node-type": "file",
+            }}
+            icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                 <path d="M14 2v6h6" />
                 <path d="M8 13h8M8 17h5" />
               </svg>
-            </span>
-            <span className="tree-label" draggable={false}>{node.name}</span>
-          </div>
+            }
+            label={node.name}
+            onToggle={() => {}}
+            onClick={() => onOpenFile(node)}
+            onPointerDown={(event) => onNodePointerDown(node.id, event)}
+            onContextMenu={(event) => onContextMenuSql(node, event)}
+          />
         );
       })}
     </>

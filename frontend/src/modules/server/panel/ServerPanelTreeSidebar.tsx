@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
@@ -6,6 +6,7 @@ import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/VerticalSplitSidebar";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerPanelDockOpenMode } from "./serverPanelWorkspaceTabs";
 import { getAppDisplayName } from "./appCard";
@@ -23,67 +24,12 @@ import {
 } from "./serverResourceLabels";
 import type { ServerSidebarNavigate } from "./serverSidebarNav";
 import type { ServerDetailTab } from "./ServerWorkspace";
-
-const SERVER_LABEL_CLICK_DELAY_MS = 200;
-
-type TreeRowProps = {
-  depth: number;
-  label: ReactNode;
-  hasChildren: boolean;
-  expanded: boolean;
-  active?: boolean;
-  muted?: boolean;
-  onToggle: () => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-  onContextMenu?: (event: MouseEvent) => void;
-  trailing?: ReactNode;
-};
-
-function TreeRow({
-  depth,
-  label,
-  hasChildren,
-  expanded,
-  active,
-  muted,
-  onToggle,
-  onClick,
-  onDoubleClick,
-  onContextMenu,
-  trailing,
-}: TreeRowProps) {
-  const indent = depth * 14 + 6;
-
-  return (
-    <div
-      className={`server-tree-node${active ? " server-tree-node--active" : ""}${muted ? " server-tree-node--muted" : ""}`}
-      style={{ paddingLeft: indent }}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
-    >
-      <span
-        className={`server-tree-arrow${hasChildren ? "" : " server-tree-arrow--leaf"}${expanded ? " server-tree-arrow--open" : ""}`}
-        onClick={(event) => {
-          if (!hasChildren) return;
-          event.stopPropagation();
-          onToggle();
-        }}
-      >
-        {hasChildren ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        ) : (
-          <span className="server-tree-dot" />
-        )}
-      </span>
-      <span className="server-tree-label">{label}</span>
-      {trailing ? <span className="server-tree-trailing">{trailing}</span> : null}
-    </div>
-  );
-}
+import {
+  ServerTreeIcon,
+  serverCategoryIconKind,
+  serverItemIconKind,
+  serverTreeNodeClassName,
+} from "./serverTreeIcons";
 
 type ServerTreeBranchProps = {
   server: ServerEntry;
@@ -150,9 +96,9 @@ function ServerTreeBranch({
 
   if (!serverSupportsResources(server)) {
     return (
-      <div className="server-tree-empty" style={{ paddingLeft: 28 }}>
+      <SidebarTreeEmpty style={{ paddingLeft: 28 }}>
         {t("server.sidebar.treeUnsupported")}
-      </div>
+      </SidebarTreeEmpty>
     );
   }
 
@@ -169,9 +115,11 @@ function ServerTreeBranch({
 
         return (
           <div key={category.id} className="server-tree-category">
-            <TreeRow
+            <SidebarTreeNode
               depth={1}
               label={category.label}
+              icon={<ServerTreeIcon kind={serverCategoryIconKind(category.id)} />}
+              className={serverTreeNodeClassName(serverCategoryIconKind(category.id))}
               hasChildren
               expanded={categoryExpanded}
               active={activeNavKey === categoryKey}
@@ -189,9 +137,9 @@ function ServerTreeBranch({
             {categoryExpanded ? (
               <div className="server-tree-children">
                 {category.loading && category.items.length === 0 ? (
-                  <div className="server-tree-empty">{t("server.sidebar.treeLoading")}</div>
+                  <SidebarTreeEmpty>{t("server.sidebar.treeLoading")}</SidebarTreeEmpty>
                 ) : category.items.length === 0 ? (
-                  <div className="server-tree-empty">{t("server.sidebar.treeEmpty")}</div>
+                  <SidebarTreeEmpty>{t("server.sidebar.treeEmpty")}</SidebarTreeEmpty>
                 ) : (
                   category.items.map((item) => {
                     const itemKey = makeServerTreeKey(server.id, category.id, item.id);
@@ -208,10 +156,12 @@ function ServerTreeBranch({
                       );
                     };
                     return (
-                      <TreeRow
+                      <SidebarTreeNode
                         key={item.id}
                         depth={2}
                         label={item.label}
+                        icon={<ServerTreeIcon kind={serverItemIconKind(category.id)} />}
+                        className={serverTreeNodeClassName(serverItemIconKind(category.id))}
                         hasChildren={false}
                         expanded={false}
                         active={activeNavKey === itemKey}
@@ -256,16 +206,6 @@ export function ServerPanelTreeSidebar({
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
-  const labelClickTimerRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (labelClickTimerRef.current !== null) {
-        window.clearTimeout(labelClickTimerRef.current);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!activeServerId) return;
@@ -276,24 +216,6 @@ export function ServerPanelTreeSidebar({
     () => [...servers].sort((a, b) => a.name.localeCompare(b.name)),
     [servers],
   );
-
-  const handleServerClick = (serverId: string) => {
-    if (labelClickTimerRef.current !== null) {
-      window.clearTimeout(labelClickTimerRef.current);
-    }
-    labelClickTimerRef.current = window.setTimeout(() => {
-      labelClickTimerRef.current = null;
-      onNavigate({ serverId }, "preview");
-    }, SERVER_LABEL_CLICK_DELAY_MS);
-  };
-
-  const handleServerDoubleClick = (serverId: string) => {
-    if (labelClickTimerRef.current !== null) {
-      window.clearTimeout(labelClickTimerRef.current);
-      labelClickTimerRef.current = null;
-    }
-    onNavigate({ serverId }, "permanent");
-  };
 
   const handleContextMenu = (event: MouseEvent, server: ServerEntry) => {
     event.preventDefault();
@@ -333,7 +255,7 @@ export function ServerPanelTreeSidebar({
 
   const panelBody = (
     <>
-      <div className="server-sidebar-body server-tree-root">
+      <SidebarTreeRoot className="server-sidebar-body">
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>
         ) : (
@@ -342,8 +264,15 @@ export function ServerPanelTreeSidebar({
             const serverExpanded = isExpanded(serverKey);
             return (
               <div key={server.id} className="server-tree-server">
-                <TreeRow
+                <SidebarTreeNode
                   depth={0}
+                  icon={<ServerTreeIcon kind="server" />}
+                  className={serverTreeNodeClassName(
+                    "server",
+                    server.serviceType === "bt"
+                      ? "server-tree-node--bt"
+                      : "server-tree-node--onepanel",
+                  )}
                   label={
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
@@ -358,8 +287,8 @@ export function ServerPanelTreeSidebar({
                   expanded={serverExpanded}
                   active={activeNavKey === serverKey || activeServerId === server.id}
                   onToggle={() => toggle(serverKey)}
-                  onClick={() => handleServerClick(server.id)}
-                  onDoubleClick={() => handleServerDoubleClick(server.id)}
+                  onClick={() => onNavigate({ serverId: server.id }, "preview")}
+                  onDoubleClick={() => onNavigate({ serverId: server.id }, "permanent")}
                   onContextMenu={(event) => handleContextMenu(event, server)}
                 />
                 <ServerTreeBranch
@@ -375,7 +304,7 @@ export function ServerPanelTreeSidebar({
             );
           })
         )}
-      </div>
+      </SidebarTreeRoot>
       {ctxPos ? (
         <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />
       ) : null}

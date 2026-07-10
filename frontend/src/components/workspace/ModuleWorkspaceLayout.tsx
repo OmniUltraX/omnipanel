@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace, type DockRailPreset } from "../dock";
 import {
@@ -8,11 +8,10 @@ import {
   MODULE_LEFT_SIDEBAR_MIN_PX,
   usePanelLayoutStore,
 } from "../../stores/panelLayoutStore";
+import { useSharedModuleLeftSidebar } from "../../hooks/useSharedModuleLeftSidebar";
 import { useModuleVisibility } from "../../lib/moduleVisibility";
 import { ModuleLeftColumn } from "./ModuleLeftColumn";
 import "./moduleWorkspaceLayout.css";
-
-const LEFT_COLLAPSED_PX = 12;
 
 export interface ModuleWorkspaceLayoutProps {
   className?: string;
@@ -20,6 +19,7 @@ export interface ModuleWorkspaceLayoutProps {
   leftColumnTitle?: ReactNode;
   leftIconRail?: ReactNode;
   leftSidebar?: ReactNode;
+  /** @deprecated 所有模块已统一侧栏尺寸，保留仅为兼容旧调用 */
   leftPreset?: DockRailPreset;
   leftSizePx?: number;
   leftMinPx?: number;
@@ -42,7 +42,6 @@ export function ModuleWorkspaceLayout({
   leftColumnTitle,
   leftIconRail,
   leftSidebar,
-  leftPreset = "default",
   leftSizePx: propLeftSizePx,
   leftMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
   leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
@@ -52,43 +51,29 @@ export function ModuleWorkspaceLayout({
   children,
   footer,
 }: ModuleWorkspaceLayoutProps) {
-  const savedSize = usePanelLayoutStore((s) => getModuleLeftSidebarSize(s.leftSizes));
-  const setModuleLeftSidebarSize = usePanelLayoutStore((s) => s.setModuleLeftSidebarSize);
   const moduleSidebarToggleNonce = usePanelLayoutStore((s) => s.moduleSidebarToggleNonce);
   const { active: moduleActive } = useModuleVisibility();
-  const leftSizePx = propLeftSizePx ?? savedSize;
-  const pendingLeftSizeRef = useRef<number | null>(null);
   const internalLeftPanelRef = useRef<PanelImperativeHandle | null>(null);
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const lastSidebarToggleNonceRef = useRef(moduleSidebarToggleNonce);
-
-  const updateSidebarCollapsed = useCallback(
-    (collapsed: boolean) => {
-      setSidebarCollapsed(collapsed);
-      onSidebarCollapsedChange?.(collapsed);
-    },
-    [onSidebarCollapsedChange],
-  );
-
-  const handleLeftResize = useCallback((sizePx: number) => {
-    pendingLeftSizeRef.current = sizePx;
-    updateSidebarCollapsed(sizePx < LEFT_COLLAPSED_PX);
-  }, [updateSidebarCollapsed]);
-
-  const handleLeftLayoutChanged = useCallback(() => {
-    const size = pendingLeftSizeRef.current ?? leftPanelRef.current?.getSize().inPixels;
-    pendingLeftSizeRef.current = null;
-    if (size == null || size < MODULE_LEFT_SIDEBAR_MIN_PX) {
-      updateSidebarCollapsed(size != null && size < LEFT_COLLAPSED_PX);
-      return;
-    }
-    setModuleLeftSidebarSize(size);
-    updateSidebarCollapsed(false);
-  }, [setModuleLeftSidebarSize, updateSidebarCollapsed, leftPanelRef]);
 
   const hasSidebarHeader = Boolean(leftColumnTitle || leftIconRail);
   const hasLeft = Boolean(hasSidebarHeader || leftSidebar);
+
+  const {
+    leftSizePx,
+    moduleLeftSidebarCollapsed,
+    handleLeftResize,
+    handleLeftLayoutChanged,
+    updateSidebarCollapsed,
+  } = useSharedModuleLeftSidebar({
+    leftPanelRef,
+    syncWhenActive: true,
+    moduleActive,
+    hasLeft,
+    propSizePx: propLeftSizePx,
+    onCollapsedChange: onSidebarCollapsedChange,
+  });
 
   const toggleSidebarFromShell = useCallback(() => {
     const handle = leftPanelRef.current;
@@ -119,7 +104,7 @@ export function ModuleWorkspaceLayout({
   const resolvedHandleClassName =
     leftHandleClassName ??
     (hasSidebarHeader
-      ? sidebarCollapsed
+      ? moduleLeftSidebarCollapsed
         ? "module-workspace-sidebar-handle module-workspace-sidebar-handle--collapsed"
         : "module-workspace-sidebar-handle module-workspace-sidebar-handle--open"
       : undefined);
@@ -127,7 +112,9 @@ export function ModuleWorkspaceLayout({
   const rootClass = [
     "module-workspace-layout",
     className,
-    sidebarCollapsed ? "module-workspace-layout--sidebar-collapsed" : "module-workspace-layout--sidebar-open",
+    moduleLeftSidebarCollapsed
+      ? "module-workspace-layout--sidebar-collapsed"
+      : "module-workspace-layout--sidebar-open",
     hasSidebarHeader ? "module-workspace-layout--has-sidebar-header" : "",
     !hasLeft ? "module-workspace-layout--no-left" : "",
   ]
@@ -148,7 +135,6 @@ export function ModuleWorkspaceLayout({
   return (
     <DockWorkspace
       className={rootClass}
-      leftPreset={leftPreset}
       leftSizePx={leftSizePx}
       leftMinPx={leftMinPx}
       leftMaxPx={leftMaxPx as number | undefined}

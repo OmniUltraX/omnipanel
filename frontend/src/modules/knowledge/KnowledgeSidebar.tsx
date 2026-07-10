@@ -38,6 +38,7 @@ import {
 } from "./knowledgeTree";
 import { loadKnowledgeVectorStatus, submitKnowledgeVectorize, isKnowledgeEntryVectorizing, subscribeKnowledgeVectorizeState, KNOWLEDGE_VECTORIZED_EVENT, KNOWLEDGE_CHUNKS_CHANGED_EVENT } from "./knowledgeVectorize";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
 const KNOWLEDGE_ROW_CLICK_DELAY_MS = 200;
@@ -132,7 +133,6 @@ function TreeRow({
 }: TreeRowProps) {
   const { entry } = node;
   const isFolder = isKnowledgeFolder(entry);
-  const indent = depth * 14 + 8;
   const clickTimerRef = useRef<number | null>(null);
 
   useEffect(
@@ -178,7 +178,13 @@ function TreeRow({
   };
 
   return (
-    <div
+    <SidebarTreeNode
+      depth={depth}
+      indentStep={14}
+      indentBase={8}
+      expanded={expanded}
+      hasChildren={isFolder}
+      active={selected}
       className={`knowledge-tree-row${selected ? " knowledge-tree-row--active" : ""}${
         dropHint?.targetId === entry.id && dropHint.position === "inside"
           ? " knowledge-tree-row--drop-inside"
@@ -192,37 +198,19 @@ function TreeRow({
           ? " knowledge-tree-row--drop-after"
           : ""
       }`}
-      style={{ paddingLeft: indent }}
+      icon={isFolder ? <FolderIcon /> : <DocIcon />}
+      label={entry.title}
       draggable
-      onDragStart={(e) => onDragStart(entry.id, e)}
-      onDragOver={(e) => onDragOver(entry.id, e)}
-      onDrop={(e) => onDrop(entry.id, e)}
+      onDragStart={(event) => onDragStart(entry.id, event)}
+      onDragOver={(event) => onDragOver(entry.id, event)}
+      onDrop={(event) => onDrop(entry.id, event)}
       onDragEnd={onDragEnd}
-      onContextMenu={(e) => onContextMenu(entry, e)}
+      onContextMenu={(event) => onContextMenu(entry, event)}
+      onToggle={() => onToggle(entry.id)}
       onClick={handleRowClick}
       onDoubleClick={handleRowDoubleClick}
-    >
-      <button
-        type="button"
-        className={`knowledge-tree-arrow${expanded ? " knowledge-tree-arrow--open" : ""}${!isFolder ? " knowledge-tree-arrow--leaf" : ""}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (isFolder) onToggle(entry.id);
-        }}
-        tabIndex={-1}
-        aria-hidden
-      >
-        {isFolder ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        ) : (
-          <span className="knowledge-tree-dot" />
-        )}
-      </button>
-      <span className="knowledge-tree-icon">{isFolder ? <FolderIcon /> : <DocIcon />}</span>
-      <span className="knowledge-tree-label">{entry.title}</span>
-    </div>
+      clickDelayMs={0}
+    />
   );
 }
 
@@ -656,7 +644,7 @@ export function KnowledgeSidebar() {
       <div
         className="knowledge-tree"
         onContextMenu={(e) => {
-          if ((e.target as HTMLElement).closest(".knowledge-tree-row")) return;
+          if ((e.target as HTMLElement).closest(".sidebar-tree-node, .tree-node, .knowledge-tree-row")) return;
           e.preventDefault();
           setBlankCtx({ x: e.clientX, y: e.clientY, section });
         }}
