@@ -9,7 +9,9 @@ import { Button } from "../../../components/ui/Button";
 import { IconPlus } from "../../../components/ui/Icons";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { TableDataGrid, type TableDataGridActiveCell } from "../grid/TableDataGrid";
+import { selectionTargetKey, selectionTargetsKey } from "../grid/tableDataGridSelection";
 import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";
+import { detectCellEditorKind, parseCellValue } from "../cell_editor/types";
 import { useI18n } from "../../../i18n";
 import {
   NEW_ROW_KEY_PREFIX,
@@ -29,6 +31,11 @@ interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
 }
 
+function selectionTargetCount(key: string | undefined): number {
+  if (!key) return 0;
+  return key.split("|").filter(Boolean).length;
+}
+
 export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   tab,
 }: DbTablePreviewSurfaceProps) {
@@ -38,6 +45,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const cellEditorPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [cellEditorCollapsed, setCellEditorCollapsed] = useState(false);
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
+  const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
   const {
     tablePreview: preview,
     tableColumnMeta: colMeta,
@@ -46,6 +54,24 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   } = useDbTabWorkspaceSliceOrMirror(tab.id);
 
   const canRefresh = tab.connId && tab.dbName && tab.tableName;
+
+  const statusBarInfo = useMemo(() => {
+    if (!tab.dbName || !tab.tableName) return null;
+    const tableLabel = `${tab.dbName}.${tab.tableName}`;
+    const rowCount = preview?.totalRows;
+    return (
+      <>
+        <span className="statusbar-item statusbar-item--truncate" title={tableLabel}>
+          {tableLabel}
+        </span>
+        {rowCount != null ? (
+          <span className="statusbar-item">
+            {rowCount.toLocaleString()} {t("common.rows")}
+          </span>
+        ) : null}
+      </>
+    );
+  }, [preview?.totalRows, tab.dbName, tab.tableName, t]);
 
   const previewConnection = tab.connId ? ws.resolveConnection(tab.connId) : null;
   const databaseSchema = useTreeChartDatabaseSchema(previewConnection, tab.dbName ?? "");
@@ -114,14 +140,22 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const canExport = Boolean(preview?.data && previewConnection);
 
   const activeCellKey = useMemo(() => {
-    if (!activeCell) return null;
-    const rowKey = resolvePreviewRowKey(activeCell.row, pkCols);
-    return `${rowKey}:${activeCell.column}`;
-  }, [activeCell, pkCols]);
+    if (activeCell) {
+      const rowKey = resolvePreviewRowKey(activeCell.row, pkCols);
+      return `${rowKey}:${activeCell.column}`;
+    }
+    if (selectedCells.length > 1) {
+      return `multi:${selectedCells.length}`;
+    }
+    return null;
+  }, [activeCell, pkCols, selectedCells.length]);
+
+  const editorColumnName = activeCell?.column ?? selectedCells[0]?.column ?? null;
+  const editorSelectionCount = selectedCells.length;
 
   const activeColumnMeta = useMemo(
-    () => (activeCell ? colMeta?.find((col) => col.name === activeCell.column) : undefined),
-    [activeCell, colMeta],
+    () => (editorColumnName ? colMeta?.find((col) => col.name === editorColumnName) : undefined),
+    [editorColumnName, colMeta],
   );
 
   const activeCellValue = useMemo(() => {
@@ -131,9 +165,37 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     return override !== undefined ? override : activeCell.row[activeCell.column];
   }, [activeCell, pkCols, previewCellOverrides]);
 
+  const activeCellRef = useRef<TableDataGridActiveCell | null>(null);
+  const selectedCellsKeyRef = useRef<string | undefined>(undefined);
+
   const handleActiveCellChange = useCallback((cell: TableDataGridActiveCell | null) => {
-    cellEditorRef.current?.commitIfDirty();
+    const prevKey = selectionTargetKey(activeCellRef.current);
+    const nextKey = selectionTargetKey(cell);
+    if (prevKey === nextKey) return;
+    // 仅在两个不同的单格之间切换时提交；扩展到多选（next 为 null）不提交
+    if (prevKey != null && nextKey != null) {
+      cellEditorRef.current?.commitIfDirty();
+    }
+    activeCellRef.current = cell;
     setActiveCell(cell);
+  }, []);
+
+  const handleSelectedCellsChange = useCallback((cells: TableDataGridActiveCell[]) => {
+    const nextKey = selectionTargetsKey(cells);
+    if (nextKey === selectedCellsKeyRef.current) return;
+    const prevKey = selectedCellsKeyRef.current;
+    const prevCount = selectionTargetCount(prevKey);
+    const nextCount = selectionTargetCount(nextKey);
+
+    // 拖选扩大选区时不提交；离开多选（缩小/清空）时若有编辑则提交
+    if (nextKey === "") {
+      cellEditorRef.current?.commitIfDirty();
+    } else if (prevCount > 1 && nextCount < prevCount) {
+      cellEditorRef.current?.commitIfDirty();
+    }
+
+    selectedCellsKeyRef.current = nextKey;
+    setSelectedCells(cells);
   }, []);
 
   const handlePreviewCellCommit = useCallback(
@@ -145,12 +207,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     },
     [ws.handleCellCommit, tab.id],
   );
-  const handlePreviewRowEdit = useCallback(
-    (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
-      ws.handleRowEdit(tab.id, cellInfo);
-    },
-    [ws.handleRowEdit, tab.id],
-  );
   const handlePreviewCellSetNull = useCallback(
     (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => {
       ws.handleCellSetNull(tab.id, cellInfo);
@@ -158,11 +214,27 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     [ws.handleCellSetNull, tab.id],
   );
   const handlePreviewCellApply = useCallback(
-    (value: unknown) => {
-      if (!activeCell) return;
-      ws.handleCellCommit(tab.id, activeCell, value);
+    ({ rawText, parsed }: { rawText: string; parsed: unknown }) => {
+      const multi = selectedCells.length > 1;
+      if (multi && cellEditorCollapsed) return;
+
+      const targets = multi
+        ? selectedCells
+        : activeCell
+          ? [activeCell]
+          : selectedCells.length === 1
+            ? selectedCells
+            : [];
+      if (targets.length === 0) return;
+
+      for (const cell of targets) {
+        const columnMeta = colMeta?.find((col) => col.name === cell.column);
+        const kind = detectCellEditorKind(columnMeta?.type ?? "text");
+        const value = targets.length === 1 ? parsed : parseCellValue(kind, rawText);
+        ws.handleCellCommit(tab.id, cell, value);
+      }
     },
-    [activeCell, ws.handleCellCommit, tab.id],
+    [activeCell, cellEditorCollapsed, colMeta, selectedCells, ws.handleCellCommit, tab.id],
   );
   const handlePreviewCellSetNullActive = useCallback(() => {
     if (!activeCell) return;
@@ -381,7 +453,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       toolbar={previewToolbar}
       onCellCommit={handlePreviewCellCommit}
       onActiveCellChange={handleActiveCellChange}
-      onRowEdit={handlePreviewRowEdit}
+      onSelectedCellsChange={handleSelectedCellsChange}
       onCellSetNull={handlePreviewCellSetNull}
       onRowPaste={canInsertRow ? handlePreviewRowPaste : undefined}
       onDeleteSelectedRows={canDeleteRow ? handlePreviewRowsDelete : undefined}
@@ -406,6 +478,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       relationDatabase={tab.dbName ?? undefined}
       columnRelations={preview.columnRelations}
       onColumnRelationsChange={handleColumnRelationsChange}
+      statusBarActionPanelId={tab.id}
+      statusBarInfo={statusBarInfo}
     />
   ) : null;
 
@@ -440,9 +514,13 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             <CellEditorPanel
               ref={cellEditorRef}
               cellKey={activeCellKey}
-              columnName={activeCell?.column ?? null}
-              columnType={activeColumnMeta?.type ?? "text"}
-              currentValue={activeCellValue}
+              columnName={editorColumnName}
+              columnType={
+                editorSelectionCount > 1 ? "text" : (activeColumnMeta?.type ?? "text")
+              }
+              currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
+              selectionCount={editorSelectionCount}
+              editorOpen={!cellEditorCollapsed}
               onApply={handlePreviewCellApply}
               onSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
             />

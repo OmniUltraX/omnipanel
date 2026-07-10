@@ -79,8 +79,8 @@ import {
   type TableDataGridBodyActions,
 } from "./TableDataGridBody";
 import {
-  buildCellRangeCsv,
-  buildSelectedRowsCsv,
+  buildCellRangeClipboardText,
+  buildSelectedRowsClipboardText,
   extractRowValuesFromIndex,
 } from "./tableDataGridClipboard";
 import {
@@ -100,16 +100,25 @@ import {
 } from "./tableDataGridLayout";
 import {
   collectSelectedRowIndices,
+  collectSelectedCellTargets,
   isEditableTextTarget,
   isFullRowSelection,
   isFullWidthRowRange,
   isHeaderInColumnSelection,
   normalizeRange,
+  resolvePasteBounds,
   resolveSingleSelectedCell,
+  selectionTargetKey,
+  selectionTargetsKey,
   rowsInFullRowRange,
   type CellPos,
   type CellRange,
 } from "./tableDataGridSelection";
+import { parseClipboardMatrix } from "../shared/csvExport";
+import type { DelimitedTextFormat } from "../shared/delimitedText";
+import { useStatusBarActionBar } from "../../../hooks/useStatusBarActionBar";
+import { useStatusBarInfoBar } from "../../../hooks/useStatusBarInfoBar";
+import { TableDataGridStatusBarAction } from "./TableDataGridStatusBarAction";
 import {
   resolveTransposedDataCellContext,
   transposeDirtyState,
@@ -133,7 +142,6 @@ export type TableDataGridProps = {
     cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },
     value: unknown,
   ) => void;
-  onRowEdit?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   onCellSetNull?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   /** 已修改的行 key 集合（来自父组件脏数据状态），用于高亮 */
   dirtyRowKeys?: Set<string>;
@@ -180,6 +188,8 @@ export type TableDataGridProps = {
     rows: Array<{ rowIndex: number; row: Record<string, unknown> }>,
   ) => void;
   /** 当前选中的单个数据单元格（用于底栏编辑器等） */
+  /** 当前选中的单元格集合（含多格选区） */
+  onSelectedCellsChange?: (cells: TableDataGridActiveCell[]) => void;
   onActiveCellChange?: (cell: TableDataGridActiveCell | null) => void;
   /** 快速打开表设计器（表预览底栏） */
   onOpenTableDesign?: () => void;
@@ -196,7 +206,15 @@ export type TableDataGridProps = {
   /** 列关联配置（列名 -> 目标表.字段） */
   columnRelations?: Record<string, TableColumnRelation>;
   onColumnRelationsChange?: (relations: Record<string, TableColumnRelation>) => void;
+  /** 状态栏 ActionBar 绑定的 dock panelId（与 tabId 一致） */
+  statusBarActionPanelId?: string;
+  /** 状态栏 InfoBar 绑定的 dock panelId；缺省时与 ActionBar 相同 */
+  statusBarInfoPanelId?: string;
+  /** 状态栏 InfoBar 展示内容（如表名、行数） */
+  statusBarInfo?: ReactNode;
 };
+
+export type TableDataGridClipboardFormat = DelimitedTextFormat;
 
 export const TableDataGrid = memo(function TableDataGrid({
   columns,
@@ -209,7 +227,6 @@ export const TableDataGrid = memo(function TableDataGrid({
   columnMeta,
   onCellEdit,
   onCellCommit,
-  onRowEdit,
   onCellSetNull,
   dirtyRowKeys,
   cellOverrides,
@@ -233,6 +250,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   onCellEditorFocusRequest,
   onRowPaste,
   onDeleteSelectedRows,
+  onSelectedCellsChange,
   onActiveCellChange,
   onOpenTableDesign,
   canOpenTableDesign = true,
@@ -243,8 +261,15 @@ export const TableDataGrid = memo(function TableDataGrid({
   relationDatabase,
   columnRelations: columnRelationsProp,
   onColumnRelationsChange,
+  statusBarActionPanelId,
+  statusBarInfoPanelId,
+  statusBarInfo,
 }: TableDataGridProps) {
   const { t } = useI18n();
+  const [clipboardFormat, setClipboardFormat] = useState<DelimitedTextFormat>("csv");
+  const clipboardFormatRef = useRef<DelimitedTextFormat>("csv");
+  clipboardFormatRef.current = clipboardFormat;
+  const resolvedInfoPanelId = statusBarInfoPanelId ?? statusBarActionPanelId;
   const effectiveColumns = useMemo(() => {
     if (columns.length > 0) {
       return columns;
@@ -356,7 +381,31 @@ export const TableDataGrid = memo(function TableDataGrid({
   const bodyActionsRef = useRef<TableDataGridBodyActions | null>(null);
   const hoverResetPendingRef = useRef(false);
   const copiedRowRef = useRef<Record<string, unknown> | null>(null);
+  const activeCellNotifyKeyRef = useRef<string | null | undefined>(undefined);
+  const selectedCellsNotifyKeyRef = useRef<string | undefined>(undefined);
   const autoIncrementPlaceholder = t("database.rowEditor.autoIncrementPlaceholder");
+
+  useStatusBarInfoBar(
+    resolvedInfoPanelId ?? "",
+    resolvedInfoPanelId && statusBarInfo != null ? () => statusBarInfo : null,
+    Boolean(resolvedInfoPanelId && statusBarInfo != null),
+    [statusBarInfo],
+  );
+
+  useStatusBarActionBar(
+    statusBarActionPanelId ?? "",
+    statusBarActionPanelId
+      ? () => (
+          <TableDataGridStatusBarAction
+            format={clipboardFormat}
+            onFormatChange={setClipboardFormat}
+          />
+        )
+      : null,
+    Boolean(statusBarActionPanelId),
+    [clipboardFormat],
+    { summary: clipboardFormat.toUpperCase() },
+  );
 
   const clearGridSelection = useCallback(() => {
     if (!cellRangeRef.current && selectedRowsRef.current.size === 0) return;
@@ -365,6 +414,8 @@ export const TableDataGrid = memo(function TableDataGrid({
     rowAnchorRef.current = null;
     cellAnchorRef.current = null;
     cellDragRef.current = null;
+    activeCellNotifyKeyRef.current = undefined;
+    selectedCellsNotifyKeyRef.current = undefined;
   }, []);
 
   useEffect(() => {
@@ -377,7 +428,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (target instanceof Element) {
         if (
           target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow",
+            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow, .db-cell-editor-panel, .db-table-preview-split .dock-panel-bottom, .db-table-preview-split .dock-handle",
           )
         ) {
           return;
@@ -1293,8 +1344,36 @@ export const TableDataGrid = memo(function TableDataGrid({
       transposed,
       rows,
     });
+    const nextKey = selectionTargetKey(activeCell);
+    if (nextKey === activeCellNotifyKeyRef.current) return;
+    activeCellNotifyKeyRef.current = nextKey;
     onActiveCellChange(activeCell);
   }, [cellRange, leafColumns, tableRows, transposed, rows, onActiveCellChange]);
+
+  useEffect(() => {
+    if (!onSelectedCellsChange) return;
+    const targets = collectSelectedCellTargets(
+      cellRange,
+      selectedRows,
+      leafColumns,
+      tableRows,
+      leafColumnCount,
+      { transposed, rows },
+    );
+    const nextKey = selectionTargetsKey(targets);
+    if (nextKey === selectedCellsNotifyKeyRef.current) return;
+    selectedCellsNotifyKeyRef.current = nextKey;
+    onSelectedCellsChange(targets);
+  }, [
+    cellRange,
+    selectedRows,
+    leafColumns,
+    tableRows,
+    leafColumnCount,
+    transposed,
+    rows,
+    onSelectedCellsChange,
+  ]);
 
   useEffect(() => {
     const edit = cellOverlayRef.current;
@@ -1335,25 +1414,28 @@ export const TableDataGrid = memo(function TableDataGrid({
       const extraRows = selectedRowsRef.current;
 
       if (key === "c") {
-        let csv = "";
+        const format = clipboardFormatRef.current;
+        let text = "";
         if (range) {
-          csv = buildCellRangeCsv(range, leafColumns, tableRows, {
+          text = buildCellRangeClipboardText(range, leafColumns, tableRows, {
             pkCols,
             transposed,
             displayCellOverrides,
+            format,
           });
         } else if (extraRows.size > 0) {
-          csv = buildSelectedRowsCsv(extraRows, leafColumns, tableRows, {
+          text = buildSelectedRowsClipboardText(extraRows, leafColumns, tableRows, {
             pkCols,
             transposed,
             displayCellOverrides,
+            format,
           });
         }
-        if (!csv) return;
+        if (!text) return;
 
         event.preventDefault();
         event.stopPropagation();
-        void navigator.clipboard.writeText(csv).then(() => {
+        void navigator.clipboard.writeText(text).then(() => {
           showToast(t("common.copied"));
         }).catch(() => {
           /* clipboard unavailable */
@@ -1385,7 +1467,68 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
 
       if (key === "v") {
-        if (!onRowPaste || transposed) return;
+        if (transposed) return;
+
+        const pasteBounds = resolvePasteBounds(range, extraRows, leafColumnCount, tableRows.length);
+        if (pasteBounds && onCellCommit) {
+          event.preventDefault();
+          event.stopPropagation();
+          void navigator.clipboard.readText().then((text) => {
+            const matrix = parseClipboardMatrix(text, clipboardFormatRef.current);
+            if (matrix.length === 0) {
+              showToast(t("database.cellEditor.pasteCellsUnavailable"));
+              return;
+            }
+
+            let applied = 0;
+            for (let r = 0; r < matrix.length; r += 1) {
+              const csvRow = matrix[r] ?? [];
+              for (let c = 0; c < csvRow.length; c += 1) {
+                const targetRow = pasteBounds.startRow + r;
+                const targetCol = pasteBounds.startCol + c;
+                if (targetRow >= tableRows.length || targetCol >= leafColumnCount) {
+                  continue;
+                }
+                const target = resolveSingleSelectedCell(
+                  {
+                    start: { row: targetRow, col: targetCol },
+                    end: { row: targetRow, col: targetCol },
+                  },
+                  leafColumns,
+                  tableRows,
+                  { transposed, rows },
+                );
+                if (!target) continue;
+                const colMeta = columnMetaMap?.[target.column];
+                const kind = detectCellEditorKind(colMeta?.type ?? "text");
+                const parsed = parseCellValue(kind, csvRow[c] ?? "");
+                onCellCommit(
+                  {
+                    rowIndex: target.rowIndex,
+                    column: target.column,
+                    row: target.row,
+                  },
+                  parsed,
+                );
+                applied += 1;
+              }
+            }
+
+            if (applied > 0) {
+              showToast(t("database.cellEditor.pasteCellsDone", { count: applied }));
+            } else {
+              showToast(t("database.cellEditor.pasteCellsUnavailable"));
+            }
+          }).catch(() => {
+            showToast(t("database.cellEditor.pasteCellsUnavailable"));
+          });
+          return;
+        }
+
+        if (!onRowPaste) {
+          showToast(t("database.cellEditor.pasteCellsUnavailable"));
+          return;
+        }
         const rowValues = copiedRowRef.current;
         if (!rowValues) {
           showToast(t("database.rowEditor.pasteRowUnavailable"));
@@ -1395,6 +1538,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         event.stopPropagation();
         onRowPaste({ values: { ...rowValues } });
         showToast(t("database.rowEditor.pasteRowDone"));
+        return;
       }
     };
 
@@ -1408,7 +1552,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     displayCellOverrides,
     leafColumnCount,
     effectiveColumns,
+    columnMetaMap,
+    onCellCommit,
     onRowPaste,
+    rows,
     t,
   ]);
 
@@ -2073,7 +2220,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       <TableDataGridCellContextMenu
         menuOpenRef={cellMenuOpenRef}
         onPreview={openCellPreview}
-        onRowEdit={onRowEdit}
         onCellSetNull={onCellSetNull}
         columnMeta={columnMeta}
         cellOverrides={cellOverrides}

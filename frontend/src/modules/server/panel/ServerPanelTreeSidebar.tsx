@@ -1,0 +1,342 @@
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useI18n } from "@/i18n";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { Button } from "@/components/ui/Button";
+import {
+  VerticalSplitSidebarSection,
+  type VerticalSplitSidebarSectionConfig,
+} from "@/components/ui/VerticalSplitSidebar";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
+import type { ServerEntry } from "./serverConnection";
+import type { ServerPanelDockOpenMode } from "./serverPanelWorkspaceTabs";
+import { getAppDisplayName } from "./appCard";
+import { useInstalledApps } from "./useInstalledApps";
+import { useServerWebsites } from "./useServerWebsites";
+import { useServerCertificates } from "./useServerCertificates";
+import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
+import {
+  certificateRowId,
+  certificateRowLabel,
+  makeServerTreeKey,
+  serverSupportsResources,
+  websiteRowId,
+  websiteRowLabel,
+} from "./serverResourceLabels";
+import type { ServerSidebarNavigate } from "./serverSidebarNav";
+import type { ServerDetailTab } from "./ServerWorkspace";
+import {
+  ServerTreeIcon,
+  serverCategoryIconKind,
+  serverItemIconKind,
+  serverTreeNodeClassName,
+} from "./serverTreeIcons";
+
+type ServerTreeBranchProps = {
+  server: ServerEntry;
+  serverExpanded: boolean;
+  activeNavKey: string | null;
+  isExpanded: (key: string) => boolean;
+  toggle: (key: string) => void;
+  ensureExpanded: (key: string) => void;
+  onNavigate: ServerSidebarNavigate;
+};
+
+function ServerTreeBranch({
+  server,
+  serverExpanded,
+  activeNavKey,
+  isExpanded,
+  toggle,
+  ensureExpanded,
+  onNavigate,
+}: ServerTreeBranchProps) {
+  const { t } = useI18n();
+  const loadServer = serverExpanded && serverSupportsResources(server) ? server : null;
+  const { apps, loading: appsLoading } = useInstalledApps(loadServer);
+  const { items: websites, loading: websitesLoading } = useServerWebsites(loadServer);
+  const { items: certificates, loading: certificatesLoading } = useServerCertificates(loadServer);
+
+  const categories: Array<{
+    id: "apps" | "websites" | "certificates";
+    label: string;
+    loading: boolean;
+    count: number;
+    items: Array<{ id: string; label: string }>;
+  }> = [
+    {
+      id: "apps",
+      label: t("server.tabs.apps"),
+      loading: appsLoading,
+      count: apps.length,
+      items: apps.map((app) => ({ id: app.uid, label: getAppDisplayName(app) })),
+    },
+    {
+      id: "websites",
+      label: t("server.tabs.websites"),
+      loading: websitesLoading,
+      count: websites.length,
+      items: websites.map((row, index) => ({
+        id: websiteRowId(row, index),
+        label: websiteRowLabel(row),
+      })),
+    },
+    {
+      id: "certificates",
+      label: t("server.tabs.certificates"),
+      loading: certificatesLoading,
+      count: certificates.length,
+      items: certificates.map((row, index) => ({
+        id: certificateRowId(row, index),
+        label: certificateRowLabel(row),
+      })),
+    },
+  ];
+
+  if (!serverExpanded) return null;
+
+  if (!serverSupportsResources(server)) {
+    return (
+      <SidebarTreeEmpty style={{ paddingLeft: 28 }}>
+        {t("server.sidebar.treeUnsupported")}
+      </SidebarTreeEmpty>
+    );
+  }
+
+  return (
+    <>
+      {categories.map((category) => {
+        const categoryKey = makeServerTreeKey(server.id, category.id);
+        const categoryExpanded = isExpanded(categoryKey);
+        const openCategory = (mode?: ServerPanelDockOpenMode) => {
+          ensureExpanded(makeServerTreeKey(server.id));
+          ensureExpanded(categoryKey);
+          onNavigate({ serverId: server.id, detailTab: category.id }, mode);
+        };
+
+        return (
+          <div key={category.id} className="server-tree-category">
+            <SidebarTreeNode
+              depth={1}
+              label={category.label}
+              icon={<ServerTreeIcon kind={serverCategoryIconKind(category.id)} />}
+              className={serverTreeNodeClassName(serverCategoryIconKind(category.id))}
+              hasChildren
+              expanded={categoryExpanded}
+              active={activeNavKey === categoryKey}
+              onToggle={() => toggle(categoryKey)}
+              onClick={() => openCategory("preview")}
+              onDoubleClick={() => openCategory("permanent")}
+              trailing={
+                category.loading ? (
+                  <span className="server-tree-badge">…</span>
+                ) : (
+                  <span className="server-tree-badge">{category.count}</span>
+                )
+              }
+            />
+            {categoryExpanded ? (
+              <div className="server-tree-children">
+                {category.loading && category.items.length === 0 ? (
+                  <SidebarTreeEmpty>{t("server.sidebar.treeLoading")}</SidebarTreeEmpty>
+                ) : category.items.length === 0 ? (
+                  <SidebarTreeEmpty>{t("server.sidebar.treeEmpty")}</SidebarTreeEmpty>
+                ) : (
+                  category.items.map((item) => {
+                    const itemKey = makeServerTreeKey(server.id, category.id, item.id);
+                    const openItem = (mode?: ServerPanelDockOpenMode) => {
+                      ensureExpanded(makeServerTreeKey(server.id));
+                      ensureExpanded(categoryKey);
+                      onNavigate(
+                        {
+                          serverId: server.id,
+                          detailTab: category.id as ServerDetailTab,
+                          itemId: item.id,
+                        },
+                        mode,
+                      );
+                    };
+                    return (
+                      <SidebarTreeNode
+                        key={item.id}
+                        depth={2}
+                        label={item.label}
+                        icon={<ServerTreeIcon kind={serverItemIconKind(category.id)} />}
+                        className={serverTreeNodeClassName(serverItemIconKind(category.id))}
+                        hasChildren={false}
+                        expanded={false}
+                        active={activeNavKey === itemKey}
+                        onToggle={() => {}}
+                        onClick={() => openItem("preview")}
+                        onDoubleClick={() => openItem("permanent")}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+export interface ServerPanelTreeSidebarProps {
+  servers: ServerEntry[];
+  activeServerId: string | null;
+  activeNavKey: string | null;
+  onNavigate: ServerSidebarNavigate;
+  onCreateServer?: () => void;
+  onEditServer?: (server: ServerEntry) => void;
+  onDeleteServer?: (serverId: string) => void;
+  section?: VerticalSplitSidebarSectionConfig;
+}
+
+export function ServerPanelTreeSidebar({
+  servers,
+  activeServerId,
+  activeNavKey,
+  onNavigate,
+  onCreateServer,
+  onEditServer,
+  onDeleteServer,
+  section,
+}: ServerPanelTreeSidebarProps) {
+  const { t } = useI18n();
+  const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
+  const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
+  const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
+
+  useEffect(() => {
+    if (!activeServerId) return;
+    ensureExpanded(makeServerTreeKey(activeServerId));
+  }, [activeServerId, ensureExpanded]);
+
+  const sortedServers = useMemo(
+    () => [...servers].sort((a, b) => a.name.localeCompare(b.name)),
+    [servers],
+  );
+
+  const handleContextMenu = (event: MouseEvent, server: ServerEntry) => {
+    event.preventDefault();
+    setCtxPos({ x: event.clientX, y: event.clientY });
+    setCtxServer(server);
+  };
+
+  const ctxItems: ContextMenuItem[] = [
+    {
+      id: "edit",
+      label: t("server.sidebar.edit"),
+      onClick: () => ctxServer && onEditServer?.(ctxServer),
+    },
+    {
+      id: "delete",
+      label: t("server.sidebar.delete"),
+      danger: true,
+      onClick: () => ctxServer && onDeleteServer?.(ctxServer.id),
+    },
+  ];
+
+  const addServerButton = (
+    <div className="schema-toolbar schema-toolbar--inline">
+      <Button
+        type="button"
+        variant="icon"
+        className="server-sidebar-add"
+        title={t("server.sidebar.addPanel")}
+        onClick={onCreateServer}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </Button>
+    </div>
+  );
+
+  const panelBody = (
+    <>
+      <SidebarTreeRoot className="server-sidebar-body">
+        {sortedServers.length === 0 ? (
+          <div className="empty-state compact">{t("common.noResources")}</div>
+        ) : (
+          sortedServers.map((server) => {
+            const serverKey = makeServerTreeKey(server.id);
+            const serverExpanded = isExpanded(serverKey);
+            return (
+              <div key={server.id} className="server-tree-server">
+                <SidebarTreeNode
+                  depth={0}
+                  icon={<ServerTreeIcon kind="server" />}
+                  className={serverTreeNodeClassName(
+                    "server",
+                    server.serviceType === "bt"
+                      ? "server-tree-node--bt"
+                      : "server-tree-node--onepanel",
+                  )}
+                  label={
+                    <span className="server-tree-server-label">
+                      <span className="server-tree-server-name">{server.name}</span>
+                      <span
+                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${server.serviceType === "bt" ? "bt" : "onepanel"}`}
+                      >
+                        {t(`server.serviceType.${server.serviceType}`)}
+                      </span>
+                    </span>
+                  }
+                  hasChildren
+                  expanded={serverExpanded}
+                  active={activeNavKey === serverKey || activeServerId === server.id}
+                  onToggle={() => toggle(serverKey)}
+                  onClick={() => onNavigate({ serverId: server.id }, "preview")}
+                  onDoubleClick={() => onNavigate({ serverId: server.id }, "permanent")}
+                  onContextMenu={(event) => handleContextMenu(event, server)}
+                />
+                <ServerTreeBranch
+                  server={server}
+                  serverExpanded={serverExpanded}
+                  activeNavKey={activeNavKey}
+                  isExpanded={isExpanded}
+                  toggle={toggle}
+                  ensureExpanded={ensureExpanded}
+                  onNavigate={onNavigate}
+                />
+              </div>
+            );
+          })
+        )}
+      </SidebarTreeRoot>
+      {ctxPos ? (
+        <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />
+      ) : null}
+    </>
+  );
+
+  if (section) {
+    return (
+      <div className="server-sidebar">
+        <VerticalSplitSidebarSection
+          {...section}
+          actions={
+            <>
+              <span className="badge badge-muted">{servers.length}</span>
+              {addServerButton}
+            </>
+          }
+        >
+          {panelBody}
+        </VerticalSplitSidebarSection>
+      </div>
+    );
+  }
+
+  return (
+    <div className="server-sidebar">
+      <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
+        <span>{t("server.sidebar.title")}</span>
+        <span className="badge badge-muted">{servers.length}</span>
+        {addServerButton}
+      </div>
+      {panelBody}
+    </div>
+  );
+}

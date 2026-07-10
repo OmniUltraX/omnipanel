@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use omnipanel_db::{DbDriver, DbParams, QueryResult, RedisSearchKeysResult, mysql_connect_options};
+use omnipanel_db::{DbDriver, DbParams, MongoDriver, QueryResult, RedisSearchKeysResult, mongodb_list_databases, mysql_connect_options};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
@@ -586,7 +586,12 @@ pub async fn db_save_schema_cache(snapshot: SchemaCacheSnapshot) -> Result<(), S
 #[tauri::command]
 #[specta::specta]
 pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String, String> {
-    let driver = omnipanel_db::connect(&to_params(&connection))
+    let db_type = connection.db_type.to_lowercase();
+    let mut params = to_params(&connection);
+    if matches!(db_type.as_str(), "mongodb" | "mongo") && params.database.trim().is_empty() {
+        params.database = "admin".to_string();
+    }
+    let driver = omnipanel_db::connect(&params)
         .await
         .map_err(err_msg)?;
     driver.version().await.map_err(err_msg)
@@ -619,6 +624,9 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
             Ok((0..16).map(|n| n.to_string()).collect())
         }
+        "mongodb" | "mongo" => mongodb_list_databases(&to_params(&connection))
+            .await
+            .map_err(err_msg),
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
     }
@@ -822,6 +830,7 @@ pub async fn db_introspect_table(
         "mysql" | "mariadb" => introspect_mysql_table(&connection, &db_name, table.trim()).await,
         "postgresql" | "postgres" => introspect_pg_table(&connection, &db_name, table.trim()).await,
         "sqlite" | "sqlite3" => introspect_sqlite_table(&connection, table.trim()).await,
+        "mongodb" | "mongo" => introspect_mongo_table(&connection, &db_name, table.trim()).await,
         _ => Ok(DbTableSchema {
             name: table,
             columns: Vec::new(),
@@ -2433,4 +2442,34 @@ async fn introspect_sqlite_table(
     tokio::task::spawn_blocking(move || introspect_sqlite_table_inner(&conn, &tname))
         .await
         .map_err(|e| format!("SQLite task failed: {e}"))?
+}
+
+async fn introspect_mongo_table(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table_name: &str,
+) -> Result<DbTableSchema, String> {
+    let params = with_schema(connection, Some(db_name.to_string()));
+    let driver = MongoDriver::connect(&params).await.map_err(err_msg)?;
+    let column_names = driver
+        .infer_column_names(table_name, 100)
+        .await
+        .map_err(err_msg)?;
+    Ok(DbTableSchema {
+        name: table_name.to_string(),
+        columns: column_names
+            .into_iter()
+            .map(|name| DbColumnMeta {
+                name: name.clone(),
+                column_type: "mixed".to_string(),
+                is_pk: name == "_id",
+                is_fk: false,
+                nullable: true,
+                is_auto_increment: false,
+                comment: None,
+            })
+            .collect(),
+        indexes: Vec::new(),
+        comment: None,
+    })
 }

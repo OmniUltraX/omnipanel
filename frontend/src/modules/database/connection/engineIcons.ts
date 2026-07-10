@@ -1,3 +1,5 @@
+import mongoDark from "../../../assets/icons/mongo-dark.svg";
+import mongoLight from "../../../assets/icons/mongo-light.svg";
 import mysqlDark from "../../../assets/icons/mysql-dark.svg";
 import mysqlLight from "../../../assets/icons/mysql-light.svg";
 import postgresql from "../../../assets/icons/postgresql.svg";
@@ -15,19 +17,19 @@ export type DbEngine =
 /**
  * 每种数据源在 light / dark 主题下的 logo。
  *
- * - mysql：分别提供 light / dark 两套配色
+ * - mysql / mongodb：分别提供 light / dark 两套配色
  * - redis：只有一份 svg，light / dark 主题共用
  * - postgresql：单份 svg，light / dark 共用
- * - sqlserver / mongodb：暂无 logo，调用方需自行回退
+ * - sqlserver：暂无 logo，调用方需自行回退
  * - sqlite：单份 svg，light / dark 共用
  */
 const ENGINE_ICONS: Record<DbEngine, { light: string; dark: string } | null> = {
   mysql: { light: mysqlLight, dark: mysqlDark },
+  mongodb: { light: mongoLight, dark: mongoDark },
   redis: { light: redis, dark: redis },
   postgresql: { light: postgresql, dark: postgresql },
   sqlite: { light: sqlite, dark: sqlite },
   sqlserver: null,
-  mongodb: null,
 };
 
 export function getEngineIcon(
@@ -44,6 +46,8 @@ const ENGINE_ALIASES: Record<string, DbEngine> = {
   postgresql: "postgresql",
   postgres: "postgresql",
   pg: "postgresql",
+  mongodb: "mongodb",
+  mongo: "mongodb",
 };
 
 export function resolveDbEngineType(dbType: string): DbEngine | null {

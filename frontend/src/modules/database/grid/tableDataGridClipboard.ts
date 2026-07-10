@@ -1,5 +1,5 @@
 import { resolvePreviewRowKey } from "../workspace/dbWorkspaceState";
-import { matrixToCsv } from "../shared/csvExport";
+import { matrixToDelimited, type DelimitedTextFormat } from "../shared/delimitedText";
 import { ROW_NUM_COL_ID, TRANSPOSE_FIELD_COL } from "./tableDataGridConstants";
 import { normalizeRange, type CellRange } from "./tableDataGridSelection";
 
@@ -21,7 +21,7 @@ export function extractRowValuesFromIndex(
   return data;
 }
 
-export function buildCellRangeCsv(
+export function buildCellRangeClipboardText(
   range: CellRange,
   leafColumns: { id: string }[],
   tableRows: { index: number; original: Record<string, unknown> }[],
@@ -29,6 +29,7 @@ export function buildCellRangeCsv(
     pkCols: { name: string }[];
     transposed: boolean;
     displayCellOverrides?: Record<string, Record<string, unknown>>;
+    format?: DelimitedTextFormat;
   },
 ): string {
   const { minRow, maxRow, minCol, maxCol } = normalizeRange(range);
@@ -55,10 +56,24 @@ export function buildCellRangeCsv(
     }
     matrix.push(line);
   }
-  return matrixToCsv(matrix);
+  return matrixToDelimited(matrix, opts.format ?? "csv");
 }
 
-export function buildSelectedRowsCsv(
+/** @deprecated 使用 buildCellRangeClipboardText */
+export function buildCellRangeCsv(
+  range: CellRange,
+  leafColumns: { id: string }[],
+  tableRows: { index: number; original: Record<string, unknown> }[],
+  opts: {
+    pkCols: { name: string }[];
+    transposed: boolean;
+    displayCellOverrides?: Record<string, Record<string, unknown>>;
+  },
+): string {
+  return buildCellRangeClipboardText(range, leafColumns, tableRows, { ...opts, format: "csv" });
+}
+
+export function buildSelectedRowsClipboardText(
   selectedRows: ReadonlySet<number>,
   leafColumns: { id: string }[],
   tableRows: { index: number; original: Record<string, unknown> }[],
@@ -66,6 +81,7 @@ export function buildSelectedRowsCsv(
     pkCols: { name: string }[];
     transposed: boolean;
     displayCellOverrides?: Record<string, Record<string, unknown>>;
+    format?: DelimitedTextFormat;
   },
 ): string {
   if (selectedRows.size === 0) return "";
@@ -87,5 +103,19 @@ export function buildSelectedRowsCsv(
     }
     matrix.push(line);
   }
-  return matrixToCsv(matrix);
+  return matrixToDelimited(matrix, opts.format ?? "csv");
+}
+
+/** @deprecated 使用 buildSelectedRowsClipboardText */
+export function buildSelectedRowsCsv(
+  selectedRows: ReadonlySet<number>,
+  leafColumns: { id: string }[],
+  tableRows: { index: number; original: Record<string, unknown> }[],
+  opts: {
+    pkCols: { name: string }[];
+    transposed: boolean;
+    displayCellOverrides?: Record<string, Record<string, unknown>>;
+  },
+): string {
+  return buildSelectedRowsClipboardText(selectedRows, leafColumns, tableRows, { ...opts, format: "csv" });
 }

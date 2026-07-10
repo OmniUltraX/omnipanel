@@ -84,10 +84,20 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
 
 export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
   const rawType = conn.db_type.toLowerCase();
-  const engine: ConnectionFormData["engine"] =
-    rawType === "sqlite3"
-      ? "sqlite"
-      : (conn.db_type as ConnectionFormData["engine"]);
+  let engine: ConnectionFormData["engine"];
+  if (rawType === "sqlite3") {
+    engine = "sqlite";
+  } else if (rawType === "mongo") {
+    engine = "mongodb";
+  } else if (rawType === "mariadb") {
+    engine = "mysql";
+  } else if (rawType === "postgres" || rawType === "pg") {
+    engine = "postgresql";
+  } else if (rawType === "mssql" || rawType === "sql server") {
+    engine = "sqlserver";
+  } else {
+    engine = conn.db_type as ConnectionFormData["engine"];
+  }
   return {
     engine,
     name: conn.name,
@@ -106,22 +116,25 @@ export function isSupportedEngine(engine: ConnectionFormData["engine"]): boolean
     engine === "mysql" ||
     engine === "postgresql" ||
     engine === "sqlite" ||
-    engine === "redis"
+    engine === "redis" ||
+    engine === "mongodb"
   );
 }
 
-/** Redis 等 KV 引擎的「表」节点无字段/索引子树。 */
+/** Redis / MongoDB 等文档或 KV 引擎的「表」节点无传统字段/索引子树。 */
 export function connectionHasTableSchemaChildren(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return connection.db_type !== "redis";
+  const engine = connection.db_type.toLowerCase();
+  return engine !== "redis" && engine !== "mongodb" && engine !== "mongo";
 }
 
-/** 可在 SQL 编辑器中执行查询的连接（排除 Redis 等 KV 引擎）。 */
+/** 可在 SQL 编辑器中执行查询的连接（排除 Redis / MongoDB 等非 SQL 引擎）。 */
 export function isSqlCapableConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return connection.db_type !== "redis";
+  const engine = connection.db_type.toLowerCase();
+  return engine !== "redis" && engine !== "mongodb" && engine !== "mongo";
 }
 
 /** 数据传输工具箱支持的连接（关系型库；排除 Redis / MongoDB 等）。 */
@@ -144,6 +157,14 @@ export function isMysqlConnectionInfoCapable(
 ): boolean {
   const engine = connection.db_type.toLowerCase();
   return engine === "mysql" || engine === "mariadb";
+}
+
+/** MongoDB 连接（集合预览）。 */
+export function isMongoConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = connection.db_type.toLowerCase();
+  return engine === "mongodb" || engine === "mongo";
 }
 
 /** Redis 连接（键值查询面板）。 */

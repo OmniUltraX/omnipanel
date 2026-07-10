@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, startTransition, type ReactNode } from "react";
+import { useCallback, useMemo, startTransition, type ReactNode } from "react";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
 import { TerminalSessionSidebar } from "./TerminalSessionSidebar";
 import { TerminalSessionsChromeProvider } from "./TerminalSessionsChromeContext";
@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useSshHostResources } from "../../stores/connectionStore";
 import { useSshSelectionStore } from "../server/ssh/stores/sshSelectionStore";
 import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";
+import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 import { useI18n } from "../../i18n";
 
 function TerminalPanelIcon({ active }: { active?: boolean }) {
@@ -65,7 +66,7 @@ export function TerminalSessionsWorkspaceView({
   children,
 }: TerminalSessionsWorkspaceViewProps) {
   const { t } = useI18n();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarCollapsed = usePanelLayoutStore((s) => s.moduleLeftSidebarCollapsed);
   const leftPanelMode = useTerminalLeftPanelStore((s) => s.mode);
   const setLeftPanelMode = useTerminalLeftPanelStore((s) => s.setMode);
   const sshResources = useSshHostResources();
@@ -83,10 +84,6 @@ export function TerminalSessionsWorkspaceView({
   const selectionMode = useSshSelectionStore((s) => s.selectionMode);
   const selectedIds = useSshSelectionStore((s) => s.selectedIds);
   const isSshMode = leftPanelMode === "ssh";
-
-  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
-    setSidebarCollapsed(collapsed);
-  }, []);
 
   const sessionSidebar = useMemo(
     () => (
@@ -177,8 +174,6 @@ export function TerminalSessionsWorkspaceView({
       className={rootClass}
       leftColumnTitle={isSshMode ? t("routes.ssh") : t("routes.terminal")}
       leftIconRail={leftIconRail}
-      leftPreset={isSshMode ? "host" : "settings"}
-      onSidebarCollapsedChange={handleSidebarCollapsedChange}
       leftSidebar={dualSidebar}
     >
       {children}

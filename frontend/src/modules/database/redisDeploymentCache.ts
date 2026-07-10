@@ -1,5 +1,6 @@
 import type { DbConnectionConfig } from "./api";
 import type { RedisDeploymentInfo } from "./redisDeploymentDetect";
+import { notifyDeploymentCacheUpdated } from "./deploymentServerTag";
 
 const STORAGE_KEY = "omnipanel-redis-deployment-cache.v2";
 
@@ -70,6 +71,7 @@ export function writeRedisDeploymentCache(
     updatedAt: Date.now(),
   };
   writeStore(store);
+  notifyDeploymentCacheUpdated();
 }
 
 /** 清除指定连接的 Redis 部署缓存。 */
@@ -80,4 +82,5 @@ export function clearRedisDeploymentCache(connectionId: string): void {
   }
   delete store[connectionId];
   writeStore(store);
+  notifyDeploymentCacheUpdated();
 }

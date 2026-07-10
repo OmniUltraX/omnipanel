@@ -1,4 +1,4 @@
-//! 数据库访问层：`DbDriver` trait + MySQL / PostgreSQL / SQLite 三种实现，按 `db_type` 分发。
+//! 数据库访问层：`DbDriver` trait + MySQL / PostgreSQL / SQLite / Redis / MongoDB 实现，按 `db_type` 分发。
 //!
 //! 设计：远程网络数据库（MySQL/PostgreSQL）走 `sqlx` 异步连接池；本地 SQLite 走 `rusqlite`
 //! （与 `omnipanel-store` 共用同一 sqlite 后端，避免 `libsqlite3-sys` 版本冲突）。
@@ -9,10 +9,13 @@ use omnipanel_error::{OmniError, OmniResult};
 use serde::Serialize;
 use serde_json::Value;
 
+mod mongodb;
 mod mysql;
 mod postgres;
 mod redis;
 mod sqlite;
+
+pub use mongodb::MongoDriver;
 
 pub use mysql::mysql_connect_options;
 pub use postgres::postgres_connect_options;
@@ -126,10 +129,15 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
         }
         "sqlite" | "sqlite3" => Ok(Box::new(sqlite::SqliteDriver::connect(params).await?)),
         "redis" => Ok(Box::new(redis::RedisDriver::connect(params).await?)),
+        "mongodb" | "mongo" => Ok(Box::new(mongodb::MongoDriver::connect(params).await?)),
         other => Err(OmniError::invalid_input(format!(
             "不支持的数据库类型：{other}"
         ))),
     }
+}
+
+pub async fn mongodb_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
+    mongodb::MongoDriver::list_databases(params).await
 }
 
 /// Redis `CONFIG GET *`（两列：parameter / value）。

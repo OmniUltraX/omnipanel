@@ -1,5 +1,6 @@
 import type { DbConnectionConfig } from "./api";
 import type { MysqlDeploymentInfo } from "./mysqlDeploymentDetect";
+import { notifyDeploymentCacheUpdated } from "./deploymentServerTag";
 
 const STORAGE_KEY = "omnipanel-mysql-deployment-cache.v2";
 
@@ -70,6 +71,7 @@ export function writeMysqlDeploymentCache(
     updatedAt: Date.now(),
   };
   writeStore(store);
+  notifyDeploymentCacheUpdated();
 }
 
 /** 清除指定连接的部署缓存（连接删除等场景可选调用）。 */
@@ -80,4 +82,5 @@ export function clearMysqlDeploymentCache(connectionId: string): void {
   }
   delete store[connectionId];
   writeStore(store);
+  notifyDeploymentCacheUpdated();
 }

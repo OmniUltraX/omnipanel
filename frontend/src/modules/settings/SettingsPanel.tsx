@@ -1043,7 +1043,6 @@ export function SettingsPanel() {
 
   return (
     <SidebarWorkspace
-      preset="settings"
       className="settings-workspace"
       sidebar={
         <div className="settings-nav">

@@ -31,6 +31,10 @@ export function isNullCellValue(value: unknown): boolean {
   return value === null || value === undefined;
 }
 
+export function isEmptyCellValue(value: unknown): boolean {
+  return value === "";
+}
+
 export function formatCellDisplayText(
   value: unknown,
   opts: {

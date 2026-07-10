@@ -1,7 +1,7 @@
 import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
 import type { SshManagerContext } from "@/modules/server/ssh/hooks/useSshManager";
 import { MonitoringDashboard } from "@/modules/server/ssh/components/monitoring/MonitoringDashboard";
-import { ProcessListPanel } from "./ProcessListPanel";
+import { ProcessListPanel } from "@/components/server";
 
 type Props = Pick<SshManagerContext, "activeResource">;
 

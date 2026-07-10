@@ -3,90 +3,92 @@ import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import {
-  ServerWorkspace,
-  useServerWorkspaceTabState,
-  useServerWorkspaceTabs,
-  type ServerWorkspaceTab,
-} from "./panel/ServerWorkspace";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
-import { useServerPanelWorkspace } from "./panel/hooks/useServerPanelWorkspace";
 import { ServerPanelSidebar } from "./panel/ServerPanelSidebar";
 import { ServerSidebarLinkageProvider } from "./panel/ServerSidebarLinkageContext";
+import { ServerDockPanel } from "./panel/ServerDockPanel";
 import type { ServerPanelDockOpenMode } from "./panel/serverPanelWorkspaceTabs";
-import { SERVER_PATH } from "./panel/constants";
+import { makeServerTreeKey } from "./panel/serverResourceLabels";
+import type { ServerSidebarNavTarget } from "./panel/serverSidebarNav";
 import { connectionToServerEntry } from "./panel/panelConnection";
 import type { ServerEntry } from "./panel/serverConnection";
 import type { Connection } from "../../ipc/bindings";
+import {
+  useActiveServerPanelId,
+  useServerPanelDockStore,
+} from "../../stores/serverPanelDockStore";
 
 export function ServerPanel() {
   const { t } = useI18n();
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/server";
+  const moduleSuspended = useModuleSuspended();
+  const moduleLive = isActiveRoute && !moduleSuspended;
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
-  const selectedResourceByPath = useWorkspaceStore((s) => s.selectedResourceByPath);
-  const selectResource = useWorkspaceStore((s) => s.selectResource);
 
   const panelServers = useMemo(
     () => connections.filter((c) => c.kind === "panel").map(connectionToServerEntry),
     [connections],
   );
 
-  const activeServerId = selectedResourceByPath[SERVER_PATH] ?? panelServers[0]?.id ?? null;
+  const dockTabs = useServerPanelDockStore((s) => s.tabs);
+  const activeTabId = useServerPanelDockStore((s) => s.activeTabId);
+  const dockLayout = useServerPanelDockStore((s) => s.dockLayout);
+  const selectServer = useServerPanelDockStore((s) => s.selectServer);
+  const closeTab = useServerPanelDockStore((s) => s.closeTab);
+  const setActiveTabId = useServerPanelDockStore((s) => s.setActiveTabId);
+  const setDockLayout = useServerPanelDockStore((s) => s.setDockLayout);
+  const removeServerTabs = useServerPanelDockStore((s) => s.removeServerTabs);
 
-  const serverWorkspace = useServerPanelWorkspace(panelServers);
+  const activeServerId = useActiveServerPanelId();
 
   const [showDialog, setShowDialog] = useState(false);
   const [editPanelConnection, setEditPanelConnection] = useState<Connection | undefined>();
-  const [tab, setTab] = useServerWorkspaceTabState();
-  const topbarTabs = useServerWorkspaceTabs(tab);
+  const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
+  const [navTarget, setNavTarget] = useState<ServerSidebarNavTarget | null>(null);
 
-  const segmentTabs = useMemo(
-    () => topbarTabs.map(({ id, label }) => ({ id, label })),
-    [topbarTabs],
-  );
-
-  const resolvedServerId = serverWorkspace.activeServerId ?? activeServerId;
-
-  const sidebarLinkageValue = useMemo(
-    () => ({
-      activeServerId: resolvedServerId,
-    }),
-    [resolvedServerId],
-  );
+  const serverById = useMemo(() => {
+    const map = new Map<string, ServerEntry>();
+    for (const server of panelServers) {
+      map.set(server.id, server);
+    }
+    return map;
+  }, [panelServers]);
 
   useEffect(() => {
-    if (!selectedResourceByPath[SERVER_PATH] && panelServers[0]) {
-      selectResource(panelServers[0].id, SERVER_PATH);
+    const validIds = new Set(panelServers.map((server) => server.id));
+    const staleServerIds = [
+      ...new Set(
+        useServerPanelDockStore
+          .getState()
+          .tabs.filter((tab) => !validIds.has(tab.serverId))
+          .map((tab) => tab.serverId),
+      ),
+    ];
+    for (const serverId of staleServerIds) {
+      removeServerTabs(serverId);
     }
-  }, [panelServers, selectedResourceByPath, selectResource]);
+  }, [panelServers, removeServerTabs]);
 
-  const handleSidebarSelectServer = useCallback(
-    (serverId: string, mode?: ServerPanelDockOpenMode) => {
-      serverWorkspace.handleSelectServer(serverId, mode);
-      selectResource(serverId, SERVER_PATH);
+  const handleNavigate = useCallback(
+    (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
+      selectServer(target.serverId, mode);
+      setNavTarget(target);
+      if (target.itemId && target.detailTab) {
+        setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab, target.itemId));
+      } else if (target.detailTab) {
+        setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab));
+      } else {
+        setActiveNavKey(makeServerTreeKey(target.serverId));
+      }
     },
-    [selectResource, serverWorkspace],
+    [selectServer],
   );
-
-  useEffect(() => {
-    if (!activeServerId) {
-      return;
-    }
-    const { activeServerId: workspaceActiveId, handleSelectServer } = serverWorkspace;
-    if (workspaceActiveId !== activeServerId) {
-      handleSelectServer(activeServerId, "permanent");
-    }
-  }, [
-    activeServerId,
-    serverWorkspace.activeServerId,
-    serverWorkspace.handleSelectServer,
-  ]);
 
   const handleCreateServer = useCallback(() => {
     setEditPanelConnection(undefined);
@@ -105,29 +107,62 @@ export function ServerPanel() {
   const handleDeleteServer = useCallback(
     async (serverId: string) => {
       if (!(await appConfirm(t("server.sidebar.delete")))) return;
+      removeServerTabs(serverId);
       await removeConn(serverId);
     },
-    [removeConn, t],
+    [removeConn, removeServerTabs, t],
   );
 
-  const renderServerSegmentContent = useCallback(
-    (segmentTabId: ServerWorkspaceTab, serverId: string, isActive: boolean) => {
-      if (!isActive) {
+  const moduleDockTabs = useMemo(
+    () =>
+      dockTabs
+        .map((tab) => {
+          const server = serverById.get(tab.serverId);
+          if (!server) return null;
+          return {
+            id: tab.id,
+            label: server.name,
+            panelType: "server-panel",
+            closable: true,
+            preview: tab.preview,
+            tooltip: server.address,
+          };
+        })
+        .filter((tab): tab is NonNullable<typeof tab> => tab != null),
+    [dockTabs, serverById],
+  );
+
+  const renderServerPanel = useCallback(
+    (tabId: string) => {
+      const tab = dockTabs.find((item) => item.id === tabId);
+      if (!tab) {
         return <div className="server-panel-tab-pane" aria-hidden />;
       }
-
-      const server = panelServers.find((item) => item.id === serverId);
+      const server = serverById.get(tab.serverId);
       if (!server) {
         return <div className="server-panel-tab-pane" aria-hidden />;
       }
-
       return (
         <div className="server-main">
-          <ServerWorkspace server={server} tab={segmentTabId} />
+          <ServerDockPanel
+            server={server}
+            isActive={activeTabId === tabId}
+            moduleLive={moduleLive}
+            navTarget={navTarget?.serverId === server.id ? navTarget : null}
+          />
         </div>
       );
     },
-    [panelServers],
+    [activeTabId, dockTabs, moduleLive, navTarget, serverById],
+  );
+
+  const sidebarLinkageValue = useMemo(
+    () => ({
+      activeServerId,
+      activeNavKey,
+      onNavigate: handleNavigate,
+    }),
+    [activeNavKey, activeServerId, handleNavigate],
   );
 
   return (
@@ -140,7 +175,6 @@ export function ServerPanel() {
           leftSidebar={
             <ServerPanelSidebar
               servers={panelServers}
-              onSelectServer={handleSidebarSelectServer}
               onCreateServer={handleCreateServer}
               onEditServer={handleEditServer}
               onDeleteServer={handleDeleteServer}
@@ -149,21 +183,21 @@ export function ServerPanel() {
         >
           <ModuleSegmentDock
             className="server-module-dock"
-            variant="function"
-            tabs={segmentTabs}
-            activeTabId={tab}
-            onActiveTabChange={(id) => setTab(id as ServerWorkspaceTab)}
+            variant="workspace"
+            dockScope="server-panel"
+            tabs={moduleDockTabs}
+            activeTabId={activeTabId ?? ""}
+            onActiveTabChange={setActiveTabId}
+            onCloseTab={closeTab}
             enabled={isActiveRoute}
-            panelContentKey={resolvedServerId ?? "none"}
-            renderPanel={(segmentTabId) =>
-              resolvedServerId ? (
-                renderServerSegmentContent(segmentTabId as ServerWorkspaceTab, resolvedServerId, true)
-              ) : (
-                <WorkspaceEmptyPage
-                  title={t("routes.server")}
-                  prompt={t("server.empty.selectServer")}
-                />
-              )
+            savedLayout={dockLayout}
+            onSavedLayoutChange={setDockLayout}
+            renderPanel={renderServerPanel}
+            emptyContent={
+              <WorkspaceEmptyPage
+                title={t("routes.server")}
+                prompt={t("server.empty.selectServer")}
+              />
             }
           />
         </ModuleWorkspaceLayout>

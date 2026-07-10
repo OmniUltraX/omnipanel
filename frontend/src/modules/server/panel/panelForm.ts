@@ -10,6 +10,7 @@ export interface PanelFormData {
   panelKey: string;
   serviceType: "bt" | "1panel";
   remark: string;
+  sshConnectionId: string;
 }
 
 export const EMPTY_PANEL_FORM: PanelFormData = {
@@ -20,6 +21,7 @@ export const EMPTY_PANEL_FORM: PanelFormData = {
   panelKey: "",
   serviceType: "bt",
   remark: "",
+  sshConnectionId: "",
 };
 
 const ENV_OPTIONS = ["local", "dev", "staging", "prod", "unknown"] as const;
@@ -45,6 +47,7 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
     panelKey: panel.key,
     serviceType: panel.serviceType,
     remark,
+    sshConnectionId: panel.sshConnectionId ?? "",
   };
 }
 
@@ -58,10 +61,12 @@ export function buildPanelOnlyConnection(
     serviceType: form.serviceType,
     remark: form.remark.trim() || undefined,
   };
-  if (existing) {
+  if (form.sshConnectionId.trim()) {
+    config.sshConnectionId = form.sshConnectionId.trim();
+  } else if (existing) {
     const prev = parsePanelConfig(existing);
     if (prev.sshConnectionId) {
-      config.sshConnectionId = prev.sshConnectionId;
+      delete config.sshConnectionId;
     }
   }
   const now = Date.now();

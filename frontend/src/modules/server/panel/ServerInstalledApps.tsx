@@ -18,6 +18,7 @@ import { useInstalledApps } from "./useInstalledApps";
 interface ServerInstalledAppsProps {
   server: ServerEntry;
   embedded?: boolean;
+  selectedAppUid?: string;
 }
 
 function ServerAppCard({
@@ -118,10 +119,16 @@ function ServerAppCard({
   );
 }
 
-export function ServerInstalledApps({ server, embedded = false }: ServerInstalledAppsProps) {
+export function ServerInstalledApps({ server, embedded = false, selectedAppUid }: ServerInstalledAppsProps) {
   const { t } = useI18n();
   const { apps, total, loading, error, refresh } = useInstalledApps(server);
   const [selectedApp, setSelectedApp] = useState<ServerInstalledApp | null>(null);
+
+  useEffect(() => {
+    if (!selectedAppUid) return;
+    const app = apps.find((item) => item.uid === selectedAppUid);
+    if (app) setSelectedApp(app);
+  }, [apps, selectedAppUid]);
 
   if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
     return (
