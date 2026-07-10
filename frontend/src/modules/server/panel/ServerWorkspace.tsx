@@ -3,50 +3,71 @@ import { useI18n } from "../../../i18n";
 import { usePersistedModuleTab } from "../../../hooks/usePersistedModuleTab";
 import type { ServerEntry } from "./serverConnection";
 import { ServerInstalledApps } from "./ServerInstalledApps";
-import { ServerMonitorTab } from "./tabs/ServerMonitorTab";
-import { ServerProcessesTab } from "./tabs/ServerProcessesTab";
+import { ServerPanelProcessesTab } from "@/components/server";
 import { ServerWebsitesTab } from "./tabs/ServerWebsitesTab";
-import { ServerDatabasesTab } from "./tabs/ServerDatabasesTab";
 import { ServerCertificatesTab } from "./tabs/ServerCertificatesTab";
-import { ServerCronjobsTab } from "./tabs/ServerCronjobsTab";
-import { ServerLogsTab } from "./tabs/ServerLogsTab";
 
-export type ServerWorkspaceTab =
-  | "monitor"
+export type ServerDetailTab =
   | "processes"
   | "apps"
   | "websites"
-  | "databases"
-  | "certificates"
-  | "cronjobs"
-  | "logs";
+  | "certificates";
 
-interface ServerWorkspaceProps {
+const DETAIL_TAB_DEFS = [
+  { id: "processes", icon: "processes" as const },
+  { id: "apps", icon: "services" as const },
+  { id: "websites" },
+  { id: "certificates" },
+] as const;
+
+export function ServerDetailTabContent({
+  server,
+  tab,
+  selectedItemId,
+}: {
   server: ServerEntry;
-  tab: ServerWorkspaceTab;
-  /** Monitor 等子页是否处于可见激活态（用于轮询门控） */
-  active?: boolean;
-}
-
-export function ServerWorkspace({ server, tab, active = true }: ServerWorkspaceProps) {
+  tab: ServerDetailTab;
+  selectedItemId?: string | null;
+}) {
   return (
-    <div className="server-workspace">
-      <div className="server-workspace-content">
-        <div className="server-content">
-          {tab === "monitor" && <ServerMonitorTab server={server} active={active} />}
-          {tab === "processes" && <ServerProcessesTab server={server} />}
-          {tab === "apps" && <ServerInstalledApps server={server} embedded />}
-          {tab === "websites" && <ServerWebsitesTab server={server} />}
-          {tab === "databases" && <ServerDatabasesTab server={server} />}
-          {tab === "certificates" && <ServerCertificatesTab server={server} />}
-          {tab === "cronjobs" && <ServerCronjobsTab server={server} />}
-          {tab === "logs" && <ServerLogsTab server={server} />}
-        </div>
-      </div>
+    <div className="server-content">
+      {tab === "processes" && <ServerPanelProcessesTab server={server} />}
+      {tab === "apps" && (
+        <ServerInstalledApps server={server} embedded selectedAppUid={selectedItemId ?? undefined} />
+      )}
+      {tab === "websites" && (
+        <ServerWebsitesTab server={server} selectedItemId={selectedItemId ?? undefined} />
+      )}
+      {tab === "certificates" && (
+        <ServerCertificatesTab server={server} selectedItemId={selectedItemId ?? undefined} />
+      )}
     </div>
   );
 }
 
+export function useServerDetailTabs(activeTab: ServerDetailTab) {
+  const { t } = useI18n();
+
+  return useMemo(() => {
+    const labels: Record<ServerDetailTab, string> = {
+      processes: t("server.tabs.processes"),
+      apps: t("server.tabs.apps"),
+      websites: t("server.tabs.websites"),
+      certificates: t("server.tabs.certificates"),
+    };
+    return DETAIL_TAB_DEFS.map((item) => ({
+      id: item.id,
+      label: labels[item.id],
+      icon: "icon" in item ? item.icon : undefined,
+      active: activeTab === item.id,
+    }));
+  }, [activeTab, t]);
+}
+
+/** @deprecated 模块级顶栏 Tab 已迁移至每服务器 dock 内分段 Tab */
+export type ServerWorkspaceTab = "monitor" | ServerDetailTab;
+
+/** @deprecated 模块级顶栏 Tab 已迁移至每服务器 dock 内分段 Tab */
 export function useServerWorkspaceTabs(activeTab: ServerWorkspaceTab) {
   const { t } = useI18n();
 
@@ -55,17 +76,11 @@ export function useServerWorkspaceTabs(activeTab: ServerWorkspaceTab) {
       (
         [
           { id: "monitor", label: t("server.tabs.monitor"), icon: "monitor" as const },
-          { id: "processes", label: t("server.tabs.processes"), icon: "processes" as const },
-          { id: "apps", label: t("server.tabs.apps"), icon: "services" as const },
-          { id: "websites", label: t("server.tabs.websites") },
-          { id: "databases", label: t("server.tabs.databases") },
-          { id: "certificates", label: t("server.tabs.certificates") },
-          { id: "cronjobs", label: t("server.tabs.cronjobs") },
-          { id: "logs", label: t("server.tabs.logs"), icon: "logs" as const },
+          ...DETAIL_TAB_DEFS,
         ] as const
       ).map((item) => ({
         id: item.id,
-        label: item.label,
+        label: t(`server.tabs.${item.id}` as "server.tabs.monitor"),
         icon: "icon" in item ? item.icon : undefined,
         active: activeTab === item.id,
       })),
@@ -73,16 +88,14 @@ export function useServerWorkspaceTabs(activeTab: ServerWorkspaceTab) {
   );
 }
 
+/** @deprecated 使用 per-server `usePersistedModuleTab('server-panel-${id}', ...)` */
 export function useServerWorkspaceTabState() {
   const validTabs: ServerWorkspaceTab[] = [
     "monitor",
     "processes",
     "apps",
     "websites",
-    "databases",
     "certificates",
-    "cronjobs",
-    "logs",
   ];
   return usePersistedModuleTab("server", "monitor", validTabs);
 }
