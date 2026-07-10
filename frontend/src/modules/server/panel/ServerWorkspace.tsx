@@ -1,4 +1,5 @@
-import { useMemo } from "react";import { useI18n } from "../../../i18n";
+import { useMemo } from "react";
+import { useI18n } from "../../../i18n";
 import { usePersistedModuleTab } from "../../../hooks/usePersistedModuleTab";
 import type { ServerEntry } from "./serverConnection";
 import { ServerInstalledApps } from "./ServerInstalledApps";
@@ -23,14 +24,16 @@ export type ServerWorkspaceTab =
 interface ServerWorkspaceProps {
   server: ServerEntry;
   tab: ServerWorkspaceTab;
+  /** Monitor 等子页是否处于可见激活态（用于轮询门控） */
+  active?: boolean;
 }
 
-export function ServerWorkspace({ server, tab }: ServerWorkspaceProps) {
+export function ServerWorkspace({ server, tab, active = true }: ServerWorkspaceProps) {
   return (
     <div className="server-workspace">
       <div className="server-workspace-content">
         <div className="server-content">
-          {tab === "monitor" && <ServerMonitorTab server={server} />}
+          {tab === "monitor" && <ServerMonitorTab server={server} active={active} />}
           {tab === "processes" && <ServerProcessesTab server={server} />}
           {tab === "apps" && <ServerInstalledApps server={server} embedded />}
           {tab === "websites" && <ServerWebsitesTab server={server} />}

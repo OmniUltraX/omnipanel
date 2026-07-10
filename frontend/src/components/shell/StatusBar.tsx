@@ -19,6 +19,8 @@ import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { BackgroundTasksWindow } from "./BackgroundTasksWindow";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
+import { StatusBarActionBar } from "./StatusBarActionBar";
+import { StatusBarInfoBar } from "./StatusBarInfoBar";
 
 /** 全局后台任务进度（切换模块后仍展示） */
 function StatusBarBackgroundTaskLog() {
@@ -240,6 +242,8 @@ export function StatusBar() {
           {time}
         </span>
         <span className="statusbar-spacer" />
+        <StatusBarInfoBar />
+        <StatusBarActionBar />
         <span className="statusbar-item" style={{ color: "var(--meta)" }}>
           Ctrl+K: Command Palette
         </span>
@@ -259,6 +263,8 @@ export function StatusBar() {
       <StatusBarModuleLog />
       <BackgroundTasksWindow />
       <span className="statusbar-spacer" />
+      <StatusBarInfoBar />
+      <StatusBarActionBar />
       <StatusBarAiServicesIndicator />
       {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
     </div>

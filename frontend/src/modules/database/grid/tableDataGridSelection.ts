@@ -123,6 +123,115 @@ export function collectSelectedRowIndices(
   return [...merged].sort((a, b) => a - b);
 }
 
+export function resolveCellTargetAt(
+  row: number,
+  col: number,
+  leafColumns: { id: string }[],
+  tableRows: { index: number; original: Record<string, unknown> }[],
+  opts: {
+    transposed: boolean;
+    rows: Record<string, unknown>[];
+  },
+): TableDataGridActiveCell | null {
+  const column = leafColumns[col];
+  if (!column || column.id === ROW_NUM_COL_ID) return null;
+  if (opts.transposed && column.id === TRANSPOSE_FIELD_COL) return null;
+
+  const tableRow = tableRows[row];
+  if (!tableRow) return null;
+
+  if (opts.transposed) {
+    const mapped = resolveTransposedDataCellContext(column.id, tableRow.original, opts.rows);
+    if (!mapped) return null;
+    return {
+      rowIndex: mapped.originalRowIndex,
+      column: mapped.fieldColumn,
+      row: mapped.originalRow,
+    };
+  }
+
+  return {
+    rowIndex: tableRow.index,
+    column: column.id,
+    row: tableRow.original,
+  };
+}
+
+export function collectSelectedCellTargets(
+  cellRange: CellRange | null,
+  selectedRows: ReadonlySet<number>,
+  leafColumns: { id: string }[],
+  tableRows: { index: number; original: Record<string, unknown> }[],
+  leafColumnCount: number,
+  opts: {
+    transposed: boolean;
+    rows: Record<string, unknown>[];
+  },
+): TableDataGridActiveCell[] {
+  const targets: TableDataGridActiveCell[] = [];
+
+  if (cellRange) {
+    const { minRow, maxRow, minCol, maxCol } = normalizeRange(cellRange);
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const target = resolveCellTargetAt(row, col, leafColumns, tableRows, opts);
+        if (target) targets.push(target);
+      }
+    }
+    return targets;
+  }
+
+  if (selectedRows.size > 0) {
+    const dataColIndexes = leafColumns
+      .map((col, index) => ({ col, index }))
+      .filter(({ col }) => col.id !== ROW_NUM_COL_ID)
+      .map(({ index }) => index);
+    for (const row of [...selectedRows].sort((a, b) => a - b)) {
+      for (const col of dataColIndexes) {
+        const target = resolveCellTargetAt(row, col, leafColumns, tableRows, opts);
+        if (target) targets.push(target);
+      }
+    }
+    return targets;
+  }
+
+  if (leafColumnCount <= 0) {
+    return targets;
+  }
+  return targets;
+}
+
+export function resolvePasteBounds(
+  cellRange: CellRange | null,
+  selectedRows: ReadonlySet<number>,
+  leafColumnCount: number,
+  rowCount: number,
+): { startRow: number; startCol: number; endRow: number; endCol: number } | null {
+  if (rowCount <= 0 || leafColumnCount <= 0) return null;
+
+  if (cellRange) {
+    const { minRow, maxRow, minCol, maxCol } = normalizeRange(cellRange);
+    return {
+      startRow: minRow,
+      startCol: minCol,
+      endRow: maxRow,
+      endCol: maxCol,
+    };
+  }
+
+  if (selectedRows.size > 0) {
+    const sorted = [...selectedRows].sort((a, b) => a - b);
+    return {
+      startRow: sorted[0] ?? 0,
+      startCol: 0,
+      endRow: sorted[sorted.length - 1] ?? 0,
+      endCol: leafColumnCount - 1,
+    };
+  }
+
+  return null;
+}
+
 export function resolveSingleSelectedCell(
   range: CellRange | null,
   leafColumns: { id: string }[],
@@ -135,28 +244,20 @@ export function resolveSingleSelectedCell(
   if (!range) return null;
   const { minRow, maxRow, minCol, maxCol } = normalizeRange(range);
   if (minRow !== maxRow || minCol !== maxCol) return null;
-  const col = leafColumns[minCol];
-  if (!col || col.id === ROW_NUM_COL_ID) return null;
-  if (opts.transposed && col.id === TRANSPOSE_FIELD_COL) return null;
+  return resolveCellTargetAt(minRow, minCol, leafColumns, tableRows, opts);
+}
 
-  const tableRow = tableRows[minRow];
-  if (!tableRow) return null;
+export function selectionTargetKey(cell: TableDataGridActiveCell | null): string | null {
+  if (!cell) return null;
+  return `${cell.rowIndex}:${cell.column}`;
+}
 
-  if (opts.transposed) {
-    const mapped = resolveTransposedDataCellContext(col.id, tableRow.original, opts.rows);
-    if (!mapped) return null;
-    return {
-      rowIndex: mapped.originalRowIndex,
-      column: mapped.fieldColumn,
-      row: mapped.originalRow,
-    };
-  }
-
-  return {
-    rowIndex: tableRow.index,
-    column: col.id,
-    row: tableRow.original,
-  };
+export function selectionTargetsKey(cells: readonly TableDataGridActiveCell[]): string {
+  if (cells.length === 0) return "";
+  return cells
+    .map((cell) => `${cell.rowIndex}:${cell.column}`)
+    .sort()
+    .join("|");
 }
 
 export function isEditableTextTarget(target: EventTarget | null): boolean {

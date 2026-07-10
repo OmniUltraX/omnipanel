@@ -63,6 +63,10 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DockableTab } from "./dockableTab";
 import { useModuleVisibility } from "../../lib/moduleVisibility";
+import {
+  publishStatusBarActiveDock,
+  useStatusBarActionBarStore,
+} from "../../stores/statusBarActionBarStore";
 
 export type { DockableTab } from "./dockableTab";
 
@@ -686,6 +690,18 @@ export function DockableWorkspace({
   // 自定义 tab 关闭按钮 drag-ignore；windowControl 时整段 Tab 栏标记 no-drag
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const { active: moduleActive } = useModuleVisibility();
+  const moduleActiveRef = useRef(moduleActive);
+  moduleActiveRef.current = moduleActive;
+  const syncStatusBarActiveDockRef = useRef<(panelId: string | null) => void>(() => {});
+  syncStatusBarActiveDockRef.current = (panelId) => {
+    const tab = panelId ? tabsRef.current.find((item) => item.id === panelId) : undefined;
+    publishStatusBarActiveDock(
+      dockScopeRef.current,
+      panelId,
+      tab ? { panelType: tab.panelType, label: tab.label } : undefined,
+      moduleActiveRef.current,
+    );
+  };
   const wasHiddenRef = useRef(true);
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
 
@@ -1462,6 +1478,7 @@ export function DockableWorkspace({
         isProgrammaticActiveRef.current = false;
       }
     }
+    syncStatusBarActiveDockRef.current(activeTabId);
   }, [activeTabId, tabs]);
 
   // 接收外部 savedLayout 变化（如 store 重置）
@@ -1569,6 +1586,7 @@ export function DockableWorkspace({
         if (panel) {
           onActiveTabChangeRef.current(panel.id);
         }
+        syncStatusBarActiveDockRef.current(panel?.id ?? null);
       });
       const scheduleTabGroupSync = () => {
         if (!layoutLoadedRef.current) return;
@@ -1689,16 +1707,32 @@ export function DockableWorkspace({
             isProgrammaticActiveRef.current = false;
           }
         }
+        syncStatusBarActiveDockRef.current(initialActiveTabId);
       }
     },
     [applyInitialLayout, syncTabGroups],
   );
+
+  useEffect(() => {
+    if (!moduleActive) {
+      if (dockScopeRef.current) {
+        useStatusBarActionBarStore.getState().clearActiveDockIfScope(dockScopeRef.current);
+      }
+      return;
+    }
+    const api = apiRef.current;
+    const panelId = api?.activePanel?.id ?? activeTabIdRef.current ?? null;
+    syncStatusBarActiveDockRef.current(panelId);
+  }, [moduleActive]);
 
   // 卸载时清理
   useEffect(() => {
     return () => {
       for (const d of disposablesRef.current) d.dispose();
       disposablesRef.current = [];
+      if (dockScopeRef.current) {
+        useStatusBarActionBarStore.getState().clearActiveDockIfScope(dockScopeRef.current);
+      }
       if (viewIdRef.current) {
         unregisterDockviewInstance(viewIdRef.current);
         viewIdRef.current = null;

@@ -4,6 +4,7 @@ import {
   OnePanelApiError,
   type OnePanelApiEnvelope,
   type OnePanelDashboardBase,
+  type OnePanelDashboardCurrent,
   type OnePanelDeviceBase,
   type OnePanelHostInfo,
   type OnePanelInstalledApp,
@@ -235,6 +236,14 @@ export class OnePanelClient {
     return this.request<OnePanelDashboardBase>({
       method: "GET",
       path: `/dashboard/base/${ioOption}/${netOption}`,
+    });
+  }
+
+  /** GET /dashboard/current/:ioOption/:netOption — 仪表盘实时指标。 */
+  async getDashboardCurrent(ioOption = "all", netOption = "all"): Promise<OnePanelDashboardCurrent> {
+    return this.request<OnePanelDashboardCurrent>({
+      method: "GET",
+      path: `/dashboard/current/${ioOption}/${netOption}`,
     });
   }
 

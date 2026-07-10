@@ -90,6 +90,15 @@ import { snapshotToFilterStates } from "./schema/schemaFilters";
 import type { SchemaCacheConnectionEntry } from "./schema/schemaCache";
 import { submitSchemaCacheRefresh } from "./schema/schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
+import {
+  probeMysqlDeployment,
+} from "./mysqlDeploymentDetect";
+import { readMysqlDeploymentCache } from "./mysqlDeploymentCache";
+import {
+  resolveMysqlExportDeployment,
+  submitDbMysqlExport,
+} from "./mysqlExport";
+import { useDbConnectionInfoNavStore } from "./stores/dbConnectionInfoNavStore";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
@@ -550,6 +559,7 @@ export function DatabasePanel() {
   const removeTabWorkspaceData = useDbWorkspaceTabStore((state) => state.removeTabWorkspaceData);
 
   const workspaceTabsRef = useRef<DbWorkspaceTab[]>([]);
+  const openConnectionInfoTabRef = useRef<(connId: string, mode?: SchemaDockOpenMode) => void>(() => {});
   const [workspaceTabs, setWorkspaceTabsState] = useState<DbWorkspaceTab[]>([]);
   const setWorkspaceTabs = useCallback(
     (update: DbWorkspaceTab[] | ((prev: DbWorkspaceTab[]) => DbWorkspaceTab[])) => {
@@ -3084,6 +3094,34 @@ export function DatabasePanel() {
     [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
   );
 
+  const handleExportDatabase = useCallback(
+    async (connection: DbConnectionConfig, databaseName: string) => {
+      if (!isConnectionEnabled(connection)) {
+        showToast(t("database.export.connectionDisabled"));
+        return;
+      }
+      let deployment = readMysqlDeploymentCache(connection);
+      if (!deployment || deployment.kind === "unknown") {
+        try {
+          deployment = await probeMysqlDeployment(connection, sshConnections);
+        } catch {
+          deployment = deployment ?? null;
+        }
+      }
+      const exportDeployment = resolveMysqlExportDeployment(deployment);
+      try {
+        await submitDbMysqlExport(connection, databaseName, exportDeployment);
+        showToast(t("database.export.started", { database: databaseName }));
+        useDbConnectionInfoNavStore.getState().requestSubTab(connection.id, "exports");
+        openConnectionInfoTabRef.current(connection.id, "permanent");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        showToast(message || t("database.export.failed"));
+      }
+    },
+    [sshConnections, t],
+  );
+
   const buildSchemaContextMenuItems = useCallback(
     (item: SchemaTreeItem, context: SchemaContextMenuContext): ContextMenuItem[] => {
       const copyIcon = (
@@ -3129,6 +3167,31 @@ export function DatabasePanel() {
           <path d="M3 4l.7 9.1a1 1 0 0 0 1 .9h6.6a1 1 0 0 0 1-.9L13 4" />
         </svg>
       );
+      const exportIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M8 2v8" />
+          <path d="M5 7l3 3 3-3" />
+          <path d="M3 14h10" />
+        </svg>
+      );
+
+      if (item.type === "database" && item.dbName && context.connection) {
+        const connection = context.connection;
+        if (!isMysqlConnectionInfoCapable(connection)) {
+          return [];
+        }
+        return [
+          {
+            id: "export-database",
+            label: t("database.contextMenu.exportDatabase"),
+            icon: exportIcon,
+            disabled: !isConnectionEnabled(connection),
+            onClick: () => {
+              void handleExportDatabase(connection, item.dbName!);
+            },
+          },
+        ];
+      }
 
       if (item.type === "table" && context.tableSelection) {
         const selection = context.tableSelection;
@@ -3236,6 +3299,7 @@ export function DatabasePanel() {
       copyNameForTable,
       handleDesignTable,
       handleDeleteConnection,
+      handleExportDatabase,
       openSlowQueryLogTab,
       resolveSlowLogDisabledReason,
       slowLogAvailabilityByConnId,
@@ -3976,6 +4040,7 @@ export function DatabasePanel() {
     },
     [connections, groups, setActiveGroupId, activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
   );
+  openConnectionInfoTabRef.current = handleSelectConnection;
 
   const runQuery = useCallback(async (
     sqlOverride?: string,
@@ -4437,7 +4502,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-list",
               icon: "database" as const,
               tooltip: tab.label,
               closable: true,
@@ -4448,7 +4513,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-connection",
               icon: "database" as const,
               tooltip: t("database.connectionInfo.subtitle"),
               closable: true,
@@ -4459,7 +4524,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-redis",
               icon: "database" as const,
               tooltip: t("database.redisQuery.search"),
               closable: true,
@@ -4470,7 +4535,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-slow-query",
               icon: "database" as const,
               tooltip: t("database.slowQueryLog.tabTooltip", { name: tab.label }),
               closable: true,
@@ -4481,7 +4546,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: tab.toolboxTab === "dataSync" ? "database-data-sync" : "database-toolbox",
               icon: tab.toolboxTab === "dataSync" ? ("table" as const) : ("database" as const),
               tooltip: tab.label,
               closable: true,
@@ -4493,7 +4558,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-designer",
               type: "file" as const,
               dirty,
               saved: !dirty,
@@ -4507,7 +4572,7 @@ export function DatabasePanel() {
             return {
               id: tab.id,
               label: tab.label,
-              panelType: "database",
+              panelType: "database-tree-chart",
               type: "file" as const,
               saved: true,
               icon: "database" as const,
@@ -4522,7 +4587,7 @@ export function DatabasePanel() {
           return {
             id: tab.id,
             label: tab.label,
-            panelType: "database",
+            panelType: isTableTab ? "database-table" : "database-sql",
             ...(!isTableTab
               ? { type: "file" as const, dirty, saved }
               : {}),

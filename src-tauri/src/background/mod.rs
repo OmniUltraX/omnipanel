@@ -3,6 +3,7 @@ pub mod gpu_local;
 pub mod knowledge_vector_jobs;
 pub mod local_ports;
 pub mod local_system;
+pub mod mysql_export_jobs;
 pub mod schema_cache_jobs;
 pub mod ssh_pool;
 pub mod worker_pool;

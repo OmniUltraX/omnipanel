@@ -7267,6 +7267,155 @@ a {
         flex: 1;
     }
 
+    .statusbar-info-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        max-width: min(480px, 40vw);
+        overflow: hidden;
+        color: var(--fg-2);
+    }
+
+    .statusbar-info-bar .statusbar-item {
+        flex-shrink: 0;
+    }
+
+    .statusbar-info-bar .statusbar-item--truncate {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .statusbar-action-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        max-width: min(560px, 50vw);
+        overflow: hidden;
+    }
+
+    .statusbar-action-bar .statusbar-item {
+        flex-shrink: 0;
+    }
+
+    .statusbar-action-bar .statusbar-item--truncate {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .statusbar-action-bar__control {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
+    .statusbar-action-bar__label {
+        color: var(--meta);
+        white-space: nowrap;
+    }
+
+    .statusbar-action-bar__segment {
+        display: inline-flex;
+        align-items: center;
+        gap: 1px;
+        flex-shrink: 0;
+        padding: 1px;
+        border-radius: var(--r-sm);
+        background: var(--bg);
+        border: 1px solid var(--border);
+    }
+
+    .statusbar-action-bar__segment-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+        height: 18px;
+        padding: 0 6px;
+        border: none;
+        border-radius: calc(var(--r-sm) - 2px);
+        background: transparent;
+        color: var(--meta);
+        font: inherit;
+        font-size: 10px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .statusbar-action-bar__segment-btn:hover {
+        color: var(--fg);
+        background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+    }
+
+    .statusbar-action-bar__segment-btn.is-active {
+        color: var(--fg);
+        background: var(--accent-soft);
+    }
+
+    .statusbar-action-bar__segment-btn:focus-visible {
+        outline: 1px solid var(--accent, var(--primary));
+        outline-offset: 1px;
+    }
+
+    .statusbar-action-bar__trigger {
+        max-width: min(240px, 30vw);
+    }
+
+    .statusbar-action-bar-popover-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        min-width: 180px;
+    }
+
+    .statusbar-action-bar-popover-body .statusbar-action-bar__control {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--sp-1);
+    }
+
+    .statusbar-action-bar-popover-body .statusbar-action-bar__segment-btn {
+        min-width: 40px;
+        height: 22px;
+        font-size: 11px;
+    }
+
+    .statusbar-panel-popover {
+        position: fixed;
+        z-index: 10050;
+        min-width: 160px;
+        max-width: min(360px, 90vw);
+        padding: var(--sp-2) var(--sp-3);
+        background: var(--bg-elevated, var(--bg-deeper));
+        border: 1px solid var(--border);
+        border-radius: var(--radius, 6px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        font-size: 11px;
+        color: var(--text);
+        visibility: hidden;
+    }
+
+    .statusbar-panel-popover.is-ready {
+        visibility: visible;
+    }
+
+    .statusbar-panel-popover__title {
+        font-weight: 600;
+        margin-bottom: var(--sp-2);
+        color: var(--text);
+    }
+
+    .statusbar-panel-popover__body {
+        min-width: 0;
+    }
+
     .statusbar-log {
         display: flex;
         align-items: center;

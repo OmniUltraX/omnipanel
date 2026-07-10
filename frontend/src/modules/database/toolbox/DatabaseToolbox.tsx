@@ -577,7 +577,16 @@ export function DatabaseToolbox({
   }, [tab, sourceConnId, sourceDb, targetConnId, targetDb]);
 
   useEffect(() => {
-    if (tab !== "schemaSync") {
+    if (tab !== "schemaSync" && tab !== "dataSync") {
+      return;
+    }
+    if (!targetConfigured) {
+      return;
+    }
+    if (tab === "schemaSync" && (sourceSideBusy || targetSnapshot.loading)) {
+      return;
+    }
+    if (tab === "dataSync" && (sourceSideBusy || targetTablesLoading || sourceCatalogLoading)) {
       return;
     }
     const sourceEl = sourceListRef.current;
@@ -605,7 +614,14 @@ export function DatabaseToolbox({
       sourceEl.removeEventListener("scroll", onSourceScroll);
       targetEl.removeEventListener("scroll", onTargetScroll);
     };
-  }, [tab, targetConfigured, sourceSideBusy, targetSnapshot.loading]);
+  }, [
+    tab,
+    targetConfigured,
+    sourceSideBusy,
+    targetSnapshot.loading,
+    targetTablesLoading,
+    sourceCatalogLoading,
+  ]);
 
   useEffect(() => {
     if (!active) {
@@ -2367,8 +2383,46 @@ export function DatabaseToolbox({
     schemaRowHeightSyncKey,
   );
 
+  const tableAnalysisKey = useMemo(
+    () => JSON.stringify(tableAnalysis),
+    [tableAnalysis],
+  );
+
+  const dataSyncAlignedTableNames = useMemo(() => {
+    if (tab !== "dataSync") {
+      return EMPTY_SCHEMA_SYNC_TABLE_NAMES;
+    }
+    return [...sourceSelectedTableNames].sort((a, b) => a.localeCompare(b));
+  }, [tab, sourceSelectedTableNames]);
+
+  const dataSyncRowHeightSyncKey = useMemo(() => {
+    return `${dataSyncAlignedTableNames.join("\0")}\0${tableAnalysisKey}\0${tableSyncModesKey}`;
+  }, [dataSyncAlignedTableNames, tableAnalysisKey, tableSyncModesKey]);
+
+  const dataSyncRowHeightSyncEnabled =
+    tab === "dataSync" &&
+    targetConfigured &&
+    !sourceSideBusy &&
+    !targetTablesLoading &&
+    !sourceCatalogLoading &&
+    dataSyncAlignedTableNames.length > 0;
+
+  useSchemaRowHeightSync(
+    sourceListRef,
+    targetListRef,
+    dataSyncAlignedTableNames,
+    dataSyncRowHeightSyncEnabled,
+    dataSyncRowHeightSyncKey,
+  );
+
   useEffect(() => {
-    if (tab !== "schemaSync" || sourceExpanded.size === 0) {
+    if (tab !== "schemaSync" && tab !== "dataSync") {
+      return;
+    }
+    if (tab === "schemaSync" && sourceExpanded.size === 0) {
+      return;
+    }
+    if (tab === "dataSync" && dataSyncAlignedTableNames.length === 0) {
       return;
     }
     const sourceEl = sourceListRef.current;
@@ -2384,12 +2438,7 @@ export function DatabaseToolbox({
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [tab, expandedTablesKey, visibleSchemaAlignedTableNames]);
-
-  const tableAnalysisKey = useMemo(
-    () => JSON.stringify(tableAnalysis),
-    [tableAnalysis],
-  );
+  }, [tab, expandedTablesKey, visibleSchemaAlignedTableNames, dataSyncAlignedTableNames, tableAnalysisKey, tableSyncModesKey]);
 
   const targetRowCountsKey = useMemo(
     () => JSON.stringify(targetRowCounts),
@@ -2695,6 +2744,75 @@ export function DatabaseToolbox({
 
   const hasAnalysisResult =
     tab === "schemaSync" ? hasSchemaAnalysisResult : hasDataAnalysisResult;
+
+  const dataSyncEligibleTableCount = useMemo(() => {
+    if (tab !== "dataSync") {
+      return 0;
+    }
+    return sourceSelectedTableNames.filter((name) => targetTableNames.has(name)).length;
+  }, [tab, sourceSelectedTableNames, targetTableNames]);
+
+  const canAnalyzeAll = useMemo(() => {
+    if (tab !== "dataSync") {
+      return false;
+    }
+    if (!targetConfigured || !sourceDb.trim() || !targetDb.trim()) {
+      return false;
+    }
+    if (sourceSideBusy || targetTablesLoading) {
+      return false;
+    }
+    if (syncAnalysisBusy) {
+      return false;
+    }
+    return dataSyncEligibleTableCount > 0;
+  }, [
+    tab,
+    targetConfigured,
+    sourceDb,
+    targetDb,
+    sourceSideBusy,
+    targetTablesLoading,
+    syncAnalysisBusy,
+    dataSyncEligibleTableCount,
+  ]);
+
+  const analyzeAllDisabledReason = useMemo(() => {
+    if (tab !== "dataSync" || canAnalyzeAll) {
+      return null;
+    }
+    if (!targetConfigured) {
+      return t("database.toolbox.submitHintNoTarget");
+    }
+    if (sourceSelected.size === 0) {
+      return t("database.toolbox.submitHintNoSelection");
+    }
+    if (!sourceDb.trim() || !targetDb.trim()) {
+      return t("database.toolbox.submitHintNoDatabase");
+    }
+    if (sourceSideBusy || targetTablesLoading) {
+      return t("database.toolbox.submitHintLoading");
+    }
+    if (syncAnalysisBusy) {
+      return t("database.toolbox.submitHintBusy");
+    }
+    if (dataSyncEligibleTableCount === 0) {
+      return t("database.toolbox.analyzeAllHintNoEligible");
+    }
+    return null;
+  }, [
+    tab,
+    canAnalyzeAll,
+    targetConfigured,
+    sourceSelected.size,
+    sourceDb,
+    targetDb,
+    sourceSideBusy,
+    targetTablesLoading,
+    syncAnalysisBusy,
+    dataSyncEligibleTableCount,
+    t,
+  ]);
 
   const lastAnalysisTimeLabel = useMemo(
     () => (analysisAnalyzedAt !== null ? new Date(analysisAnalyzedAt).toLocaleString() : null),
@@ -3478,6 +3596,26 @@ export function DatabaseToolbox({
           )}
         </div>
         <div className="db-toolbox-footer__actions">
+          {tab === "dataSync" && targetConfigured && (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={!canAnalyzeAll}
+              title={
+                analyzeAllDisabledReason ??
+                (hasDataAnalysisResult
+                  ? t("database.toolbox.reanalyzeAllHint")
+                  : t("database.toolbox.analyzeAllHint"))
+              }
+              onClick={() => void handleDataAnalyze()}
+            >
+              {syncAnalysisBusy
+                ? t("database.toolbox.side.analysisAnalyzing")
+                : hasDataAnalysisResult
+                  ? t("database.toolbox.reanalyzeAll")
+                  : t("database.toolbox.analyzeAll")}
+            </Button>
+          )}
           <Button
             type="button"
             variant="default"

@@ -2,7 +2,7 @@ import { memo } from "react";
 
 import type { DbColumnMeta } from "../api";
 import { ColumnFilterButton, ColumnSortIndicator } from "./TableDataGridChrome";
-import { formatCellDisplayText, isNullCellValue } from "./tableDataGridFormat";
+import { formatCellDisplayText, isEmptyCellValue, isNullCellValue } from "./tableDataGridFormat";
 import { ROW_NUM_COL_ID } from "./tableDataGridConstants";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -102,11 +102,20 @@ export const TableDataGridCellContent = memo(function TableDataGridCellContent({
   });
   const isAutoIncrementPlaceholder = displayText === autoIncrementPlaceholder;
   const isNullValue = !isAutoIncrementPlaceholder && isNullCellValue(value);
+  const isEmptyValue = !isAutoIncrementPlaceholder && isEmptyCellValue(value);
 
   if (isNullValue) {
     return (
       <span className={["db-data-table-cell-null-tag", className].filter(Boolean).join(" ")}>
         {t("database.results.columnNullableShort")}
+      </span>
+    );
+  }
+
+  if (isEmptyValue) {
+    return (
+      <span className={["db-data-table-cell-empty-tag", className].filter(Boolean).join(" ")}>
+        {t("database.results.columnEmptyShort")}
       </span>
     );
   }

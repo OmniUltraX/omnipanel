@@ -494,6 +494,7 @@ function TargetSyncTableRow({
   return (
     <li
       className={`db-toolbox-table-row db-toolbox-table-row--target db-toolbox-table-row--target-sync${showSyncModes ? " db-toolbox-table-row--conflict" : ""}`}
+      data-schema-sync-row={tableName}
     >
       <span className="db-toolbox-table-row__name">{tableName}</span>
       {targetStatus && (
@@ -1538,7 +1539,7 @@ function DataSyncTableRow({
         : t("database.toolbox.side.rowCount", { count: table.rowCount });
 
   return (
-    <li className="db-toolbox-table-row">
+    <li className="db-toolbox-table-row" data-schema-sync-row={table.name}>
       <TableSelectCheckbox
         tableName={table.name}
         checked={selected}

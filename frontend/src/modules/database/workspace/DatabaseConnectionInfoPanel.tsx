@@ -34,11 +34,13 @@ import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
 
 import { buildMysqlCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
+import { ConnectionExportTabPanel } from "./ConnectionExportTabPanel";
+import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
 
 const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 const VARIABLES_SQL = "SHOW VARIABLES;";
 
-type ConnectionInfoSubTab = "connections" | "status" | "cli";
+type ConnectionInfoSubTab = "connections" | "status" | "cli" | "exports";
 
 type ProcessSortColumn = "user" | "host" | "db" | "time";
 type ProcessSortDirection = "asc" | "desc";
@@ -277,6 +279,9 @@ export function DatabaseConnectionInfoPanel({
     direction: "asc",
   });
   const [killingId, setKillingId] = useState<number | null>(null);
+  const [exportsCount, setExportsCount] = useState(0);
+  const [exportsRefreshToken, setExportsRefreshToken] = useState(0);
+  const consumeSubTab = useDbConnectionInfoNavStore((state) => state.consumeSubTab);
 
   const connectionLabel = useMemo(() => {
     const name = connection.name?.trim();
@@ -394,6 +399,8 @@ export function DatabaseConnectionInfoPanel({
         await refreshConnections(options);
       } else if (subTab === "status") {
         await refreshVariables(options);
+      } else if (subTab === "exports") {
+        setExportsRefreshToken((value) => value + 1);
       } else {
         await refreshDeployment();
       }
@@ -419,7 +426,16 @@ export function DatabaseConnectionInfoPanel({
     setVariablesResult(null);
     setConnectionsError(null);
     setVariablesError(null);
+    setExportsCount(0);
   }, [connection.id, connection.host, connection.port, connection.db_type]);
+
+  useEffect(() => {
+    const requested = consumeSubTab(connection.id);
+    if (requested) {
+      setSubTab(requested);
+      setSearch("");
+    }
+  }, [connection.id, consumeSubTab, active]);
 
   useEffect(() => {
     if (!active || !capable) {
@@ -579,14 +595,18 @@ export function DatabaseConnectionInfoPanel({
       ? connectionsLoading
       : subTab === "status"
         ? variablesLoading
-        : deploymentLoading;
+        : subTab === "exports"
+          ? false
+          : deploymentLoading;
 
   const tabCount =
     subTab === "connections"
       ? sortedProcessRows.length
       : subTab === "status"
         ? sortedVariableRows.length
-        : cliSections.length;
+        : subTab === "exports"
+          ? exportsCount
+          : cliSections.length;
 
   const toggleProcessSort = useCallback((column: ProcessSortColumn) => {
     setProcessSort((prev) => {
@@ -782,6 +802,15 @@ export function DatabaseConnectionInfoPanel({
     />
   );
 
+  const renderExportsTable = () => (
+    <ConnectionExportTabPanel
+      connection={connection}
+      active={active && subTab === "exports"}
+      refreshToken={exportsRefreshToken}
+      onRecordsChange={setExportsCount}
+    />
+  );
+
   const renderPanelMainContent = () => (
     <>
       {capable && active ? renderCliSession() : null}
@@ -789,7 +818,9 @@ export function DatabaseConnectionInfoPanel({
         ? renderConnectionsTable()
         : subTab === "status"
           ? renderVariablesTable()
-          : null}
+          : subTab === "exports"
+            ? renderExportsTable()
+            : null}
     </>
   );
 
@@ -805,7 +836,7 @@ export function DatabaseConnectionInfoPanel({
             ? t("database.connectionInfo.variablesSearch")
             : ""
       }
-      enabled={capable && subTab !== "cli"}
+      enabled={capable && subTab !== "cli" && subTab !== "exports"}
     >
       {capable ? (
         <div className="db-connection-info-deploy">
@@ -871,6 +902,18 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.cli")}
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "exports" ? " active" : ""}`}
+            aria-selected={subTab === "exports"}
+            onClick={() => {
+              setSubTab("exports");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.exports")}
+          </button>
         </div>
       ) : null}
       <div
@@ -881,7 +924,9 @@ export function DatabaseConnectionInfoPanel({
             ? t("database.connectionInfo.tabs.connections")
             : subTab === "status"
               ? t("database.connectionInfo.tabs.status")
-              : t("database.connectionInfo.tabs.cli")
+              : subTab === "exports"
+                ? t("database.connectionInfo.tabs.exports")
+                : t("database.connectionInfo.tabs.cli")
         }
       >
         <div
@@ -903,7 +948,9 @@ export function DatabaseConnectionInfoPanel({
             ? t("common.loading")
             : subTab === "cli"
               ? t("database.connectionInfo.cli.sectionCount", { count: tabCount })
-              : t("database.connectionInfo.count", { count: tabCount })}
+              : subTab === "exports"
+                ? t("database.connectionInfo.exports.count", { count: tabCount })
+                : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>
     </ScopedSearch>

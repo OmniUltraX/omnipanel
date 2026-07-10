@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
@@ -27,6 +28,8 @@ export function ServerPanel() {
   const { t } = useI18n();
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/server";
+  const moduleSuspended = useModuleSuspended();
+  const moduleLive = isActiveRoute && !moduleSuspended;
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const selectedResourceByPath = useWorkspaceStore((s) => s.selectedResourceByPath);
@@ -123,11 +126,15 @@ export function ServerPanel() {
 
       return (
         <div className="server-main">
-          <ServerWorkspace server={server} tab={segmentTabId} />
+          <ServerWorkspace
+            server={server}
+            tab={segmentTabId}
+            active={moduleLive && segmentTabId === tab}
+          />
         </div>
       );
     },
-    [panelServers],
+    [moduleLive, panelServers, tab],
   );
 
   return (

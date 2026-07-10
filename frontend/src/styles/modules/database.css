@@ -4579,6 +4579,27 @@
         border-color: color-mix(in srgb, var(--warn) 28%, var(--border));
     }
 
+    .db-data-table-cell-empty-tag {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 600;
+        line-height: 1.3;
+        font-family: var(--font-mono);
+        letter-spacing: 0.04em;
+        color: var(--fg-3, var(--meta));
+        background: color-mix(in srgb, var(--fg-3, var(--meta)) 10%, var(--surface));
+        border: 1px solid color-mix(in srgb, var(--fg-3, var(--meta)) 22%, var(--border));
+        border-radius: var(--r-sm);
+        padding: 0 4px;
+        vertical-align: baseline;
+    }
+
+    .db-data-table-cell--dirty .db-data-table-cell-empty-tag {
+        color: var(--warn);
+        background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+        border-color: color-mix(in srgb, var(--warn) 28%, var(--border));
+    }
+
     .db-data-table td.db-data-table-cell--editing {
         overflow: visible;
         z-index: 4;

@@ -212,7 +212,6 @@ export function ColumnHeaderLabel({
 export function TableDataGridCellContextMenu({
   menuOpenRef,
   onPreview,
-  onRowEdit,
   onCellSetNull,
   columnMeta,
   cellOverrides,
@@ -228,7 +227,6 @@ export function TableDataGridCellContextMenu({
       anchor: CellOverlayAnchor;
     },
   ) => void;
-  onRowEdit?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   onCellSetNull?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   columnMeta?: DbColumnMeta[];
   cellOverrides?: Record<string, Record<string, unknown>>;
@@ -261,16 +259,6 @@ export function TableDataGridCellContextMenu({
     setMenu(null);
   }, [menu, onPreview]);
 
-  const handleEditRow = useCallback(() => {
-    if (!menu || !onRowEdit) return;
-    onRowEdit({
-      rowIndex: menu.rowIndex,
-      column: menu.column,
-      row: menu.row,
-    });
-    setMenu(null);
-  }, [menu, onRowEdit]);
-
   const handleSetNull = useCallback(() => {
     if (!menu || !onCellSetNull) return;
     onCellSetNull({
@@ -300,23 +288,16 @@ export function TableDataGridCellContextMenu({
         onClick: handlePreview,
       },
     ];
-    if (onRowEdit && menu && menu.rowActionsEnabled !== false) {
-      list.push(
-        {
-          id: "edit-row",
-          label: t("database.rowEditor.contextMenu"),
-          onClick: handleEditRow,
-        },
-        {
-          id: "set-null",
-          label: t("database.cellEditor.setNull"),
-          disabled: setNullDisabled,
-          onClick: handleSetNull,
-        },
-      );
+    if (onCellSetNull && menu && menu.rowActionsEnabled !== false) {
+      list.push({
+        id: "set-null",
+        label: t("database.cellEditor.setNull"),
+        disabled: setNullDisabled,
+        onClick: handleSetNull,
+      });
     }
     return list;
-  }, [t, handlePreview, handleEditRow, handleSetNull, onRowEdit, setNullDisabled, menu]);
+  }, [t, handlePreview, handleSetNull, onCellSetNull, setNullDisabled, menu]);
 
   if (!menu) return null;
 

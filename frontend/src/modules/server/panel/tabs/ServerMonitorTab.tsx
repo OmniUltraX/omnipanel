@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
+import { useModuleSuspended } from "../../../../lib/moduleVisibility";
 import { Button } from "../../../../components/ui/primitives/Button";
 import type { ServerEntry } from "../serverConnection";
 import { createOnePanelClient } from "../../../../lib/onepanel";
@@ -8,9 +9,13 @@ import type { OnePanelDashboardBase } from "../../../../lib/onepanel/types";
 
 interface Props {
   server: ServerEntry;
+  /** 当前 Monitor 标签页处于激活且模块可见时为 true */
+  active?: boolean;
 }
 
 type ChartRange = "1h" | "6h" | "24h" | "7d";
+
+const DASHBOARD_POLL_MS = 2000;
 
 function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
@@ -53,83 +58,130 @@ function barFillClass(pct: number): string {
   return "success";
 }
 
-export function ServerMonitorTab({ server }: Props) {
+export function ServerMonitorTab({ server, active = true }: Props) {
   const { t } = useI18n();
+  const moduleSuspended = useModuleSuspended();
+  const pollingActive = active && !moduleSuspended && server.serviceType === "1panel";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chartRange, setChartRange] = useState<ChartRange>("24h");
   const [dashboard, setDashboard] = useState<OnePanelDashboardBase | null>(null);
   const [chartValues, setChartValues] = useState<number[]>([]);
 
-  const load = async (range: ChartRange = chartRange) => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (server.serviceType === "1panel") {
+  const refreshDashboardCurrent = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (server.serviceType !== "1panel") {
+        return;
+      }
+      try {
         const op = createOnePanelClient(server.address, server.key);
-        const base = await op.getDashboardBase();
-        setDashboard(base);
+        const current = await op.getDashboardCurrent();
+        setDashboard((prev) =>
+          prev ? { ...prev, currentInfo: current } : { currentInfo: current },
+        );
+        if (!options?.silent) {
+          setError(null);
+        }
+      } catch (e) {
+        if (!options?.silent) {
+          setError(String(e));
+        }
+      }
+    },
+    [server.address, server.key, server.serviceType],
+  );
 
-        const end = new Date();
-        const start = new Date(end.getTime() - chartRangeMs(range));
-        try {
-          const history = await op.searchMonitorHistory({
-            param: "cpu",
-            startTime: start.toISOString(),
-            endTime: end.toISOString(),
+  const load = useCallback(
+    async (range: ChartRange = chartRange) => {
+      setLoading(true);
+      setError(null);
+      try {
+        if (server.serviceType === "1panel") {
+          const op = createOnePanelClient(server.address, server.key);
+          const [base, current] = await Promise.all([
+            op.getDashboardBase(),
+            op.getDashboardCurrent(),
+          ]);
+          setDashboard({ ...base, currentInfo: current });
+
+          const end = new Date();
+          const start = new Date(end.getTime() - chartRangeMs(range));
+          try {
+            const history = await op.searchMonitorHistory({
+              param: "cpu",
+              startTime: start.toISOString(),
+              endTime: end.toISOString(),
+            });
+            const values = (history.value ?? [])
+              .map((v) => (typeof v === "number" ? v : Number(v)))
+              .filter((v) => Number.isFinite(v));
+            setChartValues(values.length > 0 ? values : []);
+          } catch {
+            setChartValues([]);
+          }
+        } else {
+          const bt = createBtPanelClient(server.address, server.key);
+          const [total, network, disks] = await Promise.all([
+            bt.getSystemTotal(),
+            bt.getNetwork(),
+            bt.getDiskInfo(),
+          ]);
+          const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
+          const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
+          const rootDisk = disks[0];
+          const diskUsed = rootDisk?.size?.[0] ? Number.parseFloat(String(rootDisk.size[0])) : 0;
+          const diskTotal = rootDisk?.size?.[1] ? Number.parseFloat(String(rootDisk.size[1])) : 0;
+          setDashboard({
+            hostname: total.system,
+            os: total.system,
+            platformVersion: total.version,
+            cpuCores: total.cpuNum,
+            currentInfo: {
+              cpuUsedPercent: cpuPct,
+              memoryTotal: (total.memTotal ?? 0) * 1024 * 1024,
+              memoryUsed: (total.memRealUsed ?? 0) * 1024 * 1024,
+              memoryAvailable: ((total.memTotal ?? 0) - (total.memRealUsed ?? 0)) * 1024 * 1024,
+              memoryUsedPercent: memPct,
+              load1: network.load?.one,
+              load5: network.load?.five,
+              load15: network.load?.fifteen,
+              diskData: rootDisk
+                ? [{
+                    path: rootDisk.path,
+                    total: diskTotal,
+                    used: diskUsed,
+                    usedPercent: diskTotal ? (diskUsed / diskTotal) * 100 : 0,
+                  }]
+                : [],
+            },
           });
-          const values = (history.value ?? [])
-            .map((v) => (typeof v === "number" ? v : Number(v)))
-            .filter((v) => Number.isFinite(v));
-          setChartValues(values.length > 0 ? values : []);
-        } catch {
           setChartValues([]);
         }
-      } else {
-        const bt = createBtPanelClient(server.address, server.key);
-        const [total, network, disks] = await Promise.all([
-          bt.getSystemTotal(),
-          bt.getNetwork(),
-          bt.getDiskInfo(),
-        ]);
-        const memPct = total.memTotal ? (total.memRealUsed ?? 0) / total.memTotal * 100 : 0;
-        const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
-        const rootDisk = disks[0];
-        const diskUsed = rootDisk?.size?.[0] ? Number.parseFloat(String(rootDisk.size[0])) : 0;
-        const diskTotal = rootDisk?.size?.[1] ? Number.parseFloat(String(rootDisk.size[1])) : 0;
-        setDashboard({
-          hostname: total.system,
-          os: total.system,
-          platformVersion: total.version,
-          cpuCores: total.cpuNum,
-          currentInfo: {
-            cpuUsedPercent: cpuPct,
-            memoryTotal: (total.memTotal ?? 0) * 1024 * 1024,
-            memoryUsed: (total.memRealUsed ?? 0) * 1024 * 1024,
-            memoryAvailable: ((total.memTotal ?? 0) - (total.memRealUsed ?? 0)) * 1024 * 1024,
-            memoryUsedPercent: memPct,
-            load1: network.load?.one,
-            load5: network.load?.five,
-            load15: network.load?.fifteen,
-            diskData: rootDisk
-              ? [{ path: rootDisk.path, total: diskTotal, used: diskUsed, usedPercent: diskTotal ? (diskUsed / diskTotal) * 100 : 0 }]
-              : [],
-          },
-        });
+      } catch (e) {
+        setError(String(e));
+        setDashboard(null);
         setChartValues([]);
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      setError(String(e));
-      setDashboard(null);
-      setChartValues([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [chartRange, server.address, server.key, server.serviceType],
+  );
 
   useEffect(() => {
     void load(chartRange);
-  }, [server.id, chartRange]);
+  }, [chartRange, load, server.id]);
+
+  useEffect(() => {
+    if (!pollingActive) {
+      return;
+    }
+    void refreshDashboardCurrent();
+    const timer = window.setInterval(() => {
+      void refreshDashboardCurrent({ silent: true });
+    }, DASHBOARD_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [pollingActive, refreshDashboardCurrent, server.id]);
 
   const current = dashboard?.currentInfo;
   const primaryDisk = current?.diskData?.[0];

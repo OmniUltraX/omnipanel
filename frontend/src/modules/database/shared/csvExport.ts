@@ -1,3 +1,8 @@
+import { matrixToDelimited, parseDelimitedMatrix, type DelimitedTextFormat } from "./delimitedText";
+
+export type { DelimitedTextFormat } from "./delimitedText";
+export { delimitedSeparator, matrixToDelimited, parseDelimitedMatrix } from "./delimitedText";
+
 function escapeCsvCell(value: unknown): string {
   if (value == null) return "";
   let str: string;
@@ -13,7 +18,6 @@ function escapeCsvCell(value: unknown): string {
   }
   return str;
 }
-
 export interface ToCsvOptions {
   /** 是否在首行加 BOM（UTF-8 BOM 帮助 Excel 识别中文） */
   bom?: boolean;
@@ -46,8 +50,20 @@ export function matrixToCsv(
   rows: ReadonlyArray<ReadonlyArray<unknown>>,
   options: Pick<ToCsvOptions, "bom" | "newline"> = {},
 ): string {
-  const { bom = false, newline = "\r\n" } = options;
-  if (rows.length === 0) return "";
-  const text = rows.map((row) => row.map(escapeCsvCell).join(",")).join(newline) + newline;
-  return bom ? "\uFEFF" + text : text;
+  return matrixToDelimited(rows, "csv", options);
+}
+
+/** 解析 CSV 文本为二维字符串矩阵（支持引号与转义）。 */
+export function parseCsvMatrix(text: string): string[][] {
+  return parseDelimitedMatrix(text, "csv");
+}
+
+/** 解析 TSV 文本为二维字符串矩阵。 */
+export function parseTsvMatrix(text: string): string[][] {
+  return parseDelimitedMatrix(text, "tsv");
+}
+
+/** 按格式解析剪贴板分隔文本。 */
+export function parseClipboardMatrix(text: string, format: DelimitedTextFormat): string[][] {
+  return parseDelimitedMatrix(text, format);
 }

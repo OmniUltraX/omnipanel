@@ -38,7 +38,11 @@ export interface CellEditorPanelProps {
   currentValue: unknown;
   /** 用于切换单元格时重置编辑器 */
   cellKey: string | null;
-  onApply: (value: unknown) => void;
+  /** 多选时的单元格数量（>1 时显示批量编辑提示） */
+  selectionCount?: number;
+  /** 底栏编辑器是否展开（多选批量赋值仅在展开时生效） */
+  editorOpen?: boolean;
+  onApply: (payload: { rawText: string; parsed: unknown }) => void;
   onSetNull?: () => void;
 }
 
@@ -57,12 +61,13 @@ function normalizeForKind(kind: CellEditorKind, rawText: string): string {
 
 export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanelProps>(
   function CellEditorPanel(
-    { columnName, columnType, currentValue, cellKey, onApply },
+    { columnName, columnType, currentValue, cellKey, selectionCount = 0, editorOpen = true, onApply },
     ref,
   ) {
     const { t } = useI18n();
     const bodyRef = useRef<HTMLDivElement>(null);
     const editTextRef = useRef("");
+    const baselineTextRef = useRef("");
     const cellKeyRef = useRef(cellKey);
     const editorKind = useMemo(() => detectCellEditorKind(columnType), [columnType]);
     const rawText = useMemo(() => formatCellValue(currentValue), [currentValue]);
@@ -77,23 +82,27 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     useEffect(() => {
       if (cellKeyRef.current === cellKey) return;
       cellKeyRef.current = cellKey;
+      baselineTextRef.current = normalized;
       setEditText(normalized);
     }, [cellKey, normalized]);
 
     const applyValue = useCallback(
       (value: string) => {
-        if (!columnName) return;
+        if (!columnName && selectionCount <= 0) return;
+        if (selectionCount > 1 && !editorOpen) return;
         const parsed = parseCellValue(editorKind, value);
-        if (isSameCellValue(currentValue, parsed)) return;
-        onApply(parsed);
+        if (selectionCount <= 1 && isSameCellValue(currentValue, parsed)) return;
+        onApply({ rawText: value, parsed });
+        baselineTextRef.current = value;
       },
-      [columnName, currentValue, editorKind, onApply],
+      [columnName, currentValue, editorKind, editorOpen, onApply, selectionCount],
     );
 
     useImperativeHandle(
       ref,
       () => ({
         commitIfDirty: () => {
+          if (editTextRef.current === baselineTextRef.current) return;
           applyValue(editTextRef.current);
         },
         focusEditor: () => {
@@ -106,9 +115,17 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       [applyValue],
     );
 
-    const handleChange = useCallback((value: string) => {
-      setEditText(value);
-    }, []);
+    const handleChange = useCallback(
+      (value: string) => {
+        setEditText(value);
+        if (!editorOpen) return;
+        if (!columnName && selectionCount <= 0) return;
+        const parsed = parseCellValue(editorKind, value);
+        onApply({ rawText: value, parsed });
+        baselineTextRef.current = value;
+      },
+      [columnName, editorKind, editorOpen, onApply, selectionCount],
+    );
 
     const renderEditor = () => {
       const props = { value: editText, onChange: handleChange, autoFocus: false };
@@ -132,7 +149,7 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       }
     };
 
-    if (!columnName || !cellKey) {
+    if ((!columnName || !cellKey) && selectionCount <= 0) {
       return (
         <div className="db-cell-editor-panel db-cell-editor-panel--empty">
           <div className="empty-state compact">{t("database.cellEditor.selectCellHint")}</div>
@@ -140,8 +157,15 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       );
     }
 
+    const isMultiSelection = selectionCount > 1;
+
     return (
       <div ref={bodyRef} className="db-cell-editor-panel">
+        {isMultiSelection ? (
+          <div className="db-cell-editor-multi-hint empty-state compact">
+            {t("database.cellEditor.multiCellHint", { count: selectionCount })}
+          </div>
+        ) : null}
         {renderEditor()}
       </div>
     );

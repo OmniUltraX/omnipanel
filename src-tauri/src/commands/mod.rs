@@ -11,6 +11,7 @@ pub mod ai_models;
 pub mod db_sql_files;
 pub mod db_tree_chart_files;
 pub mod db_sync_diff_cache;
+pub mod db_mysql_export;
 pub mod connection;
 pub mod navicat;
 pub mod database;
