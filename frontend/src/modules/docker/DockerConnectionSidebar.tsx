@@ -4,10 +4,11 @@ import {
   VerticalSplitSidebar,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
-import { DockerSidebar } from "../../components/workspace/DockerSidebar";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
+import { DockerPanelTreeSidebar } from "./DockerPanelTreeSidebar";
 import { useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
+import type { DockerSidebarNavigate } from "./dockerSidebarNav";
 
 const SECTION_STORAGE_KEY = "omnipanel-docker-connection-sidebar-sections";
 
@@ -17,7 +18,7 @@ export interface DockerConnectionSidebarProps {
   connections: DockerConnectionInfo[];
   loading?: boolean;
   scanning?: boolean;
-  onSelectConnection: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
+  onNavigate: DockerSidebarNavigate;
   onCreate: () => void;
   onScan?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
@@ -28,14 +29,14 @@ export function DockerConnectionSidebar({
   connections,
   loading,
   scanning,
-  onSelectConnection,
+  onNavigate,
   onCreate,
   onScan,
   onEditConnection,
   onDeleteConnection,
 }: DockerConnectionSidebarProps) {
   const { t } = useI18n();
-  const { activeConnectionId } = useDockerSidebarLinkage();
+  const { activeConnectionId, activeNavKey } = useDockerSidebarLinkage();
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
     SECTION_STORAGE_KEY,
     { connections: true },
@@ -50,12 +51,13 @@ export function DockerConnectionSidebar({
 
   return (
     <VerticalSplitSidebar className="docker-connection-sidebar">
-      <DockerSidebar
+      <DockerPanelTreeSidebar
         connections={connections}
         activeConnectionId={activeConnectionId}
+        activeNavKey={activeNavKey}
         loading={loading}
         scanning={scanning}
-        onSelectConnection={onSelectConnection}
+        onNavigate={onNavigate}
         onCreate={onCreate}
         onScan={onScan}
         onEditConnection={onEditConnection}
@@ -69,3 +71,9 @@ export function DockerConnectionSidebar({
     </VerticalSplitSidebar>
   );
 }
+
+/** @deprecated 使用 onNavigate 回调 */
+export type DockerConnectionSidebarSelect = (
+  connectionId: string,
+  mode?: DockerConnectionDockOpenMode,
+) => void;

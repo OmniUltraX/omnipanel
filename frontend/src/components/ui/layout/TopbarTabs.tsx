@@ -3,6 +3,7 @@ import { ContextMenu } from "../menu/ContextMenu";
 import { TopbarTabAddButton } from "./TopbarTabAddButton";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../menu/contextMenuItems";
 import { useI18n } from "../../../i18n";
+import { SegmentTabIcon } from "../../dock/SegmentTabIcon";
 import type {
   TopbarHandlers,
   TopbarTabDef,
@@ -14,45 +15,6 @@ function tabStatusClass(status?: string) {
   if (status === "connecting") return "connecting";
   if (status === "offline") return "offline";
   return "idle";
-}
-
-function SegmentTabIcon({ icon }: { icon: TopbarTabDef["icon"] }) {
-  if (!icon) return null;
-  const props = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, width: 12, height: 12 };
-  switch (icon) {
-    case "monitor":
-      return (
-        <svg {...props}>
-          <path d="M3 3v18h18" />
-          <path d="m19 9-5 5-4-4-3 3" />
-        </svg>
-      );
-    case "processes":
-      return (
-        <svg {...props}>
-          <rect x="3" y="3" width="7" height="7" />
-          <rect x="14" y="3" width="7" height="7" />
-          <rect x="3" y="14" width="7" height="7" />
-          <rect x="14" y="14" width="7" height="7" />
-        </svg>
-      );
-    case "services":
-      return (
-        <svg {...props}>
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24" />
-        </svg>
-      );
-    case "logs":
-      return (
-        <svg {...props}>
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-          <path d="M14 2v6h6" />
-        </svg>
-      );
-    default:
-      return null;
-  }
 }
 
 export interface TopbarTabsProps {

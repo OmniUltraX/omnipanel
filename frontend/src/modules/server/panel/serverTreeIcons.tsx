@@ -12,6 +12,7 @@ const iconProps = {
 
 export type ServerTreeIconKind =
   | "server"
+  | "processes"
   | "apps"
   | "websites"
   | "certificates"
@@ -28,6 +29,15 @@ export function ServerTreeIcon({ kind }: { kind: ServerTreeIconKind }) {
           <rect x="2" y="14" width="20" height="8" rx="2" />
           <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
           <circle cx="6" cy="18" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "processes":
+      return (
+        <svg {...iconProps}>
+          <path d="M9 6h11M9 12h11M9 18h11" />
+          <circle cx="5" cy="6" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="5" cy="18" r="1.2" fill="currentColor" stroke="none" />
         </svg>
       );
     case "apps":

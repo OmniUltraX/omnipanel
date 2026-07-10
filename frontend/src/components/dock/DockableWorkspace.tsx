@@ -54,7 +54,7 @@ import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
 import { publishDockTabMeta } from "./dockTabLiveMeta";
-import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { DockTabPageType } from "./dockableTab";
 import type { DockWindowChromeMode } from "./dockWindowChromeActions";
 import { DockWindowChromeActions } from "./DockWindowTitleActions";
@@ -212,7 +212,7 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
 interface PanelParams {
   tabId: string;
   label?: string;
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   tooltip?: string;
   status?: TopbarTabDef["status"];
   /** 递增以触发 panel 内容重渲染（renderPanel 通过 ref 注入，需靠 params 变更通知 dockview） */

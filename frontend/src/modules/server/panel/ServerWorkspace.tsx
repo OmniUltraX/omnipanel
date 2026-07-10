@@ -15,9 +15,9 @@ export type ServerDetailTab =
 
 const DETAIL_TAB_DEFS = [
   { id: "processes", icon: "processes" as const },
-  { id: "apps", icon: "services" as const },
-  { id: "websites" },
-  { id: "certificates" },
+  { id: "apps", icon: "apps" as const },
+  { id: "websites", icon: "websites" as const },
+  { id: "certificates", icon: "certificates" as const },
 ] as const;
 
 export function ServerDetailTabContent({

@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from "react";
 import type { DockableTab } from "./dockableTab";
 import type { DockTabPageType } from "./dockableTab";
-import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 
 export interface DockTabLiveMeta {
   type?: DockTabPageType;
   dirty?: boolean;
   saved?: boolean;
   preview?: boolean;
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   label?: string;
   tabBarHidden?: boolean;
   rev: number;

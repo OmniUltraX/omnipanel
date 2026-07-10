@@ -146,6 +146,16 @@ impl OnePanelClient {
             .data
             .ok_or_else(|| OmniError::new(ErrorCode::Internal, "1Panel 响应缺少 data 字段"))
     }
+
+    /// POST 分页 search 接口，兼容 `{ items, total }` 与旧版直接数组。
+    async fn post_search_values(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> OmniResult<Vec<serde_json::Value>> {
+        let data: serde_json::Value = self.post_json(path, body).await?;
+        extract_search_items(data)
+    }
 }
 
 /// 1Panel Docker 适配器。
@@ -234,125 +244,351 @@ fn parse_json_labels(value: Option<&serde_json::Value>) -> Vec<DockerKeyValue> {
     Vec::new()
 }
 
-// 1Panel 容器列表响应项（关键字段）。
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OnePanelContainer {
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    image: String,
-    #[serde(default)]
-    state: String,
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    ports: String,
-    #[serde(default)]
-    networks: String,
-    #[serde(default)]
-    created_at: i64,
-    #[serde(default)]
-    #[allow(dead_code)]
-    command: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    labels: std::collections::HashMap<String, String>,
+fn extract_search_items(data: serde_json::Value) -> OmniResult<Vec<serde_json::Value>> {
+    if data.is_array() {
+        return Ok(data
+            .as_array()
+            .cloned()
+            .unwrap_or_default());
+    }
+    if let Some(items) = data.get("items") {
+        if items.is_array() {
+            return Ok(items.as_array().cloned().unwrap_or_default());
+        }
+        if items.is_null() {
+            return Ok(Vec::new());
+        }
+    }
+    Err(OmniError::new(
+        ErrorCode::Internal,
+        "1Panel 分页响应缺少 items 数组",
+    )
+    .with_cause(data.to_string()))
 }
 
-impl OnePanelContainer {
-    fn into_summary(self) -> DockerContainerSummary {
-        let running = self.state.eq_ignore_ascii_case("running") || self.status.starts_with("Up");
-        let ports = self
-            .ports
+fn json_str(value: Option<&serde_json::Value>) -> String {
+    value
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSummary> {
+    let id = json_str(
+        v.get("containerID")
+            .or_else(|| v.get("id"))
+            .or_else(|| v.get("containerId")),
+    );
+    if id.is_empty() {
+        return None;
+    }
+    let name = json_str(v.get("name"));
+    let image = json_str(
+        v.get("imageName")
+            .or_else(|| v.get("image"))
+            .or_else(|| v.get("imageID")),
+    );
+    let state = json_str(v.get("state"));
+    let status = json_str(v.get("runTime").or_else(|| v.get("status")));
+    let running = state.eq_ignore_ascii_case("running") || status.starts_with("Up");
+    let ports = v
+        .get("ports")
+        .map(parse_container_ports)
+        .unwrap_or_default();
+    let networks = v
+        .get("network")
+        .or_else(|| v.get("networks"))
+        .map(parse_string_list)
+        .unwrap_or_default();
+    Some(DockerContainerSummary {
+        short_id: crate::short_id(&id),
+        id,
+        name: name.trim_start_matches('/').to_string(),
+        image,
+        state: if state.is_empty() {
+            if running {
+                "running".into()
+            } else {
+                "exited".into()
+            }
+        } else {
+            state.to_lowercase()
+        },
+        status_text: status,
+        running,
+        ports,
+        networks,
+        created_at: v
+            .get("createTime")
+            .or_else(|| v.get("createdAt"))
+            .map(parse_i64_value)
+            .unwrap_or(0),
+    })
+}
+
+fn parse_image_summary(v: &serde_json::Value) -> Option<DockerImageSummary> {
+    let id = json_str(v.get("id"));
+    if id.is_empty() {
+        return None;
+    }
+    let tags: Vec<String> = v
+        .get("tags")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let name = json_str(v.get("name"));
+    let (repository, tag) = if !tags.is_empty() {
+        let first = &tags[0];
+        if let Some((repo, tag)) = first.rsplit_once(':') {
+            (repo.to_string(), tag.to_string())
+        } else {
+            (first.clone(), "latest".to_string())
+        }
+    } else if let Some((repo, tag)) = name.rsplit_once(':') {
+        (repo.to_string(), tag.to_string())
+    } else {
+        (
+            json_str(v.get("repository")),
+            json_str(v.get("tag")).if_empty_then("latest"),
+        )
+    };
+    let dangling = repository == "<none>" || tag == "<none>";
+    let is_used = v.get("isUsed").and_then(|x| x.as_bool()).unwrap_or(false);
+    Some(DockerImageSummary {
+        short_id: crate::short_id(&id),
+        id,
+        repository,
+        tag,
+        size_bytes: v.get("size").map(parse_image_size_bytes).unwrap_or(0),
+        created_at: v
+            .get("createdAt")
+            .or_else(|| v.get("createTime"))
+            .map(parse_i64_value)
+            .unwrap_or(0),
+        containers: v
+            .get("containers")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(if is_used { 1 } else { 0 }),
+        dangling,
+    })
+}
+
+trait EmptyDefault {
+    fn if_empty_then(self, fallback: &str) -> String;
+}
+
+impl EmptyDefault for String {
+    fn if_empty_then(self, fallback: &str) -> String {
+        if self.is_empty() {
+            fallback.to_string()
+        } else {
+            self
+        }
+    }
+}
+
+async fn fetch_container_summaries(
+    client: &OnePanelClient,
+    page_size: u32,
+) -> OmniResult<Vec<DockerContainerSummary>> {
+    let raw = client
+        .post_search_values(
+            "/api/v2/containers/search",
+            container_search_body(1, page_size),
+        )
+        .await
+        .map_err(|e| e.with_cause("列出 1Panel 容器失败"))?;
+    Ok(raw.iter().filter_map(parse_container_summary).collect())
+}
+
+async fn fetch_image_summaries(
+    client: &OnePanelClient,
+    page_size: u32,
+) -> OmniResult<Vec<DockerImageSummary>> {
+    let raw = client
+        .post_search_values(
+            "/api/v2/containers/image/search",
+            image_search_body(1, page_size),
+        )
+        .await
+        .map_err(|e| e.with_cause("1Panel 列出镜像失败"))?;
+    Ok(raw.iter().filter_map(parse_image_summary).collect())
+}
+
+fn container_search_body(page: u32, page_size: u32) -> serde_json::Value {
+    serde_json::json!({
+        "name": "",
+        "state": "all",
+        "page": page,
+        "pageSize": page_size,
+        "filters": "",
+        "orderBy": "createdAt",
+        "order": "null",
+    })
+}
+
+fn image_search_body(page: u32, page_size: u32) -> serde_json::Value {
+    serde_json::json!({
+        "name": "",
+        "page": page,
+        "pageSize": page_size,
+        "orderBy": "createdAt",
+        "order": "null",
+    })
+}
+
+fn generic_search_body(page: u32, page_size: u32) -> serde_json::Value {
+    serde_json::json!({
+        "info": "",
+        "page": page,
+        "pageSize": page_size,
+        "orderBy": "createdAt",
+        "order": "null",
+    })
+}
+
+fn parse_container_ports(value: &serde_json::Value) -> Vec<crate::model::DockerPort> {
+    if let Some(text) = value.as_str() {
+        return text
             .split(',')
-            .filter_map(|p| {
-                let mapping = p.trim();
-                if mapping.is_empty() {
-                    None
-                } else {
-                    let (host_part, proto) = mapping.rsplit_once('/').unwrap_or((mapping, "tcp"));
-                    if let Some((host, private)) = host_part.split_once("->") {
-                        let (ip, public) = host.rsplit_once(':').unwrap_or(("0.0.0.0", host));
-                        Some(crate::model::DockerPort {
-                            private_port: private.trim().parse().unwrap_or(0),
-                            public_port: public.trim().parse().ok(),
-                            ip: Some(ip.trim().to_string()),
-                            protocol: proto.to_string(),
-                        })
-                    } else {
-                        Some(crate::model::DockerPort {
-                            private_port: host_part.trim().parse().unwrap_or(0),
-                            public_port: None,
-                            protocol: proto.to_string(),
-                            ip: None,
-                        })
-                    }
+            .filter_map(|p| parse_container_port_mapping(p.trim()))
+            .collect();
+    }
+    if let Some(arr) = value.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| {
+                if let Some(mapping) = item.as_str() {
+                    return parse_container_port_mapping(mapping);
                 }
+                let host_port = item
+                    .get("hostPort")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok());
+                let private_port = item
+                    .get("containerPort")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .or_else(|| item.get("privatePort").and_then(|v| v.as_u64()).map(|n| n as u16))?;
+                let protocol = item
+                    .get("protocol")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("tcp")
+                    .to_string();
+                let ip = item
+                    .get("hostIP")
+                    .or_else(|| item.get("host"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some(crate::model::DockerPort {
+                    private_port,
+                    public_port: host_port,
+                    ip,
+                    protocol,
+                })
             })
             .collect();
-        let networks = self
-            .networks
+    }
+    Vec::new()
+}
+
+fn parse_container_port_mapping(mapping: &str) -> Option<crate::model::DockerPort> {
+    if mapping.is_empty() {
+        return None;
+    }
+    let (host_part, proto) = mapping.rsplit_once('/').unwrap_or((mapping, "tcp"));
+    if let Some((host, private)) = host_part.split_once("->") {
+        let (ip, public) = host.rsplit_once(':').unwrap_or(("0.0.0.0", host));
+        Some(crate::model::DockerPort {
+            private_port: private.trim().parse().unwrap_or(0),
+            public_port: public.trim().parse().ok(),
+            ip: Some(ip.trim().to_string()),
+            protocol: proto.to_string(),
+        })
+    } else {
+        Some(crate::model::DockerPort {
+            private_port: host_part.trim().parse().unwrap_or(0),
+            public_port: None,
+            protocol: proto.to_string(),
+            ip: None,
+        })
+    }
+}
+
+fn parse_string_list(value: &serde_json::Value) -> Vec<String> {
+    if let Some(text) = value.as_str() {
+        return text
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s != "-")
             .collect();
-        DockerContainerSummary {
-            short_id: crate::short_id(&self.id),
-            id: self.id,
-            name: self.name.trim_start_matches('/').to_string(),
-            image: self.image,
-            state: if self.state.is_empty() {
-                if running {
-                    "running".into()
-                } else {
-                    "exited".into()
-                }
-            } else {
-                self.state.to_lowercase()
-            },
-            status_text: self.status,
-            running,
-            ports,
-            networks,
-            created_at: self.created_at,
-        }
     }
+    if let Some(arr) = value.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| {
+                item.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| item.get("network").and_then(|v| v.as_str()).map(String::from))
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    Vec::new()
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OnePanelImage {
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    repository: String,
-    #[serde(default)]
-    tag: String,
-    #[serde(default)]
-    size: i64,
-    #[serde(default)]
-    created_at: i64,
-    #[serde(default)]
-    containers: i64,
+fn parse_i64_value(value: &serde_json::Value) -> i64 {
+    if let Some(n) = value.as_i64() {
+        return n;
+    }
+    if let Some(n) = value.as_u64() {
+        return n as i64;
+    }
+    if let Some(n) = value.as_f64() {
+        return n as i64;
+    }
+    if let Some(text) = value.as_str() {
+        if let Ok(n) = text.parse::<i64>() {
+            return n;
+        }
+        // 1Panel 常见 RFC3339 时间戳，解析失败时返回 0
+    }
+    0
 }
 
-impl OnePanelImage {
-    fn into_summary(self) -> DockerImageSummary {
-        let dangling = self.repository == "<none>" || self.tag == "<none>";
-        DockerImageSummary {
-            short_id: crate::short_id(&self.id),
-            id: self.id,
-            repository: self.repository,
-            tag: self.tag,
-            size_bytes: self.size,
-            created_at: self.created_at,
-            containers: self.containers,
-            dangling,
-        }
+fn parse_image_size_bytes(value: &serde_json::Value) -> i64 {
+    if let Some(n) = value.as_i64() {
+        return n;
     }
+    let Some(text) = value.as_str() else {
+        return 0;
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    if let Ok(n) = trimmed.parse::<i64>() {
+        return n;
+    }
+    let upper = trimmed.to_ascii_uppercase();
+    let (num_part, unit) = upper
+        .split_at(upper.len().saturating_sub(2));
+    let multiplier = match unit {
+        "KB" => 1024,
+        "MB" => 1024 * 1024,
+        "GB" => 1024 * 1024 * 1024,
+        "TB" => 1024_i64.pow(4),
+        _ => 1,
+    };
+    num_part
+        .trim()
+        .parse::<f64>()
+        .map(|n| (n * multiplier as f64) as i64)
+        .unwrap_or(0)
 }
 
 #[async_trait]
@@ -371,25 +607,10 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn overview(&self) -> OmniResult<DockerOverview> {
-        let containers: Vec<OnePanelContainer> = self
-            .client
-            .post_json(
-                "/api/v2/containers/search",
-                serde_json::json!({ "page": 1, "pageSize": 200 }),
-            )
-            .await
-            .map_err(|e| e.with_cause("列出 1Panel 容器失败"))?;
+        let containers = fetch_container_summaries(&self.client, 200).await?;
         let total = containers.len() as u32;
-        let running = containers
-            .iter()
-            .filter(|c| c.state.eq_ignore_ascii_case("running"))
-            .count() as u32;
-        let images: Vec<OnePanelImage> = self
-            .client
-            .post_json(
-                "/api/v2/images/search",
-                serde_json::json!({ "page": 1, "pageSize": 200 }),
-            )
+        let running = containers.iter().filter(|c| c.running).count() as u32;
+        let images = fetch_image_summaries(&self.client, 200)
             .await
             .unwrap_or_default();
         Ok(DockerOverview {
@@ -409,18 +630,7 @@ impl DockerAdapter for OnePanelAdapter {
         &self,
         filter: ContainerFilter,
     ) -> OmniResult<Vec<DockerContainerSummary>> {
-        let raw: Vec<OnePanelContainer> = self
-            .client
-            .post_json(
-                "/api/v2/containers/search",
-                serde_json::json!({ "page": 1, "pageSize": 500 }),
-            )
-            .await
-            .map_err(|e| e.with_cause("列出 1Panel 容器失败"))?;
-        let mut out: Vec<DockerContainerSummary> = raw
-            .into_iter()
-            .map(OnePanelContainer::into_summary)
-            .collect();
+        let mut out = fetch_container_summaries(&self.client, 500).await?;
         if !filter.include_all() {
             out.retain(|c| filter.matches(c.running));
         }
@@ -527,15 +737,7 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
-        let raw: Vec<OnePanelImage> = self
-            .client
-            .post_json(
-                "/api/v2/images/search",
-                serde_json::json!({ "page": 1, "pageSize": 500 }),
-            )
-            .await
-            .map_err(|e| e.with_cause("1Panel 列出镜像失败"))?;
-        Ok(raw.into_iter().map(OnePanelImage::into_summary).collect())
+        Ok(fetch_image_summaries(&self.client, 500).await?)
     }
 
     async fn remove_image(&self, id: &str, force: bool) -> OmniResult<()> {
@@ -578,9 +780,9 @@ impl DockerAdapter for OnePanelAdapter {
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>> {
         let raw: Vec<serde_json::Value> = self
             .client
-            .post_json(
-                "/api/v2/compose/search",
-                serde_json::json!({ "page": 1, "pageSize": 200 }),
+            .post_search_values(
+                "/api/v2/containers/compose/search",
+                generic_search_body(1, 200),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 列出 Compose 失败"))?;
@@ -598,10 +800,12 @@ impl DockerAdapter for OnePanelAdapter {
                 name,
                 working_dir: v
                     .get("path")
+                    .or_else(|| v.get("workdir"))
                     .and_then(|x| x.as_str())
                     .map(|s| s.to_string()),
                 config_files: v
                     .get("file")
+                    .or_else(|| v.get("configFile"))
                     .and_then(|x| x.as_str())
                     .map(|s| s.to_string()),
                 service_count: 0,
@@ -688,9 +892,9 @@ impl DockerAdapter for OnePanelAdapter {
     async fn list_networks(&self) -> OmniResult<Vec<DockerNetworkSummary>> {
         let raw: Vec<serde_json::Value> = self
             .client
-            .post_json(
-                "/api/v2/networks/search",
-                serde_json::json!({ "page": 1, "pageSize": 200 }),
+            .post_search_values(
+                "/api/v2/containers/network/search",
+                generic_search_body(1, 200),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 列出网络失败"))?;
@@ -783,9 +987,9 @@ impl DockerAdapter for OnePanelAdapter {
     async fn list_volumes(&self) -> OmniResult<Vec<DockerVolumeSummary>> {
         let raw: Vec<serde_json::Value> = self
             .client
-            .post_json(
-                "/api/v2/volumes/search",
-                serde_json::json!({ "page": 1, "pageSize": 200 }),
+            .post_search_values(
+                "/api/v2/containers/volume/search",
+                generic_search_body(1, 200),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 列出卷失败"))?;
@@ -893,9 +1097,9 @@ impl DockerAdapter for OnePanelAdapter {
     async fn inspect_network(&self, name: &str) -> OmniResult<DockerNetworkDetail> {
         let raw: Vec<serde_json::Value> = self
             .client
-            .post_json(
-                "/api/v2/networks/search",
-                serde_json::json!({ "page": 1, "pageSize": 500 }),
+            .post_search_values(
+                "/api/v2/containers/network/search",
+                generic_search_body(1, 500),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 查询网络详情失败"))?;
@@ -998,9 +1202,9 @@ impl DockerAdapter for OnePanelAdapter {
     async fn inspect_volume(&self, name: &str) -> OmniResult<DockerVolumeDetail> {
         let raw: Vec<serde_json::Value> = self
             .client
-            .post_json(
-                "/api/v2/volumes/search",
-                serde_json::json!({ "page": 1, "pageSize": 500 }),
+            .post_search_values(
+                "/api/v2/containers/volume/search",
+                generic_search_body(1, 500),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 查询卷详情失败"))?;

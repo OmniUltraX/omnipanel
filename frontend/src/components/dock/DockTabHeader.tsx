@@ -1,7 +1,8 @@
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { DockTabChrome } from "./DockTabChrome";
-import { DockTabIcon, type DockTabIconKind } from "./DockTabIcon";
+import { DockHeaderIcon } from "./DockHeaderIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { DockTabPageType } from "./dockableTab";
 import { useDockTabLiveMeta } from "./dockTabLiveMeta";
 import { useDockTabHeaderRuntime } from "./dockTabHeaderRuntime";
@@ -10,7 +11,7 @@ import { useDockTabBarHidden } from "./useDockTabBarHidden";
 interface PanelParams {
   tabId: string;
   label?: string;
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   tooltip?: string;
   type?: DockTabPageType;
   dirty?: boolean;
@@ -76,7 +77,7 @@ export function DockTabHeader({
       tabId={tabId}
       onDoubleClick={handleDoubleClick}
     >
-      {icon ? <DockTabIcon kind={icon} /> : null}
+      {icon ? <DockHeaderIcon kind={icon} /> : null}
       {!isSide ? (
         <>
           <span

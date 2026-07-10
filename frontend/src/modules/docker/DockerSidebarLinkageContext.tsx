@@ -1,8 +1,11 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { DockerSidebarNavigate } from "./dockerSidebarNav";
 
-/** 侧栏与右侧 Dock Tab 联动。 */
+/** 侧栏与右侧工作区联动。 */
 export interface DockerSidebarLinkageValue {
   activeConnectionId: string | null;
+  activeNavKey: string | null;
+  onNavigate: DockerSidebarNavigate;
 }
 
 const DockerSidebarLinkageContext = createContext<DockerSidebarLinkageValue | null>(null);

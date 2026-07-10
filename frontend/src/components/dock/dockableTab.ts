@@ -1,4 +1,4 @@
-import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 
 /** Dock 面板页面类型；`file` 时 Tab 显示文件已保存/未保存标记 */
@@ -13,7 +13,7 @@ export interface DockableTab {
   type?: DockTabPageType;
   closable?: boolean;
   /** Tab 图标（窄侧栏仅显示图标，完整标题走 tooltip） */
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   /** 悬停提示；默认使用 label */
   tooltip?: string;
   /** topbar 风格 tab：连接状态点 */

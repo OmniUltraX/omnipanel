@@ -1,4 +1,5 @@
 import type { ServerEntry } from "./serverConnection";
+import type { ServerDetailTab } from "./ServerWorkspace";
 
 export function websiteRowId(row: Record<string, unknown>, index: number): string {
   return String(row.id ?? row.webname ?? row.domain ?? index);
@@ -18,10 +19,11 @@ export function certificateRowLabel(row: Record<string, unknown>): string {
 
 export function makeServerTreeKey(
   serverId: string,
-  category?: "apps" | "websites" | "certificates",
+  category?: ServerDetailTab,
   itemId?: string,
 ): string {
-  if (!category) return `server:${serverId}`;
+  // processes 仅存在于 dock 分段 Tab，侧栏树无对应节点，高亮服务器根节点即可
+  if (!category || category === "processes") return `server:${serverId}`;
   if (!itemId) return `server:${serverId}:${category}`;
   return `server:${serverId}:${category}:${itemId}`;
 }

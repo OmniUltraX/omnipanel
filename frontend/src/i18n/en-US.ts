@@ -2517,6 +2517,12 @@ export const enUS: TranslationDict = {
       deleteConfirm: "Delete this Docker connection?",
       deleted: "Connection deleted",
       editFailed: "Could not load connection settings",
+      treeLoading: "Loading…",
+      treeEmpty: "No data",
+      treeSelectConnection: "Select this connection to show items",
+      treeUnsupported: "Resource list is not supported for this connection type (use 1Panel first)",
+      treeOffline: "Docker is offline",
+      treeLoadFailed: "Failed to load",
     },
     tabs: {
       overview: "Overview",

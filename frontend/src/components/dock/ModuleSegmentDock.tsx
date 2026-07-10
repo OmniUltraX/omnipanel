@@ -7,14 +7,14 @@ import {
 } from "./DockableWorkspace";
 import type { DockPanelRefreshProps } from "./dockPanelRefresh";
 import type { DockTabPageType } from "./dockableTab";
-import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { ModuleDockTitle } from "./ModuleDockTitle";
 
 export interface ModuleSegmentTab {
   id: string;
   label: string;
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   tooltip?: string;
   closable?: boolean;
   status?: TopbarTabDef["status"];

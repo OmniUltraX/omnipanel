@@ -2493,6 +2493,12 @@ export const zhCN = {
       deleteConfirm: "确定删除该 Docker 连接吗？",
       deleted: "已删除连接",
       editFailed: "无法加载连接配置",
+      treeLoading: "加载中…",
+      treeEmpty: "暂无数据",
+      treeSelectConnection: "选中此连接后显示",
+      treeUnsupported: "当前连接类型暂不支持资源列表（请先使用 1Panel 连接）",
+      treeOffline: "Docker 未连接",
+      treeLoadFailed: "加载失败",
     },
     tabs: {
       overview: "概览",

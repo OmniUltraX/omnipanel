@@ -39,6 +39,33 @@
         display: none;
     }
 
+    .docker-tree-source-tag {
+        font-size: 10px;
+        padding: 0 4px;
+        line-height: 16px;
+        flex-shrink: 0;
+    }
+
+    .docker-sidebar-tree .docker-tree-node--connection .tree-icon {
+        color: var(--accent);
+    }
+
+    .docker-sidebar-tree .docker-tree-node--images .tree-icon {
+        color: var(--info, var(--accent));
+    }
+
+    .docker-sidebar-tree .docker-tree-node--containers .tree-icon {
+        color: var(--success);
+    }
+
+    .docker-sidebar-tree .docker-tree-node--networks .tree-icon {
+        color: var(--warn);
+    }
+
+    .docker-sidebar-tree .docker-tree-node--volumes .tree-icon {
+        color: var(--muted);
+    }
+
     .docker-workspace-dock,
     .docker-connection-tab-pane {
         flex: 1;
@@ -52,6 +79,20 @@
         min-width: 0;
         display: flex;
         flex-direction: column;
+    }
+
+    .docker-dock-panel {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+    }
+
+    .docker-dock-panel-placeholder {
+        flex: 1;
+        min-height: 0;
     }
 
     .docker-sidebar-title {

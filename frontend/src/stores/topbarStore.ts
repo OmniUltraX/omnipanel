@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { SegmentTabIconKind } from "../components/dock/SegmentTabIcon";
 
 /** session = 可关闭终端标签；connection = 固定连接切换；segment = 固定视图分段 */
 export type TopbarTabMode = "session" | "connection" | "segment";
@@ -12,7 +13,7 @@ export interface TopbarTabDef {
   /** 仅 session 模式：连接状态点 */
   status?: "connected" | "connecting" | "idle" | "online" | "offline";
   /** 仅 segment 模式：图标 key */
-  icon?: "monitor" | "processes" | "services" | "logs";
+  icon?: SegmentTabIconKind;
   /** segment 模式：标签旁计数徽章 */
   badge?: { text: string | number; tone?: "accent" | "warn" | "danger" | "muted" | "success" };
 }

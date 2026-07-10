@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { DockTabHeader } from "./DockTabHeader";
 import { TopbarStyleDockTabHeader } from "./TopbarStyleDockTabHeader";
-import type { DockTabIconKind } from "./DockTabIcon";
+import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { DockTabPageType } from "./dockableTab";
 import { useDockTabHeaderRuntime } from "./dockTabHeaderRuntime";
 import { useDockTabLiveMeta } from "./dockTabLiveMeta";
@@ -12,7 +12,7 @@ import type { TopbarTabDef } from "../../stores/topbarStore";
 interface PanelParams {
   tabId: string;
   label?: string;
-  icon?: DockTabIconKind;
+  icon?: DockHeaderIconKind;
   tooltip?: string;
   status?: TopbarTabDef["status"];
   type?: DockTabPageType;
