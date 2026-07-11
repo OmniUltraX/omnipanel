@@ -17,9 +17,6 @@ pub struct ProviderInfo {
     pub models: Vec<ModelInfo>,
 }
 
-/// Maximum number of tool-calling iterations to prevent infinite loops.
-const MAX_TOOL_ITERATIONS: usize = 10;
-
 /// Build the default set of tools available to the AI.
 /// Includes knowledge search, terminal execution, file I/O, and HTTP requests.
 fn build_default_tools() -> Vec<ToolDef> {
@@ -425,7 +422,7 @@ pub async fn ai_send_message(
     });
 
     // Tool calling loop: keep executing tools until the AI gives a final response
-    for _iteration in 0..MAX_TOOL_ITERATIONS {
+    loop {
         let request = ChatRequest {
             model: model.clone(),
             messages: messages.clone(),

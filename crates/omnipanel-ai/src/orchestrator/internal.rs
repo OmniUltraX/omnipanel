@@ -12,8 +12,6 @@ use crate::types::{ChatMessage, ChatRequest, FunctionCall, Role, ToolCall, ToolD
 use super::tools::ToolExecutor;
 use super::types::{AiContextBundle, InternalChatRequest};
 
-const MAX_TOOL_ITERATIONS: usize = 10;
-
 pub struct InternalOrchestrator;
 
 impl InternalOrchestrator {
@@ -47,7 +45,7 @@ impl InternalOrchestrator {
             None
         };
 
-        for _iteration in 0..MAX_TOOL_ITERATIONS {
+        loop {
             if cancel.load(Ordering::Relaxed) {
                 on_event(StreamEvent::Done {
                     stop_reason: StopReason::Cancelled,
@@ -189,11 +187,6 @@ impl InternalOrchestrator {
             }
             return Ok(());
         }
-
-        on_event(StreamEvent::Error {
-            message: format!("超过最大工具调用次数 ({MAX_TOOL_ITERATIONS})"),
-        });
-        Err(format!("超过最大工具调用次数 ({MAX_TOOL_ITERATIONS})"))
     }
 
     pub fn resolve_http_model(backend_id: &str) -> Result<(String, String), String> {
