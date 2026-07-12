@@ -180,8 +180,6 @@ function TreeRow({
   return (
     <SidebarTreeNode
       depth={depth}
-      indentStep={14}
-      indentBase={8}
       expanded={expanded}
       hasChildren={isFolder}
       active={selected}

@@ -572,36 +572,6 @@
         background: color-mix(in srgb, var(--accent) 10%, transparent);
     }
 
-    .docker-tree-category-trailing {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .docker-tree-node-action {
-        opacity: 0;
-        transition: opacity 0.12s;
-    }
-
-    .sidebar-tree-node:hover .docker-tree-node-action,
-    .tree-node:hover .docker-tree-node-action,
-    .docker-tree-node-action:focus-visible {
-        opacity: 1;
-    }
-
-    .docker-tree-node-action--busy svg {
-        animation: docker-tree-refresh-spin 0.8s linear infinite;
-    }
-
-    @keyframes docker-tree-refresh-spin {
-        from {
-            transform: rotate(0deg);
-        }
-        to {
-            transform: rotate(360deg);
-        }
-    }
-
     .docker-tree-node--drop-target {
         background: color-mix(in srgb, var(--accent) 10%, transparent);
         outline: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));

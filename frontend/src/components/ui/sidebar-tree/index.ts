@@ -1,2 +1,2 @@
 export { SidebarTreeNode, SidebarTreeRoot, SidebarTreeEmpty, type SidebarTreeNodeProps } from "./SidebarTreeNode";
-export { useTreeClickDelay, type UseTreeClickDelayOptions } from "./useTreeClickDelay";
+export { useTreeClickDelay, type TreeRowMouseEvent, type UseTreeClickDelayOptions } from "./useTreeClickDelay";

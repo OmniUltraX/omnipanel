@@ -854,7 +854,6 @@
         flex: 1;
         min-height: 0;
         overflow: auto;
-        padding: var(--sp-1) 0;
     }
 
     .knowledge-tree-empty {
@@ -865,23 +864,15 @@
     }
 
     .knowledge-tree-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px var(--sp-2) 4px 0;
-        margin: 0 var(--sp-1);
-        border-radius: var(--r-sm);
-        cursor: pointer;
-        font-size: 12px;
         position: relative;
     }
 
     .knowledge-tree-row:hover {
-        background: var(--surface-hover);
+        background: transparent;
     }
 
     .knowledge-tree-row--active {
-        background: var(--accent-soft);
+        background: transparent;
     }
 
     .knowledge-tree-row--drop-before::before,

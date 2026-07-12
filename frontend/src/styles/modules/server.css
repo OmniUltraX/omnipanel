@@ -89,7 +89,6 @@
     .host-list {
         flex: 1;
         overflow-y: auto;
-        padding: var(--sp-2);
     }
 
     .host-item-row {
@@ -2301,7 +2300,7 @@
     .ssh-sidebar-list {
         list-style: none;
         margin: 0;
-        padding: 0 4px 8px;
+        padding: 0;
         overflow: auto;
         min-height: 0;
     }

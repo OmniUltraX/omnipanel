@@ -99,12 +99,7 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        padding: var(--sp-2);
         --schema-tree-row-height: 22px;
-    }
-
-    .sql-query-file-tree--sticky-ancestors {
-        padding: 0 0 var(--sp-2);
     }
 
     .sql-query-file-tree--sticky-ancestors .sql-file-tree-node--sticky {
@@ -499,11 +494,6 @@
     }
 
     .sql-file-tree-node {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-1);
-        padding: var(--sp-1) var(--sp-2);
-        font-size: 12px;
         color: var(--fg-2);
         border-radius: var(--r-sm);
         cursor: grab;
@@ -514,12 +504,7 @@
         cursor: grabbing;
     }
 
-    .sql-file-tree-node:hover {
-        background: var(--hover, rgba(127, 127, 127, 0.08));
-    }
-
     .sql-file-tree-node--active {
-        background: var(--accent-muted, rgba(0, 122, 255, 0.12));
         color: var(--accent, #007aff);
     }
 
@@ -561,7 +546,7 @@
     .db-sync-task-list {
         list-style: none;
         margin: 0;
-        padding: var(--sp-1) 0;
+        padding: 0;
     }
 
     .db-sync-task-item {
@@ -853,24 +838,15 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        padding: var(--sp-2);
         --schema-tree-row-height: 22px;
-    }
-
-    .schema-tree--virtual {
-        padding: var(--sp-2);
-    }
-
-    .schema-tree--virtual.schema-tree--sticky-ancestors {
-        padding: 0 0 var(--sp-2);
     }
 
     .schema-tree-sticky-ancestors {
         position: sticky;
         top: 0;
         z-index: 60;
-        margin: 0 calc(-1 * var(--sp-2));
-        padding: 0 var(--sp-2);
+        margin: 0 calc(-1 * var(--vsplit-sidebar-content-padding, var(--sp-2)));
+        padding: 0 var(--vsplit-sidebar-content-padding, var(--sp-2));
         background: var(--bg);
         pointer-events: none;
     }
@@ -908,10 +884,6 @@
         box-sizing: border-box;
     }
 
-    .schema-tree--sticky-ancestors {
-        padding: 0 0 var(--sp-2);
-    }
-
     .schema-tree--sticky-ancestors .tree-node--sticky {
         position: sticky;
         top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
@@ -936,10 +908,6 @@
 
     .schema-tree:focus {
         outline: none;
-    }
-
-    .schema-tree .tree-node {
-        margin-right: var(--sp-1);
     }
 
     .schema-tree .tree-node[draggable="true"] {
@@ -1800,78 +1768,7 @@
         font-weight: 700;
     }
 
-    /* Tree nodes */
-    .tree-node {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-1);
-        padding: 3px 0 3px var(--sp-2);
-        cursor: pointer;
-        border-radius: var(--r-sm);
-        transition: background 0.1s;
-        font-size: 12px;
-    }
-
-    .tree-node:hover {
-        background: var(--surface-hover);
-    }
-
-    .tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .tree-arrow {
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--meta);
-        transition: transform 0.15s;
-    }
-
-    .tree-arrow--open {
-        transform: rotate(90deg);
-    }
-
-    .tree-leaf {
-        color: transparent;
-    }
-
-    .tree-dot {
-        width: 4px;
-        height: 4px;
-        border-radius: 50%;
-        background: var(--border);
-    }
-
-    .tree-icon {
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-    }
-
-    .tree-label {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        cursor: pointer;
-    }
-
-    .tree-label-name {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        flex: 1 1 auto;
-        flex-shrink: 0;
-    }
+    /* Tree nodes — 基础行样式见 components/ui/sidebar-tree/sidebar-tree.css */
 
     @container vsplit-sidebar (max-width: 260px) {
         .tree-label-comment {
@@ -2040,22 +1937,6 @@
         flex-shrink: 0;
     }
 
-    .tree-node-trailing {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--sp-1);
-        flex-shrink: 0;
-        margin-left: auto;
-        padding-right: var(--sp-1);
-    }
-
-    .tree-node-actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 1px;
-        flex-shrink: 0;
-    }
-
     .tree-meta--clickable {
         cursor: pointer;
         border-radius: var(--r-sm);
@@ -2102,63 +1983,6 @@
 
     .tree-pin-btn--active svg {
         transform: rotate(-18deg);
-    }
-
-    .tree-action-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        width: 14px;
-        height: auto;
-        padding: 0;
-        border: none;
-        border-radius: var(--r-sm);
-        background: transparent;
-        color: var(--meta);
-        cursor: pointer;
-        opacity: 0;
-        transition: opacity 0.12s, background 0.12s, color 0.12s;
-    }
-
-    .tree-node:hover .tree-action-btn,
-    .tree-node:focus-within .tree-action-btn,
-    .tree-action-btn--busy,
-    .tree-action-btn--active {
-        opacity: 1;
-    }
-
-    .tree-action-btn:hover:not(:disabled) {
-        background: var(--surface-hover);
-        color: var(--accent);
-    }
-
-    .tree-action-btn--pin.tree-action-btn--active {
-        opacity: 1;
-        color: var(--accent);
-    }
-
-    .tree-action-btn--pin.tree-action-btn--active svg {
-        transform: rotate(-18deg);
-    }
-
-    .tree-action-btn--danger:hover:not(:disabled) {
-        color: var(--color-danger, #ff3b30);
-    }
-
-    .tree-action-btn:disabled {
-        cursor: default;
-        opacity: 0.45;
-    }
-
-    .tree-action-btn--busy svg {
-        animation: tree-action-spin 0.8s linear infinite;
-    }
-
-    @keyframes tree-action-spin {
-        to {
-            transform: rotate(360deg);
-        }
     }
 
     .schema-load-more-btn {

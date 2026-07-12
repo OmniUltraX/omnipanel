@@ -165,46 +165,46 @@ function DockerTreeBranch({
               onClick={() => openCategory("preview")}
               onDoubleClick={() => openCategory("permanent")}
               shouldIgnoreClick={(target) =>
-                Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
               }
               trailing={
-                <span className="docker-tree-category-trailing">
+                <>
                   {loading && category.items.length === 0 ? (
                     <span className="server-tree-badge">…</span>
                   ) : (
                     <span className="server-tree-badge">{category.count}</span>
                   )}
-                  <DockerTreeRefreshButton
-                    refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
-                    onRefresh={() => refreshCategory(category.id)}
-                  />
-                  {category.id === "containers" ? (
-                    <Button
-                      type="button"
-                      variant="icon"
-                      size="icon-xs"
-                      className="docker-tree-node-action"
-                      title={t("docker.sidebar.newServiceGroup")}
-                      aria-label={t("docker.sidebar.newServiceGroup")}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleCreateServiceGroup(categoryKey);
-                      }}
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        aria-hidden
+                  <div className="tree-node-actions">
+                    <DockerTreeRefreshButton
+                      refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
+                      onRefresh={() => refreshCategory(category.id)}
+                    />
+                    {category.id === "containers" ? (
+                      <button
+                        type="button"
+                        className="tree-action-btn"
+                        title={t("docker.sidebar.newServiceGroup")}
+                        aria-label={t("docker.sidebar.newServiceGroup")}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleCreateServiceGroup(categoryKey);
+                        }}
                       >
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                    </Button>
-                  ) : null}
-                </span>
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden
+                        >
+                          <path d="M12 5v14M5 12h14" />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </div>
+                </>
               }
             />
             {categoryExpanded ? (
@@ -255,16 +255,18 @@ function DockerTreeBranch({
                         expanded={false}
                         active={activeNavKey === itemKey}
                         shouldIgnoreClick={(target) =>
-                          Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                          Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                         }
                         onToggle={() => {}}
                         onClick={() => openItem("preview")}
                         onDoubleClick={() => openItem("permanent")}
                         trailing={
-                          <DockerTreeRefreshButton
-                            refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
-                            onRefresh={() => refreshCategory(category.id)}
-                          />
+                          <div className="tree-node-actions">
+                            <DockerTreeRefreshButton
+                              refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
+                              onRefresh={() => refreshCategory(category.id)}
+                            />
+                          </div>
                         }
                       />
                     );
@@ -392,7 +394,7 @@ export function DockerPanelTreeSidebar({
                   icon={<DockerTreeIcon kind="connection" />}
                   className={dockerTreeNodeClassName("connection")}
                   shouldIgnoreClick={(target) =>
-                    Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                    Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                   }
                   label={
                     <span className="server-tree-server-label">
@@ -416,10 +418,12 @@ export function DockerPanelTreeSidebar({
                   onContextMenu={(event) => handleContextMenu(event, connection)}
                   trailing={
                     supportsResources ? (
-                      <DockerTreeRefreshButton
-                        refreshKey={dockerSidebarConnectionRefreshKey(connection.connectionId)}
-                        onRefresh={() => refreshDockerConnectionSidebarCache(connection.connectionId)}
-                      />
+                      <div className="tree-node-actions">
+                        <DockerTreeRefreshButton
+                          refreshKey={dockerSidebarConnectionRefreshKey(connection.connectionId)}
+                          onRefresh={() => refreshDockerConnectionSidebarCache(connection.connectionId)}
+                        />
+                      </div>
                     ) : null
                   }
                 />

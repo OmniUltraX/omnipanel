@@ -1,11 +1,10 @@
 import {
   type CSSProperties,
   type DragEventHandler,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useTreeClickDelay } from "./useTreeClickDelay";
+import { useTreeClickDelay, type TreeRowMouseEvent } from "./useTreeClickDelay";
 import "./sidebar-tree.css";
 
 export type SidebarTreeNodeProps = {
@@ -32,12 +31,12 @@ export type SidebarTreeNodeProps = {
   onDrop?: DragEventHandler<HTMLDivElement>;
   onDragEnd?: DragEventHandler<HTMLDivElement>;
   onToggle: () => void;
-  onClick?: (event: ReactMouseEvent<HTMLDivElement>) => void;
-  onDoubleClick?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onClick?: (event: TreeRowMouseEvent) => void;
+  onDoubleClick?: (event: TreeRowMouseEvent) => void;
   /** 同时提供 onClick / onDoubleClick 时默认 200ms；设为 0 则不做防抖 */
   clickDelayMs?: number;
   shouldIgnoreClick?: (target: EventTarget | null) => boolean;
-  onContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onContextMenu?: (event: TreeRowMouseEvent) => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   /** 透传 data-* 属性 */
   dataAttrs?: Record<string, string>;
@@ -45,8 +44,8 @@ export type SidebarTreeNodeProps = {
 
 export function SidebarTreeNode({
   depth = 0,
-  indentStep = 14,
-  indentBase = 6,
+  indentStep = 16,
+  indentBase = 8,
   expanded,
   hasChildren,
   active = false,
@@ -99,6 +98,9 @@ export function SidebarTreeNode({
     .filter(Boolean)
     .join(" ");
 
+  const labelNode =
+    typeof label === "string" ? <span className="tree-label-name">{label}</span> : label;
+
   return (
     <div
       className={rootClass}
@@ -133,7 +135,7 @@ export function SidebarTreeNode({
       </span>
       {icon ? <span className="sidebar-tree-icon tree-icon">{icon}</span> : null}
       {prefix}
-      <span className="sidebar-tree-label tree-label">{label}</span>
+      <span className="sidebar-tree-label tree-label">{labelNode}</span>
       {afterLabel}
       {trailing ? <div className="sidebar-tree-trailing tree-node-trailing">{trailing}</div> : null}
     </div>

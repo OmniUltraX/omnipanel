@@ -15902,6 +15902,33 @@ a {
     overflow: hidden;
     container-type: inline-size;
     container-name: vsplit-sidebar;
+    /* 与 database schema-tree / sql-query-file-tree 一致 */
+    --vsplit-sidebar-content-padding: var(--sp-2);
+}
+
+/* 各模块侧栏分区内容滚动区统一内边距 */
+.vsplit-sidebar :is(
+    .schema-tree,
+    .sql-query-file-tree,
+    .sidebar-tree-root,
+    .proto-tree-root,
+    .proto-sidebar-history,
+    .knowledge-tree,
+    .host-list,
+    .fm-connections,
+    .db-sync-task-panel,
+    .ssh-sidebar-list-panel
+) {
+    box-sizing: border-box;
+}
+
+/* sticky 祖先行模式：仅保留底部内边距（database schema-tree 行为） */
+.vsplit-sidebar :is(
+    .schema-tree--virtual.schema-tree--sticky-ancestors,
+    .schema-tree--sticky-ancestors,
+    .sql-query-file-tree--sticky-ancestors
+) {
+    padding: 0 0 var(--vsplit-sidebar-content-padding);
 }
 
 .vsplit-sidebar-section,
@@ -16065,7 +16092,6 @@ a {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--sp-2);
 }
 
 .fm-connections--compact {

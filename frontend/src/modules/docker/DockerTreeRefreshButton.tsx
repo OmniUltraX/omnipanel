@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/Button";
 import { useI18n } from "@/i18n";
 import { useDockerSidebarRefreshing } from "./hooks/useDockerConnectionResources";
 
@@ -16,11 +15,9 @@ export function DockerTreeRefreshButton({
   const { t } = useI18n();
   const busy = useDockerSidebarRefreshing(refreshKey);
   return (
-    <Button
+    <button
       type="button"
-      variant="icon"
-      size="icon-xs"
-      className={`docker-tree-node-action${busy ? " docker-tree-node-action--busy" : ""}`}
+      className={`tree-action-btn${busy ? " tree-action-btn--busy" : ""}`}
       title={t("common.refresh")}
       aria-label={t("common.refresh")}
       disabled={disabled || busy}
@@ -43,6 +40,6 @@ export function DockerTreeRefreshButton({
         <path d="M14 8a6 6 0 0 1-10.5 3.9" />
         <path d="M2 14v-3h3" />
       </svg>
-    </Button>
+    </button>
   );
 }

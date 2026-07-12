@@ -1785,7 +1785,6 @@
 
     .proto-tree-root {
         min-height: 48px;
-        padding-bottom: var(--sp-2);
     }
 
     .proto-tree-root--drag-active {
@@ -1795,34 +1794,13 @@
     }
 
     .proto-tree-root .tree-node {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-1);
-        min-height: 26px;
-        padding: 3px var(--sp-2) 3px 0;
         user-select: none;
-        border-radius: var(--r-sm);
         position: relative;
         touch-action: none;
-        font-size: 12px;
-        transition: background 0.1s;
-        cursor: pointer;
     }
 
     .proto-tree-root .tree-node--layout-draggable {
         cursor: grab;
-    }
-
-    .proto-tree-root .tree-node:hover {
-        background: var(--surface-hover);
-    }
-
-    .proto-tree-root .tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .proto-tree-root .tree-node--active:hover {
-        background: var(--accent-soft);
     }
 
     .proto-tree-root .tree-node--layout-source-dragging {

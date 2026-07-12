@@ -239,7 +239,7 @@ export function DockerContainersTreeBranch({
         draggable
         clickDelayMs={0}
         shouldIgnoreClick={(target) =>
-          Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+          Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
         }
         onDragStart={(event) => handleDragStart(container.id, event)}
         onDragEnd={(event) => {
@@ -254,7 +254,9 @@ export function DockerContainersTreeBranch({
         onClick={() => openItem("preview")}
         onDoubleClick={() => openItem("permanent")}
         trailing={
-          <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
+          <div className="tree-node-actions">
+            <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
+          </div>
         }
       />
     );
@@ -303,13 +305,15 @@ export function DockerContainersTreeBranch({
               onDragLeave={() => setDropTargetGroupId((current) => (current === group.id ? null : current))}
               onContextMenu={(event) => handleGroupContextMenu(group.id, event)}
               shouldIgnoreClick={(target) =>
-                Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
               }
               trailing={
-                <span className="docker-tree-category-trailing">
+                <>
                   <span className="server-tree-badge">{groupContainers.length}</span>
-                  <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
-                </span>
+                  <div className="tree-node-actions">
+                    <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
+                  </div>
+                </>
               }
             />
             {groupExpanded && groupContainers.length > 0 ? (

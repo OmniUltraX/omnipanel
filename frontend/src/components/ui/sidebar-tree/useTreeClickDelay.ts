@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 
+/** 侧栏树行根节点固定为 div，统一事件类型避免 strictFunctionTypes 下逆变冲突。 */
+export type TreeRowMouseEvent = ReactMouseEvent<HTMLDivElement>;
+
 export type UseTreeClickDelayOptions = {
-  onClick?: (event: ReactMouseEvent<HTMLElement>) => void;
-  onDoubleClick?: (event: ReactMouseEvent<HTMLElement>) => void;
+  onClick?: (event: TreeRowMouseEvent) => void;
+  onDoubleClick?: (event: TreeRowMouseEvent) => void;
   delayMs?: number;
   /** 为 false 时不做防抖，直接调用 */
   enabled?: boolean;
@@ -28,7 +31,7 @@ export function useTreeClickDelay({
   );
 
   const onRowClick = useCallback(
-    (event: ReactMouseEvent<HTMLElement>) => {
+    (event: TreeRowMouseEvent) => {
       if (shouldIgnoreClick?.(event.target)) return;
 
       if (!enabled || !onClick) return;
@@ -50,7 +53,7 @@ export function useTreeClickDelay({
   );
 
   const onRowDoubleClick = useCallback(
-    (event: ReactMouseEvent<HTMLElement>) => {
+    (event: TreeRowMouseEvent) => {
       if (shouldIgnoreClick?.(event.target)) return;
 
       if (timerRef.current !== null) {
