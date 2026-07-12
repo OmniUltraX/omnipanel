@@ -1,5 +1,14 @@
 import type { DockerContainerSummary, DockerPort } from "../../ipc/bindings";
 
+/** 判断字符串是否像 IP 地址（避免误当作网络名展示）。 */
+export function isLikelyIpAddress(value: string | null | undefined): boolean {
+  const text = value?.trim();
+  if (!text) return false;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(text)) return true;
+  if (text.includes(":") && /^[0-9a-fA-F:.]+$/.test(text)) return true;
+  return false;
+}
+
 export function formatDockerPort(port: DockerPort): string {
   const proto = port.protocol || "tcp";
   if (port.publicPort != null) {
@@ -16,26 +25,35 @@ export function formatDockerPorts(container: DockerContainerSummary): string | n
 }
 
 export function formatDockerNetworks(container: DockerContainerSummary): string | null {
-  if (container.networkAttachments?.length) {
-    const labels = container.networkAttachments
-      .map((item) => {
-        const ip = item.ipAddress?.trim();
-        return ip ? `${item.name} (${ip})` : item.name;
-      })
-      .filter(Boolean);
-    if (labels.length) return labels.join(", ");
+  const names = new Set<string>();
+
+  for (const item of container.networkAttachments ?? []) {
+    const name = item.name?.trim();
+    if (name && !isLikelyIpAddress(name)) {
+      names.add(name);
+    }
   }
-  if (container.networks.length) {
-    return container.networks.join(", ");
+
+  for (const item of container.networks) {
+    const name = item.trim();
+    if (name && !isLikelyIpAddress(name)) {
+      names.add(name);
+    }
   }
-  return null;
+
+  if (names.size === 0) return null;
+  return [...names].join(", ");
 }
 
 export function formatDockerIpAddress(container: DockerContainerSummary): string | null {
   const direct = container.ipAddress?.trim();
   if (direct) return direct;
-  const fromAttachment = container.networkAttachments?.find((item) => item.ipAddress?.trim())?.ipAddress?.trim();
-  return fromAttachment ?? null;
+  const fromAttachment = container.networkAttachments
+    ?.map((item) => item.ipAddress?.trim())
+    .find(Boolean);
+  if (fromAttachment) return fromAttachment;
+  const ipFromNetworks = container.networks.find((item) => isLikelyIpAddress(item));
+  return ipFromNetworks?.trim() ?? null;
 }
 
 export function displayValue(value: string | null | undefined): string {

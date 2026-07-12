@@ -6,7 +6,7 @@ import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/VerticalSplitSidebar";
-import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo } from "@/ipc/bindings";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
@@ -155,6 +155,9 @@ function DockerTreeBranch({
           <div key={category.id} className="server-tree-category">
             <SidebarTreeNode
               depth={1}
+              module="docker"
+              nodeType={category.id}
+              treeKey={categoryKey}
               label={category.label}
               icon={<DockerTreeIcon kind={dockerCategoryIconKind(category.id)} />}
               className={dockerTreeNodeClassName(dockerCategoryIconKind(category.id))}
@@ -162,10 +165,17 @@ function DockerTreeBranch({
               expanded={categoryExpanded}
               active={activeNavKey === categoryKey}
               onToggle={() => toggle(categoryKey)}
-              onClick={() => openCategory("preview")}
-              onDoubleClick={() => openCategory("permanent")}
-              shouldIgnoreClick={(target) =>
-                Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
+              onActivate={() => openCategory("permanent")}
+              contextMenuItems={
+                category.id === "containers"
+                  ? [
+                      {
+                        id: "new-service-group",
+                        label: t("docker.sidebar.newServiceGroup"),
+                        onClick: () => void handleCreateServiceGroup(categoryKey),
+                      },
+                    ]
+                  : undefined
               }
               trailing={
                 <>
@@ -179,30 +189,6 @@ function DockerTreeBranch({
                       refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
                       onRefresh={() => refreshCategory(category.id)}
                     />
-                    {category.id === "containers" ? (
-                      <button
-                        type="button"
-                        className="tree-action-btn"
-                        title={t("docker.sidebar.newServiceGroup")}
-                        aria-label={t("docker.sidebar.newServiceGroup")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleCreateServiceGroup(categoryKey);
-                        }}
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          aria-hidden
-                        >
-                          <path d="M12 5v14M5 12h14" />
-                        </svg>
-                      </button>
-                    ) : null}
                   </div>
                 </>
               }
@@ -248,6 +234,9 @@ function DockerTreeBranch({
                       <SidebarTreeNode
                         key={item.id}
                         depth={2}
+                        module="docker"
+                        nodeType={category.id}
+                        treeKey={itemKey}
                         label={item.label}
                         icon={<DockerTreeIcon kind={dockerItemIconKind(category.id)} />}
                         className={dockerTreeNodeClassName(dockerItemIconKind(category.id))}
@@ -258,8 +247,8 @@ function DockerTreeBranch({
                           Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                         }
                         onToggle={() => {}}
-                        onClick={() => openItem("preview")}
-                        onDoubleClick={() => openItem("permanent")}
+                        onSelect={() => openItem("preview")}
+                        onActivate={() => openItem("permanent")}
                         trailing={
                           <div className="tree-node-actions">
                             <DockerTreeRefreshButton
@@ -377,6 +366,7 @@ export function DockerPanelTreeSidebar({
 
   const panelBody = (
     <>
+      <SidebarTreeSelectionProvider>
       <SidebarTreeRoot className="server-sidebar-body docker-sidebar-tree">
         {loading ? (
           <SidebarTreeEmpty>{t("docker.sidebar.loading")}</SidebarTreeEmpty>
@@ -391,6 +381,9 @@ export function DockerPanelTreeSidebar({
               <div key={connection.connectionId} className="server-tree-server docker-tree-connection">
                 <SidebarTreeNode
                   depth={0}
+                  module="docker"
+                  nodeType="connection"
+                  treeKey={connectionKey}
                   icon={<DockerTreeIcon kind="connection" />}
                   className={dockerTreeNodeClassName("connection")}
                   shouldIgnoreClick={(target) =>
@@ -411,8 +404,7 @@ export function DockerPanelTreeSidebar({
                     activeNavKey === connectionKey || activeConnectionId === connection.connectionId
                   }
                   onToggle={() => toggle(connectionKey)}
-                  onClick={() => onNavigate({ connectionId: connection.connectionId }, "preview")}
-                  onDoubleClick={() =>
+                  onActivate={() =>
                     onNavigate({ connectionId: connection.connectionId }, "permanent")
                   }
                   onContextMenu={(event) => handleContextMenu(event, connection)}
@@ -441,6 +433,7 @@ export function DockerPanelTreeSidebar({
           })
         )}
       </SidebarTreeRoot>
+      </SidebarTreeSelectionProvider>
       {ctxPos ? (
         <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />
       ) : null}

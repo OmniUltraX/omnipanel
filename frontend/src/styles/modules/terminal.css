@@ -2757,27 +2757,30 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        padding: 6px 0 10px;
     }
 
-    .term-session-tree__empty {
-        padding: 10px 14px;
-        font-size: 12px;
-        color: var(--meta);
-        line-height: 1.5;
+    .term-session-tree .sidebar-tree-root {
+        box-sizing: border-box;
     }
 
     .term-session-tree__group + .term-session-tree__group {
         margin-top: 2px;
     }
 
-    .term-session-tree__group.is-drop-before::before,
-    .term-session-tree__group.is-drop-after::after {
-        content: none;
+    .term-session-tree__connection-node {
+        position: relative;
+        cursor: grab;
+        cursor: -webkit-grab;
+        touch-action: none;
+        user-select: none;
     }
 
-    .term-session-tree__connection.is-drop-before::before,
-    .term-session-tree__connection.is-drop-after::after {
+    .term-session-tree__connection-node--dragging {
+        opacity: 0.55;
+    }
+
+    .term-session-tree__connection-node--drop-before::before,
+    .term-session-tree__connection-node--drop-after::after {
         content: "";
         position: absolute;
         left: 8px;
@@ -2786,148 +2789,15 @@
         border-radius: 1px;
         background: var(--accent);
         pointer-events: none;
+        z-index: 1;
     }
 
-    .term-session-tree__connection.is-drop-before::before {
+    .term-session-tree__connection-node--drop-before::before {
         top: 0;
     }
 
-    .term-session-tree__connection.is-drop-after::after {
+    .term-session-tree__connection-node--drop-after::after {
         bottom: 0;
-    }
-
-    .term-session-tree__connection {
-        position: relative;
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        min-height: 28px;
-        padding-right: 4px;
-        cursor: grab;
-        cursor: -webkit-grab;
-        touch-action: none;
-        user-select: none;
-    }
-
-    .term-session-tree__connection.is-dragging-source {
-        opacity: 0.55;
-    }
-
-    .term-session-tree__connection:hover {
-        background: var(--surface-hover, rgba(255, 255, 255, 0.04));
-    }
-
-    .term-session-tree__connection-toggle {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 28px;
-        border: none;
-        background: transparent;
-        color: var(--meta);
-        cursor: pointer;
-        padding: 0;
-    }
-
-    .term-session-tree__chevron {
-        transition: transform 0.12s ease;
-    }
-
-    .term-session-tree__chevron.is-expanded {
-        transform: rotate(90deg);
-    }
-
-    .term-session-tree__connection-main {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-        height: 28px;
-        padding: 0 2px;
-        border: none;
-        background: transparent;
-        color: var(--fg);
-        font-size: 12px;
-        font-weight: 600;
-        text-align: left;
-        cursor: grab;
-        cursor: -webkit-grab;
-    }
-
-    .term-session-tree__connection-main .term-session-tree__folder,
-    .term-session-tree__connection-main .term-session-tree__connection-name {
-        cursor: grab;
-        cursor: -webkit-grab;
-    }
-
-    .term-session-tree__connection-main:focus-visible {
-        outline: 2px solid color-mix(in oklch, var(--accent) 50%, transparent);
-        outline-offset: -2px;
-        border-radius: 4px;
-    }
-
-    .term-session-tree__folder {
-        flex-shrink: 0;
-        display: flex;
-        color: var(--meta);
-    }
-
-    .term-session-tree__connection-name {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .term-session-tree__connection-add {
-        flex-shrink: 0;
-        opacity: 0;
-        transition: opacity 0.12s;
-    }
-
-    .term-session-tree__connection:hover .term-session-tree__connection-add {
-        opacity: 1;
-    }
-
-    .term-session-tree__sessions {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-        padding-left: 20px;
-    }
-
-    .term-session-tree__session {
-        display: flex;
-        align-items: stretch;
-        border-radius: var(--r-sm);
-        margin: 0 6px 0 8px;
-    }
-
-    .term-session-tree__session:hover {
-        background: var(--surface-hover, rgba(255, 255, 255, 0.04));
-    }
-
-    .term-session-tree__session.is-active {
-        background: var(--accent-muted, rgba(99, 102, 241, 0.12));
-    }
-
-    .term-session-tree__session-btn {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-        padding: 5px 6px 5px 4px;
-        border: none;
-        background: transparent;
-        color: var(--fg);
-        font-size: 12px;
-        text-align: left;
-        cursor: pointer;
     }
 
     .term-session-tree .topbar-tab-dot {
@@ -2951,18 +2821,6 @@
         background: var(--danger);
     }
 
-    .term-session-tree__session-title {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .term-session-tree__session.is-active .term-session-tree__session-title {
-        font-weight: 600;
-    }
-
     .term-session-tree__ai-spinner {
         flex-shrink: 0;
         width: 12px;
@@ -2978,29 +2836,15 @@
     }
 
     .term-session-tree__session-time {
-        flex-shrink: 0;
         font-size: 10px;
-        color: var(--meta);
     }
 
-    .term-session-tree__session-end {
-        flex-shrink: 0;
-        width: 22px;
-        border: none;
-        background: transparent;
-        color: var(--meta);
-        cursor: pointer;
+    .term-session-tree .tree-action-btn--danger {
         font-size: 14px;
-        opacity: 0;
-        transition: opacity 0.12s;
+        line-height: 1;
     }
 
-    .term-session-tree__session:hover .term-session-tree__session-end,
-    .term-session-tree__session.is-active .term-session-tree__session-end {
-        opacity: 1;
-    }
-
-    .term-session-tree__session-end:hover {
+    .term-session-tree .tree-action-btn--danger:hover:not(:disabled) {
         color: var(--danger, #ff6b6b);
     }
 
@@ -3128,8 +2972,8 @@ body.term-session-tree--dragging * {
     cursor: -webkit-grabbing !important;
 }
 
-body.term-session-tree--dragging .term-session-tree__connection-toggle,
-body.term-session-tree--dragging .term-session-tree__connection-add {
+body.term-session-tree--dragging .sidebar-tree-arrow,
+body.term-session-tree--dragging .tree-action-btn {
     cursor: grabbing !important;
     cursor: -webkit-grabbing !important;
 }

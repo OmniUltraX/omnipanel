@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { useModuleSuspended } from "../../../lib/moduleVisibility";
 import type { DockerConnectionInfo } from "../../../ipc/bindings";
 import {
   dockerSidebarConnectionRefreshKey,
@@ -22,6 +23,7 @@ function hasCachedResources(connectionId: string): boolean {
  * 读取单个 Docker 连接的侧栏资源缓存；展开连接时若无缓存则后台拉取并写入本地缓存。
  */
 export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
+  const moduleSuspended = useModuleSuspended();
   const connectionId = connection?.connectionId ?? null;
   const supported = connection != null && connectionSupportsSidebarResources(connection);
 
@@ -36,10 +38,29 @@ export function useDockerConnectionResources(connection: DockerConnectionInfo | 
   );
 
   useEffect(() => {
-    if (!connectionId || !supported) return;
+    if (!connectionId || !supported || moduleSuspended) return;
     if (hasCachedResources(connectionId)) return;
-    void refreshScope({ kind: "connection", connectionId });
-  }, [connectionId, supported, refreshScope]);
+
+    let cancelled = false;
+    const scheduleIdle =
+      typeof requestIdleCallback === "function"
+        ? (cb: () => void) => requestIdleCallback(cb, { timeout: 1500 })
+        : (cb: () => void) => window.setTimeout(cb, 48);
+    const cancelIdle =
+      typeof cancelIdleCallback === "function"
+        ? (id: number) => cancelIdleCallback(id)
+        : (id: number) => window.clearTimeout(id);
+
+    const handle = scheduleIdle(() => {
+      if (cancelled) return;
+      void refreshScope({ kind: "connection", connectionId });
+    });
+
+    return () => {
+      cancelled = true;
+      cancelIdle(handle as number);
+    };
+  }, [connectionId, moduleSuspended, supported, refreshScope]);
 
   const refresh = useCallback(() => {
     if (!connectionId || !supported) return;

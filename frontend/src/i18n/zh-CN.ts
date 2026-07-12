@@ -387,6 +387,10 @@ export const zhCN = {
     copySelection: "复制选中",
     copyAll: "复制全部",
   },
+  sidebarTree: {
+    rename: "重命名",
+    delete: "删除",
+  },
   resourceTags: {
     section: "资源标签",
     system: "系统标签",
@@ -2551,6 +2555,12 @@ export const zhCN = {
       subwindowTypeDir: "目录",
       subwindowTypeFile: "文件",
       subwindowTypeLink: "链接",
+    },
+    containerPanel: {
+      execTitle: "容器终端",
+      execUnsupported: "当前连接来源不支持容器交互终端（如 1Panel 适配）。",
+      execStopped: "容器未运行，无法打开交互终端。",
+      notFound: "未找到该容器，可能已被删除。",
     },
     tabs: {
       overview: "概览",

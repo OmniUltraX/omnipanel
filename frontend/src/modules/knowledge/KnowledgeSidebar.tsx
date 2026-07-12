@@ -38,10 +38,10 @@ import {
 } from "./knowledgeTree";
 import { loadKnowledgeVectorStatus, submitKnowledgeVectorize, isKnowledgeEntryVectorizing, subscribeKnowledgeVectorizeState, KNOWLEDGE_VECTORIZED_EVENT, KNOWLEDGE_CHUNKS_CHANGED_EVENT } from "./knowledgeVectorize";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
-import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot, SidebarTreeSelectionProvider, useSidebarTreeSelection } from "@/components/ui/sidebar-tree";
+import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
-const KNOWLEDGE_ROW_CLICK_DELAY_MS = 200;
 
 type SidebarSectionKey = KnowledgeLibrarySection;
 
@@ -105,7 +105,6 @@ type TreeRowProps = {
   selected: boolean;
   dropHint: DropHint | null;
   onSelect: (id: string) => void;
-  onOpenPreview?: (id: string) => void;
   onOpenPermanent?: (id: string) => void;
   onToggle: (id: string) => void;
   onContextMenu: (entry: KnowledgeEntry, e: ReactMouseEvent) => void;
@@ -122,7 +121,6 @@ function TreeRow({
   selected,
   dropHint,
   onSelect,
-  onOpenPreview,
   onOpenPermanent,
   onToggle,
   onContextMenu,
@@ -133,56 +131,23 @@ function TreeRow({
 }: TreeRowProps) {
   const { entry } = node;
   const isFolder = isKnowledgeFolder(entry);
-  const clickTimerRef = useRef<number | null>(null);
+  const selection = useSidebarTreeSelection();
 
-  useEffect(
-    () => () => {
-      if (clickTimerRef.current != null) {
-        window.clearTimeout(clickTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  const handleRowClick = () => {
+  const handleSelect = (event: TreeRowMouseEvent) => {
+    selection?.handleSelect(entry.id, event);
     onSelect(entry.id);
-    if (isFolder) {
-      onToggle(entry.id);
-      return;
-    }
-    if (!onOpenPreview) {
-      return;
-    }
-    if (onOpenPermanent) {
-      if (clickTimerRef.current != null) {
-        window.clearTimeout(clickTimerRef.current);
-      }
-      clickTimerRef.current = window.setTimeout(() => {
-        clickTimerRef.current = null;
-        onOpenPreview(entry.id);
-      }, KNOWLEDGE_ROW_CLICK_DELAY_MS);
-      return;
-    }
-    onOpenPreview(entry.id);
-  };
-
-  const handleRowDoubleClick = () => {
-    if (isFolder || !onOpenPermanent) {
-      return;
-    }
-    if (clickTimerRef.current != null) {
-      window.clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-    }
-    onOpenPermanent(entry.id);
   };
 
   return (
     <SidebarTreeNode
       depth={depth}
+      module="knowledge"
+      nodeType={isFolder ? "folder" : "document"}
+      treeKey={entry.id}
       expanded={expanded}
       hasChildren={isFolder}
       active={selected}
+      selected={selection?.isSelected(entry.id) ?? false}
       className={`knowledge-tree-row${selected ? " knowledge-tree-row--active" : ""}${
         dropHint?.targetId === entry.id && dropHint.position === "inside"
           ? " knowledge-tree-row--drop-inside"
@@ -205,9 +170,10 @@ function TreeRow({
       onDragEnd={onDragEnd}
       onContextMenu={(event) => onContextMenu(entry, event)}
       onToggle={() => onToggle(entry.id)}
-      onClick={handleRowClick}
-      onDoubleClick={handleRowDoubleClick}
-      clickDelayMs={0}
+      onSelect={handleSelect}
+      onActivate={
+        !isFolder && onOpenPermanent ? () => onOpenPermanent(entry.id) : undefined
+      }
     />
   );
 }
@@ -235,7 +201,6 @@ function renderTreeNodes(
         selected={opts.selectedId === id}
         dropHint={opts.dropHint}
         onSelect={opts.onSelect}
-        onOpenPreview={opts.onOpenPreview}
         onOpenPermanent={opts.onOpenPermanent}
         onToggle={opts.onToggle}
         onContextMenu={opts.onContextMenu}
@@ -659,7 +624,6 @@ export function KnowledgeSidebar() {
             selectedId: selectedEntryId,
             dropHint,
             onSelect: setSelectedEntry,
-            onOpenPreview: (id) => openEntry(id, "preview"),
             onOpenPermanent: (id) => openEntry(id, "permanent"),
             onToggle: toggleExpanded,
             onContextMenu: (entry, e) => {
@@ -738,6 +702,7 @@ export function KnowledgeSidebar() {
         onChange={setSearchQuery}
         placeholder={t("knowledge.searchPlaceholder")}
       >
+        <SidebarTreeSelectionProvider>
         <VerticalSplitSidebar className="knowledge-sidebar-sections">
           <VerticalSplitSidebarSection
             title={t("knowledge.sidebar.selfBuilt")}
@@ -756,6 +721,7 @@ export function KnowledgeSidebar() {
             {renderSectionTree("imported")}
           </VerticalSplitSidebarSection>
         </VerticalSplitSidebar>
+        </SidebarTreeSelectionProvider>
       </ScopedSearch>
 
       {ctxMenu && (

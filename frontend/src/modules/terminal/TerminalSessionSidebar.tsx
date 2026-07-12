@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import { resolveResourceById } from "../../stores/connectionStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
@@ -10,9 +19,14 @@ import type { TerminalConnectionStatus } from "../../stores/terminalTypes";
 import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
-import { Button } from "../../components/ui/primitives/Button";
 import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import {
+  SidebarTreeEmpty,
+  SidebarTreeNode,
+  SidebarTreeRoot,
+  SidebarTreeSelectionProvider,
+} from "@/components/ui/sidebar-tree";
 import {
   mergeConnectionOrder,
   moveConnectionInOrder,
@@ -30,7 +44,17 @@ const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
 
 function isConnectionPointerDragExcluded(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return true;
-  return Boolean(target.closest(".drag-ignore, button"));
+  return Boolean(
+    target.closest(".sidebar-tree-arrow, .tree-action-btn, .tree-node-actions, button"),
+  );
+}
+
+function makeConnectionTreeKey(resourceId: string): string {
+  return `connection:${resourceId}`;
+}
+
+function makeSessionTreeKey(sessionId: string): string {
+  return `session:${sessionId}`;
 }
 
 type ConnectionGroup = {
@@ -103,187 +127,18 @@ function resolveSessionConnectionStatus(
 
 function FolderIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
       <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
     </svg>
   );
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }) {
+function SessionIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      width="12"
-      height="12"
-      aria-hidden
-      className={`term-session-tree__chevron${expanded ? " is-expanded" : ""}`}
-    >
-      <path d="M9 6l6 6-6 6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
     </svg>
-  );
-}
-
-function SessionRow({
-  session,
-  activityAt,
-  isActive,
-  status,
-  isAiNaming,
-  onSelect,
-  onEnd,
-  onContextMenu,
-}: {
-  session: TerminalSession;
-  activityAt: number;
-  isActive: boolean;
-  status: TopbarTabDef["status"];
-  isAiNaming: boolean;
-  onSelect: () => void;
-  onEnd: () => void;
-  onContextMenu: (event: React.MouseEvent) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className={`term-session-tree__session${isActive ? " is-active" : ""}`}>
-      <button
-        type="button"
-        className="term-session-tree__session-btn"
-        onClick={onSelect}
-        onContextMenu={onContextMenu}
-      >
-        <span
-          className={`topbar-tab-dot ${sessionStatusDotClass(status)}`}
-          aria-hidden
-        />
-        <span className="term-session-tree__session-title">{session.title}</span>
-        {isAiNaming && (
-          <span
-            className="term-session-tree__ai-spinner"
-            title={t("terminal.sessions.aiRenaming")}
-            aria-label={t("terminal.sessions.aiRenaming")}
-          />
-        )}
-        <span className="term-session-tree__session-time">
-          {formatRelativeTime(activityAt)}
-        </span>
-      </button>
-      <button
-        type="button"
-        className="term-session-tree__session-end drag-ignore"
-        title={t("terminal.sessions.end")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onEnd();
-        }}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-function ConnectionGroupBlock({
-  group,
-  blocksBySession,
-  expanded,
-  activeSessionId,
-  sessionStatusById,
-  aiNamingIds,
-  dropHint,
-  draggingSource,
-  onToggle,
-  onSelectSession,
-  onCreateSession,
-  onEndSession,
-  onSessionContextMenu,
-  onConnectionPointerDown,
-}: {
-  group: ConnectionGroup;
-  blocksBySession: Record<string, TerminalBlock[]>;
-  expanded: boolean;
-  activeSessionId: string | null;
-  sessionStatusById: Map<string, TopbarTabDef["status"]>;
-  aiNamingIds: Set<string>;
-  dropHint: "before" | "after" | null;
-  draggingSource: boolean;
-  onToggle: () => void;
-  onSelectSession: (sessionId: string) => void;
-  onCreateSession: (resourceId: string, title: string) => void;
-  onEndSession: (sessionId: string) => void;
-  onSessionContextMenu: (
-    event: React.MouseEvent,
-    sessionId: string,
-  ) => void;
-  onConnectionPointerDown: (
-    event: ReactPointerEvent<HTMLDivElement>,
-    resourceId: string,
-  ) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="term-session-tree__group">
-      <div
-        className={`term-session-tree__connection${dropHint === "before" ? " is-drop-before" : ""}${dropHint === "after" ? " is-drop-after" : ""}${draggingSource ? " is-dragging-source" : ""}`}
-        data-connection-id={group.resourceId}
-        title={t("terminal.sessions.reorderConnection")}
-        onPointerDown={(event) => onConnectionPointerDown(event, group.resourceId)}
-      >
-        <button
-          type="button"
-          className="term-session-tree__connection-toggle drag-ignore"
-          onClick={onToggle}
-          aria-expanded={expanded}
-        >
-          <ChevronIcon expanded={expanded} />
-        </button>
-        <div
-          role="button"
-          tabIndex={0}
-          className="term-session-tree__connection-main"
-          onClick={onToggle}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onToggle();
-            }
-          }}
-        >
-          <span className="term-session-tree__folder" aria-hidden>
-            <FolderIcon />
-          </span>
-          <span className="term-session-tree__connection-name">{group.name}</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="term-session-tree__connection-add drag-ignore"
-          title={t("terminal.sessions.newUnderConnection")}
-          onClick={() => onCreateSession(group.resourceId, group.name)}
-        >
-          +
-        </Button>
-      </div>
-      {expanded ? (
-        <div className="term-session-tree__sessions">
-          {group.sessions.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              activityAt={resolveSessionActivityAt(session, blocksBySession)}
-              isActive={activeSessionId === session.id}
-              status={sessionStatusById.get(session.id) ?? "idle"}
-              isAiNaming={aiNamingIds.has(session.id)}
-              onSelect={() => onSelectSession(session.id)}
-              onEnd={() => onEndSession(session.id)}
-              onContextMenu={(event) => onSessionContextMenu(event, session.id)}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -331,18 +186,15 @@ export function TerminalSessionSidebar({
     resourceId: string;
     position: "before" | "after";
   } | null>(null);
-  // 会话右键菜单
   const [sessionCtxMenu, setSessionCtxMenu] = useState<{
     x: number;
     y: number;
     session: TerminalSession;
   } | null>(null);
-  // 会话重命名 prompt
   const [renameTarget, setRenameTarget] = useState<{
     sessionId: string;
     currentTitle: string;
   } | null>(null);
-  // 正在 AI 命名中的会话 ID 集合
   const [aiNamingIds, setAiNamingIds] = useState<Set<string>>(new Set());
   const treeBodyRef = useRef<HTMLDivElement>(null);
   const connectionGroupsRef = useRef<ConnectionGroup[]>([]);
@@ -435,8 +287,9 @@ export function TerminalSessionSidebar({
   );
 
   const handleSessionContextMenu = useCallback(
-    (event: React.MouseEvent, sessionId: string) => {
+    (event: ReactMouseEvent, sessionId: string) => {
       event.preventDefault();
+      event.stopPropagation();
       const session = sessions.find((s) => s.id === sessionId);
       if (!session) return;
       setSessionCtxMenu({ x: event.clientX, y: event.clientY, session });
@@ -444,16 +297,13 @@ export function TerminalSessionSidebar({
     [sessions],
   );
 
-  const handleRenameSession = useCallback(
-    (session: TerminalSession) => {
-      setSessionCtxMenu(null);
-      setRenameTarget({
-        sessionId: session.id,
-        currentTitle: session.title,
-      });
-    },
-    [],
-  );
+  const handleRenameSession = useCallback((session: TerminalSession) => {
+    setSessionCtxMenu(null);
+    setRenameTarget({
+      sessionId: session.id,
+      currentTitle: session.title,
+    });
+  }, []);
 
   const handleAiRenameSession = useCallback(
     (session: TerminalSession) => {
@@ -473,18 +323,12 @@ export function TerminalSessionSidebar({
     [t],
   );
 
-  const handleCopySession = useCallback(
-    (session: TerminalSession) => {
-      setSessionCtxMenu(null);
-      // 复制会话：clone session info，附加 "(副本)" 后缀，挂回原 resource 下
-      const copyTitle = `${session.title} (副本)`;
-      const newId = `sess-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      useTerminalStore
-        .getState()
-        .createSession(copyTitle, session.session, newId);
-    },
-    [],
-  );
+  const handleCopySession = useCallback((session: TerminalSession) => {
+    setSessionCtxMenu(null);
+    const copyTitle = `${session.title} (副本)`;
+    const newId = `sess-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    useTerminalStore.getState().createSession(copyTitle, session.session, newId);
+  }, []);
 
   const handleConfirmSessionRename = useCallback(
     (trimmed: string) => {
@@ -629,33 +473,124 @@ export function TerminalSessionSidebar({
       {isPointerDragging
         ? createPortal(<div className="term-session-tree__drag-cursor-layer" aria-hidden />, document.body)
         : null}
-      <div className="term-session-tree__body" ref={treeBodyRef}>
-        {connectionGroups.length === 0 ? (
-          <div className="term-session-tree__empty">{t("terminal.sessions.empty")}</div>
-        ) : (
-          connectionGroups.map((group) => (
-            <ConnectionGroupBlock
-              key={group.resourceId}
-              group={group}
-              blocksBySession={blocksBySession}
-              expanded={expandedMap[group.resourceId] ?? true}
-              activeSessionId={resolvedActiveSessionId}
-              sessionStatusById={sessionStatusById}
-              aiNamingIds={aiNamingIds}
-              dropHint={
-                dropTarget?.resourceId === group.resourceId ? dropTarget.position : null
-              }
-              draggingSource={draggingSourceId === group.resourceId}
-              onToggle={() => toggleExpanded(group.resourceId)}
-              onSelectSession={onSelectSession}
-              onCreateSession={onCreateSession}
-              onEndSession={onEndSession}
-              onSessionContextMenu={handleSessionContextMenu}
-              onConnectionPointerDown={handleConnectionPointerDown}
-            />
-          ))
-        )}
-      </div>
+      <SidebarTreeSelectionProvider>
+        <div ref={treeBodyRef} className="term-session-tree__body">
+          <SidebarTreeRoot className="sidebar-tree-root">
+          {connectionGroups.length === 0 ? (
+            <SidebarTreeEmpty>{t("terminal.sessions.empty")}</SidebarTreeEmpty>
+          ) : (
+            connectionGroups.map((group) => {
+              const expanded = expandedMap[group.resourceId] ?? true;
+              const dropHint =
+                dropTarget?.resourceId === group.resourceId ? dropTarget.position : null;
+              const draggingSource = draggingSourceId === group.resourceId;
+              const connectionKey = makeConnectionTreeKey(group.resourceId);
+
+              return (
+                <div key={group.resourceId} className="server-tree-category term-session-tree__group">
+                  <SidebarTreeNode
+                    depth={0}
+                    module="terminal"
+                    nodeType="connection"
+                    treeKey={connectionKey}
+                    label={group.name}
+                    icon={<FolderIcon />}
+                    hasChildren
+                    expanded={expanded}
+                    active={group.sessions.some((session) => session.id === resolvedActiveSessionId)}
+                    className={[
+                      "term-session-tree__connection-node",
+                      dropHint === "before" ? "term-session-tree__connection-node--drop-before" : "",
+                      dropHint === "after" ? "term-session-tree__connection-node--drop-after" : "",
+                      draggingSource ? "term-session-tree__connection-node--dragging" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    dataAttrs={{ "data-connection-id": group.resourceId }}
+                    onToggle={() => toggleExpanded(group.resourceId)}
+                    onActivate={() => toggleExpanded(group.resourceId)}
+                    onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
+                    contextMenuItems={[
+                      {
+                        id: "new-session",
+                        label: t("terminal.sessions.newUnderConnection"),
+                        onClick: () => onCreateSession(group.resourceId, group.name),
+                      },
+                    ]}
+                    trailing={<span className="server-tree-badge">{group.sessions.length}</span>}
+                  />
+                  {expanded ? (
+                    <div className="server-tree-children">
+                      {group.sessions.map((session) => {
+                        const activityAt = resolveSessionActivityAt(session, blocksBySession);
+                        const isActive = resolvedActiveSessionId === session.id;
+                        const status = sessionStatusById.get(session.id) ?? "idle";
+                        const isAiNaming = aiNamingIds.has(session.id);
+
+                        return (
+                          <SidebarTreeNode
+                            key={session.id}
+                            depth={1}
+                            module="terminal"
+                            nodeType="session"
+                            treeKey={makeSessionTreeKey(session.id)}
+                            label={session.title}
+                            icon={<SessionIcon />}
+                            hasChildren={false}
+                            expanded={false}
+                            active={isActive}
+                            onToggle={() => {}}
+                            onSelect={() => onSelectSession(session.id)}
+                            onActivate={() => onSelectSession(session.id)}
+                            onContextMenu={(event) => handleSessionContextMenu(event, session.id)}
+                            prefix={
+                              <span
+                                className={`topbar-tab-dot ${sessionStatusDotClass(status)}`}
+                                aria-hidden
+                              />
+                            }
+                            afterLabel={
+                              isAiNaming ? (
+                                <span
+                                  className="term-session-tree__ai-spinner"
+                                  title={t("terminal.sessions.aiRenaming")}
+                                  aria-label={t("terminal.sessions.aiRenaming")}
+                                />
+                              ) : undefined
+                            }
+                            trailing={
+                              <>
+                                <span className="tree-meta term-session-tree__session-time">
+                                  {formatRelativeTime(activityAt)}
+                                </span>
+                                <div className="tree-node-actions">
+                                  <button
+                                    type="button"
+                                    className="tree-action-btn tree-action-btn--danger"
+                                    title={t("terminal.sessions.end")}
+                                    aria-label={t("terminal.sessions.end")}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onEndSession(session.id);
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </>
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+          </SidebarTreeRoot>
+        </div>
+      </SidebarTreeSelectionProvider>
       {sessionCtxMenu && (() => {
         const items: ContextMenuItem[] = [
           {

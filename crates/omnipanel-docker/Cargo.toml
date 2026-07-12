@@ -15,10 +15,14 @@ specta = { workspace = true }
 bollard = { workspace = true }
 bytes = "1"
 futures = { workspace = true }
+futures-util = { workspace = true }
 tempfile = "3"
 async-stream = "0.3"
 walkdir = "2"
 tar = "0.4"
+base64 = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+native-tls = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 md5 = "0.7"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

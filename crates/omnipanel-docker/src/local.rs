@@ -38,6 +38,8 @@ pub enum DockerExecSession {
     },
     /// SSH 宿主机 PTY exec：复用 omnipanel-ssh 的 SshPtySession。
     Ssh(SshPtySession),
+    /// 1Panel WebSocket 容器终端。
+    OnePanel(crate::onepanel_terminal::OnePanelExecSession),
 }
 
 impl DockerExecSession {
@@ -57,6 +59,7 @@ impl DockerExecSession {
                 Ok(())
             }
             Self::Ssh(pty) => pty.write(data).await,
+            Self::OnePanel(session) => session.write(data).await,
         }
     }
 
@@ -76,6 +79,7 @@ impl DockerExecSession {
                 .await
                 .map_err(map_bollard),
             Self::Ssh(pty) => pty.resize(cols, rows).await,
+            Self::OnePanel(session) => session.resize(cols, rows).await,
         }
     }
 
@@ -84,6 +88,7 @@ impl DockerExecSession {
         match self {
             Self::Local { .. } => Ok(()),
             Self::Ssh(pty) => pty.close().await,
+            Self::OnePanel(session) => session.close().await,
         }
     }
 }

@@ -19,7 +19,19 @@ export type DockerServiceGroupPanelTab = {
   preview?: boolean;
 };
 
-export type DockerConnectionWorkspaceTab = DockerConnectionPanelTab | DockerServiceGroupPanelTab;
+export type DockerContainerPanelTab = {
+  id: string;
+  kind: "container";
+  label: string;
+  connectionId: string;
+  containerId: string;
+  preview?: boolean;
+};
+
+export type DockerConnectionWorkspaceTab =
+  | DockerConnectionPanelTab
+  | DockerServiceGroupPanelTab
+  | DockerContainerPanelTab;
 
 /** 当前唯一的预览 Tab */
 export function findPreviewDockTab(
@@ -50,6 +62,21 @@ export function findTabIdForServiceGroup(
   )?.id;
 }
 
+/** 查找已打开的指定容器 Tab */
+export function findTabIdForContainer(
+  tabs: DockerConnectionWorkspaceTab[],
+  connectionId: string,
+  containerId: string,
+): string | undefined {
+  const normalized = containerId.trim().toLowerCase();
+  return tabs.find(
+    (tab) =>
+      tab.kind === "container" &&
+      tab.connectionId === connectionId &&
+      tab.containerId.trim().toLowerCase() === normalized,
+  )?.id;
+}
+
 export function makeConnectionTabId(): string {
   return `dockconn:${Date.now()}`;
 }
@@ -58,8 +85,18 @@ export function makeServiceGroupTabId(): string {
   return `docksvc:${Date.now()}`;
 }
 
+export function makeContainerTabId(): string {
+  return `dockctr:${Date.now()}`;
+}
+
 export function isDockerServiceGroupTab(
   tab: DockerConnectionWorkspaceTab,
 ): tab is DockerServiceGroupPanelTab {
   return tab.kind === "service-group";
+}
+
+export function isDockerContainerTab(
+  tab: DockerConnectionWorkspaceTab,
+): tab is DockerContainerPanelTab {
+  return tab.kind === "container";
 }

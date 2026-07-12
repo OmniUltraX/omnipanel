@@ -11,6 +11,7 @@ pub mod local;
 pub mod local_engine;
 pub mod model;
 pub mod onepanel;
+pub mod onepanel_terminal;
 pub mod ssh;
 
 use async_trait::async_trait;

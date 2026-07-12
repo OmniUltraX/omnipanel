@@ -109,7 +109,7 @@ import {
   refreshAndApplySchemaTreeNode,
   type SchemaTreeRefreshHooks,
 } from "./schemaTreeRefresh";
-import { SidebarTreeNode } from "@/components/ui/sidebar-tree";
+import { SidebarTreeNode, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
 import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 import {
   buildDeploymentServerTagMap,
@@ -140,9 +140,6 @@ function buildLayoutDragPayload(item: SchemaTreeItem): SchemaLayoutDragPayload |
   return null;
 }
 
-/** 区分单击预览与双击常驻的延迟（ms）。 */
-const SCHEMA_LABEL_CLICK_DELAY_MS = 200;
-
 interface TreeNodeProps {
   item: SchemaTreeItem;
   depth: number;
@@ -153,10 +150,8 @@ interface TreeNodeProps {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
-  onSelect?: () => void;
-  onLabelClick?: () => void;
-  /** 双击打开常驻面板（单击为预览，需配合 onLabelClick） */
-  onLabelDoubleClick?: () => void;
+  /** 双击打开右侧面板 */
+  onActivate?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   iconUrl?: string | null;
   onMetaClick?: () => void;
@@ -192,9 +187,7 @@ function TreeNode({
   isFk,
   hasChildren,
   active,
-  onSelect,
-  onLabelClick,
-  onLabelDoubleClick,
+  onActivate,
   onContextMenu,
   iconUrl,
   onMetaClick,
@@ -224,19 +217,6 @@ function TreeNode({
       : " tree-node--connection-disabled"
     : "";
 
-  const runLabelClick = () => {
-    if (onLabelClick) {
-      onLabelClick();
-      return;
-    }
-    if (!hasChildren) {
-      onSelect?.();
-      return;
-    }
-    onToggle();
-  };
-
-  const hasPreviewDelay = Boolean(onLabelDoubleClick && onLabelClick);
   const ignoreClick = (target: EventTarget | null) => isLayoutPointerDragExcludedTarget(target);
 
   const stickyClass = stickyAncestor && hasChildren && expanded ? " tree-node--sticky" : "";
@@ -401,6 +381,9 @@ function TreeNode({
       depth={depth}
       indentStep={16}
       indentBase={8}
+      module="database"
+      nodeType={type}
+      treeKey={item.id}
       expanded={expanded}
       hasChildren={hasChildren}
       active={active}
@@ -454,13 +437,7 @@ function TreeNode({
         "data-schema-node-id": item.id,
       }}
       onToggle={onToggle}
-      onClick={
-        hasPreviewDelay
-          ? () => onLabelClick?.()
-          : () => runLabelClick()
-      }
-      onDoubleClick={onLabelDoubleClick ? () => onLabelDoubleClick() : undefined}
-      clickDelayMs={hasPreviewDelay ? SCHEMA_LABEL_CLICK_DELAY_MS : 0}
+      onActivate={onActivate ? () => onActivate() : undefined}
       shouldIgnoreClick={ignoreClick}
       onPointerDown={(event) => {
         if (layoutDraggable) {
@@ -1422,6 +1399,14 @@ export function SchemaBrowser({
     }
   }, [search]);
 
+  const selectableNodeIds = useMemo(
+    () =>
+      flatRows
+        .filter((row): row is SchemaNodeFlatRow => row.kind === "node")
+        .map((row) => row.item.id),
+    [flatRows],
+  );
+
   const rowVirtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => schemaTreeRef.current,
@@ -1568,31 +1553,16 @@ export function SchemaBrowser({
                 })
             : undefined;
 
-      let onLabelClick: (() => void) | undefined;
-      let onLabelDoubleClick: (() => void) | undefined;
+      let onActivate: (() => void) | undefined;
       if (row.labelClickKind === "connection" && row.labelClickConnId) {
-        onLabelClick = () => onSelectConnection?.(row.labelClickConnId!, "preview");
-        onLabelDoubleClick = () => onSelectConnection?.(row.labelClickConnId!, "permanent");
+        onActivate = () => onSelectConnection?.(row.labelClickConnId!, "permanent");
       } else if (
         row.labelClickKind === "database" &&
         row.labelClickConnId &&
         row.labelClickDbName &&
         connection
       ) {
-        onLabelClick = () => {
-          onSelectDatabase?.(
-            {
-              connId: row.labelClickConnId!,
-              dbName: row.labelClickDbName!,
-              connection,
-            },
-            "preview",
-          );
-          if (!expandedNodeIds.has(row.item.id)) {
-            requestAnimationFrame(() => toggle(row.item.id));
-          }
-        };
-        onLabelDoubleClick = () => {
+        onActivate = () => {
           onSelectDatabase?.(
             {
               connId: row.labelClickConnId!,
@@ -1618,8 +1588,7 @@ export function SchemaBrowser({
           tableName: row.labelClickTableName!,
           connection,
         };
-        onLabelClick = () => onSelectTable?.(tableSelection, "preview");
-        onLabelDoubleClick = () => onSelectTable?.(tableSelection, "permanent");
+        onActivate = () => onSelectTable?.(tableSelection, "permanent");
       }
 
       let onPinToggle: (() => void) | undefined;
@@ -1677,8 +1646,7 @@ export function SchemaBrowser({
           iconUrl={row.iconUrl}
           pinActive={row.pinActive}
           onPinToggle={onPinToggle}
-          onLabelClick={onLabelClick}
-          onLabelDoubleClick={onLabelDoubleClick}
+          onActivate={onActivate}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
           stickyAncestor={options?.stickyAncestor}
           layoutDraggable={isLayoutDraggable}
@@ -1820,6 +1788,7 @@ export function SchemaBrowser({
           onKeyDown={handleTreeKeyDown}
           onContextMenu={handleContextLayoutRoot}
         >
+        <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("common.loading")}
@@ -1875,6 +1844,7 @@ export function SchemaBrowser({
           </div>
           </>
         )}
+        </SidebarTreeSelectionProvider>
       </div>
       </ScopedSearch>
 

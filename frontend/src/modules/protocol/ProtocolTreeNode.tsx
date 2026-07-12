@@ -1,9 +1,10 @@
 import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { SidebarTreeNode } from "@/components/ui/sidebar-tree";
+import { SidebarTreeNode, type TreeRowMouseEvent, type SidebarTreeModule } from "@/components/ui/sidebar-tree";
 
 export type ProtocolTreeNodeKind = "folder" | "request" | "entry";
 
 interface ProtocolTreeNodeProps {
+  module?: SidebarTreeModule;
   depth: number;
   kind: ProtocolTreeNodeKind;
   expanded: boolean;
@@ -15,12 +16,13 @@ interface ProtocolTreeNodeProps {
   dataTreeKey: string;
   className?: string;
   onToggle: () => void;
-  onClick?: () => void;
+  onActivate?: () => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
 }
 
 export function ProtocolTreeNode({
+  module = "protocol",
   depth,
   kind,
   expanded,
@@ -32,7 +34,7 @@ export function ProtocolTreeNode({
   dataTreeKey,
   className = "",
   onToggle,
-  onClick,
+  onActivate,
   onPointerDown,
   onContextMenu,
 }: ProtocolTreeNodeProps) {
@@ -43,11 +45,14 @@ export function ProtocolTreeNode({
   return (
     <SidebarTreeNode
       depth={depth}
+      module={module}
+      nodeType={kind}
       indentStep={16}
       indentBase={8}
       expanded={expanded}
       hasChildren={hasChildren}
       active={active}
+      treeKey={dataTreeKey}
       label={<span className="tree-label-name">{label}</span>}
       icon={icon}
       prefix={prefix}
@@ -58,13 +63,7 @@ export function ProtocolTreeNode({
         "data-tree-kind": kind,
       }}
       onToggle={onToggle}
-      onClick={
-        kind === "folder"
-          ? () => onToggle()
-          : onClick
-            ? () => onClick()
-            : undefined
-      }
+      onActivate={onActivate ? (_event: TreeRowMouseEvent) => onActivate() : undefined}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
     />

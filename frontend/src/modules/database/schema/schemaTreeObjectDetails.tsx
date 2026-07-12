@@ -22,7 +22,7 @@ type TreeNodeComponent = (props: {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
-  onLabelClick?: () => void;
+  onActivate?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   labelComment?: string;
   pinActive?: boolean;
@@ -73,7 +73,7 @@ export function SchemaTreeObjectDetails({
     dbName: string;
     tableName: string;
     connection: DbConnectionConfig;
-  }) => void;
+  }, mode?: "preview" | "permanent") => void;
   onContextSchemaNode?: (item: SchemaTreeItem, event: ReactMouseEvent) => void;
   resolveNodeMeta?: (nodeId: string, meta?: string) => string | undefined;
   resolveNodeActions?: (
@@ -146,8 +146,8 @@ export function SchemaTreeObjectDetails({
         active={activeTableKey === tableKey}
         labelComment={tbl.comment?.trim() || undefined}
         meta={metaFor(tableKey, undefined)}
-        onLabelClick={
-          objectKind === "table" ? () => onSelectTable?.(selection) : undefined
+        onActivate={
+          objectKind === "table" ? () => onSelectTable?.(selection, "permanent") : undefined
         }
         onContextMenu={openContextMenu ? (e) => openContextMenu(tableItem, e) : undefined}
         pinActive={objectKind === "table" ? tablePinned : undefined}

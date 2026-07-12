@@ -4,12 +4,15 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   findPreviewDockTab,
   findTabIdForConnection,
+  findTabIdForContainer,
   findTabIdForServiceGroup,
   makeConnectionTabId,
+  makeContainerTabId,
   makeServiceGroupTabId,
   type DockerConnectionDockOpenMode,
   type DockerConnectionPanelTab,
   type DockerConnectionWorkspaceTab,
+  type DockerContainerPanelTab,
   type DockerServiceGroupPanelTab,
 } from "../modules/docker/dockerConnectionWorkspaceTabs";
 
@@ -23,11 +26,17 @@ interface DockerPanelDockState {
     serviceGroupId: string,
     mode?: DockerConnectionDockOpenMode,
   ) => void;
+  selectContainer: (
+    connectionId: string,
+    containerId: string,
+    mode?: DockerConnectionDockOpenMode,
+  ) => void;
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string | null) => void;
   setDockLayout: (layout: SerializedDockview | null) => void;
   removeConnectionTabs: (connectionId: string) => void;
   removeServiceGroupTabs: (connectionId: string, serviceGroupId: string) => void;
+  removeContainerTabs: (connectionId: string, containerId: string) => void;
 }
 
 function getActiveConnectionId(
@@ -53,6 +62,15 @@ function makeServiceGroupTab(
   preview: boolean,
 ): DockerServiceGroupPanelTab {
   return { id, kind: "service-group", connectionId, serviceGroupId, preview, label: "" };
+}
+
+function makeContainerTab(
+  id: string,
+  connectionId: string,
+  containerId: string,
+  preview: boolean,
+): DockerContainerPanelTab {
+  return { id, kind: "container", connectionId, containerId, preview, label: "" };
 }
 
 export const useDockerPanelDockStore = create<DockerPanelDockState>()(
@@ -191,6 +209,67 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
+      selectContainer: (connectionId, containerId, mode = "preview") => {
+        set((state) => {
+          const existingTabId = findTabIdForContainer(state.tabs, connectionId, containerId);
+          const previewTab = findPreviewDockTab(state.tabs);
+
+          if (mode === "permanent") {
+            if (existingTabId) {
+              return {
+                tabs: state.tabs.map((tab) =>
+                  tab.id === existingTabId ? { ...tab, preview: false } : tab,
+                ),
+                activeTabId: existingTabId,
+              };
+            }
+            if (previewTab) {
+              return {
+                tabs: state.tabs.map((tab) =>
+                  tab.id === previewTab.id
+                    ? makeContainerTab(previewTab.id, connectionId, containerId, false)
+                    : tab,
+                ),
+                activeTabId: previewTab.id,
+              };
+            }
+            const id = makeContainerTabId();
+            return {
+              tabs: [...state.tabs, makeContainerTab(id, connectionId, containerId, false)],
+              activeTabId: id,
+            };
+          }
+
+          if (existingTabId) {
+            const existing = state.tabs.find((tab) => tab.id === existingTabId);
+            if (existing && !existing.preview) {
+              return { activeTabId: existingTabId };
+            }
+          }
+
+          if (previewTab) {
+            return {
+              tabs: state.tabs.map((tab) =>
+                tab.id === previewTab.id
+                  ? makeContainerTab(previewTab.id, connectionId, containerId, true)
+                  : tab,
+              ),
+              activeTabId: previewTab.id,
+            };
+          }
+
+          if (existingTabId) {
+            return { activeTabId: existingTabId };
+          }
+
+          const id = makeContainerTabId();
+          return {
+            tabs: [...state.tabs, makeContainerTab(id, connectionId, containerId, true)],
+            activeTabId: id,
+          };
+        });
+      },
+
       closeTab: (tabId) => {
         set((state) => {
           if (!state.tabs.some((tab) => tab.id === tabId)) {
@@ -228,6 +307,25 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
                 tab.kind === "service-group" &&
                 tab.connectionId === connectionId &&
                 tab.serviceGroupId === serviceGroupId
+              ),
+          );
+          let activeTabId = state.activeTabId;
+          if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+            activeTabId = tabs[tabs.length - 1]?.id ?? null;
+          }
+          return { tabs, activeTabId };
+        });
+      },
+
+      removeContainerTabs: (connectionId, containerId) => {
+        set((state) => {
+          const normalized = containerId.trim().toLowerCase();
+          const tabs = state.tabs.filter(
+            (tab) =>
+              !(
+                tab.kind === "container" &&
+                tab.connectionId === connectionId &&
+                tab.containerId.trim().toLowerCase() === normalized
               ),
           );
           let activeTabId = state.activeTabId;

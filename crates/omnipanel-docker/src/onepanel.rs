@@ -68,7 +68,7 @@ impl OnePanelClient {
     }
 
     /// 计算 1Panel-Token 头。
-    fn auth_headers(&self) -> Vec<(String, String)> {
+    pub fn auth_headers(&self) -> Vec<(String, String)> {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -211,6 +211,48 @@ impl OnePanelClient {
         Ok(text)
     }
 
+    /// 构造容器终端 WebSocket URL（`/api/v2/hosts/terminal/container`）。
+    pub fn container_terminal_ws_url(
+        &self,
+        container_id: &str,
+        command: &str,
+        cols: u16,
+        rows: u16,
+    ) -> OmniResult<String> {
+        let ws_base = self
+            .base_url
+            .replace("https://", "wss://")
+            .replace("http://", "ws://");
+        let mut url = reqwest::Url::parse(&format!("{ws_base}/api/v2/hosts/terminal/container"))
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 URL 失败")
+                    .with_cause(e.to_string())
+            })?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs.append_pair("cols", &cols.to_string());
+            pairs.append_pair("rows", &rows.to_string());
+            pairs.append_pair("source", "container");
+            pairs.append_pair("containerid", container_id.trim());
+            pairs.append_pair("user", "");
+            pairs.append_pair("command", command.trim());
+            pairs.append_pair("operateNode", "local");
+        }
+        Ok(url.to_string())
+    }
+
+    /// WebSocket TLS 连接器（支持跳过自签证书校验）。
+    pub fn ws_connector(&self) -> Option<tokio_tungstenite::Connector> {
+        if !self.base_url.starts_with("https://") {
+            return None;
+        }
+        let tls = native_tls::TlsConnector::builder()
+            .danger_accept_invalid_certs(self.insecure)
+            .build()
+            .ok()?;
+        Some(tokio_tungstenite::Connector::NativeTls(tls))
+    }
+
     /// POST 分页 search 接口，兼容 `{ items, total }` 与旧版直接数组。
     async fn post_search_values(
         &self,
@@ -248,6 +290,25 @@ impl OnePanelAdapter {
             .into_iter()
             .filter_map(|v| parse_container_list_stats(&v))
             .collect())
+    }
+
+    /// 创建 1Panel 容器 WebSocket 交互终端。
+    pub async fn create_container_exec(
+        &self,
+        container_id: &str,
+        shell: &str,
+        cols: u16,
+        rows: u16,
+    ) -> OmniResult<(crate::local::DockerExecSession, crate::local::DockerExecOutput)> {
+        let (session, output) = crate::onepanel_terminal::create_container_exec(
+            &self.client,
+            container_id,
+            shell,
+            cols,
+            rows,
+        )
+        .await?;
+        Ok((crate::local::DockerExecSession::OnePanel(session), output))
     }
 
     /// 探测：调用 `GET /api/v2/dashboard/base/os` 等轻量端点。
@@ -420,12 +481,34 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
         .get("ports")
         .map(parse_container_ports)
         .unwrap_or_default();
-    let networks = v
+    let mut networks = v
         .get("network")
         .or_else(|| v.get("networks"))
         .map(parse_string_list)
         .unwrap_or_default();
-    let (network_attachments, ip_address) = parse_container_network_meta(v, &networks);
+    let mut extracted_ip = None::<String>;
+    networks.retain(|name| {
+        if is_likely_ip_address(name) {
+            if extracted_ip.is_none() {
+                extracted_ip = Some(name.clone());
+            }
+            false
+        } else {
+            true
+        }
+    });
+    let (network_attachments, mut ip_address) = parse_container_network_meta(v, &networks);
+    if ip_address.is_none() {
+        ip_address = extracted_ip;
+    }
+    let network_names: Vec<String> = if network_attachments.is_empty() {
+        networks
+    } else {
+        network_attachments
+            .iter()
+            .map(|item| item.name.clone())
+            .collect()
+    };
     Some(DockerContainerSummary {
         short_id: crate::short_id(&id),
         id,
@@ -443,7 +526,7 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
         status_text: status,
         running,
         ports,
-        networks,
+        networks: network_names,
         ip_address,
         network_attachments,
         created_at: v
@@ -681,7 +764,7 @@ fn parse_container_network_meta(
             });
         }
     }
-    let ip_address = value
+    let mut ip_address = value
         .get("ip")
         .or_else(|| value.get("ipAddress"))
         .or_else(|| value.get("ipv4"))
@@ -695,15 +778,43 @@ fn parse_container_network_meta(
                 .find_map(|item| item.ip_address.clone())
         });
     if attachments.is_empty() && !fallback_names.is_empty() {
-        attachments = fallback_names
-            .iter()
+        let mut fallback_ip = None::<String>;
+        let mut names = Vec::new();
+        for name in fallback_names {
+            if is_likely_ip_address(name) {
+                if fallback_ip.is_none() {
+                    fallback_ip = Some(name.clone());
+                }
+            } else {
+                names.push(name.clone());
+            }
+        }
+        attachments = names
+            .into_iter()
             .map(|name| crate::model::DockerNetworkAttachment {
-                name: name.clone(),
+                name,
                 ip_address: None,
             })
             .collect();
+        if ip_address.is_none() {
+            ip_address = fallback_ip;
+        }
     }
     (attachments, ip_address)
+}
+
+fn is_likely_ip_address(text: &str) -> bool {
+    let s = text.trim();
+    if s.is_empty() {
+        return false;
+    }
+    if s.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    if s.contains(':') {
+        return s.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    false
 }
 
 fn parse_string_list(value: &serde_json::Value) -> Vec<String> {
@@ -886,7 +997,7 @@ impl DockerAdapter for OnePanelAdapter {
                 images: images.len() as u32,
             },
             engine_version: None,
-            warning_message: Some("1Panel: 部分高级功能（exec/stats/BuildKit）暂不支持".into()),
+            warning_message: Some("1Panel: 部分高级功能（stats/BuildKit）暂不支持".into()),
         })
     }
 

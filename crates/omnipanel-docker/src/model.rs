@@ -92,12 +92,12 @@ impl DockerCapabilities {
         }
     }
 
-    /// 1Panel 适配器能力：基础 CRUD；exec/stats/build/push/pull/容器文件 暂不支持。
+    /// 1Panel 适配器能力：基础 CRUD + 容器 WebSocket 终端；stats/build/push/pull 等部分高级能力暂不支持。
     pub fn onepanel() -> Self {
         Self {
             can_overview: true,
             can_stream_logs: false,
-            can_container_exec: false,
+            can_container_exec: true,
             can_inspect: true,
             can_manage_containers: true,
             can_manage_images: true,

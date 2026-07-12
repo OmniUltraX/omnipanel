@@ -798,23 +798,81 @@ fn exec_shell_candidates(requested: Option<String>, image: Option<&str>) -> Vec<
         return vec![s.trim().to_string()];
     }
     let image_lower = image.unwrap_or("").to_lowercase();
-    let prefer_sh = image_lower.contains("alpine")
-        || image_lower.contains("busybox")
-        || image_lower.contains("distroless");
-    let order: &[&str] = if prefer_sh {
-        &["/bin/sh", "sh", "/bin/bash", "bash"]
-    } else {
-        &["/bin/bash", "bash", "/bin/sh", "sh"]
-    };
-    order.iter().map(|s| (*s).to_string()).collect()
+    let mut shells = vec!["/bin/sh".to_string(), "sh".to_string()];
+    if image_lower.contains("alpine") || image_lower.contains("busybox") {
+        shells.extend(["/bin/ash", "ash"].map(str::to_string));
+    }
+    shells.extend(["/bin/bash", "bash"].map(str::to_string));
+    shells
 }
 
-fn is_exec_shell_missing(err: &OmniError) -> bool {
-    let msg = format!("{}{}", err.message, err.cause.as_deref().unwrap_or("")).to_lowercase();
+fn is_exec_shell_missing_text(text: &str) -> bool {
+    let msg = text.to_lowercase();
     msg.contains("executable file not found")
         || msg.contains("no such file or directory")
         || msg.contains(": not found")
-        || (msg.contains("oci runtime exec failed") && msg.contains("not found"))
+        || (msg.contains("oci runtime exec failed")
+            && (msg.contains("not found") || msg.contains("stat /bin/")))
+}
+
+fn is_exec_shell_missing(err: &OmniError) -> bool {
+    is_exec_shell_missing_text(&format!(
+        "{}{}",
+        err.message,
+        err.cause.as_deref().unwrap_or("")
+    ))
+}
+
+fn prepend_exec_output(
+    first: Vec<u8>,
+    rest: omnipanel_docker::DockerExecOutput,
+) -> omnipanel_docker::DockerExecOutput {
+    Box::pin(futures::stream::once(async move { Ok(first) }).chain(rest))
+}
+
+async fn close_exec_session(session: omnipanel_docker::DockerExecSession) {
+    let _ = session.close().await;
+}
+
+/// 创建 exec 并窥探首包输出：Docker API 可能在 shell 不存在时仍返回 Attached，
+/// 实际 OCI 错误会写入终端流，需在此检测并触发 shell 回退。
+async fn create_exec_with_shell_probe(
+    target: &DockerTarget,
+    container_id: &str,
+    shell: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<
+    (
+        omnipanel_docker::DockerExecSession,
+        omnipanel_docker::DockerExecOutput,
+    ),
+    OmniError,
+> {
+    let (session, mut output) = create_exec_for_target(target, container_id, shell, cols, rows).await?;
+
+    let peek = tokio::time::timeout(
+        std::time::Duration::from_millis(1200),
+        output.next(),
+    )
+    .await;
+
+    match peek {
+        Ok(Some(Ok(bytes))) if is_exec_shell_missing_text(&String::from_utf8_lossy(&bytes)) => {
+            close_exec_session(session).await;
+            Err(OmniError::new(
+                ErrorCode::Internal,
+                format!("容器内不存在 shell：{shell}"),
+            )
+            .with_cause(String::from_utf8_lossy(&bytes).into_owned()))
+        }
+        Ok(Some(Ok(bytes))) => Ok((session, prepend_exec_output(bytes, output))),
+        Ok(Some(Err(err))) => {
+            close_exec_session(session).await;
+            Err(err)
+        }
+        Ok(None) | Err(_) => Ok((session, output)),
+    }
 }
 
 async fn resolve_exec_shells(
@@ -866,10 +924,11 @@ async fn create_exec_for_target(
         DockerTarget::Ssh(ssh_session) => {
             omnipanel_docker::ssh::create_exec(ssh_session, container_id, shell, cols, rows).await
         }
-        DockerTarget::OnePanel(_adapter) => Err(OmniError::new(
-            ErrorCode::Internal,
-            "1Panel adapter does not support exec",
-        )),
+        DockerTarget::OnePanel(adapter) => {
+            adapter
+                .create_container_exec(container_id, shell, cols, rows)
+                .await
+        }
     }
 }
 
@@ -895,7 +954,7 @@ pub async fn docker_create_exec_session(
         for shell_str in &shells {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                create_exec_for_target(&target, &container_id, shell_str, cols, rows),
+                create_exec_with_shell_probe(&target, &container_id, shell_str, cols, rows),
             )
             .await
             {

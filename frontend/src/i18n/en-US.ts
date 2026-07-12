@@ -391,6 +391,10 @@ export const enUS: TranslationDict = {
     copySelection: "Copy selection",
     copyAll: "Copy all",
   },
+  sidebarTree: {
+    rename: "Rename",
+    delete: "Delete",
+  },
   resourceTags: {
     section: "Resource Tags",
     system: "System Tags",
@@ -2575,6 +2579,12 @@ export const enUS: TranslationDict = {
       subwindowTypeDir: "Directory",
       subwindowTypeFile: "File",
       subwindowTypeLink: "Symlink",
+    },
+    containerPanel: {
+      execTitle: "Container shell",
+      execUnsupported: "Interactive exec is not available for this connection source (e.g. 1Panel).",
+      execStopped: "Container is not running. Start it to open a shell.",
+      notFound: "Container not found. It may have been removed.",
     },
     tabs: {
       overview: "Overview",

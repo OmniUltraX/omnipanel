@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
@@ -13,18 +14,30 @@ import {
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
 import { useDockerServiceGroupStore } from "../../stores/dockerServiceGroupStore";
-import { DockerConnectionDialog } from "./DockerConnectionDialog";
+import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerDockPanel } from "./DockerDockPanel";
 import { DockerGroupDockPanel } from "./DockerGroupDockPanel";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
-import { isDockerServiceGroupTab } from "./dockerConnectionWorkspaceTabs";
-import { makeDockerTreeKey, makeDockerServiceGroupTreeKey } from "./dockerResourceLabels";
+import { isDockerServiceGroupTab, isDockerContainerTab } from "./dockerConnectionWorkspaceTabs";
+import { containerRowLabel, makeDockerTreeKey, makeDockerServiceGroupTreeKey } from "./dockerResourceLabels";
 import type { DockerSidebarNavTarget } from "./dockerSidebarNav";
 import { useDockerConnections } from "./hooks/useDockerConnections";
-import type { Connection, DockerConnectionInfo } from "../../ipc/bindings";
+import type { Connection, DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
+
+const DockerContainerDockPanel = lazy(() =>
+  import("./DockerContainerDockPanel").then((mod) => ({ default: mod.DockerContainerDockPanel })),
+);
+
+const DockerConnectionDialog = lazy(() =>
+  import("./DockerConnectionDialog").then((mod) => ({ default: mod.DockerConnectionDialog })),
+);
+
+function DockerPanelLoadingFallback() {
+  return <div className="docker-panel-loading-fallback" aria-hidden />;
+}
 
 export function DockerPanel() {
   const { t } = useI18n();
@@ -44,12 +57,34 @@ export function DockerPanel() {
   const dockLayout = useDockerPanelDockStore((s) => s.dockLayout);
   const selectConnection = useDockerPanelDockStore((s) => s.selectConnection);
   const selectServiceGroup = useDockerPanelDockStore((s) => s.selectServiceGroup);
+  const selectContainer = useDockerPanelDockStore((s) => s.selectContainer);
   const closeTab = useDockerPanelDockStore((s) => s.closeTab);
   const setActiveTabId = useDockerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useDockerPanelDockStore((s) => s.setDockLayout);
   const removeConnectionTabs = useDockerPanelDockStore((s) => s.removeConnectionTabs);
   const removeServiceGroupTabs = useDockerPanelDockStore((s) => s.removeServiceGroupTabs);
+  const removeContainerTabs = useDockerPanelDockStore((s) => s.removeContainerTabs);
   const groupsByConnection = useDockerServiceGroupStore((state) => state.groupsByConnection);
+
+  const containerTabConnectionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const tab of dockTabs) {
+      if (isDockerContainerTab(tab)) {
+        ids.add(tab.connectionId);
+      }
+    }
+    return [...ids];
+  }, [dockTabs]);
+
+  const sidebarContainersForTabs = useDockerSidebarCacheStore(
+    useShallow((state) => {
+      const out: Record<string, DockerContainerSummary[]> = {};
+      for (const connectionId of containerTabConnectionIds) {
+        out[connectionId] = state.connections[connectionId]?.containers ?? [];
+      }
+      return out;
+    }),
+  );
 
   const activeConnectionId = useActiveDockerPanelConnectionId();
   usePoolConnectionRegistration("docker", isActiveRoute ? activeConnectionId : null);
@@ -90,7 +125,28 @@ export function DockerPanel() {
         removeServiceGroupTabs(tab.connectionId, tab.serviceGroupId);
       }
     }
-  }, [groupsByConnection, removeConnectionTabs, removeServiceGroupTabs, validIds]);
+
+    for (const tab of tabs) {
+      if (!isDockerContainerTab(tab) || !validIds.has(tab.connectionId)) continue;
+      const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
+      const normalized = tab.containerId.trim().toLowerCase();
+      const exists = containers.some(
+        (container) =>
+          container.id.trim().toLowerCase() === normalized ||
+          container.shortId.trim().toLowerCase() === normalized,
+      );
+      if (!exists && containers.length > 0) {
+        removeContainerTabs(tab.connectionId, tab.containerId);
+      }
+    }
+  }, [
+    groupsByConnection,
+    removeConnectionTabs,
+    removeContainerTabs,
+    removeServiceGroupTabs,
+    sidebarContainersForTabs,
+    validIds,
+  ]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -105,6 +161,12 @@ export function DockerPanel() {
         return;
       }
 
+      if (target.category === "containers" && target.itemId) {
+        selectContainer(target.connectionId, target.itemId, mode);
+        setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
+        return;
+      }
+
       selectConnection(target.connectionId, mode);
       if (target.itemId && target.category) {
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
@@ -114,7 +176,7 @@ export function DockerPanel() {
         setActiveNavKey(makeDockerTreeKey(target.connectionId));
       }
     },
-    [selectConnection, selectServiceGroup],
+    [selectConnection, selectContainer, selectServiceGroup],
   );
 
   useEffect(() => {
@@ -125,6 +187,10 @@ export function DockerPanel() {
     }
     if (isDockerServiceGroupTab(tab)) {
       setActiveNavKey(makeDockerServiceGroupTreeKey(tab.connectionId, tab.serviceGroupId));
+      return;
+    }
+    if (isDockerContainerTab(tab)) {
+      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "containers", tab.containerId));
       return;
     }
     setActiveNavKey(makeDockerTreeKey(tab.connectionId));
@@ -193,6 +259,27 @@ export function DockerPanel() {
             };
           }
 
+          if (isDockerContainerTab(tab)) {
+            const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
+            const normalized = tab.containerId.trim().toLowerCase();
+            const container = containers.find(
+              (item) =>
+                item.id.trim().toLowerCase() === normalized ||
+                item.shortId.trim().toLowerCase() === normalized,
+            );
+            const containerName = container
+              ? containerRowLabel(container)
+              : tab.containerId.slice(0, 12);
+            return {
+              id: tab.id,
+              label: containerName,
+              panelType: "docker-container",
+              closable: true,
+              preview: tab.preview,
+              tooltip: `${connection.name} · ${containerName}`,
+            };
+          }
+
           return {
             id: tab.id,
             label: connection.name,
@@ -203,7 +290,7 @@ export function DockerPanel() {
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [connectionById, dockTabs, groupsByConnection, t],
+    [connectionById, dockTabs, groupsByConnection, sidebarContainersForTabs, t],
   );
 
   const renderDockerPanel = useCallback(
@@ -226,6 +313,14 @@ export function DockerPanel() {
               serviceGroupId={tab.serviceGroupId}
               isActive={isActive}
             />
+          ) : isDockerContainerTab(tab) ? (
+            <Suspense fallback={<DockerPanelLoadingFallback />}>
+              <DockerContainerDockPanel
+                connection={connection}
+                containerId={tab.containerId}
+                isActive={isActive}
+              />
+            </Suspense>
           ) : (
             <DockerDockPanel connection={connection} isActive={isActive} />
           )}
@@ -289,18 +384,22 @@ export function DockerPanel() {
         </ModuleWorkspaceLayout>
       </DockerSidebarLinkageProvider>
 
-      <DockerConnectionDialog
-        open={showAddConn}
-        onClose={() => {
-          setShowAddConn(false);
-          setEditDockerConnection(undefined);
-        }}
-        editConnection={editDockerConnection}
-        onSaved={() => {
-          void reloadConnections();
-          setEditDockerConnection(undefined);
-        }}
-      />
+      {showAddConn ? (
+        <Suspense fallback={null}>
+          <DockerConnectionDialog
+            open={showAddConn}
+            onClose={() => {
+              setShowAddConn(false);
+              setEditDockerConnection(undefined);
+            }}
+            editConnection={editDockerConnection}
+            onSaved={() => {
+              void reloadConnections();
+              setEditDockerConnection(undefined);
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       {toast ? <div className="docker-toast">{toast}</div> : null}
     </>

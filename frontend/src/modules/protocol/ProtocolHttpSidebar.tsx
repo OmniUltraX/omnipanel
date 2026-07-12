@@ -38,6 +38,7 @@ import {
   type ProtocolTreeEntry,
 } from "./protocolLayoutTree";
 import { ProtocolTreeNode } from "./ProtocolTreeNode";
+import { SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
 import {
   formatHistoryEntryDate,
@@ -717,7 +718,7 @@ export function ProtocolHttpSidebar() {
               dataTreeKey={entry.key}
               className={`${hintClass}${draggingClass}`}
               onToggle={() => {}}
-              onClick={() => {
+              onActivate={() => {
                 if (consumeSkipClick()) return;
                 handleSelectRequest(req);
               }}
@@ -746,7 +747,7 @@ export function ProtocolHttpSidebar() {
             dataTreeKey={entry.key}
             className={`${hintClass}${draggingClass}`}
             onToggle={() => {}}
-            onClick={() => {
+            onActivate={() => {
               if (consumeSkipClick()) return;
               handleSelectEntry(labEntry);
             }}
@@ -788,6 +789,7 @@ export function ProtocolHttpSidebar() {
           onToggle={() => toggleSection("apis")}
           actions={<ProtocolSidebarNewButton />}
         >
+          <SidebarTreeSelectionProvider>
           <div
             ref={treeRootRef}
             className={`proto-tree-root${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}
@@ -799,6 +801,7 @@ export function ProtocolHttpSidebar() {
               renderTree(rootChildren, 0)
             )}
           </div>
+          </SidebarTreeSelectionProvider>
         </VerticalSplitSidebarSection>
 
         <VerticalSplitSidebarSection

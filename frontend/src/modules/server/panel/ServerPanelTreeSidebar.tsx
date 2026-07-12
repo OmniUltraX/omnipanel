@@ -6,7 +6,12 @@ import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/VerticalSplitSidebar";
-import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeEmpty,
+  SidebarTreeNode,
+  SidebarTreeRoot,
+  SidebarTreeSelectionProvider,
+} from "@/components/ui/sidebar-tree";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerPanelDockOpenMode } from "./serverPanelWorkspaceTabs";
 import { getAppDisplayName } from "./appCard";
@@ -117,6 +122,9 @@ function ServerTreeBranch({
           <div key={category.id} className="server-tree-category">
             <SidebarTreeNode
               depth={1}
+              module="server"
+              nodeType={category.id}
+              treeKey={categoryKey}
               label={category.label}
               icon={<ServerTreeIcon kind={serverCategoryIconKind(category.id)} />}
               className={serverTreeNodeClassName(serverCategoryIconKind(category.id))}
@@ -124,8 +132,7 @@ function ServerTreeBranch({
               expanded={categoryExpanded}
               active={activeNavKey === categoryKey}
               onToggle={() => toggle(categoryKey)}
-              onClick={() => openCategory("preview")}
-              onDoubleClick={() => openCategory("permanent")}
+              onActivate={() => openCategory("permanent")}
               trailing={
                 category.loading ? (
                   <span className="server-tree-badge">…</span>
@@ -159,6 +166,9 @@ function ServerTreeBranch({
                       <SidebarTreeNode
                         key={item.id}
                         depth={2}
+                        module="server"
+                        nodeType={category.id}
+                        treeKey={itemKey}
                         label={item.label}
                         icon={<ServerTreeIcon kind={serverItemIconKind(category.id)} />}
                         className={serverTreeNodeClassName(serverItemIconKind(category.id))}
@@ -166,8 +176,7 @@ function ServerTreeBranch({
                         expanded={false}
                         active={activeNavKey === itemKey}
                         onToggle={() => {}}
-                        onClick={() => openItem("preview")}
-                        onDoubleClick={() => openItem("permanent")}
+                        onActivate={() => openItem("permanent")}
                       />
                     );
                   })
@@ -255,6 +264,7 @@ export function ServerPanelTreeSidebar({
 
   const panelBody = (
     <>
+      <SidebarTreeSelectionProvider>
       <SidebarTreeRoot className="server-sidebar-body">
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>
@@ -266,6 +276,9 @@ export function ServerPanelTreeSidebar({
               <div key={server.id} className="server-tree-server">
                 <SidebarTreeNode
                   depth={0}
+                  module="server"
+                  nodeType="server"
+                  treeKey={serverKey}
                   icon={<ServerTreeIcon kind="server" />}
                   className={serverTreeNodeClassName(
                     "server",
@@ -287,8 +300,7 @@ export function ServerPanelTreeSidebar({
                   expanded={serverExpanded}
                   active={activeNavKey === serverKey || activeServerId === server.id}
                   onToggle={() => toggle(serverKey)}
-                  onClick={() => onNavigate({ serverId: server.id }, "preview")}
-                  onDoubleClick={() => onNavigate({ serverId: server.id }, "permanent")}
+                  onActivate={() => onNavigate({ serverId: server.id }, "permanent")}
                   onContextMenu={(event) => handleContextMenu(event, server)}
                 />
                 <ServerTreeBranch
@@ -305,6 +317,7 @@ export function ServerPanelTreeSidebar({
           })
         )}
       </SidebarTreeRoot>
+      </SidebarTreeSelectionProvider>
       {ctxPos ? (
         <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />
       ) : null}

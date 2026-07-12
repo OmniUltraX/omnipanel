@@ -22,7 +22,7 @@ import {
   describeSqlFileDragTarget,
   sqlFileDndLog,
 } from "./sqlQueryFileDnDDebug";
-import { SidebarTreeNode } from "@/components/ui/sidebar-tree";
+import { SidebarTreeNode, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
 import {
   SQL_QUERY_FILE_POINTER_DRAG_THRESHOLD_PX,
   isSqlQueryFilePointerDragExcluded,
@@ -125,6 +125,9 @@ function FolderTree({
                 depth={depth}
                 indentStep={16}
                 indentBase={8}
+                module="database-sql"
+                nodeType="folder"
+                treeKey={node.id}
                 expanded={expanded}
                 hasChildren
                 className={`sql-file-tree-node sql-file-tree-node--folder${expanded ? " sql-file-tree-node--sticky" : ""}${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}${isDropTarget ? " sql-file-tree-node--drop-target" : ""}`}
@@ -140,7 +143,6 @@ function FolderTree({
                 }
                 label={node.name}
                 onToggle={() => onToggleFolder(node.id)}
-                onClick={() => onToggleFolder(node.id)}
                 onPointerDown={(event) => onNodePointerDown(node.id, event)}
                 onContextMenu={(event) => onContextMenuSql(node, event)}
               />
@@ -178,6 +180,9 @@ function FolderTree({
               depth={depth}
               indentStep={16}
               indentBase={8}
+              module="database-sql"
+              nodeType="tree-chart"
+              treeKey={node.id}
               expanded={false}
               hasChildren={false}
               active={isActive}
@@ -195,7 +200,7 @@ function FolderTree({
               }
               label={node.name}
               onToggle={() => {}}
-              onClick={() => onOpenTreeChartFile(node)}
+              onActivate={() => onOpenTreeChartFile(node)}
               onPointerDown={(event) => onNodePointerDown(node.id, event)}
               onContextMenu={(event) => onContextMenuTreeChart(node, event)}
             />
@@ -211,6 +216,9 @@ function FolderTree({
             depth={depth}
             indentStep={16}
             indentBase={8}
+            module="database-sql"
+            nodeType="file"
+            treeKey={node.id}
             expanded={false}
             hasChildren={false}
             active={isActive}
@@ -228,7 +236,7 @@ function FolderTree({
             }
             label={node.name}
             onToggle={() => {}}
-            onClick={() => onOpenFile(node)}
+            onActivate={() => onOpenFile(node)}
             onPointerDown={(event) => onNodePointerDown(node.id, event)}
             onContextMenu={(event) => onContextMenuSql(node, event)}
           />
@@ -627,6 +635,7 @@ export function SqlQueryFilePanel({
         onChange={setSearch}
         placeholder={t("database.queryFiles.search")}
       >
+        <SidebarTreeSelectionProvider>
         <div
           ref={treeRootRef}
           className={`sql-query-file-tree${stickyAncestors ? " sql-query-file-tree--sticky-ancestors" : ""}${dropTargetId === "__root__" ? " sql-query-file-tree--root-drop" : ""}`}
@@ -664,6 +673,7 @@ export function SqlQueryFilePanel({
             />
           )}
         </div>
+        </SidebarTreeSelectionProvider>
       </ScopedSearch>
       {ctxMenu && (
         <ContextMenu

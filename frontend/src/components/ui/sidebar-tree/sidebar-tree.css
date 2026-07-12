@@ -32,6 +32,17 @@
     background: var(--accent-soft);
 }
 
+.sidebar-tree-node--selected,
+.tree-node.sidebar-tree-node--selected,
+.sidebar-tree-node.tree-node--selected {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+
+.sidebar-tree-node--selected.sidebar-tree-node--active,
+.tree-node.sidebar-tree-node--selected.tree-node--active {
+    background: var(--accent-soft);
+}
+
 .sidebar-tree-node--muted {
     color: var(--meta);
 }

@@ -15915,6 +15915,7 @@ a {
     .proto-sidebar-history,
     .knowledge-tree,
     .host-list,
+    .term-session-tree .sidebar-tree-root,
     .fm-connections,
     .db-sync-task-panel,
     .ssh-sidebar-list-panel

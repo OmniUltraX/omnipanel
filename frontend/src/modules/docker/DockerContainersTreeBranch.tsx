@@ -230,6 +230,9 @@ export function DockerContainersTreeBranch({
       <SidebarTreeNode
         key={container.id}
         depth={depth}
+        module="docker"
+        nodeType="container"
+        treeKey={itemKey}
         label={containerRowLabel(container)}
         icon={<DockerTreeIcon kind="container" />}
         className={dockerTreeNodeClassName("container")}
@@ -251,8 +254,8 @@ export function DockerContainersTreeBranch({
           setDropTargetGroupId(null);
         }}
         onToggle={() => {}}
-        onClick={() => openItem("preview")}
-        onDoubleClick={() => openItem("permanent")}
+        onSelect={() => openItem("preview")}
+        onActivate={() => openItem("permanent")}
         trailing={
           <div className="tree-node-actions">
             <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
@@ -286,6 +289,9 @@ export function DockerContainersTreeBranch({
           <div key={group.id} className="server-tree-category">
             <SidebarTreeNode
               depth={2}
+              module="docker"
+              nodeType="service-group"
+              treeKey={groupKey}
               label={group.name}
               icon={<DockerTreeIcon kind="service-group" />}
               className={[
@@ -298,8 +304,7 @@ export function DockerContainersTreeBranch({
               expanded={groupExpanded}
               active={activeNavKey === groupKey}
               onToggle={() => toggle(groupKey)}
-              onClick={() => openServiceGroup(group.id, "preview")}
-              onDoubleClick={() => openServiceGroup(group.id, "permanent")}
+              onActivate={() => openServiceGroup(group.id, "permanent")}
               onDragOver={(event) => handleGroupDragOver(group.id, event)}
               onDrop={(event) => handleGroupDrop(group.id, event)}
               onDragLeave={() => setDropTargetGroupId((current) => (current === group.id ? null : current))}

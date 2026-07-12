@@ -1,6 +1,7 @@
 import { SubWindow } from "../../../components/ui/window";
+import type { DockerConnectionSource } from "../../../ipc/bindings";
 import type { DockerContainerSubWindowKind } from "../DockerDockPanel";
-import { DockerContainerDirectoryView } from "./DockerContainerDirectoryView";
+import { DockerContainerSftpPanel } from "../DockerContainerSftpPanel";
 import { DockerContainerLogsView } from "./DockerContainerLogsView";
 import { DockerContainerParamsView } from "./DockerContainerParamsView";
 
@@ -11,6 +12,7 @@ export interface DockerContainerSubWindowProps {
   containerName: string;
   connectionId: string;
   containerId: string;
+  connectionSource: DockerConnectionSource;
   onClose: () => void;
 }
 
@@ -21,13 +23,19 @@ export function DockerContainerSubWindow({
   containerName,
   connectionId,
   containerId,
+  connectionSource,
   onClose,
 }: DockerContainerSubWindowProps) {
   const content =
     kind === "logs" ? (
       <DockerContainerLogsView connectionId={connectionId} containerId={containerId} visible={open} />
     ) : kind === "directory" ? (
-      <DockerContainerDirectoryView connectionId={connectionId} containerId={containerId} />
+      <DockerContainerSftpPanel
+        connectionId={connectionId}
+        containerId={containerId}
+        source={connectionSource}
+        className="docker-container-subwindow docker-container-subwindow--directory"
+      />
     ) : (
       <DockerContainerParamsView connectionId={connectionId} containerId={containerId} />
     );
