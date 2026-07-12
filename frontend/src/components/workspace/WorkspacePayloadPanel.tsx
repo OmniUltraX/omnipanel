@@ -5,7 +5,6 @@ import { Button } from "../ui/primitives/Button";
 import { WorkspaceEmptyPage } from "../ui/workspace/WorkspaceEmptyPage";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
-import { DockerWorkspaceTabPane } from "../../modules/docker/DockerWorkspaceTabPane";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 import { ensureTerminalTabFromSnapshot } from "../../lib/workspaceTabActions";
 import { isModuleRouteSnapshot } from "../../lib/workspaceModuleRoutes";
@@ -77,7 +76,9 @@ export function WorkspacePayloadPanel({ tab, isActive }: WorkspacePayloadPanelPr
   }
 
   if (payload.module === "docker") {
-    return <DockerWorkspaceTabPane snapshot={payload} isActive={isActive} />;
+    return (
+      <PayloadFallback module="docker" label={t("routes.docker")} path="/module/docker" />
+    );
   }
 
   if (isModuleRouteSnapshot(payload)) {

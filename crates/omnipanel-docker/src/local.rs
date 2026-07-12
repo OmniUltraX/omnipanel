@@ -2008,6 +2008,8 @@ fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainer
         running,
         ports,
         networks,
+        ip_address: None,
+        network_attachments: vec![],
         created_at: c.created.unwrap_or(0),
     }
 }
@@ -2063,7 +2065,7 @@ pub(crate) fn to_container_detail(
             read_only: !m.rw.unwrap_or(true),
         })
         .collect();
-    let networks = c
+    let network_attachments: Vec<DockerNetworkAttachment> = c
         .network_settings
         .and_then(|n| n.networks)
         .unwrap_or_default()
@@ -2087,7 +2089,12 @@ pub(crate) fn to_container_detail(
         status_text,
         running,
         ports: Vec::new(),
-        networks: Vec::new(),
+        networks: network_attachments.iter().map(|n| n.name.clone()).collect(),
+        ip_address: network_attachments
+            .iter()
+            .find_map(|n| n.ip_address.clone())
+            .filter(|s| !s.is_empty()),
+        network_attachments: network_attachments.clone(),
         created_at: 0,
     };
 
@@ -2098,7 +2105,7 @@ pub(crate) fn to_container_detail(
         exit_code,
         env,
         mounts,
-        networks,
+        networks: network_attachments,
     }
 }
 

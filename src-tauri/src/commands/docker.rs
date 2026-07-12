@@ -404,6 +404,20 @@ pub async fn docker_list_containers(
     .await
 }
 
+/// 批量获取容器 CPU / 内存统计（1Panel 走 list/stats；其他来源暂返回空列表）。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_list_container_stats(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<DockerContainerStats>, OmniError> {
+    let target = resolve_target(&state, &connection_id).await?;
+    match target {
+        DockerTarget::OnePanel(adapter) => adapter.list_container_stats().await,
+        _ => Ok(Vec::new()),
+    }
+}
+
 /// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]

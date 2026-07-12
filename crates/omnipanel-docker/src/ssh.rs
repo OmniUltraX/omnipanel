@@ -1218,6 +1218,8 @@ impl PsRow {
             running,
             ports,
             networks,
+            ip_address: None,
+            network_attachments: vec![],
             created_at: 0,
         }
     }

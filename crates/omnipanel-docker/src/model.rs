@@ -197,6 +197,11 @@ pub struct DockerContainerSummary {
     pub running: bool,
     pub ports: Vec<DockerPort>,
     pub networks: Vec<String>,
+    /// 主 IP（列表接口能提供的首选地址，通常为默认网络 IPv4）。
+    pub ip_address: Option<String>,
+    /// 各网络下的 IP（1Panel / inspect 等来源可填充）。
+    #[serde(default)]
+    pub network_attachments: Vec<DockerNetworkAttachment>,
     #[specta(type = f64)]
     pub created_at: i64,
 }

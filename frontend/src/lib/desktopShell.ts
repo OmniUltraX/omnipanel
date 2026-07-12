@@ -1,4 +1,5 @@
 import { isTauriRuntime } from "./isTauriRuntime";
+import { logDockerDrag } from "@/modules/docker/dockerDragDebug";
 
 /** 保留浏览器原生菜单（拼写检查等），其余区域一律走应用内菜单或快捷键。 */
 function allowsBrowserContextMenu(target: EventTarget | null): boolean {
@@ -13,6 +14,12 @@ function allowsBrowserContextMenu(target: EventTarget | null): boolean {
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   return target.closest("input, textarea, [contenteditable='true']") !== null;
+}
+
+/** 允许应用内显式声明 draggable 的节点使用 HTML5 拖放（如 Docker 容器 → 服务组）。 */
+function allowsNativeDragTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('[draggable="true"]') !== null;
 }
 
 /**
@@ -32,13 +39,32 @@ export function initDesktopShell(): void {
   );
 
   document.addEventListener("dragstart", (event) => {
-    if (isEditableTarget(event.target)) return;
+    if (isEditableTarget(event.target)) {
+      logDockerDrag("shell:dragstart-skipped", { reason: "editable-target" });
+      return;
+    }
+    if (allowsNativeDragTarget(event.target)) {
+      logDockerDrag("shell:dragstart-allowed", {
+        targetTag: (event.target as Element | null)?.tagName ?? null,
+        draggableHost: (event.target as Element | null)
+          ?.closest('[draggable="true"]')
+          ?.className?.toString(),
+      });
+      return;
+    }
+    logDockerDrag("shell:dragstart-blocked", {
+      targetTag: (event.target as Element | null)?.tagName ?? null,
+    });
     event.preventDefault();
   });
 
   document.addEventListener(
     "drop",
     (event) => {
+      logDockerDrag("shell:drop-capture", {
+        targetTag: (event.target as Element | null)?.tagName ?? null,
+        defaultPrevented: event.defaultPrevented,
+      });
       event.preventDefault();
     },
     { capture: true },

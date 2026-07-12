@@ -26,8 +26,8 @@ use crate::{
     DockerNetworkDetail, DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary,
     DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
     DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
-    DockerVolumeSummary, model::DockerCapabilities, model::DockerConnectionStatus,
-    model::DockerDiskUsageItem,
+    DockerVolumeSummary, local::to_container_detail, model::DockerCapabilities,
+    model::DockerConnectionStatus, model::DockerDiskUsageItem,
 };
 
 /// 1Panel 客户端。
@@ -51,6 +51,11 @@ struct OnePanelResponse<T> {
 
 fn default_data<T>() -> Option<T> {
     None
+}
+
+fn status_is_json_payload(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with('{') || trimmed.starts_with('[')
 }
 
 impl OnePanelClient {
@@ -77,7 +82,7 @@ impl OnePanelClient {
 
     /// 发起 GET 鉴权请求并把 `data` 字段反序列化出来。
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str) -> OmniResult<T> {
-        self.request::<(), T>(reqwest::Method::GET, path, None)
+        self.request::<(), T>(reqwest::Method::GET, path, None, None)
             .await
     }
 
@@ -87,8 +92,41 @@ impl OnePanelClient {
         path: &str,
         body: B,
     ) -> OmniResult<T> {
-        self.request::<B, T>(reqwest::Method::POST, path, Some(body))
+        self.request::<B, T>(reqwest::Method::POST, path, Some(body), None)
             .await
+    }
+
+    /// GET 日志类端点：优先解析 `{ data: string }`，否则返回原始响应体。
+    async fn get_text(&self, path: &str, query: &[(&str, &str)]) -> OmniResult<String> {
+        let text = self
+            .request_raw(reqwest::Method::GET, path, None::<()>, Some(query))
+            .await?;
+        if let Ok(parsed) = serde_json::from_str::<OnePanelResponse<String>>(&text) {
+            if parsed.code != 0 && parsed.code != 200 {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("1Panel 业务错误: {}", parsed.message),
+                ));
+            }
+            if let Some(data) = parsed.data {
+                return Ok(data);
+            }
+        }
+        if let Ok(parsed) = serde_json::from_str::<OnePanelResponse<serde_json::Value>>(&text) {
+            if parsed.code != 0 && parsed.code != 200 {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("1Panel 业务错误: {}", parsed.message),
+                ));
+            }
+            if let Some(data) = parsed.data {
+                if let Some(s) = data.as_str() {
+                    return Ok(s.to_string());
+                }
+                return Ok(data.to_string());
+            }
+        }
+        Ok(text)
     }
 
     async fn request<B, T>(
@@ -96,10 +134,45 @@ impl OnePanelClient {
         method: reqwest::Method,
         path: &str,
         body: Option<B>,
+        query: Option<&[(&str, &str)]>,
     ) -> OmniResult<T>
     where
         B: serde::Serialize,
         T: for<'de> Deserialize<'de>,
+    {
+        let text = self
+            .request_raw(method, path, body, query)
+            .await?;
+        if !status_is_json_payload(&text) {
+            return Err(OmniError::new(
+                ErrorCode::Internal,
+                "1Panel 响应不是合法 JSON",
+            )
+            .with_cause(text.chars().take(300).collect::<String>()));
+        }
+        let parsed: OnePanelResponse<T> = serde_json::from_str(&text).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败").with_cause(e.to_string())
+        })?;
+        if parsed.code != 0 && parsed.code != 200 {
+            return Err(OmniError::new(
+                ErrorCode::Internal,
+                format!("1Panel 业务错误: {}", parsed.message),
+            ));
+        }
+        parsed
+            .data
+            .ok_or_else(|| OmniError::new(ErrorCode::Internal, "1Panel 响应缺少 data 字段"))
+    }
+
+    async fn request_raw<B>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<B>,
+        query: Option<&[(&str, &str)]>,
+    ) -> OmniResult<String>
+    where
+        B: serde::Serialize,
     {
         let url = format!("{}{}", self.base_url, path);
         let client = reqwest::Client::builder()
@@ -111,6 +184,9 @@ impl OnePanelClient {
                     .with_cause(e.to_string())
             })?;
         let mut req = client.request(method, &url);
+        if let Some(pairs) = query {
+            req = req.query(pairs);
+        }
         for (k, v) in self.auth_headers() {
             req = req.header(k, v);
         }
@@ -132,19 +208,7 @@ impl OnePanelClient {
                     .with_cause(format!("{}: {}", url, text)),
             );
         }
-        let parsed: OnePanelResponse<T> = serde_json::from_str(&text).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败")
-                .with_cause(format!("{}: {}", url, e))
-        })?;
-        if parsed.code != 0 && parsed.code != 200 {
-            return Err(OmniError::new(
-                ErrorCode::Internal,
-                format!("1Panel 业务错误: {}", parsed.message),
-            ));
-        }
-        parsed
-            .data
-            .ok_or_else(|| OmniError::new(ErrorCode::Internal, "1Panel 响应缺少 data 字段"))
+        Ok(text)
     }
 
     /// POST 分页 search 接口，兼容 `{ items, total }` 与旧版直接数组。
@@ -171,6 +235,19 @@ impl OnePanelAdapter {
             client,
             connection_id,
         }
+    }
+
+    /// 批量获取容器 CPU / 内存占用（1Panel `GET /containers/list/stats`）。
+    pub async fn list_container_stats(&self) -> OmniResult<Vec<DockerContainerStats>> {
+        let raw: Vec<serde_json::Value> = self
+            .client
+            .get_json("/api/v2/containers/list/stats")
+            .await
+            .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
+        Ok(raw
+            .into_iter()
+            .filter_map(|v| parse_container_list_stats(&v))
+            .collect())
     }
 
     /// 探测：调用 `GET /api/v2/dashboard/base/os` 等轻量端点。
@@ -273,6 +350,54 @@ fn json_str(value: Option<&serde_json::Value>) -> String {
         .to_string()
 }
 
+fn parse_f64_value(v: &serde_json::Value) -> Option<f64> {
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+fn parse_u64_i64(v: &serde_json::Value) -> Option<i64> {
+    v.as_u64()
+        .map(|n| n as i64)
+        .or_else(|| v.as_i64())
+}
+
+fn parse_container_list_stats(v: &serde_json::Value) -> Option<DockerContainerStats> {
+    let container_id = json_str(
+        v.get("containerID")
+            .or_else(|| v.get("containerId"))
+            .or_else(|| v.get("id")),
+    );
+    if container_id.is_empty() {
+        return None;
+    }
+    let memory_limit = v.get("memoryLimit").and_then(parse_u64_i64);
+    Some(DockerContainerStats {
+        container_id: container_id.clone(),
+        name: String::new(),
+        cpu_percent: v
+            .get("cpuPercent")
+            .and_then(parse_f64_value)
+            .unwrap_or(0.0),
+        memory_usage_bytes: v
+            .get("memoryUsage")
+            .and_then(parse_u64_i64)
+            .unwrap_or(0),
+        memory_limit_bytes: memory_limit.filter(|limit| *limit > 0),
+        memory_percent: v
+            .get("memoryPercent")
+            .and_then(parse_f64_value)
+            .unwrap_or(0.0),
+        net_rx_bytes: 0,
+        net_tx_bytes: 0,
+        block_read_bytes: 0,
+        block_write_bytes: 0,
+        timestamp_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+    })
+}
+
 fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSummary> {
     let id = json_str(
         v.get("containerID")
@@ -300,6 +425,7 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
         .or_else(|| v.get("networks"))
         .map(parse_string_list)
         .unwrap_or_default();
+    let (network_attachments, ip_address) = parse_container_network_meta(v, &networks);
     Some(DockerContainerSummary {
         short_id: crate::short_id(&id),
         id,
@@ -318,6 +444,8 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
         running,
         ports,
         networks,
+        ip_address,
+        network_attachments,
         created_at: v
             .get("createTime")
             .or_else(|| v.get("createdAt"))
@@ -519,6 +647,65 @@ fn parse_container_port_mapping(mapping: &str) -> Option<crate::model::DockerPor
     }
 }
 
+fn parse_container_network_meta(
+    value: &serde_json::Value,
+    fallback_names: &[String],
+) -> (Vec<crate::model::DockerNetworkAttachment>, Option<String>) {
+    let mut attachments = Vec::new();
+    let network_value = value
+        .get("networkList")
+        .or_else(|| value.get("networks"))
+        .or_else(|| value.get("network"));
+    if let Some(arr) = network_value.and_then(|v| v.as_array()) {
+        for item in arr {
+            let Some(obj) = item.as_object() else { continue };
+            let name = json_str(
+                obj.get("network")
+                    .or_else(|| obj.get("name"))
+                    .or_else(|| obj.get("networkName")),
+            );
+            if name.is_empty() {
+                continue;
+            }
+            let ip = obj
+                .get("ipv4")
+                .or_else(|| obj.get("ip"))
+                .or_else(|| obj.get("ipAddress"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            attachments.push(crate::model::DockerNetworkAttachment {
+                name,
+                ip_address: ip,
+            });
+        }
+    }
+    let ip_address = value
+        .get("ip")
+        .or_else(|| value.get("ipAddress"))
+        .or_else(|| value.get("ipv4"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            attachments
+                .iter()
+                .find_map(|item| item.ip_address.clone())
+        });
+    if attachments.is_empty() && !fallback_names.is_empty() {
+        attachments = fallback_names
+            .iter()
+            .map(|name| crate::model::DockerNetworkAttachment {
+                name: name.clone(),
+                ip_address: None,
+            })
+            .collect();
+    }
+    (attachments, ip_address)
+}
+
 fn parse_string_list(value: &serde_json::Value) -> Vec<String> {
     if let Some(text) = value.as_str() {
         return text
@@ -591,6 +778,83 @@ fn parse_image_size_bytes(value: &serde_json::Value) -> i64 {
         .unwrap_or(0)
 }
 
+fn container_ref_matches(summary: &DockerContainerSummary, id: &str) -> bool {
+    let needle = id.trim().trim_start_matches('/').to_lowercase();
+    if needle.is_empty() {
+        return false;
+    }
+    summary.id.to_lowercase() == needle
+        || summary.short_id.to_lowercase() == needle
+        || summary.name.to_lowercase() == needle
+        || summary.id.to_lowercase().ends_with(&needle)
+        || needle.ends_with(&summary.short_id.to_lowercase())
+}
+
+async fn resolve_container_name(client: &OnePanelClient, id: &str) -> String {
+    if let Ok(list) = fetch_container_summaries(client, 500).await {
+        if let Some(summary) = list.iter().find(|c| container_ref_matches(c, id)) {
+            return summary.name.clone();
+        }
+    }
+    id.trim().trim_start_matches('/').to_string()
+}
+
+fn parse_onepanel_file_mode(mode: &str) -> u32 {
+    let trimmed = mode.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return trimmed.parse().unwrap_or(0);
+    }
+    if trimmed.len() >= 10 {
+        let mut value: u32 = match trimmed.chars().next() {
+            Some('d') => 0o040000,
+            Some('l') => 0o120000,
+            Some('b') => 0o060000,
+            Some('c') => 0o020000,
+            Some('p') => 0o010000,
+            Some('s') => 0o140000,
+            _ => 0,
+        };
+        for (idx, ch) in trimmed.chars().skip(1).take(9).enumerate() {
+            let bit = match ch {
+                'r' => 4,
+                'w' => 2,
+                'x' | 's' | 'S' | 't' | 'T' => 1,
+                _ => 0,
+            };
+            value |= bit << (8 - idx);
+        }
+        return value;
+    }
+    0
+}
+
+fn parse_onepanel_file_entry(v: &serde_json::Value) -> Option<DockerFileEntry> {
+    let name = json_str(v.get("name"));
+    if name.is_empty() {
+        return None;
+    }
+    let path = json_str(v.get("path")).if_empty_then(&name);
+    let is_dir = v.get("isDir").and_then(|x| x.as_bool()).unwrap_or(false);
+    let is_symlink = v.get("isLink").and_then(|x| x.as_bool()).unwrap_or(false);
+    let mode = v
+        .get("mode")
+        .and_then(|x| x.as_str())
+        .map(parse_onepanel_file_mode)
+        .unwrap_or(0);
+    Some(DockerFileEntry {
+        name,
+        path,
+        size_bytes: v.get("size").and_then(parse_u64_i64).unwrap_or(0),
+        modified_at: 0,
+        mode,
+        is_dir,
+        is_symlink,
+    })
+}
+
 #[async_trait]
 impl DockerAdapter for OnePanelAdapter {
     async fn probe(&self) -> OmniResult<DockerProbe> {
@@ -638,49 +902,31 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn inspect_container(&self, id: &str) -> OmniResult<DockerContainerDetail> {
-        let v: serde_json::Value = self
+        let inspect_text: String = self
             .client
             .post_json(
                 "/api/v2/containers/inspect",
-                serde_json::json!({ "id": id }),
+                serde_json::json!({ "id": id, "type": "container" }),
             )
             .await
             .map_err(|e| e.with_cause("1Panel inspect 失败"))?;
-        // 直接走 SSH/本地时 inspect 字段更丰富；1Panel 仅保证基础字段。返回
-        // 简化版 detail。
-        let summary = DockerContainerSummary {
-            short_id: crate::short_id(id),
-            id: id.to_string(),
-            name: v
-                .get("name")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
-            image: v
-                .get("image")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
-            state: v
-                .get("state")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
-            status_text: String::new(),
-            running: false,
-            ports: vec![],
-            networks: vec![],
-            created_at: 0,
+        let value: serde_json::Value = serde_json::from_str(inspect_text.trim()).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "解析 1Panel inspect JSON 失败")
+                .with_cause(e.to_string())
+        })?;
+        let inspect_value = if value.is_array() {
+            value.get(0).cloned().ok_or_else(|| {
+                OmniError::new(ErrorCode::NotFound, format!("容器 {id} 不存在"))
+            })?
+        } else {
+            value
         };
-        Ok(DockerContainerDetail {
-            summary,
-            command: None,
-            restart_policy: None,
-            exit_code: None,
-            env: vec![],
-            mounts: vec![],
-            networks: vec![],
-        })
+        let raw: bollard::models::ContainerInspectResponse =
+            serde_json::from_value(inspect_value).map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "解析容器 inspect 结构失败")
+                    .with_cause(e.to_string())
+            })?;
+        Ok(to_container_detail(raw))
     }
 
     async fn container_action(&self, id: &str, action: DockerContainerAction) -> OmniResult<()> {
@@ -710,28 +956,30 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>> {
-        let v: serde_json::Value = self
+        let container_name = resolve_container_name(&self.client, id).await;
+        let tail_text = if tail <= 0 {
+            "500".to_string()
+        } else {
+            tail.to_string()
+        };
+        let text = self
             .client
-            .post_json(
-                "/api/v2/containers/log",
-                serde_json::json!({ "id": id, "tail": tail }),
+            .get_text(
+                "/api/v2/containers/search/log",
+                &[
+                    ("container", container_name.as_str()),
+                    ("tail", tail_text.as_str()),
+                    ("follow", "false"),
+                    ("timestamp", "true"),
+                ],
             )
             .await
             .map_err(|e| e.with_cause("1Panel 拉取日志失败"))?;
-        let text = v
-            .as_str()
-            .map(|s| s.to_string())
-            .or_else(|| {
-                v.get("data")
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_default();
         Ok(text
             .lines()
-            .map(|l| DockerLogLine {
+            .map(|line| DockerLogLine {
                 stream: "stdout".into(),
-                message: l.to_string(),
+                message: line.to_string(),
             })
             .collect())
     }
@@ -1243,10 +1491,31 @@ impl DockerAdapter for OnePanelAdapter {
 
     async fn list_container_dir(
         &self,
-        _container_id: &str,
-        _path: &str,
+        container_id: &str,
+        path: &str,
     ) -> OmniResult<Vec<DockerFileEntry>> {
-        Err(not_supported("容器内文件浏览"))
+        let path = if path.trim().is_empty() { "/" } else { path };
+        let raw: Vec<serde_json::Value> = self
+            .client
+            .post_json(
+                "/api/v2/containers/files/search",
+                serde_json::json!({
+                    "containerID": container_id,
+                    "path": path,
+                }),
+            )
+            .await
+            .map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
+        let mut entries: Vec<DockerFileEntry> = raw
+            .iter()
+            .filter_map(parse_onepanel_file_entry)
+            .collect();
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        });
+        Ok(entries)
     }
 
     async fn read_container_file(

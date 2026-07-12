@@ -8,9 +8,11 @@ export const DOCKER_TREE_CATEGORIES: DockerTreeCategory[] = [
   "volumes",
 ];
 
-export type DockerSidebarNavTarget = {  connectionId: string;
+export type DockerSidebarNavTarget = {
+  connectionId: string;
   category?: DockerTreeCategory;
   itemId?: string;
+  serviceGroupId?: string;
 };
 
 export type DockerSidebarNavigate = (

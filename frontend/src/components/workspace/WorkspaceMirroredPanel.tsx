@@ -2,7 +2,8 @@ import { useLayoutEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
-import { DockerWorkspaceTabPane } from "../../modules/docker/DockerWorkspaceTabPane";
+import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { Button } from "../ui/primitives/Button";
 import type { WorkspaceDockTabHostContext } from "./WorkspaceDockTabPanel";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 import { ensureTerminalTabFromSnapshot } from "../../lib/workspaceTabActions";
@@ -98,10 +99,19 @@ export function WorkspaceMirroredPanel({
   }
 
   if (tab.originScope === "docker" && tab.originPanelId) {
-    const payload = tab.payload;
-    if (payload?.module === "docker") {
-      return <DockerWorkspaceTabPane snapshot={payload} isActive={isActive} />;
-    }
+    return (
+      <div className="workspace-payload-fallback">
+        <WorkspaceEmptyPage
+          title={t("routes.docker")}
+          prompt={t("shell.workspacePanel.payloadUnavailable", { module: t("routes.docker") })}
+          actions={
+            <Button variant="primary" size="sm" onClick={() => window.location.assign("/module/docker")}>
+              {t("shell.workspacePanel.openSourceModule")}
+            </Button>
+          }
+        />
+      </div>
+    );
   }
 
   return (

@@ -13,6 +13,7 @@ import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTa
 import {
   containerRowLabel,
   imageRowLabel,
+  makeDockerServiceGroupTreeKey,
   makeDockerTreeKey,
   networkRowLabel,
   volumeRowLabel,
@@ -30,10 +31,19 @@ import {
 } from "./dockerTreeIcons";
 import {
   connectionSupportsSidebarResources,
+  refreshDockerConnectionSidebarCache,
   useDockerConnectionResources,
 } from "./hooks/useDockerConnectionResources";
+import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { usePersistedDockerTreeExpanded } from "./usePersistedDockerTreeExpanded";
+import { useDockerServiceGroupStore } from "@/stores/dockerServiceGroupStore";
+import { quickInput } from "@/stores/quickInputStore";
+import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
+import {
+  dockerSidebarCategoryRefreshKey,
+  dockerSidebarConnectionRefreshKey,
+} from "./dockerSidebarCache";
 
 function statusDotClass(status: DockerConnectionInfo["status"]): string {
   if (status === "online") return "online";
@@ -63,8 +73,31 @@ function DockerTreeBranch({
   const { t } = useI18n();
   const loadConnection =
     connectionExpanded && connectionSupportsSidebarResources(connection) ? connection : null;
-  const { images, containers, networks, volumes, loading, error } =
+  const { images, containers, networks, volumes, loading, error, refreshCategory } =
     useDockerConnectionResources(loadConnection);
+  const createServiceGroup = useDockerServiceGroupStore((state) => state.createGroup);
+
+  const handleCreateServiceGroup = async (categoryKey: string) => {
+    const name = await quickInput({
+      title: t("docker.sidebar.newServiceGroup"),
+      subtitle: t("docker.sidebar.serviceGroupPrompt"),
+      placeholder: t("docker.sidebar.serviceGroupPrompt"),
+    });
+    if (!name?.trim()) return;
+    const groupId = createServiceGroup(connection.connectionId, name);
+    if (!groupId) return;
+    ensureExpanded(makeDockerTreeKey(connection.connectionId));
+    ensureExpanded(categoryKey);
+    ensureExpanded(makeDockerServiceGroupTreeKey(connection.connectionId, groupId));
+    onNavigate(
+      {
+        connectionId: connection.connectionId,
+        category: "containers",
+        serviceGroupId: groupId,
+      },
+      "permanent",
+    );
+  };
 
   const categoryItems = useMemo(() => {
     const itemBuilders: Record<
@@ -131,17 +164,66 @@ function DockerTreeBranch({
               onToggle={() => toggle(categoryKey)}
               onClick={() => openCategory("preview")}
               onDoubleClick={() => openCategory("permanent")}
+              shouldIgnoreClick={(target) =>
+                Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+              }
               trailing={
-                loading && category.items.length === 0 ? (
-                  <span className="server-tree-badge">…</span>
-                ) : (
-                  <span className="server-tree-badge">{category.count}</span>
-                )
+                <span className="docker-tree-category-trailing">
+                  {loading && category.items.length === 0 ? (
+                    <span className="server-tree-badge">…</span>
+                  ) : (
+                    <span className="server-tree-badge">{category.count}</span>
+                  )}
+                  <DockerTreeRefreshButton
+                    refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
+                    onRefresh={() => refreshCategory(category.id)}
+                  />
+                  {category.id === "containers" ? (
+                    <Button
+                      type="button"
+                      variant="icon"
+                      size="icon-xs"
+                      className="docker-tree-node-action"
+                      title={t("docker.sidebar.newServiceGroup")}
+                      aria-label={t("docker.sidebar.newServiceGroup")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleCreateServiceGroup(categoryKey);
+                      }}
+                    >
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </Button>
+                  ) : null}
+                </span>
               }
             />
             {categoryExpanded ? (
               <div className="server-tree-children">
-                {loading && category.items.length === 0 ? (
+                {category.id === "containers" ? (
+                  <DockerContainersTreeBranch
+                    connection={connection}
+                    containers={containers}
+                    categoryKey={categoryKey}
+                    activeNavKey={activeNavKey}
+                    loading={loading}
+                    error={error}
+                    isExpanded={isExpanded}
+                    toggle={toggle}
+                    ensureExpanded={ensureExpanded}
+                    onNavigate={onNavigate}
+                    onRefreshCategory={() => refreshCategory("containers")}
+                  />
+                ) : loading && category.items.length === 0 ? (
                   <SidebarTreeEmpty>{t("docker.sidebar.treeLoading")}</SidebarTreeEmpty>
                 ) : error && category.items.length === 0 ? (
                   <SidebarTreeEmpty>{error}</SidebarTreeEmpty>
@@ -172,9 +254,18 @@ function DockerTreeBranch({
                         hasChildren={false}
                         expanded={false}
                         active={activeNavKey === itemKey}
+                        shouldIgnoreClick={(target) =>
+                          Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                        }
                         onToggle={() => {}}
                         onClick={() => openItem("preview")}
                         onDoubleClick={() => openItem("permanent")}
+                        trailing={
+                          <DockerTreeRefreshButton
+                            refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
+                            onRefresh={() => refreshCategory(category.id)}
+                          />
+                        }
                       />
                     );
                   })
@@ -293,12 +384,16 @@ export function DockerPanelTreeSidebar({
           sortedConnections.map((connection) => {
             const connectionKey = makeDockerTreeKey(connection.connectionId);
             const connectionExpanded = isExpanded(connectionKey);
+            const supportsResources = connectionSupportsSidebarResources(connection);
             return (
               <div key={connection.connectionId} className="server-tree-server docker-tree-connection">
                 <SidebarTreeNode
                   depth={0}
                   icon={<DockerTreeIcon kind="connection" />}
                   className={dockerTreeNodeClassName("connection")}
+                  shouldIgnoreClick={(target) =>
+                    Boolean((target as HTMLElement | null)?.closest(".docker-tree-node-action"))
+                  }
                   label={
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{connection.name}</span>
@@ -319,6 +414,14 @@ export function DockerPanelTreeSidebar({
                     onNavigate({ connectionId: connection.connectionId }, "permanent")
                   }
                   onContextMenu={(event) => handleContextMenu(event, connection)}
+                  trailing={
+                    supportsResources ? (
+                      <DockerTreeRefreshButton
+                        refreshKey={dockerSidebarConnectionRefreshKey(connection.connectionId)}
+                        onRefresh={() => refreshDockerConnectionSidebarCache(connection.connectionId)}
+                      />
+                    ) : null
+                  }
                 />
                 <DockerTreeBranch
                   connection={connection}

@@ -12,13 +12,16 @@ import {
   useActiveDockerPanelConnectionId,
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
+import { useDockerServiceGroupStore } from "../../stores/dockerServiceGroupStore";
 import { DockerConnectionDialog } from "./DockerConnectionDialog";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerDockPanel } from "./DockerDockPanel";
+import { DockerGroupDockPanel } from "./DockerGroupDockPanel";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
-import { makeDockerTreeKey } from "./dockerResourceLabels";
+import { isDockerServiceGroupTab } from "./dockerConnectionWorkspaceTabs";
+import { makeDockerTreeKey, makeDockerServiceGroupTreeKey } from "./dockerResourceLabels";
 import type { DockerSidebarNavTarget } from "./dockerSidebarNav";
 import { useDockerConnections } from "./hooks/useDockerConnections";
 import type { Connection, DockerConnectionInfo } from "../../ipc/bindings";
@@ -40,10 +43,13 @@ export function DockerPanel() {
   const activeTabId = useDockerPanelDockStore((s) => s.activeTabId);
   const dockLayout = useDockerPanelDockStore((s) => s.dockLayout);
   const selectConnection = useDockerPanelDockStore((s) => s.selectConnection);
+  const selectServiceGroup = useDockerPanelDockStore((s) => s.selectServiceGroup);
   const closeTab = useDockerPanelDockStore((s) => s.closeTab);
   const setActiveTabId = useDockerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useDockerPanelDockStore((s) => s.setDockLayout);
   const removeConnectionTabs = useDockerPanelDockStore((s) => s.removeConnectionTabs);
+  const removeServiceGroupTabs = useDockerPanelDockStore((s) => s.removeServiceGroupTabs);
+  const groupsByConnection = useDockerServiceGroupStore((state) => state.groupsByConnection);
 
   const activeConnectionId = useActiveDockerPanelConnectionId();
   usePoolConnectionRegistration("docker", isActiveRoute ? activeConnectionId : null);
@@ -61,20 +67,30 @@ export function DockerPanel() {
     return map;
   }, [connections]);
 
+  const validIds = useMemo(
+    () => new Set(connections.map((connection) => connection.connectionId)),
+    [connections],
+  );
+
   useEffect(() => {
-    const validIds = new Set(connections.map((connection) => connection.connectionId));
+    const tabs = useDockerPanelDockStore.getState().tabs;
     const staleConnectionIds = [
       ...new Set(
-        useDockerPanelDockStore
-          .getState()
-          .tabs.filter((tab) => !validIds.has(tab.connectionId))
-          .map((tab) => tab.connectionId),
+        tabs.filter((tab) => !validIds.has(tab.connectionId)).map((tab) => tab.connectionId),
       ),
     ];
     for (const connectionId of staleConnectionIds) {
       removeConnectionTabs(connectionId);
     }
-  }, [connections, removeConnectionTabs]);
+
+    for (const tab of tabs) {
+      if (!isDockerServiceGroupTab(tab) || !validIds.has(tab.connectionId)) continue;
+      const groups = groupsByConnection[tab.connectionId] ?? [];
+      if (!groups.some((group) => group.id === tab.serviceGroupId)) {
+        removeServiceGroupTabs(tab.connectionId, tab.serviceGroupId);
+      }
+    }
+  }, [groupsByConnection, removeConnectionTabs, removeServiceGroupTabs, validIds]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -83,6 +99,12 @@ export function DockerPanel() {
 
   const handleNavigate = useCallback(
     (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "preview") => {
+      if (target.serviceGroupId) {
+        selectServiceGroup(target.connectionId, target.serviceGroupId, mode);
+        setActiveNavKey(makeDockerServiceGroupTreeKey(target.connectionId, target.serviceGroupId));
+        return;
+      }
+
       selectConnection(target.connectionId, mode);
       if (target.itemId && target.category) {
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
@@ -92,22 +114,21 @@ export function DockerPanel() {
         setActiveNavKey(makeDockerTreeKey(target.connectionId));
       }
     },
-    [selectConnection],
+    [selectConnection, selectServiceGroup],
   );
 
   useEffect(() => {
-    if (!activeConnectionId) {
+    const tab = dockTabs.find((item) => item.id === activeTabId);
+    if (!tab) {
       setActiveNavKey(null);
       return;
     }
-    setActiveNavKey((prev) => {
-      const rootKey = makeDockerTreeKey(activeConnectionId);
-      if (!prev || !prev.startsWith(`${rootKey}`)) {
-        return rootKey;
-      }
-      return prev;
-    });
-  }, [activeConnectionId]);
+    if (isDockerServiceGroupTab(tab)) {
+      setActiveNavKey(makeDockerServiceGroupTreeKey(tab.connectionId, tab.serviceGroupId));
+      return;
+    }
+    setActiveNavKey(makeDockerTreeKey(tab.connectionId));
+  }, [activeTabId, dockTabs]);
 
   const handleEditDockerConnection = (info: { connectionId: string }) => {
     const conn = storedConnections.find((c) => c.id === info.connectionId);
@@ -156,6 +177,22 @@ export function DockerPanel() {
         .map((tab) => {
           const connection = connectionById.get(tab.connectionId);
           if (!connection) return null;
+
+          if (isDockerServiceGroupTab(tab)) {
+            const group = (groupsByConnection[tab.connectionId] ?? []).find(
+              (item) => item.id === tab.serviceGroupId,
+            );
+            const groupName = group?.name ?? t("docker.sidebar.serviceGroupFallback");
+            return {
+              id: tab.id,
+              label: groupName,
+              panelType: "docker-service-group",
+              closable: true,
+              preview: tab.preview,
+              tooltip: `${connection.name} · ${groupName}`,
+            };
+          }
+
           return {
             id: tab.id,
             label: connection.name,
@@ -166,7 +203,7 @@ export function DockerPanel() {
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [connectionById, dockTabs],
+    [connectionById, dockTabs, groupsByConnection, t],
   );
 
   const renderDockerPanel = useCallback(
@@ -179,9 +216,19 @@ export function DockerPanel() {
       if (!connection) {
         return <div className="docker-connection-tab-pane" aria-hidden />;
       }
+      const isActive = moduleLive && activeTabId === tabId;
+
       return (
         <div className="docker-main">
-          <DockerDockPanel connection={connection} isActive={moduleLive && activeTabId === tabId} />
+          {isDockerServiceGroupTab(tab) ? (
+            <DockerGroupDockPanel
+              connection={connection}
+              serviceGroupId={tab.serviceGroupId}
+              isActive={isActive}
+            />
+          ) : (
+            <DockerDockPanel connection={connection} isActive={isActive} />
+          )}
         </div>
       );
     },

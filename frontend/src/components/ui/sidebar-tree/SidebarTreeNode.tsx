@@ -28,6 +28,7 @@ export type SidebarTreeNodeProps = {
   draggable?: boolean;
   onDragStart?: DragEventHandler<HTMLDivElement>;
   onDragOver?: DragEventHandler<HTMLDivElement>;
+  onDragLeave?: DragEventHandler<HTMLDivElement>;
   onDrop?: DragEventHandler<HTMLDivElement>;
   onDragEnd?: DragEventHandler<HTMLDivElement>;
   onToggle: () => void;
@@ -60,6 +61,7 @@ export function SidebarTreeNode({
   draggable,
   onDragStart,
   onDragOver,
+  onDragLeave,
   onDrop,
   onDragEnd,
   onToggle,
@@ -106,6 +108,7 @@ export function SidebarTreeNode({
       onDoubleClick={onClick || onDoubleClick ? onRowDoubleClick : undefined}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       onContextMenu={onContextMenu}

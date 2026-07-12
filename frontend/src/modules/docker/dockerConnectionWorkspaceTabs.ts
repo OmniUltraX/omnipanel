@@ -1,7 +1,7 @@
 /** 侧栏单击打开的临时预览 Tab；双击变为常驻（无 preview）。 */
 export type DockerConnectionDockOpenMode = "preview" | "permanent";
 
-export type DockerConnectionWorkspaceTab = {
+export type DockerConnectionPanelTab = {
   id: string;
   kind: "connection";
   label: string;
@@ -10,6 +10,17 @@ export type DockerConnectionWorkspaceTab = {
   preview?: boolean;
 };
 
+export type DockerServiceGroupPanelTab = {
+  id: string;
+  kind: "service-group";
+  label: string;
+  connectionId: string;
+  serviceGroupId: string;
+  preview?: boolean;
+};
+
+export type DockerConnectionWorkspaceTab = DockerConnectionPanelTab | DockerServiceGroupPanelTab;
+
 /** 当前唯一的预览 Tab */
 export function findPreviewDockTab(
   tabs: DockerConnectionWorkspaceTab[],
@@ -17,14 +28,38 @@ export function findPreviewDockTab(
   return tabs.find((tab) => tab.preview);
 }
 
-/** 查找已打开的指定连接 Tab */
+/** 查找已打开的指定连接 Tab（不含服务组 Tab） */
 export function findTabIdForConnection(
   tabs: DockerConnectionWorkspaceTab[],
   connectionId: string,
 ): string | undefined {
-  return tabs.find((tab) => tab.connectionId === connectionId)?.id;
+  return tabs.find((tab) => tab.kind === "connection" && tab.connectionId === connectionId)?.id;
+}
+
+/** 查找已打开的指定服务组 Tab */
+export function findTabIdForServiceGroup(
+  tabs: DockerConnectionWorkspaceTab[],
+  connectionId: string,
+  serviceGroupId: string,
+): string | undefined {
+  return tabs.find(
+    (tab) =>
+      tab.kind === "service-group" &&
+      tab.connectionId === connectionId &&
+      tab.serviceGroupId === serviceGroupId,
+  )?.id;
 }
 
 export function makeConnectionTabId(): string {
   return `dockconn:${Date.now()}`;
+}
+
+export function makeServiceGroupTabId(): string {
+  return `docksvc:${Date.now()}`;
+}
+
+export function isDockerServiceGroupTab(
+  tab: DockerConnectionWorkspaceTab,
+): tab is DockerServiceGroupPanelTab {
+  return tab.kind === "service-group";
 }

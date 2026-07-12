@@ -1,133 +1,92 @@
-import { useCallback, useEffect, useState } from "react";
-import { commands } from "../../../ipc/bindings";
-import type {
-  DockerConnectionInfo,
-  DockerContainerSummary,
-  DockerImageSummary,
-  DockerNetworkSummary,
-  DockerVolumeSummary,
-} from "../../../ipc/bindings";
+import { useCallback, useEffect, useMemo } from "react";
+import type { DockerConnectionInfo } from "../../../ipc/bindings";
+import {
+  dockerSidebarConnectionRefreshKey,
+  selectDockerSidebarCacheEntry,
+  selectEmptyDockerSidebarCacheEntry,
+} from "../dockerSidebarCache";
 import { isOnePanelDockerSource } from "../dockerConnectionSource";
-
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
-
-export interface DockerConnectionResources {
-  loading: boolean;
-  error: string | null;
-  images: DockerImageSummary[];
-  containers: DockerContainerSummary[];
-  networks: DockerNetworkSummary[];
-  volumes: DockerVolumeSummary[];
-}
-
-const EMPTY_RESOURCES: DockerConnectionResources = {
-  loading: false,
-  error: null,
-  images: [],
-  containers: [],
-  networks: [],
-  volumes: [],
-};
+import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 
 /** 侧栏资源树当前优先支持 1Panel / 面板适配来源。 */
 export function connectionSupportsSidebarResources(connection: DockerConnectionInfo): boolean {
   return isOnePanelDockerSource(connection.source);
 }
 
+function hasCachedResources(connectionId: string): boolean {
+  const entry = useDockerSidebarCacheStore.getState().getEntry(connectionId);
+  return entry.refreshedAt != null;
+}
+
 /**
- * 加载单个 Docker 连接下的镜像 / 容器 / 网络 / 卷（走统一 IPC，1Panel 由后端适配器处理）。
+ * 读取单个 Docker 连接的侧栏资源缓存；展开连接时若无缓存则后台拉取并写入本地缓存。
  */
 export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
-  const [state, setState] = useState<DockerConnectionResources>(EMPTY_RESOURCES);
+  const connectionId = connection?.connectionId ?? null;
+  const supported = connection != null && connectionSupportsSidebarResources(connection);
 
-  const reload = useCallback(async (connectionId: string) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const [containers, images, networks, volumes] = await Promise.all([
-        unwrap(commands.dockerListContainers(connectionId, null)),
-        unwrap(commands.dockerListImages(connectionId)),
-        unwrap(commands.dockerListNetworks(connectionId)),
-        unwrap(commands.dockerListVolumes(connectionId)),
-      ]);
-      setState({
-        loading: false,
-        error: null,
-        containers,
-        images,
-        networks,
-        volumes,
-      });
-    } catch (e) {
-      setState({
-        loading: false,
-        error: String(e),
-        containers: [],
-        images: [],
-        networks: [],
-        volumes: [],
-      });
-    }
-  }, []);
+  const cacheSelector = useMemo(
+    () => (connectionId ? selectDockerSidebarCacheEntry(connectionId) : selectEmptyDockerSidebarCacheEntry),
+    [connectionId],
+  );
+  const entry = useDockerSidebarCacheStore(cacheSelector);
+  const refreshScope = useDockerSidebarCacheStore((state) => state.refreshScope);
+  const connectionRefreshing = useDockerSidebarCacheStore((state) =>
+    connectionId ? state.isRefreshing(dockerSidebarConnectionRefreshKey(connectionId)) : false,
+  );
 
   useEffect(() => {
-    if (!connection) {
-      setState(EMPTY_RESOURCES);
-      return;
-    }
-    if (!connectionSupportsSidebarResources(connection)) {
-      setState(EMPTY_RESOURCES);
-      return;
-    }
-
-    let cancelled = false;
-    const load = async () => {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
-      try {
-        const [containers, images, networks, volumes] = await Promise.all([
-          unwrap(commands.dockerListContainers(connection.connectionId, null)),
-          unwrap(commands.dockerListImages(connection.connectionId)),
-          unwrap(commands.dockerListNetworks(connection.connectionId)),
-          unwrap(commands.dockerListVolumes(connection.connectionId)),
-        ]);
-        if (cancelled) return;
-        setState({
-          loading: false,
-          error: null,
-          containers,
-          images,
-          networks,
-          volumes,
-        });
-      } catch (e) {
-        if (cancelled) return;
-        setState({
-          loading: false,
-          error: String(e),
-          containers: [],
-          images: [],
-          networks: [],
-          volumes: [],
-        });
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [connection?.connectionId, connection?.source]);
+    if (!connectionId || !supported) return;
+    if (hasCachedResources(connectionId)) return;
+    void refreshScope({ kind: "connection", connectionId });
+  }, [connectionId, supported, refreshScope]);
 
   const refresh = useCallback(() => {
-    if (!connection?.connectionId) return;
-    if (!connectionSupportsSidebarResources(connection)) return;
-    void reload(connection.connectionId);
-  }, [connection, reload]);
+    if (!connectionId || !supported) return;
+    void refreshScope({ kind: "connection", connectionId });
+  }, [connectionId, supported, refreshScope]);
 
-  return { ...state, refresh };
+  const refreshCategory = useCallback(
+    (category: "images" | "containers" | "networks" | "volumes") => {
+      if (!connectionId || !supported) return;
+      void refreshScope({ kind: "category", connectionId, category });
+    },
+    [connectionId, supported, refreshScope],
+  );
+
+  const loading = supported && connectionRefreshing && entry.refreshedAt == null;
+
+  if (!supported) {
+    return {
+      images: [],
+      containers: [],
+      networks: [],
+      volumes: [],
+      loading: false,
+      error: null,
+      refresh,
+      refreshCategory,
+    };
+  }
+
+  return {
+    images: entry.images,
+    containers: entry.containers,
+    networks: entry.networks,
+    volumes: entry.volumes,
+    loading,
+    error: entry.error,
+    refresh,
+    refreshCategory,
+  };
+}
+
+/** 供连接列表等场景触发单连接全量刷新。 */
+export function refreshDockerConnectionSidebarCache(connectionId: string): void {
+  void useDockerSidebarCacheStore.getState().refreshScope({ kind: "connection", connectionId });
+}
+
+/** 判断某刷新 key 是否处于进行中。 */
+export function useDockerSidebarRefreshing(refreshKey: string | null): boolean {
+  return useDockerSidebarCacheStore((state) => (refreshKey ? state.isRefreshing(refreshKey) : false));
 }
