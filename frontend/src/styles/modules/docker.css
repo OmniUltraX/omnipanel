@@ -296,7 +296,8 @@
     }
 
     .docker-container-workspace__split,
-    .docker-container-workspace__side-split {
+    .docker-container-workspace__side-split,
+    .docker-container-workspace__exec-split {
         height: 100%;
         min-height: 0;
     }
@@ -304,9 +305,16 @@
     .docker-container-workspace__exec-pane,
     .docker-container-workspace__side-pane,
     .docker-container-workspace__overview-pane,
-    .docker-container-workspace__dir-pane {
+    .docker-container-workspace__dir-pane,
+    .docker-container-workspace__logs-pane,
+    .docker-container-workspace__terminal-pane {
         min-height: 0;
         overflow: hidden;
+    }
+
+    .docker-container-workspace__logs-pane .docker-container-subwindow--logs {
+        min-height: 0;
+        height: 100%;
     }
 
     .docker-container-workspace__overview-wrap {

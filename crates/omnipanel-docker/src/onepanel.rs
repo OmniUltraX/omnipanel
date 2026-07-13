@@ -96,14 +96,6 @@ impl OnePanelClient {
             .await
     }
 
-    /// GET 日志类端点：优先解析 `{ data: string }`，否则返回原始响应体。
-    async fn get_text(&self, path: &str, query: &[(&str, &str)]) -> OmniResult<String> {
-        let text = self
-            .request_raw(reqwest::Method::GET, path, None::<()>, Some(query))
-            .await?;
-        Self::parse_text_response(text)
-    }
-
     /// POST 日志下载端点（`/containers/download/log` 等）：响应体可能是纯文本或 `{ data }` 包裹。
     async fn post_text<B: serde::Serialize>(&self, path: &str, body: B) -> OmniResult<String> {
         let text = self

@@ -7,6 +7,7 @@ import { appConfirm } from "../../lib/appConfirm";
 import { DockerContainerExecTerminal } from "./DockerContainerExecTerminal";
 import { DockerContainerOverviewCard } from "./DockerContainerOverviewCard";
 import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
+import { DockerContainerLogsView } from "./subwindows/DockerContainerLogsView";
 import { DockerContainerSftpPanel } from "./DockerContainerSftpPanel";
 import { runDockerContainerAction } from "./dockerContainerActions";
 import type { DockerContainerLifecycleAction } from "./dockerContainerLifecycle";
@@ -164,12 +165,33 @@ export function DockerContainerDockPanel({
                 maxSize="88%"
                 className="docker-container-workspace__exec-pane"
               >
-                <DockerContainerExecTerminal
-                  connection={connection}
-                  containerId={container.id}
-                  running={container.running}
-                  isActive={isActive}
-                />
+                <DockLayout direction="vertical" className="docker-container-workspace__exec-split">
+                  <DockPanel
+                    defaultSize="50%"
+                    minSize="20%"
+                    className="docker-container-workspace__logs-pane"
+                  >
+                    <DockerContainerLogsView
+                      connectionId={connection.connectionId}
+                      containerId={container.id}
+                      containerName={containerName}
+                      visible={isActive}
+                    />
+                  </DockPanel>
+                  <DockHandle direction="vertical" />
+                  <DockPanel
+                    defaultSize="50%"
+                    minSize="20%"
+                    className="docker-container-workspace__terminal-pane"
+                  >
+                    <DockerContainerExecTerminal
+                      connection={connection}
+                      containerId={container.id}
+                      running={container.running}
+                      isActive={isActive}
+                    />
+                  </DockPanel>
+                </DockLayout>
               </DockPanel>
               <DockHandle direction="horizontal" />
               <DockPanel defaultSize="22%" minSize="12%" className="docker-container-workspace__side-pane">
