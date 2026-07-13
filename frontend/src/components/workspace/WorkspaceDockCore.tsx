@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DockableWorkspace } from "../dock";
 import { requestDockScopeResync, subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
-import type { WorkspaceInfo } from "../../stores/workspaceStore";
+import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import {
   resolveWorkspaceActiveTabId,
   resolveWorkspaceDockPanelType,
   resolveWorkspaceTabs,
   buildDefaultWorkspaceLayout,
   useWorkspaceBottomDockStore,
+  type WorkspaceDockTab,
 } from "../../stores/workspaceBottomDockStore";
 import { isWorkspaceBuiltinTabId } from "../../lib/workspaceBuiltinPanels";
 import { isLayoutUsable, collectPanelIds, mergePanelsIntoLayout } from "../dock/dockViewLayout";
@@ -17,6 +18,11 @@ import {
   applyModuleTransferToWorkspace,
   isModuleDockScope,
 } from "../../lib/moduleToWorkspaceTransfer";
+import { moveWorkspaceTabToMain } from "../../lib/crossWindowDockTransfer";
+import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
+import { buildTabBulkCloseSubmenuItems } from "../ui/menu/contextMenuItems";
+import { useI18n } from "../../i18n";
 import { WorkspaceDockTabPanel } from "./WorkspaceDockTabPanel";
 
 export interface WorkspaceDockCoreProps {
@@ -48,6 +54,17 @@ export function WorkspaceDockCore({
   emptyContent = <div className="dashboard dashboard-home" />,
 }: WorkspaceDockCoreProps) {
   const workspaceId = workspace.id;
+  const { t } = useI18n();
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+    index: number;
+  } | null>(null);
+  // 按 tabId 局部 invalidate 的 key；右键「重载」时 bump 对应 tabId 触发 remount
+  const [refreshKeys, setRefreshKeys] = useState<Record<string, string>>({});
 
   const rawTabs = useWorkspaceBottomDockStore(
     (state) => state.tabsByWorkspace[workspaceId],
@@ -187,7 +204,67 @@ export function WorkspaceDockCore({
     [setActiveTabId, tabs, workspaceId],
   );
 
+  const handleTabContextMenu = useCallback(
+    (event: React.MouseEvent, tabId: string, index: number) => {
+      event.preventDefault();
+      setCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
+  );
+
+  const handleRefreshTab = useCallback((tabId: string) => {
+    setRefreshKeys((prev) => ({
+      ...prev,
+      [tabId]: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    }));
+    setCtxMenu(null);
+  }, []);
+
+  const handleMoveToMain = useCallback(
+    async (tab: WorkspaceDockTab) => {
+      await moveWorkspaceTabToMain(workspaceId, tab, tab.id);
+      setCtxMenu(null);
+    },
+    [workspaceId],
+  );
+
+  const handleMoveToWorkspace = useCallback(
+    async (targetWorkspaceId: string, tab: WorkspaceDockTab) => {
+      if (!tab.payload) return;
+      await deliverSnapshotToWorkspace(targetWorkspaceId, tab.payload, { activate: true });
+      cleanupWorkspaceDockTab(tab);
+      removeTab(workspaceId, workspace, tab.id, { skipRecentClosed: true });
+      setCtxMenu(null);
+    },
+    [removeTab, workspace, workspaceId],
+  );
+
+  const handleCloseAction = useCallback(
+    (action: "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll") => {
+      if (!ctxMenu) return;
+      const tabId = ctxMenu.tabId;
+      if (action === "close") {
+        handleCloseTab(tabId);
+      } else if (action === "closeLeft") {
+        const idx = tabs.findIndex((t) => t.id === tabId);
+        if (idx > 0) tabs.slice(0, idx).forEach((t) => handleCloseTab(t.id));
+      } else if (action === "closeRight") {
+        const idx = tabs.findIndex((t) => t.id === tabId);
+        if (idx >= 0 && idx < tabs.length - 1) {
+          tabs.slice(idx + 1).forEach((t) => handleCloseTab(t.id));
+        }
+      } else if (action === "closeOthers") {
+        tabs.filter((t) => t.id !== tabId).forEach((t) => handleCloseTab(t.id));
+      } else if (action === "closeAll") {
+        tabs.forEach((t) => handleCloseTab(t.id));
+      }
+      setCtxMenu(null);
+    },
+    [ctxMenu, handleCloseTab, tabs],
+  );
+
   return (
+    <>
     <DockableWorkspace
       className={className}
       dockScope={dockScope}
@@ -197,6 +274,8 @@ export function WorkspaceDockCore({
       onActiveTabChange={handleActiveTabChange}
       onCloseTab={handleCloseTab}
       onPanelTransferredOut={handlePanelTransferredOut}
+      onTabContextMenu={handleTabContextMenu}
+      panelContentKeysByTab={refreshKeys}
       savedLayout={effectiveSavedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
       renderPanel={renderPanel}
@@ -209,5 +288,92 @@ export function WorkspaceDockCore({
       enableTabGroups={false}
       emptyContent={emptyContent}
     />
+    {ctxMenu && (() => {
+      const ctxTab = tabs.find((item) => item.id === ctxMenu.tabId);
+      const tabIndex = tabs.findIndex((item) => item.id === ctxMenu.tabId);
+      const tabCount = tabs.length;
+      const isBuiltin = ctxTab ? isWorkspaceBuiltinTabId(ctxTab.id) : false;
+      const canMoveToMain = ctxTab && !isBuiltin;
+      const canMoveToWorkspace = ctxTab?.kind === "payload" && ctxTab.payload;
+      const canClose = ctxTab?.closable !== false && !isBuiltin;
+
+      const items: ContextMenuItem[] = [];
+
+      if (!isBuiltin && ctxTab) {
+        items.push({
+          id: "ws-tab-refresh",
+          label: t("shell.topbar.refresh"),
+          onClick: () => handleRefreshTab(ctxTab.id),
+        });
+        items.push({ id: "ws-tab-sep-1", separator: true, label: "" });
+      }
+
+      if (canMoveToMain && ctxTab) {
+        items.push({
+          id: "ws-tab-move-to-main",
+          label: t("shell.workspace.moveToMain"),
+          onClick: () => {
+            void handleMoveToMain(ctxTab);
+          },
+        });
+      }
+
+      if (canMoveToWorkspace && ctxTab) {
+        const others = workspaces.filter((ws) => ws.id !== workspaceId);
+        const wsChildren: ContextMenuItem[] =
+          others.length > 0
+            ? others.map((ws) => ({
+                id: `ws-tab-move-to-ws-${ws.id}`,
+                label: ws.name || ws.id,
+                onClick: () => {
+                  void handleMoveToWorkspace(ws.id, ctxTab);
+                },
+              }))
+            : [
+                {
+                  id: "ws-tab-move-to-ws-none",
+                  label: t("shell.workspace.noOther"),
+                  disabled: true,
+                  onClick: () => {},
+                },
+              ];
+        items.push({
+          id: "ws-tab-move-to-other-ws",
+          label: t("shell.workspace.moveToOther"),
+          children: wsChildren,
+        });
+      }
+
+      if (canMoveToMain || canMoveToWorkspace) {
+        items.push({ id: "ws-tab-sep-2", separator: true, label: "" });
+      }
+
+      if (canClose) {
+        items.push({
+          id: "ws-tab-close",
+          label: t("shell.topbar.closeCurrent"),
+          onClick: () => handleCloseAction("close"),
+        });
+        items.push({
+          id: "ws-tab-close-bulk",
+          label: t("shell.topbar.closeTabs"),
+          children: buildTabBulkCloseSubmenuItems(
+            t,
+            tabCount,
+            tabIndex >= 0 ? tabIndex : 0,
+            handleCloseAction,
+          ),
+        });
+      }
+
+      return (
+        <ContextMenu
+          items={items}
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          onClose={() => setCtxMenu(null)}
+        />
+      );
+    })()}
+    </>
   );
 }

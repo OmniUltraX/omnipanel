@@ -838,6 +838,7 @@ pub fn run() {
             // 工作区独立窗口
             commands::workspace_window::open_workspace_window,
             commands::workspace_window::close_all_workspace_windows,
+            commands::workspace_window::cleanup_expired_handoffs,
             commands::workspace_window::read_workspace_window_handoff,
             commands::workspace_window::write_workspace_window_handoff,
             commands::workspace_window::clear_workspace_window_handoff,

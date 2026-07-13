@@ -215,7 +215,8 @@ export function ConnectionImportPreviewDialog({
       try {
         await saveConnection(previewItemToConnection(item, customNames[item.id]));
         success += 1;
-      } catch {
+      } catch (err) {
+        console.error("[db-import] saveConnection failed", item.raw.name, err);
         failed += 1;
       }
     }

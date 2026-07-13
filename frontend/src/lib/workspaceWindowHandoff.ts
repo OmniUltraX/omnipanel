@@ -19,8 +19,13 @@ import {
   type UiDensity,
 } from "../stores/settingsStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
+import {
+  collectAllTabStatesForHandoff,
+  applyTabStatePayload,
+  type TabStatePayload,
+} from "./tabStateTransfer";
 
-const HANDOFF_TTL_MS = 120_000;
+const HANDOFF_TTL_MS = 300_000;
 
 export type WorkspaceWindowHandoffKind = "open" | "close";
 
@@ -57,6 +62,8 @@ export interface WorkspaceWindowHandoff {
   dock?: WorkspaceWindowDockHandoff;
   workspaces?: WorkspaceInfo[];
   settings?: WorkspaceWindowSettingsHandoff;
+  /** 所有 tab 的运行时状态切片（终端历史、SQL 等），按 panelId 索引 */
+  tabStates?: Record<string, TabStatePayload>;
 }
 
 function terminalTabToHandoff(tab: TerminalTab): TerminalHandoffEntry {
@@ -146,10 +153,11 @@ function collectSettingsHandoff(): WorkspaceWindowSettingsHandoff {
   };
 }
 
-function buildHandoff(
+async function buildHandoff(
   workspaceId: string,
   kind: WorkspaceWindowHandoffKind,
-): WorkspaceWindowHandoff {
+): Promise<WorkspaceWindowHandoff> {
+  const tabStates = await collectAllTabStatesForHandoff(workspaceId);
   return {
     workspaceId,
     kind,
@@ -158,15 +166,18 @@ function buildHandoff(
     dock: collectDockHandoff(workspaceId),
     workspaces: useWorkspaceStore.getState().workspaces,
     settings: collectSettingsHandoff(),
+    tabStates: Object.keys(tabStates).length > 0 ? tabStates : undefined,
   };
 }
 
 /**
  * 构建 handoff JSON（由 Rust 写入 app_data 文件；子窗独立 data_directory 无法读主窗 localStorage）。
  */
-export function buildWorkspaceWindowHandoffJson(workspaceId: string): string | null {
+export async function buildWorkspaceWindowHandoffJson(
+  workspaceId: string,
+): Promise<string | null> {
   try {
-    return JSON.stringify(buildHandoff(workspaceId, "open"));
+    return JSON.stringify(await buildHandoff(workspaceId, "open"));
   } catch (e) {
     console.error("[workspaceWindowHandoff] 序列化失败", e);
     return null;
@@ -177,7 +188,7 @@ export async function buildWorkspaceWindowCloseHandoffJson(
   workspaceId: string,
 ): Promise<string | null> {
   try {
-    return JSON.stringify(buildHandoff(workspaceId, "close"));
+    return JSON.stringify(await buildHandoff(workspaceId, "close"));
   } catch (e) {
     console.error("[workspaceWindowHandoff] 关闭 handoff 序列化失败", e);
     return null;
@@ -187,8 +198,8 @@ export async function buildWorkspaceWindowCloseHandoffJson(
 /**
  * 主窗口弹出独立窗口前：同步内存状态（handoff 文件由 open_workspace_window 写入）。
  */
-export function prepareWorkspaceWindowHandoff(workspaceId: string): void {
-  buildWorkspaceWindowHandoffJson(workspaceId);
+export async function prepareWorkspaceWindowHandoff(workspaceId: string): Promise<void> {
+  await buildWorkspaceWindowHandoffJson(workspaceId);
 }
 
 async function writeHandoffToFile(workspaceId: string, json: string): Promise<void> {
@@ -315,6 +326,18 @@ async function clearHandoffFile(workspaceId: string): Promise<void> {
 }
 
 /**
+ * 应用 handoff 中的 tab 运行时状态（终端历史、SQL 等）。
+ */
+async function applyTabStatesHandoff(
+  tabStates: Record<string, TabStatePayload> | undefined,
+): Promise<void> {
+  if (!tabStates) return;
+  for (const payload of Object.values(tabStates)) {
+    await applyTabStatePayload(payload);
+  }
+}
+
+/**
  * 独立窗口启动：从 handoff 水合主题、工作区列表、dock 与终端。
  */
 export async function hydrateWorkspaceWindowFromHandoff(workspaceId: string): Promise<void> {
@@ -323,6 +346,7 @@ export async function hydrateWorkspaceWindowFromHandoff(workspaceId: string): Pr
   applyWorkspacesHandoff(handoff?.workspaces, workspaceId);
   applyDockHandoff(workspaceId, handoff?.dock);
   hydrateTerminalsFromHandoff(workspaceId, handoff);
+  await applyTabStatesHandoff(handoff?.tabStates);
   await clearHandoffFile(workspaceId);
 }
 
@@ -339,5 +363,6 @@ export async function applyWorkspaceWindowReturnHandoff(workspaceId: string): Pr
   if (!handoff) return;
   applyDockHandoff(workspaceId, handoff.dock);
   hydrateTerminalsFromHandoff(workspaceId, handoff);
+  await applyTabStatesHandoff(handoff?.tabStates);
   await clearHandoffFile(workspaceId);
 }

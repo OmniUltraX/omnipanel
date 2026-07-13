@@ -46,8 +46,12 @@ import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
 import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriRuntime } from "./lib/isTauriRuntime";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
+import { initTabStateTransferListener } from "./lib/tabStateTransfer";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { isCrossWindowDragRuntime } from "./lib/crossWindowDragEnabled";
@@ -193,6 +197,24 @@ function AppShell() {
     return () => cleanup?.();
   }, []);
 
+  // 主窗口关闭时：同步关闭所有工作区子窗口，避免子窗口被强杀丢失状态。
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onCloseRequested(async () => {
+        try {
+          await invoke("close_all_workspace_windows");
+        } catch {
+          // ignore
+        }
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
+  }, []);
+
   useCrossWindowDragInit();
 
   useEffect(() => {
@@ -202,6 +224,15 @@ function AppShell() {
       console.warn("[workspaceSnapshotDelivery] init failed", e);
       return () => {};
     }
+  }, []);
+
+  // 跨窗口 tab 状态转移监听：接收来自其他窗口的 tab 运行时状态（终端历史 / SQL 文本等）
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    void initTabStateTransferListener().then((fn) => {
+      cleanup = fn;
+    });
+    return () => cleanup?.();
   }, []);
 
   // 跨窗口同步工作区 dock tabs/layout（Tauri 下始终订阅，弹出独立窗时即可同步）

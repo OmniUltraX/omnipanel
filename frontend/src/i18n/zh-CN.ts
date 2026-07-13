@@ -501,6 +501,7 @@ export const zhCN = {
       moveTo: "移动到工作区",
       moveToCurrent: "移动到当前工作区",
       moveToOther: "移动到其他工作区",
+      moveToMain: "移动到主窗口",
       noOther: "没有其他工作区",
       addToCurrent: "添加到当前工作区",
     },

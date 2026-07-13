@@ -141,12 +141,12 @@ export function computeImportPreviewRowState(
 
 export function previewItemToConnection(
   item: NavicatImportPreviewItem,
-  group: string,
+  customName?: string,
 ): DbConnectionConfig {
   const engine = item.engine ?? "mysql";
   return {
     id: "",
-    name: item.raw.name.trim() || item.raw.host.trim() || "Untitled",
+    name: resolveImportConnectionName(item, customName),
     db_type: engine,
     host: item.raw.host.trim(),
     port: item.raw.port,
@@ -154,7 +154,7 @@ export function previewItemToConnection(
     password: item.password,
     database: item.raw.database.trim(),
     ssl: item.raw.ssl,
-    group: group.trim() || "默认",
+    group: "默认",
     status: "unknown",
     enabled: true,
   };

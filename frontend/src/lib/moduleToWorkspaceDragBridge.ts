@@ -32,6 +32,7 @@ import {
 } from "./dockviewPointerDrag";
 import { isTauriRuntime } from "./isTauriRuntime";
 import { safeTauriUnlisten } from "./safeTauriUnlisten";
+import { sendTabStateTransfer } from "./tabStateTransfer";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorkspaceBottomDockStore, MAX_WORKSPACE_PANELS, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import { useTerminalStore } from "../stores/terminalStore";
@@ -838,6 +839,31 @@ export function initModuleToWorkspaceDragBridge(): () => void {
           applyIncomingModuleTab(payload.targetWorkspaceId, payload);
         }
         if (payload.sourceWindowLabel === currentLabel) {
+          // 跨窗口转移 tab 运行时状态（终端历史 / SQL 文本 / 查询结果等）
+          // 必须在 removeOutgoingModulePanel 之前收集，否则源端 store 数据可能被清理
+          const moduleType =
+            payload.originScope === "terminal"
+              ? "terminal"
+              : payload.originScope === "database"
+                ? "database"
+                : null;
+          if (moduleType === "terminal" || moduleType === "database") {
+            const sessionId =
+              moduleType === "terminal"
+                ? useTerminalStore.getState().tabs.find((t) => t.id === payload.panelId)?.sessionId
+                : undefined;
+            const dbTabId =
+              moduleType === "database"
+                ? `workspace-bottom-${payload.targetWorkspaceId}:${payload.panelId}`
+                : undefined;
+            void sendTabStateTransfer(
+              payload.targetWindowLabel,
+              payload.panelId,
+              moduleType,
+              sessionId,
+              dbTabId,
+            ).catch(() => {});
+          }
           removeOutgoingModulePanel(payload, payload.targetWorkspaceId);
         }
         document.body.classList.remove(MODULE_DRAG_BODY_CLASS);

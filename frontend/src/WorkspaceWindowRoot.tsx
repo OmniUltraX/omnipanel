@@ -17,6 +17,7 @@ import { initWorkspaceWindowLifecycle, workspaceWindowDebugLog } from "./lib/wor
 import { hydrateWorkspaceWindowFromHandoff } from "./lib/workspaceWindowHandoff";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
+import { initTabStateTransferListener } from "./lib/tabStateTransfer";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
@@ -131,6 +132,15 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
       console.warn("[workspaceSnapshotDelivery] init failed", e);
       return () => {};
     }
+  }, []);
+
+  // 跨窗口 tab 状态转移监听：子窗口接收来自主窗口的 tab 运行时状态
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    void initTabStateTransferListener().then((fn) => {
+      cleanup = fn;
+    });
+    return () => cleanup?.();
   }, []);
 
   useEffect(() => {

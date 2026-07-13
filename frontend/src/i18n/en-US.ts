@@ -505,6 +505,7 @@ export const enUS: TranslationDict = {
       moveTo: "Move to Workspace",
       moveToCurrent: "Move to Current Workspace",
       moveToOther: "Move to Other Workspace",
+      moveToMain: "Move to Main Window",
       noOther: "No other workspaces",
       addToCurrent: "Add to Current Workspace",
     },

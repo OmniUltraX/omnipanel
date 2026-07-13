@@ -12,6 +12,10 @@ export interface WorkspaceInfo {
   id: string;
   name: string;
   description: string;
+  /** 工作区窗口形式：embedded=内嵌主窗口, windowed=独立窗口 */
+  windowForm?: "embedded" | "windowed";
+  /** 独立窗口上次的位置和大小（物理像素） */
+  windowBounds?: { x: number; y: number; width: number; height: number };
 }
 
 export interface WorkspaceContextSnapshot {
@@ -70,6 +74,10 @@ interface WorkspaceState {
   removeWorkspace: (id: string) => boolean;
   /** 重命名工作区；名称为空或重复时返回 false。 */
   renameWorkspace: (id: string, name: string) => boolean;
+  /** 设置工作区窗口形式（embedded/windowed） */
+  setWorkspaceWindowForm: (workspaceId: string, form: "embedded" | "windowed") => void;
+  /** 记录工作区独立窗口的位置和大小 */
+  setWorkspaceBounds: (workspaceId: string, bounds: { x: number; y: number; width: number; height: number }) => void;
 }
 
 function environmentToRisk(environment: EnvironmentTag): WorkspaceContextSnapshot["riskLevel"] {
@@ -169,6 +177,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }),
           );
         }
+        // 如果目标工作区已弹出为独立窗口，聚焦它
+        if (target.windowForm === "windowed") {
+          void (async () => {
+            try {
+              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+              const { workspaceWindowLabel } = await import("../lib/workspaceWindow");
+              const win = await WebviewWindow.getByLabel(workspaceWindowLabel(id));
+              if (win) {
+                await win.unminimize();
+                await win.show();
+                await win.setFocus();
+              }
+            } catch {
+              // ignore
+            }
+          })();
+        }
         return true;
       },
 
@@ -214,6 +239,30 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ workspaces: nextWorkspaces, workspace: nextWorkspace });
         return true;
       },
+
+      setWorkspaceWindowForm: (workspaceId, form) =>
+        set((state) => {
+          const workspaces = state.workspaces.map((w) =>
+            w.id === workspaceId ? { ...w, windowForm: form } : w,
+          );
+          const workspace =
+            state.workspace.id === workspaceId
+              ? { ...state.workspace, windowForm: form }
+              : state.workspace;
+          return { workspaces, workspace };
+        }),
+
+      setWorkspaceBounds: (workspaceId, bounds) =>
+        set((state) => {
+          const workspaces = state.workspaces.map((w) =>
+            w.id === workspaceId ? { ...w, windowBounds: bounds } : w,
+          );
+          const workspace =
+            state.workspace.id === workspaceId
+              ? { ...state.workspace, windowBounds: bounds }
+              : state.workspace;
+          return { workspaces, workspace };
+        }),
     }),
     {
       name: "omnipanel-workspace-store",

@@ -74,6 +74,51 @@ pub fn workspace_window_debug_log(app: AppHandle, message: String) -> Result<Str
     Ok(app_data_log_path(&app).display().to_string())
 }
 
+/// 清理过期的 handoff 文件（TTL 5 分钟）。
+///
+/// 应用崩溃后 handoff 文件可能残留，重启时若直接恢复可能读到不一致的状态。
+/// 启动时调用此命令清理超过 TTL 的文件；未过期的文件保留，以便正常恢复。
+#[tauri::command]
+pub fn cleanup_expired_handoffs(app: AppHandle) -> Result<usize, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 app_data_dir: {e}"))?
+        .join("workspace-window-handoff");
+
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let ttl_ms: u128 = 300_000; // 5 分钟
+
+    let mut cleaned = 0usize;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    let age = now.saturating_sub(
+                        modified
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0),
+                    );
+                    if age > ttl_ms {
+                        if std::fs::remove_file(entry.path()).is_ok() {
+                            cleaned += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(cleaned)
+}
+
 #[tauri::command]
 pub fn workspace_window_debug_log_read(app: AppHandle) -> Result<String, String> {
     let path = app_data_log_path(&app);
@@ -280,6 +325,15 @@ fn window_z_order_impl(_app: &AppHandle) -> Vec<String> {
     Vec::new()
 }
 
+/// 独立窗口的位置和大小（物理像素），用于恢复上次窗口几何。
+#[derive(serde::Deserialize)]
+pub struct WindowBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 /// 打开（或聚焦）工作区独立窗口。
 ///
 /// Windows 要点（Tauri 官方文档 + tauri#13092/#15014）：
@@ -292,6 +346,7 @@ pub async fn open_workspace_window(
     workspace_id: String,
     title: String,
     handoff_json: Option<String>,
+    bounds: Option<WindowBounds>,
 ) -> Result<String, String> {
     append_log(
         &app,
@@ -347,19 +402,29 @@ pub async fn open_workspace_window(
     let label_destroy = label.clone();
     let ws_destroy = workspace_id.clone();
 
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title(title)
-        .inner_size(1100.0, 720.0)
         .min_inner_size(640.0, 420.0)
         .resizable(true)
         .closable(true)
         .decorations(false)
-        .center()
         .focused(true)
         .visible(true)
         .data_directory(data_dir)
         .initialization_script(&init_script)
-        .disable_drag_drop_handler()
+        .disable_drag_drop_handler();
+
+    if let Some(ref b) = bounds {
+        builder = builder
+            .inner_size(b.width, b.height)
+            .position(b.x, b.y);
+    } else {
+        builder = builder
+            .inner_size(1100.0, 720.0)
+            .center();
+    }
+
+    let window = builder
         .build()
         .map_err(|e| {
             let msg = format!("创建工作区窗口失败: {e}");

@@ -51,6 +51,7 @@ import {
   CROSS_WINDOW_DRAG_END_EVENT,
   useCrossWindowDragVisualStore,
 } from "./crossWindowDragVisual";
+import { sendTabStateTransfer } from "./tabStateTransfer";
 
 export const CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-dock-drag-active";
 export const CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT = "omnipanel:cross-window-dock-drag-complete";
@@ -641,6 +642,25 @@ function handleCompleteOnTarget(
   clientY: number,
   deferAttempt = 0,
 ): void {
+  // 右键菜单「移动到主窗口」：payload 已携带明确的目标模块 scope，跳过坐标命中检测
+  if (payload.transferTarget === "module" && payload.targetModuleScope) {
+    const moduleScope = payload.targetModuleScope;
+    const applied = applyCrossWindowWorkspaceTabToModule(
+      payload.tab,
+      payload.sourceWorkspaceId,
+      moduleScope,
+      payload.backendSessionId,
+    );
+    if (applied) {
+      crossDockLog(`applied workspace tab to module scope=${moduleScope} (explicit)`);
+      requestAnimationFrame(() => relayoutDockviewInstances(moduleScope));
+      emitSourceCleanup(payload, "module", { targetModuleScope: moduleScope });
+    } else {
+      crossDockLog(`apply to module failed scope=${moduleScope} (explicit)`);
+    }
+    return;
+  }
+
   const targetWsId = resolveIncomingWorkspaceTargetId(payload, clientX, clientY);
   if (targetWsId) {
     const applied = applyIncomingTab(targetWsId, payload.tab, payload.backendSessionId);
@@ -786,12 +806,145 @@ async function completeCrossWindowTransfer(
     crossDockLog(`complete skipped duplicate ${dedupeKey}`);
     return;
   }
+
+  // 跨窗口时：先转移 tab 运行时状态（终端历史、SQL 等），再发 COMPLETE
+  if (session.sourceWindowLabel !== targetLabel) {
+    const tab = session.tab;
+    if (isTerminalWorkspaceTab(tab)) {
+      // 终端 tab：从 tab 中提取 sessionId
+      let sessionId: string | undefined;
+      if (tab.kind === "payload" && tab.payload?.module === "terminal") {
+        sessionId = tab.payload.id;
+      } else if (tab.kind === "mirrored" && tab.originPanelId) {
+        const terminalTab = useTerminalStore.getState().tabs.find(
+          (t) => t.id === tab.originPanelId,
+        );
+        sessionId = terminalTab?.sessionId ?? tab.originPanelId;
+      }
+      if (sessionId) {
+        void sendTabStateTransfer(targetLabel, session.panelId, "terminal", sessionId).catch(
+          () => {},
+        );
+      }
+    } else if (tab.kind === "payload" && tab.payload?.module === "database") {
+      // 数据库 tab：目标 key 为 panelId（工作区 dock 中完整 id）
+      void sendTabStateTransfer(
+        targetLabel,
+        session.panelId,
+        "database",
+        undefined,
+        session.panelId,
+      ).catch(() => {});
+    } else if (tab.kind === "mirrored" && tab.originScope === "database" && tab.originPanelId) {
+      // 镜像数据库 tab：源 key = originPanelId，目标 key = panelId
+      void sendTabStateTransfer(
+        targetLabel,
+        tab.originPanelId,
+        "database",
+        undefined,
+        session.panelId,
+      ).catch(() => {});
+    }
+  }
+
   await Promise.all([
     emitTo(targetLabel, CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT, payload).catch(() => {}),
     emitTo(session.sourceWindowLabel, CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT, payload).catch(
       () => {},
     ),
   ]);
+}
+
+/** 根据 tab 类型推断对应的主窗模块 dock scope（terminal / database）。 */
+function resolveModuleScopeForTab(tab: WorkspaceDockTab): string | null {
+  if (tab.kind === "builtin") return null;
+  if (tab.kind === "payload") {
+    if (tab.payload?.module === "terminal") return "terminal";
+    if (tab.payload?.module === "database") return "database";
+    return null;
+  }
+  // mirrored
+  if (tab.originScope === "terminal" || tab.panelType === "terminal") return "terminal";
+  if (tab.originScope === "database" || tab.panelType === "database") return "database";
+  return null;
+}
+
+/**
+ * 右键菜单「移动到主窗口」：将工作区 Tab 移回主窗对应模块面板。
+ * 同窗直接本地转移；跨窗通过 COMPLETE 事件投递到主窗，主窗接收后应用并回传 CLEANUP。
+ */
+export async function moveWorkspaceTabToMain(
+  workspaceId: string,
+  tab: WorkspaceDockTab,
+  panelId: string,
+): Promise<boolean> {
+  const targetModuleScope = resolveModuleScopeForTab(tab);
+  if (!targetModuleScope) return false;
+
+  // 获取终端 payload tab 的 backendSessionId（用于跨窗恢复 PTY 关联）
+  let backendSessionId: string | null = null;
+  if (tab.kind === "payload" && tab.payload?.module === "terminal") {
+    const terminalTab = useTerminalStore
+      .getState()
+      .tabs.find((t) => t.id === tab.payload!.id);
+    backendSessionId = terminalTab?.backendSessionId ?? null;
+  }
+
+  const currentLabel = isTauriRuntime() ? getCurrentWebviewWindow().label : "main";
+
+  if (currentLabel === "main") {
+    // 同窗：直接应用 + 清理 outgoing tab
+    const applied = applyCrossWindowWorkspaceTabToModule(
+      tab,
+      workspaceId,
+      targetModuleScope,
+      backendSessionId,
+    );
+    if (!applied) return false;
+    removeOutgoingTab(workspaceId, panelId, tab, null, {
+      targetModuleScope,
+    });
+    requestAnimationFrame(() => relayoutDockviewInstances(targetModuleScope));
+    return true;
+  }
+
+  // 跨窗：先转移 tab 运行时状态（终端历史、SQL 等），再 emit COMPLETE 到主窗
+  if (tab.kind === "payload" && tab.payload?.module === "terminal") {
+    void sendTabStateTransfer("main", panelId, "terminal", tab.payload.id).catch(() => {});
+  } else if (tab.kind === "mirrored" && tab.originScope === "terminal" && tab.originPanelId) {
+    const terminalTab = useTerminalStore
+      .getState()
+      .tabs.find((t) => t.id === tab.originPanelId);
+    const sessionId = terminalTab?.sessionId ?? tab.originPanelId;
+    void sendTabStateTransfer("main", panelId, "terminal", sessionId).catch(() => {});
+  } else if (tab.kind === "payload" && tab.payload?.module === "database") {
+    void sendTabStateTransfer("main", panelId, "database", undefined, panelId).catch(() => {});
+  } else if (tab.kind === "mirrored" && tab.originScope === "database" && tab.originPanelId) {
+    void sendTabStateTransfer(
+      "main",
+      tab.originPanelId,
+      "database",
+      undefined,
+      panelId,
+    ).catch(() => {});
+  }
+
+  const payload: CrossWindowDockDragCompletePayload = {
+    sourceWindowLabel: currentLabel,
+    sourceWorkspaceId: workspaceId,
+    panelId,
+    tab,
+    backendSessionId,
+    targetWindowLabel: "main",
+    targetWorkspaceId: null,
+    dropScreenX: 0,
+    dropScreenY: 0,
+    transferTarget: "module",
+    targetModuleScope,
+  };
+
+  await emitTo("main", CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT, payload).catch(() => {});
+  return true;
 }
 
 /**
