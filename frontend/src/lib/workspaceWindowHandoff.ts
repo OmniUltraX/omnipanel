@@ -327,14 +327,15 @@ async function clearHandoffFile(workspaceId: string): Promise<void> {
 
 /**
  * 应用 handoff 中的 tab 运行时状态（终端历史、SQL 等）。
+ * 各 payload 写入不同 sessionId / dbTabId 的 store 切片，互不依赖，可并行应用。
  */
 async function applyTabStatesHandoff(
   tabStates: Record<string, TabStatePayload> | undefined,
 ): Promise<void> {
   if (!tabStates) return;
-  for (const payload of Object.values(tabStates)) {
-    await applyTabStatePayload(payload);
-  }
+  const payloads = Object.values(tabStates);
+  if (payloads.length === 0) return;
+  await Promise.all(payloads.map((p) => applyTabStatePayload(p)));
 }
 
 /**
@@ -357,12 +358,29 @@ export async function hydrateWorkspaceWindowTerminals(workspaceId: string): Prom
 
 /**
  * 主窗口：独立窗口关闭后收回 dock / 终端状态。
+ *
+ * 分两阶段执行以避免 UI 空白闪烁：
+ * - Phase 1（阻塞）：读 handoff 文件 + applyDockHandoff + hydrateTerminalsFromHandoff
+ *   恢复 tab 列表和终端会话。完成后调用 onDockReady，调用方在此切换 UI 到全屏。
+ * - Phase 2（后台）：applyTabStatesHandoff（终端历史等）+ clearHandoffFile
+ *   不阻塞 UI，用户已能看到正确的 tab 列表。
+ *
+ * handoff 文件不存在时（窗口被强杀等）仍调用 onDockReady，让 UI 能正常切换。
  */
-export async function applyWorkspaceWindowReturnHandoff(workspaceId: string): Promise<void> {
+export async function applyWorkspaceWindowReturnHandoff(
+  workspaceId: string,
+  onDockReady?: () => void,
+): Promise<void> {
   const handoff = await readHandoffFromFile(workspaceId, "close");
-  if (!handoff) return;
+  if (!handoff) {
+    onDockReady?.();
+    return;
+  }
   applyDockHandoff(workspaceId, handoff.dock);
   hydrateTerminalsFromHandoff(workspaceId, handoff);
+  // dock tabs 和终端会话已恢复，通知调用方可以切 UI 了
+  onDockReady?.();
+  // tab 运行时状态（历史等）异步恢复，不阻塞 UI
   await applyTabStatesHandoff(handoff?.tabStates);
   await clearHandoffFile(workspaceId);
 }

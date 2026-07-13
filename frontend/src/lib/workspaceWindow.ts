@@ -7,11 +7,13 @@ import { useWorkspaceWindowStore } from "../stores/workspaceWindowStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { syncEmbeddedWorkspacePanelVisibility, hideMainWindowWorkspaceEmbedding } from "./workspaceTabActions";
 import {
+  applyWorkspaceWindowReturnHandoff,
   buildWorkspaceWindowHandoffJson,
   prepareWorkspaceWindowHandoff,
   writeWorkspaceWindowCloseHandoff,
 } from "./workspaceWindowHandoff";
 import { showToast } from "../stores/toastStore";
+import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { WORKSPACE_PATHS } from "./paths";
 
 const WORKSPACE_WINDOW_FLAG = "workspace";
@@ -218,16 +220,12 @@ export async function initMainWindowWorkspaceSync(): Promise<() => void> {
     await listen<WorkspaceWindowEventPayload>(WORKSPACE_WINDOW_CLOSED_EVENT, (event) => {
       const id = event.payload?.workspaceId;
       if (!id) return;
-      void (async () => {
-        const { applyWorkspaceWindowReturnHandoff } = await import(
-          "./workspaceWindowHandoff"
-        );
-        await applyWorkspaceWindowReturnHandoff(id);
+      // 两阶段：Phase 1 恢复 dock tabs + 终端（阻塞），Phase 2 恢复 tab 内部状态（后台）。
+      // UI 切换在 onDockReady 回调里执行，此时 dock tabs 已就绪，避免空白闪烁。
+      // Phase 1 只等 IPC 读文件（几十毫秒），远小于原实现的秒级延迟。
+      void applyWorkspaceWindowReturnHandoff(id, () => {
         useWorkspaceWindowStore.getState().clearPoppedOut(id);
-        const { useWorkspaceStore } = await import("../stores/workspaceStore");
         useWorkspaceStore.getState().setWorkspaceWindowForm(id, "embedded");
-        const { useBottomPanelStore } = await import("../stores/bottomPanelStore");
-        const { WORKSPACE_PATHS } = await import("./paths");
         useWorkspaceStore.getState().switchWorkspace(id);
         useBottomPanelStore.getState().enterWorkspaceFullscreen();
         window.dispatchEvent(
@@ -235,22 +233,22 @@ export async function initMainWindowWorkspaceSync(): Promise<() => void> {
             detail: { path: WORKSPACE_PATHS.detail(id) },
           }),
         );
-      })();
+      }).catch(() => {
+        /* ignore handoff apply errors */
+      });
     }),
   );
   unlisteners.push(
     await listen<WorkspaceWindowEventPayload>(WORKSPACE_WINDOW_DESTROYED_EVENT, (event) => {
       const id = event.payload?.workspaceId;
       if (!id) return;
-      void (async () => {
-        if (!useWorkspaceWindowStore.getState().isPoppedOut(id)) return;
-        const { applyWorkspaceWindowReturnHandoff } = await import(
-          "./workspaceWindowHandoff"
-        );
-        await applyWorkspaceWindowReturnHandoff(id);
-        useWorkspaceWindowStore.getState().clearPoppedOut(id);
-        useWorkspaceStore.getState().setWorkspaceWindowForm(id, "embedded");
-      })();
+      if (!useWorkspaceWindowStore.getState().isPoppedOut(id)) return;
+      // 先清理标记，状态恢复异步进行（DESTROYED 时 handoff 可能不完整）
+      useWorkspaceWindowStore.getState().clearPoppedOut(id);
+      useWorkspaceStore.getState().setWorkspaceWindowForm(id, "embedded");
+      void applyWorkspaceWindowReturnHandoff(id).catch(() => {
+        /* ignore handoff apply errors */
+      });
     }),
   );
 

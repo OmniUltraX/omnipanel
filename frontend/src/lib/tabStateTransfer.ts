@@ -312,11 +312,13 @@ export async function applyTabStatePayload(payload: TabStatePayload): Promise<vo
  * 窗口关闭时收集所有 tab 状态，写入 handoff JSON。
  * 遍历 workspaceBottomDockStore 中的所有 tabs，对每个 terminal/database tab 收集状态。
  * 返回 { panelId: payload } 映射，由 handoff 逻辑序列化。
+ *
+ * 各 tab 的状态收集互不依赖（写入不同 sessionId / dbTabId），使用 Promise.all 并行
+ * 收集，避免 N 个 tab × 3~4 次动态 import 串行 await 导致的秒级延迟。
  */
 export async function collectAllTabStatesForHandoff(
   workspaceId: string,
 ): Promise<Record<string, TabStatePayload>> {
-  const result: Record<string, TabStatePayload> = {};
   const currentLabel = isTauriRuntime() ? getCurrentWebviewWindow().label : "main";
 
   try {
@@ -325,64 +327,69 @@ export async function collectAllTabStatesForHandoff(
     );
     const tabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
 
-    for (const tab of tabs) {
-      const panelId = tab.id;
-      const payload: TabStatePayload = {
-        sourceLabel: currentLabel,
-        targetLabel: "",
-        panelId,
-        module: "terminal", // placeholder, overwritten below
-      };
+    const entries = await Promise.all(
+      tabs.map(async (tab): Promise<[string, TabStatePayload] | null> => {
+        const panelId = tab.id;
+        const payload: TabStatePayload = {
+          sourceLabel: currentLabel,
+          targetLabel: "",
+          panelId,
+          module: "terminal", // placeholder, overwritten below
+        };
 
-      // Payload tabs（带 snapshot）
-      if (tab.kind === "payload" && tab.payload) {
-        const snapshot = tab.payload;
-        if (snapshot.module === "terminal") {
-          payload.module = "terminal";
-          // 终端 tab：sessionId === tab.id（ensureTerminalTabFromSnapshot 使用 id 作为 sessionId）
-          const sessionId = snapshot.id;
-          payload.sessionId = sessionId;
-          Object.assign(payload, await collectTerminalState(sessionId));
-          result[panelId] = payload;
-        } else if (snapshot.module === "database") {
-          payload.module = "database";
-          // 数据库 tab：工作区 dock 中 store key = tab.id（完整 id）
-          payload.dbTabId = panelId;
-          Object.assign(payload, await collectDatabaseState(panelId));
-          result[panelId] = payload;
-        }
-        continue;
-      }
-
-      // Mirrored tabs（从模块 dock 镜像）
-      if (tab.kind === "mirrored" && tab.originScope) {
-        if (tab.originScope === "terminal" && tab.originPanelId) {
-          payload.module = "terminal";
-          // 镜像终端 tab：sessionId 可以从 terminalStore 查找
-          try {
-            const { useTerminalStore } = await import("../stores/terminalStore");
-            const sessionId =
-              useTerminalStore.getState().tabs.find(
-                (t) => t.id === tab.originPanelId,
-              )?.sessionId ?? tab.originPanelId;
+        // Payload tabs（带 snapshot）
+        if (tab.kind === "payload" && tab.payload) {
+          const snapshot = tab.payload;
+          if (snapshot.module === "terminal") {
+            payload.module = "terminal";
+            const sessionId = snapshot.id;
             payload.sessionId = sessionId;
             Object.assign(payload, await collectTerminalState(sessionId));
-            result[panelId] = payload;
-          } catch {
-            /* ignore */
+            return [panelId, payload];
           }
-        } else if (tab.originScope === "database" && tab.originPanelId) {
-          payload.module = "database";
-          // 镜像数据库 tab：模块 dock 中 store key = originPanelId（bareId）
-          payload.dbTabId = panelId; // 目标 key 为完整 id
-          Object.assign(payload, await collectDatabaseState(tab.originPanelId));
-          result[panelId] = payload;
+          if (snapshot.module === "database") {
+            payload.module = "database";
+            payload.dbTabId = panelId;
+            Object.assign(payload, await collectDatabaseState(panelId));
+            return [panelId, payload];
+          }
+          return null;
         }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
 
-  return result;
+        // Mirrored tabs（从模块 dock 镜像）
+        if (tab.kind === "mirrored" && tab.originScope) {
+          if (tab.originScope === "terminal" && tab.originPanelId) {
+            payload.module = "terminal";
+            try {
+              const { useTerminalStore } = await import("../stores/terminalStore");
+              const sessionId =
+                useTerminalStore.getState().tabs.find(
+                  (t) => t.id === tab.originPanelId,
+                )?.sessionId ?? tab.originPanelId;
+              payload.sessionId = sessionId;
+              Object.assign(payload, await collectTerminalState(sessionId));
+              return [panelId, payload];
+            } catch {
+              return null;
+            }
+          }
+          if (tab.originScope === "database" && tab.originPanelId) {
+            payload.module = "database";
+            payload.dbTabId = panelId;
+            Object.assign(payload, await collectDatabaseState(tab.originPanelId));
+            return [panelId, payload];
+          }
+        }
+        return null;
+      }),
+    );
+
+    const result: Record<string, TabStatePayload> = {};
+    for (const entry of entries) {
+      if (entry) result[entry[0]] = entry[1];
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
