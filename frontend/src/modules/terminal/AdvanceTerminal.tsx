@@ -89,6 +89,8 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
 
   // 收起 / 展开状态
   const [sideCollapsed, setSideCollapsed] = useState(true);
+  // 首次展开后保持 DockableWorkspace 挂载（避免条件渲染销毁/重建 dockview 实例）
+  const [sideDockMounted, setSideDockMounted] = useState(false);
 
   // 侧栏宽度（像素），用于展开态拖拽
   const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT_EXPANDED_PX);
@@ -105,6 +107,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
   // 在 onDidActivePanelChange 层面过滤，这里无需再额外处理初始化期事件。
   const handleSideTabChange = useCallback((id: string) => {
     const next = id as SidePanelId;
+    console.log(`[handleSideTabChange] id=${id} current=${activeSideTabRef.current}`);
     if (next === activeSideTabRef.current) return;
     activeSideTabRef.current = next;
     setActiveSideTab(next);
@@ -114,34 +117,24 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
   const handleCollapsedTabClick = useCallback((targetTab: SidePanelId) => {
     activeSideTabRef.current = targetTab;
     setActiveSideTab(targetTab);
+    setSideDockMounted(true);
     setSideCollapsed(false);
   }, []);
 
-  // 展开态 dockview 容器 ref：用于独立 click 监听器
+  // 展开态 dockview 容器 ref
   const sideDockWrapRef = useRef<HTMLDivElement | null>(null);
 
-  // 独立 click 监听器：检测"点击已激活 tab"以切换收起/展开。
-  // 不用 dockview 的 onTabClick，因为其 wasActive 判断依赖 pointerdown capture
-  // 时序，dockview pointerdown 先执行会导致误判。
-  useEffect(() => {
-    if (sideCollapsed) return;
-    const root = sideDockWrapRef.current;
-    if (!root) return;
-    const onClick = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
-      if (!tabHeader || !root.contains(tabHeader)) return;
-      const tabId = tabHeader.dataset.dockTabId;
-      if (!tabId) return;
-      // 仅当点击的是当前已激活 tab 时切换收起（此时 dockview 不会触发 onActiveTabChange）
-      if (tabId !== activeSideTabRef.current) return;
-      setSideCollapsed(true);
-    };
-    root.addEventListener("click", onClick);
-    return () => root.removeEventListener("click", onClick);
-  }, [sideCollapsed]);
+  // DockableWorkspace.onTabClick：仅当 wasActive=true（点击当前已激活 tab）时收起。
+  // wasActive 的判断由 DockableWorkspace 在 pointerdown capture 阶段通过
+  // dv-active-tab class 检测，不受 dockview pointerdown 同步切换激活 tab 的影响。
+  const handleSideTabClick = useCallback(
+    (_tabId: string, wasActive: boolean) => {
+      if (wasActive) {
+        setSideCollapsed(true);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!sideTabs.some((item) => item.id === activeSideTab)) {
@@ -154,6 +147,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
   const openTunnelTab = useCallback(() => {
     activeSideTabRef.current = "tunnel";
     setActiveSideTab("tunnel");
+    setSideDockMounted(true);
     setSideCollapsed(false);
   }, []);
 
@@ -169,6 +163,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
     const sftpPath = normalizeTerminalCwdForSftp(tab.session.cwd);
     if (!sftpPath) return;
     if (lastSyncedSftpCwdRef.current === sftpPath) return;
+    console.log(`[sftp-sync] cwd=${tab.session.cwd} sftpPath=${sftpPath} lastSynced=${lastSyncedSftpCwdRef.current} resource.id=${resource.id} tabId=${tabId}`);
     lastSyncedSftpCwdRef.current = sftpPath;
     requestSftp(resource.id, sftpPath);
   }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
@@ -249,6 +244,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
 
   const renderSidePanel = useCallback(
     (panelId: string) => {
+      console.log(`[renderSidePanel] panelId=${panelId} activeSideTab=${activeSideTabRef.current}`);
       if (panelId === "history") {
         return wrapSidePanel(
           "history",
@@ -357,8 +353,8 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
         className={`advance-terminal-side${sideCollapsed ? " advance-terminal-side--collapsed" : ""}`}
         style={sideCollapsed ? undefined : { width: `${sideWidth}px` }}
       >
-        {sideCollapsed ? (
-          // 收起态：自绘竖排 tab 按钮，无 dockview 实例
+        {sideCollapsed && (
+          // 收起态：自绘竖排 tab 按钮（覆盖在隐藏的 dockview 之上）
           <div className="advance-terminal-side-rail">
             {sideTabs.map((sideTab) => (
               <button
@@ -373,9 +369,14 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
               </button>
             ))}
           </div>
-        ) : (
-          // 展开态：dockview 实例，保留原生分屏
-          <div ref={sideDockWrapRef} className="advance-terminal-side-dock-wrap">
+        )}
+        {/* 展开态：dockview 实例。首次展开后一直保持挂载，避免销毁/重建导致 tab 切换异常 */}
+        {sideDockMounted && (
+          <div
+            ref={sideDockWrapRef}
+            className="advance-terminal-side-dock-wrap"
+            style={sideCollapsed ? { display: "none" } : undefined}
+          >
             <DockableWorkspace
               key={`side-expanded-${tabId}-${isLocal ? "local" : "remote"}`}
               className="advance-terminal-side-dock"
@@ -383,6 +384,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
               tabs={sideDockTabs}
               activeTabId={activeSideTab}
               onActiveTabChange={handleSideTabChange}
+              onTabClick={handleSideTabClick}
               onCloseTab={() => {}}
               savedLayout={sideLayoutRef.current}
               onSavedLayoutChange={handleSideLayoutChange}
