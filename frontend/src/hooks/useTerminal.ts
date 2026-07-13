@@ -59,11 +59,11 @@ import {
 import { markShellPromptReady } from "../modules/terminal/terminalShellRecovery";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
 import {
-  cancelAutoReconnectSsh,
   scheduleAutoReconnectSsh,
   AUTO_RECONNECT_MAX_ATTEMPTS,
   type AutoReconnectCallbacks,
 } from "../modules/terminal/autoReconnectTerminalSsh";
+import type { TerminalBlock } from "../stores/blocksStore";
 import {
   unregisterTerminalAutoLsSession,
   getAdaptedAutoLsCommandForSession,

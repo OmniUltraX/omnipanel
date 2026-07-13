@@ -13,6 +13,7 @@ import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTa
 import {
   containerRowLabel,
   imageRowLabel,
+  imageRowSizeLabel,
   makeDockerServiceGroupTreeKey,
   makeDockerTreeKey,
   networkRowLabel,
@@ -44,6 +45,13 @@ import {
   dockerSidebarCategoryRefreshKey,
   dockerSidebarConnectionRefreshKey,
 } from "./dockerSidebarCache";
+import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
+import {
+  dockerConnectionNameMatchesSearch,
+  dockerConnectionSubtreeMatchesSearch,
+  dockerServiceGroupMatchesSearch,
+} from "./dockerTreeSearch";
 
 function statusDotClass(status: DockerConnectionInfo["status"]): string {
   if (status === "online") return "online";
@@ -55,6 +63,7 @@ type DockerTreeBranchProps = {
   connection: DockerConnectionInfo;
   connectionExpanded: boolean;
   activeNavKey: string | null;
+  searchQuery: string;
   isExpanded: (key: string) => boolean;
   toggle: (key: string) => void;
   ensureExpanded: (key: string) => void;
@@ -65,6 +74,7 @@ function DockerTreeBranch({
   connection,
   connectionExpanded,
   activeNavKey,
+  searchQuery,
   isExpanded,
   toggle,
   ensureExpanded,
@@ -76,6 +86,10 @@ function DockerTreeBranch({
   const { images, containers, networks, volumes, loading, error, refreshCategory } =
     useDockerConnectionResources(loadConnection);
   const createServiceGroup = useDockerServiceGroupStore((state) => state.createGroup);
+  const serviceGroups = useDockerServiceGroupStore((state) =>
+    state.getGroups(connection.connectionId),
+  );
+  const connectionNameMatch = dockerConnectionNameMatchesSearch(searchQuery, connection);
 
   const handleCreateServiceGroup = async (categoryKey: string) => {
     const name = await quickInput({
@@ -100,11 +114,14 @@ function DockerTreeBranch({
   };
 
   const categoryItems = useMemo(() => {
-    const itemBuilders: Record<
-      DockerTreeCategory,
-      () => Array<{ id: string; label: string }>
-    > = {
-      images: () => images.map((image) => ({ id: image.id, label: imageRowLabel(image) })),
+    type TreeItem = { id: string; label: string; meta?: string };
+    const itemBuilders: Record<DockerTreeCategory, () => TreeItem[]> = {
+      images: () =>
+        images.map((image) => ({
+          id: image.id,
+          label: imageRowLabel(image),
+          meta: imageRowSizeLabel(image),
+        })),
       containers: () =>
         containers.map((container) => ({
           id: container.id,
@@ -122,13 +139,71 @@ function DockerTreeBranch({
         })),
     };
 
-    return DOCKER_TREE_CATEGORIES.map((id) => ({
-      id,
-      label: t(`docker.tabs.${id}`),
-      count: itemBuilders[id]().length,
-      items: itemBuilders[id](),
-    }));
-  }, [containers, images, networks, volumes, t]);
+    const filterItems = (category: DockerTreeCategory, items: TreeItem[]) => {
+      if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
+        return items;
+      }
+      const categoryLabel = t(`docker.tabs.${category}`);
+      if (sidebarTreeSearchMatches(searchQuery, categoryLabel)) {
+        return items;
+      }
+      return items.filter((item) => sidebarTreeSearchMatches(searchQuery, item.label, item.meta));
+    };
+
+    return DOCKER_TREE_CATEGORIES.map((id) => {
+      const items = filterItems(id, itemBuilders[id]());
+      return {
+        id,
+        label: t(`docker.tabs.${id}`),
+        count: items.length,
+        items,
+      };
+    }).filter((category) => {
+      if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
+        return true;
+      }
+      if (sidebarTreeSearchMatches(searchQuery, category.label)) {
+        return true;
+      }
+      if (category.id === "containers") {
+        return (
+          category.items.length > 0 ||
+          serviceGroups.some((group) => {
+            const groupContainers = group.containerIds
+              .map((containerId) => containers.find((container) => container.id === containerId))
+              .filter((item): item is NonNullable<typeof item> => item != null);
+            return dockerServiceGroupMatchesSearch(searchQuery, group, groupContainers);
+          })
+        );
+      }
+      return category.items.length > 0;
+    });
+  }, [connectionNameMatch, containers, images, networks, searchQuery, serviceGroups, t, volumes]);
+
+  useEffect(() => {
+    if (!hasSidebarTreeSearch(searchQuery)) {
+      return;
+    }
+    ensureExpanded(makeDockerTreeKey(connection.connectionId));
+    for (const category of categoryItems) {
+      ensureExpanded(makeDockerTreeKey(connection.connectionId, category.id));
+    }
+    for (const group of serviceGroups) {
+      const groupContainers = group.containerIds
+        .map((containerId) => containers.find((container) => container.id === containerId))
+        .filter((item): item is NonNullable<typeof item> => item != null);
+      if (dockerServiceGroupMatchesSearch(searchQuery, group, groupContainers)) {
+        ensureExpanded(makeDockerServiceGroupTreeKey(connection.connectionId, group.id));
+      }
+    }
+  }, [
+    categoryItems,
+    connection.connectionId,
+    containers,
+    ensureExpanded,
+    searchQuery,
+    serviceGroups,
+  ]);
 
   if (!connectionExpanded) return null;
 
@@ -201,6 +276,8 @@ function DockerTreeBranch({
                     containers={containers}
                     categoryKey={categoryKey}
                     activeNavKey={activeNavKey}
+                    searchQuery={searchQuery}
+                    connectionNameMatch={connectionNameMatch}
                     loading={loading}
                     error={error}
                     isExpanded={isExpanded}
@@ -232,7 +309,7 @@ function DockerTreeBranch({
                     };
                     return (
                       <SidebarTreeNode
-                        key={item.id}
+                        key={`${category.id}:${item.id}:${item.label}`}
                         depth={2}
                         module="docker"
                         nodeType={category.id}
@@ -249,12 +326,19 @@ function DockerTreeBranch({
                         onToggle={() => {}}
                         onActivate={() => openItem("permanent")}
                         trailing={
-                          <div className="tree-node-actions">
-                            <DockerTreeRefreshButton
-                              refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
-                              onRefresh={() => refreshCategory(category.id)}
-                            />
-                          </div>
+                          <>
+                            {item.meta ? (
+                              <span className="server-tree-badge docker-tree-image-size" title={item.meta}>
+                                {item.meta}
+                              </span>
+                            ) : null}
+                            <div className="tree-node-actions">
+                              <DockerTreeRefreshButton
+                                refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
+                                onRefresh={() => refreshCategory(category.id)}
+                              />
+                            </div>
+                          </>
                         }
                       />
                     );
@@ -273,6 +357,7 @@ export interface DockerPanelTreeSidebarProps {
   connections: DockerConnectionInfo[];
   activeConnectionId: string | null;
   activeNavKey: string | null;
+  searchQuery?: string;
   loading?: boolean;
   scanning?: boolean;
   onNavigate: DockerSidebarNavigate;
@@ -287,6 +372,7 @@ export function DockerPanelTreeSidebar({
   connections,
   activeConnectionId,
   activeNavKey,
+  searchQuery = "",
   loading,
   scanning,
   onNavigate,
@@ -310,6 +396,42 @@ export function DockerPanelTreeSidebar({
     () => [...connections].sort((a, b) => a.name.localeCompare(b.name)),
     [connections],
   );
+
+  const categoryLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        DOCKER_TREE_CATEGORIES.map((category) => [category, t(`docker.tabs.${category}`)]),
+      ) as Record<DockerTreeCategory, string>,
+    [t],
+  );
+
+  const cacheConnections = useDockerSidebarCacheStore((state) => state.connections);
+
+  const filteredConnections = useMemo(() => {
+    if (!hasSidebarTreeSearch(searchQuery)) {
+      return sortedConnections;
+    }
+    return sortedConnections.filter((connection) => {
+      const entry = useDockerSidebarCacheStore.getState().getEntry(connection.connectionId);
+      const serviceGroups = useDockerServiceGroupStore.getState().getGroups(connection.connectionId);
+      return dockerConnectionSubtreeMatchesSearch(
+        searchQuery,
+        connection,
+        entry,
+        categoryLabels,
+        serviceGroups,
+      );
+    });
+  }, [cacheConnections, categoryLabels, searchQuery, sortedConnections]);
+
+  useEffect(() => {
+    if (!hasSidebarTreeSearch(searchQuery)) {
+      return;
+    }
+    for (const connection of filteredConnections) {
+      ensureExpanded(makeDockerTreeKey(connection.connectionId));
+    }
+  }, [ensureExpanded, filteredConnections, searchQuery]);
 
   const handleContextMenu = (event: MouseEvent, connection: DockerConnectionInfo) => {
     if (isBuiltinLocalDockerConnection(connection.connectionId)) return;
@@ -369,10 +491,14 @@ export function DockerPanelTreeSidebar({
       <SidebarTreeRoot className="server-sidebar-body docker-sidebar-tree">
         {loading ? (
           <SidebarTreeEmpty>{t("docker.sidebar.loading")}</SidebarTreeEmpty>
-        ) : sortedConnections.length === 0 ? (
-          <SidebarTreeEmpty>{t("docker.sidebar.empty")}</SidebarTreeEmpty>
+        ) : filteredConnections.length === 0 ? (
+          <SidebarTreeEmpty>
+            {hasSidebarTreeSearch(searchQuery)
+              ? t("docker.sidebar.searchNoResults")
+              : t("docker.sidebar.empty")}
+          </SidebarTreeEmpty>
         ) : (
-          sortedConnections.map((connection) => {
+          filteredConnections.map((connection) => {
             const connectionKey = makeDockerTreeKey(connection.connectionId);
             const connectionExpanded = isExpanded(connectionKey);
             const supportsResources = connectionSupportsSidebarResources(connection);
@@ -422,6 +548,7 @@ export function DockerPanelTreeSidebar({
                   connection={connection}
                   connectionExpanded={connectionExpanded}
                   activeNavKey={activeNavKey}
+                  searchQuery={searchQuery}
                   isExpanded={isExpanded}
                   toggle={toggle}
                   ensureExpanded={ensureExpanded}

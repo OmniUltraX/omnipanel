@@ -30,15 +30,8 @@ export type {
 export type { TerminalSession } from "./terminalSessionModel";
 export { createTerminalSessionId } from "./terminalSessionModel";
 
-let tabCounter = 0;
-
-function syncTabCounterFromTabs(tabs: Array<{ id: string }>): void {
-  let max = 0;
-  for (const tab of tabs) {
-    const match = /^tab-(\d+)$/.exec(tab.id);
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  tabCounter = max;
+function syncTabCounterFromTabs(_tabs: Array<{ id: string }>): void {
+  // 预留：历史 tab-N 计数同步（当前未用于新 tab 分配）
 }
 
 /** 关闭 tab 后优先激活紧邻左侧；无左侧则取右侧。 */

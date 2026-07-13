@@ -12,7 +12,6 @@ import { Button } from "../../components/ui/Button";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import {
   deleteKnowledgeChunks,
-  KNOWLEDGE_CHUNK_PAGE_SIZE,
   KNOWLEDGE_VECTORIZED_EVENT,
   loadKnowledgeChunks,
   loadKnowledgeVectorStatus,
@@ -181,7 +180,7 @@ export function KnowledgeChunksPanel({ entryId }: KnowledgeChunksPanelProps) {
       try {
         const result = await deleteKnowledgeChunks(entry.id, chunkIds);
         clearSelection();
-        if (result.remaining <= 0) {
+        if ((result.remaining ?? 0) <= 0) {
           setTotal(0);
           setChunks([]);
           return;

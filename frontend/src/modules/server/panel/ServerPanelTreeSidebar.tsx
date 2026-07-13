@@ -29,6 +29,10 @@ import {
 } from "./serverResourceLabels";
 import type { ServerSidebarNavigate } from "./serverSidebarNav";
 import type { ServerDetailTab } from "./ServerWorkspace";
+import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import {
+  serverEntryMatchesSearch,
+} from "../serverTreeSearch";
 import {
   ServerTreeIcon,
   serverCategoryIconKind,
@@ -40,6 +44,7 @@ type ServerTreeBranchProps = {
   server: ServerEntry;
   serverExpanded: boolean;
   activeNavKey: string | null;
+  searchQuery: string;
   isExpanded: (key: string) => boolean;
   toggle: (key: string) => void;
   ensureExpanded: (key: string) => void;
@@ -50,52 +55,100 @@ function ServerTreeBranch({
   server,
   serverExpanded,
   activeNavKey,
+  searchQuery,
   isExpanded,
   toggle,
   ensureExpanded,
   onNavigate,
 }: ServerTreeBranchProps) {
   const { t } = useI18n();
+  const serviceTypeLabel = t(`server.serviceType.${server.serviceType}`);
+  const serverNameMatch = serverEntryMatchesSearch(searchQuery, server, serviceTypeLabel);
   const loadServer = serverExpanded && serverSupportsResources(server) ? server : null;
   const { apps, loading: appsLoading } = useInstalledApps(loadServer);
   const { items: websites, loading: websitesLoading } = useServerWebsites(loadServer);
   const { items: certificates, loading: certificatesLoading } = useServerCertificates(loadServer);
 
-  const categories: Array<{
-    id: "apps" | "websites" | "certificates";
-    label: string;
-    loading: boolean;
-    count: number;
-    items: Array<{ id: string; label: string }>;
-  }> = [
-    {
-      id: "apps",
-      label: t("server.tabs.apps"),
-      loading: appsLoading,
-      count: apps.length,
-      items: apps.map((app) => ({ id: app.uid, label: getAppDisplayName(app) })),
-    },
-    {
-      id: "websites",
-      label: t("server.tabs.websites"),
-      loading: websitesLoading,
-      count: websites.length,
-      items: websites.map((row, index) => ({
-        id: websiteRowId(row, index),
-        label: websiteRowLabel(row),
-      })),
-    },
-    {
-      id: "certificates",
-      label: t("server.tabs.certificates"),
-      loading: certificatesLoading,
-      count: certificates.length,
-      items: certificates.map((row, index) => ({
-        id: certificateRowId(row, index),
-        label: certificateRowLabel(row),
-      })),
-    },
-  ];
+  const categories = useMemo(() => {
+    const filterItems = (
+      categoryLabel: string,
+      items: Array<{ id: string; label: string }>,
+    ) => {
+      if (!hasSidebarTreeSearch(searchQuery) || serverNameMatch) {
+        return items;
+      }
+      if (sidebarTreeSearchMatches(searchQuery, categoryLabel)) {
+        return items;
+      }
+      return items.filter((item) => sidebarTreeSearchMatches(searchQuery, item.label));
+    };
+
+    const raw = [
+      {
+        id: "apps" as const,
+        label: t("server.tabs.apps"),
+        loading: appsLoading,
+        items: apps.map((app) => ({ id: app.uid, label: getAppDisplayName(app) })),
+      },
+      {
+        id: "websites" as const,
+        label: t("server.tabs.websites"),
+        loading: websitesLoading,
+        items: websites.map((row, index) => ({
+          id: websiteRowId(row, index),
+          label: websiteRowLabel(row),
+        })),
+      },
+      {
+        id: "certificates" as const,
+        label: t("server.tabs.certificates"),
+        loading: certificatesLoading,
+        items: certificates.map((row, index) => ({
+          id: certificateRowId(row, index),
+          label: certificateRowLabel(row),
+        })),
+      },
+    ];
+
+    return raw
+      .map((category) => {
+        const items = filterItems(category.label, category.items);
+        return {
+          ...category,
+          count: items.length,
+          items,
+        };
+      })
+      .filter((category) => {
+        if (!hasSidebarTreeSearch(searchQuery) || serverNameMatch) {
+          return true;
+        }
+        if (sidebarTreeSearchMatches(searchQuery, category.label)) {
+          return true;
+        }
+        return category.items.length > 0;
+      });
+  }, [
+    apps,
+    appsLoading,
+    certificates,
+    certificatesLoading,
+    searchQuery,
+    serverNameMatch,
+    t,
+    websites,
+    websitesLoading,
+  ]);
+
+  useEffect(() => {
+    if (!hasSidebarTreeSearch(searchQuery)) {
+      return;
+    }
+    ensureExpanded(makeServerTreeKey(server.id));
+    for (const category of categories) {
+      ensureExpanded(makeServerTreeKey(server.id, category.id));
+    }
+  }, [categories, ensureExpanded, searchQuery, server.id]);
 
   if (!serverExpanded) return null;
 
@@ -105,6 +158,10 @@ function ServerTreeBranch({
         {t("server.sidebar.treeUnsupported")}
       </SidebarTreeEmpty>
     );
+  }
+
+  if (hasSidebarTreeSearch(searchQuery) && !serverNameMatch && categories.length === 0) {
+    return null;
   }
 
   return (
@@ -194,6 +251,7 @@ export interface ServerPanelTreeSidebarProps {
   servers: ServerEntry[];
   activeServerId: string | null;
   activeNavKey: string | null;
+  searchQuery?: string;
   onNavigate: ServerSidebarNavigate;
   onCreateServer?: () => void;
   onEditServer?: (server: ServerEntry) => void;
@@ -205,6 +263,7 @@ export function ServerPanelTreeSidebar({
   servers,
   activeServerId,
   activeNavKey,
+  searchQuery = "",
   onNavigate,
   onCreateServer,
   onEditServer,
@@ -225,6 +284,15 @@ export function ServerPanelTreeSidebar({
     () => [...servers].sort((a, b) => a.name.localeCompare(b.name)),
     [servers],
   );
+
+  useEffect(() => {
+    if (!hasSidebarTreeSearch(searchQuery)) {
+      return;
+    }
+    for (const server of sortedServers) {
+      ensureExpanded(makeServerTreeKey(server.id));
+    }
+  }, [ensureExpanded, searchQuery, sortedServers]);
 
   const handleContextMenu = (event: MouseEvent, server: ServerEntry) => {
     event.preventDefault();
@@ -307,6 +375,7 @@ export function ServerPanelTreeSidebar({
                   server={server}
                   serverExpanded={serverExpanded}
                   activeNavKey={activeNavKey}
+                  searchQuery={searchQuery}
                   isExpanded={isExpanded}
                   toggle={toggle}
                   ensureExpanded={ensureExpanded}

@@ -49,7 +49,6 @@ import {
   broadcastCrossWindowDragEndLite,
   broadcastCrossWindowDragMove,
   CROSS_WINDOW_DRAG_END_EVENT,
-  updateLocalOutboundDragVisual,
   useCrossWindowDragVisualStore,
 } from "./crossWindowDragVisual";
 
@@ -245,10 +244,6 @@ function crossDockLogSampled(message: string): void {
 
 let lastCrossDockLogAt = 0;
 
-function isWorkspaceDockElement(el: Element | null | undefined): boolean {
-  return Boolean(el?.closest(WORKSPACE_DOCK_SELECTOR));
-}
-
 function clearLocalWorkspaceDockDragArtifacts(): void {
   document
     .querySelectorAll(
@@ -263,7 +258,7 @@ function clearLocalWorkspaceDockDragArtifacts(): void {
     });
 }
 
-function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
+function dragMovedEnoughAt(_screenX: number, _screenY: number): boolean {
   if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
   if (localDrag) return true;
   if (!pointerSeed) {
@@ -432,8 +427,8 @@ function isMainWindowWorkspaceDockVisible(): boolean {
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen || bottom.workspaceMode === "fullscreen") return true;
   if (bottom.workspaceMode === "half" || bottom.embeddedMode === "half") return true;
-  if (bottom.workspaceMode === "hidden" || bottom.embeddedMode === "hidden") return false;
-  return bottom.workspaceMode === "taskbar" || bottom.embeddedMode === "taskbar";
+  if (bottom.workspaceMode === "hidden") return false;
+  return bottom.workspaceMode === "taskbar";
 }
 
 /** 在目标窗 WebView 内根据落点解析工程工作区 id（主窗全屏工作区 / 独立工作区窗） */
@@ -516,9 +511,11 @@ function resetDragSession(options?: {
   releaseDragCompletionLock();
   clearWebviewWindowLabelCache();
   if (shouldBroadcast) {
-    void options?.lite
-      ? broadcastCrossWindowDragEndLite()
-      : broadcastCrossWindowDragEnd();
+    if (options?.lite) {
+      void broadcastCrossWindowDragEndLite();
+    } else {
+      void broadcastCrossWindowDragEnd();
+    }
   }
 }
 
@@ -610,15 +607,16 @@ function applyIncomingTab(
         useTerminalStore.getState().setBackendSessionId(tab.payload.id, backendSessionId);
       }
     }
+    const { kind: _kind, ...payloadTab } = tab;
     dock.addPayloadTab(targetWorkspaceId, workspace, {
-      ...tab,
+      ...payloadTab,
       id: newPanelId,
-      kind: "payload",
       payload: tab.payload,
     });
   } else {
+    const { kind: _kind, payload: _payload, ...mirroredTab } = tab;
     dock.addMirroredTab(targetWorkspaceId, workspace, {
-      ...tab,
+      ...mirroredTab,
       id: newPanelId,
       originScope: tab.originScope ?? scope,
       originPanelId: tab.originPanelId ?? bareId,
@@ -700,7 +698,7 @@ function removeOutgoingTab(
   workspaceId: string,
   panelId: string,
   tab: WorkspaceDockTab,
-  targetWorkspaceId: string,
+  targetWorkspaceId: string | null,
   options?: { targetModuleScope?: string },
 ): void {
   const workspace =
@@ -711,7 +709,8 @@ function removeOutgoingTab(
     tabs.find((item) => item.id === panelId || item.id === tab.id)?.id ?? panelId;
   const targetModuleScope = options?.targetModuleScope;
   const targetScope =
-    targetModuleScope ?? `${WORKSPACE_DOCK_SCOPE_PREFIX}${targetWorkspaceId}`;
+    targetModuleScope ??
+    `${WORKSPACE_DOCK_SCOPE_PREFIX}${targetWorkspaceId ?? workspaceId}`;
 
   const isTerminalMoveToModule =
     targetModuleScope === "terminal" &&

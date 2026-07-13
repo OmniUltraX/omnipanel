@@ -39,11 +39,41 @@
         display: none;
     }
 
+    .docker-tree-scoped-search {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .docker-tree-scoped-search .scoped-search-bar {
+        z-index: 50;
+    }
+
+    .docker-tree-scoped-search .scoped-search-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .docker-tree-scoped-search .server-sidebar {
+        flex: 1;
+        min-height: 0;
+    }
+
     .docker-tree-source-tag {
         font-size: 10px;
         padding: 0 4px;
         line-height: 16px;
         flex-shrink: 0;
+    }
+
+    .docker-tree-image-size {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
     }
 
     .docker-sidebar-tree .docker-tree-node--connection .tree-icon {

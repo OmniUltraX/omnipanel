@@ -555,8 +555,8 @@ async function probeStaticCandidatePaths(
         const res = await commands.fileReadFile(LOCAL_CONNECTION_ID, path, 1);
 
         hit = res.status === "ok";
-
-        redisConfigLog("probe.static.local", { path, hit, error: hit ? undefined : res.error });
+        const err = res.status === "error" ? res.error : undefined;
+        redisConfigLog("probe.static.local", { path, hit, error: hit ? undefined : err });
 
       }
 

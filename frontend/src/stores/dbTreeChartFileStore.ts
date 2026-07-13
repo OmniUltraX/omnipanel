@@ -417,6 +417,7 @@ export async function recoverTreeChartFilesFromLocalStorage(): Promise<number> {
     return 0;
   }
 
+  let diskCount = 0;
   let mergedById = new Map<string, DbTreeChartFileNode>();
   if (isTauriRuntime()) {
     try {

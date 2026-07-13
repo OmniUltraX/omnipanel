@@ -210,9 +210,9 @@ export async function loadKnowledgeVectorStatus(entryId: string) {
 export type KnowledgeChunkPreview = {
   id: string;
   entryId: string;
-  chunkIndex: number;
+  chunkIndex: number | null;
   content: string;
-  createdAt: number;
+  createdAt: number | null;
 };
 
 export const KNOWLEDGE_CHUNK_PAGE_SIZE = 12;

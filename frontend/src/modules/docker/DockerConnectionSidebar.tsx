@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
+import { ScopedSearch } from "../../components/ui/search";
 import { useI18n } from "../../i18n";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
 import { DockerPanelTreeSidebar } from "./DockerPanelTreeSidebar";
@@ -37,6 +38,7 @@ export function DockerConnectionSidebar({
 }: DockerConnectionSidebarProps) {
   const { t } = useI18n();
   const { activeConnectionId, activeNavKey } = useDockerSidebarLinkage();
+  const [searchQuery, setSearchQuery] = useState("");
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
     SECTION_STORAGE_KEY,
     { connections: true },
@@ -51,23 +53,31 @@ export function DockerConnectionSidebar({
 
   return (
     <VerticalSplitSidebar className="docker-connection-sidebar">
-      <DockerPanelTreeSidebar
-        connections={connections}
-        activeConnectionId={activeConnectionId}
-        activeNavKey={activeNavKey}
-        loading={loading}
-        scanning={scanning}
-        onNavigate={onNavigate}
-        onCreate={onCreate}
-        onScan={onScan}
-        onEditConnection={onEditConnection}
-        onDeleteConnection={onDeleteConnection}
-        section={{
-          title: t("docker.sidebar.connections"),
-          expanded: sections.connections,
-          onToggle: () => toggleSection("connections"),
-        }}
-      />
+      <ScopedSearch
+        className="docker-tree-scoped-search"
+        value={searchQuery}
+        onChange={setSearchQuery}
+        placeholder={t("docker.sidebar.search")}
+      >
+        <DockerPanelTreeSidebar
+          connections={connections}
+          activeConnectionId={activeConnectionId}
+          activeNavKey={activeNavKey}
+          loading={loading}
+          scanning={scanning}
+          searchQuery={searchQuery}
+          onNavigate={onNavigate}
+          onCreate={onCreate}
+          onScan={onScan}
+          onEditConnection={onEditConnection}
+          onDeleteConnection={onDeleteConnection}
+          section={{
+            title: t("docker.sidebar.connections"),
+            expanded: sections.connections,
+            onToggle: () => toggleSection("connections"),
+          }}
+        />
+      </ScopedSearch>
     </VerticalSplitSidebar>
   );
 }

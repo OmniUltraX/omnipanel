@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../components/ui/Button";
 import { Select } from "../../../components/ui/Select";
-import { TextInput, type TextInputProps } from "../../../components/ui/TextInput";
+import { TextInput, type TextInputProps } from "../../../components/ui/form/TextInput";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { useI18n } from "../../../i18n";
 import { TableDdlViewer } from "../table/TableDdlViewer";

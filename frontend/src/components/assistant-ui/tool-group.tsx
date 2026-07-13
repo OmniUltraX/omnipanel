@@ -4,8 +4,6 @@ import {
   useCallback,
   useRef,
   useState,
-  type FC,
-  type PropsWithChildren,
 } from "react";
 import { ChevronDownIcon, LoaderIcon } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";

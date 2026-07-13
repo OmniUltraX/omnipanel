@@ -15,7 +15,7 @@ const BIGINT_VALUE = "2064901285657460737";
 const CORRUPTED_VALUE = "2064901285657460700";
 
 describe("tablePreviewFilter bigint", () => {
-  const columnMeta: DbColumnMeta[] = [{ name: "id", type: "BIGINT", isPk: true }];
+  const columnMeta: DbColumnMeta[] = [{ name: "id", type: "BIGINT", isPk: true, isFk: false }];
 
   it("uses bigint input type for BIGINT columns", () => {
     const fields = buildFilterFields(columnMeta);

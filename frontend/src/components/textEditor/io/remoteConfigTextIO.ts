@@ -56,20 +56,22 @@ export function createRemoteConfigTextIO(
       if (sshId) {
         const res = await commands.sftpDownload(sshId, path);
         if (res.status !== "ok" || !res.data) {
+          const err = res.status === "error" ? res.error : undefined;
           throw new Error(
-            typeof res.error === "string"
-              ? res.error
-              : res.error?.message ?? "读取配置文件失败",
+            typeof err === "string"
+              ? err
+              : err?.message ?? "读取配置文件失败",
           );
         }
         return decodeUtf8(res.data);
       }
       const res = await commands.fileReadFile(LOCAL_CONNECTION_ID, path, MAX_CONFIG_BYTES);
       if (res.status !== "ok" || !res.data) {
+        const err = res.status === "error" ? res.error : undefined;
         throw new Error(
-          typeof res.error === "string"
-            ? res.error
-            : res.error?.message ?? "读取配置文件失败",
+          typeof err === "string"
+            ? err
+            : err?.message ?? "读取配置文件失败",
         );
       }
       return decodeUtf8(res.data);

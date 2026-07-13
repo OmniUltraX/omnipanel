@@ -40,7 +40,7 @@ function formatCellValue(value: unknown): string {
 
 function rowDiffKindLabel(
   kind: RowDiffKind,
-  t: (key: string, params?: Record<string, unknown>) => string,
+  t: (key: string, params?: Record<string, string | number>) => string,
 ): string {
   if (kind === "changed") {
     return t("database.toolbox.side.rowDiffChanged");

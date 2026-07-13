@@ -59,9 +59,9 @@ export function ThirdPartyAccountDialog({
         name: editAccount.name,
         platform: editAccount.platform,
         authMethod: editAccount.authMethod,
-        username: editAccount.username,
+        username: editAccount.username ?? "",
         secret: "",
-        notes: editAccount.notes,
+        notes: editAccount.notes ?? "",
       });
     } else {
       setForm({ ...EMPTY_FORM });
@@ -94,13 +94,13 @@ export function ThirdPartyAccountDialog({
     setError(null);
     try {
       const saved = await onSubmit({
-        id: editAccount?.id,
+        id: editAccount?.id ?? null,
         name,
         platform: form.platform,
         authMethod: form.authMethod,
         username: form.username.trim(),
         notes: form.notes.trim(),
-        secret: form.secret.trim() ? form.secret.trim() : undefined,
+        secret: form.secret.trim() ? form.secret.trim() : null,
       });
       if (saved) onClose();
     } finally {

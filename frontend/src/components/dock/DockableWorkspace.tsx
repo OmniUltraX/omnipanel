@@ -40,6 +40,7 @@ import {
 } from "../../lib/dockviewRegistry";
 import { isWorkspaceDockOutboundTransfer } from "../../lib/crossWindowDockTransfer";
 import {
+  isModuleDockScope,
   shouldTransferModuleToWorkspace,
   shouldTransferWorkspaceToModule,
 } from "../../lib/moduleToWorkspaceTransfer";
@@ -236,8 +237,8 @@ function isExternalPanelDrop(
 
 function resolveExternalDropScopes(
   event: { getData: () => ReturnType<DockviewDidDropEvent["getData"]> },
-  targetViewId: string,
-  targetScope: string | undefined,
+  _targetViewId: string,
+  _targetScope: string | undefined,
 ): { sourceScope: string | undefined } {
   const data = event.getData();
   if (!data?.viewId) return { sourceScope: undefined };

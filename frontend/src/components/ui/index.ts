@@ -10,6 +10,6 @@ export * from "./window";
 export * from "./layout";
 export * from "./content";
 export * from "./media";
-export * from "./icons";
+export * from "./Icons";
 export * from "./tags";
 export * from "./table";

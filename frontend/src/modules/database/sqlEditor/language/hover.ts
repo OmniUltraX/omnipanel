@@ -354,7 +354,6 @@ function makeTooltip(dom: HTMLElement, destroy?: () => void): Tooltip {
 
   return {
     pos: 0,
-    dom,
     create() {
       return {
         dom,

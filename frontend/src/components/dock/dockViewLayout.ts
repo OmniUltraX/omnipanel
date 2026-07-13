@@ -648,9 +648,10 @@ export function layoutStructureFingerprint(layout: SerializedDockview): string {
         visible: node.visible,
       };
     }
+    const branchChildren = Array.isArray(node.data) ? node.data : [];
     return {
       type: "branch",
-      data: (node.data ?? []).map((child) => stripNode(child)),
+      data: branchChildren.map((child) => stripNode(child)),
       size: node.size,
     };
   };

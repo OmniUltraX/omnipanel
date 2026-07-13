@@ -2517,7 +2517,7 @@ export const zhCN = {
       treeLoading: "加载中…",
       treeEmpty: "暂无数据",
       treeSelectConnection: "选中此连接后显示",
-      treeUnsupported: "当前连接类型暂不支持资源列表（请先使用 1Panel 连接）",
+      treeUnsupported: "当前连接类型暂不支持资源列表",
       treeOffline: "Docker 未连接",
       treeLoadFailed: "加载失败",
       newServiceGroup: "新建服务组",
@@ -2527,6 +2527,8 @@ export const zhCN = {
       deleteServiceGroupConfirm: "确定删除该服务组吗？组内容器将移回未分组列表。",
       serviceGroupFallback: "服务组",
       dropContainerHint: "将容器拖放到此处",
+      search: "搜索连接或资源…",
+      searchNoResults: "无匹配项",
     },
     dockPanel: {
       loading: "加载容器…",
@@ -2688,6 +2690,8 @@ export const zhCN = {
       treeLoading: "加载中…",
       treeEmpty: "暂无数据",
       treeUnsupported: "当前面板类型暂不支持资源列表",
+      search: "搜索服务器或资源…",
+      searchNoResults: "无匹配项",
     },
     toolbar: {
       hint: "监控、进程、服务和日志统一进入工作区上下文。",

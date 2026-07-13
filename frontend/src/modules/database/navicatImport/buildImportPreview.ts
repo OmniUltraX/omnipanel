@@ -123,7 +123,7 @@ export interface ImportPreviewRowState {
 export function computeImportPreviewRowState(
   item: NavicatImportPreviewItem,
   customName: string | undefined,
-  existingConnections: DbConnectionConfig[],
+  _existingConnections: DbConnectionConfig[],
   namesForCompare: { id: string; name: string }[],
 ): ImportPreviewRowState {
   const displayName = resolveImportConnectionName(item, customName);

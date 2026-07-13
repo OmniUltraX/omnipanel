@@ -3,7 +3,7 @@ import type { DbConnectionConfig } from "../api";
 import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
 import { resolveDockerExecTarget } from "../dockerContainerResolve";
 import {
-  findSshConnectionForDbHost,
+  findSshConnectionForDbHostSync,
   hostsMatch,
 } from "../mysqlSlowQueryLog";
 import type { RedisDeploymentInfo } from "../redisDeploymentDetect";
@@ -46,7 +46,7 @@ function resolveSshConnection(
       return matched;
     }
   }
-  return findSshConnectionForDbHost(sshConnections, dbHost);
+  return findSshConnectionForDbHostSync(sshConnections, dbHost);
 }
 
 function dedupeSections(sections: CliCommandSection[]): CliCommandSection[] {
@@ -347,7 +347,7 @@ function listRedisTerminalModes(
 }
 
 export function resolveDefaultCliTerminalModeId(
-  deployment: { kind?: string } | null,
+  _deployment: { kind?: string } | null,
   modes: CliTerminalModeOption[],
 ): CliTerminalModeId {
   if (modes.length === 0) {

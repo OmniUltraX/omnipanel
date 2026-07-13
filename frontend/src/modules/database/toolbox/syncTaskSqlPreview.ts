@@ -5,7 +5,6 @@ import {
   resolveSchemaSyncTargetTableName,
 } from "./schemaSyncAlignedTables";
 import type { SchemaTableDiff } from "./schemaDiff";
-import { formatIndexDetail } from "./schemaDiff";
 import {
   type DataAnalysisResult,
   type DataSyncModes,
@@ -176,14 +175,6 @@ function buildDropIndexSql(dbType: string, table: string, idx: DbIndexMeta): str
     return `DROP INDEX IF EXISTS ${idxIdent}`;
   }
   return "";
-}
-
-function buildTruncateSql(dbType: string, table: string): string {
-  const ident = quoteIdent(dbType, table);
-  if (isMysqlEngine(dbType) || isPostgresEngine(dbType)) {
-    return `TRUNCATE TABLE ${ident}`;
-  }
-  return `DELETE FROM ${ident}`;
 }
 
 async function buildSchemaTablePreview(

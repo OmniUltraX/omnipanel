@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
-import { formatIgnoredFieldsForInput, parseIgnoredFieldsInput } from "./ignoredFields";
+import { formatIgnoredFieldsForInput } from "./ignoredFields";
 import type { SchemaTableNameCase, ToolboxTabId } from "./types";
 
 export interface SyncTaskSettings {

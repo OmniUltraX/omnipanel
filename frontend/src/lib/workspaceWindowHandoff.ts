@@ -253,7 +253,7 @@ function applyDockHandoff(
     layoutByWorkspace: { ...state.layoutByWorkspace, [workspaceId]: dock.layout },
     activeTabByWorkspace: {
       ...state.activeTabByWorkspace,
-      [workspaceId]: dock.activeTabId,
+      [workspaceId]: dock.activeTabId ?? "",
     },
   }));
 }

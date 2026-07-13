@@ -118,8 +118,11 @@ function tokenize(input: string): Token[] {
 
 class Parser {
   private index = 0;
+  private readonly tokens: Token[];
 
-  constructor(private readonly tokens: Token[]) {}
+  constructor(tokens: Token[]) {
+    this.tokens = tokens;
+  }
 
   parse(): ExprNode {
     const expr = this.parseExpression();

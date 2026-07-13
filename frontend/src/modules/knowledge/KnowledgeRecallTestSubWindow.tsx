@@ -13,13 +13,13 @@ interface KnowledgeRecallTestSubWindowProps {
   onClose: () => void;
 }
 
-function formatScore(score: number): string {
-  const pct = Math.max(0, Math.min(100, score * 100));
+function formatScore(score: number | null): string {
+  const pct = Math.max(0, Math.min(100, (score ?? 0) * 100));
   return `${pct.toFixed(1)}%`;
 }
 
-function scoreBarWidth(score: number): string {
-  const pct = Math.max(0, Math.min(100, score * 100));
+function scoreBarWidth(score: number | null): string {
+  const pct = Math.max(0, Math.min(100, (score ?? 0) * 100));
   return `${pct}%`;
 }
 

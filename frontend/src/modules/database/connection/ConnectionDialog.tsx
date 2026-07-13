@@ -3,7 +3,6 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../../i18n";
 import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../../components/ui/form/PasswordInput";
-import { Select } from "../../../components/ui/form/Select";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
@@ -71,6 +70,7 @@ const EMPTY_FORM: ConnectionFormData = {
   username: "",
   password: "",
   ssl: false,
+  group: "默认",
 };
 
 interface ConnectionDialogProps {

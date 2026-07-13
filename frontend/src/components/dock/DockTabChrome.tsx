@@ -1,7 +1,7 @@
 import { useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 
-interface DockTabChromeProps extends IDockviewPanelHeaderProps {
+interface DockTabChromeProps extends Pick<IDockviewPanelHeaderProps, "api"> {
   closable?: boolean;
   tooltip?: string;
   isPreview?: boolean;
@@ -21,8 +21,6 @@ interface DockTabChromeProps extends IDockviewPanelHeaderProps {
  */
 export function DockTabChrome({
   api,
-  containerApi: _containerApi,
-  params: _params,
   closable = true,
   tooltip,
   isPreview = false,

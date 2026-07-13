@@ -29,7 +29,6 @@ import {
 import {
   classifyLargeFile,
   countPreviewLines,
-  exceedsPreviewThreshold,
   fmtError,
   FORCE_PREVIEW_MAX_BYTES,
   formatFileSize,
@@ -353,7 +352,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       return {
         totalSize,
         loadedSize,
-        lines: countPreviewLines(draftText),
+        lines: countPreviewLines(draftText ?? ""),
       };
     }, [largeStrategy, forceFull, entry.size, loadedBytes, draftText]);
 

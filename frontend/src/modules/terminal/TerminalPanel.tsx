@@ -193,9 +193,6 @@ export function TerminalPanel() {
     () => resolveResourceById(activeTerminalTab?.session.resourceId ?? null),
     [activeTerminalTab?.session.resourceId],
   );
-  const sessionBlocks = useBlocksStore((state) =>
-    activeSessionId ? state.blocks[activeSessionId] ?? EMPTY_TERMINAL_BLOCKS : EMPTY_TERMINAL_BLOCKS,
-  );
   const terminalAiContext = useMemo(() => {
     const blocks =
       activeSessionId

@@ -553,7 +553,6 @@ export function DatabasePanel() {
   const setSqlTabStates = useDbWorkspaceTabStore((state) => state.setSqlTabStates);
   const setTablePreviews = useDbWorkspaceTabStore((state) => state.setTablePreviews);
   const setTableColumnMeta = useDbWorkspaceTabStore((state) => state.setTableColumnMeta);
-  const tabModes = useDbWorkspaceTabStore((state) => state.tabModes);
   const setTabModes = useDbWorkspaceTabStore((state) => state.setTabModes);
   const setTabDirtyRows = useDbWorkspaceTabStore((state) => state.setTabDirtyRows);
   const setCommittingTabs = useDbWorkspaceTabStore((state) => state.setCommittingTabs);
@@ -1357,7 +1356,6 @@ export function DatabasePanel() {
         continue;
       }
 
-      const connForSchema = { ...connection, database: tab.dbName };
       void introspectTable(connection, tab.dbName, tab.tableName)
         .then((schema) => {
           if (connection.db_type !== "redis") {
@@ -1843,7 +1841,6 @@ export function DatabasePanel() {
     (tabId: string, connId: string, dbName: string, tableName: string, page: number) => {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
-      const connForSchema = { ...connection, database: dbName };
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
@@ -1888,7 +1885,8 @@ export function DatabasePanel() {
     (tabId: string, filter: RuleGroupType | null) => {
       const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
-      const connection = connections.find((c) => c.id === preview.connId);
+      const connId = preview.connId;
+      const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
 
       setTablePreviews((prev) => {
@@ -1899,7 +1897,7 @@ export function DatabasePanel() {
 
         void fetchTablePreviewPage({
           connection,
-          connId: preview.connId,
+          connId,
           tableName: preview.tableName!,
           dbName: preview.dbName!,
           page: 0,
@@ -1980,7 +1978,8 @@ export function DatabasePanel() {
     (tabId: string, sort: SortState | null) => {
       const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
-      const connection = connections.find((c) => c.id === preview.connId);
+      const connId = preview.connId;
+      const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
 
       setTablePreviews((prev) => {
@@ -1991,7 +1990,7 @@ export function DatabasePanel() {
 
         void fetchTablePreviewPage({
           connection,
-          connId: preview.connId,
+          connId,
           tableName: preview.tableName!,
           dbName: preview.dbName!,
           page: 0,

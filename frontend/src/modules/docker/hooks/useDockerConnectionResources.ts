@@ -6,12 +6,12 @@ import {
   selectDockerSidebarCacheEntry,
   selectEmptyDockerSidebarCacheEntry,
 } from "../dockerSidebarCache";
-import { isOnePanelDockerSource } from "../dockerConnectionSource";
+import { isOnePanelDockerSource, isSshDockerSource } from "../dockerConnectionSource";
 import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 
-/** 侧栏资源树当前优先支持 1Panel / 面板适配来源。 */
+/** 侧栏资源树当前支持 1Panel / 面板适配与 SSH 宿主机来源。 */
 export function connectionSupportsSidebarResources(connection: DockerConnectionInfo): boolean {
-  return isOnePanelDockerSource(connection.source);
+  return isOnePanelDockerSource(connection.source) || isSshDockerSource(connection.source);
 }
 
 function hasCachedResources(connectionId: string): boolean {

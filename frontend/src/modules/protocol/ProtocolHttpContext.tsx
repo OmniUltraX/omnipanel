@@ -26,7 +26,6 @@ import {
 } from "./httpResponseState";
 import {
   readStoredActiveEnvironmentId,
-  resolveHttpRequestUrl,
   splitUrlByEnvironment,
   writeStoredActiveEnvironmentId,
 } from "./httpEnvironment";

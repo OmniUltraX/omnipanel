@@ -25,7 +25,6 @@ import {
   isWindowChromePointerTarget,
   primeWindowBoundsCache,
   resolveTargetWorkspaceIdForTransfer,
-  screenPointToClient,
 } from "./crossWindowDragUtils";
 import {
   cancelDockviewPointerDrag,
@@ -162,7 +161,7 @@ function seedPointerFromModulePanelId(
   return true;
 }
 
-function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
+function dragMovedEnoughAt(_screenX: number, _screenY: number): boolean {
   if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
   if (localDrag) return true;
   if (!pointerSeed) {
@@ -301,9 +300,11 @@ function resetModuleDragSession(options?: {
   releaseDragCompletionLock();
   clearWebviewWindowLabelCache();
   if (shouldBroadcast) {
-    void options?.lite
-      ? broadcastCrossWindowDragEndLite()
-      : broadcastCrossWindowDragEnd();
+    if (options?.lite) {
+      void broadcastCrossWindowDragEndLite();
+    } else {
+      void broadcastCrossWindowDragEnd();
+    }
   }
 }
 
@@ -401,9 +402,14 @@ function applyIncomingModuleTab(
         useTerminalStore.getState().setBackendSessionId(tab.payload.id, session.backendSessionId);
       }
     }
-    dock.addPayloadTab(targetWorkspaceId, workspace, tab);
+    const { kind: _kind, ...payloadTab } = tab;
+    dock.addPayloadTab(targetWorkspaceId, workspace, {
+      ...payloadTab,
+      payload: tab.payload,
+    });
   } else {
-    dock.addMirroredTab(targetWorkspaceId, workspace, tab as WorkspaceDockTab);
+    const { kind: _kind, payload: _payload, ...mirroredTab } = tab;
+    dock.addMirroredTab(targetWorkspaceId, workspace, mirroredTab);
   }
   const afterCount = useWorkspaceBottomDockStore.getState().tabsByWorkspace[targetWorkspaceId]?.length ?? 0;
   const addedOk = afterCount === beforeCount + 1 || afterCount === beforeCount; // existing tab 不会增长
@@ -564,8 +570,6 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   const unlisteners: UnlistenFn[] = [];
   let disposed = false;
   const isDisposed = () => disposed;
-  let dragStartClientX = 0;
-  let dragStartClientY = 0;
   let dragSourceViewId: string | null = null;
 
   const quietAbortDrag = (): void => {

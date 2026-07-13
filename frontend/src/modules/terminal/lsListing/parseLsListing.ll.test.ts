@@ -40,6 +40,12 @@ describe("tryParseLsListing ll", () => {
     expect(parsed?.entries.some((e) => e.name === "bin")).toBe(true);
   });
 
+  it("支持 macOS 扩展属性标记 (@)", () => {
+    const parsed = tryParseLsListing("ll", SAMPLE_MAC);
+    expect(parsed?.layout).toBe("long");
+    expect(parsed?.entries.some((e) => e.name === "Applications")).toBe(true);
+  });
+
   it("尾部 shell 提示符不导致整段解析失败", () => {
     const raw = `${SAMPLE_ZH}\nroot@vm-0-16-ubuntu:/#`;
     const cleaned = extractCommandOutput(`ll\n${raw}`, "ll");

@@ -171,14 +171,14 @@ export function HttpEnvironmentManageDialog({
         </div>
 
         <div className="http-env-manage__form">
-          <FormField label={t("protocol.environment.name")} required>
+          <FormField label={t("protocol.environment.name")}>
             <TextInput
               value={name}
               onChange={setName}
               placeholder={t("protocol.environment.namePlaceholder")}
             />
           </FormField>
-          <FormField label={t("protocol.environment.baseUrl")} required>
+          <FormField label={t("protocol.environment.baseUrl")}>
             <TextInput
               value={baseUrl}
               onChange={setBaseUrl}

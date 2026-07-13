@@ -1,4 +1,4 @@
-import type { TableDesignerTypeOption } from "../types";
+import type { TableDesignerModel, TableDesignerTypeOption } from "../types";
 import { buildApplySqlSQLite } from "../applySql";
 import {
   createEmptyField,
@@ -27,8 +27,8 @@ export const sqliteTableDesignerDriver = {
   createEmptyIndex,
   fromSchema: fromSchemaGeneric,
   validate: validateGeneric,
-  buildPreviewSql(model, dbName) {
-    const lines = model.fields.map((field) => {
+  buildPreviewSql(model: TableDesignerModel, dbName: string) {
+    const lines = model.fields.map((field: TableDesignerModel["fields"][number]) => {
       const parts = [`  ${sqliteQuoteId(field.name)} ${field.type.trim()}`];
       if (!field.nullable) parts.push("NOT NULL");
       if (field.isPk) parts.push("PRIMARY KEY");
@@ -40,7 +40,7 @@ export const sqliteTableDesignerDriver = {
     });
     for (const index of model.indexes) {
       if (index.primary || index.columns.length === 0) continue;
-      const cols = index.columns.map((c) => sqliteQuoteId(c)).join(", ");
+      const cols = index.columns.map((c: string) => sqliteQuoteId(c)).join(", ");
       const kind = index.unique ? "UNIQUE INDEX" : "INDEX";
       lines.push(
         `  ${kind} ${sqliteQuoteId(index.name || `idx_${index.columns.join("_")}`)} (${cols})`,

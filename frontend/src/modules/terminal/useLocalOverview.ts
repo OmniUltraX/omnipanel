@@ -118,6 +118,7 @@ export function useLocalOverview(enabled: boolean) {
     stats,
     processes,
     error,
+    processError: null,
     updatedAt,
     refreshing,
     refresh: () => load(),

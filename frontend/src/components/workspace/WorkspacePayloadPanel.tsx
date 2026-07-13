@@ -45,6 +45,7 @@ function PayloadFallback({
 
 /** 工作区 Dock 中由快照物化的 payload 面板 */
 export function WorkspacePayloadPanel({ tab, isActive }: WorkspacePayloadPanelProps) {
+  const { t } = useI18n();
   const payload = tab.payload;
   const [terminalTabId, setTerminalTabId] = useState<string | null>(null);
 

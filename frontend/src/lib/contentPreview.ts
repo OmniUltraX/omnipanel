@@ -48,4 +48,4 @@ export type ContentPreviewPayload =
 
 export type ContentPreviewStatus = "loading" | "error" | "empty" | "ready";
 
-export type ContentPreviewTextMode = "plain" | "code" | "markdown" | "web";
+export type ContentPreviewTextMode = "plain" | "code" | "markdown" | "web" | "json";

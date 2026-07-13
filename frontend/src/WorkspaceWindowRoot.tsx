@@ -1,6 +1,5 @@
 import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { WinControls } from "./components/shell/WinControls";
 import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";

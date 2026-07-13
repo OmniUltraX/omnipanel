@@ -6,7 +6,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type CSSProperties,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,7 +16,7 @@ import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
 import { Button } from "../../../components/ui/Button";
 import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
-import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/ScopedSearch";
+import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search";
 import {
   type DbConnectionConfig,
   listConnections,
@@ -270,7 +269,7 @@ function TreeNode({
           <path d="M8 18h8" />
         </svg>
       )}
-      {(type === "folder" || type === "group" || type === "connection-folder") && (
+      {(type === "folder" || type === "connection-folder") && (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
         </svg>
@@ -1536,6 +1535,19 @@ export function SchemaBrowser({
             {row.text}
           </div>
         );
+      }
+
+      if (row.kind === "load-more") {
+        const paddingLeft = row.depth * 16 + 24;
+        return (
+          <div style={{ padding: "4px 0", paddingLeft, fontSize: "11px", color: "var(--text-secondary, #8e8e93)" }}>
+            {t("database.sidebar.loadMore")}
+          </div>
+        );
+      }
+
+      if (row.kind !== "node") {
+        return null;
       }
 
       const connection = row.item.connId

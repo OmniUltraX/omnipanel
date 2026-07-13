@@ -1,6 +1,6 @@
 /** Tauri 2 的 unlisten 为 async；webview 销毁后 reject，须吞掉 Promise */
 export function safeTauriUnlisten(
-  unlisten: (() => void | Promise<void>) | undefined,
+  unlisten: (() => void | Promise<void>) | null | undefined,
 ): void {
   if (!unlisten) return;
   try {

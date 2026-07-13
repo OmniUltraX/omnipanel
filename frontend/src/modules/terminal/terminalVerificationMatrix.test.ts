@@ -29,7 +29,6 @@ import {
   checkInlineAiStall,
   clearInlineAiWatchdog,
   INLINE_AI_STALL_THRESHOLD_MS,
-  resetInlineAiStall,
   touchInlineAiDelta,
 } from "./inlineAiWatchdog";
 import {

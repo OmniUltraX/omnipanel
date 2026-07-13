@@ -201,6 +201,8 @@ interface SettingsState {
   terminalAutoLsAfterCd: boolean;
   /** 自动拼接的 ls 子命令，默认 ls，可填 ls -a */
   terminalAutoLsCommand: string;
+  /** SSH 断线后自动重连（指数退避，最多 5 次） */
+  terminalAutoReconnectSsh: boolean;
   knowledgeChunkSize: number;
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;

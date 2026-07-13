@@ -834,6 +834,7 @@ export function SettingsPanel() {
   const terminalHistoryMaxBlocks = useSettingsStore((s) => s.terminalHistoryMaxBlocks);
   const terminalAutoLsAfterCd = useSettingsStore((s) => s.terminalAutoLsAfterCd);
   const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
+  const terminalAutoReconnectSsh = useSettingsStore((s) => s.terminalAutoReconnectSsh);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
   const terminalHistorySessions = useTerminalHistoryStore((s) => s.countSessions());
   const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.countBlocks());

@@ -3,13 +3,13 @@ import {
   findEngineeringWorkspaceDockAt,
   getDockviewInstanceByScope,
   relayoutDockviewInstances,
-  requestDockScopeResync,
 } from "./dockviewRegistry";
 import type { WorkspaceInfo } from "../stores/workspaceStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import type { WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import { useWorkspaceBottomDockStore } from "../stores/workspaceBottomDockStore";
+import type { WorkspaceTabSnapshot } from "../stores/workspaceTabStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { formatTerminalTabLabel } from "../modules/terminal/terminalSessionDisplay";
 import { getMirroredDbTabSnapshot } from "../stores/dbWorkspaceMirrorStore";
@@ -240,9 +240,18 @@ export function commitModuleDragToWorkspace(
   const dock = useWorkspaceBottomDockStore.getState();
   dock.ensureWorkspaceData(targetWorkspaceId, workspace);
   const added =
-    wsTab.kind === "payload"
-      ? dock.addPayloadTab(targetWorkspaceId, workspace, wsTab)
-      : dock.addMirroredTab(targetWorkspaceId, workspace, wsTab);
+    wsTab.kind === "payload" && wsTab.payload
+      ? (() => {
+          const { kind: _kind, ...payloadTab } = wsTab;
+          return dock.addPayloadTab(targetWorkspaceId, workspace, {
+            ...payloadTab,
+            payload: wsTab.payload,
+          });
+        })()
+      : (() => {
+          const { kind: _kind, payload: _payload, ...mirroredTab } = wsTab;
+          return dock.addMirroredTab(targetWorkspaceId, workspace, mirroredTab);
+        })();
   dock.setActiveTabId(targetWorkspaceId, added.id);
 
   scheduleDeferredRemoveModulePanel(originScope, originPanelId);
@@ -391,7 +400,6 @@ export function buildModuleTabSnapshotForCrossWindowDrag(
         : originScope === "database"
           ? "database"
           : originScope,
-    payload: params,
   };
 }
 
@@ -522,21 +530,30 @@ export function applyModuleTransferToWorkspace(
   addPayloadTab: (
     workspaceId: string,
     workspace: WorkspaceInfo,
-    tab: WorkspaceDockTab,
+    tab: Omit<WorkspaceDockTab, "kind"> & { payload: WorkspaceTabSnapshot },
   ) => WorkspaceDockTab,
   addMirroredTab: (
     workspaceId: string,
     workspace: WorkspaceInfo,
-    tab: WorkspaceDockTab,
+    tab: Omit<WorkspaceDockTab, "kind"> & { kind?: "mirrored" },
   ) => WorkspaceDockTab,
   setActiveTabId: (workspaceId: string, tabId: string) => void,
 ): void {
   const tab = buildWorkspaceTabFromModuleTransfer(meta);
   if (!tab) return;
   const added =
-    tab.kind === "payload"
-      ? addPayloadTab(workspaceId, workspace, tab)
-      : addMirroredTab(workspaceId, workspace, tab);
+    tab.kind === "payload" && tab.payload
+      ? (() => {
+          const { kind: _kind, ...payloadTab } = tab;
+          return addPayloadTab(workspaceId, workspace, {
+            ...payloadTab,
+            payload: tab.payload,
+          });
+        })()
+      : (() => {
+          const { kind: _kind, payload: _payload, ...mirroredTab } = tab;
+          return addMirroredTab(workspaceId, workspace, mirroredTab);
+        })();
   setActiveTabId(workspaceId, added.id);
   useBottomPanelStore.getState().requestExpand();
 }

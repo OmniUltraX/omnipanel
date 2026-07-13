@@ -17,7 +17,7 @@ import {
 } from "../../stores/terminalStore";
 import type { TerminalConnectionStatus } from "../../stores/terminalTypes";
 import { resolveSessionActivityAt } from "../../stores/terminalSessionActivity";
-import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
+import { useBlocksStore } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
 import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";

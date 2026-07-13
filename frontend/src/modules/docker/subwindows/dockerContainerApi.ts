@@ -22,8 +22,8 @@ export function fetchDockerContainerLogs(
   return unwrap(commands.dockerContainerLogs(connectionId, containerId, tail, since));
 }
 
-export function clearDockerContainerLogs(connectionId: string, containerId: string): Promise<void> {
-  return unwrap(commands.dockerClearContainerLogs(connectionId, containerId));
+export async function clearDockerContainerLogs(connectionId: string, containerId: string): Promise<void> {
+  await unwrap(commands.dockerClearContainerLogs(connectionId, containerId));
 }
 
 export function startDockerContainerLogStream(
@@ -36,8 +36,8 @@ export function startDockerContainerLogStream(
   return unwrap(commands.dockerStreamContainerLogs(connectionId, containerId, tail, since, follow));
 }
 
-export function stopDockerContainerLogStream(streamId: string): Promise<void> {
-  return unwrap(commands.dockerStopLogStream(streamId));
+export async function stopDockerContainerLogStream(streamId: string): Promise<void> {
+  await unwrap(commands.dockerStopLogStream(streamId));
 }
 
 export function listDockerContainerDir(

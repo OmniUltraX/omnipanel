@@ -1,5 +1,4 @@
 import { formatBytes } from "../../../stores/sshStatsStore";
-import type { DbTableDetails } from "../api";
 
 export function displayDetailValue(value: string | null | undefined): string {
   const trimmed = value?.trim();

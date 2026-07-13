@@ -12,6 +12,11 @@ export function normalizeDockerSource(source: DockerConnectionSourceValue): stri
   return String(source).trim().toLowerCase().replace(/_/g, "-");
 }
 
+/** 是否为 SSH 宿主机 Docker 来源（远端 docker CLI）。 */
+export function isSshDockerSource(source: DockerConnectionSourceValue): boolean {
+  return normalizeDockerSource(source) === "ssh-engine";
+}
+
 /** 是否为 1Panel / 面板适配来源（兼容 config 里的 `onepanel` 与枚举序列化的 `one-panel`）。 */
 export function isOnePanelDockerSource(source: DockerConnectionSourceValue): boolean {
   const normalized = normalizeDockerSource(source);

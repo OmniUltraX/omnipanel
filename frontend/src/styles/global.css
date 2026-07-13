@@ -11539,6 +11539,31 @@ a {
         display: none;
     }
 
+    .server-tree-scoped-search {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .server-tree-scoped-search .scoped-search-bar {
+        z-index: 50;
+    }
+
+    .server-tree-scoped-search .scoped-search-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .server-tree-scoped-search .server-sidebar {
+        flex: 1;
+        min-height: 0;
+    }
+
     .server-tree-badge {
         font-size: 10px;
         color: var(--meta);

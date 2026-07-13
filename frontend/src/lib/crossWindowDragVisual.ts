@@ -552,7 +552,7 @@ export function initCrossWindowDragVisual(): () => void {
   registerTauriListener(
     unlisteners,
     isDisposed,
-    listen(CROSS_WINDOW_DRAG_MOVE_EVENT, (event) => {
+    listen<CrossWindowDragMovePayload>(CROSS_WINDOW_DRAG_MOVE_EVENT, (event) => {
       const payload = event.payload;
       if (!payload) return;
       onMove(payload);
@@ -586,7 +586,7 @@ export function initCrossWindowDragVisual(): () => void {
         store().setRemoteSession({
           label: tabLabelFromWorkspacePayload(payload.tab),
           kind: "workspace-tab",
-          sourceWindowLabel: payload.sourceWindowLabel,
+          sourceWindowLabel: payload.sourceWindowLabel ?? "",
           screenX: payload.screenX,
           screenY: payload.screenY,
         });
@@ -624,7 +624,7 @@ export function initCrossWindowDragVisual(): () => void {
         store().setRemoteSession({
           label: payload.title?.trim() || "Tab",
           kind: "module-tab",
-          sourceWindowLabel: payload.sourceWindowLabel,
+          sourceWindowLabel: payload.sourceWindowLabel ?? "",
           screenX: payload.screenX,
           screenY: payload.screenY,
         });

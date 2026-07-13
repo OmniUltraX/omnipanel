@@ -1,21 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  JsonView,
-  darkStyles,
-  defaultStyles,
-  type StyleProps,
-} from "react-json-view-lite";
+import { JsonView, darkStyles, defaultStyles } from "react-json-view-lite";
 import { isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { cn } from "../../../lib/utils";
 
 export interface VirtualJsonViewProps {
   value: object;
   className?: string;
-  /** 初始展开层级，默�?2 */
+  /** ????????�?2 */
   expandDepth?: number;
 }
 
-function useJsonViewThemeStyles(): StyleProps {
+function useJsonViewThemeStyles(): typeof defaultStyles {
   const [light, setLight] = useState(() => isLightTheme());
 
   useEffect(() => {

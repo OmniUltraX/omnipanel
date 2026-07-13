@@ -75,7 +75,6 @@ import {
   connectionWithDatabase,
   resolveTableTargetStatusWithAnalysis,
   DEFAULT_DATA_SYNC_MODES,
-  hasAnyDataSyncMode,
   normalizeDataSyncModes,
   normalizeTableSyncModes,
   type DataAnalysisResult,
@@ -1241,11 +1240,6 @@ export function DatabaseToolbox({
     [sourceSelected],
   );
 
-  const sourceSelectedInTarget = useMemo(
-    () => sourceSelectedTableNames.filter((name) => targetTableNames.has(name)),
-    [sourceSelectedTableNames, targetTableNames],
-  );
-
   const sourceTableColumns = useMemo(() => {
     const map: Record<string, DbColumnMeta[]> = {};
     for (const table of sourceSnapshot.tables) {
@@ -1388,9 +1382,14 @@ export function DatabaseToolbox({
     analyzeRequestedRef.current = false;
     setSchemaAnalyzing(false);
 
-    const analyzedTables = Object.keys(diffs).filter(
-      (name) => sourceSelected.has(name) || diffs[name]?.status === "targetOnly",
-    );
+    const analyzedTables = Object.keys(diffs).filter((name) => {
+      if (sourceSelected.has(name)) return true;
+      const inTarget =
+        findTableByName(targetSnapshot.tables, name, schemaCompareCaseSensitive) !== undefined;
+      const inSource =
+        findTableByName(sourceSnapshot.tables, name, schemaCompareCaseSensitive) !== undefined;
+      return inTarget && !inSource;
+    });
     const tableNames =
       analyzedTables.length > 0
         ? analyzedTables.sort((a, b) => a.localeCompare(b))
@@ -1868,9 +1867,6 @@ export function DatabaseToolbox({
     }
     prevDataAnalysisBusyRef.current = syncAnalysisBusy;
   }, [tab, syncAnalysisBusy, tableAnalysis, analysisConfigKey, syncTaskId, addAnalysisRecord, t]);
-
-  const syncCompareBusy =
-    (tab === "dataSync" && syncAnalysisBusy) || (tab === "schemaSync" && schemaSyncBusy);
 
   // 勾选即触发逐条比对：仅在 dataSync tab 下，对源侧新勾选且目标库中存在的表做处理。
   useEffect(() => {

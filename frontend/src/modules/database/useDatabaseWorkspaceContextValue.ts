@@ -7,7 +7,7 @@ export interface DatabaseWorkspaceContextData {
   workspaceTabs: DbWorkspaceSharedContextValue["tabs"];
   connectionsLoading: boolean;
   sqlConnections: DbWorkspaceSharedContextValue["sqlConnections"];
-  connections: DbWorkspaceSharedContextValue["connections"];
+  groupConnections: DbWorkspaceSharedContextValue["groupConnections"];
   databasesByConnId: DbWorkspaceSharedContextValue["databasesByConnId"];
   schemaByKey: DbWorkspaceSharedContextValue["schemaByKey"];
   schemaLoadingKey: DbWorkspaceSharedContextValue["schemaLoadingKey"];
@@ -90,7 +90,7 @@ export function useDatabaseWorkspaceContextValue(
       commitTabDirty: (...args) => handlersRef.current.commitTabDirty(...args),
       openExportMenu: (...args) => handlersRef.current.openExportMenu(...args),
       sqlConnections: data.sqlConnections,
-      connections: data.connections,
+      groupConnections: data.groupConnections,
       databasesByConnId: data.databasesByConnId,
       schemaByKey: data.schemaByKey,
       schemaLoadingKey: data.schemaLoadingKey,
@@ -108,7 +108,7 @@ export function useDatabaseWorkspaceContextValue(
       data.workspaceTabs,
       data.connectionsLoading,
       data.sqlConnections,
-      data.connections,
+      data.groupConnections,
       data.databasesByConnId,
       data.schemaByKey,
       data.schemaLoadingKey,

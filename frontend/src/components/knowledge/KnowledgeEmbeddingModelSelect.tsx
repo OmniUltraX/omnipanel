@@ -5,7 +5,6 @@ import {
   fetchOllamaModelNames,
   isKnowledgeEmbeddingOllamaBaseUrlReady,
   isKnowledgeEmbeddingOllamaModelReady,
-  KNOWLEDGE_EMBEDDING_OLLAMA_PROVIDER_ID,
   normalizeOllamaBaseUrl,
   OLLAMA_DEFAULT_BASE_URL,
   resolveConfiguredEmbeddingSelectionId,

@@ -27,7 +27,7 @@ import {
 } from "../parser/context";
 import { analyzeStatement } from "../parser/analyzer";
 import { sliceStatementAtOffset } from "../parser/ast";
-import { applySqlKeywordCase, type SqlKeywordCase } from "../../sqlIntel/sqlKeywordCase";
+import { type SqlKeywordCase } from "../../sqlIntel/sqlKeywordCase";
 import {
   currentSqlWordPrefix,
   isCursorInSqlString,

@@ -21,6 +21,8 @@ import { containerRowLabel, makeDockerServiceGroupTreeKey, makeDockerTreeKey } f
 import type { DockerSidebarNavigate } from "./dockerSidebarNav";
 import { DockerTreeIcon, dockerTreeNodeClassName } from "./dockerTreeIcons";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
+import { dockerContainerMatchesSearch, dockerServiceGroupMatchesSearch } from "./dockerTreeSearch";
+import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { dockerSidebarCategoryRefreshKey } from "./dockerSidebarCache";
 
 type DockerContainersTreeBranchProps = {
@@ -28,6 +30,8 @@ type DockerContainersTreeBranchProps = {
   containers: DockerContainerSummary[];
   categoryKey: string;
   activeNavKey: string | null;
+  searchQuery: string;
+  connectionNameMatch: boolean;
   loading: boolean;
   error: string | null;
   isExpanded: (key: string) => boolean;
@@ -78,6 +82,8 @@ export function DockerContainersTreeBranch({
   containers,
   categoryKey,
   activeNavKey,
+  searchQuery,
+  connectionNameMatch,
   loading,
   error,
   isExpanded,
@@ -130,6 +136,44 @@ export function DockerContainersTreeBranch({
     }
     return map;
   }, [containers]);
+
+  const visibleServiceGroups = useMemo(() => {
+    if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
+      return serviceGroups;
+    }
+    if (sidebarTreeSearchMatches(searchQuery, t("docker.tabs.containers"))) {
+      return serviceGroups;
+    }
+    return serviceGroups.filter((group) => {
+      const groupContainers = group.containerIds
+        .map((id) => containerById.get(normalizeContainerId(id)))
+        .filter((item): item is DockerContainerSummary => item != null);
+      return dockerServiceGroupMatchesSearch(searchQuery, group, groupContainers);
+    });
+  }, [connectionNameMatch, containerById, searchQuery, serviceGroups, t]);
+
+  const visibleUngroupedContainers = useMemo(() => {
+    if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
+      return ungroupedContainers;
+    }
+    if (sidebarTreeSearchMatches(searchQuery, t("docker.tabs.containers"))) {
+      return ungroupedContainers;
+    }
+    return ungroupedContainers.filter((container) => dockerContainerMatchesSearch(searchQuery, container));
+  }, [connectionNameMatch, searchQuery, t, ungroupedContainers]);
+
+  const filterGroupContainers = useCallback(
+    (groupContainers: DockerContainerSummary[]) => {
+      if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
+        return groupContainers;
+      }
+      if (sidebarTreeSearchMatches(searchQuery, t("docker.tabs.containers"))) {
+        return groupContainers;
+      }
+      return groupContainers.filter((container) => dockerContainerMatchesSearch(searchQuery, container));
+    },
+    [connectionNameMatch, searchQuery, t],
+  );
 
   const openServiceGroup = (groupId: string, mode?: DockerConnectionDockOpenMode) => {
     ensureExpanded(makeDockerTreeKey(connection.connectionId));
@@ -367,16 +411,26 @@ export function DockerContainersTreeBranch({
   if (containers.length === 0 && serviceGroups.length === 0) {
     return <SidebarTreeEmpty>{t("docker.sidebar.treeEmpty")}</SidebarTreeEmpty>;
   }
+  if (
+    hasSidebarTreeSearch(searchQuery) &&
+    !connectionNameMatch &&
+    visibleServiceGroups.length === 0 &&
+    visibleUngroupedContainers.length === 0
+  ) {
+    return <SidebarTreeEmpty>{t("docker.sidebar.searchNoResults")}</SidebarTreeEmpty>;
+  }
 
   return (
     <>
-      {serviceGroups.map((group) => {
+      {visibleServiceGroups.map((group) => {
         const groupKey = makeDockerServiceGroupTreeKey(connection.connectionId, group.id);
         const groupExpanded = isExpanded(groupKey);
         const containersRefreshKey = dockerSidebarCategoryRefreshKey(connection.connectionId, "containers");
-        const groupContainers = group.containerIds
-          .map((id) => containerById.get(normalizeContainerId(id)))
-          .filter((item): item is DockerContainerSummary => item != null);
+        const groupContainers = filterGroupContainers(
+          group.containerIds
+            .map((id) => containerById.get(normalizeContainerId(id)))
+            .filter((item): item is DockerContainerSummary => item != null),
+        );
 
         const isDropTarget = dropTargetGroupId === group.id;
 
@@ -446,7 +500,7 @@ export function DockerContainersTreeBranch({
         );
       })}
 
-      {ungroupedContainers.map((container) => renderContainerNode(container, 2))}
+      {visibleUngroupedContainers.map((container) => renderContainerNode(container, 2))}
 
       {ctxPos ? (
         <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />

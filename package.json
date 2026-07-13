@@ -7,10 +7,15 @@
     "submodules:init": "git submodule update --init --recursive",
     "install:frontend": "npm ci --prefix frontend",
     "install:agent": "npm ci --prefix agent",
-    "install:all": "npm run submodules:init && npm run install:frontend && npm run install:agent",
+    "install:website": "npm ci --prefix website",
+    "install:all": "npm run submodules:init && npm run install:frontend && npm run install:agent && npm run install:website",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
     "dev:agent": "npm run start --prefix agent",
-    "typecheck:agent": "npm run typecheck --prefix agent"
+    "typecheck:agent": "npm run typecheck --prefix agent",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
   }
 }

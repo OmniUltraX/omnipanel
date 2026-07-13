@@ -1,5 +1,3 @@
-import { stripTerminalControlSequences } from "./terminalOutputText";
-
 function stripForLiveIngest(text: string): string {
   return text
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")

@@ -27,12 +27,20 @@ export function readConnectionDeploymentCache(
   if (isMysqlConnectionInfoCapable(connection)) {
     const info = readMysqlDeploymentCache(connection);
     if (!info || info.kind === "unknown") return null;
-    return info;
+    return {
+      kind: info.kind,
+      serverName: info.serverName,
+      sshConnectionId: info.sshConnectionId,
+    };
   }
   if (isRedisConnection(connection)) {
     const info = readRedisDeploymentCache(connection);
     if (!info || info.kind === "unknown") return null;
-    return info;
+    return {
+      kind: info.kind,
+      serverName: info.serverName,
+      sshConnectionId: info.sshConnectionId,
+    };
   }
   return null;
 }

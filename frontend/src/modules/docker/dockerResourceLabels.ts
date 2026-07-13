@@ -4,6 +4,7 @@ import type {
   DockerNetworkSummary,
   DockerVolumeSummary,
 } from "../../ipc/bindings";
+import { formatBytes } from "../../stores/sshStatsStore";
 import type { DockerTreeCategory } from "./dockerSidebarNav";
 
 export function makeDockerTreeKey(
@@ -34,6 +35,10 @@ export function imageRowLabel(image: DockerImageSummary): string {
     image.repository && image.tag ? `${image.repository}:${image.tag}` : image.repository || image.tag;
   if (ref && ref !== ":") return ref;
   return image.shortId || image.id.slice(0, 12) || "—";
+}
+
+export function imageRowSizeLabel(image: DockerImageSummary): string {
+  return formatBytes(image.sizeBytes);
 }
 
 export function containerRowLabel(container: DockerContainerSummary): string {

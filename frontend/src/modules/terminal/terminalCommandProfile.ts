@@ -178,7 +178,7 @@ function interactiveAlternatives(command: string): string[] {
 
 function buildRejectedProfile(
   kind: "streaming" | "interactive",
-  command: string,
+  _command: string,
   reason: string,
   alternatives: string[],
 ): CommandExecutionProfile {
