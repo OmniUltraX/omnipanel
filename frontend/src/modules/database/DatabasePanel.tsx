@@ -217,6 +217,7 @@ import {
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { dbTabToSnapshot } from "../../lib/workspaceTabActions";
+import { subscribeDockviewTransfer, relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
 import { connectionNodeId } from "./schema/schemaTreeExpanded";
@@ -3778,6 +3779,33 @@ export function DatabasePanel() {
     },
     [activateWorkspaceTab, setDockLayout],
   );
+
+  // 监听跨 dockview 实例拖拽转移：从工作区 dock 拖回数据库主面板时恢复 tab
+  useEffect(() => {
+    return subscribeDockviewTransfer((meta) => {
+      if (!meta.newPanelId.startsWith("database:")) return;
+      if (!meta.originScope.startsWith("workspace-bottom-")) return;
+
+      // 从 originPanelId 中解析出原始数据库 tab id
+      // workspace dock 中 panel id 格式: "workspace-bottom-{wsId}:{原始tabId}"
+      const prefix = `${meta.originScope}:`;
+      const originalTabId = meta.originPanelId.startsWith(prefix)
+        ? meta.originPanelId.slice(prefix.length)
+        : meta.originPanelId;
+
+      const ctxTab = workspaceTabsRef.current.find((tab) => tab.id === originalTabId);
+      if (!ctxTab) return;
+
+      // 恢复 workspaceOnly = false，让 tab 重新在主面板可见
+      if (ctxTab.workspaceOnly) {
+        setWorkspaceTabs((prev) =>
+          prev.map((t) => (t.id === originalTabId ? { ...t, workspaceOnly: false } : t)),
+        );
+      }
+      activateWorkspaceTab(originalTabId);
+      requestAnimationFrame(() => relayoutDockviewInstances("database"));
+    });
+  }, [activateWorkspaceTab, setWorkspaceTabs]);
 
   const handleContextAction = useCallback(
     (action: TabContextMenuAction) => {
