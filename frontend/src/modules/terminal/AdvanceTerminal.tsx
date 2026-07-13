@@ -1,9 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  DockHandle,
-  DockLayout,
-  DockPanel,
   DockableWorkspace,
   type DockableTab,
   type SerializedDockview,
@@ -31,11 +27,10 @@ type SidePanelWorkspaceSpec = {
   snapshotId?: string;
 };
 
-/** 侧栏竖排 tab 轨宽度，与 global.css 中 dv-tabs-and-actions-container 一致 */
 const SIDE_TAB_RAIL_PX = 38;
-/** 右侧工具栏展开时的默认 / 最大宽度（固定像素，不随窗口缩放） */
 const SIDE_DEFAULT_EXPANDED_PX = 380;
-const SIDE_EXPANDED_MAX_PX = 580;
+const SIDE_MIN_EXPANDED_PX = 240;
+const SIDE_MAX_EXPANDED_PX = 600;
 
 export type AdvanceTerminalProps = {
   tabId: string;
@@ -43,6 +38,11 @@ export type AdvanceTerminalProps = {
   onActivate?: () => void;
   sideDockScope?: string;
 };
+
+interface SideTabButton {
+  id: SidePanelId;
+  label: string;
+}
 
 export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: AdvanceTerminalProps) {
   const { t } = useI18n();
@@ -54,52 +54,124 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
   );
   const isLocal = tab?.session.type === "local";
 
-  const sideTabs = useMemo((): DockableTab[] => {
-    const historyTab: DockableTab = {
+  const sideTabs = useMemo((): SideTabButton[] => {
+    const historyTab: SideTabButton = {
       id: "history",
       label: t("terminal.sideTabs.history"),
-      panelType: "terminal-side",
-      closable: false,
     };
     if (isLocal) {
       return [
-        {
-          id: "monitor",
-          label: t("terminal.sideTabs.monitor"),
-          panelType: "terminal-side",
-          closable: false,
-        },
-        {
-          id: "files",
-          label: t("terminal.sideTabs.files"),
-          panelType: "terminal-side",
-          closable: false,
-        },
+        { id: "monitor", label: t("terminal.sideTabs.monitor") },
+        { id: "files", label: t("terminal.sideTabs.files") },
         historyTab,
       ];
     }
     return [
-      {
-        id: "processes",
-        label: t("ssh.detailTabs.processes"),
-        panelType: "terminal-side",
-        closable: false,
-      },
-      {
-        id: "sftp",
-        label: t("ssh.detailTabs.sftp"),
-        panelType: "terminal-side",
-        closable: false,
-      },
-      {
-        id: "tunnel",
-        label: t("ssh.detailTabs.tunnels"),
-        panelType: "terminal-side",
-        closable: false,
-      },
+      { id: "processes", label: t("ssh.detailTabs.processes") },
+      { id: "sftp", label: t("ssh.detailTabs.sftp") },
+      { id: "tunnel", label: t("ssh.detailTabs.tunnels") },
       historyTab,
     ];
   }, [isLocal, t]);
+
+  const sideDockTabs = useMemo((): DockableTab[] => sideTabs.map((s) => ({
+    id: s.id,
+    label: s.label,
+    panelType: "terminal-side",
+    closable: false,
+  })), [sideTabs]);
+
+  const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(() =>
+    isLocal ? "monitor" : "processes",
+  );
+  const activeSideTabRef = useRef(activeSideTab);
+  activeSideTabRef.current = activeSideTab;
+
+  // 收起 / 展开状态
+  const [sideCollapsed, setSideCollapsed] = useState(true);
+
+  // 侧栏宽度（像素），用于展开态拖拽
+  const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT_EXPANDED_PX);
+  const sideWidthRef = useRef(SIDE_DEFAULT_EXPANDED_PX);
+  sideWidthRef.current = sideWidth;
+
+  const sideLayoutRef = useRef<SerializedDockview | null>(null);
+  const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
+    sideLayoutRef.current = layout;
+  }, []);
+
+  // dockview onActiveTabChange：用户点击不同 tab 时触发。
+  // 程序化 setActive 期间的伪事件已由 DockableWorkspace 的 runProgrammaticActive
+  // 在 onDidActivePanelChange 层面过滤，这里无需再额外处理初始化期事件。
+  const handleSideTabChange = useCallback((id: string) => {
+    const next = id as SidePanelId;
+    if (next === activeSideTabRef.current) return;
+    activeSideTabRef.current = next;
+    setActiveSideTab(next);
+  }, []);
+
+  // 收起态自绘按钮点击：展开并激活目标 tab
+  const handleCollapsedTabClick = useCallback((targetTab: SidePanelId) => {
+    activeSideTabRef.current = targetTab;
+    setActiveSideTab(targetTab);
+    setSideCollapsed(false);
+  }, []);
+
+  // 展开态 dockview 容器 ref：用于独立 click 监听器
+  const sideDockWrapRef = useRef<HTMLDivElement | null>(null);
+
+  // 独立 click 监听器：检测"点击已激活 tab"以切换收起/展开。
+  // 不用 dockview 的 onTabClick，因为其 wasActive 判断依赖 pointerdown capture
+  // 时序，dockview pointerdown 先执行会导致误判。
+  useEffect(() => {
+    if (sideCollapsed) return;
+    const root = sideDockWrapRef.current;
+    if (!root) return;
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+      if (!tabHeader || !root.contains(tabHeader)) return;
+      const tabId = tabHeader.dataset.dockTabId;
+      if (!tabId) return;
+      // 仅当点击的是当前已激活 tab 时切换收起（此时 dockview 不会触发 onActiveTabChange）
+      if (tabId !== activeSideTabRef.current) return;
+      setSideCollapsed(true);
+    };
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [sideCollapsed]);
+
+  useEffect(() => {
+    if (!sideTabs.some((item) => item.id === activeSideTab)) {
+      const fallback = (sideTabs[0]?.id ?? "history") as SidePanelId;
+      activeSideTabRef.current = fallback;
+      setActiveSideTab(fallback);
+    }
+  }, [activeSideTab, sideTabs]);
+
+  const openTunnelTab = useCallback(() => {
+    activeSideTabRef.current = "tunnel";
+    setActiveSideTab("tunnel");
+    setSideCollapsed(false);
+  }, []);
+
+  const requestSftp = useSshDetailNavigationStore((s) => s.requestSftp);
+  const lastSyncedSftpCwdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    lastSyncedSftpCwdRef.current = null;
+  }, [resource?.id, tabId]);
+
+  useEffect(() => {
+    if (!isRemoteSsh || !resource?.id || tab?.status !== "connected") return;
+    const sftpPath = normalizeTerminalCwdForSftp(tab.session.cwd);
+    if (!sftpPath) return;
+    if (lastSyncedSftpCwdRef.current === sftpPath) return;
+    lastSyncedSftpCwdRef.current = sftpPath;
+    requestSftp(resource.id, sftpPath);
+  }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
 
   const resolveSidePanelSpec = useCallback(
     (sideTabId: string): SidePanelWorkspaceSpec | null => {
@@ -155,136 +227,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
     },
     [resource?.id, sideTabs, t, tabId],
   );
-
-  const [activeSideTab, setActiveSideTab] = useState<SidePanelId>(() =>
-    isLocal ? "monitor" : "processes",
-  );
-  const activeSideTabRef = useRef(activeSideTab);
-  activeSideTabRef.current = activeSideTab;
-  const [sideContentCollapsed, setSideContentCollapsed] = useState(true);
-  const sideContentCollapsedRef = useRef(true);
-  // 展开过程中先遮住内容区，待 dockview 重排到全宽后再显示，规避「面板已变宽但
-  // dockview 内部仍是 38px 窄柱、tab 轨被挤到左侧、右侧留白」的中间帧。
-  const [sideContentRevealed, setSideContentRevealed] = useState(false);
-  const sidePanelRef = useRef<PanelImperativeHandle | null>(null);
-  const sideDockRelayoutRef = useRef<(() => void) | null>(null);
-  const expandedSideSizeRef = useRef<number>(0);
-  const sideLayoutRef = useRef<SerializedDockview | null>(null);
-  const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
-    sideLayoutRef.current = layout;
-  }, []);
-
-  const resizeSidePanel = useCallback((collapsed: boolean) => {
-    const handle = sidePanelRef.current;
-    if (!handle) return;
-    if (collapsed) {
-      handle.resize(`${SIDE_TAB_RAIL_PX}px`);
-      return;
-    }
-
-    const restored =
-      expandedSideSizeRef.current > SIDE_TAB_RAIL_PX + 8
-        ? expandedSideSizeRef.current
-        : SIDE_DEFAULT_EXPANDED_PX;
-    handle.resize(`${restored}px`);
-  }, []);
-
-  // 面板宽度变化时同步让 dockview 重排；当面板已达展开宽度时揭开内容区遮罩。
-  const handleSidePanelResize = useCallback(() => {
-    sideDockRelayoutRef.current?.();
-    if (sideContentCollapsedRef.current) return;
-    const size = sidePanelRef.current?.getSize();
-    if (size && size.inPixels > SIDE_TAB_RAIL_PX + 8) {
-      setSideContentRevealed(true);
-    }
-  }, []);
-
-  const applySidePanelCollapsed = useCallback((collapsed: boolean) => {
-    const handle = sidePanelRef.current;
-    if (collapsed && handle) {
-      const size = handle.getSize();
-      if (size.inPixels > SIDE_TAB_RAIL_PX + 8) {
-        expandedSideSizeRef.current = size.inPixels;
-      }
-    }
-    sideContentCollapsedRef.current = collapsed;
-    setSideContentRevealed(false);
-    setSideContentCollapsed(collapsed);
-  }, []);
-
-  useLayoutEffect(() => {
-    let raf1 = 0;
-    let raf2 = 0;
-    const run = () => {
-      resizeSidePanel(sideContentCollapsed);
-      sideDockRelayoutRef.current?.();
-    };
-    run();
-    raf1 = requestAnimationFrame(() => {
-      run();
-      raf2 = requestAnimationFrame(() => {
-        run();
-        // 兜底揭开遮罩：即便面板宽度未变化（onResize 不触发）也能正常显示内容。
-        if (!sideContentCollapsedRef.current) setSideContentRevealed(true);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [resizeSidePanel, sideContentCollapsed]);
-
-  const handleSideTabChange = useCallback(
-    (id: string) => {
-      const switchingTab = id !== activeSideTabRef.current;
-      setActiveSideTab(id as SidePanelId);
-      // dockview 初始化时会同步当前激活 tab，不应因此展开侧栏内容区
-      if (sideContentCollapsedRef.current && switchingTab) {
-        applySidePanelCollapsed(false);
-      }
-    },
-    [applySidePanelCollapsed],
-  );
-
-  const handleSideTabClick = useCallback(
-    (_tabId: string, wasActive: boolean) => {
-      if (wasActive) {
-        applySidePanelCollapsed(!sideContentCollapsedRef.current);
-        return;
-      }
-      if (sideContentCollapsedRef.current) {
-        applySidePanelCollapsed(false);
-      }
-    },
-    [applySidePanelCollapsed],
-  );
-
-  useEffect(() => {
-    if (!sideTabs.some((item) => item.id === activeSideTab)) {
-      setActiveSideTab((sideTabs[0]?.id ?? "history") as SidePanelId);
-    }
-  }, [activeSideTab, sideTabs]);
-
-  const openTunnelTab = useCallback(() => {
-    setActiveSideTab("tunnel");
-    applySidePanelCollapsed(false);
-  }, [applySidePanelCollapsed]);
-
-  const requestSftp = useSshDetailNavigationStore((s) => s.requestSftp);
-  const lastSyncedSftpCwdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    lastSyncedSftpCwdRef.current = null;
-  }, [resource?.id, tabId]);
-
-  useEffect(() => {
-    if (!isRemoteSsh || !resource?.id || tab?.status !== "connected") return;
-    const sftpPath = normalizeTerminalCwdForSftp(tab.session.cwd);
-    if (!sftpPath) return;
-    if (lastSyncedSftpCwdRef.current === sftpPath) return;
-    lastSyncedSftpCwdRef.current = sftpPath;
-    requestSftp(resource.id, sftpPath);
-  }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
 
   const wrapSidePanel = useCallback(
     (sideTabId: string, node: ReactNode) => {
@@ -349,6 +291,41 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
     [isLocal, openTunnelTab, paneProps?.onSendCommand, resource, tab?.title, tabId, wrapSidePanel],
   );
 
+  // ===== 拖拽分隔条：调整侧栏宽度 =====
+  const sideResizerRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const onResizerPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragStateRef.current = {
+      startX: event.clientX,
+      startWidth: sideWidthRef.current,
+    };
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  }, []);
+
+  const onResizerPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current;
+    if (!state) return;
+    // 侧栏在右侧，鼠标向左拖动应增加宽度
+    const delta = state.startX - event.clientX;
+    const next = Math.max(
+      SIDE_MIN_EXPANDED_PX,
+      Math.min(SIDE_MAX_EXPANDED_PX, state.startWidth + delta),
+    );
+    sideWidthRef.current = next;
+    setSideWidth(next);
+  }, []);
+
+  const onResizerPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    dragStateRef.current = null;
+    try {
+      (event.target as HTMLElement).releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   if (!paneProps) return null;
 
   const terminalPane = <TerminalTabPaneView {...paneProps} />;
@@ -363,46 +340,61 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
 
   return (
     <div className="advance-terminal">
-      <DockLayout direction="horizontal" className="advance-terminal-split">
-        <DockPanel className="advance-terminal-main" groupResizeBehavior="preserve-relative-size">
-          {terminalPane}
-        </DockPanel>
-        {!sideContentCollapsed ? <DockHandle direction="horizontal" /> : null}
-        <DockPanel
-          defaultSize={`${SIDE_TAB_RAIL_PX}px`}
-          minSize={`${SIDE_TAB_RAIL_PX}px`}
-          maxSize={
-            sideContentCollapsed
-              ? `${SIDE_TAB_RAIL_PX}px`
-              : `${SIDE_EXPANDED_MAX_PX}px`
-          }
-          collapsible
-          collapsedSize={`${SIDE_TAB_RAIL_PX}px`}
-          groupResizeBehavior="preserve-pixel-size"
-          panelRef={sidePanelRef}
-          onResize={handleSidePanelResize}
-          className={`advance-terminal-side${sideContentCollapsed ? " advance-terminal-side--collapsed" : ""}${!sideContentCollapsed && !sideContentRevealed ? " advance-terminal-side--masking" : ""}`}
-        >
-          <DockableWorkspace
-            key={`${tabId}-${isLocal ? "local" : "remote"}`}
-            className="advance-terminal-side-dock"
-            dockScope={sideDockScope ?? `terminal-side-${tabId}`}
-            tabs={sideTabs}
-            activeTabId={activeSideTab}
-            onActiveTabChange={handleSideTabChange}
-            onTabClick={handleSideTabClick}
-            onCloseTab={() => {}}
-            savedLayout={sideLayoutRef.current}
-            onSavedLayoutChange={handleSideLayoutChange}
-            relayoutRef={sideDockRelayoutRef}
-            renderPanel={renderSidePanel}
-            enableTabGroups={false}
-            defaultHeaderPosition="right"
-            disableTabsOverflowList
-            scrollbars="native"
-          />
-        </DockPanel>
-      </DockLayout>
+      <div className="advance-terminal-main">
+        {terminalPane}
+      </div>
+      {!sideCollapsed && (
+        <div
+          ref={sideResizerRef}
+          className="advance-terminal-side-resizer"
+          onPointerDown={onResizerPointerDown}
+          onPointerMove={onResizerPointerMove}
+          onPointerUp={onResizerPointerUp}
+          onPointerCancel={onResizerPointerUp}
+        />
+      )}
+      <div
+        className={`advance-terminal-side${sideCollapsed ? " advance-terminal-side--collapsed" : ""}`}
+        style={sideCollapsed ? undefined : { width: `${sideWidth}px` }}
+      >
+        {sideCollapsed ? (
+          // 收起态：自绘竖排 tab 按钮，无 dockview 实例
+          <div className="advance-terminal-side-rail">
+            {sideTabs.map((sideTab) => (
+              <button
+                key={sideTab.id}
+                type="button"
+                className="advance-terminal-side-rail-btn"
+                onClick={() => handleCollapsedTabClick(sideTab.id)}
+                title={sideTab.label}
+                aria-label={sideTab.label}
+              >
+                <span className="advance-terminal-side-rail-label">{sideTab.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          // 展开态：dockview 实例，保留原生分屏
+          <div ref={sideDockWrapRef} className="advance-terminal-side-dock-wrap">
+            <DockableWorkspace
+              key={`side-expanded-${tabId}-${isLocal ? "local" : "remote"}`}
+              className="advance-terminal-side-dock"
+              dockScope={sideDockScope ?? `terminal-side-${tabId}`}
+              tabs={sideDockTabs}
+              activeTabId={activeSideTab}
+              onActiveTabChange={handleSideTabChange}
+              onCloseTab={() => {}}
+              savedLayout={sideLayoutRef.current}
+              onSavedLayoutChange={handleSideLayoutChange}
+              renderPanel={renderSidePanel}
+              enableTabGroups={false}
+              defaultHeaderPosition="right"
+              disableTabsOverflowList
+              scrollbars="native"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

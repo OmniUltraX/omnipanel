@@ -338,6 +338,10 @@ export function DockableWorkspace({
   const isSyncingRef = useRef(false);
   /** 程序化 setActive 时不向上冒泡，避免与用户点击 Tab 冲突 */
   const isProgrammaticActiveRef = useRef(false);
+  /** 程序化 setActive 的目标 panel id；onDidActivePanelChange 匹配到此 id 时消费事件并重置 */
+  const pendingProgrammaticActiveRef = useRef<string | null>(null);
+  /** 程序化 setActive 的兜底重置定时器（防止 dockview 不触发预期事件导致永久阻塞） */
+  const programmaticActiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
   // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
   const lastWrittenLayoutRef = useRef<SerializedDockview | null>(null);
@@ -460,6 +464,37 @@ export function DockableWorkspace({
   addTabConfigRef.current = addTabConfig;
   const preActionsRef = useRef(preActions);
   preActionsRef.current = preActions;
+
+  /**
+   * 程序化调用 panel.api.setActive() 的安全包装。
+   * dockview 的 onDidActivePanelChange 是异步触发的（microtask / setTimeout），
+   * 如果在 finally 中同步重置 isProgrammaticActiveRef，异步事件会绕过保护，
+   * 导致 onActiveTabChange 被错误调用，形成 setActive → onDidActivePanelChange
+   * → onActiveTabChange → activeTabId 变化 → sync effect → setActive 的反馈循环。
+   *
+   * 本函数设置目标 panel id，在 onDidActivePanelChange 中匹配到该 id 时消费事件并重置；
+   * 同时启动 200ms 兜底定时器，防止 dockview 不触发预期事件导致永久阻塞。
+   */
+  const runProgrammaticActive = useCallback(
+    (targetId: string, action: () => void) => {
+      if (programmaticActiveTimerRef.current) {
+        clearTimeout(programmaticActiveTimerRef.current);
+      }
+      pendingProgrammaticActiveRef.current = targetId;
+      isProgrammaticActiveRef.current = true;
+      try {
+        action();
+      } finally {
+        // 兜底：200ms 后强制重置，覆盖 dockview 异步事件延迟 >100ms 的极端情况
+        programmaticActiveTimerRef.current = setTimeout(() => {
+          pendingProgrammaticActiveRef.current = null;
+          isProgrammaticActiveRef.current = false;
+          programmaticActiveTimerRef.current = null;
+        }, 200);
+      }
+    },
+    [],
+  );
 
   const syncTabGroups = useCallback((api: DockviewApi, manageLock = true) => {
     if (manageLock) isSyncingRef.current = true;
@@ -1028,8 +1063,9 @@ export function DockableWorkspace({
         return;
       }
       pressedActiveTabIdRef.current = null;
-      event.preventDefault();
-      event.stopPropagation();
+      // 不 stopPropagation：点击已激活 tab 时 dockview 本就不会切换，
+      // 无需阻止其默认行为。stopPropagation 会在 dockview pointerdown
+      // 先于 capture 监听器执行时误阻正常 tab 切换。
       onTabClickRef.current?.(tabId, true);
     };
 
@@ -1073,6 +1109,11 @@ export function DockableWorkspace({
   // 终端/数据库等模块 dock：pointerdown 时广播 tab 抓取，供模块→工作区拖拽桥接
   useEffect(() => {
     if (!dockScope || dockScope.startsWith("workspace-bottom-")) return;
+    // 子 dock（终端侧栏、服务器详情、仪表盘）不参与跨窗口拖拽，
+    // 它们的 tab 点击应走 dockview 原生切换，不应触发 grab → pointermove/pointerup 拦截。
+    if (dockScope.startsWith("terminal-side-")) return;
+    if (dockScope.startsWith("server-detail-")) return;
+    if (dockScope === "dashboard") return;
     const root = wrapperRef.current;
     if (!root) return;
 
@@ -1571,15 +1612,12 @@ export function DockableWorkspace({
     if (!tabs.some((t) => t.id === activeTabId)) return;
     const panel = api.getPanel(activeTabId);
     if (panel && api.activePanel?.id !== activeTabId) {
-      isProgrammaticActiveRef.current = true;
-      try {
+      runProgrammaticActive(activeTabId, () => {
         panel.api.setActive();
-      } finally {
-        isProgrammaticActiveRef.current = false;
-      }
+      });
     }
     syncStatusBarActiveDockRef.current(activeTabId);
-  }, [activeTabId, tabs]);
+  }, [activeTabId, tabs, runProgrammaticActive]);
 
   // 接收外部 savedLayout 变化（如 store 重置）
   // 关键：dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，
@@ -1689,7 +1727,19 @@ export function DockableWorkspace({
         onCloseTabRef.current(panel.id);
       });
       const activeDisposable = api.onDidActivePanelChange((panel) => {
-        if (isProgrammaticActiveRef.current) return;
+        if (isProgrammaticActiveRef.current) {
+          // 程序化 setActive 期间：匹配到目标 panel 时消费事件并重置，其余全部忽略
+          if (panel && panel.id === pendingProgrammaticActiveRef.current) {
+            if (programmaticActiveTimerRef.current) {
+              clearTimeout(programmaticActiveTimerRef.current);
+              programmaticActiveTimerRef.current = null;
+            }
+            pendingProgrammaticActiveRef.current = null;
+            isProgrammaticActiveRef.current = false;
+          }
+          syncStatusBarActiveDockRef.current(panel?.id ?? null);
+          return;
+        }
         if (panel) {
           onActiveTabChangeRef.current(panel.id);
         }
@@ -1807,17 +1857,14 @@ export function DockableWorkspace({
       if (initialActiveTabId) {
         const target = api.getPanel(initialActiveTabId);
         if (target) {
-          isProgrammaticActiveRef.current = true;
-          try {
+          runProgrammaticActive(initialActiveTabId, () => {
             target.api.setActive();
-          } finally {
-            isProgrammaticActiveRef.current = false;
-          }
+          });
         }
         syncStatusBarActiveDockRef.current(initialActiveTabId);
       }
     },
-    [applyInitialLayout, syncTabGroups, scheduleLayoutPersist],
+    [applyInitialLayout, syncTabGroups, scheduleLayoutPersist, runProgrammaticActive],
   );
 
   useEffect(() => {
