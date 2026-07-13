@@ -624,8 +624,13 @@ export function DatabasePanel() {
       const ids = new Set<string>();
       for (const tabs of Object.values(s.tabsByWorkspace)) {
         for (const tab of tabs ?? []) {
+          // payload kind: payload.module === "database" → payload.id
           if (tab.kind === "payload" && tab.payload?.module === "database") {
             ids.add(tab.payload.id);
+          }
+          // mirrored kind: originScope === "database" → originPanelId
+          if (tab.kind === "mirrored" && tab.originScope === "database" && tab.originPanelId) {
+            ids.add(tab.originPanelId);
           }
         }
       }
@@ -2183,6 +2188,31 @@ export function DatabasePanel() {
 
       for (const tabId of uniqueIds) {
         removeTabWorkspaceData(tabId);
+      }
+
+      // 同步清理工作区 dock 中的幽灵 tab：源 tab 关闭后 dock 中的对应 tab
+      // （payload kind: payload.id === tabId, mirrored kind: originPanelId === tabId）
+      // 会因镜像快照被删除而变为空白。主动从 dock store 移除以避免幽灵 tab。
+      const dockStore = useWorkspaceBottomDockStore.getState();
+      for (const [wsId, tabs] of Object.entries(dockStore.tabsByWorkspace)) {
+        if (!tabs) continue;
+        const ghostTabIds = tabs
+          .filter((t) => {
+            if (t.kind === "payload" && t.payload?.module === "database") {
+              return t.payload.id === tabId || uniqueIds.includes(t.payload.id);
+            }
+            if (t.kind === "mirrored" && t.originScope === "database") {
+              return t.originPanelId && uniqueIds.includes(t.originPanelId);
+            }
+            return false;
+          })
+          .map((t) => t.id);
+        for (const ghostId of ghostTabIds) {
+          const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === wsId);
+          if (ws) {
+            dockStore.removeTab(wsId, ws, ghostId, { skipRecentClosed: true });
+          }
+        }
       }
 
       setTableDesignerStates((prev) => {

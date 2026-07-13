@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { WinControls } from "./components/shell/WinControls";
 import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
@@ -22,6 +22,8 @@ import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVi
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
 import { useI18n } from "./i18n";
+import { LazyDatabasePanel } from "./routes/lazyModules";
+import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 
 interface WorkspaceWindowRootProps {
   workspaceId: string;
@@ -202,6 +204,21 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
       <AppDialogHost />
       <ToastHost />
       <CrossWindowDragVisualLayer />
+      {/* 隐藏挂载 DatabasePanel：独立窗口中 DatabasePanel 不挂载会导致
+          dbWorkspaceMirrorStore 的 mirrorContext 永为 null，工作区 dock 中的
+          数据库 tab 全部空白。用 overlay 方式隐藏挂载（不可用 display:none，
+          会导致 dockview 测量到 0 尺寸），让 DatabasePanel 执行初始化和镜像发布。 */}
+      <div
+        className="route-panel route-panel--overlay route-panel--keep-layout"
+        style={{ visibility: "hidden", pointerEvents: "none", opacity: 0 }}
+        aria-hidden
+      >
+        <ModuleVisibilityProvider active={false} suspended={false}>
+          <Suspense fallback={null}>
+            <LazyDatabasePanel />
+          </Suspense>
+        </ModuleVisibilityProvider>
+      </div>
     </MemoryRouter>
   );
 }
