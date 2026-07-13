@@ -13,8 +13,17 @@ import {
   useSshHostStore,
   type OverviewPhase,
 } from "../../../../stores/sshHostStore";
+import {
+  acquireOverviewPoller,
+  releaseOverviewPoller,
+  runOverviewLoadDedup,
+  updateOverviewLoader,
+} from "./sshOverviewScheduler";
 
 export type { OverviewPhase };
+
+/** SSH 概览轮询间隔（ms），与后端 PROCESSES_CACHE_TTL 对齐 */
+const SSH_POLL_MS = 30_000;
 
 export function useSshOverview(resourceId: string | null) {
   const overview = useHostOverview(resourceId);
@@ -133,6 +142,7 @@ export function useSshOverview(resourceId: string | null) {
     [resourceId, setOverview],
   );
 
+  // 初始加载：命中缓存直接复用，否则发起新请求
   useEffect(() => {
     if (!resourceId) return;
 
@@ -146,13 +156,20 @@ export function useSshOverview(resourceId: string | null) {
     void load({ silent: cached.phase === "ready" });
   }, [resourceId, load, setOverview]);
 
+  // 全局轮询调度器：相同 resourceId 的多个面板复用同一定时器
   useEffect(() => {
-    if (!resourceId || overview.phase !== "ready") return;
-    const interval = setInterval(() => {
-      void load({ silent: true });
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [resourceId, overview.phase, load]);
+    if (!resourceId) return;
+    acquireOverviewPoller(resourceId, load, SSH_POLL_MS);
+    return () => {
+      releaseOverviewPoller(resourceId);
+    };
+  }, [resourceId, load]);
+
+  // load 依赖变化时同步更新调度器内的 loader 引用（避免闭包过期）
+  useEffect(() => {
+    if (!resourceId) return;
+    updateOverviewLoader(resourceId, load, SSH_POLL_MS);
+  }, [resourceId, load]);
 
   useEffect(() => {
     if (!resourceId) return;
@@ -186,6 +203,14 @@ export function useSshOverview(resourceId: string | null) {
     void load({ silent: true, processesOnly: true });
   }, [load]);
 
+  const refresh = useCallback(() => {
+    // 用户手动刷新：走调度器去重逻辑（非 silent，强制执行）
+    if (!resourceId) return;
+    const promise = runOverviewLoadDedup(resourceId);
+    if (promise) void promise;
+    else void load();
+  }, [resourceId, load]);
+
   return {
     phase: overview.phase,
     stats: overview.stats,
@@ -194,7 +219,7 @@ export function useSshOverview(resourceId: string | null) {
     processError: overview.processError,
     updatedAt: overview.updatedAt,
     refreshing: overview.refreshing,
-    refresh: () => load(),
+    refresh,
     refreshProcesses,
   };
 }
