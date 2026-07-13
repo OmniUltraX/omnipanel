@@ -18,6 +18,7 @@ import {
 import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useTerminalBackendStateStore } from "../stores/terminalBackendStateStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { isInlineProgressChunk, renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
 import { createBlockId, useBlocksStore } from "../stores/blocksStore";
@@ -191,15 +192,9 @@ function decodeOutput(data: unknown): Uint8Array | null {
   return null;
 }
 
-/** Prevent concurrent create_terminal calls for the same pane (StrictMode / re-render races). */
-const pendingBackendSessions = new Map<string, Promise<string>>();
-
-/** 记录已经成功注入钩子的后端会话 ID，避免切 Tab 时重复注入 */
-const injectedBackendSessions = new Set<string>();
-
 /** 切换窗格服务器前清除进行中的后端创建任务 */
 export function clearPaneBackendPending(paneId: string) {
-  pendingBackendSessions.delete(paneId);
+  useTerminalBackendStateStore.getState().clearPendingSession(paneId);
 }
 
 function findPaneById(sessionId: string) {
@@ -416,7 +411,7 @@ export function disposePaneBackendSession(paneId: string) {
   const pane = findPaneById(paneId);
   if (!pane?.backendSessionId) return;
   disposeBackendSession(paneId, pane.backendSessionId);
-  injectedBackendSessions.delete(pane.backendSessionId);
+  useTerminalBackendStateStore.getState().removeInjectedSession(pane.backendSessionId);
   useTerminalStore.getState().setBackendSessionId(paneId, null);
 }
 
@@ -429,7 +424,7 @@ export function disposeTabBackendSessions(tabId: string) {
   const backendSessionId = tab?.backendSessionId ?? detached?.backendSessionId;
   if (!backendSessionId) return;
   disposeBackendSession(sessionId, backendSessionId);
-  injectedBackendSessions.delete(backendSessionId);
+  useTerminalBackendStateStore.getState().removeInjectedSession(backendSessionId);
   useTerminalStore.getState().setBackendSessionId(sessionId, null);
 }
 
@@ -446,7 +441,8 @@ async function acquireBackendSession(sessionId: string, cols: number, rows: numb
     return existingSid;
   }
 
-  let pending = pendingBackendSessions.get(sessionId);
+  const store = useTerminalBackendStateStore.getState();
+  let pending = store.getPendingSession(sessionId);
   if (!pending) {
     pending = createBackendSession(sessionId, cols, rows)
       .then((sid) => {
@@ -459,9 +455,9 @@ async function acquireBackendSession(sessionId: string, cols: number, rows: numb
         return sid;
       })
       .finally(() => {
-        pendingBackendSessions.delete(sessionId);
+        useTerminalBackendStateStore.getState().clearPendingSession(sessionId);
       });
-    pendingBackendSessions.set(sessionId, pending);
+    useTerminalBackendStateStore.getState().setPendingSession(sessionId, pending);
   }
   return pending;
 }
@@ -1040,7 +1036,7 @@ export function useTerminal(
 
       if (reusableSid && !backendSessionMatchesPane(sessionId, reusableSid)) {
         disposeBackendSession(sessionId, reusableSid);
-        injectedBackendSessions.delete(reusableSid);
+        useTerminalBackendStateStore.getState().removeInjectedSession(reusableSid);
         useTerminalStore.getState().setBackendSessionId(sessionId, null);
         reusableSid = null;
       }
@@ -1060,8 +1056,8 @@ export function useTerminal(
         const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
         if (transportRemote) {
           const skipShellIntegration = isDatabaseCliTerminalPane(sessionId);
-          if (!skipShellIntegration && !injectedBackendSessions.has(backendSid)) {
-            injectedBackendSessions.add(backendSid);
+          if (!skipShellIntegration && !useTerminalBackendStateStore.getState().hasInjectedSession(backendSid)) {
+            useTerminalBackendStateStore.getState().addInjectedSession(backendSid);
             if (remoteInitEchoFilter && !remoteInitEchoFilterTimer) {
               remoteInitEchoFilterTimer = window.setTimeout(() => {
                 if (remoteInitEchoFilter) {
@@ -1103,8 +1099,8 @@ export function useTerminal(
         const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
         if (transportRemote) {
           const skipShellIntegration = isDatabaseCliTerminalPane(sessionId);
-          if (!skipShellIntegration && !injectedBackendSessions.has(backendSid)) {
-            injectedBackendSessions.add(backendSid);
+          if (!skipShellIntegration && !useTerminalBackendStateStore.getState().hasInjectedSession(backendSid)) {
+            useTerminalBackendStateStore.getState().addInjectedSession(backendSid);
             if (remoteInitEchoFilter && !remoteInitEchoFilterTimer) {
               remoteInitEchoFilterTimer = window.setTimeout(() => {
                 if (remoteInitEchoFilter) {

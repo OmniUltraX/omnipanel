@@ -4165,6 +4165,7 @@ dependencies = [
  "omnipanel-ssh",
  "omnipanel-store",
  "pdf-extract",
+ "raw-window-handle",
  "redis",
  "reqwest 0.12.28",
  "rumqttc",
@@ -4195,6 +4196,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "windows 0.61.3",
 ]
 
 [[package]]

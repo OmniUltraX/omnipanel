@@ -90,6 +90,61 @@ let cachedWindowBounds: WindowBounds[] | null = null;
 let cachedWindowBoundsAt = 0;
 const WINDOW_BOUNDS_CACHE_MS = 1_000;
 
+/**
+ * 同步命中测试：用已缓存的窗口几何（物理像素）判断屏幕坐标（CSS 逻辑像素）
+ * 是否落在某个非源窗内。
+ *
+ * 用于 onPointerUp 同步阶段：源窗与前景窗口几何重叠时，
+ * `isPointerOutsideCurrentWindow` 会返回 false（指针仍在源窗几何内），
+ * 导致跨窗路径被跳过、tab 错误落到源窗。
+ * 此函数排除源窗后做几何命中，能在同步阶段就识别出重叠场景下的跨窗落点。
+ *
+ * 缓存为空（首次拖拽未填充）时返回 null，调用方应 fallback 到 outside 判断。
+ */
+export function findOtherWindowHitSync(
+  screenX: number,
+  screenY: number,
+  currentLabel?: string,
+): string | null {
+  if (!cachedWindowBounds || cachedWindowBounds.length === 0) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const x = screenX * dpr;
+  const y = screenY * dpr;
+  for (const b of cachedWindowBounds) {
+    if (currentLabel && b.label === currentLabel) continue;
+    if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+      return b.label;
+    }
+  }
+  return null;
+}
+
+/**
+ * 找 z-order 最顶层命中窗口（不排除源窗）。
+ *
+ * `cachedWindowBounds` 已按 z-order（顶→底）排序，
+ * 返回第一个几何命中 = 视觉最顶层窗口。
+ *
+ * 用于 pointerup 落点判定：
+ * - 源窗在顶层时 → 返回源窗 label → 留在源窗
+ * - 其他窗口覆盖源窗时 → 返回该窗口 label → 跨窗转移
+ */
+export function findTopmostWindowHitSync(
+  screenX: number,
+  screenY: number,
+): string | null {
+  if (!cachedWindowBounds || cachedWindowBounds.length === 0) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const x = screenX * dpr;
+  const y = screenY * dpr;
+  for (const b of cachedWindowBounds) {
+    if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+      return b.label;
+    }
+  }
+  return null;
+}
+
 /** 会话内缓存窗口 label 列表，避免拖拽中反复 getAllWebviewWindows */
 export async function getCachedWebviewWindowLabels(
   excludeLabel?: string,
@@ -102,6 +157,20 @@ export async function getCachedWebviewWindowLabels(
   }
   if (!excludeLabel) return [...cachedWebviewWindowLabels];
   return cachedWebviewWindowLabels.filter((label) => label !== excludeLabel);
+}
+
+/**
+ * 预热窗口几何缓存。在拖拽开始时（onTabGrab）await 调用，
+ * 确保 pointerup 同步阶段的 `findOtherWindowHitSync` 有数据可读。
+ */
+export function primeWindowBoundsCache(): Promise<WindowBounds[]> {
+  if (
+    cachedWindowBounds &&
+    Date.now() - cachedWindowBoundsAt <= WINDOW_BOUNDS_CACHE_MS
+  ) {
+    return Promise.resolve(cachedWindowBounds);
+  }
+  return getCachedWindowBounds();
 }
 
 /**
@@ -141,6 +210,24 @@ async function getCachedWindowBounds(): Promise<WindowBounds[]> {
       }
     }),
   );
+
+  // 获取 Win32 z-order（顶→底），按 z-order 排序 bounds。
+  // 多窗口重叠时 findOtherWindowHitSync 必须返回最顶层命中窗口，
+  // 而非 HashMap 迭代顺序的第一个（可能是底层窗口）。
+  try {
+    const zOrder = await invoke<string[]>("window_z_order");
+    if (zOrder.length > 0) {
+      const orderIndex = new Map(zOrder.map((label, i) => [label, i]));
+      bounds.sort((a, b) => {
+        const ai = orderIndex.get(a.label) ?? Number.MAX_SAFE_INTEGER;
+        const bi = orderIndex.get(b.label) ?? Number.MAX_SAFE_INTEGER;
+        return ai - bi;
+      });
+    }
+  } catch {
+    // z-order 不可用时退回原始顺序（HashMap 顺序）
+  }
+
   cachedWindowBounds = bounds;
   cachedWindowBoundsAt = now;
   cachedWebviewWindowLabels = bounds.map((b) => b.label);
@@ -181,6 +268,10 @@ export async function resolveDropWindowLabel(
 /**
  * 跨窗落点命中。常见「主窗 ↔ 唯一工作区窗」场景：指针已出本窗且只剩一个其它窗时，
  * 直接返回该窗，零 IPC。
+ *
+ * `currentLabel` 会被排除：跨窗拖拽中源窗永远不可能是 drop 目标。
+ * 当源窗与前景窗口几何重叠时，不排除源窗会让命中结果取决于 HashMap 迭代顺序，
+ * 表现为「落到底层源窗」而非「落到顶层前景窗」。
  */
 export async function findWindowLabelAtScreenPoint(
   screenX?: number,
@@ -206,22 +297,26 @@ export async function findWindowLabelAtScreenPoint(
   // 先用缓存几何命中，避免同步 invoke 卡主线程
   try {
     const bounds = await getCachedWindowBounds();
-    let hit: string | null = null;
+    // bounds 已按 z-order（顶→底）排序，返回第一个命中 = 最顶层窗口
     for (const b of bounds) {
+      // 排除源窗：跨窗拖拽中源窗永远不是 drop 目标。
+      // 重叠场景下不排除会让源窗（底层）被错误命中。
+      if (currentLabel && b.label === currentLabel) continue;
       if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
-        hit = b.label;
+        log?.(`hit cached-bounds label=${b.label} @${x},${y}`);
+        return b.label;
       }
-    }
-    if (hit) {
-      log?.(`hit cached-bounds label=${hit} @${x},${y}`);
-      return hit;
     }
   } catch {
     // fall through
   }
 
   try {
-    const label = await invoke<string | null>("window_label_at_screen_point", { x, y });
+    const label = await invoke<string | null>("window_label_at_screen_point", {
+      x,
+      y,
+      excludeLabel: currentLabel ?? null,
+    });
     if (label) {
       log?.(`hit invoke label=${label} @${x},${y}`);
       return label;

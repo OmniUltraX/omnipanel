@@ -146,10 +146,56 @@ pub async fn close_all_workspace_windows(app: AppHandle) -> Result<usize, String
 }
 
 /// 根据屏幕坐标（物理像素）命中 Webview 窗口 label，用于跨窗口 tab 拖拽落点判定。
+///
+/// `exclude_label` 为源窗 label，跳过它：跨窗拖拽中源窗永远不可能是 drop 目标。
+///
+/// 多窗口重叠时使用 Win32 EnumWindows 获取真实 z-order，返回最顶层的命中窗口。
+/// `is_focused()` 不可靠：拖拽中源窗持有 focus，目标窗均非 focused。
 #[tauri::command]
-pub fn window_label_at_screen_point(app: AppHandle, x: f64, y: f64) -> Option<String> {
+pub fn window_label_at_screen_point(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    exclude_label: Option<String>,
+) -> Option<String> {
+    // 获取按 z-order 排序（顶→底）的 label 列表
+    let z_ordered_labels = window_z_order_impl(&app);
+
+    // 优先按 z-order 遍历（顶→底），返回第一个几何命中的窗口
+    for label in &z_ordered_labels {
+        if let Some(ref exclude) = exclude_label {
+            if label == exclude {
+                continue;
+            }
+        }
+        if let Some(window) = app.get_webview_window(label) {
+            let Ok(pos) = window.outer_position() else {
+                continue;
+            };
+            let Ok(size) = window.outer_size() else {
+                continue;
+            };
+            let left = pos.x as f64;
+            let top = pos.y as f64;
+            let right = left + size.width as f64;
+            let bottom = top + size.height as f64;
+            if x >= left && x < right && y >= top && y < bottom {
+                return Some(label.clone());
+            }
+        }
+    }
+
+    // Fallback：z-order 不可用时用旧的 HashMap + is_focused 启发式
+    if !z_ordered_labels.is_empty() {
+        return None;
+    }
     let mut hit: Option<String> = None;
     for (label, window) in app.webview_windows() {
+        if let Some(ref exclude) = exclude_label {
+            if &label == exclude {
+                continue;
+            }
+        }
         let Ok(pos) = window.outer_position() else {
             continue;
         };
@@ -161,10 +207,77 @@ pub fn window_label_at_screen_point(app: AppHandle, x: f64, y: f64) -> Option<St
         let right = left + size.width as f64;
         let bottom = top + size.height as f64;
         if x >= left && x < right && y >= top && y < bottom {
-            hit = Some(label);
+            if hit.is_none() {
+                hit = Some(label);
+            } else if window.is_focused().unwrap_or(false) {
+                hit = Some(label);
+            }
         }
     }
     hit
+}
+
+/// 返回所有 WebView 窗口的 label，按 Win32 z-order（顶→底）排序。
+///
+/// 用于跨窗拖拽命中测试：多个目标窗口几何重叠时，
+/// 需要识别哪个窗口在视觉最顶层，而非依赖 HashMap 迭代顺序或 is_focused()。
+///
+/// 拖拽中源窗持有鼠标捕获和 focus，is_focused() 对目标窗无效。
+/// EnumWindows 按 z-order（顶→底）枚举所有顶层窗口，过滤出 Tauri webview 窗口。
+#[tauri::command]
+pub fn window_z_order(app: AppHandle) -> Vec<String> {
+    window_z_order_impl(&app)
+}
+
+#[cfg(windows)]
+fn window_z_order_impl(app: &AppHandle) -> Vec<String> {
+    use std::collections::HashMap;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
+
+    // 收集所有 Tauri webview 窗口的 HWND → label 映射
+    let mut hwnd_to_label: HashMap<isize, String> = HashMap::new();
+    for (label, window) in app.webview_windows() {
+        // 通过 raw-window-handle 获取 Win32 HWND
+        if let Ok(handle) = window.window_handle() {
+            if let RawWindowHandle::Win32(win32) = handle.as_raw() {
+                hwnd_to_label.insert(win32.hwnd.get() as isize, label);
+            }
+        }
+    }
+
+    if hwnd_to_label.is_empty() {
+        return Vec::new();
+    }
+
+    // EnumWindows 按 z-order（顶→底）枚举所有顶层窗口
+    let mut all_hwnds: Vec<isize> = Vec::new();
+
+    unsafe extern "system" fn collect_hwnds(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let vec = &mut *(lparam.0 as *mut Vec<isize>);
+            vec.push(hwnd.0 as isize);
+        }
+        BOOL(1) // TRUE = 继续枚举
+    }
+
+    unsafe {
+        let ptr = &mut all_hwnds as *mut Vec<isize>;
+        let _ = EnumWindows(Some(collect_hwnds), LPARAM(ptr as isize));
+    }
+
+    // 过滤出 Tauri webview 窗口，保持 z-order 顺序
+    all_hwnds
+        .into_iter()
+        .filter_map(|hwnd| hwnd_to_label.get(&hwnd).cloned())
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn window_z_order_impl(_app: &AppHandle) -> Vec<String> {
+    Vec::new()
 }
 
 /// 打开（或聚焦）工作区独立窗口。

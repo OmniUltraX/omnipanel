@@ -11,6 +11,7 @@ import {
   writeWorkspaceWindowCloseHandoff,
 } from "./workspaceWindowHandoff";
 import { showToast } from "../stores/toastStore";
+import { WORKSPACE_PATHS } from "./paths";
 
 const WORKSPACE_WINDOW_FLAG = "workspace";
 const WORKSPACE_WINDOW_LABEL_PREFIX = "workspace-";
@@ -139,6 +140,14 @@ export async function openWorkspaceWindow(
 
     syncEmbeddedWorkspacePanelVisibility(workspaceId);
     await workspaceWindowDebugLog(`open ok label=${label}`);
+
+    // 主窗当前停留在该工作区的 /workspace/:id 全屏路由时，工作区已被弹出，
+    // UserWorkspace 组件 return null，WorkspaceBottomHost 也会过滤掉它，
+    // 主窗右侧会变成空白。此时需导航回首页看板。
+    if (window.location.pathname === WORKSPACE_PATHS.detail(workspaceId)) {
+      const { goWorkspaceHome } = await import("./workspaceNavigation");
+      goWorkspaceHome();
+    }
 
     const win = await WebviewWindow.getByLabel(label);
     if (win) {

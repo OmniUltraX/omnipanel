@@ -17,14 +17,16 @@ import {
 import {
   clearWebviewWindowLabelCache,
   emitToOtherWebviews,
+  findOtherWindowHitSync,
+  findTopmostWindowHitSync,
   findWindowLabelAtScreenPoint,
   isPointerOutsideCurrentWindow,
   isWindowChromePointerTarget,
+  primeWindowBoundsCache,
   resolveTargetWorkspaceIdForTransfer,
   screenPointToClient,
 } from "./crossWindowDragUtils";
 import {
-  bindDockviewPointerDragController,
   cancelDockviewPointerDrag,
   forceEndDockviewPointerDrag,
 } from "./dockviewPointerDrag";
@@ -37,6 +39,7 @@ import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
 import {
   broadcastCrossWindowDragEnd,
+  broadcastCrossWindowDragEndLite,
   broadcastCrossWindowDragMove,
   CROSS_WINDOW_DRAG_END_EVENT,
   useCrossWindowDragVisualStore,
@@ -153,13 +156,12 @@ function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
   if (!pointerSeed) {
     return isModuleDockDragActive() && Boolean(panelIdFromActiveModuleDrag());
   }
-  if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) {
-    return isModuleDockDragActive();
-  }
-  return (
-    Math.hypot(screenX - pointerSeed.startScreenX, screenY - pointerSeed.startScreenY) >=
-      DRAG_THRESHOLD_PX || isModuleDockDragActive()
-  );
+  // pointerSeed 存在意味着 onTabGrab 成功触发拖拽，直接返回 true。
+  // 不依赖 isModuleDockDragActive()（dragging class 可能被 resetModuleDragSession 移除），
+  // 否则会在 onPointerUp 时误判为"未移动足够距离"，走 quietAbortDrag →
+  // cancelDockviewPointerDrag → 派发 pointercancel → dockview _teardown →
+  // _upListener 被 dispose，pointerup 不触发 handleDrop（分屏失效）。
+  return true;
 }
 
 function resetPointerSeed(): void {
@@ -263,7 +265,12 @@ function hasStaleModuleDragSession(): boolean {
   return false;
 }
 
-function resetModuleDragSession(options?: { broadcastEnd?: boolean }): void {
+function resetModuleDragSession(options?: {
+  broadcastEnd?: boolean;
+  /** true = 只清理跨窗视觉层 + 发 END，不 forceEndDockviewPointerDrag / 不清 dockview artifacts。
+   * 用于同窗口内 drop：让 dockview 自己完成原生 drop（分屏等）。 */
+  lite?: boolean;
+}): void {
   const shouldBroadcast =
     options?.broadcastEnd ??
     Boolean(
@@ -282,7 +289,9 @@ function resetModuleDragSession(options?: { broadcastEnd?: boolean }): void {
   releaseDragCompletionLock();
   clearWebviewWindowLabelCache();
   if (shouldBroadcast) {
-    void broadcastCrossWindowDragEnd();
+    void options?.lite
+      ? broadcastCrossWindowDragEndLite()
+      : broadcastCrossWindowDragEnd();
   }
 }
 
@@ -295,16 +304,23 @@ async function broadcastDragActive(
   activeBroadcast = true;
   try {
     const current = getCurrentWebviewWindow().label;
+    // 仅当指针已离开源窗几何时才计算命中目标。
+    // 指针在源窗内时 targetLabel=null：源窗在顶层，不应有目标窗激活。
+    const outside = isPointerOutsideCurrentWindow(screenX, screenY);
+    const targetLabel = outside
+      ? findOtherWindowHitSync(screenX, screenY, current)
+      : null;
     await emitToOtherWebviews(
       CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
       {
         ...session,
         screenX,
         screenY,
+        targetLabel,
       },
       current,
     );
-    bridgeLog(`broadcast active from ${session.sourceWindowLabel} panel=${session.panelId}`);
+    bridgeLog(`broadcast active from ${session.sourceWindowLabel} panel=${session.panelId} target=${targetLabel}`);
   } catch (e) {
     console.warn("[moduleToWorkspaceDrag] broadcast active failed", e);
     activeBroadcast = false;
@@ -538,73 +554,10 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     resetModuleDragSession({ broadcastEnd: true });
   };
 
-  void (async () => {
-    try {
-      const [{ getPanelData }, { PointerDragController }] = await Promise.all([
-        import("dockview-core"),
-        import("dockview-core/dist/esm/dnd/pointer/pointerDragController"),
-      ]);
-      if (disposed) return;
-
-      const dragController = PointerDragController.getInstance();
-      bindDockviewPointerDragController(dragController);
-
-      disposables.push(
-        dragController.onDragStart((event) => {
-          dragStartClientX = event.pointerEvent.clientX;
-          dragStartClientY = event.pointerEvent.clientY;
-          const data = getPanelData();
-          dragSourceViewId = data?.viewId ?? null;
-          if (!data?.panelId || !data.viewId) return;
-
-          const source = getDockviewInstance(data.viewId);
-          if (!source || !isModuleDockScope(source.scope)) return;
-
-          dragFinishToken += 1;
-          if (hasStaleModuleDragSession()) {
-            resetModuleDragSession({ broadcastEnd: true });
-          }
-
-          pointerSeed = {
-            panelId: data.panelId,
-            sourceViewId: data.viewId,
-            originScope: source.scope,
-            startScreenX: event.pointerEvent.screenX,
-            startScreenY: event.pointerEvent.screenY,
-          };
-          activeBroadcast = false;
-          document.body.classList.add(MODULE_DRAG_BODY_CLASS);
-          bridgeLog(`dragStart ${source.scope}:${data.panelId}`);
-        }),
-      );
-
-      disposables.push(
-        dragController.onDragMove((event) => {
-          if (!pointerSeed) return;
-          const session = ensureLocalDrag(pointerSeed.panelId, pointerSeed.sourceViewId);
-          if (session && isTauriRuntime()) {
-            maybeBroadcastModuleActiveOnMove(
-              session,
-              event.pointerEvent.screenX,
-              event.pointerEvent.screenY,
-            );
-          }
-        }),
-      );
-
-      disposables.push(
-        dragController.onDragEnd(() => {
-          if (!pointerSeed && !localDrag) {
-            quietAbortDrag();
-          }
-        }),
-      );
-
-      bridgeLog("pointer bridge attached");
-    } catch (e) {
-      console.warn("[moduleToWorkspaceDrag] pointer bridge unavailable", e);
-    }
-  })();
+  // dockview PointerDragController 未从主入口导出，子路径导入会得到另一个独立单例，
+  // onDragStart/onDragMove/onDragEnd 订阅永远不会触发。
+  // drag 检测改用 MODULE_DOCK_TAB_GRAB_EVENT + document pointermove/pointerup
+  // （下面注册），ghost 收口改用 dockviewPointerDrag 派发的 pointercancel。
 
   const onPointerMove = (event: PointerEvent) => {
     if (!(event.buttons & 1)) return;
@@ -663,14 +616,37 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       : "main";
 
     const outside = isPointerOutsideCurrentWindow(event.screenX, event.screenY);
-    if (remote || outside) {
+    // 重叠场景：指针仍在源窗几何内（outside=false），但可能有其他窗口覆盖在源窗之上。
+    // 用 z-order 找最顶层命中窗口：如果最顶层是源窗，留在源窗；否则跨窗到覆盖窗口。
+    let overlapHit: string | null = null;
+    if (!outside && !remote) {
+      const topmost = findTopmostWindowHitSync(event.screenX, event.screenY);
+      overlapHit = topmost && topmost !== currentLabel ? topmost : null;
+    }
+    const isCrossWindow = remote || outside || overlapHit !== null;
+
+    if (isCrossWindow) {
       event.preventDefault();
       event.stopImmediatePropagation();
       cancelDockviewPointerDrag();
     }
 
-    if (!remote && !outside) {
-      resetModuleDragSession({ broadcastEnd: activeBroadcast });
+    if (!isCrossWindow) {
+      // 同窗口内 drop：完全交给 dockview 自己处理（分屏等）。
+      // 只清理本模块的指针种子/广播标志，**不**触碰 dockview DOM / store / pointercancel。
+      // 任何同步/异步清理都可能干扰 dockview _handleEnd → handleDrop → moveGroupOrPanel。
+      const wasBroadcasting = activeBroadcast;
+      resetPointerSeed();
+      localDrag = null;
+      clearRemoteDrag();
+      releaseDragCompletionLock();
+      if (wasBroadcasting) {
+        queueMicrotask(() => {
+          void import("./crossWindowDragVisual").then(({ broadcastCrossWindowDragEndLite }) =>
+            broadcastCrossWindowDragEndLite()
+          );
+        });
+      }
       return;
     }
 
@@ -747,6 +723,8 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     if (hasStaleModuleDragSession()) {
       resetModuleDragSession({ broadcastEnd: true });
     }
+    // 预热窗口几何缓存，确保 pointerup 同步阶段的 findOtherWindowHitSync 有数据
+    void primeWindowBoundsCache();
     seedPointerFromModulePanelId(
       panelId,
       detail.dockScope,
