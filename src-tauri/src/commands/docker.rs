@@ -16,7 +16,7 @@ use omnipanel_docker::{
     DockerContainerStats, DockerContainerSummary, DockerCreateContainerRequest,
     DockerCreateNetworkRequest, DockerCreateServiceRequest, DockerCreateVolumeRequest,
     DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer, DockerImageProgress,
-    DockerImageSummary, DockerLocalEngineStatus, DockerLogLine, DockerNetworkDetail,
+    DockerImageSummary, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
     DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
     DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter,
@@ -35,6 +35,43 @@ const LOCAL_CONNECTION_ID: &str = "docker-local";
 
 static LOG_STREAM_COUNTER: AtomicU64 = AtomicU64::new(1);
 static EXEC_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// 1Panel 无原生 `docker logs -f`，以轮询 `container_logs` 模拟跟踪。
+async fn onepanel_poll_container_logs<F>(
+    adapter: OnePanelAdapter,
+    container_id: &str,
+    query: &DockerLogQuery,
+    follow: bool,
+    stop: Arc<AtomicBool>,
+    mut emit: F,
+) -> Result<(), OmniError>
+where
+    F: FnMut(DockerLogLine),
+{
+    let mut seen_count = 0usize;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let lines = adapter.container_logs(container_id, query).await?;
+        if lines.len() > seen_count {
+            for line in &lines[seen_count..] {
+                emit(line.clone());
+            }
+            seen_count = lines.len();
+        } else if lines.len() < seen_count {
+            for line in &lines {
+                emit(line.clone());
+            }
+            seen_count = lines.len();
+        }
+        if !follow {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+    Ok(())
+}
 
 /// 解析自 `Connection.config`（kind=docker）的 Docker 连接配置。
 #[derive(Debug, Default, Deserialize)]
@@ -465,10 +502,29 @@ pub async fn docker_container_logs(
     connection_id: String,
     container_id: String,
     tail: i32,
+    since: Option<String>,
 ) -> Result<Vec<DockerLogLine>, OmniError> {
+    let query = DockerLogQuery {
+        tail: tail as i64,
+        since,
+    };
     resolve_adapter(&state, &connection_id)
         .await?
-        .container_logs(&container_id, tail as i64)
+        .container_logs(&container_id, &query)
+        .await
+}
+
+/// 清空容器日志文件。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_clear_container_logs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    container_id: String,
+) -> Result<(), OmniError> {
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .clear_container_logs(&container_id)
         .await
 }
 
@@ -480,6 +536,7 @@ pub async fn docker_stream_container_logs(
     connection_id: String,
     container_id: String,
     tail: i32,
+    since: Option<String>,
     follow: bool,
 ) -> Result<String, OmniError> {
     let stream_id = format!(
@@ -494,9 +551,14 @@ pub async fn docker_stream_container_logs(
         .insert(stream_id.clone(), stop.clone());
 
     let target = resolve_target(&state, &connection_id).await?;
+    let query = DockerLogQuery {
+        tail: tail as i64,
+        since,
+    };
     let app = state.app_handle.clone();
     let sid = stream_id.clone();
     let log_streams = state.docker_log_streams.clone();
+    let container_id_owned = container_id.clone();
 
     tokio::spawn(async move {
         let emit = |line: DockerLogLine| {
@@ -514,7 +576,7 @@ pub async fn docker_stream_container_logs(
             DockerTarget::Local => match LocalDockerAdapter::connect() {
                 Ok(adapter) => {
                     adapter
-                        .stream_logs(&container_id, tail as i64, follow, stop, emit)
+                        .stream_logs(&container_id_owned, &query, follow, stop.clone(), emit)
                         .await
                 }
                 Err(e) => Err(e),
@@ -522,23 +584,23 @@ pub async fn docker_stream_container_logs(
             DockerTarget::Remote(docker) => {
                 let adapter = LocalDockerAdapter::with_docker(docker);
                 adapter
-                    .stream_logs(&container_id, tail as i64, follow, stop, emit)
+                    .stream_logs(&container_id_owned, &query, follow, stop.clone(), emit)
                     .await
             }
             DockerTarget::Ssh(session) => {
                 omnipanel_docker::ssh::stream_logs(
                     &*session,
-                    &container_id,
-                    tail as i64,
+                    &container_id_owned,
+                    &query,
                     follow,
-                    stop,
+                    stop.clone(),
                     emit,
                 )
                 .await
             }
-            DockerTarget::OnePanel(_adapter) => {
-                // 1Panel 面板无原生 `docker logs -f`，回退为 polling + container_logs
-                Err(OmniError::new(ErrorCode::Internal, "1Panel 面板暂不支持实时日志流"))
+            DockerTarget::OnePanel(adapter) => {
+                onepanel_poll_container_logs(adapter, &container_id_owned, &query, follow, stop, emit)
+                    .await
             }
         };
 

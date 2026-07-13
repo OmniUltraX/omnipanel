@@ -28,7 +28,12 @@ export function DockerContainerSubWindow({
 }: DockerContainerSubWindowProps) {
   const content =
     kind === "logs" ? (
-      <DockerContainerLogsView connectionId={connectionId} containerId={containerId} visible={open} />
+      <DockerContainerLogsView
+        connectionId={connectionId}
+        containerId={containerId}
+        containerName={containerName}
+        visible={open}
+      />
     ) : kind === "directory" ? (
       <DockerContainerSftpPanel
         connectionId={connectionId}

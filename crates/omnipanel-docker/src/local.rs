@@ -342,7 +342,7 @@ impl LocalDockerAdapter {
     pub async fn stream_logs<F>(
         &self,
         id: &str,
-        tail: i64,
+        query: &DockerLogQuery,
         follow: bool,
         stop: Arc<AtomicBool>,
         mut sink: F,
@@ -350,13 +350,17 @@ impl LocalDockerAdapter {
     where
         F: FnMut(DockerLogLine) + Send,
     {
-        let options = LogsOptionsBuilder::default()
+        let tail = query.tail_or_default();
+        let mut builder = LogsOptionsBuilder::default()
             .stdout(true)
             .stderr(true)
             .follow(follow)
             .timestamps(false)
-            .tail(&tail.to_string())
-            .build();
+            .tail(&tail.to_string());
+        if let Some(since) = query.since_for_bollard() {
+            builder = builder.since(since as i32);
+        }
+        let options = builder.build();
         let mut stream = self.docker.logs(id, Some(options));
         while let Some(item) = stream.next().await {
             if stop.load(Ordering::Relaxed) {
@@ -813,13 +817,17 @@ impl DockerAdapter for LocalDockerAdapter {
         Ok(resp.id)
     }
 
-    async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>> {
-        let options = LogsOptionsBuilder::default()
+    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>> {
+        let tail = query.tail_or_default();
+        let mut builder = LogsOptionsBuilder::default()
             .stdout(true)
             .stderr(true)
             .timestamps(false)
-            .tail(&tail.to_string())
-            .build();
+            .tail(&tail.to_string());
+        if let Some(since) = query.since_for_bollard() {
+            builder = builder.since(since as i32);
+        }
+        let options = builder.build();
         let mut stream = self.docker.logs(id, Some(options));
         let mut lines = Vec::new();
         while let Some(item) = stream.next().await {
@@ -834,6 +842,10 @@ impl DockerAdapter for LocalDockerAdapter {
             }
         }
         Ok(lines)
+    }
+
+    async fn clear_container_logs(&self, id: &str) -> OmniResult<()> {
+        clear_container_logs_via_docker_cli(id).await
     }
 
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
@@ -2139,6 +2151,41 @@ fn to_image_summaries(img: bollard::models::ImageSummary) -> Vec<DockerImageSumm
             }
         })
         .collect()
+}
+
+/// 通过 `docker inspect` 定位日志文件并 truncate（本地 / 远程 CLI 通用）。
+async fn clear_container_logs_via_docker_cli(id: &str) -> OmniResult<()> {
+    let quoted = shell_quote_docker_id(id);
+    let script = format!(
+        "log=$(docker inspect -f '{{{{.LogPath}}}}' {quoted}); \
+         if [ -z \"$log\" ] || [ ! -e \"$log\" ]; then exit 2; fi; \
+         : > \"$log\""
+    );
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "清空容器日志失败")
+                .with_cause(e.to_string())
+        })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(OmniError::new(ErrorCode::Internal, "清空容器日志失败").with_cause(stderr.trim().to_string()))
+}
+
+fn shell_quote_docker_id(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+    {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// 把 `s` 截到 `max_bytes` 字节内（按字符边界）。超长时附加 `…[truncated]`。

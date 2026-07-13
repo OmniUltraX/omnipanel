@@ -12,6 +12,7 @@ type SidebarTreeSelectionContextValue = {
   registerKey: (key: string) => void;
   handleSelect: (key: string, event: TreeRowMouseEvent) => void;
   isSelected: (key: string) => boolean;
+  selectedIds: ReadonlySet<string>;
 };
 
 const SidebarTreeSelectionContext = createContext<SidebarTreeSelectionContextValue | null>(null);
@@ -24,7 +25,7 @@ export function SidebarTreeSelectionProvider({
   /** 虚拟树等场景：显式传入扁平顺序，供 Shift 范围多选使用 */
   orderedKeys?: readonly string[];
 }) {
-  const { handleSelect: applySelect, isSelected } = useSidebarTreeMultiSelect();
+  const { handleSelect: applySelect, isSelected, selectedIds } = useSidebarTreeMultiSelect();
   const flatKeysRef = useRef<string[]>([]);
   flatKeysRef.current = [];
 
@@ -40,7 +41,7 @@ export function SidebarTreeSelectionProvider({
   );
 
   return (
-    <SidebarTreeSelectionContext.Provider value={{ registerKey, handleSelect, isSelected }}>
+    <SidebarTreeSelectionContext.Provider value={{ registerKey, handleSelect, isSelected, selectedIds }}>
       {children}
     </SidebarTreeSelectionContext.Provider>
   );

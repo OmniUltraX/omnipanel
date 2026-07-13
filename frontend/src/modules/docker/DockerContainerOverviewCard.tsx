@@ -141,11 +141,11 @@ export function DockerContainerOverviewCard({
       className={[
         "docker-container-card",
         navigable ? "docker-container-card--navigable" : "docker-container-card--embedded",
-        running ? "" : " docker-container-card--stopped",
-        busy ? " docker-container-card--busy" : "",
+        !running && "docker-container-card--stopped",
+        busy && "docker-container-card--busy",
       ]
-        .join("")
-        .trim()}
+        .filter(Boolean)
+        .join(" ")}
       role={navigable ? "button" : undefined}
       tabIndex={navigable && !busy ? 0 : undefined}
       aria-busy={busy}

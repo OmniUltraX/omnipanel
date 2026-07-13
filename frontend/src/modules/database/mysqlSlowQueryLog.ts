@@ -15,7 +15,30 @@ import { probeMysqlDeployment } from "./mysqlDeploymentDetect";
 const LOCALHOST_ALIASES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 /** 单次从日志文件尾部读取的字节数（慢查询日志可能很大，默认只读尾部）。 */
-export const MYSQL_SLOW_LOG_CHUNK_BYTES = 256 * 1024;
+export const MYSQL_SLOW_LOG_CHUNK_BYTES = 32 * 1024;
+
+/** 计算慢查询日志分页总数（第 1 页为最新一段）。 */
+export function slowLogTotalPages(
+  fileSize: number,
+  chunkBytes: number = MYSQL_SLOW_LOG_CHUNK_BYTES,
+): number {
+  if (fileSize <= 0) return 1;
+  return Math.max(1, Math.ceil(fileSize / chunkBytes));
+}
+
+/** 计算某一页在文件中的字节范围 [start, start + length)。第 1 页为文件末尾最新一段。 */
+export function slowLogPageByteRange(
+  page: number,
+  fileSize: number,
+  chunkBytes: number = MYSQL_SLOW_LOG_CHUNK_BYTES,
+): { start: number; length: number } {
+  if (fileSize <= 0 || page < 1) {
+    return { start: 0, length: 0 };
+  }
+  const endExclusive = Math.max(0, fileSize - (page - 1) * chunkBytes);
+  const start = Math.max(0, endExclusive - chunkBytes);
+  return { start, length: endExclusive - start };
+}
 
 export type SlowLogAvailability = {
   enabled: boolean;
@@ -347,6 +370,26 @@ function sshExec(sshConnectionId: string, command: string): Promise<{ stdout: st
   });
 }
 
+/** 通过 SSH 读取远端文件指定字节范围。 */
+async function readMysqlSlowLogRangeSsh(
+  sshConnectionId: string,
+  logFilePath: string,
+  start: number,
+  length: number,
+): Promise<string> {
+  if (length <= 0) return "";
+  const quoted = shellQuote(logFilePath);
+  const offset = Math.max(1, Math.floor(start) + 1);
+  const count = Math.max(1, Math.floor(length));
+  const command = `tail -c +${offset} ${quoted} 2>/dev/null | head -c ${count}`;
+  const res = await sshExec(sshConnectionId, command);
+  const output = res.stdout;
+  if (res.stderr.trim()) {
+    return output || res.stderr;
+  }
+  return output;
+}
+
 /** 通过 SSH 读取远端文件尾部若干字节。 */
 async function readMysqlSlowLogTailSsh(
   sshConnectionId: string,
@@ -374,6 +417,29 @@ async function readMysqlSlowLogFileSizeSsh(
   const raw = res.stdout.trim().split(/\s+/)[0] ?? "0";
   const size = Number.parseInt(raw, 10);
   return Number.isFinite(size) && size >= 0 ? size : 0;
+}
+
+/** 通过 docker exec 读取容器内文件指定字节范围。 */
+async function readMysqlSlowLogRangeDocker(
+  sshConnectionId: string,
+  containerId: string,
+  logFilePath: string,
+  start: number,
+  length: number,
+): Promise<string> {
+  if (length <= 0) return "";
+  const cont = shellQuote(containerId);
+  const file = shellQuote(logFilePath);
+  const offset = Math.max(1, Math.floor(start) + 1);
+  const count = Math.max(1, Math.floor(length));
+  const command =
+    `docker exec ${cont} sh -c "tail -c +${offset} ${file} 2>/dev/null | head -c ${count}"`;
+  const res = await sshExec(sshConnectionId, command);
+  const output = res.stdout;
+  if (res.stderr.trim()) {
+    return output || res.stderr;
+  }
+  return output;
 }
 
 /** 通过 docker exec 读取容器内文件尾部若干字节。 */
@@ -407,6 +473,21 @@ async function readMysqlSlowLogFileSizeDocker(
   const raw = res.stdout.trim().split(/\s+/)[0] ?? "0";
   const size = Number.parseInt(raw, 10);
   return Number.isFinite(size) && size >= 0 ? size : 0;
+}
+
+/** 读取慢查询日志指定字节范围（自动选择 SSH / Docker）。 */
+export async function readMysqlSlowLogRange(
+  sshConnectionId: string,
+  logFilePath: string,
+  start: number,
+  length: number,
+  deploymentKind?: "host" | "docker",
+  containerId?: string,
+): Promise<string> {
+  if (deploymentKind === "docker" && containerId) {
+    return readMysqlSlowLogRangeDocker(sshConnectionId, containerId, logFilePath, start, length);
+  }
+  return readMysqlSlowLogRangeSsh(sshConnectionId, logFilePath, start, length);
 }
 
 /** 读取慢查询日志尾部若干字节（自动选择 SSH / Docker）。 */

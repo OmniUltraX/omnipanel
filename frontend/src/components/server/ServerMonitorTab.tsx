@@ -51,7 +51,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
   const { t } = useI18n();
   const moduleSuspended = useModuleSuspended();
   const connections = useConnectionStore((s) => s.connections);
-  const pollingActive = active && !moduleSuspended && server.serviceType === "1panel";
+  const pollingActive = active && !moduleSuspended;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<OnePanelDashboardBase | null>(null);
@@ -93,15 +93,52 @@ export function ServerMonitorTab({ server, active = true }: Props) {
 
   const refreshDashboardCurrent = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (server.serviceType !== "1panel") {
-        return;
-      }
       try {
-        const op = createOnePanelClient(server.address, server.key);
-        const current = await op.getDashboardCurrent();
-        setDashboard((prev) =>
-          prev ? { ...prev, currentInfo: current } : { currentInfo: current },
-        );
+        if (server.serviceType === "1panel") {
+          const op = createOnePanelClient(server.address, server.key);
+          const current = await op.getDashboardCurrent();
+          setDashboard((prev) =>
+            prev ? { ...prev, currentInfo: current } : { currentInfo: current },
+          );
+        } else {
+          const bt = createBtPanelClient(server.address, server.key);
+          const [total, network, disks] = await Promise.all([
+            bt.getSystemTotal(),
+            bt.getNetwork(),
+            bt.getDiskInfo(),
+          ]);
+          const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
+          const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
+          const rootDisk = disks[0];
+          const diskUsed = rootDisk?.size?.[0] ? Number.parseFloat(String(rootDisk.size[0])) : 0;
+          const diskTotal = rootDisk?.size?.[1] ? Number.parseFloat(String(rootDisk.size[1])) : 0;
+          setDashboard((prev) => ({
+            ...(prev ?? {
+              hostname: total.system,
+              os: total.system,
+              platformVersion: total.version,
+              cpuCores: total.cpuNum,
+            }),
+            currentInfo: {
+              cpuUsedPercent: cpuPct,
+              memoryTotal: (total.memTotal ?? 0) * 1024 * 1024,
+              memoryUsed: (total.memRealUsed ?? 0) * 1024 * 1024,
+              memoryAvailable: ((total.memTotal ?? 0) - (total.memRealUsed ?? 0)) * 1024 * 1024,
+              memoryUsedPercent: memPct,
+              load1: network.load?.one,
+              load5: network.load?.five,
+              load15: network.load?.fifteen,
+              diskData: rootDisk
+                ? [{
+                    path: rootDisk.path,
+                    total: diskTotal,
+                    used: diskUsed,
+                    usedPercent: diskTotal ? (diskUsed / diskTotal) * 100 : 0,
+                  }]
+                : [],
+            },
+          }));
+        }
         if (!options?.silent) {
           setError(null);
         }
@@ -126,41 +163,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
           ]);
           setDashboard({ ...base, currentInfo: current });
         } else {
-          const bt = createBtPanelClient(server.address, server.key);
-          const [total, network, disks] = await Promise.all([
-            bt.getSystemTotal(),
-            bt.getNetwork(),
-            bt.getDiskInfo(),
-          ]);
-          const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
-          const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
-          const rootDisk = disks[0];
-          const diskUsed = rootDisk?.size?.[0] ? Number.parseFloat(String(rootDisk.size[0])) : 0;
-          const diskTotal = rootDisk?.size?.[1] ? Number.parseFloat(String(rootDisk.size[1])) : 0;
-          setDashboard({
-            hostname: total.system,
-            os: total.system,
-            platformVersion: total.version,
-            cpuCores: total.cpuNum,
-            currentInfo: {
-              cpuUsedPercent: cpuPct,
-              memoryTotal: (total.memTotal ?? 0) * 1024 * 1024,
-              memoryUsed: (total.memRealUsed ?? 0) * 1024 * 1024,
-              memoryAvailable: ((total.memTotal ?? 0) - (total.memRealUsed ?? 0)) * 1024 * 1024,
-              memoryUsedPercent: memPct,
-              load1: network.load?.one,
-              load5: network.load?.five,
-              load15: network.load?.fifteen,
-              diskData: rootDisk
-                ? [{
-                    path: rootDisk.path,
-                    total: diskTotal,
-                    used: diskUsed,
-                    usedPercent: diskTotal ? (diskUsed / diskTotal) * 100 : 0,
-                  }]
-                : [],
-            },
-          });
+          await refreshDashboardCurrent();
         }
       } catch (e) {
         setError(String(e));
@@ -169,7 +172,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         setLoading(false);
       }
     },
-    [server.address, server.key, server.serviceType],
+    [refreshDashboardCurrent, server.address, server.key, server.serviceType],
   );
 
   useEffect(() => {

@@ -540,7 +540,6 @@ export function TerminalSessionSidebar({
                             expanded={false}
                             active={isActive}
                             onToggle={() => {}}
-                            onSelect={() => onSelectSession(session.id)}
                             onActivate={() => onSelectSession(session.id)}
                             onContextMenu={(event) => handleSessionContextMenu(event, session.id)}
                             prefix={

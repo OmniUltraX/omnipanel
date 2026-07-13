@@ -8,7 +8,7 @@ import {
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { useI18n } from "@/i18n";
-import { useTreeClickDelay, type TreeRowMouseEvent } from "./useTreeClickDelay";
+import { type TreeRowMouseEvent } from "./useTreeClickDelay";
 import { useSidebarTreeNodeSelection } from "./SidebarTreeSelectionProvider";
 import { buildSidebarTreeContextMenuItems } from "./buildSidebarTreeContextMenuItems";
 import type { SidebarTreeModule } from "./sidebarTreeTypes";
@@ -98,7 +98,7 @@ export type SidebarTreeNodeProps = {
   onClick?: (event: TreeRowMouseEvent) => void;
   /** @deprecated 使用 onActivate */
   onDoubleClick?: (event: TreeRowMouseEvent) => void;
-  /** 旧版预览延迟；onSelect + onActivate 并存时默认 0 */
+  /** @deprecated 单击预览延迟，已由「单击选中 / 双击打开」取代 */
   clickDelayMs?: number;
   shouldIgnoreClick?: (target: EventTarget | null) => boolean;
   /** 右侧刷新；未提供时不渲染刷新按钮 */
@@ -156,7 +156,6 @@ export function SidebarTreeNode({
   onActivate,
   onClick,
   onDoubleClick,
-  clickDelayMs,
   shouldIgnoreClick,
   onRefresh,
   refreshing = false,
@@ -187,20 +186,24 @@ export function SidebarTreeNode({
       ? (event: TreeRowMouseEvent) => selection.handleSelect(treeKey, event)
       : undefined);
   const activateHandler = onActivate ?? onDoubleClick;
-  const useLegacyPreviewDelay =
-    clickDelayMs !== undefined
-      ? clickDelayMs > 0
-      : Boolean(selectHandler && activateHandler && !onSelect && !onActivate);
 
   const resolveShouldIgnoreClick = shouldIgnoreClick ?? defaultShouldIgnoreClick;
 
-  const { onRowClick, onRowDoubleClick } = useTreeClickDelay({
-    onClick: selectHandler,
-    onDoubleClick: activateHandler,
-    delayMs: useLegacyPreviewDelay ? (clickDelayMs ?? 200) : 0,
-    enabled: Boolean(selectHandler) && useLegacyPreviewDelay,
-    shouldIgnoreClick: resolveShouldIgnoreClick,
-  });
+  const handleClick = selectHandler
+    ? (event: TreeRowMouseEvent) => {
+        if (resolveShouldIgnoreClick(event.target)) return;
+        selectHandler(event);
+      }
+    : undefined;
+
+  const handleDoubleClick = activateHandler
+    ? (event: TreeRowMouseEvent) => {
+        if (resolveShouldIgnoreClick(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        activateHandler(event);
+      }
+    : undefined;
 
   const builtInContextMenuItems = useMemo(
     () =>
@@ -245,16 +248,6 @@ export function SidebarTreeNode({
 
   const labelNode =
     typeof label === "string" ? <span className="tree-label-name">{label}</span> : label;
-
-  const handleClick = useLegacyPreviewDelay
-    ? selectHandler
-      ? onRowClick
-      : undefined
-    : selectHandler;
-  const handleDoubleClick =
-    useLegacyPreviewDelay && (selectHandler || activateHandler)
-      ? onRowDoubleClick
-      : activateHandler;
 
   const handleContextMenu = (event: TreeRowMouseEvent) => {
     onContextMenu?.(event);

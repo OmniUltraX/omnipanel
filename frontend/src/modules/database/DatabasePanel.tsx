@@ -3088,6 +3088,8 @@ export function DatabasePanel() {
         connId: connection.id,
         sshConnectionId: availability.sshConnectionId,
         logFilePath: availability.logFilePath,
+        deploymentKind: availability.deploymentKind,
+        containerId: availability.containerId,
       };
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
@@ -3175,6 +3177,13 @@ export function DatabasePanel() {
           <path d="M3 14h10" />
         </svg>
       );
+      const slowLogIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M3 2.5h10v11H3z" />
+          <path d="M5 6h6M5 8.5h4M5 11h5" />
+          <path d="M11 2.5V1.5H5v1" />
+        </svg>
+      );
 
       if (item.type === "database" && item.dbName && context.connection) {
         const connection = context.connection;
@@ -3241,6 +3250,7 @@ export function DatabasePanel() {
           slowLogItems.push({
             id: "slow-query-log",
             label: t("database.contextMenu.slowQueryLog"),
+            icon: slowLogIcon,
             disabled: !availability.enabled,
             disabledReason: !availability.enabled
               ? resolveSlowLogDisabledReason(availability)
@@ -4626,6 +4636,8 @@ export function DatabasePanel() {
                   connection={connection}
                   sshConnectionId={tab.sshConnectionId}
                   logFilePath={tab.logFilePath}
+                  deploymentKind={tab.deploymentKind}
+                  containerId={tab.containerId}
                   active={tab.id === activeWorkspaceTabId}
                 />
               </div>

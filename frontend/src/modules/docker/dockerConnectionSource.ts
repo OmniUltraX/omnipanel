@@ -23,8 +23,8 @@ export function isOnePanelDockerSource(source: DockerConnectionSourceValue): boo
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  "local-engine": "本地 Engine",
-  "remote-engine": "远程 Engine",
+  "local-engine": "本地 Docker",
+  "remote-engine": "远程 Engine（已停用）",
   "ssh-engine": "SSH 宿主机",
   "one-panel": "1Panel",
   onepanel: "1Panel",

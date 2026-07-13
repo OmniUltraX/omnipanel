@@ -91,6 +91,8 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                   connection={connection}
                   sshConnectionId={tab.sshConnectionId}
                   logFilePath={tab.logFilePath}
+                  deploymentKind={tab.deploymentKind}
+                  containerId={tab.containerId}
                   active={_isActive}
                 />
               );

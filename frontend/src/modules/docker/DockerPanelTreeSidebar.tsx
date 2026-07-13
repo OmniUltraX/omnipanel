@@ -247,7 +247,6 @@ function DockerTreeBranch({
                           Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                         }
                         onToggle={() => {}}
-                        onSelect={() => openItem("preview")}
                         onActivate={() => openItem("permanent")}
                         trailing={
                           <div className="tree-node-actions">

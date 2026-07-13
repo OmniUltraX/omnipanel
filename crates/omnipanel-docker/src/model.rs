@@ -301,6 +301,16 @@ pub struct DockerLogLine {
     pub message: String,
 }
 
+/// 容器日志查询参数（tail + 可选时间范围）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerLogQuery {
+    #[specta(type = f64)]
+    pub tail: i64,
+    /// 时间范围：`all` / 相对时长（`15m`、`1h`、`24h`）/ RFC3339。
+    pub since: Option<String>,
+}
+
 /// 镜像列表项。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

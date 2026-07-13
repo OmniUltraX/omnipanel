@@ -134,6 +134,50 @@
         font-size: 13px;
     }
 
+    .docker-dock-panel__body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 16px 20px 20px;
+    }
+
+    .docker-dock-panel__section + .docker-dock-panel__section {
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border);
+    }
+
+    .docker-dock-panel__section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .docker-dock-panel__section-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+        color: var(--meta);
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .docker-dock-panel__section-grid {
+        padding: 0;
+        overflow: visible;
+        flex: none;
+        min-height: auto;
+    }
+
     .docker-container-grid {
         flex: 1;
         min-height: 0;
@@ -145,17 +189,30 @@
         align-content: start;
     }
 
+    .docker-dock-panel__container-grid > .docker-container-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+    }
+
+    .docker-dock-panel__container-grid > .docker-container-card:hover {
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+        background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+    }
+
     .docker-container-card {
         display: flex;
         flex-direction: column;
         gap: 14px;
         padding: 14px;
         border: 1px solid var(--border);
-        border-radius: var(--r-md);
-        background: var(--surface-1, var(--bg-elevated, var(--bg)));
+        border-radius: var(--r-lg);
+        background: var(--surface);
         box-shadow: var(--shadow-sm, none);
+        overflow: hidden;
         cursor: pointer;
-        transition: border-color 0.12s, box-shadow 0.12s;
+        transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
     }
 
     .docker-container-card:hover {
@@ -263,8 +320,6 @@
         flex-direction: column;
         height: 100%;
         min-height: 0;
-        border: 1px solid var(--border);
-        border-radius: var(--radius-md);
         background: var(--surface-1);
         overflow: hidden;
     }
@@ -620,6 +675,36 @@
         min-height: 0;
     }
 
+    .docker-container-subwindow--logs .log-viewer-panel__footer {
+        justify-content: stretch;
+    }
+
+    .docker-container-subwindow--logs .log-viewer-panel__footer-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        width: 100%;
+        min-width: 0;
+    }
+
+    .docker-container-subwindow--logs .log-viewer-panel__footer-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .docker-container-subwindow--logs .log-viewer-panel__footer-meta {
+        color: var(--meta);
+    }
+
+    .docker-container-subwindow--logs .log-viewer-panel__footer-actions .is-active {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
     .docker-container-subwindow--directory {
         padding: 12px 16px 16px;
         gap: 12px;
@@ -770,12 +855,43 @@
         outline-offset: -1px;
     }
 
-    .docker-sidebar-tree .sidebar-tree-node[draggable="true"] {
+    .docker-tree-node--pointer-draggable {
         cursor: grab;
     }
 
-    .docker-sidebar-tree .sidebar-tree-node[draggable="true"]:active {
+    .docker-tree-node--dragging {
+        opacity: 0.55;
+    }
+
+    body.docker-sidebar-tree--pointer-dragging {
+        cursor: grabbing !important;
+        user-select: none;
+    }
+
+    body.docker-sidebar-tree--pointer-dragging .docker-tree-node--pointer-draggable:not(.docker-tree-node--dragging) {
         cursor: grabbing;
+    }
+
+    .docker-service-group-category--drop-target .docker-service-group-drop-zone--empty {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 6%, transparent);
+    }
+
+    .docker-service-group-drop-zone--empty {
+        min-height: 28px;
+        margin: 2px 8px 4px 40px;
+        padding: 4px 8px;
+        border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+        border-radius: var(--r-sm);
+        transition: border-color 0.1s, background 0.1s;
+    }
+
+    .docker-service-group-drop-zone__hint {
+        font-size: 11px;
+        color: var(--meta);
+        line-height: 1.4;
+        user-select: none;
+        pointer-events: none;
     }
 
     .docker-sidebar-title {

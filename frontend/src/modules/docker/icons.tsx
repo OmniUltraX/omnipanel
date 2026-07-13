@@ -144,6 +144,27 @@ export function LogsIcon({ size = 14 }: IconProps) {
   );
 }
 
+/** 下载日志 */
+export function DownloadIcon({ size = 14 }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width={size} height={size}>
+      <path d="M12 3v12M8 11l4 4 4-4" />
+      <path d="M4 19h16" />
+    </svg>
+  );
+}
+
+/** 跟踪日志（跟随模式） */
+export function FollowIcon({ size = 14, active = false }: IconProps & { active?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width={size} height={size}>
+      <circle cx="12" cy="12" r="3" fill={active ? "currentColor" : "none"} />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      {active ? <circle cx="12" cy="12" r="7" strokeDasharray="3 3" /> : null}
+    </svg>
+  );
+}
+
 /** 容器目录 / 文件 */
 export function DirectoryIcon({ size = 14 }: IconProps) {
   return (

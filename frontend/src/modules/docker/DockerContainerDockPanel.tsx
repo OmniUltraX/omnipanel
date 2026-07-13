@@ -159,9 +159,9 @@ export function DockerContainerDockPanel({
           <div className="docker-container-workspace__body">
             <DockLayout direction="horizontal" className="docker-container-workspace__split">
               <DockPanel
-                defaultSize="58%"
-                minSize="35%"
-                maxSize="75%"
+                defaultSize="78%"
+                minSize="55%"
+                maxSize="88%"
                 className="docker-container-workspace__exec-pane"
               >
                 <DockerContainerExecTerminal
@@ -172,12 +172,12 @@ export function DockerContainerDockPanel({
                 />
               </DockPanel>
               <DockHandle direction="horizontal" />
-              <DockPanel defaultSize="42%" minSize="25%" className="docker-container-workspace__side-pane">
+              <DockPanel defaultSize="22%" minSize="12%" className="docker-container-workspace__side-pane">
                 <DockLayout direction="vertical" className="docker-container-workspace__side-split">
                   <DockPanel
-                    defaultSize="42%"
-                    minSize="25%"
-                    maxSize="60%"
+                    defaultSize="18%"
+                    minSize="12%"
+                    maxSize="35%"
                     className="docker-container-workspace__overview-pane"
                   >
                     <div className="docker-container-workspace__overview-wrap">
@@ -192,7 +192,7 @@ export function DockerContainerDockPanel({
                     </div>
                   </DockPanel>
                   <DockHandle direction="vertical" />
-                  <DockPanel defaultSize="58%" minSize="30%" className="docker-container-workspace__dir-pane">
+                  <DockPanel defaultSize="82%" minSize="65%" className="docker-container-workspace__dir-pane">
                     <div className="docker-container-workspace__dir-wrap">
                       <div className="docker-container-workspace__dir-header">
                         {t("docker.dockPanel.directory")}

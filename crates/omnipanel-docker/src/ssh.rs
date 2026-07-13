@@ -54,8 +54,11 @@ impl DockerAdapter for SshDockerAdapter {
     async fn create_container(&self, req: &DockerCreateContainerRequest) -> OmniResult<String> {
         create_container(&*self.session, req).await
     }
-    async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>> {
-        container_logs(&*self.session, id, tail).await
+    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>> {
+        container_logs(&*self.session, id, query).await
+    }
+    async fn clear_container_logs(&self, id: &str) -> OmniResult<()> {
+        clear_container_logs(&*self.session, id).await
     }
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
         list_images(&*self.session).await
@@ -425,9 +428,17 @@ pub async fn create_container(
 pub async fn container_logs(
     session: &SshSession,
     id: &str,
-    tail: i64,
+    query: &DockerLogQuery,
 ) -> OmniResult<Vec<DockerLogLine>> {
-    let cmd = format!("docker logs --tail {tail} {}", shell_quote(id));
+    let tail = query.tail_or_default();
+    let since_arg = query
+        .since_for_docker_cli()
+        .map(|s| format!(" --since {s}"))
+        .unwrap_or_default();
+    let cmd = format!(
+        "docker logs --tail {tail}{since_arg} {}",
+        shell_quote(id)
+    );
     let out = session.exec_capture(&cmd).await?;
     if out.exit_code != 0 {
         return Err(docker_cli_error("获取远端容器日志失败", &out.stderr));
@@ -442,6 +453,21 @@ pub async fn container_logs(
         }
     }
     Ok(lines)
+}
+
+/// 清空远端容器日志文件。
+pub async fn clear_container_logs(session: &SshSession, id: &str) -> OmniResult<()> {
+    let cmd = format!(
+        "log=$(docker inspect -f '{{{{.LogPath}}}}' {}); \
+         if [ -z \"$log\" ] || [ ! -e \"$log\" ]; then exit 2; fi; \
+         : > \"$log\"",
+        shell_quote(id)
+    );
+    let out = session.exec_capture(&cmd).await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("清空远端容器日志失败", &out.stderr));
+    }
+    Ok(())
 }
 
 /// 远端容器交互终端：在独立 PTY exec channel 上跑 `docker exec -it`，
@@ -513,7 +539,7 @@ fn rx_to_output_stream(
 pub async fn stream_logs<F>(
     session: &SshSession,
     id: &str,
-    tail: i64,
+    query: &DockerLogQuery,
     follow: bool,
     stop: Arc<AtomicBool>,
     mut emit: F,
@@ -521,11 +547,19 @@ pub async fn stream_logs<F>(
 where
     F: FnMut(DockerLogLine) + Send,
 {
+    let tail = query.tail_or_default();
+    let since_arg = query
+        .since_for_docker_cli()
+        .map(|s| format!(" --since {s}"))
+        .unwrap_or_default();
     let cmd = if follow {
-        format!("docker logs -f --tail {tail} {}", shell_quote(id))
+        format!(
+            "docker logs -f --tail {tail}{since_arg} {}",
+            shell_quote(id)
+        )
     } else {
         // 非 follow 走一次性路径，保持与本地行为一致。
-        let lines = container_logs(session, id, tail).await?;
+        let lines = container_logs(session, id, query).await?;
         lines.into_iter().for_each(&mut emit);
         return Ok(());
     };

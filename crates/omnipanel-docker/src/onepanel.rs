@@ -22,7 +22,7 @@ use crate::{
     DockerContainerDetail, DockerContainerStats, DockerContainerSummary,
     DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
     DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer,
-    DockerImageProgress, DockerImageSummary, DockerKeyValue, DockerLogLine, DockerNetworkContainer,
+    DockerImageProgress, DockerImageSummary, DockerKeyValue, DockerLogLine, DockerLogQuery, DockerNetworkContainer,
     DockerNetworkDetail, DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary,
     DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
     DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
@@ -101,6 +101,18 @@ impl OnePanelClient {
         let text = self
             .request_raw(reqwest::Method::GET, path, None::<()>, Some(query))
             .await?;
+        Self::parse_text_response(text)
+    }
+
+    /// POST 日志下载端点（`/containers/download/log` 等）：响应体可能是纯文本或 `{ data }` 包裹。
+    async fn post_text<B: serde::Serialize>(&self, path: &str, body: B) -> OmniResult<String> {
+        let text = self
+            .request_raw(reqwest::Method::POST, path, Some(body), None)
+            .await?;
+        Self::parse_text_response(text)
+    }
+
+    fn parse_text_response(text: String) -> OmniResult<String> {
         if let Ok(parsed) = serde_json::from_str::<OnePanelResponse<String>>(&text) {
             if parsed.code != 0 && parsed.code != 200 {
                 return Err(OmniError::new(
@@ -1066,33 +1078,45 @@ impl DockerAdapter for OnePanelAdapter {
         ))
     }
 
-    async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>> {
+    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>> {
         let container_name = resolve_container_name(&self.client, id).await;
-        let tail_text = if tail <= 0 {
-            "500".to_string()
-        } else {
-            tail.to_string()
-        };
+        let tail_value = query.tail_or_default();
+        let since = query.since_for_onepanel();
+        // GET /containers/search/log 为 SSE 流式接口；批量拉取应走 POST /containers/download/log
         let text = self
             .client
-            .get_text(
-                "/api/v2/containers/search/log",
-                &[
-                    ("container", container_name.as_str()),
-                    ("tail", tail_text.as_str()),
-                    ("follow", "false"),
-                    ("timestamp", "true"),
-                ],
+            .post_text(
+                "/api/v2/containers/download/log",
+                serde_json::json!({
+                    "container": container_name,
+                    "containerType": "container",
+                    "since": since,
+                    "tail": tail_value,
+                    "timestamp": true,
+                }),
             )
             .await
             .map_err(|e| e.with_cause("1Panel 拉取日志失败"))?;
         Ok(text
             .lines()
+            .filter(|line| !line.is_empty())
             .map(|line| DockerLogLine {
                 stream: "stdout".into(),
                 message: line.to_string(),
             })
             .collect())
+    }
+
+    async fn clear_container_logs(&self, id: &str) -> OmniResult<()> {
+        let container_name = resolve_container_name(&self.client, id).await;
+        self.client
+            .post_json::<_, serde_json::Value>(
+                "/api/v2/containers/clean/log",
+                serde_json::json!({ "name": container_name }),
+            )
+            .await
+            .map_err(|e| e.with_cause("1Panel 清空容器日志失败"))?;
+        Ok(())
     }
 
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {

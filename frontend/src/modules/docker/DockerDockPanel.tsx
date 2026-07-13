@@ -3,12 +3,14 @@ import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState"
 import { useI18n } from "../../i18n";
 import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
 import { appConfirm } from "../../lib/appConfirm";
+import { selectDockerServiceGroups, useDockerServiceGroupStore } from "../../stores/dockerServiceGroupStore";
 import { DockerContainerOverviewCard } from "./DockerContainerOverviewCard";
 import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
 import { useDockerContainerGrid } from "./hooks/useDockerContainerGrid";
 import { runDockerContainerAction } from "./dockerContainerActions";
 import type { DockerContainerLifecycleAction } from "./dockerContainerLifecycle";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
+import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
 
 export type DockerContainerSubWindowKind = "detail" | "params" | "logs" | "directory";
 
@@ -32,6 +34,21 @@ function normalizeContainerKey(containerId: string): string {
   return containerId.trim().toLowerCase();
 }
 
+function sortContainerGridItems(items: DockerContainerGridItem[]): DockerContainerGridItem[] {
+  return [...items].sort((a, b) => {
+    if (a.container.running !== b.container.running) {
+      return a.container.running ? -1 : 1;
+    }
+    return a.container.name.localeCompare(b.container.name);
+  });
+}
+
+type ContainerDisplaySection = {
+  key: string;
+  title: string;
+  items: DockerContainerGridItem[];
+};
+
 function subWindowTitle(kind: DockerContainerSubWindowKind, t: (key: string) => string): string {
   switch (kind) {
     case "detail":
@@ -54,6 +71,7 @@ export function DockerDockPanel({
 }: DockerDockPanelProps) {
   const { t } = useI18n();
   const { items, loading, error, refreshNow } = useDockerContainerGrid(connection.connectionId, isActive);
+  const serviceGroups = useDockerServiceGroupStore(selectDockerServiceGroups(connection.connectionId));
   const [openSubWindow, setOpenSubWindow] = useState<OpenContainerSubWindow | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, true>>({});
   const [actionError, setActionError] = useState<string | null>(null);
@@ -72,16 +90,59 @@ export function DockerDockPanel({
     });
   }, [containerIdSet, items]);
 
-  const sortedItems = useMemo(
-    () =>
-      [...filteredItems].sort((a, b) => {
-        if (a.container.running !== b.container.running) {
-          return a.container.running ? -1 : 1;
-        }
-        return a.container.name.localeCompare(b.container.name);
-      }),
-    [filteredItems],
-  );
+  const sortedItems = useMemo(() => sortContainerGridItems(filteredItems), [filteredItems]);
+
+  const containerItemByKey = useMemo(() => {
+    const map = new Map<string, DockerContainerGridItem>();
+    for (const item of sortedItems) {
+      map.set(normalizeContainerKey(item.container.id), item);
+      map.set(normalizeContainerKey(item.container.shortId), item);
+    }
+    return map;
+  }, [sortedItems]);
+
+  const groupedContainerIdSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const group of serviceGroups) {
+      for (const containerId of group.containerIds) {
+        set.add(normalizeContainerKey(containerId));
+      }
+    }
+    return set;
+  }, [serviceGroups]);
+
+  const displaySections = useMemo((): ContainerDisplaySection[] | null => {
+    if (containerIdSet) return null;
+
+    const sections: ContainerDisplaySection[] = [];
+
+    for (const group of serviceGroups) {
+      const groupItems = sortContainerGridItems(
+        group.containerIds
+          .map((id) => containerItemByKey.get(normalizeContainerKey(id)))
+          .filter((item): item is DockerContainerGridItem => item != null),
+      );
+      if (groupItems.length === 0) continue;
+      sections.push({
+        key: group.id,
+        title: group.name,
+        items: groupItems,
+      });
+    }
+
+    const ungroupedItems = sortContainerGridItems(
+      sortedItems.filter((item) => !groupedContainerIdSet.has(normalizeContainerKey(item.container.id))),
+    );
+    if (ungroupedItems.length > 0) {
+      sections.push({
+        key: "__ungrouped__",
+        title: t("docker.dockPanel.ungrouped"),
+        items: ungroupedItems,
+      });
+    }
+
+    return sections;
+  }, [containerIdSet, containerItemByKey, groupedContainerIdSet, serviceGroups, sortedItems, t]);
 
   const openDetail = useCallback((container: DockerContainerSummary) => {
     setOpenSubWindow({
@@ -143,6 +204,20 @@ export function DockerDockPanel({
     [connection.connectionId, refreshNow, setContainerPending, t],
   );
 
+  const renderContainerCard = (item: DockerContainerGridItem) => (
+    <DockerContainerOverviewCard
+      key={item.container.id}
+      container={item.container}
+      stats={item.stats}
+      t={t}
+      navigable
+      actionPending={Boolean(pendingActions[normalizeContainerKey(item.container.id)])}
+      onOpenDetail={openDetail}
+      onOpenAction={openAction}
+      onLifecycleAction={handleLifecycleAction}
+    />
+  );
+
   if (!isActive) {
     return <div className="docker-dock-panel docker-dock-panel--inactive" aria-hidden />;
   }
@@ -168,21 +243,23 @@ export function DockerDockPanel({
           <div className="docker-dock-panel__loading">{t("docker.dockPanel.loading")}</div>
         ) : sortedItems.length === 0 ? (
           <ModuleEmptyState preset="container" title={t("docker.dockPanel.empty")} />
-        ) : (
-          <div className="docker-container-grid">
-            {sortedItems.map(({ container, stats }) => (
-              <DockerContainerOverviewCard
-                key={container.id}
-                container={container}
-                stats={stats}
-                t={t}
-                navigable
-                actionPending={Boolean(pendingActions[normalizeContainerKey(container.id)])}
-                onOpenDetail={openDetail}
-                onOpenAction={openAction}
-                onLifecycleAction={handleLifecycleAction}
-              />
+        ) : displaySections ? (
+          <div className="docker-dock-panel__body">
+            {displaySections.map((section) => (
+              <section key={section.key} className="docker-dock-panel__section">
+                <h3 className="docker-dock-panel__section-title">
+                  {section.title}
+                  <span className="docker-dock-panel__section-count">{section.items.length}</span>
+                </h3>
+                <div className="docker-container-grid docker-dock-panel__container-grid docker-dock-panel__section-grid">
+                  {section.items.map((item) => renderContainerCard(item))}
+                </div>
+              </section>
             ))}
+          </div>
+        ) : (
+          <div className="docker-container-grid docker-dock-panel__container-grid">
+            {sortedItems.map((item) => renderContainerCard(item))}
           </div>
         )}
       </div>

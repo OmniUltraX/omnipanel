@@ -17,8 +17,27 @@ export function fetchDockerContainerLogs(
   connectionId: string,
   containerId: string,
   tail = 500,
+  since: string | null = null,
 ): Promise<DockerLogLine[]> {
-  return unwrap(commands.dockerContainerLogs(connectionId, containerId, tail));
+  return unwrap(commands.dockerContainerLogs(connectionId, containerId, tail, since));
+}
+
+export function clearDockerContainerLogs(connectionId: string, containerId: string): Promise<void> {
+  return unwrap(commands.dockerClearContainerLogs(connectionId, containerId));
+}
+
+export function startDockerContainerLogStream(
+  connectionId: string,
+  containerId: string,
+  tail: number,
+  since: string | null,
+  follow: boolean,
+): Promise<string> {
+  return unwrap(commands.dockerStreamContainerLogs(connectionId, containerId, tail, since, follow));
+}
+
+export function stopDockerContainerLogStream(streamId: string): Promise<void> {
+  return unwrap(commands.dockerStopLogStream(streamId));
 }
 
 export function listDockerContainerDir(

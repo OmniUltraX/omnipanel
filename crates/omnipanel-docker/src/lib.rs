@@ -7,6 +7,7 @@
 //! - 所有错误统一为 [`OmniError`]，命令层零散字符串错误就此收敛。
 
 mod compose;
+mod log_util;
 pub mod local;
 pub mod local_engine;
 pub mod model;
@@ -78,8 +79,10 @@ pub trait DockerAdapter: Send + Sync {
     async fn container_action(&self, id: &str, action: DockerContainerAction) -> OmniResult<()>;
     /// 创建容器。
     async fn create_container(&self, req: &DockerCreateContainerRequest) -> OmniResult<String>;
-    /// 拉取容器日志（一次性，tail 行）。流式由命令层另行处理。
-    async fn container_logs(&self, id: &str, tail: i64) -> OmniResult<Vec<DockerLogLine>>;
+    /// 拉取容器日志（一次性）。流式由命令层另行处理。
+    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>>;
+    /// 清空容器日志文件（1Panel / SSH / 本地 CLI 路径）。
+    async fn clear_container_logs(&self, id: &str) -> OmniResult<()>;
     /// 镜像列表。
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>>;
     /// 镜像详情（配置 / 历史层）。

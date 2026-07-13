@@ -34,21 +34,14 @@ interface DockerConnectionDialogProps {
   editConnection?: Connection;
 }
 
-type Source = "local-engine" | "remote-engine" | "ssh-engine" | "onepanel";
+type Source = "ssh-engine" | "onepanel";
 type SshAuth = "password" | "privateKey";
-type TlsMode = "none" | "tls";
 
 interface DockerForm {
   name: string;
   group: string;
   envTag: string;
   source: Source;
-  remoteHost: string;
-  remotePort: string;
-  tlsMode: TlsMode;
-  caCert: string;
-  clientCert: string;
-  clientKey: string;
   sshHost: string;
   sshPort: string;
   sshUser: string;
@@ -74,13 +67,7 @@ const EMPTY: DockerForm = {
   name: "",
   group: "默认",
   envTag: "local",
-  source: "local-engine",
-  remoteHost: "",
-  remotePort: "2376",
-  tlsMode: "tls",
-  caCert: "",
-  clientCert: "",
-  clientKey: "",
+  source: "ssh-engine",
   sshHost: "",
   sshPort: "22",
   sshUser: "root",
@@ -137,27 +124,8 @@ function applyBoundSshToForm(form: DockerForm, conn: Connection): DockerForm {
 }
 
 function formToConfig(form: DockerForm, sshConnections: Connection[]): string {
-  if (form.source === "local-engine") {
-    return JSON.stringify({ source: "local-engine" });
-  }
   if (form.source === "onepanel") {
     return formToOnePanelConfig(form);
-  }
-  if (form.source === "remote-engine") {
-    const cfg: Record<string, unknown> = {
-      source: "remote-engine",
-      host: form.remoteHost.trim(),
-      port: parseInt(form.remotePort, 10) || 2376,
-    };
-    if (form.tlsMode === "tls") {
-      cfg.tls = true;
-      if (form.caCert.trim()) cfg.caCert = form.caCert;
-      if (form.clientCert.trim()) cfg.clientCert = form.clientCert;
-      if (form.clientKey.trim()) cfg.clientKey = form.clientKey;
-    } else {
-      cfg.tls = false;
-    }
-    return JSON.stringify(cfg);
   }
   // ssh-engine
   if (form.boundSshConnectionId.trim()) {
@@ -214,21 +182,13 @@ function connectionToForm(conn: Connection): DockerForm {
   } catch {
     /* ignore */
   }
-  const source = typeof cfg.source === "string" ? cfg.source : "local-engine";
-  if (source === "remote-engine") {
-    base.source = "remote-engine";
-    if (typeof cfg.host === "string") base.remoteHost = cfg.host;
-    if (typeof cfg.port === "number") base.remotePort = String(cfg.port);
-    if (cfg.tls === true) {
-      base.tlsMode = "tls";
-      if (typeof cfg.caCert === "string") base.caCert = cfg.caCert;
-      if (typeof cfg.clientCert === "string") base.clientCert = cfg.clientCert;
-      if (typeof cfg.clientKey === "string") base.clientKey = cfg.clientKey;
-    } else {
-      base.tlsMode = "none";
-    }
-  } else if (source === "ssh-engine") {
+  const source = typeof cfg.source === "string" ? cfg.source : "ssh-engine";
+  if (source === "ssh-engine" || source === "remote-engine" || source === "local-engine") {
     base.source = "ssh-engine";
+    if (source === "remote-engine" && typeof cfg.host === "string") {
+      base.sshHost = cfg.host;
+      if (typeof cfg.port === "number") base.sshPort = String(cfg.port);
+    }
     const ssh = cfg.ssh as Record<string, unknown> | undefined;
     if (ssh) {
       if (typeof ssh.host === "string") base.sshHost = ssh.host;
@@ -277,6 +237,7 @@ export function DockerConnectionDialog({
   const [detectResult, setDetectResult] = useState<DockerAutoDetectResult | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [sshManualMode, setSshManualMode] = useState(false);
+  const [legacySourceNotice, setLegacySourceNotice] = useState<string | null>(null);
 
   const sshConnections = useMemo(
     () => connections.filter((c) => c.kind === "ssh"),
@@ -327,12 +288,27 @@ export function DockerConnectionDialog({
   useEffect(() => {
     if (!open) return;
     if (editConnection) {
+      let cfgSource = "ssh-engine";
+      try {
+        const cfg = editConnection.config
+          ? (JSON.parse(editConnection.config) as Record<string, unknown>)
+          : {};
+        if (typeof cfg.source === "string") cfgSource = cfg.source;
+      } catch {
+        /* ignore */
+      }
       const next = connectionToForm(editConnection);
       setForm(next);
       setSshManualMode(!next.boundSshConnectionId);
+      setLegacySourceNotice(
+        cfgSource === "remote-engine"
+          ? "原「远程 Engine API 直连」已不再支持，请改用 SSH 宿主机或 1Panel 并重新保存。"
+          : null,
+      );
     } else {
       setForm(EMPTY);
       setSshManualMode(false);
+      setLegacySourceNotice(null);
     }
     setError(null);
     setSaving(false);
@@ -350,7 +326,6 @@ export function DockerConnectionDialog({
 
   const validate = (): string | null => {
     if (!form.name.trim()) return "请输入连接名称";
-    if (form.source === "remote-engine" && !form.remoteHost.trim()) return "请输入远程 Engine 地址";
     if (form.source === "ssh-engine") {
       if (!sshManualMode) {
         if (!form.boundSshConnectionId.trim()) return "请选择已配置的 SSH 连接";
@@ -407,7 +382,13 @@ export function DockerConnectionDialog({
       size="lg"
       onCancel={onClose}
       cancelDisabled={saving}
-      status={error ? { kind: "error", message: error } : null}
+      status={
+        error
+          ? { kind: "error", message: error }
+          : legacySourceNotice
+            ? { kind: "info", message: legacySourceNotice }
+            : null
+      }
       primaryAction={{
         label: saving ? "保存中…" : "保存",
         disabled: saving,
@@ -426,11 +407,9 @@ export function DockerConnectionDialog({
 
           <div className="form-field">
             <label className="form-label">引擎来源</label>
-            <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+            <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
               {(
                 [
-                  { value: "local-engine" as const, label: "本地 Engine", hint: "本机 Docker Desktop / Engine" },
-                  { value: "remote-engine" as const, label: "远程 Engine", hint: "Docker Engine API (TCP/TLS)" },
                   { value: "ssh-engine" as const, label: "SSH 宿主机", hint: "在远端调用 docker CLI" },
                   { value: "onepanel" as const, label: "1Panel 面板", hint: "通过 /api/v2 调用" },
                 ]
@@ -446,97 +425,10 @@ export function DockerConnectionDialog({
                 </button>
               ))}
             </div>
+            <p className="form-hint" style={{ marginTop: 8 }}>
+              本机 Docker 已默认可用，无需添加连接；此处仅配置远程 SSH 宿主机或 1Panel 面板。
+            </p>
           </div>
-
-          {form.source === "local-engine" && (
-            <div className="form-hint" style={{ marginTop: 4 }}>
-              将使用本机 Docker Desktop / Engine 默认连接（Unix socket 或 Windows 命名管道）。无需额外配置。
-            </div>
-          )}
-
-          {form.source === "remote-engine" && (
-            <>
-              <div className="form-row">
-                <div className="form-field" style={{ flex: 2 }}>
-                  <label className="form-label">Engine 地址</label>
-                  <TextInput
-                    placeholder="docker.example.com"
-                    value={form.remoteHost}
-                    onChange={(value) => update("remoteHost", value)}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-                <div className="form-field" style={{ flex: 1 }}>
-                  <label className="form-label">端口</label>
-                  <TextInput
-                    placeholder="2376"
-                    value={form.remotePort}
-                    onChange={(value) => update("remotePort", value)}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label className="form-label">TLS</label>
-                <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                  <button
-                    type="button"
-                    className={`engine-chip${form.tlsMode === "none" ? " engine-chip--active" : ""}`}
-                    onClick={() => update("tlsMode", "none")}
-                  >
-                    <span>明文 HTTP</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`engine-chip${form.tlsMode === "tls" ? " engine-chip--active" : ""}`}
-                    onClick={() => update("tlsMode", "tls")}
-                  >
-                    <span>TLS（推荐）</span>
-                  </button>
-                </div>
-              </div>
-
-              {form.tlsMode === "tls" && (
-                <>
-                  <div className="form-field">
-                    <label className="form-label">CA 证书（PEM，可选）</label>
-                    <textarea
-                      className="input"
-                      rows={3}
-                      placeholder="-----BEGIN CERTIFICATE-----&#10;..."
-                      value={form.caCert}
-                      onChange={(e) => update("caCert", e.target.value)}
-                      style={{ width: "100%", resize: "vertical", fontFamily: "monospace" }}
-                    />
-                  </div>
-                  <div className="form-field">
-                    <label className="form-label">客户端证书（PEM，可选）</label>
-                    <textarea
-                      className="input"
-                      rows={3}
-                      placeholder="-----BEGIN CERTIFICATE-----&#10;..."
-                      value={form.clientCert}
-                      onChange={(e) => update("clientCert", e.target.value)}
-                      style={{ width: "100%", resize: "vertical", fontFamily: "monospace" }}
-                    />
-                  </div>
-                  <div className="form-field">
-                    <label className="form-label">客户端私钥（PEM，可选）</label>
-                    <textarea
-                      className="input"
-                      rows={3}
-                      placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
-                      value={form.clientKey}
-                      onChange={(e) => update("clientKey", e.target.value)}
-                      style={{ width: "100%", resize: "vertical", fontFamily: "monospace" }}
-                    />
-                    <p className="form-hint">远端 Engine 启用 mTLS 时填写，否则保持空。</p>
-                  </div>
-                </>
-              )}
-            </>
-          )}
 
           {form.source === "onepanel" && (
             <>
