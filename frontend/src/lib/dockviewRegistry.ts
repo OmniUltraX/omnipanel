@@ -1,4 +1,10 @@
 import type { DockviewApi, DockviewDidDropEvent, DockviewWillDropEvent } from "dockview-react";
+import {
+  MAX_WORKSPACE_PANELS,
+  useWorkspaceBottomDockStore,
+} from "../stores/workspaceBottomDockStore";
+
+const WORKSPACE_BOTTOM_PREFIX = "workspace-bottom-";
 
 export interface DockviewInstanceScope {
   scope: string;
@@ -310,6 +316,37 @@ export function transferPanelBetweenInstances(
     return false;
   }
 
+  // 容量预检：目标若是 workspace dock 且已满（含待转移 panelId 时仍允许更新），
+  // 提前拒绝 transfer，避免 addMirroredTab/addPayloadTab 静默不添加但 removePanel 已执行导致 tab 丢失。
+  if (target.scope.startsWith(WORKSPACE_BOTTOM_PREFIX)) {
+    const workspaceId = target.scope.slice(WORKSPACE_BOTTOM_PREFIX.length);
+    const currentTabs =
+      useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
+    const alreadyTracked = currentTabs.some((t) => t.id === newPanelId);
+    if (currentTabs.length >= MAX_WORKSPACE_PANELS && !alreadyTracked) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[crossDock][transfer][reject-capacity] source=${source.scope}/${panelId} -> target=${target.scope} current=${currentTabs.length} max=${MAX_WORKSPACE_PANELS}`,
+      );
+      return false;
+    }
+  }
+
+  // eslint-disable-next-line no-console
+  console.info(
+    `[crossDock][transfer][start] source=${source.scope}/${panelId} -> target=${target.scope} newPanelId=${newPanelId}`,
+  );
+
+  // 记录 workspace 目标在 emit 前的 tabs 状态，用于同步检查 listener 是否成功落地
+  const targetWorkspaceId = target.scope.startsWith(WORKSPACE_BOTTOM_PREFIX)
+    ? target.scope.slice(WORKSPACE_BOTTOM_PREFIX.length)
+    : null;
+  const beforeTabs =
+    targetWorkspaceId !== null
+      ? (useWorkspaceBottomDockStore.getState().tabsByWorkspace[targetWorkspaceId] ?? [])
+          .map((t) => t.id)
+      : null;
+
   emitTransfer({
     newPanelId,
     title,
@@ -318,21 +355,53 @@ export function transferPanelBetweenInstances(
     params: (panelDef?.params ?? {}) as Record<string, unknown>,
   });
 
+  // 同步校验：emit 后目标 store 是否真的收到了 newPanelId？
+  // 失败原因通常是 buildWorkspaceTabFromModuleTransfer 返回 null（终端 tab 找不到、
+  // 数据库 mirror 缺失等），若不拦截会同时污染 source store（setTabWorkspaceOnly 触发
+  // syncTabsToApi 移除 panel）导致 tab 真的丢失。
+  if (targetWorkspaceId !== null && beforeTabs !== null) {
+    const afterTabs =
+      useWorkspaceBottomDockStore.getState().tabsByWorkspace[targetWorkspaceId] ?? [];
+    const transferLanded = afterTabs.some((t) => t.id === newPanelId);
+    if (!transferLanded) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[crossDock][transfer][abort-no-land] source=${source.scope}/${panelId} -> target=${target.scope} newPanelId=${newPanelId} 不在 workspace store，放弃本次转移以避免 tab 丢失`,
+      );
+      return false;
+    }
+  }
+
+  // 仅当目标确认收到后才通知源端迁出（避免 source.setTabWorkspaceOnly 触发 syncTabsToApi 把 panel 移除）
   source.onPanelTransferredOut?.(panelId, target.scope);
+
   // 须在 dockview pointer 拖拽收尾后再 removePanel，否则 movingLock 内会抛 invalid operation
   const deferRemove = () => {
     try {
       const lingering = source.api.getPanel(panelId);
       if (lingering) {
         source.api.removePanel(lingering);
+        // eslint-disable-next-line no-console
+        console.info(
+          `[crossDock][transfer][deferRemove] source=${source.scope}/${panelId} removed`,
+        );
       }
-    } catch {
-      // 拖拽周期内 panel 可能已被 dockview 自行处理
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[crossDock][transfer][deferRemove-err] source=${source.scope}/${panelId}`,
+        err,
+      );
     }
   };
   requestAnimationFrame(() => {
     requestAnimationFrame(deferRemove);
   });
+
+  // eslint-disable-next-line no-console
+  console.info(
+    `[crossDock][transfer][ok] source=${source.scope}/${panelId} -> target=${target.scope} newPanelId=${newPanelId}`,
+  );
 
   return true;
 }

@@ -20,6 +20,7 @@ import {
   findOtherWindowHitSync,
   findTopmostWindowHitSync,
   findWindowLabelAtScreenPoint,
+  getSoleOtherWindowLabelSync,
   isPointerOutsideCurrentWindow,
   isWindowChromePointerTarget,
   primeWindowBoundsCache,
@@ -33,7 +34,7 @@ import {
 import { isTauriRuntime } from "./isTauriRuntime";
 import { safeTauriUnlisten } from "./safeTauriUnlisten";
 import { useWorkspaceStore } from "../stores/workspaceStore";
-import { useWorkspaceBottomDockStore, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
+import { useWorkspaceBottomDockStore, MAX_WORKSPACE_PANELS, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { ensureTerminalTabFromSnapshot } from "./workspaceTabActions";
@@ -93,6 +94,17 @@ function bridgeLog(message: string): void {
   if (!import.meta.env.DEV) return;
   console.info(`[moduleToWorkspaceDrag] ${message}`);
 }
+
+// 高频路径（pointermove broadcast）专用采样日志
+function bridgeLogSampled(message: string): void {
+  if (!import.meta.env.DEV) return;
+  const now = Date.now();
+  if (now - lastBridgeLogAt < 200) return;
+  lastBridgeLogAt = now;
+  console.info(`[moduleToWorkspaceDrag] ${message}`);
+}
+
+let lastBridgeLogAt = 0;
 
 function isModuleDockDragActive(): boolean {
   return Boolean(
@@ -307,9 +319,13 @@ async function broadcastDragActive(
     // 仅当指针已离开源窗几何时才计算命中目标。
     // 指针在源窗内时 targetLabel=null：源窗在顶层，不应有目标窗激活。
     const outside = isPointerOutsideCurrentWindow(screenX, screenY);
-    const targetLabel = outside
-      ? findOtherWindowHitSync(screenX, screenY, current)
-      : null;
+    let targetLabel: string | null = null;
+    if (outside) {
+      targetLabel = findOtherWindowHitSync(screenX, screenY, current);
+      if (!targetLabel) {
+        targetLabel = getSoleOtherWindowLabelSync(current);
+      }
+    }
     await emitToOtherWebviews(
       CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
       {
@@ -320,7 +336,7 @@ async function broadcastDragActive(
       },
       current,
     );
-    bridgeLog(`broadcast active from ${session.sourceWindowLabel} panel=${session.panelId} target=${targetLabel}`);
+    bridgeLogSampled(`broadcast active from ${session.sourceWindowLabel} panel=${session.panelId} target=${targetLabel}`);
   } catch (e) {
     console.warn("[moduleToWorkspaceDrag] broadcast active failed", e);
     activeBroadcast = false;
@@ -358,6 +374,10 @@ function applyIncomingModuleTab(
     useWorkspaceStore.getState().workspaces.find((w) => w.id === targetWorkspaceId) ??
     useWorkspaceStore.getState().workspace;
   const dock = useWorkspaceBottomDockStore.getState();
+  const beforeCount = dock.tabsByWorkspace[targetWorkspaceId]?.length ?? 0;
+  bridgeLog(
+    `applyIncoming enter ws=${targetWorkspaceId} panel=${session.panelId} scope=${session.originScope} beforeCount=${beforeCount} max=${MAX_WORKSPACE_PANELS}`,
+  );
 
   let tab =
     session.serializedTab != null
@@ -385,6 +405,11 @@ function applyIncomingModuleTab(
   } else {
     dock.addMirroredTab(targetWorkspaceId, workspace, tab as WorkspaceDockTab);
   }
+  const afterCount = useWorkspaceBottomDockStore.getState().tabsByWorkspace[targetWorkspaceId]?.length ?? 0;
+  const addedOk = afterCount === beforeCount + 1 || afterCount === beforeCount; // existing tab 不会增长
+  bridgeLog(
+    `applyIncoming addResult kind=${tab.kind} before=${beforeCount} after=${afterCount} addedOk=${addedOk}`,
+  );
   dock.setActiveTabId(targetWorkspaceId, tab.id);
   if (getCurrentWebviewWindow().label === "main") {
     useBottomPanelStore.getState().requestExpand();
@@ -538,6 +563,7 @@ export function initModuleToWorkspaceDragBridge(): () => void {
   const disposables: Array<{ dispose: () => void }> = [];
   const unlisteners: UnlistenFn[] = [];
   let disposed = false;
+  const isDisposed = () => disposed;
   let dragStartClientX = 0;
   let dragStartClientY = 0;
   let dragSourceViewId: string | null = null;
@@ -621,9 +647,25 @@ export function initModuleToWorkspaceDragBridge(): () => void {
     let overlapHit: string | null = null;
     if (!outside && !remote) {
       const topmost = findTopmostWindowHitSync(event.screenX, event.screenY);
-      overlapHit = topmost && topmost !== currentLabel ? topmost : null;
+      if (topmost && topmost !== currentLabel) {
+        // 关键：指针在源窗几何内（outside=false），同时源窗内有 workspace dock 命中，
+        // 说明用户是要拖到同窗的半屏 workspace dock（而非跨窗到独立 workspace 窗口）。
+        // 独立 workspace 窗口的 bounds 可能与主窗下方半屏区域重叠导致 topmost 误判，
+        // 此处必须优先走同窗 dockview 原生 onWillDrop 路径，否则 tab 会因跨窗转移失败而丢失。
+        const localDropTarget = findModuleDropTargetWorkspace(event.clientX, event.clientY);
+        if (!localDropTarget) {
+          overlapHit = topmost;
+        } else {
+          bridgeLog(
+            `overlapHit suppressed topmost=${topmost} -> local workspace dock hit ws=${localDropTarget.workspaceId}`,
+          );
+        }
+      }
     }
     const isCrossWindow = remote || outside || overlapHit !== null;
+    bridgeLog(
+      `pointerup on=${currentLabel} screen=(${event.screenX},${event.screenY}) outside=${outside} overlapHit=${overlapHit} remote=${remote ? remote.sourceWindowLabel : "null"} isCrossWindow=${isCrossWindow}`,
+    );
 
     if (isCrossWindow) {
       event.preventDefault();
@@ -743,7 +785,13 @@ export function initModuleToWorkspaceDragBridge(): () => void {
       forceEndDockviewPointerDrag();
       clearRemoteDrag();
       document.body.classList.remove(MODULE_DRAG_BODY_CLASS);
-    }, { target: { kind: "Any" } }).then((fn) => unlisteners.push(fn));
+    }, { target: { kind: "Any" } }).then((fn) => {
+    if (isDisposed()) {
+      safeTauriUnlisten(fn);
+      return;
+    }
+    unlisteners.push(fn);
+  });
 
     void listen<CrossWindowModuleDragPayload>(
       CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
@@ -756,7 +804,13 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         bridgeLog(`remote active from ${payload.sourceWindowLabel}`);
       },
       { target: { kind: "Any" } },
-    ).then((fn) => unlisteners.push(fn));
+    ).then((fn) => {
+      if (isDisposed()) {
+        safeTauriUnlisten(fn);
+        return;
+      }
+      unlisteners.push(fn);
+    });
 
     void listen<CrossWindowModuleDragCompletePayload>(
       CROSS_WINDOW_MODULE_DRAG_COMPLETE_EVENT,
@@ -767,6 +821,14 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         bridgeLog(
           `complete event current=${currentLabel} src=${payload.sourceWindowLabel} tgt=${payload.targetWindowLabel}`,
         );
+
+        // 去重：StrictMode / listen 异步泄漏可能导致同一 COMPLETE 事件被多次接收
+        const recvDedupeKey = `recv|${payload.sourceWindowLabel}|${payload.panelId}|${payload.targetWindowLabel}`;
+        if (!markTransferProcessed(recvDedupeKey)) {
+          bridgeLog(`complete event skipped duplicate ${recvDedupeKey}`);
+          return;
+        }
+
         forceEndDockviewPointerDrag();
         if (payload.targetWindowLabel === currentLabel) {
           applyIncomingModuleTab(payload.targetWorkspaceId, payload);
@@ -783,7 +845,13 @@ export function initModuleToWorkspaceDragBridge(): () => void {
         void broadcastCrossWindowDragEnd();
       },
       { target: { kind: "Any" } },
-    ).then((fn) => unlisteners.push(fn));
+    ).then((fn) => {
+      if (isDisposed()) {
+        safeTauriUnlisten(fn);
+        return;
+      }
+      unlisteners.push(fn);
+    });
   }
 
   return () => {

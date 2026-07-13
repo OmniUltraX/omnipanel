@@ -7,6 +7,7 @@ import {
   findOtherWindowHitSync,
   findTopmostWindowHitSync,
   findWindowLabelAtScreenPoint,
+  getSoleOtherWindowLabelSync,
   isPointerOutsideCurrentWindow,
   isWindowChromePointerTarget,
   primeWindowBoundsCache,
@@ -25,6 +26,7 @@ import {
 } from "./moduleToWorkspaceTransfer";
 import {
   useWorkspaceBottomDockStore,
+  MAX_WORKSPACE_PANELS,
   type WorkspaceDockTab,
 } from "../stores/workspaceBottomDockStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
@@ -231,6 +233,17 @@ function crossDockLog(message: string): void {
   if (!import.meta.env.DEV) return;
   console.info(`[crossWindowDock] ${message}`);
 }
+
+// 高频路径（pointermove broadcast）专用采样日志
+function crossDockLogSampled(message: string): void {
+  if (!import.meta.env.DEV) return;
+  const now = Date.now();
+  if (now - lastCrossDockLogAt < 200) return;
+  lastCrossDockLogAt = now;
+  console.info(`[crossWindowDock] ${message}`);
+}
+
+let lastCrossDockLogAt = 0;
 
 function isWorkspaceDockElement(el: Element | null | undefined): boolean {
   return Boolean(el?.closest(WORKSPACE_DOCK_SELECTOR));
@@ -522,9 +535,13 @@ async function broadcastDragActive(
     // 仅当指针已离开源窗几何时才计算命中目标。
     // 指针在源窗内时 targetLabel=null：源窗在顶层，不应有目标窗激活。
     const outside = isPointerOutsideCurrentWindow(screenX, screenY);
-    const targetLabel = outside
-      ? findOtherWindowHitSync(screenX, screenY, current)
-      : null;
+    let targetLabel: string | null = null;
+    if (outside) {
+      targetLabel = findOtherWindowHitSync(screenX, screenY, current);
+      if (!targetLabel) {
+        targetLabel = getSoleOtherWindowLabelSync(current);
+      }
+    }
     await emitToOtherWebviews(
       CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT,
       {
@@ -535,7 +552,7 @@ async function broadcastDragActive(
       },
       current,
     );
-    crossDockLog(`broadcast active from ${session.sourceWindowLabel} target=${targetLabel}`);
+    crossDockLogSampled(`broadcast active from ${session.sourceWindowLabel} target=${targetLabel}`);
   } catch (e) {
     console.warn("[crossWindowDock] broadcast active failed", e);
     activeBroadcast = false;
@@ -581,6 +598,10 @@ function applyIncomingTab(
   const scope = `${WORKSPACE_DOCK_SCOPE_PREFIX}${targetWorkspaceId}`;
   const bareId = tab.id.includes(":") ? tab.id.slice(tab.id.lastIndexOf(":") + 1) : tab.id;
   const newPanelId = tab.id.startsWith(`${scope}:`) ? tab.id : `${scope}:${bareId}`;
+  const beforeCount = dock.tabsByWorkspace[targetWorkspaceId]?.length ?? 0;
+  crossDockLog(
+    `applyIncomingTab enter ws=${targetWorkspaceId} tab=${tab.id} kind=${tab.kind} beforeCount=${beforeCount} max=${MAX_WORKSPACE_PANELS}`,
+  );
 
   if (tab.kind === "payload" && tab.payload) {
     if (tab.payload.module === "terminal") {
@@ -603,6 +624,11 @@ function applyIncomingTab(
       originPanelId: tab.originPanelId ?? bareId,
     });
   }
+  const afterCount = useWorkspaceBottomDockStore.getState().tabsByWorkspace[targetWorkspaceId]?.length ?? 0;
+  const addedOk = afterCount === beforeCount + 1 || afterCount === beforeCount;
+  crossDockLog(
+    `applyIncomingTab addResult before=${beforeCount} after=${afterCount} addedOk=${addedOk}`,
+  );
   dock.setActiveTabId(targetWorkspaceId, newPanelId);
   requestAnimationFrame(() => {
     relayoutDockviewInstances("workspace-bottom");
@@ -779,6 +805,7 @@ export function initCrossWindowDockTransfer(): () => void {
   const unlisteners: UnlistenFn[] = [];
   const dockDisposables: Array<{ dispose: () => void }> = [];
   let disposed = false;
+  const isDisposed = () => disposed;
 
   const finishDragAtScreenPoint = async (
     screenX: number,
@@ -942,6 +969,9 @@ export function initCrossWindowDockTransfer(): () => void {
       overlapHit = topmost && topmost !== currentLabel ? topmost : null;
     }
     const isCrossWindow = remote || outside || overlapHit !== null;
+    crossDockLog(
+      `pointerup on=${currentLabel} screen=(${event.screenX},${event.screenY}) outside=${outside} overlapHit=${overlapHit} remote=${remote ? remote.sourceWindowLabel : "null"} isCrossWindow=${isCrossWindow}`,
+    );
 
     // 跨窗：必须在 await 之前同步抢走 dockview drop，否则 _handleEnd 会
     // moveGroupOrPanel 到已不存在的 group（Failed to find group id）
@@ -1037,7 +1067,13 @@ export function initCrossWindowDockTransfer(): () => void {
     forceEndDockviewPointerDrag();
     clearRemoteDrag();
     document.body.classList.remove("omnipanel-cross-window-dock-drag");
-  }, { target: { kind: "Any" } }).then((fn) => unlisteners.push(fn));
+  }, { target: { kind: "Any" } }).then((fn) => {
+    if (isDisposed()) {
+      safeTauriUnlisten(fn);
+      return;
+    }
+    unlisteners.push(fn);
+  });
 
   void listen<CrossWindowDockDragPayload>(
     CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT,
@@ -1050,7 +1086,13 @@ export function initCrossWindowDockTransfer(): () => void {
       crossDockLog(`remote active from ${payload.sourceWindowLabel}`);
     },
     { target: { kind: "Any" } },
-  ).then((fn) => unlisteners.push(fn));
+  ).then((fn) => {
+    if (isDisposed()) {
+      safeTauriUnlisten(fn);
+      return;
+    }
+    unlisteners.push(fn);
+  });
 
   void listen<CrossWindowDockDragCompletePayload>(
     CROSS_WINDOW_DOCK_DRAG_COMPLETE_EVENT,
@@ -1061,6 +1103,14 @@ export function initCrossWindowDockTransfer(): () => void {
       crossDockLog(
         `complete event current=${currentLabel} src=${payload.sourceWindowLabel} tgt=${payload.targetWindowLabel}`,
       );
+
+      // 去重：StrictMode / listen 异步泄漏可能导致同一 COMPLETE 事件被多次接收，
+      // 只处理第一次，后续直接跳过 handleCompleteOnTarget / emitSourceCleanup
+      const recvDedupeKey = `recv|${payload.sourceWindowLabel}|${payload.panelId}|${payload.targetWindowLabel}`;
+      if (!markTransferProcessed(recvDedupeKey)) {
+        crossDockLog(`complete event skipped duplicate ${recvDedupeKey}`);
+        return;
+      }
 
       // 源窗跨窗松手时通常收不到 pointerup，必须在此强制拆掉原生 ghost
       forceEndDockviewPointerDrag();
@@ -1082,7 +1132,13 @@ export function initCrossWindowDockTransfer(): () => void {
       void broadcastCrossWindowDragEnd();
     },
     { target: { kind: "Any" } },
-  ).then((fn) => unlisteners.push(fn));
+  ).then((fn) => {
+    if (isDisposed()) {
+      safeTauriUnlisten(fn);
+      return;
+    }
+    unlisteners.push(fn);
+  });
 
   void listen<CrossWindowDockDragCompletePayload>(
     CROSS_WINDOW_DOCK_SOURCE_CLEANUP_EVENT,
@@ -1091,6 +1147,14 @@ export function initCrossWindowDockTransfer(): () => void {
       if (!payload) return;
       const currentLabel = getCurrentWebviewWindow().label;
       if (payload.sourceWindowLabel !== currentLabel) return;
+
+      // 去重：StrictMode / listen 异步泄漏可能导致同一 CLEANUP 事件被多次接收
+      const cleanupDedupeKey = `cleanup|${payload.sourceWindowLabel}|${payload.panelId}`;
+      if (!markTransferProcessed(cleanupDedupeKey)) {
+        crossDockLog(`cleanup event skipped duplicate ${cleanupDedupeKey}`);
+        return;
+      }
+
       forceEndDockviewPointerDrag();
       removeOutgoingTab(
         payload.sourceWorkspaceId,
@@ -1103,7 +1167,13 @@ export function initCrossWindowDockTransfer(): () => void {
       );
     },
     { target: { kind: "Any" } },
-  ).then((fn) => unlisteners.push(fn));
+  ).then((fn) => {
+    if (isDisposed()) {
+      safeTauriUnlisten(fn);
+      return;
+    }
+    unlisteners.push(fn);
+  });
 
   try {
     crossDockLog(`init on ${getCurrentWebviewWindow().label}`);
