@@ -149,7 +149,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
           ) : isTreeChartTab(tab) ? (
             <UnsupportedTabKindFallback kind="tree-chart" />
           ) : (
-            <UnsupportedTabKindFallback kind={tab.kind} />
+            <UnsupportedTabKindFallback kind="unknown" />
           )}
         </div>
       </div>

@@ -2198,7 +2198,7 @@ export function DatabasePanel() {
         const ghostTabIds = tabs
           .filter((t) => {
             if (t.kind === "payload" && t.payload?.module === "database") {
-              return t.payload.id === tabId || uniqueIds.includes(t.payload.id);
+              return uniqueIds.includes(t.payload.id);
             }
             if (t.kind === "mirrored" && t.originScope === "database") {
               return t.originPanelId && uniqueIds.includes(t.originPanelId);
