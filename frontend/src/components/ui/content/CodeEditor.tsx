@@ -10,6 +10,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
 import { sql } from "@codemirror/lang-sql";
+import { yaml } from "@codemirror/lang-yaml";
 import { StreamLanguage } from "@codemirror/language";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
@@ -38,6 +39,8 @@ function languageExtension(language: CodeEditorLanguage): Extension {
       return sql();
     case "json":
       return json();
+    case "yaml":
+      return yaml();
     case "ini":
       return iniLanguage;
     default:

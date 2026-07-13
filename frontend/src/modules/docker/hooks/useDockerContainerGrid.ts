@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
+import { DOCKER_STATS_POLL_MS, runningContainerIds } from "../dockerContainerStats";
+import { pickStats } from "../dockerContainerStatsMatch";
+import { useDockerContainerStats } from "./useDockerContainerStats";
 
 async function unwrap<T>(
   promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
@@ -15,91 +18,85 @@ export type DockerContainerGridItem = {
   stats: DockerContainerStats | null;
 };
 
-const POLL_MS = 2000;
+export type UseDockerContainerGridOptions = {
+  statsPollMs?: number;
+  containersPollMs?: number;
+};
 
-function statsKey(containerId: string): string {
-  return containerId.trim().toLowerCase();
-}
+export function useDockerContainerGrid(
+  connectionId: string | null,
+  enabled: boolean,
+  options?: UseDockerContainerGridOptions,
+) {
+  const statsPollMs = options?.statsPollMs ?? DOCKER_STATS_POLL_MS;
+  const containersPollMs = options?.containersPollMs ?? statsPollMs;
 
-function pickStats(
-  container: DockerContainerSummary,
-  statsById: Map<string, DockerContainerStats>,
-): DockerContainerStats | null {
-  const direct = statsById.get(statsKey(container.id));
-  if (direct) return direct;
-  const short = statsKey(container.shortId);
-  for (const [key, stats] of statsById) {
-    if (key.endsWith(short) || short.endsWith(key)) {
-      return stats;
-    }
-  }
-  return null;
-}
-
-export function useDockerContainerGrid(connectionId: string | null, enabled: boolean) {
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
-  const [statsById, setStatsById] = useState<Map<string, DockerContainerStats>>(new Map());
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const refreshRef = useRef<((initial: boolean) => Promise<void>) | null>(null);
+  const [containersError, setContainersError] = useState<string | null>(null);
+  const containersRef = useRef(containers);
+  containersRef.current = containers;
+
+  const resolveContainerIds = useCallback(
+    () => runningContainerIds(containersRef.current),
+    [],
+  );
+
+  const {
+    statsById,
+    error: statsError,
+    refreshNow: refreshStatsNow,
+  } = useDockerContainerStats(connectionId, {
+    enabled,
+    pollMs: statsPollMs,
+    resolveContainerIds,
+  });
+
+  const refreshContainersRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     if (!enabled || !connectionId) {
       setContainers([]);
-      setStatsById(new Map());
       setLoading(false);
-      setError(null);
+      setContainersError(null);
       return;
     }
 
     let cancelled = false;
 
-    const refresh = async (initial: boolean) => {
-      if (initial) {
-        setLoading(true);
-      }
+    const refreshContainers = async (initial: boolean) => {
+      if (initial) setLoading(true);
       try {
-        const listPromise = unwrap(commands.dockerListContainers(connectionId, null));
-        const statsPromise =
-          typeof commands.dockerListContainerStats === "function"
-            ? unwrap(commands.dockerListContainerStats(connectionId)).catch(() => [] as DockerContainerStats[])
-            : Promise.resolve([] as DockerContainerStats[]);
-
-        const [list, statsList] = await Promise.all([listPromise, statsPromise]);
+        const list = await unwrap(commands.dockerListContainers(connectionId, null));
         if (cancelled) return;
-
-        const nextStats = new Map<string, DockerContainerStats>();
-        for (const item of statsList) {
-          nextStats.set(statsKey(item.containerId), item);
-        }
-
         setContainers(list);
-        setStatsById(nextStats);
-        setError(null);
+        setContainersError(null);
       } catch (e) {
-        if (!cancelled) {
-          setError(String(e));
-        }
+        if (!cancelled) setContainersError(String(e));
       } finally {
-        if (!cancelled && initial) {
-          setLoading(false);
-        }
+        if (!cancelled && initial) setLoading(false);
       }
     };
 
-    refreshRef.current = refresh;
-    void refresh(true);
-    const timer = window.setInterval(() => void refresh(false), POLL_MS);
+    refreshContainersRef.current = () => refreshContainers(false);
+
+    void refreshContainers(true);
+    const timer =
+      containersPollMs !== statsPollMs
+        ? window.setInterval(() => void refreshContainers(false), containersPollMs)
+        : null;
+
     return () => {
       cancelled = true;
-      refreshRef.current = null;
-      window.clearInterval(timer);
+      refreshContainersRef.current = null;
+      if (timer != null) window.clearInterval(timer);
     };
-  }, [connectionId, enabled]);
+  }, [connectionId, containersPollMs, enabled, statsPollMs]);
 
   const refreshNow = useCallback(() => {
-    void refreshRef.current?.(false);
-  }, []);
+    void refreshContainersRef.current?.();
+    refreshStatsNow();
+  }, [refreshStatsNow]);
 
   const items = useMemo<DockerContainerGridItem[]>(
     () =>
@@ -110,5 +107,10 @@ export function useDockerContainerGrid(connectionId: string | null, enabled: boo
     [containers, statsById],
   );
 
-  return { items, loading, error, refreshNow };
+  return {
+    items,
+    loading,
+    error: statsError ?? containersError,
+    refreshNow,
+  };
 }

@@ -6,6 +6,41 @@ use std::collections::BTreeMap;
 
 use crate::model::{DockerComposeProject, DockerComposeService};
 
+pub const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
+pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+pub const COMPOSE_WORKDIR_LABEL: &str = "com.docker.compose.project.working_dir";
+pub const COMPOSE_CONFIG_LABEL: &str = "com.docker.compose.project.config_files";
+
+/// 从 Docker 标签映射提取 Compose 项目/服务名。
+pub fn compose_fields_from_label_map(
+    labels: &std::collections::HashMap<String, String>,
+) -> (Option<String>, Option<String>) {
+    (
+        labels
+            .get(COMPOSE_PROJECT_LABEL)
+            .filter(|value| !value.is_empty())
+            .cloned(),
+        labels
+            .get(COMPOSE_SERVICE_LABEL)
+            .filter(|value| !value.is_empty())
+            .cloned(),
+    )
+}
+
+pub fn compose_fields_from_kv(labels: &[crate::model::DockerKeyValue]) -> (Option<String>, Option<String>) {
+    let mut project = None;
+    let mut service = None;
+    for item in labels {
+        if item.key == COMPOSE_PROJECT_LABEL && !item.value.is_empty() {
+            project = Some(item.value.clone());
+        }
+        if item.key == COMPOSE_SERVICE_LABEL && !item.value.is_empty() {
+            service = Some(item.value.clone());
+        }
+    }
+    (project, service)
+}
+
 /// 单个容器的 Compose 归属信息（adapter 从标签/状态提取）。
 #[derive(Debug, Clone)]
 pub struct ComposeContainerRow {
