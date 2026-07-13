@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isTauriRuntime } from "./isTauriRuntime";
 import { safeTauriUnlisten } from "./safeTauriUnlisten";
+import { bindCrossWindowDragVisualStore } from "./dockviewPointerDrag";
 import {
   findEngineeringWorkspaceDockAt,
   findModuleDockAt,
@@ -11,6 +12,7 @@ import {
   screenPointToClient,
   clearWebviewWindowLabelCache,
   emitToOtherWebviews,
+  findOtherWindowHitSync,
   isPointerOutsideCurrentWindow,
 } from "./crossWindowDragUtils";
 
@@ -28,6 +30,8 @@ export interface CrossWindowDragMovePayload {
   screenX: number;
   screenY: number;
   kind: CrossWindowDragKind;
+  /** 当前命中目标窗口 label（用于多窗口场景只激活命中窗的 ghost） */
+  targetLabel?: string | null;
 }
 
 export interface CrossWindowDropPreviewRect {
@@ -55,6 +59,7 @@ interface CrossWindowDragVisualState {
     screenY?: number;
   }) => void;
   updatePointer: (screenX: number, screenY: number) => void;
+  setGhostVisible: (visible: boolean) => void;
   setDropPreview: (preview: CrossWindowDropPreviewRect | null) => void;
   setLocalOutbound: (payload: {
     label: string;
@@ -83,7 +88,7 @@ export const useCrossWindowDragVisualStore = create<CrossWindowDragVisualState>(
     set({
       active: true,
       isRemote: true,
-      showGhost: true,
+      showGhost: false,
       label: payload.label,
       kind: payload.kind,
       screenX: payload.screenX ?? 0,
@@ -91,6 +96,7 @@ export const useCrossWindowDragVisualStore = create<CrossWindowDragVisualState>(
       dropPreview: null,
     }),
   updatePointer: (screenX, screenY) => set({ screenX, screenY }),
+  setGhostVisible: (visible) => set({ showGhost: visible }),
   setDropPreview: (dropPreview) => set({ dropPreview }),
   setLocalOutbound: (payload) =>
     set({
@@ -247,21 +253,68 @@ function clearStaleDockviewDragArtifacts(): void {
 
 /**
  * 源窗本地更新 outbound ghost（指针已离开本窗时），零 IPC。
- * 出窗后 dockview 原生 ghost 会断，必须由本层接管，勿被 dv-tab-dragging class 挡住。
+ * 出窗后 dockview 原生 ghost 会断，必须由本层接管。
+ *
+ * 源窗收到 pointermove 说明源窗在顶层 → 恢复 dockview 原生 ghost。
+ * 源窗不在顶层时收不到 pointermove，由 pointerout 隐藏 ghost。
  */
+
+/** 检测是否为 dockview PointerGhost 元素 */
+function isDockviewGhostElement(el: HTMLElement): boolean {
+  const style = el.style;
+  if (style.position !== "fixed") return false;
+  if (style.pointerEvents !== "none") return false;
+  const z = style.zIndex;
+  if (z !== "99999" && z !== "9999") return false;
+  return style.willChange === "transform";
+}
+
+/** 直接操作 DOM 隐藏/恢复 dockview 原生 ghost，不依赖 CSS selector 匹配 */
+function setDockviewGhostHidden(hidden: boolean): void {
+  for (const el of Array.from(document.body.children)) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (!isDockviewGhostElement(el)) continue;
+    if (hidden) {
+      el.style.display = "none";
+    } else {
+      el.style.removeProperty("display");
+    }
+  }
+}
+
 export function updateLocalOutboundDragVisual(
   payload: CrossWindowDragMovePayload,
 ): void {
   if (!isTauriRuntime()) return;
   const current = getCurrentWebviewWindow().label;
   if (payload.sourceWindowLabel !== current) return;
-  if (!isPointerOutsideCurrentWindow(payload.screenX, payload.screenY)) {
+
+  const outside = isPointerOutsideCurrentWindow(payload.screenX, payload.screenY);
+
+  if (!outside) {
+    // 指针在源窗几何内：dockview 原生 ghost 由 pointerout/pointerover 控制。
+    // 此处只清 outbound ghost（避免与目标窗 cross-window ghost 双重显示）。
     const state = useCrossWindowDragVisualStore.getState();
     if (state.active && !state.isRemote) {
-      useCrossWindowDragVisualStore.getState().clear();
+      state.clear();
     }
     return;
   }
+
+  // 指针已出源窗几何：隐藏 dockview 原生 ghost（pointerout 也会做同样的事）
+  setDockviewGhostHidden(true);
+
+  // 命中其他窗口 → 目标窗会显示 cross-window ghost，源窗不显示 outbound
+  const hitLabel = findOtherWindowHitSync(payload.screenX, payload.screenY, current);
+  if (hitLabel) {
+    const state = useCrossWindowDragVisualStore.getState();
+    if (state.active && !state.isRemote) {
+      state.clear();
+    }
+    return;
+  }
+
+  // 未命中任何窗口（桌面空白处）→ 源窗显示 outbound ghost 跟手
   useCrossWindowDragVisualStore.getState().setLocalOutbound({
     label: payload.label,
     kind: payload.kind,
@@ -281,7 +334,19 @@ export function broadcastCrossWindowDragMove(payload: CrossWindowDragMovePayload
   const current = getCurrentWebviewWindow().label;
   if (payload.sourceWindowLabel !== current) return;
 
-  pendingMovePayload = payload;
+  // 仅当指针已离开源窗几何时才计算命中目标。
+  // 指针在源窗内时 targetLabel=null：源窗在顶层，不应有任何目标窗激活。
+  // （源窗与目标窗几何重叠时，不检查 outside 会误命中底层目标窗。）
+  const outside = isPointerOutsideCurrentWindow(payload.screenX, payload.screenY);
+  const hitLabel = outside
+    ? findOtherWindowHitSync(payload.screenX, payload.screenY, current)
+    : null;
+  const payloadWithTarget: CrossWindowDragMovePayload = {
+    ...payload,
+    targetLabel: hitLabel,
+  };
+
+  pendingMovePayload = payloadWithTarget;
   if (moveBroadcastRaf) return;
   moveBroadcastRaf = requestAnimationFrame(() => {
     moveBroadcastRaf = 0;
@@ -303,11 +368,37 @@ export async function broadcastCrossWindowDragEnd(): Promise<void> {
   clearDropPreviewSchedule();
   clearStaleDockviewDragArtifacts();
   clearWebviewWindowLabelCache();
+  setDockviewGhostHidden(false);
   const current = getCurrentWebviewWindow().label;
   useCrossWindowDragVisualStore.getState().clear();
   // 本窗也要拆原生 ghost（源窗跨窗松手时常收不到 pointerup）
   const { forceEndDockviewPointerDrag } = await import("./dockviewPointerDrag");
   forceEndDockviewPointerDrag({ clearCrossWindowVisual: false });
+  try {
+    await emitToOtherWebviews(CROSS_WINDOW_DRAG_END_EVENT, {}, current);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 轻量级 END 广播：只清理跨窗视觉层 + 发送 END 事件给其他窗口，
+ * **不**清理 dockview 原生拖拽 artifacts、**不** forceEndDockviewPointerDrag。
+ *
+ * 用于同窗口内 drop（非跨窗）：dockview 需要自己处理 pointerup 完成 drop，
+ * 如果在 capture 阶段移除 dragging class / drop target overlay 或派发 pointercancel，
+ * 会干扰 dockview 的原生 drop 处理（分屏失效）。
+ */
+export async function broadcastCrossWindowDragEndLite(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  if (moveBroadcastRaf) {
+    cancelAnimationFrame(moveBroadcastRaf);
+    moveBroadcastRaf = 0;
+  }
+  pendingMovePayload = null;
+  clearDropPreviewSchedule();
+  const current = getCurrentWebviewWindow().label;
+  useCrossWindowDragVisualStore.getState().clear();
   try {
     await emitToOtherWebviews(CROSS_WINDOW_DRAG_END_EVENT, {}, current);
   } catch {
@@ -340,6 +431,9 @@ export function initCrossWindowDragVisual(): () => void {
   if (!isTauriRuntime()) return () => {};
   visualInitCleanup?.();
 
+  // 注册同步 store 引用，让 dockviewPointerDrag 的安全兜底能同步检测跨窗视觉残留
+  bindCrossWindowDragVisualStore(useCrossWindowDragVisualStore);
+
   let disposed = false;
   const unlisteners: UnlistenFn[] = [];
   const isDisposed = () => disposed;
@@ -358,7 +452,20 @@ export function initCrossWindowDragVisual(): () => void {
     if (payload.sourceWindowLabel === current) {
       return;
     }
+
+    const isHitTarget = payload.targetLabel === current;
     const state = useCrossWindowDragVisualStore.getState();
+
+    if (!isHitTarget) {
+      // 非命中目标：清除全部视觉层（ghost + dropPreview + active）
+      // 多窗口场景核心：只有命中窗才显示任何效果
+      if (state.active) {
+        store().clear();
+      }
+      return;
+    }
+
+    // 命中目标：激活（如未激活）+ 更新位置 + ghost + dropPreview
     if (!state.active) {
       store().setRemoteSession({
         label: payload.label,
@@ -367,14 +474,13 @@ export function initCrossWindowDragVisual(): () => void {
         screenX: payload.screenX,
         screenY: payload.screenY,
       });
-      scheduleDropPreviewFromScreenPoint(payload.screenX, payload.screenY);
       lastPointerScreenX = payload.screenX;
       lastPointerScreenY = payload.screenY;
-      return;
+    } else if (shouldUpdatePointerPosition(payload.screenX, payload.screenY)) {
+      store().updatePointer(payload.screenX, payload.screenY);
     }
-    if (!shouldUpdatePointerPosition(payload.screenX, payload.screenY)) return;
-    store().updatePointer(payload.screenX, payload.screenY);
     scheduleDropPreviewFromScreenPoint(payload.screenX, payload.screenY);
+    store().setGhostVisible(true);
   };
 
   /** 目标窗：本地 pointermove 补充跟手（源窗 MOVE 为主路径） */
@@ -385,6 +491,31 @@ export function initCrossWindowDragVisual(): () => void {
     if (!shouldUpdatePointerPosition(event.screenX, event.screenY)) return;
     store().updatePointer(event.screenX, event.screenY);
     scheduleDropPreviewFromScreenPoint(event.screenX, event.screenY);
+  };
+
+  /**
+   * 源窗：指针离开本窗 document（移到另一个 OS 窗口或重叠区域被前景窗口覆盖）。
+   * pointerout + relatedTarget===null 是 OS 级信号，比几何命中更可靠。
+   * 源窗不在顶层时收不到 pointermove，dockview ghost 停在最后位置，
+   * 由 pointerout 隐藏，pointerover 恢复。
+   */
+  const hasDockviewDrag = (): boolean =>
+    Boolean(
+      document.querySelector(
+        ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging",
+      ),
+    );
+
+  const onPointerOut = (event: PointerEvent) => {
+    if (event.relatedTarget !== null) return;
+    if (!hasDockviewDrag()) return;
+    setDockviewGhostHidden(true);
+  };
+
+  const onPointerOver = () => {
+    if (!hasDockviewDrag()) return;
+    // 指针回到本窗 → 恢复 dockview 原生 ghost
+    setDockviewGhostHidden(false);
   };
 
   registerTauriListener(
@@ -411,12 +542,16 @@ export function initCrossWindowDragVisual(): () => void {
       sourceWindowLabel?: string;
       screenX?: number;
       screenY?: number;
+      targetLabel?: string | null;
     }>(
       CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT,
       (event) => {
         const payload = event.payload;
         if (!payload) return;
-        if (payload.sourceWindowLabel === getCurrentWebviewWindow().label) return;
+        const current = getCurrentWebviewWindow().label;
+        if (payload.sourceWindowLabel === current) return;
+        // 非命中目标：不激活视觉层（后续 MOVE 会持续纠正）
+        if (payload.targetLabel !== current) return;
         store().setRemoteSession({
           label: tabLabelFromWorkspacePayload(payload.tab),
           kind: "workspace-tab",
@@ -424,6 +559,7 @@ export function initCrossWindowDragVisual(): () => void {
           screenX: payload.screenX,
           screenY: payload.screenY,
         });
+        store().setGhostVisible(true);
         if (
           typeof payload.screenX === "number" &&
           typeof payload.screenY === "number" &&
@@ -444,12 +580,16 @@ export function initCrossWindowDragVisual(): () => void {
       sourceWindowLabel?: string;
       screenX?: number;
       screenY?: number;
+      targetLabel?: string | null;
     }>(
       CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT,
       (event) => {
         const payload = event.payload;
         if (!payload) return;
-        if (payload.sourceWindowLabel === getCurrentWebviewWindow().label) return;
+        const current = getCurrentWebviewWindow().label;
+        if (payload.sourceWindowLabel === current) return;
+        // 非命中目标：不激活视觉层（后续 MOVE 会持续纠正）
+        if (payload.targetLabel !== current) return;
         store().setRemoteSession({
           label: payload.title?.trim() || "Tab",
           kind: "module-tab",
@@ -457,6 +597,7 @@ export function initCrossWindowDragVisual(): () => void {
           screenX: payload.screenX,
           screenY: payload.screenY,
         });
+        store().setGhostVisible(true);
         if (
           typeof payload.screenX === "number" &&
           typeof payload.screenY === "number" &&
@@ -470,13 +611,19 @@ export function initCrossWindowDragVisual(): () => void {
   );
 
   document.addEventListener("pointermove", onPointerMove, true);
+  document.addEventListener("pointerout", onPointerOut, true);
+  document.addEventListener("pointerover", onPointerOver, true);
 
   const cleanup = () => {
     disposed = true;
     for (const fn of unlisteners) safeTauriUnlisten(fn);
     unlisteners.length = 0;
     document.removeEventListener("pointermove", onPointerMove, true);
+    document.removeEventListener("pointerout", onPointerOut, true);
+    document.removeEventListener("pointerover", onPointerOver, true);
+    setDockviewGhostHidden(false);
     store().clear();
+    bindCrossWindowDragVisualStore(null);
     if (visualInitCleanup === cleanup) {
       visualInitCleanup = null;
     }

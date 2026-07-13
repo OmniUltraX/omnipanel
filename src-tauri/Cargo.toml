@@ -21,6 +21,10 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+raw-window-handle = "0.6"
+
 tauri-plugin-updater = "2"
 omnipanel-core = { path = "../crates/omnipanel-core" }
 omnipanel-ai = { path = "../crates/omnipanel-ai" }

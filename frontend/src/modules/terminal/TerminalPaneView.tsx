@@ -273,6 +273,7 @@ function PaneViewBody(
             sessionType={session.type}
             sessionUser={sessionUser}
             onFocusInput={focusCommandInput}
+            isActive={isActive}
           />
         ) : null}
         <TerminalView

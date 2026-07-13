@@ -58,6 +58,12 @@ type TerminalBlockFeedProps = {
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
   onFocusInput?: () => void;
+  /**
+   * 当前 tab 是否处于激活可见状态。dockview 切换 tab 时非激活 panel 仅 display:none 隐藏，
+   * 此 prop 用于在从隐藏切回可见时重新对齐滚动位置与状态测量。
+   * 默认 true（嵌入用法无需关心）。
+   */
+  isActive?: boolean;
 };
 
 function blockTitle(block: TerminalBlock): string {
@@ -878,6 +884,8 @@ export function TerminalBlockFeed({
   const prevActivitySignatureRef = useRef("");
   const prevShellSignatureRef = useRef("");
   const feedScrollRafRef = useRef(0);
+  /** tab 隐藏前最后一次可见的 scrollTop —— display:none 会丢失滚动位置，切回时据此恢复 */
+  const savedScrollTopRef = useRef(0);
 
   useTerminalCopyContextMenu(scrollRef);
 
@@ -943,35 +951,46 @@ export function TerminalBlockFeed({
     ],
   );
 
+  // 重新测量并同步滚动条派生状态：pinned / canScroll / atTop。
+  // 稳定引用，供 scroll 监听与 tab 切回可见时复用。
+  // 注意：元素 display:none 时 clientHeight/scrollHeight/scrollTop 全为 0，
+  // 此时不能 sync —— 否则会用 0 尺寸把 followOutputRef 误判为 false（isScrollPinnedToBottom
+  // 会把 scrollHeight 突然变 0 当成"内容被清空"），并把 savedScrollTopRef 覆盖为 0。
+  const syncFeedScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.clientHeight === 0) return; // 隐藏期间不测量
+    const scrollHeight = el.scrollHeight;
+    const pinned = isScrollPinnedToBottom(
+      el,
+      FEED_SCROLL_PIN_THRESHOLD_PX,
+      lastFeedScrollHeightRef.current,
+    );
+    lastFeedScrollHeightRef.current = scrollHeight;
+    followOutputRef.current = pinned;
+    setFeedPinnedToBottom((prev) => (prev === pinned ? prev : pinned));
+    // 滚动条状态：内容超出 / 顶部
+    const canScroll = scrollHeight - el.clientHeight > 1;
+    setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
+    const atTop = el.scrollTop <= 1;
+    setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
+    // 保存当前位置 —— tab 切走变 display:none 时浏览器会丢失 scrollTop，
+    // 切回后据此恢复用户阅读位置。
+    savedScrollTopRef.current = el.scrollTop;
+  }, []);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
-    const syncPinned = () => {
-      const scrollHeight = el.scrollHeight;
-      const pinned = isScrollPinnedToBottom(
-        el,
-        FEED_SCROLL_PIN_THRESHOLD_PX,
-        lastFeedScrollHeightRef.current,
-      );
-      lastFeedScrollHeightRef.current = scrollHeight;
-      followOutputRef.current = pinned;
-      setFeedPinnedToBottom((prev) => (prev === pinned ? prev : pinned));
-      // 滚动条状态：内容超出 / 顶部
-      const canScroll = scrollHeight - el.clientHeight > 1;
-      setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
-      const atTop = el.scrollTop <= 1;
-      setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
-    };
-
-    syncPinned();
-    el.addEventListener("scroll", syncPinned, { passive: true });
-    window.addEventListener("resize", syncPinned);
+    syncFeedScrollState();
+    el.addEventListener("scroll", syncFeedScrollState, { passive: true });
+    window.addEventListener("resize", syncFeedScrollState);
     return () => {
-      el.removeEventListener("scroll", syncPinned);
-      window.removeEventListener("resize", syncPinned);
+      el.removeEventListener("scroll", syncFeedScrollState);
+      window.removeEventListener("resize", syncFeedScrollState);
     };
-  }, [visibleBlocks.length]);
+  }, [visibleBlocks.length, syncFeedScrollState]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1001,6 +1020,44 @@ export function TerminalBlockFeed({
       scrollFeedToLatest(el);
     });
   }, [activitySignature, shellSignature, visibleBlocks.length]);
+
+  // dockview 默认 onlyWhenVisible：切走 tab 时 content 元素从 DOM 摘离（removeChild），
+  // 切回时重新插入；React 组件不卸载，但浏览器会丢失 scrollTop。
+  // 注意：isActive prop 不会变化——dockview 的 renderPanel 只在 panel 创建时调用一次，
+  // 之后 tab 切换由 dockview 内部摘离/插入 DOM，不会重新调用 renderPanel。
+  // 因此这里用 IntersectionObserver 直接检测容器可见性变化，不依赖 isActive prop。
+  //  - 隐藏时 savedScrollTopRef 已保存最后可见的 scrollTop（见 syncFeedScrollState）
+  //  - 恢复可见时：若 followOutputRef 为真（贴底/有新输出）跳最新，否则恢复保存的位置
+  const wasVisibleRef = useRef(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    wasVisibleRef.current = el.clientHeight > 0;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries[0].isIntersecting && entries[0].intersectionRatio > 0;
+        if (!wasVisibleRef.current && visible) {
+          // 从摘离态恢复可见：下一帧（布局完成后）再恢复滚动位置
+          requestAnimationFrame(() => {
+            const target = scrollRef.current;
+            if (!target || target.clientHeight === 0) return;
+            if (followOutputRef.current) {
+              scrollFeedToLatest(target);
+            } else {
+              // 恢复用户上滚阅读的位置；clamp 到当前 scrollHeight 内
+              const max = target.scrollHeight - target.clientHeight;
+              target.scrollTop = Math.max(0, Math.min(savedScrollTopRef.current, max));
+            }
+            syncFeedScrollState();
+          });
+        }
+        wasVisibleRef.current = visible;
+      },
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [syncFeedScrollState]);
 
   // 首次挂载（容器从无到有）强制跳到底 —— 用户打开 tab 时直接看最新输出
   const didMountRef = useRef(false);

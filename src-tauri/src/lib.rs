@@ -843,6 +843,7 @@ pub fn run() {
             commands::workspace_window::workspace_window_debug_log_read,
             commands::workspace_window::workspace_window_debug_log_path,
             commands::workspace_window::window_label_at_screen_point,
+            commands::workspace_window::window_z_order,
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
