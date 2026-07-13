@@ -2,7 +2,7 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [未发布]
+## [0.5.0] - 2026-07-13
 
 ### 新增
 
