@@ -175,6 +175,29 @@ function findSessionIdForBlock(
   return null;
 }
 
+/**
+ * 通过 blockId 反向索引快速定位目标 session，只更新该 session 的 blocks 数组。
+ * 避免终端高频输出时全表扫描 O(N×M) 导致主线程压力。
+ */
+function patchSingleSessionBlock(
+  blocks: Record<string, TerminalBlock[]>,
+  blockId: string,
+  mapper: (block: TerminalBlock, sessionId: string) => TerminalBlock,
+): Record<string, TerminalBlock[]> | null {
+  const sessionId = findSessionIdForBlock(blocks, blockId);
+  if (!sessionId) return null;
+  const sessionBlocks = blocks[sessionId];
+  if (!sessionBlocks) return null;
+  let found = false;
+  const nextBlocks = sessionBlocks.map((b) => {
+    if (b.id !== blockId) return b;
+    found = true;
+    return mapper(b, sessionId);
+  });
+  if (!found) return null;
+  return { ...blocks, [sessionId]: nextBlocks };
+}
+
 function patchSessionBlockThread(
   blocks: Record<string, TerminalBlock[]>,
   blockId: string,
@@ -235,7 +258,6 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
 
   updateBlock: (blockId, update) =>
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
       const patch = { ...update };
       if (
         (patch.status === "completed" || patch.status === "failed") &&
@@ -246,67 +268,56 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
           patch.completedAt = Date.now();
         }
       }
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = blocks.map((b) => {
-          if (b.id !== blockId) return b;
-          let next = { ...b, ...patch };
-          if (
-            (patch.status === "completed" || patch.status === "failed") &&
-            next.liveOutput
-          ) {
-            const flattened = flattenOutputModel(next.liveOutput);
-            if (flattened && !patch.output) {
-              next = { ...next, output: flattened };
-            }
-            const { liveOutput: _removed, ...rest } = next;
-            next = rest as TerminalBlock;
+      const next = patchSingleSessionBlock(state.blocks, blockId, (b, sid) => {
+        let nextBlock = { ...b, ...patch };
+        if (
+          (patch.status === "completed" || patch.status === "failed") &&
+          nextBlock.liveOutput
+        ) {
+          const flattened = flattenOutputModel(nextBlock.liveOutput);
+          if (flattened && !patch.output) {
+            nextBlock = { ...nextBlock, output: flattened };
           }
-          if (patch.status === "completed" || patch.status === "failed" || patch.completedAt != null) {
-            recordTerminalSessionActivity(sid, next.completedAt ?? Date.now(), {
-              command: next.command,
-            });
-          }
-          return next;
-        });
-      }
-      return { blocks: newBlocks };
+          const { liveOutput: _removed, ...rest } = nextBlock;
+          nextBlock = rest as TerminalBlock;
+        }
+        if (patch.status === "completed" || patch.status === "failed" || patch.completedAt != null) {
+          recordTerminalSessionActivity(sid, nextBlock.completedAt ?? Date.now(), {
+            command: nextBlock.command,
+          });
+        }
+        return nextBlock;
+      });
+      return next ? { blocks: next } : state;
     }),
 
   appendBlockOutput: (blockId, chunk) => {
     if (!chunk) return;
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = blocks.map((b) => {
-          if (b.id !== blockId) return b;
-          recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
-          let output = b.output + chunk;
-          if (output.length > MAX_BLOCK_OUTPUT_CHARS) {
-            output = `…[输出已截断]\n${output.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
-          }
-          return { ...b, output };
-        });
-      }
-      return { blocks: newBlocks };
+      const next = patchSingleSessionBlock(state.blocks, blockId, (b, sid) => {
+        recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
+        let output = b.output + chunk;
+        if (output.length > MAX_BLOCK_OUTPUT_CHARS) {
+          output = `…[输出已截断]\n${output.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
+        }
+        return { ...b, output };
+      });
+      return next ? { blocks: next } : state;
     });
   },
 
   appendBlockLiveOutput: (blockId, chunk) => {
     if (!chunk) return;
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = blocks.map((b) => {
-          if (b.id !== blockId) return b;
-          recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
-          const liveOutput = ingestTerminalOutputChunk(
-            b.liveOutput ?? createEmptyOutputModel(),
-            chunk,
-          );
-          return { ...b, liveOutput };
-        });
-      }
-      return { blocks: newBlocks };
+      const next = patchSingleSessionBlock(state.blocks, blockId, (b, sid) => {
+        recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
+        const liveOutput = ingestTerminalOutputChunk(
+          b.liveOutput ?? createEmptyOutputModel(),
+          chunk,
+        );
+        return { ...b, liveOutput };
+      });
+      return next ? { blocks: next } : state;
     });
   },
 
@@ -421,11 +432,16 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
 
   removeBlock: (blockId) =>
     set((state) => {
-      const newBlocks: Record<string, TerminalBlock[]> = {};
-      for (const [sid, blocks] of Object.entries(state.blocks)) {
-        newBlocks[sid] = blocks.filter((block) => block.id !== blockId);
-      }
-      return { blocks: newBlocks };
+      const sessionId = findSessionIdForBlock(state.blocks, blockId);
+      if (!sessionId) return state;
+      const sessionBlocks = state.blocks[sessionId];
+      if (!sessionBlocks) return state;
+      return {
+        blocks: {
+          ...state.blocks,
+          [sessionId]: sessionBlocks.filter((block) => block.id !== blockId),
+        },
+      };
     }),
 }));
 

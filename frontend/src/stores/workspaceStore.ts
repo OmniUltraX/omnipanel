@@ -220,7 +220,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }),
           );
         }
-        // 同时清理该工作区的 tab 快照
+        // 级联清理该工作区的 tab 快照（避免 localStorage 残留）
+        try {
+          // 延迟 import 避免初始化时循环依赖
+          void import("./workspaceTabStore").then((mod) => {
+            mod.useWorkspaceTabStore.getState().removeWorkspace(id);
+          });
+        } catch {
+          // ignore
+        }
         return true;
       },
 

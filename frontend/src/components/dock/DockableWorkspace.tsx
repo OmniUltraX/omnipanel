@@ -481,9 +481,7 @@ export function DockableWorkspace({
   const runProgrammaticActive = useCallback(
     (targetId: string, action: () => void) => {
       const dockActive = apiRef.current?.activePanel?.id;
-      console.log(`[runProgActive] target=${targetId} dockActive=${dockActive} scope=${dockScopeRef.current} stack=${new Error().stack?.split('\n').slice(1,4).join(' | ')}`);
       if (dockActive === targetId) {
-        console.log(`[runProgActive] SKIP (already active)`);
         return;
       }
       if (programmaticActiveTimerRef.current) {
@@ -496,7 +494,6 @@ export function DockableWorkspace({
       } finally {
         if (isProgrammaticActiveRef.current) {
           programmaticActiveTimerRef.current = setTimeout(() => {
-            console.log(`[runProgActive] TIMEOUT reset target=${targetId}`);
             pendingProgrammaticActiveRef.current = null;
             isProgrammaticActiveRef.current = false;
             programmaticActiveTimerRef.current = null;
@@ -527,7 +524,6 @@ export function DockableWorkspace({
   }, []);
 
   const bumpPanelContentRev = useCallback((api: DockviewApi) => {
-    console.log(`[bumpContentRev-all] scope=${dockScopeRef.current} tabs=${tabsRef.current.map(t=>t.id).join(',')} stack=${new Error().stack?.split('\n').slice(1,4).join(' | ')}`);
     isSyncingRef.current = true;
     try {
       for (const tab of tabsRef.current) {
@@ -547,7 +543,6 @@ export function DockableWorkspace({
 
   const bumpPanelContentRevForTabIds = useCallback((api: DockviewApi, tabIds: string[]) => {
     if (tabIds.length === 0) return;
-    console.log(`[bumpContentRev-tab] scope=${dockScopeRef.current} tabIds=${tabIds.join(',')} stack=${new Error().stack?.split('\n').slice(1,4).join(' | ')}`);
     isSyncingRef.current = true;
     try {
       for (const tabId of tabIds) {
@@ -588,14 +583,6 @@ export function DockableWorkspace({
       [COMPONENT_NAME]: (props: IDockviewPanelProps<PanelParams>) => {
         const tabId = props.params.tabId;
         const contentRev = props.params.contentRev ?? 0;
-        const isActive = props.containerApi?.activePanel?.id === tabId;
-        console.log(`[panel-render] tabId=${tabId} rev=${contentRev} active=${isActive} scope=${dockScopeRef.current}`);
-        useEffect(() => {
-          console.log(`[panel-mount] tabId=${tabId} rev=${contentRev} active=${isActive} scope=${dockScopeRef.current} stack=${new Error().stack?.split('\n').slice(1,5).join(' | ')}`);
-          return () => {
-            console.log(`[panel-unmount] tabId=${tabId} rev=${contentRev} scope=${dockScopeRef.current}`);
-          };
-        }, [tabId, contentRev]);
         return (
           <div
             key={`${tabId}:${contentRev}`}
@@ -1339,7 +1326,6 @@ export function DockableWorkspace({
   const syncTabsToApi = useCallback(
     (api: DockviewApi) => {
       const currentTabs = tabsRef.current;
-      console.log(`[syncTabsToApi] enter tabs=${currentTabs.map(t=>t.id).join(',')} panels=${api.panels.map(p=>p.id).join(',')} active=${api.activePanel?.id} scope=${dockScopeRef.current}`);
       const persistLayoutFromApi = () => {
         if (!layoutLoadedRef.current) return;
         const raw = api.toJSON();
@@ -1402,7 +1388,6 @@ export function DockableWorkspace({
               continue;
             }
             try {
-              console.log(`[syncTabsToApi] removePanel ${panel.id} scope=${dockScopeRef.current}`);
               api.removePanel(panel);
             } catch {
               // panel 可能已被 clear / unmount 释放
@@ -1427,7 +1412,6 @@ export function DockableWorkspace({
                 direction: "within",
               };
             }
-            console.log(`[syncTabsToApi] addPanel ${tab.id} scope=${dockScopeRef.current}`);
             api.addPanel(options);
             syncPanelTabParams(api, tab);
             layoutChanged = true;
@@ -1440,7 +1424,6 @@ export function DockableWorkspace({
         const expectedOrder = tabIds.filter((id) => panelOrder.includes(id));
         const actualOrder = panelOrder.filter((id) => tabIds.includes(id));
         if (actualOrder.join("\0") !== expectedOrder.join("\0")) {
-          console.log(`[syncTabsToApi] REORDER expected=[${expectedOrder.join(',')}] actual=[${actualOrder.join(',')}] scope=${dockScopeRef.current}`);
           try {
             const raw = api.toJSON();
             const normalized = normalizeDockLayout(raw) ?? raw;
@@ -1456,7 +1439,6 @@ export function DockableWorkspace({
         isSyncingRef.current = false;
         syncWindowChromeHostRef.current(api);
         if (layoutChanged) {
-          console.log(`[syncTabsToApi] layoutChanged=true -> persistLayoutFromApi scope=${dockScopeRef.current}`);
           persistLayoutFromApi();
         }
       }
@@ -1642,10 +1624,8 @@ export function DockableWorkspace({
     if (!activeTabId) return;
     if (!tabs.some((t) => t.id === activeTabId)) return;
     const dockActive = api.activePanel?.id;
-    console.log(`[sync-effect] activeTabId=${activeTabId} dockActive=${dockActive} isProg=${isProgrammaticActiveRef.current} scope=${dockScopeRef.current}`);
     const panel = api.getPanel(activeTabId);
     if (panel && dockActive !== activeTabId) {
-      console.log(`[sync-effect] -> runProgrammaticActive(${activeTabId})`);
       runProgrammaticActive(activeTabId, () => {
         panel.api.setActive();
       });
@@ -1737,7 +1717,6 @@ export function DockableWorkspace({
       disposablesRef.current = [];
 
       const layoutDisposable = api.onDidLayoutChange(() => {
-        console.log(`[onDidLayoutChange] isSyncing=${isSyncingRef.current} layoutLoaded=${layoutLoadedRef.current} active=${api.activePanel?.id} scope=${dockScopeRef.current}`);
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
         const raw = api.toJSON();
@@ -1770,8 +1749,6 @@ export function DockableWorkspace({
         onCloseTabRef.current(panel.id);
       });
       const activeDisposable = api.onDidActivePanelChange((panel) => {
-        const pid = panel?.id ?? "null";
-        console.log(`[onDidActivePanelChange] panel=${pid} isProg=${isProgrammaticActiveRef.current} pending=${pendingProgrammaticActiveRef.current} scope=${dockScopeRef.current}`);
         // dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，但
         // onDidActivePanelChange 是同步的。onActiveTabChange → setActiveSideTab
         // 会触发 React re-render，其 microtask 可能在 onDidLayoutChange 之前执行。
@@ -1798,13 +1775,11 @@ export function DockableWorkspace({
             }
             pendingProgrammaticActiveRef.current = null;
             isProgrammaticActiveRef.current = false;
-            console.log(`[onDidActivePanelChange] consumed match, reset`);
           }
           syncStatusBarActiveDockRef.current(panel?.id ?? null);
           return;
         }
         if (panel) {
-          console.log(`[onDidActivePanelChange] -> onActiveTabChange(${pid})`);
           onActiveTabChangeRef.current(panel.id);
         }
         syncStatusBarActiveDockRef.current(panel?.id ?? null);
@@ -1817,12 +1792,10 @@ export function DockableWorkspace({
         });
       };
       const addDisposable = api.onDidAddPanel((panel) => {
-        console.log(`[onDidAddPanel] panel=${panel.id} active=${api.activePanel?.id} scope=${dockScopeRef.current}`);
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
       });
       const moveDisposable = api.onDidMovePanel(() => {
-        console.log(`[onDidMovePanel] active=${api.activePanel?.id} scope=${dockScopeRef.current}`);
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
       });

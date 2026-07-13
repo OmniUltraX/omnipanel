@@ -106,7 +106,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
   // 在 onDidActivePanelChange 层面过滤，这里无需再额外处理初始化期事件。
   const handleSideTabChange = useCallback((id: string) => {
     const next = id as SidePanelId;
-    console.log(`[handleSideTabChange] id=${id} current=${activeSideTabRef.current}`);
     if (next === activeSideTabRef.current) return;
     activeSideTabRef.current = next;
     setActiveSideTab(next);
@@ -162,7 +161,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
     const sftpPath = normalizeTerminalCwdForSftp(tab.session.cwd);
     if (!sftpPath) return;
     if (lastSyncedSftpCwdRef.current === sftpPath) return;
-    console.log(`[sftp-sync] cwd=${tab.session.cwd} sftpPath=${sftpPath} lastSynced=${lastSyncedSftpCwdRef.current} resource.id=${resource.id} tabId=${tabId}`);
     lastSyncedSftpCwdRef.current = sftpPath;
     requestSftp(resource.id, sftpPath);
   }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
@@ -243,7 +241,6 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
 
   const renderSidePanel = useCallback(
     (panelId: string) => {
-      console.log(`[renderSidePanel] panelId=${panelId} activeSideTab=${activeSideTabRef.current}`);
       if (panelId === "history") {
         return wrapSidePanel(
           "history",

@@ -28,6 +28,7 @@ import {
 import { isDashboardPath } from "../../lib/paths";
 
 import { appConfirm } from "../../lib/appConfirm";
+import { cleanupWorkspaceDockTab } from "../../lib/workspaceTabActions";
 
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
@@ -130,11 +131,25 @@ export function WorkspacePopover({
 
   const [creating, setCreating] = useState(false);
 
+  const creatingRef = useRef(creating);
+  creatingRef.current = creating;
+
   const [draftName, setDraftName] = useState("");
 
   const [draftError, setDraftError] = useState<string | null>(null);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
+
+  const renamingIdRef = useRef(renamingId);
+  renamingIdRef.current = renamingId;
+
+  // 持有最新函数引用，让空依赖 useEffect 中的事件处理器能调用最新版本
+  const commitCreateRef = useRef(commitCreate);
+  commitCreateRef.current = commitCreate;
+  const commitRenameRef = useRef(commitRename);
+  commitRenameRef.current = commitRename;
+  const cancelRenameRef = useRef(cancelRename);
+  cancelRenameRef.current = cancelRename;
 
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -218,7 +233,7 @@ export function WorkspacePopover({
 
         if (e.key === "Escape") {
 
-          if (creating) {
+          if (creatingRef.current) {
 
             setCreating(false);
 
@@ -226,9 +241,9 @@ export function WorkspacePopover({
 
             setDraftError(null);
 
-          } else if (renamingId) {
+          } else if (renamingIdRef.current) {
 
-            cancelRename();
+            cancelRenameRef.current();
 
           } else {
 
@@ -240,15 +255,15 @@ export function WorkspacePopover({
 
         }
 
-        if (e.key === "Enter" && creating) {
+        if (e.key === "Enter" && creatingRef.current) {
 
-          commitCreate();
+          commitCreateRef.current();
 
         }
 
-        if (e.key === "Enter" && renamingId) {
+        if (e.key === "Enter" && renamingIdRef.current) {
 
-          commitRename();
+          commitRenameRef.current();
 
         }
 
@@ -274,7 +289,7 @@ export function WorkspacePopover({
 
     };
 
-  });
+  }, []);
 
 
 
@@ -370,9 +385,17 @@ export function WorkspacePopover({
 
     }
 
-    removeWorkspaceData(target.id);
+    // 1. 清理该工作区所有 tab 的后端资源（终端会话、数据库连接等）
+    const dockTabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[target.id] ?? [];
+    for (const tab of dockTabs) {
+      cleanupWorkspaceDockTab(tab);
+    }
 
+    // 2. 先切换到其他工作区（避免 dock tabs 被清空后 UI 闪空白）
     if (!removeWorkspace(target.id)) return;
+
+    // 3. 切换完成后再清理旧工作区的 dock 数据
+    removeWorkspaceData(target.id);
 
   }
 

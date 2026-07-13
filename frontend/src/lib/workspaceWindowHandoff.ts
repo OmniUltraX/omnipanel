@@ -365,22 +365,34 @@ export async function hydrateWorkspaceWindowTerminals(workspaceId: string): Prom
  * - Phase 2（后台）：applyTabStatesHandoff（终端历史等）+ clearHandoffFile
  *   不阻塞 UI，用户已能看到正确的 tab 列表。
  *
- * handoff 文件不存在时（窗口被强杀等）仍调用 onDockReady，让 UI 能正常切换。
+ * 无论 Phase 1 是否抛错（handoff 文件损坏、JSON parse 失败等），onDockReady 都会被调用，
+ * 确保 CLOSED 事件 handler 的 UI 切换不会因 handoff 应用失败而永久卡死。
  */
 export async function applyWorkspaceWindowReturnHandoff(
   workspaceId: string,
   onDockReady?: () => void,
 ): Promise<void> {
-  const handoff = await readHandoffFromFile(workspaceId, "close");
-  if (!handoff) {
+  let dockReady = false;
+  try {
+    const handoff = await readHandoffFromFile(workspaceId, "close");
+    if (!handoff) {
+      // handoff 文件不存在（窗口被强杀等），让 UI 正常切换
+      onDockReady?.();
+      dockReady = true;
+      return;
+    }
+    applyDockHandoff(workspaceId, handoff.dock);
+    hydrateTerminalsFromHandoff(workspaceId, handoff);
+    // dock tabs 和终端会话已恢复，通知调用方可以切 UI 了
     onDockReady?.();
-    return;
+    dockReady = true;
+    // tab 运行时状态（历史等）异步恢复，不阻塞 UI
+    await applyTabStatesHandoff(handoff?.tabStates);
+    await clearHandoffFile(workspaceId);
+  } catch (err) {
+    console.error(`[handoff] applyWorkspaceWindowReturnHandoff(${workspaceId}) failed:`, err);
+  } finally {
+    // Phase 1 抛错时 onDockReady 尚未被调用，兜底调用确保 UI 切换不会永久卡死
+    if (!dockReady) onDockReady?.();
   }
-  applyDockHandoff(workspaceId, handoff.dock);
-  hydrateTerminalsFromHandoff(workspaceId, handoff);
-  // dock tabs 和终端会话已恢复，通知调用方可以切 UI 了
-  onDockReady?.();
-  // tab 运行时状态（历史等）异步恢复，不阻塞 UI
-  await applyTabStatesHandoff(handoff?.tabStates);
-  await clearHandoffFile(workspaceId);
 }

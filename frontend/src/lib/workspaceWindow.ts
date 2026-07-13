@@ -166,7 +166,9 @@ export async function openWorkspaceWindow(
       });
     }
   } catch (e) {
+    // 回滚乐观更新：windowForm 必须恢复为 embedded，否则下次启动会尝试重新弹出
     useWorkspaceWindowStore.getState().clearPoppedOut(workspaceId);
+    useWorkspaceStore.getState().setWorkspaceWindowForm(workspaceId, "embedded");
     const message = e instanceof Error ? e.message : String(e);
     await workspaceWindowDebugLog(`open FAILED: ${message}`);
     showToast(`打开独立窗口失败: ${message}`);
