@@ -1,7 +1,6 @@
 //! SSH 宿主机 Docker 适配器：复用现有 [`SshSession`]，读数据走 `curl --unix-socket /var/run/docker.sock`，
 //! 写操作与 exec/流式日志等仍调用远端 `docker` CLI。
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -9,15 +8,14 @@ use async_trait::async_trait;
 use futures::Stream;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::{SshPtySession, SshSession, SshStreamHandle, StreamChunk};
-use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::compose::{ComposeContainerRow, aggregate_compose, compose_fields_from_label_map};
+use crate::compose::{ComposeContainerRow, aggregate_compose};
 use crate::local::{map_system_data_usage, to_container_detail, to_container_summary, to_image_summaries};
 use crate::local::{DockerExecOutput, DockerExecSession};
 use crate::model::*;
 use crate::ssh_docker_api::{classify_docker_api_error, url_path_segment, SshDockerApi};
-use crate::{ContainerFilter, DockerAdapter, normalize_name, short_id};
+use crate::{ContainerFilter, DockerAdapter};
 
 /// SSH 宿主机 Docker 适配器：持有一个可复用的 `SshSession`（由命令层缓存于会话池），
 /// 每次操作在独立 exec channel 上调用远端 `docker` CLI。
@@ -1137,141 +1135,6 @@ fn split_image_ref(image: &str) -> (&str, &str) {
 // ---------------------------------------------------------------------------
 // 解析与工具
 // ---------------------------------------------------------------------------
-// 解析与工具
-// ---------------------------------------------------------------------------
-
-/// `docker ps --format '{{json .}}'` 单行结构（字段为字符串）。
-#[derive(Debug, Deserialize)]
-struct PsRow {
-    #[serde(rename = "ID")]
-    id: String,
-    #[serde(rename = "Names", default)]
-    names: String,
-    #[serde(rename = "Image", default)]
-    image: String,
-    #[serde(rename = "State", default)]
-    state: String,
-    #[serde(rename = "Status", default)]
-    status: String,
-    #[serde(rename = "Ports", default)]
-    ports: String,
-    #[serde(rename = "Networks", default)]
-    networks: String,
-    #[serde(rename = "Labels", default)]
-    labels: String,
-}
-
-impl PsRow {
-    fn into_summary(self) -> DockerContainerSummary {
-        let running = self.state.eq_ignore_ascii_case("running") || self.status.starts_with("Up");
-        let name = self
-            .names
-            .split(',')
-            .next()
-            .map(normalize_name)
-            .unwrap_or_default();
-        let ports = self
-            .ports
-            .split(',')
-            .filter_map(|p| parse_port(p.trim()))
-            .collect();
-        let networks = self
-            .networks
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty() && s != "-")
-            .collect();
-        let label_map = parse_labels(&self.labels);
-        let (compose_project, compose_service) = compose_fields_from_label_map(&label_map);
-        DockerContainerSummary {
-            short_id: short_id(&self.id),
-            id: self.id,
-            name,
-            image: self.image,
-            state: if self.state.is_empty() {
-                if running {
-                    "running".into()
-                } else {
-                    "exited".into()
-                }
-            } else {
-                self.state.to_lowercase()
-            },
-            status_text: self.status,
-            running,
-            ports,
-            networks,
-            ip_address: None,
-            network_attachments: vec![],
-            created_at: 0,
-            compose_project,
-            compose_service,
-        }
-    }
-}
-
-/// `docker images --format '{{json .}}'` 单行结构。
-#[derive(Debug, Deserialize)]
-struct ImageRow {
-    #[serde(rename = "ID")]
-    id: String,
-    #[serde(rename = "Repository", default)]
-    repository: String,
-    #[serde(rename = "Tag", default)]
-    tag: String,
-    #[serde(rename = "Size", default)]
-    size: String,
-    #[serde(rename = "Containers", default)]
-    containers: String,
-}
-
-impl ImageRow {
-    fn into_summary(self) -> DockerImageSummary {
-        let dangling = self.repository == "<none>" || self.tag == "<none>";
-        DockerImageSummary {
-            short_id: short_id(&self.id),
-            id: self.id,
-            repository: self.repository,
-            tag: self.tag,
-            size_bytes: human_size_to_bytes(&self.size),
-            created_at: 0,
-            containers: self.containers.parse().unwrap_or(-1),
-            dangling,
-        }
-    }
-}
-
-/// 解析端口文本，如 `0.0.0.0:80->80/tcp` 或 `80/tcp`。
-fn parse_port(text: &str) -> Option<DockerPort> {
-    if text.is_empty() {
-        return None;
-    }
-    let (mapping, proto) = text.rsplit_once('/').unwrap_or((text, "tcp"));
-    if let Some((host, private)) = mapping.split_once("->") {
-        let (ip, public) = host.rsplit_once(':').unwrap_or(("0.0.0.0", host));
-        Some(DockerPort {
-            private_port: private.trim().parse().ok()?,
-            public_port: public.trim().parse().ok(),
-            protocol: proto.to_string(),
-            ip: Some(ip.to_string()),
-        })
-    } else {
-        Some(DockerPort {
-            private_port: mapping.trim().parse().ok()?,
-            public_port: None,
-            protocol: proto.to_string(),
-            ip: None,
-        })
-    }
-}
-
-/// 解析 `k=v,k2=v2` 标签串。
-fn parse_labels(text: &str) -> HashMap<String, String> {
-    text.split(',')
-        .filter_map(|kv| kv.split_once('='))
-        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-        .collect()
-}
 
 /// 人类可读尺寸（docker SI，1000 进制）转字节。如 `142MB`、`1.2GB`、`0B`。
 fn human_size_to_bytes(text: &str) -> i64 {
@@ -1314,23 +1177,6 @@ fn parse_iso_to_unix_ms(s: Option<&str>) -> i64 {
     0
 }
 
-/// `docker history --format '{{json .}}'` 单行 JSON 形态。
-#[derive(Debug, Deserialize)]
-struct HistoryRow {
-    #[serde(rename = "ID")]
-    id: String,
-    #[serde(rename = "Created")]
-    created: String,
-    #[serde(rename = "CreatedBy")]
-    created_by: String,
-    #[serde(rename = "Size")]
-    size: String,
-    #[serde(rename = "Comment")]
-    comment: String,
-    #[serde(rename = "Tags", default)]
-    tags: Vec<String>,
-}
-
 /// 从 `docker image prune` 输出解析释放空间。
 fn parse_reclaimed_space(text: &str) -> i64 {
     text.lines()
@@ -1370,15 +1216,6 @@ fn docker_cli_error(context: &str, stderr: &str) -> OmniError {
     OmniError::new(ErrorCode::Internal, context.to_string()).with_cause(msg)
 }
 
-fn non_empty(s: &str) -> Option<String> {
-    let s = s.trim();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s.to_string())
-    }
-}
-
 /// 极简 shell 单引号转义，避免容器 id/名称中的特殊字符。
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -1387,33 +1224,6 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_published_port() {
-        let p = parse_port("0.0.0.0:443->443/tcp").unwrap();
-        assert_eq!(p.private_port, 443);
-        assert_eq!(p.public_port, Some(443));
-        assert_eq!(p.protocol, "tcp");
-        assert_eq!(p.ip.as_deref(), Some("0.0.0.0"));
-    }
-
-    #[test]
-    fn parses_internal_only_port() {
-        let p = parse_port("6379/tcp").unwrap();
-        assert_eq!(p.private_port, 6379);
-        assert_eq!(p.public_port, None);
-    }
-
-    #[test]
-    fn parses_ps_row() {
-        let line = r#"{"ID":"abc123def456","Names":"/nginx-proxy","Image":"nginx:1.25","State":"running","Status":"Up 3 days","Ports":"0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp","Networks":"bridge","Labels":"com.docker.compose.project=app"}"#;
-        let row: PsRow = serde_json::from_str(line).unwrap();
-        let s = row.into_summary();
-        assert_eq!(s.name, "nginx-proxy");
-        assert!(s.running);
-        assert_eq!(s.ports.len(), 2);
-        assert_eq!(s.networks, vec!["bridge"]);
-    }
 
     #[test]
     fn parses_human_sizes() {
@@ -1719,59 +1529,6 @@ pub async fn prune_build_cache(session: &SshSession) -> OmniResult<DockerPruneRe
         deleted,
         freed_space_bytes: freed,
     })
-}
-
-fn parse_system_df_output(text: &str) -> DockerSystemDiskUsage {
-    let mut usage = DockerSystemDiskUsage::default();
-    for line in text.lines().skip(1) {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Some((key, item)) = parse_system_df_line(line) else {
-            continue;
-        };
-        match key {
-            "images" => usage.images = item,
-            "containers" => usage.containers = item,
-            "volumes" => usage.volumes = item,
-            "build_cache" => usage.build_cache = item,
-            _ => {}
-        }
-    }
-    usage
-}
-
-fn parse_system_df_line(line: &str) -> Option<(&'static str, DockerDiskUsageItem)> {
-    let tokens: Vec<&str> = line.split_whitespace().collect();
-    if tokens.is_empty() {
-        return None;
-    }
-    let (key, offset) = if tokens[0] == "Local" && tokens.get(1) == Some(&"Volumes") {
-        ("volumes", 2usize)
-    } else if tokens[0] == "Build" && tokens.get(1) == Some(&"Cache") {
-        ("build_cache", 2usize)
-    } else if tokens[0] == "Images" {
-        ("images", 1usize)
-    } else if tokens[0] == "Containers" {
-        ("containers", 1usize)
-    } else {
-        return None;
-    };
-    let nums = tokens.get(offset..)?;
-    if nums.len() < 4 {
-        return None;
-    }
-    let reclaimable_token = nums[3].split('(').next().unwrap_or(nums[3]);
-    Some((
-        key,
-        DockerDiskUsageItem {
-            total_count: nums[0].parse().unwrap_or(0),
-            active_count: nums[1].parse().unwrap_or(0),
-            size_bytes: human_size_to_bytes(nums[2]),
-            reclaimable_bytes: human_size_to_bytes(reclaimable_token),
-        },
-    ))
 }
 
 fn parse_docker_reclaimed(text: &str) -> Option<i64> {

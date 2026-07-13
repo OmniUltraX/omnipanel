@@ -27,7 +27,6 @@ type SidePanelWorkspaceSpec = {
   snapshotId?: string;
 };
 
-const SIDE_TAB_RAIL_PX = 38;
 const SIDE_DEFAULT_EXPANDED_PX = 380;
 const SIDE_MIN_EXPANDED_PX = 240;
 const SIDE_MAX_EXPANDED_PX = 600;

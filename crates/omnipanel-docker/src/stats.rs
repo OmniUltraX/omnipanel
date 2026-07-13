@@ -334,32 +334,7 @@ fn map_bollard_err(e: bollard::errors::Error) -> OmniError {
     OmniError::new(ErrorCode::Internal, "Docker Engine 请求失败").with_cause(e.to_string())
 }
 
-// ── 过滤 / 去重（前端 ID 匹配用） ─────────────────────────────────────────────
-
-/// 去重 stats 拉取目标。
-pub fn dedupe_targets(targets: &[String]) -> Vec<String> {
-    use std::collections::HashSet;
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for target in targets {
-        let trimmed = target.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let id_key = normalize_stats_id(trimmed);
-        if id_key.len() >= 12 {
-            if seen.insert(id_key) {
-                out.push(trimmed.to_string());
-            }
-            continue;
-        }
-        let name_key = format!("name:{}", normalize_stats_name(trimmed));
-        if seen.insert(name_key) {
-            out.push(trimmed.to_string());
-        }
-    }
-    out
-}
+// ── 过滤（前端 ID 匹配用） ───────────────────────────────────────────────────
 
 /// 按容器 ID / 名称过滤 stats 列表。
 pub fn filter_by_targets(
@@ -538,14 +513,6 @@ mod tests {
             docker_stats_shell_cmd(),
             wrap_remote_shell("docker stats --no-stream --format '{{json .}}'")
         );
-    }
-
-    #[test]
-    fn dedupe_targets_dedupes_repeated_ids() {
-        let id = "7b56fbb2cb3123b661028e2f5740f62b76c10f2e4ac9fd26fe84f18ed1cd025e";
-        let deduped = dedupe_targets(&[id.into(), id.into(), "yudao-tiku".into()]);
-        assert_eq!(deduped.len(), 2);
-        assert_eq!(deduped[0], id);
     }
 
     #[test]

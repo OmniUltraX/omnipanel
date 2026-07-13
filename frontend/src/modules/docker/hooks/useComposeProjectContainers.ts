@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
 import {
-  dockerSidebarCategoryRefreshKey,
   selectDockerSidebarCacheEntry,
 } from "../dockerSidebarCache";
 import { resolveComposeProjectName } from "../dockerComposeGroups";
