@@ -285,15 +285,7 @@ impl OnePanelAdapter {
 
     /// 批量获取容器 CPU / 内存占用（1Panel `GET /containers/list/stats`）。
     pub async fn list_container_stats(&self) -> OmniResult<Vec<DockerContainerStats>> {
-        let raw: Vec<serde_json::Value> = self
-            .client
-            .get_json("/api/v2/containers/list/stats")
-            .await
-            .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
-        Ok(raw
-            .into_iter()
-            .filter_map(|v| parse_container_list_stats(&v))
-            .collect())
+        fetch_onepanel_container_stats(&self.client).await
     }
 
     /// 创建 1Panel 容器 WebSocket 交互终端。
@@ -426,6 +418,42 @@ fn parse_u64_i64(v: &serde_json::Value) -> Option<i64> {
         .or_else(|| v.as_i64())
 }
 
+async fn fetch_onepanel_container_stats(
+    client: &OnePanelClient,
+) -> OmniResult<Vec<DockerContainerStats>> {
+    let api_path = "/api/v2/containers/list/stats";
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        api = %api_path,
+        "请求 1Panel 容器 stats API"
+    );
+    let raw: Vec<serde_json::Value> = client
+        .get_json(api_path)
+        .await
+        .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        api = %api_path,
+        raw_count = raw.len(),
+        raw_sample = ?raw.first().map(|v| crate::stats_cli::truncate_debug_text(&v.to_string(), 512)),
+        "1Panel 容器 stats 原始响应"
+    );
+    let stats: Vec<DockerContainerStats> = raw
+        .into_iter()
+        .filter_map(|v| parse_container_list_stats(&v))
+        .collect();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        parsed_count = stats.len(),
+        sample = ?stats.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
+        "1Panel 容器 stats 解析完成"
+    );
+    Ok(stats)
+}
+
 fn parse_container_list_stats(v: &serde_json::Value) -> Option<DockerContainerStats> {
     let container_id = json_str(
         v.get("containerID")
@@ -513,6 +541,8 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
             .map(|item| item.name.clone())
             .collect()
     };
+    let labels = parse_json_labels(v.get("labels"));
+    let (compose_project, compose_service) = crate::compose::compose_fields_from_kv(&labels);
     Some(DockerContainerSummary {
         short_id: crate::short_id(&id),
         id,
@@ -538,6 +568,8 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
             .or_else(|| v.get("createdAt"))
             .map(parse_i64_value)
             .unwrap_or(0),
+        compose_project,
+        compose_service,
     })
 }
 
@@ -1229,21 +1261,25 @@ impl DockerAdapter for OnePanelAdapter {
             DockerComposeAction::Up => "up",
             DockerComposeAction::Down => "down",
             DockerComposeAction::Restart => "restart",
+            DockerComposeAction::Rebuild => "up",
             DockerComposeAction::Pull => "pull",
             DockerComposeAction::Logs => "logs",
         };
+        let mut body = serde_json::json!({
+            "name": req.project,
+            "path": req.working_dir,
+            "file": req.config_file,
+            "detached": req.detached,
+            "services": req.services,
+        });
+        if matches!(action, DockerComposeAction::Rebuild) {
+            body["detached"] = serde_json::json!(true);
+            body["build"] = serde_json::json!(true);
+            body["force"] = serde_json::json!(true);
+        }
         let v: serde_json::Value = self
             .client
-            .post_json(
-                &format!("/api/v2/compose/{op}"),
-                serde_json::json!({
-                    "name": req.project,
-                    "path": req.working_dir,
-                    "file": req.config_file,
-                    "detached": req.detached,
-                    "services": req.services,
-                }),
-            )
+            .post_json(&format!("/api/v2/compose/{op}"), body)
             .await
             .map_err(|e| e.with_cause(format!("1Panel compose {} 失败", op)))?;
         Ok(DockerComposeResult {
@@ -1252,6 +1288,17 @@ impl DockerAdapter for OnePanelAdapter {
             stdout_excerpt: v.to_string(),
             stderr_excerpt: String::new(),
             exit_code: 0,
+        })
+    }
+
+    async fn list_container_stats(
+        &self,
+        container_ids: Option<&[String]>,
+    ) -> OmniResult<Vec<DockerContainerStats>> {
+        let all = fetch_onepanel_container_stats(&self.client).await?;
+        Ok(match container_ids {
+            Some(ids) if !ids.is_empty() => crate::stats_cli::filter_stats_by_container_ids(all, ids),
+            _ => all,
         })
     }
 

@@ -23,7 +23,7 @@ export type DockerTreeIconKind =
   | "container"
   | "network"
   | "volume"
-  | "service-group";
+  | "compose-project";
 
 export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
   switch (kind) {
@@ -54,7 +54,7 @@ export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
       return <ImageLayersIcon size={13} />;
     case "container":
       return <ContainerIcon size={13} />;
-    case "service-group":
+    case "compose-project":
       return <ComposeStackIcon size={13} />;
     case "network":
       return (

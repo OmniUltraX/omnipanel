@@ -93,7 +93,7 @@ impl DockerExecSession {
     }
 }
 
-use crate::compose::{ComposeContainerRow, aggregate_compose};
+use crate::compose::{ComposeContainerRow, aggregate_compose, compose_fields_from_label_map, COMPOSE_CONFIG_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, COMPOSE_WORKDIR_LABEL};
 use crate::model::*;
 use crate::{ContainerFilter, DockerAdapter, normalize_name, short_id};
 
@@ -165,10 +165,10 @@ fn human_bytes(bytes: i64) -> String {
     }
 }
 
-const COMPOSE_PROJECT: &str = "com.docker.compose.project";
-const COMPOSE_SERVICE: &str = "com.docker.compose.service";
-const COMPOSE_WORKDIR: &str = "com.docker.compose.project.working_dir";
-const COMPOSE_CONFIG: &str = "com.docker.compose.project.config_files";
+const COMPOSE_PROJECT: &str = COMPOSE_PROJECT_LABEL;
+const COMPOSE_SERVICE: &str = COMPOSE_SERVICE_LABEL;
+const COMPOSE_WORKDIR: &str = COMPOSE_WORKDIR_LABEL;
+const COMPOSE_CONFIG: &str = COMPOSE_CONFIG_LABEL;
 
 /// 本地 Engine 适配器。持有一个 `bollard::Docker` 客户端（连接是惰性的，真正 IO 在调用时发生）。
 pub struct LocalDockerAdapter {
@@ -604,6 +604,142 @@ fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> Dock
             })
             .unwrap_or_default(),
     }
+}
+
+/// 通过 bollard 批量拉取容器 stats（本地 / 远程 TCP Engine 通用）。
+async fn list_container_stats_bollard(
+    docker: &Docker,
+    container_ids: Option<&[String]>,
+) -> OmniResult<Vec<DockerContainerStats>> {
+    let ids = match container_ids {
+        Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+        Some(ids) => ids.to_vec(),
+        None => {
+            let options = ListContainersOptionsBuilder::default().build();
+            let raw = docker.list_containers(Some(options)).await.map_err(map_bollard)?;
+            raw.into_iter()
+                .filter_map(|c| c.id)
+                .filter(|id| !id.is_empty())
+                .collect()
+        }
+    };
+
+    let mut out = Vec::with_capacity(ids.len());
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        scoped = container_ids.map(|ids| ids.len()),
+        container_count = ids.len(),
+        container_sample = ?ids.iter().take(5).collect::<Vec<_>>(),
+        "批量拉取 bollard stats"
+    );
+    for id in ids {
+        match fetch_container_stats_bollard(docker, &id).await {
+            Ok(stats) => out.push(stats),
+            Err(e) => {
+                tracing::debug!(
+                    target: "docker_stats",
+                    source = "bollard",
+                    container = %id,
+                    error = %e.message,
+                    "跳过容器 stats"
+                );
+            }
+        }
+    }
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        scoped = container_ids.map(|ids| ids.len()),
+        parsed_count = out.len(),
+        sample = ?out.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent)),
+        "list_container_stats 完成"
+    );
+    Ok(out)
+}
+
+/// bollard stats 需两帧才能算 CPU；先采样一帧再短暂等待后取第二帧。
+async fn fetch_container_stats_bollard(docker: &Docker, id: &str) -> OmniResult<DockerContainerStats> {
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        "bollard stats 双帧采样开始（首帧预热 CPU delta）"
+    );
+    let _ = sample_container_stats_once(docker, id, "warmup").await?;
+    tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+    sample_container_stats_once(docker, id, "sample").await
+}
+
+fn log_bollard_stats_raw(
+    container_id: &str,
+    frame: &str,
+    s: &bollard::models::ContainerStatsResponse,
+) {
+    let cpu = s.cpu_stats.as_ref();
+    let precpu = s.precpu_stats.as_ref();
+    let memory = s.memory_stats.as_ref();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %container_id,
+        frame,
+        id = ?s.id,
+        name = ?s.name,
+        cpu_total = cpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
+        precpu_total = precpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
+        cpu_system = cpu.and_then(|c| c.system_cpu_usage),
+        precpu_system = precpu.and_then(|c| c.system_cpu_usage),
+        online_cpus = cpu.and_then(|c| c.online_cpus),
+        percpu_len = cpu
+            .and_then(|c| c.cpu_usage.as_ref())
+            .and_then(|u| u.percpu_usage.as_ref())
+            .map(|v| v.len()),
+        mem_usage = memory.and_then(|m| m.usage),
+        mem_limit = memory.and_then(|m| m.limit),
+        mem_max_usage = memory.and_then(|m| m.max_usage),
+        "bollard stats 原始帧"
+    );
+}
+
+async fn sample_container_stats_once(
+    docker: &Docker,
+    id: &str,
+    frame: &str,
+) -> OmniResult<DockerContainerStats> {
+    let options = StatsOptionsBuilder::default()
+        .stream(false)
+        .one_shot(true)
+        .build();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        frame,
+        api = "GET /containers/{id}/stats?stream=false&one-shot=true",
+        "请求 bollard stats API"
+    );
+    let stream = docker.stats(id, Some(options));
+    tokio::pin!(stream);
+    let item = stream
+        .next()
+        .await
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "stats 无输出"))?
+        .map_err(map_bollard)?;
+    log_bollard_stats_raw(id, frame, &item);
+    let converted = convert_stats(id, &item);
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        frame,
+        cpu_percent = converted.cpu_percent,
+        memory_usage_bytes = converted.memory_usage_bytes,
+        memory_limit_bytes = ?converted.memory_limit_bytes,
+        memory_percent = converted.memory_percent,
+        "bollard stats 解析结果"
+    );
+    Ok(converted)
 }
 
 #[async_trait]
@@ -1095,26 +1231,33 @@ impl DockerAdapter for LocalDockerAdapter {
     ) -> OmniResult<DockerComposeResult> {
         // 本地 Engine 没有稳定的 compose API（bollard 只暴露 Swarm services），
         // 走 `docker compose` CLI 子进程以保持与 SSH 路径行为一致。
+        // `-p` / `-f` 为 compose 全局选项，必须放在子命令（logs/up/...）之前。
         let mut args: Vec<String> = vec!["compose".to_string()];
-        let sub = match action {
-            DockerComposeAction::Up => "up",
-            DockerComposeAction::Down => "down",
-            DockerComposeAction::Restart => "restart",
-            DockerComposeAction::Pull => "pull",
-            DockerComposeAction::Logs => "logs",
-        };
-        args.push(sub.to_string());
         args.push("-p".to_string());
         args.push(req.project.clone());
         if let Some(cf) = &req.config_file {
             args.push("-f".to_string());
             args.push(cf.clone());
         }
+        let sub = match action {
+            DockerComposeAction::Up => "up",
+            DockerComposeAction::Down => "down",
+            DockerComposeAction::Restart => "restart",
+            DockerComposeAction::Rebuild => "up",
+            DockerComposeAction::Pull => "pull",
+            DockerComposeAction::Logs => "logs",
+        };
+        args.push(sub.to_string());
         match action {
             DockerComposeAction::Up => {
                 if req.detached {
                     args.push("-d".to_string());
                 }
+            }
+            DockerComposeAction::Rebuild => {
+                args.push("-d".to_string());
+                args.push("--build".to_string());
+                args.push("--force-recreate".to_string());
             }
             DockerComposeAction::Logs => {
                 args.push("--tail".to_string());
@@ -1144,6 +1287,27 @@ impl DockerAdapter for LocalDockerAdapter {
             stderr_excerpt: truncate(&String::from_utf8_lossy(&output.stderr), 8 * 1024),
             exit_code,
         })
+    }
+
+    async fn read_compose_project_files(
+        &self,
+        req: &DockerComposeReadFilesRequest,
+    ) -> OmniResult<DockerComposeProjectFiles> {
+        crate::compose_files::read_local_compose_project_files(req).await
+    }
+
+    async fn write_compose_project_files(
+        &self,
+        req: &DockerComposeWriteFilesRequest,
+    ) -> OmniResult<()> {
+        crate::compose_files::write_local_compose_project_files(req).await
+    }
+
+    async fn list_container_stats(
+        &self,
+        container_ids: Option<&[String]>,
+    ) -> OmniResult<Vec<DockerContainerStats>> {
+        list_container_stats_bollard(&self.docker, container_ids).await
     }
 
     async fn stream_stats(
@@ -1600,6 +1764,25 @@ impl DockerAdapter for LocalDockerAdapter {
             .map_err(map_bollard)
     }
 
+    async fn list_volume_dir(
+        &self,
+        volume_name: &str,
+        path: &str,
+    ) -> OmniResult<Vec<DockerFileEntry>> {
+        let detail = self.inspect_volume(volume_name).await?;
+        crate::volume_files::list_local_volume_dir(&detail.mountpoint, path).await
+    }
+
+    async fn read_volume_file(
+        &self,
+        volume_name: &str,
+        path: &str,
+        max_bytes: i64,
+    ) -> OmniResult<Vec<u8>> {
+        let detail = self.inspect_volume(volume_name).await?;
+        crate::volume_files::read_local_volume_file(&detail.mountpoint, path, max_bytes).await
+    }
+
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>> {
         let options = ListContainersOptionsBuilder::default().all(true).build();
         let raw = self
@@ -2014,6 +2197,8 @@ fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainer
         .and_then(|n| n.networks)
         .map(|m| m.into_keys().collect())
         .unwrap_or_default();
+    let labels_map = c.labels.clone().unwrap_or_default();
+    let (compose_project, compose_service) = compose_fields_from_label_map(&labels_map);
 
     DockerContainerSummary {
         short_id: short_id(&id),
@@ -2028,6 +2213,8 @@ fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainer
         ip_address: None,
         network_attachments: vec![],
         created_at: c.created.unwrap_or(0),
+        compose_project,
+        compose_service,
     }
 }
 
@@ -2093,6 +2280,11 @@ pub(crate) fn to_container_detail(
         })
         .collect();
 
+    let label_map = config
+        .and_then(|cfg| cfg.labels.clone())
+        .unwrap_or_default();
+    let (compose_project, compose_service) = compose_fields_from_label_map(&label_map);
+
     let summary = DockerContainerSummary {
         short_id: short_id(&id),
         id,
@@ -2113,6 +2305,8 @@ pub(crate) fn to_container_detail(
             .filter(|s| !s.is_empty()),
         network_attachments: network_attachments.clone(),
         created_at: 0,
+        compose_project,
+        compose_service,
     };
 
     DockerContainerDetail {

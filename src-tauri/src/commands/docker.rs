@@ -15,6 +15,7 @@ use omnipanel_docker::{
     DockerConnectionSource, DockerConnectionStatus, DockerContainerAction, DockerContainerDetail,
     DockerContainerStats, DockerContainerSummary, DockerCreateContainerRequest,
     DockerCreateNetworkRequest, DockerCreateServiceRequest, DockerCreateVolumeRequest,
+    DockerComposeProjectFiles, DockerComposeReadFilesRequest, DockerComposeWriteFilesRequest,
     DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer, DockerImageProgress,
     DockerImageSummary, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
@@ -441,18 +442,51 @@ pub async fn docker_list_containers(
     .await
 }
 
-/// 批量获取容器 CPU / 内存统计（1Panel 走 list/stats；其他来源暂返回空列表）。
+/// 批量获取容器 CPU / 内存统计（本地 / SSH / 远程 Engine / 1Panel）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_list_container_stats(
     state: State<'_, AppState>,
     connection_id: String,
+    container_ids: Option<Vec<String>>,
 ) -> Result<Vec<DockerContainerStats>, OmniError> {
-    let target = resolve_target(&state, &connection_id).await?;
-    match target {
-        DockerTarget::OnePanel(adapter) => adapter.list_container_stats().await,
-        _ => Ok(Vec::new()),
+    tracing::debug!(
+        target: "docker_stats",
+        connection = %connection_id,
+        scoped = container_ids.as_ref().map(|ids| ids.len()),
+        container_ids_sample = ?container_ids.as_ref().map(|ids| ids.iter().take(5).collect::<Vec<_>>()),
+        "docker_list_container_stats 请求"
+    );
+    let ids = container_ids.clone();
+    let result = with_adapter(&state, &connection_id, move |a| {
+        let ids = ids.clone();
+        async move { a.list_container_stats(ids.as_deref()).await }
+    })
+    .await;
+    match &result {
+        Ok(stats) => tracing::debug!(
+            target: "docker_stats",
+            connection = %connection_id,
+            count = stats.len(),
+            ids = ?stats.iter().take(5).map(|s| s.container_id.as_str()).collect::<Vec<_>>(),
+            sample = ?stats.iter().take(3).map(|s| (
+                s.container_id.as_str(),
+                s.name.as_str(),
+                s.cpu_percent,
+                s.memory_percent,
+                s.memory_usage_bytes,
+                s.memory_limit_bytes,
+            )).collect::<Vec<_>>(),
+            "docker_list_container_stats 响应"
+        ),
+        Err(e) => tracing::debug!(
+            target: "docker_stats",
+            connection = %connection_id,
+            error = %e.message,
+            "docker_list_container_stats 失败"
+        ),
     }
+    result
 }
 
 /// 卷详情（`docker volume inspect`）。
@@ -1239,6 +1273,51 @@ pub async fn docker_compose_action(
         .await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_read_compose_files(
+    state: State<'_, AppState>,
+    connection_id: String,
+    request: DockerComposeReadFilesRequest,
+) -> Result<DockerComposeProjectFiles, OmniError> {
+    tracing::debug!(
+        target: "docker_compose_files",
+        connection_id = %connection_id,
+        project = %request.project,
+        working_dir = ?request.working_dir,
+        config_file = ?request.config_file,
+        "docker_read_compose_files"
+    );
+    let result = resolve_adapter(&state, &connection_id)
+        .await?
+        .read_compose_project_files(&request)
+        .await?;
+    tracing::debug!(
+        target: "docker_compose_files",
+        connection_id = %connection_id,
+        project = %request.project,
+        compose_path = %result.compose_path,
+        env_path = %result.env_path,
+        compose_bytes = result.compose_content.len(),
+        env_bytes = result.env_content.len(),
+        "docker_read_compose_files 完成"
+    );
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_write_compose_files(
+    state: State<'_, AppState>,
+    connection_id: String,
+    request: DockerComposeWriteFilesRequest,
+) -> Result<(), OmniError> {
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .write_compose_project_files(&request)
+        .await
+}
+
 // -------- 镜像 --------
 
 #[tauri::command]
@@ -1431,6 +1510,35 @@ pub async fn docker_write_container_file(
     resolve_adapter(&state, &connection_id)
         .await?
         .write_container_file(&container_id, &path, data)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_list_volume_dir(
+    state: State<'_, AppState>,
+    connection_id: String,
+    volume_name: String,
+    path: String,
+) -> Result<Vec<DockerFileEntry>, OmniError> {
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .list_volume_dir(&volume_name, &path)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_read_volume_file(
+    state: State<'_, AppState>,
+    connection_id: String,
+    volume_name: String,
+    path: String,
+    max_bytes: i32,
+) -> Result<Vec<u8>, OmniError> {
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .read_volume_file(&volume_name, &path, max_bytes as i64)
         .await
 }
 // Append to docker.rs ? Docker auto-detection via SSH
