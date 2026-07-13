@@ -13,11 +13,23 @@ import {
   clearWebviewWindowLabelCache,
   emitToOtherWebviews,
   findOtherWindowHitSync,
+  getSoleOtherWindowLabelSync,
   isPointerOutsideCurrentWindow,
 } from "./crossWindowDragUtils";
 
 export const CROSS_WINDOW_DRAG_MOVE_EVENT = "omnipanel:cross-window-drag-move";
 export const CROSS_WINDOW_DRAG_END_EVENT = "omnipanel:cross-window-drag-end";
+
+function visualLog(message: string): void {
+  if (!import.meta.env.DEV) return;
+  // 采样输出：pointermove 高频触发时每 200ms 最多打印一次，避免 DevTools 卡顿
+  const now = Date.now();
+  if (now - lastVisualLogAt < 200) return;
+  lastVisualLogAt = now;
+  console.info(`[crossWindowDragVisual] ${message}`);
+}
+
+let lastVisualLogAt = 0;
 
 const CROSS_WINDOW_DOCK_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-dock-drag-active";
 const CROSS_WINDOW_MODULE_DRAG_ACTIVE_EVENT = "omnipanel:cross-window-module-drag-active";
@@ -284,14 +296,17 @@ function setDockviewGhostHidden(hidden: boolean): void {
 
 export function updateLocalOutboundDragVisual(
   payload: CrossWindowDragMovePayload,
+  outside?: boolean,
+  hitLabel?: string | null,
 ): void {
   if (!isTauriRuntime()) return;
   const current = getCurrentWebviewWindow().label;
   if (payload.sourceWindowLabel !== current) return;
 
-  const outside = isPointerOutsideCurrentWindow(payload.screenX, payload.screenY);
+  // 复用调用方已计算的几何结果，避免重复命中测试
+  const isOutside = outside ?? isPointerOutsideCurrentWindow(payload.screenX, payload.screenY);
 
-  if (!outside) {
+  if (!isOutside) {
     // 指针在源窗几何内：dockview 原生 ghost 由 pointerout/pointerover 控制。
     // 此处只清 outbound ghost（避免与目标窗 cross-window ghost 双重显示）。
     const state = useCrossWindowDragVisualStore.getState();
@@ -305,8 +320,8 @@ export function updateLocalOutboundDragVisual(
   setDockviewGhostHidden(true);
 
   // 命中其他窗口 → 目标窗会显示 cross-window ghost，源窗不显示 outbound
-  const hitLabel = findOtherWindowHitSync(payload.screenX, payload.screenY, current);
-  if (hitLabel) {
+  const resolvedHit = hitLabel ?? findOtherWindowHitSync(payload.screenX, payload.screenY, current);
+  if (resolvedHit) {
     const state = useCrossWindowDragVisualStore.getState();
     if (state.active && !state.isRemote) {
       state.clear();
@@ -325,34 +340,42 @@ export function updateLocalOutboundDragVisual(
 }
 
 let pendingMovePayload: CrossWindowDragMovePayload | null = null;
+let pendingMoveMeta: { outside: boolean; hitLabel: string | null } | null = null;
 let moveBroadcastRaf = 0;
 
 /** 跨窗 MOVE：源窗本地 outbound + rAF 合并后 emitTo 各窗（目标窗 ghost / 落点高亮） */
 export function broadcastCrossWindowDragMove(payload: CrossWindowDragMovePayload): void {
-  updateLocalOutboundDragVisual(payload);
   if (!isTauriRuntime()) return;
   const current = getCurrentWebviewWindow().label;
   if (payload.sourceWindowLabel !== current) return;
 
-  // 仅当指针已离开源窗几何时才计算命中目标。
-  // 指针在源窗内时 targetLabel=null：源窗在顶层，不应有任何目标窗激活。
-  // （源窗与目标窗几何重叠时，不检查 outside 会误命中底层目标窗。）
+  // 几何计算只做一次，结果复用给 updateLocalOutboundDragVisual + payload
   const outside = isPointerOutsideCurrentWindow(payload.screenX, payload.screenY);
-  const hitLabel = outside
-    ? findOtherWindowHitSync(payload.screenX, payload.screenY, current)
-    : null;
-  const payloadWithTarget: CrossWindowDragMovePayload = {
-    ...payload,
-    targetLabel: hitLabel,
-  };
+  let hitLabel: string | null = null;
+  if (outside) {
+    hitLabel = findOtherWindowHitSync(payload.screenX, payload.screenY, current);
+    // sole-other 优化：几何命中失败时，如果只有 1 个其他窗口，直接用之。
+    if (!hitLabel) {
+      hitLabel = getSoleOtherWindowLabelSync(current);
+    }
+  }
+  visualLog(
+    `move from=${current} screen=(${payload.screenX},${payload.screenY}) outside=${outside} hitLabel=${hitLabel}`,
+  );
 
-  pendingMovePayload = payloadWithTarget;
+  // 本地 outbound 视觉也合并到 rAF，避免每次 pointermove 同步触发 zustand setState → React 重渲染
+  pendingMovePayload = { ...payload, targetLabel: hitLabel };
+  pendingMoveMeta = { outside, hitLabel };
   if (moveBroadcastRaf) return;
   moveBroadcastRaf = requestAnimationFrame(() => {
     moveBroadcastRaf = 0;
     const move = pendingMovePayload;
+    const meta = pendingMoveMeta;
     pendingMovePayload = null;
+    pendingMoveMeta = null;
     if (!move) return;
+    // 本地 outbound 视觉更新（复用几何结果，无重复计算）
+    updateLocalOutboundDragVisual(move, meta?.outside, meta?.hitLabel);
     // rAF 已限频；勿再用 4px 阈值挡掉首包跨窗 MOVE
     void emitToOtherWebviews(CROSS_WINDOW_DRAG_MOVE_EVENT, move, current);
   });
@@ -365,6 +388,7 @@ export async function broadcastCrossWindowDragEnd(): Promise<void> {
     moveBroadcastRaf = 0;
   }
   pendingMovePayload = null;
+  pendingMoveMeta = null;
   clearDropPreviewSchedule();
   clearStaleDockviewDragArtifacts();
   clearWebviewWindowLabelCache();
@@ -396,6 +420,7 @@ export async function broadcastCrossWindowDragEndLite(): Promise<void> {
     moveBroadcastRaf = 0;
   }
   pendingMovePayload = null;
+  pendingMoveMeta = null;
   clearDropPreviewSchedule();
   const current = getCurrentWebviewWindow().label;
   useCrossWindowDragVisualStore.getState().clear();
@@ -456,10 +481,15 @@ export function initCrossWindowDragVisual(): () => void {
     const isHitTarget = payload.targetLabel === current;
     const state = useCrossWindowDragVisualStore.getState();
 
+    visualLog(
+      `onMove on=${current} source=${payload.sourceWindowLabel} targetLabel=${payload.targetLabel} isHitTarget=${isHitTarget} active=${state.active}`,
+    );
+
     if (!isHitTarget) {
       // 非命中目标：清除全部视觉层（ghost + dropPreview + active）
       // 多窗口场景核心：只有命中窗才显示任何效果
       if (state.active) {
+        visualLog(`onMove clear (non-hit) on=${current}`);
         store().clear();
       }
       return;
@@ -467,6 +497,7 @@ export function initCrossWindowDragVisual(): () => void {
 
     // 命中目标：激活（如未激活）+ 更新位置 + ghost + dropPreview
     if (!state.active) {
+      visualLog(`onMove activate ghost on=${current} label=${payload.label}`);
       store().setRemoteSession({
         label: payload.label,
         kind: payload.kind,

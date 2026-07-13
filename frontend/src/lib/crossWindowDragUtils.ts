@@ -120,6 +120,22 @@ export function findOtherWindowHitSync(
 }
 
 /**
+ * 同步获取「唯一其他窗口」的 label。
+ *
+ * 当只有 1 个其他窗口时直接返回其 label，不做几何命中。
+ * 用于 move 阶段的 sole-other 优化：指针已离开源窗（outside=true）时，
+ * 几何命中可能因缓存 bounds 精度/坐标转换问题失败，但语义上指针只可能
+ * 落在那个唯一的其他窗口上。与 `findWindowLabelAtScreenPoint` 的
+ * sole-other 路径保持一致，让 move 阶段的 ghost 激活与 pointerup 的
+ * drop 判定行为一致。
+ */
+export function getSoleOtherWindowLabelSync(currentLabel?: string): string | null {
+  if (!cachedWindowBounds || cachedWindowBounds.length === 0) return null;
+  const others = cachedWindowBounds.filter((b) => b.label !== currentLabel);
+  return others.length === 1 ? others[0].label : null;
+}
+
+/**
  * 找 z-order 最顶层命中窗口（不排除源窗）。
  *
  * `cachedWindowBounds` 已按 z-order（顶→底）排序，
