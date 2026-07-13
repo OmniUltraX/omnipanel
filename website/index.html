@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OmniPanel — AI 原生跨平台工程工作站</title>
+    <meta
+      name="description"
+      content="OmniPanel 将终端、SSH、数据库、Docker、服务器管理、协议调试与 AI 辅助集成于单一桌面应用。一个窗口，贯穿开发运维上下文。"
+    />
+    <meta name="theme-color" content="#201d1d" />
+    <meta property="og:title" content="OmniPanel — AI 原生跨平台工程工作站" />
+    <meta
+      property="og:description"
+      content="All in One · 小而全而优而美。终端、SSH、数据库、Docker 与 AI 在同一工作台无缝协作。"
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/png" href="/logo/omni.png" />
+  </head>
+  <body>
+    <header class="topnav">
+      <div class="container topnav-inner">
+        <a class="brand" href="#top" aria-label="OmniPanel 首页">
+          <img src="/logo/omni.png" width="28" height="28" alt="" />
+          <span>OmniPanel</span>
+        </a>
+        <button
+          class="nav-toggle"
+          type="button"
+          data-nav-toggle
+          aria-expanded="false"
+          aria-controls="site-nav"
+          aria-label="打开菜单"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="site-nav" data-nav-menu>
+          <a href="#modules">核心模块</a>
+          <a href="#ai">AI 原生</a>
+          <a href="#workflow">工作流</a>
+          <a href="#architecture">技术架构</a>
+          <a href="#start">快速开始</a>
+          <a data-repo-link href="#">GitHub</a>
+        </nav>
+        <a class="btn btn-primary" data-releases-link href="#">下载</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="section hero">
+        <div class="container hero-inner">
+          <div class="pill-row">
+            <span class="pill">Tauri 2</span>
+            <span class="pill">Rust + React</span>
+            <span class="pill">Local-first</span>
+          </div>
+          <p class="eyebrow">AI-Native Engineering Workstation</p>
+          <h1 class="h1">一个窗口，管理服务器、数据库、容器与工作流</h1>
+          <p class="lead">
+            一个 AI，贯穿开发运维上下文。OmniPanel 是你的个人工程操作系统 —— 终端、SSH、数据库、Docker、监控和
+            AI 在同一个工作台中无缝协作。
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" data-releases-link href="#">下载 OmniPanel</a>
+            <a class="btn btn-secondary" data-repo-link href="#">查看源码</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+              <div class="terminal-title">OmniPanel — prod-web-01</div>
+            </div>
+            <div class="terminal-body">
+              <div>
+                <span class="prompt">root@prod-web-01:~$</span>
+                <span class="cmd"> docker ps --format "table {{.Names}}\t{{.Status}}"</span>
+              </div>
+              <div class="output" style="margin-top: 8px">
+                NAMES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;STATUS<br />
+                nginx-proxy&nbsp;&nbsp;&nbsp;&nbsp;Up 3 days<br />
+                app-backend&nbsp;&nbsp;&nbsp;Up 3 days<br />
+                redis-cache&nbsp;&nbsp;&nbsp;&nbsp;Up 3 days<br />
+                postgres-main&nbsp;Up 3 days
+              </div>
+              <div style="margin-top: 12px">
+                <span class="prompt">root@prod-web-01:~$</span>
+                <span class="cmd"> omnipanel ai "为什么 nginx-proxy CPU 突然升高？"</span>
+              </div>
+              <div style="margin-top: 8px">
+                <span class="accent">[AI]</span>
+                <span class="output"> 分析容器日志与系统指标…</span>
+              </div>
+              <div>
+                <span class="accent">[AI]</span>
+                <span class="output">
+                  发现异常：5 分钟内来自 45.33.32.x 的
+                  <span class="warn">2,847</span> 次请求触发限流。
+                </span>
+              </div>
+              <div>
+                <span class="accent">[AI]</span>
+                <span class="output">
+                  建议：在 nginx.conf 添加 <span class="cmd">deny 45.33.32.0/24;</span> 并重启容器。
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="modules">
+        <div class="container">
+          <div class="section-head">
+            <p class="eyebrow">Core Modules</p>
+            <h2 class="h2">八大模块，覆盖日常开发运维完整闭环</h2>
+          </div>
+          <div class="grid-3">
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M4 17l6-6-6-6M12 19h8" />
+                </svg>
+              </div>
+              <h3>Terminal</h3>
+              <p>多标签分屏、Blocks 输出分组、命令历史、危险命令二次确认，专业级终端体验。</p>
+              <div class="tag-list">
+                <span class="tag">xterm.js</span>
+                <span class="tag">alacritty</span>
+                <span class="tag">&lt; 5ms</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+              </div>
+              <h3>SSH / SFTP</h3>
+              <p>连接管理、可视化文件传输、端口转发、跳板机、批量命令与主机监控。</p>
+              <div class="tag-list">
+                <span class="tag">russh</span>
+                <span class="tag">SFTP</span>
+                <span class="tag">ProxyJump</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <ellipse cx="12" cy="5" rx="9" ry="3" />
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                </svg>
+              </div>
+              <h3>Database</h3>
+              <p>SQL 编辑器、百万行虚拟滚动网格、ER 图、NL2SQL、数据同步与导出。</p>
+              <div class="tag-list">
+                <span class="tag">MySQL</span>
+                <span class="tag">PostgreSQL</span>
+                <span class="tag">Redis</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path
+                    d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"
+                  />
+                  <path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
+                </svg>
+              </div>
+              <h3>Docker</h3>
+              <p>容器生命周期、实时日志跟踪、容器 Shell、Compose 编排，支持本地 / SSH / 1Panel。</p>
+              <div class="tag-list">
+                <span class="tag">bollard</span>
+                <span class="tag">Compose</span>
+                <span class="tag">日志流</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <rect x="2" y="3" width="20" height="18" rx="2" />
+                  <path d="M6 7h12M6 11h8M6 15h10" />
+                </svg>
+              </div>
+              <h3>Server</h3>
+              <p>系统监控、进程管理、远程文件、宝塔与 1Panel 面板 API 集成。</p>
+              <div class="tag-list">
+                <span class="tag">监控</span>
+                <span class="tag">1Panel</span>
+                <span class="tag">宝塔</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
+                  <circle cx="12" cy="12" r="4" />
+                </svg>
+              </div>
+              <h3>Protocol Lab</h3>
+              <p>HTTP/API 调试、WebSocket、MQTT、串口 —— 协议调试统一工作区。</p>
+              <div class="tag-list">
+                <span class="tag">HTTP</span>
+                <span class="tag">MQTT</span>
+                <span class="tag">Serial</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 3a9 9 0 109 9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </div>
+              <h3>AI Assistant</h3>
+              <p>上下文感知、操作链编排、多模型支持，AI 只建议不越权，危险操作需确认。</p>
+              <div class="tag-list">
+                <span class="tag">Claude</span>
+                <span class="tag">GPT</span>
+                <span class="tag">Ollama</span>
+              </div>
+            </article>
+            <article class="module-card">
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M4 6h16M4 12h10M4 18h14" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              </div>
+              <h3>Workflow</h3>
+              <p>命令模板、部署流水线、排障手册，参数化执行与完整审计记录。</p>
+              <div class="tag-list">
+                <span class="tag">模板</span>
+                <span class="tag">审计</span>
+                <span class="tag">Runbook</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="ai">
+        <div class="container split">
+          <div>
+            <p class="eyebrow">AI Native</p>
+            <h2 class="h2">AI 不是聊天窗口，是你的随行工程专家</h2>
+            <p class="lead" style="margin-top: 16px">
+              OmniPanel 的 AI 能读取当前终端输出、数据库结构、容器状态和日志片段，给出可执行的建议 ——
+              不只是一段文本。
+            </p>
+            <div class="feature-list">
+              <div class="feature-item">
+                <span class="feature-num">01</span>
+                <div>
+                  <h4>上下文感知</h4>
+                  <p>自动关联终端、SSH 主机、数据库连接、容器状态与日志片段</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <span class="feature-num">02</span>
+                <div>
+                  <h4>操作链编排</h4>
+                  <p>AI 拆解任务为多步操作链，用户确认后逐步执行，全程可审计</p>
+                </div>
+              </div>
+              <div class="feature-item">
+                <span class="feature-num">03</span>
+                <div>
+                  <h4>安全边界</h4>
+                  <p>AI 只建议不越权，危险操作需二次确认，生产环境内置保护</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+              <div class="terminal-title">AI Assistant</div>
+            </div>
+            <div class="terminal-body">
+              <div><span class="accent">User:</span> <span class="cmd">分析 postgres-main 的慢查询</span></div>
+              <div style="margin-top: 12px">
+                <span class="accent">AI:</span> <span class="output">正在获取最近 1 小时的慢查询日志…</span>
+              </div>
+              <div>
+                <span class="accent">AI:</span>
+                <span class="output">发现 <span class="warn">3</span> 条超过 2s 的查询</span>
+              </div>
+              <div style="margin-top: 12px">
+                <span class="accent">AI:</span> <span class="output">建议执行：</span>
+              </div>
+              <div style="margin-left: 16px; margin-top: 4px">
+                <span class="cmd">CREATE INDEX CONCURRENTLY</span><br />
+                <span class="cmd">idx_orders_user_id ON orders(user_id);</span>
+              </div>
+              <div style="margin-top: 12px">
+                <span class="accent">AI:</span> <span class="output">[已复制到操作草稿箱] 确认后执行？</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="workflow">
+        <div class="container split-2-1">
+          <div>
+            <p class="eyebrow">Unified Workspace</p>
+            <h2 class="h2">从工具集合到工作流系统</h2>
+            <p class="lead" style="margin-top: 16px; margin-bottom: 32px">
+              一次故障排查，从监控到日志到终端到 AI，全程不切换窗口。OmniPanel 让各模块围绕同一任务上下文协作。
+            </p>
+            <div class="workflow-step">
+              <span class="workflow-num">01</span>
+              <div>
+                <h4>监控告警触发</h4>
+                <p>CPU 使用率突增，自动关联到 prod-web-01 主机</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="workflow-num">02</span>
+              <div>
+                <h4>日志实时追踪</h4>
+                <p>从主机画像跳转到容器日志，定位异常请求</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="workflow-num">03</span>
+              <div>
+                <h4>数据库查询</h4>
+                <p>发现数据异常，直接打开 SQL 编辑器排查</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="workflow-num">04</span>
+              <div>
+                <h4>AI 辅助修复</h4>
+                <p>终端报错一键发送 AI，附带完整上下文生成修复命令</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="workflow-num">05</span>
+              <div>
+                <h4>复盘沉淀</h4>
+                <p>排障过程整理为故障复盘草稿，可沉淀为团队知识</p>
+              </div>
+            </div>
+          </div>
+          <div class="card sticky-card">
+            <p class="eyebrow">Performance</p>
+            <div class="stat-block">
+              <div class="stat-num">500+</div>
+              <p class="stat-label">MB/s 终端吞吐量</p>
+            </div>
+            <div class="stat-block">
+              <div class="stat-num">&lt; 5ms</div>
+              <p class="stat-label">输入延迟</p>
+            </div>
+            <div class="stat-block">
+              <div class="stat-num">98%</div>
+              <p class="stat-label">VT 仿真兼容率</p>
+            </div>
+            <div class="stat-block">
+              <div class="stat-num">3</div>
+              <p class="stat-label">跨平台（Windows / macOS / Linux）</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="container">
+          <div class="section-head">
+            <p class="eyebrow">Architecture</p>
+            <h2 class="h2">Tauri 2 + Rust 核心，本地优先</h2>
+            <p class="lead" style="margin-top: 12px">
+              单二进制、内存安全、凭据本地存储。React 前端 + Rust 后端 IPC，模块能力收敛在
+              omnipanel-* crates。
+            </p>
+          </div>
+          <div>
+            <div class="arch-layer">
+              <span class="layer-name">UI 层</span>
+              <div class="layer-items">
+                <span>Tauri 2</span>
+                <span>React 18</span>
+                <span>TypeScript</span>
+                <span>Vite</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <span class="layer-name">模块层</span>
+              <div class="layer-items">
+                <span>Terminal</span>
+                <span>SSH</span>
+                <span>Database</span>
+                <span>Docker</span>
+                <span>Server</span>
+                <span>Protocol</span>
+                <span>AI</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <span class="layer-name">引擎层</span>
+              <div class="layer-items">
+                <span>alacritty_terminal</span>
+                <span>russh</span>
+                <span>sqlx</span>
+                <span>bollard</span>
+                <span>reqwest</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <span class="layer-name">存储层</span>
+              <div class="layer-items">
+                <span>rusqlite</span>
+                <span>keyring</span>
+                <span>本地凭据</span>
+                <span>可选同步</span>
+              </div>
+            </div>
+            <div class="arch-layer">
+              <span class="layer-name">系统层</span>
+              <div class="layer-items">
+                <span>Windows ConPTY</span>
+                <span>macOS POSIX</span>
+                <span>Linux PTY</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <p class="eyebrow">Use Cases</p>
+            <h2 class="h2">为真正的工程场景设计</h2>
+          </div>
+          <div class="grid-3">
+            <article class="card">
+              <h3 style="font-size: 16px; margin-bottom: 12px">新项目部署</h3>
+              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+                连接服务器、上传配置、启动容器、检查日志 —— SSH、SFTP、Docker Compose 与日志面板在同一工作区完成。
+              </p>
+            </article>
+            <article class="card">
+              <h3 style="font-size: 16px; margin-bottom: 12px">线上故障排查</h3>
+              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+                AI 汇总主机、容器、日志与错误输出，生成排查路径。从告警到修复，全程不切换窗口。
+              </p>
+            </article>
+            <article class="card">
+              <h3 style="font-size: 16px; margin-bottom: 12px">多服务器维护</h3>
+              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+                选中服务器分组后统一执行命令，结果按机器聚合对比。批量分发、模板化执行。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section cta-section" id="start">
+        <div class="container" style="max-width: 640px">
+          <p class="eyebrow">Get Started</p>
+          <h2 class="h2">让每一位 coder 的电脑上，都安装 OmniPanel</h2>
+          <p class="lead">开源、跨平台。支持 Windows 10+、macOS 12+、Linux。</p>
+          <div class="cta-buttons">
+            <a class="btn btn-primary" data-releases-link href="#">下载 Release</a>
+            <a class="btn btn-secondary" data-repo-link href="#">GitHub 仓库</a>
+          </div>
+          <pre class="code-block"><code># 从源码构建
+git clone https://github.com/anomalyco/omnipanel.git
+cd omnipanel/frontend && npm install
+cd ../src-tauri && cargo tauri dev</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="pagefoot">
+      <div class="container pagefoot-inner">
+        <span>OmniPanel © <span data-year>2026</span></span>
+        <span>All in One · 小而全而优而美</span>
+        <div class="pagefoot-links">
+          <a data-repo-link href="#">GitHub</a>
+          <a href="#start">快速开始</a>
+          <a href="https://github.com/anomalyco/omnipanel/blob/main/LICENSE">MIT License</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

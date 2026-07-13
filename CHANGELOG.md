@@ -4,6 +4,28 @@
 
 ## [未发布]
 
+### 新增
+
+- **OmniPanel 官网（`website/`）**
+  - 基于 Vite 的静态营销站点，含 Hero、模块介绍、AI 原生、工作流、技术架构等区块
+  - 支持 GitHub Pages 部署（`.github/workflows/deploy-website.yml`），默认 base 路径 `/omnipanel/`
+- **Docker · 容器日志**
+  - 日志查看器支持**跟踪**（实时流 / 1Panel 轮询）、**下载**、**清空**、**时间范围筛选**（15m / 1h / 6h / 24h / 7d）
+  - 操作按钮与刷新统一放在 `log-viewer-panel__footer` 右侧，使用图标按钮
+  - 后端新增 `DockerLogQuery`（`tail` + `since`）、`docker_clear_container_logs` IPC；1Panel 跟踪改为轮询 `download/log`
+- **Docker · 容器 Dock 页**
+  - 左侧 exec 区域拆为上下分屏：**上日志、下终端**，默认各占 50%，可拖拽调整
+  - 连接级 Dock 面板按**服务组**分区展示，未分组容器单独区块
+- **Docker · 侧栏拖放**
+  - 容器拖入服务组改用 **Pointer 事件**（兼容 Tauri WebView2 不触发 HTML5 DnD 的问题）
+  - 拖动已选中的容器时，支持**多选批量**归入目标服务组
+- **数据库 · 慢查询日志**
+  - 慢查询日志面板重构：支持 SSH 远程拉取、分页/筛选、LogViewer 展示与工具栏操作
+- **跨窗口拖拽 · z-order 命中**
+  - 新增 `window_z_order` 命令（Win32 EnumWindows），跨窗拖拽按窗口叠放顺序正确命中目标
+- **终端 · 后端会话运行时状态**
+  - 新增 `terminalBackendStateStore`，统一管理 pending/injected 后端会话状态，附带单元测试
+
 ### 改进
 
 - **AI 工具注册表统一（单一真相源）**
@@ -11,11 +33,23 @@
   - 工具 schema 落库（`mcp_tools.input_schema`），HTTP 直连、ACP、OmniMCP 三条路径共用同一份定义
   - ACP client-tools 的可用工具清单改为按内部 registry 动态生成（随开关 / 模块状态变化），修复终端工具参数为空 `{}` 的问题，并支持数据库等 UiDelegated 工具经 ACP 调用
   - `load_skill` 纳入统一 registry 管理（遵循开关与模块判定），不再无条件注入
+- **侧栏树交互统一**：`SidebarTreeNode` 单击仅选中/预览，**双击**才激活并打开面板（Docker 容器、终端会话等）
+- **服务器监控**：`ServerMonitorTab` 轮询逻辑简化，不再限制仅 1Panel 类型才刷新仪表盘
+- **代码清理**：移除 `OnePanelClient.get_text`、未使用的 `collect_table_sync_sql` 等 dead code
 
 ### 变更
 
 - **对外暴露收紧**：仅后端可直执（Native）工具允许经 OmniMCP 对外暴露；对 UiDelegated（终端 / 数据库）工具或未打开模块下的工具开启 external 暴露将被拒绝
 - **模块状态联动**：模块由关闭重新打开时自动恢复其下工具为可用；前端工具目录同步（`mcp_tool_sync_catalog`）不再覆盖内置工具描述（以后端 spec 为准）
+
+### 修复
+
+- **1Panel 容器日志**：批量拉取改走 `POST /containers/download/log`，修复误用 SSE 搜索接口导致获取失败
+- **跨窗口拖拽**
+  - 修复多窗口重叠时 ghost 误激活到非目标窗口
+  - 修复原生 dockview 分屏拖拽在跨窗取消后 `pointerup` 不触发 drop 的问题
+  - 工作区弹出独立窗口时，主窗若停留在该工作区路由则自动导航回首页，避免右侧空白
+- **Docker 连接对话框**：1Panel 来源配置表单精简
 
 ## [0.4.2] - 2026-06-25
 

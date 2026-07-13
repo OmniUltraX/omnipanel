@@ -1,7 +1,7 @@
 {
-  "extends": "./frontend/tsconfig.app.json",
-  "compilerOptions": {
-    "baseUrl": "./frontend"
-  },
-  "include": ["frontend/src"]
+  "files": [],
+  "references": [
+    { "path": "./frontend" },
+    { "path": "./website" }
+  ]
 }
