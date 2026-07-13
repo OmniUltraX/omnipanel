@@ -421,14 +421,37 @@ fn parse_u64_i64(v: &serde_json::Value) -> Option<i64> {
 async fn fetch_onepanel_container_stats(
     client: &OnePanelClient,
 ) -> OmniResult<Vec<DockerContainerStats>> {
+    let api_path = "/api/v2/containers/list/stats";
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        api = %api_path,
+        "请求 1Panel 容器 stats API"
+    );
     let raw: Vec<serde_json::Value> = client
-        .get_json("/api/v2/containers/list/stats")
+        .get_json(api_path)
         .await
         .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
-    Ok(raw
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        api = %api_path,
+        raw_count = raw.len(),
+        raw_sample = ?raw.first().map(|v| crate::stats_cli::truncate_debug_text(&v.to_string(), 512)),
+        "1Panel 容器 stats 原始响应"
+    );
+    let stats: Vec<DockerContainerStats> = raw
         .into_iter()
         .filter_map(|v| parse_container_list_stats(&v))
-        .collect())
+        .collect();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "onepanel",
+        parsed_count = stats.len(),
+        sample = ?stats.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
+        "1Panel 容器 stats 解析完成"
+    );
+    Ok(stats)
 }
 
 fn parse_container_list_stats(v: &serde_json::Value) -> Option<DockerContainerStats> {

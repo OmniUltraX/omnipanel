@@ -454,6 +454,7 @@ pub async fn docker_list_container_stats(
         target: "docker_stats",
         connection = %connection_id,
         scoped = container_ids.as_ref().map(|ids| ids.len()),
+        container_ids_sample = ?container_ids.as_ref().map(|ids| ids.iter().take(5).collect::<Vec<_>>()),
         "docker_list_container_stats 请求"
     );
     let ids = container_ids.clone();
@@ -468,6 +469,14 @@ pub async fn docker_list_container_stats(
             connection = %connection_id,
             count = stats.len(),
             ids = ?stats.iter().take(5).map(|s| s.container_id.as_str()).collect::<Vec<_>>(),
+            sample = ?stats.iter().take(3).map(|s| (
+                s.container_id.as_str(),
+                s.name.as_str(),
+                s.cpu_percent,
+                s.memory_percent,
+                s.memory_usage_bytes,
+                s.memory_limit_bytes,
+            )).collect::<Vec<_>>(),
             "docker_list_container_stats 响应"
         ),
         Err(e) => tracing::debug!(

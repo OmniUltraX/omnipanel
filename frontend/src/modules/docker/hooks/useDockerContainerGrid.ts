@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
 import { pickStats, statsMapFromList } from "../dockerContainerStatsMatch";
-import { debugDockerStats } from "../dockerStatsDebug";
+import {
+  debugDockerStats,
+  debugDockerStatsIpc,
+  summarizeStatsList,
+} from "../dockerStatsDebug";
 
 async function unwrap<T>(
   promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
@@ -54,22 +58,42 @@ export function useDockerContainerGrid(
     const refreshStats = async () => {
       const listStats = commands.dockerListContainerStats;
       if (typeof listStats !== "function") {
-        debugDockerStats("dockerListContainerStats 未绑定", { label: debugLabel, connectionId });
+        debugDockerStats("dockerListContainerStats 未绑定", {
+          label: debugLabel,
+          connectionId,
+          hint: "请重启 tauri dev 或运行 npm run gen:bindings",
+        });
         return;
       }
+      debugDockerStatsIpc("request", {
+        connectionId,
+        containerIds: null,
+        label: debugLabel,
+      });
       try {
         const statsList = await unwrap(commands.dockerListContainerStats(connectionId, null)).catch(
-          () => [] as DockerContainerStats[],
+          (error) => {
+            debugDockerStatsIpc("error", {
+              connectionId,
+              containerIds: null,
+              label: debugLabel,
+            }, { error: String(error) });
+            return [] as DockerContainerStats[];
+          },
         );
         if (cancelled) return;
         setStatsById(statsMapFromList(statsList));
-        debugDockerStats("stats 轮询", {
-          label: debugLabel,
+        debugDockerStatsIpc("response", {
           connectionId,
-          received: statsList.length,
-        });
+          containerIds: null,
+          label: debugLabel,
+        }, summarizeStatsList(statsList));
       } catch (error) {
-        debugDockerStats("stats 轮询异常", { label: debugLabel, error: String(error) });
+        debugDockerStatsIpc("error", {
+          connectionId,
+          containerIds: null,
+          label: debugLabel,
+        }, { error: String(error) });
       }
     };
 
@@ -94,18 +118,25 @@ export function useDockerContainerGrid(
     };
 
     refreshAllRef.current = refreshAll;
-    void refreshAll(true);
 
-    const statsTimer = window.setInterval(() => void refreshStats(), statsPollMs);
-    const containersTimer =
-      containersPollMs === statsPollMs
-        ? null
-        : window.setInterval(() => void refreshContainers(), containersPollMs);
+    const bootstrap = () => {
+      if (cancelled) return;
+      void refreshAll(true);
+      statsTimer = window.setInterval(() => void refreshStats(), statsPollMs);
+      if (containersPollMs !== statsPollMs) {
+        containersTimer = window.setInterval(() => void refreshContainers(), containersPollMs);
+      }
+    };
+
+    let statsTimer: number | null = null;
+    let containersTimer: number | null = null;
+    const bootstrapTimer = window.setTimeout(bootstrap, 0);
 
     return () => {
       cancelled = true;
       refreshAllRef.current = null;
-      window.clearInterval(statsTimer);
+      window.clearTimeout(bootstrapTimer);
+      if (statsTimer != null) window.clearInterval(statsTimer);
       if (containersTimer != null) window.clearInterval(containersTimer);
     };
   }, [connectionId, containersPollMs, debugLabel, enabled, statsPollMs]);
@@ -122,6 +153,27 @@ export function useDockerContainerGrid(
       })),
     [containers, statsById],
   );
+
+  useEffect(() => {
+    if (!enabled || !connectionId || containers.length === 0) return;
+    const matched = items.filter((item) => item.stats != null).length;
+    debugDockerStats("容器 stats 匹配", {
+      label: debugLabel,
+      connectionId,
+      containers: containers.length,
+      statsKeys: statsById.size,
+      matched,
+      unmatched: items
+        .filter((item) => item.stats == null && item.container.running)
+        .slice(0, 5)
+        .map((item) => ({
+          id: item.container.id,
+          shortId: item.container.shortId,
+          name: item.container.name,
+          running: item.container.running,
+        })),
+    });
+  }, [connectionId, containers.length, debugLabel, enabled, items, statsById.size]);
 
   return { items, loading, error, refreshNow };
 }

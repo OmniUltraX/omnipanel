@@ -1033,19 +1033,31 @@ pub async fn list_container_stats(
         return Ok(Vec::new());
     }
 
-    // 与 `docker ps` 相同：整段命令字面量，避免 shell_quote 破坏 Go template。
+    // 单次全量拉取：比拼接多个 ID 更稳（任一 ID 失效不会导致整批命令失败）。
     let mut stats = fetch_ssh_docker_stats_batch(session, None).await?;
 
     if let Some(ids) = container_ids.filter(|ids| !ids.is_empty()) {
-        stats = crate::stats_cli::filter_stats_by_targets(stats, ids);
-        if stats.is_empty() {
+        let filtered = crate::stats_cli::filter_stats_by_targets(stats.clone(), ids);
+        if !filtered.is_empty() {
+            stats = filtered;
+        } else if stats.is_empty() {
+            let fallback_targets = crate::stats_cli::dedupe_stats_targets(ids);
             tracing::debug!(
                 target: "docker_stats",
                 source = "ssh_cli",
                 scoped = ids.len(),
-                "全量 stats 过滤后为空，回退逐容器拉取"
+                unique_targets = fallback_targets.len(),
+                "全量 stats 为空，回退逐容器拉取"
             );
-            stats = fetch_ssh_docker_stats_per_container(session, ids).await?;
+            stats = fetch_ssh_docker_stats_per_container(session, &fallback_targets).await?;
+        } else {
+            tracing::debug!(
+                target: "docker_stats",
+                source = "ssh_cli",
+                scoped = ids.len(),
+                batch_count = stats.len(),
+                "过滤为空但全量有数据，返回全量供前端匹配"
+            );
         }
     }
 
@@ -1069,12 +1081,12 @@ async fn fetch_ssh_docker_stats_batch(
         Some(targets) if !targets.is_empty() => {
             let suffix = targets
                 .iter()
-                .map(|target| sanitize_docker_cli_arg(target))
+                .map(|target| sanitize_docker_cli_arg(&crate::stats_cli::stats_docker_cli_arg(target)))
                 .collect::<Vec<_>>()
                 .join(" ");
             format!("docker stats --no-stream --format '{{{{json .}}}}' {suffix}")
         }
-        _ => "docker stats --no-stream --format '{{json .}}'".to_string(),
+        _ => crate::stats_cli::docker_stats_shell_cmd(None),
     };
     exec_ssh_docker_stats(session, &cmd, container_targets.map(|ids| ids.len())).await
 }
@@ -1091,7 +1103,7 @@ async fn fetch_ssh_docker_stats_per_container(
         if trimmed.is_empty() {
             continue;
         }
-        let arg = sanitize_docker_cli_arg(trimmed);
+        let arg = sanitize_docker_cli_arg(&crate::stats_cli::stats_docker_cli_arg(trimmed));
         let cmd = format!("docker stats --no-stream --format '{{{{json .}}}}' {arg}");
         match exec_ssh_docker_stats(session, &cmd, Some(1)).await {
             Ok(mut batch) => {
@@ -1142,7 +1154,7 @@ async fn exec_ssh_docker_stats(
             source = "ssh_cli",
             scoped,
             line_count = non_empty_lines,
-            stdout_preview = %out.stdout.chars().take(240).collect::<String>(),
+            stdout_preview = %crate::stats_cli::truncate_debug_text(&out.stdout, 240),
             "docker stats 有输出但 JSON 解析为空"
         );
     } else if stats.is_empty() {
@@ -1153,6 +1165,20 @@ async fn exec_ssh_docker_stats(
             stderr = %out.stderr.trim(),
             cmd = %cmd,
             "docker stats 输出为空"
+        );
+    } else {
+        tracing::debug!(
+            target: "docker_stats",
+            source = "ssh_cli",
+            scoped,
+            cmd = %cmd,
+            exit_code = out.exit_code,
+            line_count = non_empty_lines,
+            parsed_count = stats.len(),
+            stdout = %crate::stats_cli::truncate_debug_text(&out.stdout, 2048),
+            stderr = %crate::stats_cli::truncate_debug_text(&out.stderr, 512),
+            sample = ?stats.first().map(|s| (s.container_id.as_str(), s.name.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
+            "docker stats CLI 成功"
         );
     }
     Ok(stats)

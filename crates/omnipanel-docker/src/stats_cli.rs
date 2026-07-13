@@ -1,8 +1,57 @@
 //! `docker stats --format '{{json .}}'` 输出解析与批量拉取（本地 / SSH 共用）。
 
-use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-
 use crate::model::DockerContainerStats;
+
+/// 调试日志截断，避免超长 stdout 撑爆终端。
+pub(crate) fn truncate_debug_text(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.len() <= max_chars {
+        trimmed.to_string()
+    } else {
+        format!("{}… (共 {} 字符)", &trimmed[..max_chars], trimmed.len())
+    }
+}
+
+/// 构造远端 shell 可执行的 `docker stats` 命令（Go template 需单引号包裹）。
+pub(crate) fn docker_stats_shell_cmd(container_ids: Option<&[String]>) -> String {
+    let mut cmd = "docker stats --no-stream --format '{{json .}}'".to_string();
+    if let Some(ids) = container_ids {
+        for id in ids {
+            let trimmed = id.trim();
+            if !trimmed.is_empty() {
+                cmd.push(' ');
+                cmd.push_str(trimmed);
+            }
+        }
+    }
+    cmd
+}
+
+/// 去重 stats 拉取目标：优先保留完整容器 ID，避免 id+name 重复触发逐容器回退。
+pub(crate) fn dedupe_stats_targets(targets: &[String]) -> Vec<String> {
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+
+    for target in targets {
+        let trimmed = target.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let id_key = normalize_stats_id(trimmed);
+        if id_key.len() >= 12 {
+            if seen.insert(id_key) {
+                out.push(trimmed.to_string());
+            }
+            continue;
+        }
+        let name_key = format!("name:{}", normalize_stats_name(trimmed));
+        if seen.insert(name_key) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
 
 /// 解析 `docker stats --no-stream` 的多行 JSON 输出。
 pub fn parse_docker_stats_output(stdout: &str) -> Vec<DockerContainerStats> {
@@ -84,58 +133,7 @@ pub fn parse_docker_stats_json(text: &str) -> Result<DockerContainerStats, serde
     })
 }
 
-/// 本地 Engine：调用 `docker stats --no-stream` 批量获取运行中容器 stats。
-/// `container_ids` 为空切片时直接返回空列表；为 `None` 时统计全部运行中容器。
-pub async fn list_local_container_stats(
-    container_ids: Option<&[String]>,
-) -> OmniResult<Vec<DockerContainerStats>> {
-    if matches!(container_ids, Some(ids) if ids.is_empty()) {
-        return Ok(Vec::new());
-    }
-    use std::process::Stdio;
-    let mut cmd = tokio::process::Command::new("docker");
-    cmd.arg("stats")
-        .arg("--no-stream")
-        .arg("--format")
-        .arg("{{json .}}");
-    if let Some(ids) = container_ids {
-        for id in ids {
-            cmd.arg(id);
-        }
-    }
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = cmd.output().await.map_err(|e| {
-        OmniError::new(ErrorCode::Internal, "执行 docker stats 失败").with_cause(e.to_string())
-    })?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !output.status.success() {
-        tracing::debug!(
-            target: "docker_stats",
-            exit_code = ?output.status.code(),
-            stderr = %stderr.trim(),
-            scoped = container_ids.map(|ids| ids.len()),
-            "docker stats CLI 失败"
-        );
-        return Err(OmniError::new(
-            ErrorCode::Internal,
-            format!("docker stats 失败: {}", stderr.trim()),
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stats = parse_docker_stats_output(&stdout);
-    tracing::debug!(
-        target: "docker_stats",
-        source = "local_cli",
-        scoped = container_ids.map(|ids| ids.len()),
-        line_count = stdout.lines().filter(|l| !l.trim().is_empty()).count(),
-        parsed_count = stats.len(),
-        sample = ?stats.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent)),
-        "list_container_stats 完成"
-    );
-    Ok(stats)
-}
-
-/// 按容器 ID（支持短 ID 后缀匹配）或容器名过滤 stats 列表。
+/// 按容器 ID（支持短 ID 前缀匹配）或容器名过滤 stats 列表。
 pub fn filter_stats_by_container_ids(
     stats: Vec<DockerContainerStats>,
     container_ids: &[String],
@@ -184,6 +182,13 @@ fn normalize_stats_id(id: &str) -> String {
         .to_string()
 }
 
+fn stats_ids_match(left: &str, right: &str) -> bool {
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    left == right || left.starts_with(right) || right.starts_with(left)
+}
+
 fn stats_matches_any_id(container_id: &str, container_ids: &[String]) -> bool {
     let normalized = normalize_stats_id(container_id);
     if normalized.is_empty() {
@@ -191,13 +196,18 @@ fn stats_matches_any_id(container_id: &str, container_ids: &[String]) -> bool {
     }
     container_ids.iter().any(|id| {
         let needle = normalize_stats_id(id);
-        if needle.is_empty() {
-            return false;
-        }
-        normalized == needle
-            || normalized.ends_with(&needle)
-            || needle.ends_with(&normalized)
+        stats_ids_match(&normalized, &needle)
     })
+}
+
+/// 转为 `docker stats` CLI 可接受的容器参数（12 位短 ID 即可）。
+pub(crate) fn stats_docker_cli_arg(target: &str) -> String {
+    let normalized = normalize_stats_id(target);
+    if normalized.len() > 12 {
+        normalized.chars().take(12).collect()
+    } else {
+        normalized
+    }
 }
 
 fn parse_percent(s: &Option<String>) -> f64 {
@@ -275,6 +285,22 @@ mod tests {
     }
 
     #[test]
+    fn docker_stats_shell_cmd_quotes_go_template() {
+        assert_eq!(
+            docker_stats_shell_cmd(None),
+            "docker stats --no-stream --format '{{json .}}'"
+        );
+    }
+
+    #[test]
+    fn dedupe_stats_targets_dedupes_repeated_ids() {
+        let id = "7b56fbb2cb3123b661028e2f5740f62b76c10f2e4ac9fd26fe84f18ed1cd025e";
+        let deduped = dedupe_stats_targets(&[id.into(), id.into(), "yudao-tiku".into()]);
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0], id);
+    }
+
+    #[test]
     fn filter_stats_by_targets_matches_name() {
         let stats = vec![DockerContainerStats {
             container_id: "abc123".into(),
@@ -291,5 +317,33 @@ mod tests {
         }];
         let filtered = filter_stats_by_targets(stats, &["yudao-cloud-gateway".into()]);
         assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn filter_stats_by_targets_matches_full_id_prefix() {
+        let stats = vec![DockerContainerStats {
+            container_id: "7b56fbb2cb31".into(),
+            name: "yudao-gateway".into(),
+            cpu_percent: 2.5,
+            memory_usage_bytes: 100,
+            memory_limit_bytes: Some(1000),
+            memory_percent: 10.0,
+            net_rx_bytes: 0,
+            net_tx_bytes: 0,
+            block_read_bytes: 0,
+            block_write_bytes: 0,
+            timestamp_ms: 0,
+        }];
+        let full_id = "7b56fbb2cb3123b661028e2f5740f62b76c10f2e4ac9fd26fe84f18ed1cd025e";
+        let filtered = filter_stats_by_targets(stats, &[full_id.into()]);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn stats_docker_cli_arg_uses_short_prefix() {
+        assert_eq!(
+            stats_docker_cli_arg("7b56fbb2cb3123b661028e2f5740f62b76c10f2e4ac9fd26fe84f18ed1cd025e"),
+            "7b56fbb2cb31"
+        );
     }
 }

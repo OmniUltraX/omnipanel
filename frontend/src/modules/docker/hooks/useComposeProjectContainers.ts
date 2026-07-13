@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
-import { selectDockerSidebarCacheEntry } from "../dockerSidebarCache";
+import {
+  dockerSidebarCategoryRefreshKey,
+  selectDockerSidebarCacheEntry,
+} from "../dockerSidebarCache";
 import { resolveComposeProjectName } from "../dockerComposeGroups";
 import { pickStats, statsMapFromList } from "../dockerContainerStatsMatch";
-import { debugDockerStats } from "../dockerStatsDebug";
+import { debugDockerStats, debugDockerStatsIpc, summarizeStatsList } from "../dockerStatsDebug";
 import { useDockerSidebarCacheStore } from "../../../stores/dockerSidebarCacheStore";
 
 async function unwrap<T>(
@@ -22,6 +25,19 @@ export type ComposeProjectContainerItem = {
 
 const STATS_POLL_MS = 2000;
 const SIDEBAR_STALE_MS = 30_000;
+const STATS_REQUEST_TIMEOUT_MS = 45_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`${label} 超时 (${ms}ms)`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer != null) window.clearTimeout(timer);
+  }
+}
 
 export function useComposeProjectContainers(
   connectionId: string,
@@ -37,6 +53,8 @@ export function useComposeProjectContainers(
   const [statsById, setStatsById] = useState<Map<string, DockerContainerStats>>(new Map());
   const [statsError, setStatsError] = useState<string | null>(null);
   const runningTargetsRef = useRef<string[]>([]);
+  const statsRequestGenRef = useRef(0);
+  const statsInflightRef = useRef(false);
 
   const projectContainers = useMemo(
     () =>
@@ -52,7 +70,8 @@ export function useComposeProjectContainers(
         new Set(
           projectContainers
             .filter((container) => container.running)
-            .flatMap((container) => [container.id, container.name].filter((value) => value.trim().length > 0)),
+            .map((container) => container.shortId || container.id)
+            .filter((value) => value.trim().length > 0),
         ),
       ),
     [projectContainers],
@@ -77,7 +96,12 @@ export function useComposeProjectContainers(
   }, [connectionId, refreshScope]);
 
   const refreshStats = useCallback(async () => {
+    if (statsInflightRef.current) {
+      debugDockerStats("Compose stats 跳过：已有进行中的请求", { project: projectKey });
+      return;
+    }
     const targets = runningTargetsRef.current;
+    const requestGen = ++statsRequestGenRef.current;
     const listStats = commands.dockerListContainerStats;
     if (typeof listStats !== "function") {
       debugDockerStats("dockerListContainerStats 未绑定", {
@@ -92,30 +116,59 @@ export function useComposeProjectContainers(
       debugDockerStats("项目无运行中容器，跳过 stats", { project: projectKey });
       return;
     }
+
+    statsInflightRef.current = true;
+    debugDockerStatsIpc("request", {
+      connectionId,
+      containerIds: null,
+      label: `compose:${projectKey}`,
+      source: "ssh",
+    }, {
+      runningTargets: targets.length,
+      runningSample: targets.slice(0, 3),
+      note: "拉取全量 stats，前端按 shortId/name 匹配 Compose 容器",
+    });
+
     try {
-      const statsList = await unwrap(commands.dockerListContainerStats(connectionId, targets));
+      const statsList = await withTimeout(
+        unwrap(commands.dockerListContainerStats(connectionId, null)),
+        STATS_REQUEST_TIMEOUT_MS,
+        "dockerListContainerStats",
+      );
+      if (requestGen !== statsRequestGenRef.current) {
+        debugDockerStats("Compose stats 丢弃过期响应", { project: projectKey, requestGen });
+        return;
+      }
       const nextStats = statsMapFromList(statsList);
       setStatsById(nextStats);
       setStatsError(null);
-      debugDockerStats("Compose stats 轮询", {
-        project: projectKey,
-        requestedTargets: targets.length,
-        requestedSample: targets.slice(0, 3),
-        received: statsList.length,
-        sample: statsList.slice(0, 3).map((item) => ({
-          containerId: item.containerId,
-          name: item.name,
-          cpuPercent: item.cpuPercent,
-          memoryPercent: item.memoryPercent,
-        })),
-      });
+      debugDockerStatsIpc(
+        "response",
+        {
+          connectionId,
+          containerIds: null,
+          label: `compose:${projectKey}`,
+          source: "ssh",
+        },
+        {
+          runningTargets: targets.length,
+          ...summarizeStatsList(statsList),
+        },
+      );
     } catch (error) {
+      if (requestGen !== statsRequestGenRef.current) return;
       setStatsError(String(error));
-      debugDockerStats("Compose stats 请求失败", {
-        project: projectKey,
-        connectionId,
-        error: String(error),
-      });
+      debugDockerStatsIpc(
+        "error",
+        {
+          connectionId,
+          containerIds: null,
+          label: `compose:${projectKey}`,
+        },
+        { error: String(error) },
+      );
+    } finally {
+      statsInflightRef.current = false;
     }
   }, [connectionId, projectKey]);
 
@@ -135,12 +188,7 @@ export function useComposeProjectContainers(
   }, [connectionId, enabled, projectKey, projectContainers.length, sidebarEntry.containers.length]);
 
   useEffect(() => {
-    if (!enabled || !connectionId) {
-      setStatsById(new Map());
-      setStatsError(null);
-      return;
-    }
-
+    if (!enabled || !connectionId) return;
     const stale =
       sidebarEntry.refreshedAt == null ||
       Date.now() - sidebarEntry.refreshedAt > SIDEBAR_STALE_MS ||
@@ -148,20 +196,51 @@ export function useComposeProjectContainers(
     if (stale) {
       refreshContainers();
     }
-
-    void refreshStats();
-    const timer = window.setInterval(() => void refreshStats(), STATS_POLL_MS);
-    return () => window.clearInterval(timer);
   }, [
     connectionId,
     enabled,
     projectKey,
     refreshContainers,
-    refreshStats,
-    runningTargets.join("\0"),
     sidebarEntry.containers.length,
     sidebarEntry.refreshedAt,
   ]);
+
+  useEffect(() => {
+    if (!enabled || !connectionId || runningTargets.length === 0) {
+      setStatsById(new Map());
+      setStatsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const start = async () => {
+      const containersKey = dockerSidebarCategoryRefreshKey(connectionId, "containers");
+      const deadline = Date.now() + 15_000;
+      while (!cancelled && Date.now() < deadline) {
+        const refreshing = useDockerSidebarCacheStore.getState().isRefreshing(containersKey);
+        if (!refreshing) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      }
+      if (cancelled) return;
+      await refreshStats();
+      if (cancelled) return;
+      timer = window.setInterval(() => void refreshStats(), STATS_POLL_MS);
+    };
+
+    // 推迟到下一宏任务，避免 React StrictMode 双挂载时第一次 invoke 回调被销毁。
+    const bootstrapTimer = window.setTimeout(() => {
+      void start();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      statsRequestGenRef.current += 1;
+      window.clearTimeout(bootstrapTimer);
+      if (timer != null) window.clearInterval(timer);
+    };
+  }, [connectionId, enabled, projectKey, refreshStats, runningTargets.join("\0")]);
 
   useEffect(() => {
     if (!enabled || projectContainers.length === 0) return;
@@ -169,9 +248,11 @@ export function useComposeProjectContainers(
     debugDockerStats("Compose stats 匹配", {
       project: projectKey,
       containers: projectContainers.length,
+      running: runningTargets.length,
+      statsKeys: statsById.size,
       matched,
       unmatched: items
-        .filter((item) => item.stats == null)
+        .filter((item) => item.stats == null && item.container.running)
         .slice(0, 5)
         .map((item) => ({
           id: item.container.id,
@@ -180,7 +261,7 @@ export function useComposeProjectContainers(
           running: item.container.running,
         })),
     });
-  }, [enabled, items, projectContainers.length, projectKey]);
+  }, [enabled, items, projectContainers.length, projectKey, runningTargets.length, statsById.size]);
 
   const loading =
     enabled &&
@@ -193,4 +274,4 @@ export function useComposeProjectContainers(
     error: statsError ?? sidebarEntry.error,
     refreshNow,
   };
-}
+};

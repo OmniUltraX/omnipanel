@@ -6,7 +6,7 @@ import { cn } from "../../../lib/utils";
 export interface VirtualJsonViewProps {
   value: object;
   className?: string;
-  /** ????????�?2 */
+  /** 默认展开层级深度，默认 2 */
   expandDepth?: number;
 }
 

@@ -5,6 +5,12 @@ export function statsKey(containerId: string): string {
   return normalizeStatsId(containerId);
 }
 
+/** Docker 短 ID 为完整 ID 前缀，双向前缀匹配。 */
+export function statsIdsMatch(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  return left === right || left.startsWith(right) || right.startsWith(left);
+}
+
 export function pickStats(
   container: DockerContainerSummary,
   statsById: Map<string, DockerContainerStats>,
@@ -23,13 +29,18 @@ export function pickStats(
   const byShort = statsById.get(short);
   if (byShort) return byShort;
 
+  if (fullId.length >= 12) {
+    const byFullPrefix = statsById.get(fullId.slice(0, 12));
+    if (byFullPrefix) return byFullPrefix;
+  }
+
   for (const [key, stats] of statsById) {
     if (key.startsWith("name:")) continue;
-    if (key.endsWith(short) || short.endsWith(key)) {
+    if (statsIdsMatch(key, short) || statsIdsMatch(key, fullId)) {
       return stats;
     }
     const statsId = statsKey(stats.containerId);
-    if (statsId && (fullId.endsWith(statsId) || statsId.endsWith(fullId))) {
+    if (statsIdsMatch(statsId, fullId) || statsIdsMatch(statsId, short)) {
       return stats;
     }
   }

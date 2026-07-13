@@ -625,6 +625,14 @@ async fn list_container_stats_bollard(
     };
 
     let mut out = Vec::with_capacity(ids.len());
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        scoped = container_ids.map(|ids| ids.len()),
+        container_count = ids.len(),
+        container_sample = ?ids.iter().take(5).collect::<Vec<_>>(),
+        "批量拉取 bollard stats"
+    );
     for id in ids {
         match fetch_container_stats_bollard(docker, &id).await {
             Ok(stats) => out.push(stats),
@@ -652,19 +660,65 @@ async fn list_container_stats_bollard(
 
 /// bollard stats 需两帧才能算 CPU；先采样一帧再短暂等待后取第二帧。
 async fn fetch_container_stats_bollard(docker: &Docker, id: &str) -> OmniResult<DockerContainerStats> {
-    let _ = sample_container_stats_once(docker, id).await?;
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        "bollard stats 双帧采样开始（首帧预热 CPU delta）"
+    );
+    let _ = sample_container_stats_once(docker, id, "warmup").await?;
     tokio::time::sleep(std::time::Duration::from_millis(900)).await;
-    sample_container_stats_once(docker, id).await
+    sample_container_stats_once(docker, id, "sample").await
+}
+
+fn log_bollard_stats_raw(
+    container_id: &str,
+    frame: &str,
+    s: &bollard::models::ContainerStatsResponse,
+) {
+    let cpu = s.cpu_stats.as_ref();
+    let precpu = s.precpu_stats.as_ref();
+    let memory = s.memory_stats.as_ref();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %container_id,
+        frame,
+        id = ?s.id,
+        name = ?s.name,
+        cpu_total = cpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
+        precpu_total = precpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
+        cpu_system = cpu.and_then(|c| c.system_cpu_usage),
+        precpu_system = precpu.and_then(|c| c.system_cpu_usage),
+        online_cpus = cpu.and_then(|c| c.online_cpus),
+        percpu_len = cpu
+            .and_then(|c| c.cpu_usage.as_ref())
+            .and_then(|u| u.percpu_usage.as_ref())
+            .map(|v| v.len()),
+        mem_usage = memory.and_then(|m| m.usage),
+        mem_limit = memory.and_then(|m| m.limit),
+        mem_max_usage = memory.and_then(|m| m.max_usage),
+        "bollard stats 原始帧"
+    );
 }
 
 async fn sample_container_stats_once(
     docker: &Docker,
     id: &str,
+    frame: &str,
 ) -> OmniResult<DockerContainerStats> {
     let options = StatsOptionsBuilder::default()
         .stream(false)
         .one_shot(true)
         .build();
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        frame,
+        api = "GET /containers/{id}/stats?stream=false&one-shot=true",
+        "请求 bollard stats API"
+    );
     let stream = docker.stats(id, Some(options));
     tokio::pin!(stream);
     let item = stream
@@ -672,7 +726,20 @@ async fn sample_container_stats_once(
         .await
         .ok_or_else(|| OmniError::new(ErrorCode::Internal, "stats 无输出"))?
         .map_err(map_bollard)?;
-    Ok(convert_stats(id, &item))
+    log_bollard_stats_raw(id, frame, &item);
+    let converted = convert_stats(id, &item);
+    tracing::debug!(
+        target: "docker_stats",
+        source = "bollard",
+        container = %id,
+        frame,
+        cpu_percent = converted.cpu_percent,
+        memory_usage_bytes = converted.memory_usage_bytes,
+        memory_limit_bytes = ?converted.memory_limit_bytes,
+        memory_percent = converted.memory_percent,
+        "bollard stats 解析结果"
+    );
+    Ok(converted)
 }
 
 #[async_trait]
