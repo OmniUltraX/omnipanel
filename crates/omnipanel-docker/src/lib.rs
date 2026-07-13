@@ -7,7 +7,10 @@
 //! - 所有错误统一为 [`OmniError`]，命令层零散字符串错误就此收敛。
 
 mod compose;
+mod compose_files;
 mod log_util;
+mod stats_cli;
+mod volume_files;
 pub mod local;
 pub mod local_engine;
 pub mod model;
@@ -16,7 +19,7 @@ pub mod onepanel_terminal;
 pub mod ssh;
 
 use async_trait::async_trait;
-use omnipanel_error::OmniResult;
+use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use std::sync::Arc;
 
 pub use compose::aggregate_compose;
@@ -121,6 +124,34 @@ pub trait DockerAdapter: Send + Sync {
         action: DockerComposeAction,
         req: &DockerComposeRequest,
     ) -> OmniResult<DockerComposeResult>;
+    /// 读取 Compose 项目配置文件（`docker-compose.yml` / `.env`）。
+    async fn read_compose_project_files(
+        &self,
+        req: &DockerComposeReadFilesRequest,
+    ) -> OmniResult<DockerComposeProjectFiles> {
+        let _ = req;
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持读取 Compose 配置文件",
+        ))
+    }
+    /// 写入 Compose 项目配置文件。
+    async fn write_compose_project_files(
+        &self,
+        req: &DockerComposeWriteFilesRequest,
+    ) -> OmniResult<()> {
+        let _ = req;
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持写入 Compose 配置文件",
+        ))
+    }
+    /// 批量获取运行中容器 CPU / 内存快照（非流式，供列表轮询）。
+    /// 本地 Engine 走 bollard one-shot stats；SSH 走 `docker stats --no-stream`。
+    async fn list_container_stats(
+        &self,
+        container_ids: Option<&[String]>,
+    ) -> OmniResult<Vec<DockerContainerStats>>;
     /// 流式容器 stats。`stop` 置位时停止，`sink` 持续接收统计快照。
     /// 本地 Engine 走 bollard；SSH 走 `docker stats --format '{{json .}}'`。
     async fn stream_stats(
@@ -183,6 +214,31 @@ pub trait DockerAdapter: Send + Sync {
         path: &str,
         data: Vec<u8>,
     ) -> OmniResult<()>;
+    /// 列出卷挂载点目录（`path` 为卷内相对路径，如 `/` 或 `/data`）。
+    async fn list_volume_dir(
+        &self,
+        volume_name: &str,
+        path: &str,
+    ) -> OmniResult<Vec<DockerFileEntry>> {
+        let _ = (volume_name, path);
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持浏览卷目录",
+        ))
+    }
+    /// 读取卷内文件（按字节返回）。
+    async fn read_volume_file(
+        &self,
+        volume_name: &str,
+        path: &str,
+        max_bytes: i64,
+    ) -> OmniResult<Vec<u8>> {
+        let _ = (volume_name, path, max_bytes);
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持读取卷内文件",
+        ))
+    }
 
     // ── Swarm ────────────────────────────────────────────────────────────────
     /// 初始化 Docker Swarm。

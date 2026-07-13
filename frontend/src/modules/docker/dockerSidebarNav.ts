@@ -12,7 +12,7 @@ export type DockerSidebarNavTarget = {
   connectionId: string;
   category?: DockerTreeCategory;
   itemId?: string;
-  serviceGroupId?: string;
+  composeProject?: string;
 };
 
 export type DockerSidebarNavigate = (

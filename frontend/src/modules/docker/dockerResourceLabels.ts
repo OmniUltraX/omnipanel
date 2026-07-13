@@ -17,17 +17,8 @@ export function makeDockerTreeKey(
   return `docker:${connectionId}:${category}:${itemId}`;
 }
 
-export function makeDockerServiceGroupTreeKey(connectionId: string, groupId: string): string {
-  return `docker:${connectionId}:containers:group:${groupId}`;
-}
-
-export function parseDockerServiceGroupTreeKey(
-  key: string | null | undefined,
-): { connectionId: string; groupId: string } | null {
-  if (!key) return null;
-  const match = /^docker:([^:]+):containers:group:([^:]+)$/.exec(key);
-  if (!match) return null;
-  return { connectionId: match[1], groupId: match[2] };
+export function makeDockerComposeProjectTreeKey(connectionId: string, project: string): string {
+  return `docker:${connectionId}:containers:compose:${encodeURIComponent(project)}`;
 }
 
 export function imageRowLabel(image: DockerImageSummary): string {
