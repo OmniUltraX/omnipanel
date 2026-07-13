@@ -1,7 +1,5 @@
-//! SSH 宿主机 Docker 适配器：复用现有 [`SshSession`]，调用远端 `docker` CLI。
-//!
-//! 以自由函数形式提供（借用外部 `&SshSession`，由命令层从活跃会话池取得），
-//! 与 [`crate::local`] 共享 [`crate::model`] 数据结构与 [`crate::compose`] 聚合逻辑。
+//! SSH 宿主机 Docker 适配器：复用现有 [`SshSession`]，读数据走 `curl --unix-socket /var/run/docker.sock`，
+//! 写操作与 exec/流式日志等仍调用远端 `docker` CLI。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,8 +13,10 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::compose::{ComposeContainerRow, aggregate_compose, compose_fields_from_label_map};
-use crate::local::{DockerExecOutput, DockerExecSession, to_container_detail};
+use crate::local::{map_system_data_usage, to_container_detail, to_container_summary, to_image_summaries};
+use crate::local::{DockerExecOutput, DockerExecSession};
 use crate::model::*;
+use crate::ssh_docker_api::{classify_docker_api_error, url_path_segment, SshDockerApi};
 use crate::{ContainerFilter, DockerAdapter, normalize_name, short_id};
 
 /// SSH 宿主机 Docker 适配器：持有一个可复用的 `SshSession`（由命令层缓存于会话池），
@@ -120,6 +120,15 @@ impl DockerAdapter for SshDockerAdapter {
         req: &DockerComposeWriteFilesRequest,
     ) -> OmniResult<()> {
         crate::compose_files::write_ssh_compose_project_files(&*self.session, req).await
+    }
+    async fn read_daemon_config(&self) -> OmniResult<DockerDaemonConfigFile> {
+        crate::daemon_config::read_ssh_daemon_config(&*self.session).await
+    }
+    async fn write_daemon_config(&self, content: &str) -> OmniResult<()> {
+        crate::daemon_config::write_ssh_daemon_config(&*self.session, content).await
+    }
+    async fn restart_docker_daemon(&self) -> OmniResult<()> {
+        crate::daemon_config::restart_ssh_docker_daemon(&*self.session).await
     }
     async fn list_container_stats(
         &self,
@@ -307,31 +316,35 @@ impl DockerAdapter for SshDockerAdapter {
     }
 }
 
-/// 探测远端 Docker 可用性与版本。
+/// 探测远端 Docker 可用性与版本（Engine API `/version`）。
 pub async fn probe(session: &SshSession) -> OmniResult<DockerProbe> {
-    let out = session
-        .exec_capture("docker version --format '{{.Server.Version}}|{{.Server.APIVersion}}'")
-        .await?;
-    if out.exit_code != 0 {
-        let detail = out.stderr.trim();
-        let (status, msg) = classify_docker_error(detail);
-        return Ok(DockerProbe {
-            status,
-            engine_version: None,
-            api_version: None,
+    let api = SshDockerApi::new(session);
+    match api.get_json::<serde_json::Value>("/version").await {
+        Ok(v) => Ok(DockerProbe {
+            status: DockerConnectionStatus::Online,
+            engine_version: v
+                .get("Version")
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
+            api_version: v
+                .get("ApiVersion")
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
             capabilities: DockerCapabilities::ssh_engine(),
-            warning_message: Some(msg),
-        });
+            warning_message: None,
+        }),
+        Err(e) => {
+            let detail = format!("{}{}", e.message, e.cause.as_deref().unwrap_or(""));
+            let (status, msg) = classify_docker_api_error(&detail);
+            Ok(DockerProbe {
+                status,
+                engine_version: None,
+                api_version: None,
+                capabilities: DockerCapabilities::ssh_engine(),
+                warning_message: Some(msg),
+            })
+        }
     }
-    let line = out.stdout.trim();
-    let (version, api) = line.split_once('|').unwrap_or((line, ""));
-    Ok(DockerProbe {
-        status: DockerConnectionStatus::Online,
-        engine_version: non_empty(version),
-        api_version: non_empty(api),
-        capabilities: DockerCapabilities::ssh_engine(),
-        warning_message: None,
-    })
 }
 
 /// 远端总览统计。
@@ -357,26 +370,21 @@ pub async fn overview(session: &SshSession) -> OmniResult<DockerOverview> {
     })
 }
 
-/// 远端容器列表。
+/// 远端容器列表（Engine API `GET /containers/json`）。
 pub async fn list_containers(
     session: &SshSession,
     filter: ContainerFilter,
 ) -> OmniResult<Vec<DockerContainerSummary>> {
-    let cmd = if filter.include_all() {
-        "docker ps -a --no-trunc --format '{{json .}}'"
+    let api = SshDockerApi::new(session);
+    let path = if filter.include_all() {
+        "/containers/json?all=1"
     } else {
-        "docker ps --no-trunc --format '{{json .}}'"
+        "/containers/json"
     };
-    let out = session.exec_capture(cmd).await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("列出远端容器失败", &out.stderr));
-    }
-    let mut result = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let row: PsRow = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker ps 输出失败").with_cause(e.to_string())
-        })?;
-        let summary = row.into_summary();
+    let raw: Vec<bollard::models::ContainerSummary> = api.get_json(path).await?;
+    let mut result = Vec::with_capacity(raw.len());
+    for item in raw {
+        let summary = to_container_summary(item);
         if filter.matches(summary.running) {
             result.push(summary);
         }
@@ -384,25 +392,14 @@ pub async fn list_containers(
     Ok(result)
 }
 
-/// 远端容器详情（复用 `docker inspect` 的 Engine API 同构 JSON）。
+/// 远端容器详情（Engine API `GET /containers/{id}/json`）。
 pub async fn inspect_container(
     session: &SshSession,
     id: &str,
 ) -> OmniResult<DockerContainerDetail> {
-    let out = session
-        .exec_capture(&format!("docker inspect {}", shell_quote(id)))
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("查看远端容器详情失败", &out.stderr));
-    }
-    let mut parsed: Vec<bollard::models::ContainerInspectResponse> =
-        serde_json::from_str(out.stdout.trim()).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker inspect 输出失败")
-                .with_cause(e.to_string())
-        })?;
-    let raw = parsed
-        .pop()
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("远端容器 {id} 不存在")))?;
+    let api = SshDockerApi::new(session);
+    let path = format!("/containers/{}/json", url_path_segment(id));
+    let raw: bollard::models::ContainerInspectResponse = api.get_json(&path).await?;
     Ok(to_container_detail(raw))
 }
 
@@ -671,23 +668,11 @@ where
     }
 }
 
-/// 远端镜像列表。
+/// 远端镜像列表（Engine API `GET /images/json`）。
 pub async fn list_images(session: &SshSession) -> OmniResult<Vec<DockerImageSummary>> {
-    let out = session
-        .exec_capture("docker images --no-trunc --format '{{json .}}'")
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("列出远端镜像失败", &out.stderr));
-    }
-    let mut result = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let row: ImageRow = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker images 输出失败")
-                .with_cause(e.to_string())
-        })?;
-        result.push(row.into_summary());
-    }
-    Ok(result)
+    let api = SshDockerApi::new(session);
+    let raw: Vec<bollard::models::ImageSummary> = api.get_json("/images/json").await?;
+    Ok(raw.into_iter().flat_map(to_image_summaries).collect())
 }
 
 /// 删除远端镜像。
@@ -718,22 +703,15 @@ pub async fn prune_images(session: &SshSession) -> OmniResult<DockerPruneResult>
     })
 }
 
-/// 远端镜像详情（`docker inspect` JSON 数组第一项映射为 `DockerImageDetail`）。
+/// 远端镜像详情（Engine API `GET /images/{id}/json`）。
 pub async fn inspect_image(session: &SshSession, id: &str) -> OmniResult<DockerImageDetail> {
-    let out = session
-        .exec_capture(&format!("docker inspect {}", shell_quote(id)))
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("查看远端镜像详情失败", &out.stderr));
-    }
-    let mut parsed: Vec<bollard::models::ImageInspect> = serde_json::from_str(out.stdout.trim())
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker inspect 输出失败")
-                .with_cause(e.to_string())
-        })?;
-    let raw = parsed
-        .pop()
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("远端镜像 {id} 不存在")))?;
+    let api = SshDockerApi::new(session);
+    let path = format!("/images/{}/json", url_path_segment(id));
+    let raw: bollard::models::ImageInspect = api.get_json(&path).await?;
+    map_image_inspect(raw, id)
+}
+
+fn map_image_inspect(raw: bollard::models::ImageInspect, id: &str) -> OmniResult<DockerImageDetail> {
     let cfg = raw.config.clone().unwrap_or_default();
     let env = cfg.env.clone().unwrap_or_default();
     let labels_map = cfg.labels.clone().unwrap_or_default();
@@ -767,69 +745,57 @@ pub async fn inspect_image(session: &SshSession, id: &str) -> OmniResult<DockerI
     })
 }
 
-/// 远端镜像历史（`docker history --format '{{json .}}' <id>`）。
+/// 远端镜像历史（Engine API `GET /images/{id}/history`）。
 pub async fn image_history(
     session: &SshSession,
     id: &str,
 ) -> OmniResult<Vec<DockerImageHistoryLayer>> {
-    let out = session
-        .exec_capture(&format!(
-            "docker history --no-trunc --format '{{{{json .}}}}' {}",
-            shell_quote(id)
-        ))
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("查看远端镜像历史失败", &out.stderr));
-    }
-    let mut result = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let row: HistoryRow = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker history 输出失败")
-                .with_cause(e.to_string())
-        })?;
-        result.push(DockerImageHistoryLayer {
-            id: row.id,
-            created_at: parse_iso_to_unix_ms(Some(&row.created)),
-            created_by: row.created_by,
-            size_bytes: human_size_to_bytes(&row.size),
-            comment: row.comment,
-            tags: row.tags,
-        });
-    }
-    Ok(result)
+    let api = SshDockerApi::new(session);
+    let path = format!("/images/{}/history", url_path_segment(id));
+    let raw: Vec<bollard::models::ImageHistoryResponseItem> = api.get_json(&path).await?;
+    Ok(raw
+        .into_iter()
+        .map(|h| DockerImageHistoryLayer {
+            id: h.id,
+            created_at: h.created.saturating_mul(1000),
+            created_by: h.created_by,
+            size_bytes: h.size,
+            comment: h.comment,
+            tags: h.tags,
+        })
+        .collect())
 }
 
-/// 远端 Compose 项目识别。
+/// 远端 Compose 项目识别（基于 Engine API 容器列表 labels）。
 pub async fn list_compose_projects(session: &SshSession) -> OmniResult<Vec<DockerComposeProject>> {
-    let out = session
-        .exec_capture("docker ps -a --no-trunc --format '{{json .}}'")
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("识别远端 Compose 项目失败", &out.stderr));
-    }
+    let api = SshDockerApi::new(session);
+    let raw: Vec<bollard::models::ContainerSummary> =
+        api.get_json("/containers/json?all=1").await?;
     let mut rows = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let row: PsRow = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker ps 输出失败").with_cause(e.to_string())
-        })?;
-        let labels = parse_labels(&row.labels);
-        if let Some(project) = labels.get("com.docker.compose.project") {
-            rows.push(ComposeContainerRow {
-                project: project.clone(),
-                service: labels
-                    .get("com.docker.compose.service")
-                    .cloned()
-                    .unwrap_or_else(|| "default".to_string()),
-                working_dir: labels
-                    .get("com.docker.compose.project.working_dir")
-                    .cloned(),
-                config_files: labels
-                    .get("com.docker.compose.project.config_files")
-                    .cloned(),
-                image: row.image.clone(),
-                running: row.state.eq_ignore_ascii_case("running"),
-            });
-        }
+    for item in raw {
+        let labels = item.labels.clone().unwrap_or_default();
+        let Some(project) = labels.get("com.docker.compose.project") else {
+            continue;
+        };
+        rows.push(ComposeContainerRow {
+            project: project.clone(),
+            service: labels
+                .get("com.docker.compose.service")
+                .cloned()
+                .unwrap_or_else(|| "default".to_string()),
+            working_dir: labels
+                .get("com.docker.compose.project.working_dir")
+                .cloned(),
+            config_files: labels
+                .get("com.docker.compose.project.config_files")
+                .cloned(),
+            image: item.image.unwrap_or_default(),
+            running: item
+                .state
+                .as_ref()
+                .map(|s| format!("{s:?}").to_lowercase())
+                == Some("running".to_string()),
+        });
     }
     Ok(aggregate_compose(rows))
 }
@@ -1024,184 +990,12 @@ fn uuid_like() -> String {
     format!("{:x}", v & 0xFFFF_FFFF)
 }
 
-/// 批量获取运行中容器 stats（`docker stats --no-stream --format '{{json .}}'`）。
+/// SSH 宿主机批量拉取容器 stats（`docker stats --no-stream`）。
 pub async fn list_container_stats(
     session: &SshSession,
     container_ids: Option<&[String]>,
 ) -> OmniResult<Vec<DockerContainerStats>> {
-    if matches!(container_ids, Some(ids) if ids.is_empty()) {
-        return Ok(Vec::new());
-    }
-
-    // 单次全量拉取：比拼接多个 ID 更稳（任一 ID 失效不会导致整批命令失败）。
-    let mut stats = fetch_ssh_docker_stats_batch(session, None).await?;
-
-    if let Some(ids) = container_ids.filter(|ids| !ids.is_empty()) {
-        let filtered = crate::stats_cli::filter_stats_by_targets(stats.clone(), ids);
-        if !filtered.is_empty() {
-            stats = filtered;
-        } else if stats.is_empty() {
-            let fallback_targets = crate::stats_cli::dedupe_stats_targets(ids);
-            tracing::debug!(
-                target: "docker_stats",
-                source = "ssh_cli",
-                scoped = ids.len(),
-                unique_targets = fallback_targets.len(),
-                "全量 stats 为空，回退逐容器拉取"
-            );
-            stats = fetch_ssh_docker_stats_per_container(session, &fallback_targets).await?;
-        } else {
-            tracing::debug!(
-                target: "docker_stats",
-                source = "ssh_cli",
-                scoped = ids.len(),
-                batch_count = stats.len(),
-                "过滤为空但全量有数据，返回全量供前端匹配"
-            );
-        }
-    }
-
-    tracing::debug!(
-        target: "docker_stats",
-        source = "ssh_cli",
-        scoped = container_ids.map(|ids| ids.len()),
-        parsed_count = stats.len(),
-        sample = ?stats.first().map(|s| (s.container_id.as_str(), s.name.as_str(), s.cpu_percent, s.memory_percent)),
-        "list_container_stats 完成"
-    );
-    Ok(stats)
-}
-
-/// 全量或指定容器批量 stats（命令格式与 `list_containers` 的 `docker ps` 一致）。
-async fn fetch_ssh_docker_stats_batch(
-    session: &SshSession,
-    container_targets: Option<&[String]>,
-) -> OmniResult<Vec<DockerContainerStats>> {
-    let cmd = match container_targets {
-        Some(targets) if !targets.is_empty() => {
-            let suffix = targets
-                .iter()
-                .map(|target| sanitize_docker_cli_arg(&crate::stats_cli::stats_docker_cli_arg(target)))
-                .collect::<Vec<_>>()
-                .join(" ");
-            format!("docker stats --no-stream --format '{{{{json .}}}}' {suffix}")
-        }
-        _ => crate::stats_cli::docker_stats_shell_cmd(None),
-    };
-    exec_ssh_docker_stats(session, &cmd, container_targets.map(|ids| ids.len())).await
-}
-
-/// 逐容器 one-shot stats，与 `stream_stats` 单容器命令形式一致。
-async fn fetch_ssh_docker_stats_per_container(
-    session: &SshSession,
-    targets: &[String],
-) -> OmniResult<Vec<DockerContainerStats>> {
-    let mut merged = Vec::new();
-    let mut seen_ids = std::collections::HashSet::new();
-    for target in targets {
-        let trimmed = target.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let arg = sanitize_docker_cli_arg(&crate::stats_cli::stats_docker_cli_arg(trimmed));
-        let cmd = format!("docker stats --no-stream --format '{{{{json .}}}}' {arg}");
-        match exec_ssh_docker_stats(session, &cmd, Some(1)).await {
-            Ok(mut batch) => {
-                for item in batch.drain(..) {
-                    let key = normalize_stats_container_key(&item.container_id, &item.name);
-                    if seen_ids.insert(key) {
-                        merged.push(item);
-                    }
-                }
-            }
-            Err(err) => {
-                tracing::debug!(
-                    target: "docker_stats",
-                    source = "ssh_cli",
-                    container_target = trimmed,
-                    error = %err.message,
-                    "逐容器 stats 失败，跳过"
-                );
-            }
-        }
-    }
-    Ok(merged)
-}
-
-async fn exec_ssh_docker_stats(
-    session: &SshSession,
-    cmd: &str,
-    scoped: Option<usize>,
-) -> OmniResult<Vec<DockerContainerStats>> {
-    let out = session.exec_capture(cmd).await?;
-    if out.exit_code != 0 {
-        tracing::debug!(
-            target: "docker_stats",
-            source = "ssh_cli",
-            exit_code = out.exit_code,
-            stderr = %out.stderr.trim(),
-            scoped,
-            cmd = %cmd,
-            "docker stats CLI 失败"
-        );
-        return Err(docker_cli_error("获取远端容器 stats 失败", &out.stderr));
-    }
-    let stats = crate::stats_cli::parse_docker_stats_output(&out.stdout);
-    let non_empty_lines = out.stdout.lines().filter(|l| !l.trim().is_empty()).count();
-    if stats.is_empty() && non_empty_lines > 0 {
-        tracing::warn!(
-            target: "docker_stats",
-            source = "ssh_cli",
-            scoped,
-            line_count = non_empty_lines,
-            stdout_preview = %crate::stats_cli::truncate_debug_text(&out.stdout, 240),
-            "docker stats 有输出但 JSON 解析为空"
-        );
-    } else if stats.is_empty() {
-        tracing::debug!(
-            target: "docker_stats",
-            source = "ssh_cli",
-            scoped,
-            stderr = %out.stderr.trim(),
-            cmd = %cmd,
-            "docker stats 输出为空"
-        );
-    } else {
-        tracing::debug!(
-            target: "docker_stats",
-            source = "ssh_cli",
-            scoped,
-            cmd = %cmd,
-            exit_code = out.exit_code,
-            line_count = non_empty_lines,
-            parsed_count = stats.len(),
-            stdout = %crate::stats_cli::truncate_debug_text(&out.stdout, 2048),
-            stderr = %crate::stats_cli::truncate_debug_text(&out.stderr, 512),
-            sample = ?stats.first().map(|s| (s.container_id.as_str(), s.name.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
-            "docker stats CLI 成功"
-        );
-    }
-    Ok(stats)
-}
-
-fn sanitize_docker_cli_arg(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
-    {
-        trimmed.to_string()
-    } else {
-        shell_quote(trimmed)
-    }
-}
-
-fn normalize_stats_container_key(container_id: &str, name: &str) -> String {
-    let id = container_id.trim().to_lowercase();
-    if !id.is_empty() {
-        return id;
-    }
-    name.trim().trim_start_matches('/').to_lowercase()
+    crate::stats::list_via_ssh_cli(session, container_ids).await
 }
 
 /// 远端容器 stats 流：调用 `docker stats --no-trunc --format '{{json .}}' <id>`，
@@ -1243,9 +1037,7 @@ pub async fn stream_stats(
                                 line_buf.clear();
                                 let trimmed = line.trim();
                                 if !trimmed.is_empty() {
-                                    if let Ok(stats) =
-                                        crate::stats_cli::parse_docker_stats_json(trimmed)
-                                    {
+                                    if let Ok(stats) = crate::stats::parse_cli_line(trimmed) {
                                         sink(stats);
                                     }
                                 }
@@ -1647,44 +1439,19 @@ mod tests {
 // -------- 网络 --------
 
 pub async fn list_networks(session: &SshSession) -> OmniResult<Vec<DockerNetworkSummary>> {
-    let out = session
-        .exec_capture("docker network ls --no-trunc --format '{{json .}}'")
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("列出远端网络失败", &out.stderr));
-    }
-    let mut rows = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let v: serde_json::Value = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker network ls 输出失败")
-                .with_cause(e.to_string())
-        })?;
-        rows.push(DockerNetworkSummary {
-            id: v
-                .get("ID")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            name: v
-                .get("Name")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            driver: v
-                .get("Driver")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            scope: v
-                .get("Scope")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            internal: false,
+    let api = SshDockerApi::new(session);
+    let raw: Vec<bollard::models::NetworkSummary> = api.get_json("/networks").await?;
+    Ok(raw
+        .into_iter()
+        .map(|n| DockerNetworkSummary {
+            id: n.id.unwrap_or_default(),
+            name: n.name.unwrap_or_default(),
+            driver: n.driver.unwrap_or_default(),
+            scope: n.scope.unwrap_or_default(),
+            internal: n.internal.unwrap_or(false),
             created_at: 0,
-        });
-    }
-    Ok(rows)
+        })
+        .collect())
 }
 
 pub async fn create_network(
@@ -1755,22 +1522,11 @@ pub async fn disconnect_container_from_network(
     Ok(())
 }
 
-/// 远端网络详情。
+/// 远端网络详情（Engine API `GET /networks/{id}`）。
 pub async fn inspect_network(session: &SshSession, id: &str) -> OmniResult<DockerNetworkDetail> {
-    let out = session
-        .exec_capture(&format!("docker network inspect {}", shell_quote(id)))
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("查看远端网络详情失败", &out.stderr));
-    }
-    let mut parsed: Vec<bollard::models::NetworkInspect> = serde_json::from_str(out.stdout.trim())
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker network inspect 输出失败")
-                .with_cause(e.to_string())
-        })?;
-    let raw = parsed
-        .pop()
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("远端网络 {id} 不存在")))?;
+    let api = SshDockerApi::new(session);
+    let path = format!("/networks/{}", url_path_segment(id));
+    let raw: bollard::models::NetworkInspect = api.get_json(&path).await?;
     let subnets = raw
         .ipam
         .as_ref()
@@ -1826,40 +1582,21 @@ pub async fn inspect_network(session: &SshSession, id: &str) -> OmniResult<Docke
 // -------- 卷 --------
 
 pub async fn list_volumes(session: &SshSession) -> OmniResult<Vec<DockerVolumeSummary>> {
-    let out = session
-        .exec_capture("docker volume ls --format '{{json .}}'")
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("列出远端卷失败", &out.stderr));
-    }
-    let mut rows = Vec::new();
-    for line in out.stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let v: serde_json::Value = serde_json::from_str(line).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker volume ls 输出失败")
-                .with_cause(e.to_string())
-        })?;
-        rows.push(DockerVolumeSummary {
-            name: v
-                .get("Name")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            driver: v
-                .get("Driver")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            mountpoint: v
-                .get("Mountpoint")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .to_string(),
+    let api = SshDockerApi::new(session);
+    let raw: bollard::models::VolumeListResponse = api.get_json("/volumes").await?;
+    Ok(raw
+        .volumes
+        .unwrap_or_default()
+        .into_iter()
+        .map(|v| DockerVolumeSummary {
+            name: v.name.clone(),
+            driver: v.driver.clone(),
+            mountpoint: v.mountpoint.clone(),
             created_at: 0,
             size_bytes: -1,
             in_use: false,
-        });
-    }
-    Ok(rows)
+        })
+        .collect())
 }
 
 pub async fn create_volume(
@@ -1897,22 +1634,11 @@ pub async fn remove_volume(session: &SshSession, name: &str, force: bool) -> Omn
     Ok(())
 }
 
-/// 远端卷详情。
+/// 远端卷详情（Engine API `GET /volumes/{name}`）。
 pub async fn inspect_volume(session: &SshSession, name: &str) -> OmniResult<DockerVolumeDetail> {
-    let out = session
-        .exec_capture(&format!("docker volume inspect {}", shell_quote(name)))
-        .await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("查看远端卷详情失败", &out.stderr));
-    }
-    let mut parsed: Vec<bollard::models::Volume> = serde_json::from_str(out.stdout.trim())
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 docker volume inspect 输出失败")
-                .with_cause(e.to_string())
-        })?;
-    let raw = parsed
-        .pop()
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("远端卷 {name} 不存在")))?;
+    let api = SshDockerApi::new(session);
+    let path = format!("/volumes/{}", url_path_segment(name));
+    let raw: bollard::models::Volume = api.get_json(&path).await?;
     let labels = raw
         .labels
         .into_iter()
@@ -1970,11 +1696,9 @@ pub async fn prune_volumes(session: &SshSession) -> OmniResult<DockerPruneVolume
 }
 
 pub async fn system_disk_usage(session: &SshSession) -> OmniResult<DockerSystemDiskUsage> {
-    let out = session.exec_capture("docker system df").await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("获取 Docker 磁盘占用失败", &out.stderr));
-    }
-    Ok(parse_system_df_output(&out.stdout))
+    let api = SshDockerApi::new(session);
+    let raw: bollard::models::SystemDataUsageResponse = api.get_json("/system/df").await?;
+    Ok(map_system_data_usage(raw))
 }
 
 pub async fn prune_build_cache(session: &SshSession) -> OmniResult<DockerPruneResult> {

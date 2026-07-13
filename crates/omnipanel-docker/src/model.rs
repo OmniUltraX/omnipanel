@@ -159,6 +159,15 @@ pub struct DockerOverview {
     pub warning_message: Option<String>,
 }
 
+/// Docker daemon.json 配置文件。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerDaemonConfigFile {
+    pub content: String,
+    pub path: String,
+    pub editable: bool,
+}
+
 /// 端口映射。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

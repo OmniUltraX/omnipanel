@@ -16,13 +16,13 @@ use omnipanel_docker::{
     DockerContainerStats, DockerContainerSummary, DockerCreateContainerRequest,
     DockerCreateNetworkRequest, DockerCreateServiceRequest, DockerCreateVolumeRequest,
     DockerComposeProjectFiles, DockerComposeReadFilesRequest, DockerComposeWriteFilesRequest,
-    DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer, DockerImageProgress,
+    DockerDaemonConfigFile, DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer, DockerImageProgress,
     DockerImageSummary, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
     DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
     DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter,
     OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard, local_engine_status,
-    start_local_engine,
+    remote_engine_daemon_config, restart_local_engine, start_local_engine,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshSession};
@@ -414,6 +414,90 @@ pub async fn docker_get_overview(
     .await
 }
 
+async fn connection_is_remote_engine(
+    state: &AppState,
+    connection_id: &str,
+) -> Result<bool, OmniError> {
+    if connection_id == LOCAL_CONNECTION_ID {
+        return Ok(false);
+    }
+    let conn = {
+        let storage = state.storage.lock().await;
+        storage.get_connection(connection_id)?
+    }
+    .ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("Docker 连接 {connection_id} 不存在"),
+        )
+    })?;
+    let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
+    Ok(
+        cfg.source
+            .as_deref()
+            .map(DockerConnectionSource::parse)
+            == Some(DockerConnectionSource::RemoteEngine),
+    )
+}
+
+/// 读取 Docker daemon.json 配置。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_read_daemon_config(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<DockerDaemonConfigFile, OmniError> {
+    if connection_is_remote_engine(&state, &connection_id).await? {
+        return Ok(remote_engine_daemon_config());
+    }
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .read_daemon_config()
+        .await
+}
+
+/// 写入 Docker daemon.json 配置。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_write_daemon_config(
+    state: State<'_, AppState>,
+    connection_id: String,
+    content: String,
+) -> Result<(), OmniError> {
+    if connection_is_remote_engine(&state, &connection_id).await? {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "远程 Engine 连接不支持编辑 daemon.json",
+        ));
+    }
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .write_daemon_config(&content)
+        .await
+}
+
+/// 重启 Docker 守护进程 / 服务。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_restart_daemon(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<(), OmniError> {
+    if connection_is_remote_engine(&state, &connection_id).await? {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "远程 Engine 连接不支持重启 Docker 服务",
+        ));
+    }
+    if connection_id == LOCAL_CONNECTION_ID {
+        return restart_local_engine();
+    }
+    resolve_adapter(&state, &connection_id)
+        .await?
+        .restart_docker_daemon()
+        .await
+}
+
 /// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
@@ -450,43 +534,12 @@ pub async fn docker_list_container_stats(
     connection_id: String,
     container_ids: Option<Vec<String>>,
 ) -> Result<Vec<DockerContainerStats>, OmniError> {
-    tracing::debug!(
-        target: "docker_stats",
-        connection = %connection_id,
-        scoped = container_ids.as_ref().map(|ids| ids.len()),
-        container_ids_sample = ?container_ids.as_ref().map(|ids| ids.iter().take(5).collect::<Vec<_>>()),
-        "docker_list_container_stats 请求"
-    );
     let ids = container_ids.clone();
-    let result = with_adapter(&state, &connection_id, move |a| {
+    with_adapter(&state, &connection_id, move |a| {
         let ids = ids.clone();
         async move { a.list_container_stats(ids.as_deref()).await }
     })
-    .await;
-    match &result {
-        Ok(stats) => tracing::debug!(
-            target: "docker_stats",
-            connection = %connection_id,
-            count = stats.len(),
-            ids = ?stats.iter().take(5).map(|s| s.container_id.as_str()).collect::<Vec<_>>(),
-            sample = ?stats.iter().take(3).map(|s| (
-                s.container_id.as_str(),
-                s.name.as_str(),
-                s.cpu_percent,
-                s.memory_percent,
-                s.memory_usage_bytes,
-                s.memory_limit_bytes,
-            )).collect::<Vec<_>>(),
-            "docker_list_container_stats 响应"
-        ),
-        Err(e) => tracing::debug!(
-            target: "docker_stats",
-            connection = %connection_id,
-            error = %e.message,
-            "docker_list_container_stats 失败"
-        ),
-    }
-    result
+    .await
 }
 
 /// 卷详情（`docker volume inspect`）。

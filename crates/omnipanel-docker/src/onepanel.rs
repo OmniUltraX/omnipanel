@@ -27,7 +27,7 @@ use crate::{
     DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
     DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
     DockerVolumeSummary, local::to_container_detail, model::DockerCapabilities,
-    model::DockerConnectionStatus, model::DockerDiskUsageItem,
+    model::DockerConnectionStatus, model::DockerDaemonConfigFile, model::DockerDiskUsageItem,
 };
 
 /// 1Panel 客户端。
@@ -437,7 +437,6 @@ async fn fetch_onepanel_container_stats(
         source = "onepanel",
         api = %api_path,
         raw_count = raw.len(),
-        raw_sample = ?raw.first().map(|v| crate::stats_cli::truncate_debug_text(&v.to_string(), 512)),
         "1Panel 容器 stats 原始响应"
     );
     let stats: Vec<DockerContainerStats> = raw
@@ -1297,7 +1296,7 @@ impl DockerAdapter for OnePanelAdapter {
     ) -> OmniResult<Vec<DockerContainerStats>> {
         let all = fetch_onepanel_container_stats(&self.client).await?;
         Ok(match container_ids {
-            Some(ids) if !ids.is_empty() => crate::stats_cli::filter_stats_by_container_ids(all, ids),
+            Some(ids) if !ids.is_empty() => crate::stats::filter_by_container_ids(all, ids),
             _ => all,
         })
     }
@@ -1784,6 +1783,55 @@ impl DockerAdapter for OnePanelAdapter {
     }
     async fn stack_services(&self, _name: &str) -> OmniResult<Vec<DockerServiceSummary>> {
         Err(not_supported("Stack 管理"))
+    }
+
+    async fn read_daemon_config(&self) -> OmniResult<DockerDaemonConfigFile> {
+        let content: String = self
+            .client
+            .get_json("/api/v2/containers/daemonjson/file")
+            .await
+            .map_err(|e| e.with_cause("1Panel 读取 daemon.json 失败"))?;
+        Ok(DockerDaemonConfigFile {
+            content: if content.trim().is_empty() {
+                "{}\n".to_string()
+            } else {
+                content
+            },
+            path: "daemon.json".to_string(),
+            editable: true,
+        })
+    }
+
+    async fn write_daemon_config(&self, content: &str) -> OmniResult<()> {
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            file: &'a str,
+        }
+        self.client
+            .post_json::<Body<'_>, serde_json::Value>(
+                "/api/v2/containers/daemonjson/update/byfile",
+                Body { file: content },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| e.with_cause("1Panel 更新 daemon.json 失败"))
+    }
+
+    async fn restart_docker_daemon(&self) -> OmniResult<()> {
+        #[derive(serde::Serialize)]
+        struct Body {
+            operation: &'static str,
+        }
+        self.client
+            .post_json::<Body, serde_json::Value>(
+                "/api/v2/containers/docker/operate",
+                Body {
+                    operation: "restart",
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| e.with_cause("1Panel 重启 Docker 失败"))
     }
 }
 

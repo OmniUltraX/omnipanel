@@ -17,6 +17,8 @@ export interface DockerDockPanelProps {
   connection: DockerConnectionInfo;
   /** 当前连接 dock 面板处于激活态 */
   isActive: boolean;
+  /** 嵌入连接信息面板时为 true，隐藏独立顶栏 */
+  embedded?: boolean;
   panelTitle?: string;
   panelSubtitle?: string;
   /** 仅展示指定容器 ID；未设置则展示全部 */
@@ -58,6 +60,7 @@ function subWindowTitle(kind: DockerContainerSubWindowKind, t: (key: string) => 
 export function DockerDockPanel({
   connection,
   isActive,
+  embedded = false,
   panelTitle,
   panelSubtitle,
   containerIds,
@@ -164,16 +167,25 @@ export function DockerDockPanel({
 
   return (
     <>
-      <div className="docker-dock-panel">
-        <div className="docker-dock-panel__header">
-          <div>
-            <h2 className="docker-dock-panel__title">{panelTitle ?? connection.name}</h2>
-            <p className="docker-dock-panel__subtitle">{panelSubtitle ?? connection.hostLabel}</p>
+      <div
+        className={[
+          "docker-dock-panel",
+          embedded ? "docker-dock-panel--embedded" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {!embedded ? (
+          <div className="docker-dock-panel__header">
+            <div>
+              <h2 className="docker-dock-panel__title">{panelTitle ?? connection.name}</h2>
+              <p className="docker-dock-panel__subtitle">{panelSubtitle ?? connection.hostLabel}</p>
+            </div>
+            <span className="badge badge-muted">
+              {t("docker.dockPanel.containerCount", { count: sortedItems.length })}
+            </span>
           </div>
-          <span className="badge badge-muted">
-            {t("docker.dockPanel.containerCount", { count: sortedItems.length })}
-          </span>
-        </div>
+        ) : null}
 
         {error || actionError ? (
           <div className="docker-dock-panel__error">{error ?? actionError}</div>

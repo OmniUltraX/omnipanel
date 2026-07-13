@@ -334,6 +334,155 @@
         background: var(--bg);
     }
 
+    .docker-dock-panel--embedded {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        background: transparent;
+    }
+
+    .docker-dock-panel--embedded .docker-container-grid {
+        flex: 1;
+        min-height: 0;
+        padding-top: 16px;
+    }
+
+    .docker-connection-info-panel {
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+    }
+
+    .docker-connection-info-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .docker-connection-info-header__text {
+        min-width: 0;
+    }
+
+    .docker-connection-info-header__title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .docker-connection-info-header__subtitle {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .docker-connection-info-tabs {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        flex-shrink: 0;
+    }
+
+    .docker-connection-info-tab {
+        border: none;
+        background: transparent;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--muted);
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+    }
+
+    .docker-connection-info-tab:hover {
+        color: var(--fg);
+    }
+
+    .docker-connection-info-tab.active {
+        color: var(--fg);
+        border-bottom-color: var(--accent);
+    }
+
+    .docker-connection-info-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .docker-connection-info-empty,
+    .docker-connection-info-error {
+        padding: 24px 20px;
+        font-size: 13px;
+        color: var(--muted);
+    }
+
+    .docker-connection-info-error {
+        color: var(--danger);
+    }
+
+    .docker-daemon-config-tab {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 12px 20px 20px;
+        gap: 10px;
+    }
+
+    .docker-daemon-config-tab__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .docker-daemon-config-tab__title {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .docker-daemon-config-tab__path {
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .docker-daemon-config-tab__editor {
+        flex: 1;
+        min-height: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        overflow: hidden;
+        background: var(--surface);
+    }
+
+    .docker-daemon-config-tab__code {
+        height: 100%;
+    }
+
     .docker-dock-panel-placeholder {
         flex: 1;
         min-height: 0;
@@ -429,15 +578,24 @@
         padding: 16px 20px 20px;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        grid-auto-rows: auto;
         gap: 14px;
         align-content: start;
+        align-items: start;
+        --docker-container-card-min-height: 230px;
+    }
+
+    .docker-container-grid > .docker-container-card {
+        align-self: start;
+        width: 100%;
+        height: auto;
+        min-height: var(--docker-container-card-min-height);
     }
 
     .docker-dock-panel__container-grid > .docker-container-card {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--r-lg);
-        overflow: hidden;
     }
 
     .docker-dock-panel__container-grid > .docker-container-card:hover {
@@ -448,8 +606,10 @@
     .docker-container-card {
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
         padding: 14px;
+        min-height: var(--docker-container-card-min-height, 230px);
+        height: auto;
         border: 1px solid var(--border);
         border-radius: var(--r-lg);
         background: var(--surface);
@@ -469,8 +629,9 @@
     }
 
     .docker-container-card--embedded {
-        min-height: 0;
-        height: 100%;
+        min-height: var(--docker-container-card-min-height, 230px);
+        height: auto;
+        flex-shrink: 0;
         cursor: default;
     }
 
@@ -780,6 +941,7 @@
         flex-direction: column;
         gap: var(--sp-2);
         padding: var(--sp-3);
+        min-height: var(--docker-container-card-min-height, 230px);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
         background: var(--bg);
@@ -1078,6 +1240,7 @@
         align-items: flex-start;
         gap: 10px;
         min-width: 0;
+        flex-shrink: 0;
     }
 
     .docker-container-card__icon {
@@ -1195,9 +1358,10 @@
     .docker-container-card__meta {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding: 10px 0 2px;
+        gap: 0;
+        padding: 8px 0 0;
         border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+        flex-shrink: 0;
     }
 
     .docker-container-card__meta-row {
@@ -1227,6 +1391,7 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
+        flex-shrink: 0;
     }
 
     .docker-container-card__metric-head {
@@ -1279,6 +1444,7 @@
         margin-top: auto;
         padding-top: 10px;
         border-top: 1px solid var(--border);
+        flex-shrink: 0;
     }
 
     .docker-container-card__action {

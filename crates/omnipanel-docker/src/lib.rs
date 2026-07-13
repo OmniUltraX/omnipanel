@@ -3,13 +3,15 @@
 //! 设计：
 //! - `src-tauri` 只做 IPC 桥接，所有 Docker 业务逻辑收敛在此 crate。
 //! - 本地 Engine 走 Rust `bollard`（[`local::LocalDockerAdapter`]）。
-//! - 远程宿主机复用 SSH 调用远端 `docker` CLI（[`ssh`] 模块的自由函数，借用现有 `SshSession`）。
+//! - 远程宿主机通过 SSH 在宿主机执行 `curl --unix-socket /var/run/docker.sock` 读取 Engine API，
+//!   写操作与 exec/日志流等仍走远端 `docker` CLI（[`ssh`] 模块）。
 //! - 所有错误统一为 [`OmniError`]，命令层零散字符串错误就此收敛。
 
 mod compose;
 mod compose_files;
+mod daemon_config;
 mod log_util;
-mod stats_cli;
+mod stats;
 mod volume_files;
 pub mod local;
 pub mod local_engine;
@@ -17,14 +19,16 @@ pub mod model;
 pub mod onepanel;
 pub mod onepanel_terminal;
 pub mod ssh;
+mod ssh_docker_api;
 
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use std::sync::Arc;
 
 pub use compose::aggregate_compose;
+pub use daemon_config::remote_engine_daemon_config;
 pub use local::{DockerExecOutput, DockerExecSession, LocalDockerAdapter};
-pub use local_engine::{local_engine_status, start_local_engine};
+pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
 pub use onepanel::{OnePanelAdapter, OnePanelClient};
 pub use ssh::SshDockerAdapter;
@@ -144,6 +148,27 @@ pub trait DockerAdapter: Send + Sync {
         Err(OmniError::new(
             ErrorCode::Internal,
             "当前连接不支持写入 Compose 配置文件",
+        ))
+    }
+    /// 读取 Docker daemon.json。
+    async fn read_daemon_config(&self) -> OmniResult<DockerDaemonConfigFile> {
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持读取 Docker 配置文件",
+        ))
+    }
+    /// 写入 Docker daemon.json。
+    async fn write_daemon_config(&self, _content: &str) -> OmniResult<()> {
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持写入 Docker 配置文件",
+        ))
+    }
+    /// 重启 Docker 守护进程 / 服务。
+    async fn restart_docker_daemon(&self) -> OmniResult<()> {
+        Err(OmniError::new(
+            ErrorCode::Internal,
+            "当前连接不支持重启 Docker 服务",
         ))
     }
     /// 批量获取运行中容器 CPU / 内存快照（非流式，供列表轮询）。

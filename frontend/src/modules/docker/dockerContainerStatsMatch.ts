@@ -1,5 +1,8 @@
 import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bindings";
-import { normalizeStatsId } from "./dockerStatsDebug";
+
+export function normalizeStatsId(id: string): string {
+  return id.trim().toLowerCase().replace(/^sha256:/, "");
+}
 
 export function statsKey(containerId: string): string {
   return normalizeStatsId(containerId);

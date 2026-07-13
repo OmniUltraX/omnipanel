@@ -227,3 +227,88 @@ pub fn start_local_engine() -> OmniResult<()> {
         ))
     }
 }
+
+/// 尝试重启本地 Docker Desktop / Engine。
+pub fn restart_local_engine() -> OmniResult<()> {
+    let (installed, install_kind, _) = detect_installation();
+    if !installed {
+        return Err(OmniError::new(
+            ErrorCode::NotFound,
+            "未检测到本机 Docker 安装",
+        ));
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        if let Some(exe) = docker_desktop_exe() {
+            let _ = Command::new("taskkill")
+                .args(["/IM", "Docker Desktop.exe", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            Command::new(exe)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Internal, "重启 Docker Desktop 失败")
+                        .with_cause(e.to_string())
+                })?;
+            return Ok(());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("osascript")
+            .args(["-e", "quit app \"Docker\""])
+            .status();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        Command::new("open")
+            .args(["-a", "Docker"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "重启 Docker Desktop 失败")
+                    .with_cause(e.to_string())
+            })?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if install_kind == "docker-desktop" {
+            let status = Command::new("systemctl")
+                .args(["--user", "restart", "docker-desktop"])
+                .status()
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Internal, "重启 docker-desktop 服务失败")
+                        .with_cause(e.to_string())
+                })?;
+            if status.success() {
+                return Ok(());
+            }
+        }
+        let status = Command::new("systemctl")
+            .args(["restart", "docker"])
+            .status()
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "重启 Docker 服务失败").with_cause(e.to_string())
+            })?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+
+    let _ = install_kind;
+    Err(OmniError::new(
+        ErrorCode::InvalidInput,
+        "当前环境不支持应用内重启 Docker，请手动重启 Docker 服务",
+    ))
+}

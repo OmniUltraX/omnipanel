@@ -330,7 +330,7 @@ impl LocalDockerAdapter {
                 break;
             }
             match item {
-                Ok(s) => sink(convert_stats(container_id, &s)),
+                Ok(s) => sink(crate::stats::convert_engine_stats(container_id, &s)),
                 Err(e) => return Err(map_bollard(e)),
             }
         }
@@ -406,148 +406,6 @@ fn parse_iso_to_unix_ms(s: Option<&str>) -> i64 {
     0
 }
 
-/// 把 bollard 的 `ContainerStatsResponse` 收敛成本 crate 的 `DockerContainerStats`。
-fn convert_stats(
-    fallback_id: &str,
-    s: &bollard::models::ContainerStatsResponse,
-) -> DockerContainerStats {
-    let id = s.id.clone().unwrap_or_else(|| fallback_id.to_string());
-    let name = s
-        .name
-        .clone()
-        .unwrap_or_else(|| id.clone())
-        .trim_start_matches('/')
-        .to_string();
-    let cpu_percent = cpu_percent(s);
-    let (mem_usage, mem_limit, mem_percent) = memory_stats(s);
-    let (rx, tx) = network_stats(s);
-    let (blk_r, blk_w) = blkio_stats(s);
-    // 简化：`read` 字段类型依赖 bollard-stubs feature，这里统一用 wall clock，
-    // 对实时监控精度影响可忽略。
-    let ts_ms = chrono_like_now_ms();
-    DockerContainerStats {
-        container_id: id,
-        name,
-        cpu_percent,
-        memory_usage_bytes: mem_usage,
-        memory_limit_bytes: mem_limit,
-        memory_percent: mem_percent,
-        net_rx_bytes: rx,
-        net_tx_bytes: tx,
-        block_read_bytes: blk_r,
-        block_write_bytes: blk_w,
-        timestamp_ms: ts_ms,
-    }
-}
-
-fn cpu_percent(s: &bollard::models::ContainerStatsResponse) -> f64 {
-    let cpu = match s.cpu_stats.as_ref() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let precpu = match s.precpu_stats.as_ref() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let cpu_total = cpu
-        .cpu_usage
-        .as_ref()
-        .and_then(|u| u.total_usage)
-        .unwrap_or(0) as f64;
-    let pre_total = precpu
-        .cpu_usage
-        .as_ref()
-        .and_then(|u| u.total_usage)
-        .unwrap_or(0) as f64;
-    let cpu_sys = cpu.system_cpu_usage.unwrap_or(0) as f64;
-    let pre_sys = precpu.system_cpu_usage.unwrap_or(0) as f64;
-    let delta_cpu = cpu_total - pre_total;
-    let delta_sys = cpu_sys - pre_sys;
-    let n_cpus = cpu
-        .online_cpus
-        .or_else(|| {
-            cpu.cpu_usage
-                .as_ref()
-                .and_then(|u| u.percpu_usage.as_ref().map(|v| v.len() as u32))
-        })
-        .unwrap_or(1)
-        .max(1) as f64;
-    if delta_sys <= 0.0 {
-        0.0
-    } else {
-        ((delta_cpu / delta_sys) * n_cpus * 100.0).clamp(0.0, 100.0 * n_cpus)
-    }
-}
-
-fn memory_stats(s: &bollard::models::ContainerStatsResponse) -> (i64, Option<i64>, f64) {
-    let m = match s.memory_stats.as_ref() {
-        Some(m) => m,
-        None => return (0, None, 0.0),
-    };
-    let usage = m.usage.unwrap_or(0);
-    let limit = m.limit.map(|l| l as i64);
-    // cgroup v1: `stats` map contains "total_inactive_file"；
-    // cgroup v2: 包含 "inactive_file"；都尝试以兼容。
-    let total_inactive: u64 = m
-        .stats
-        .as_ref()
-        .and_then(|sm| {
-            sm.get("total_inactive_file")
-                .or_else(|| sm.get("inactive_file"))
-                .copied()
-        })
-        .unwrap_or(0);
-    let used: i64 = (usage.saturating_sub(total_inactive) as i64).max(0);
-    let percent = match limit {
-        Some(l) if l > 0 => (used as f64 / l as f64) * 100.0,
-        _ => 0.0,
-    };
-    (used, limit, percent.clamp(0.0, 100.0))
-}
-
-fn network_stats(s: &bollard::models::ContainerStatsResponse) -> (i64, i64) {
-    let nets = match s.networks.as_ref() {
-        Some(n) => n,
-        None => return (0, 0),
-    };
-    let mut rx = 0i64;
-    let mut tx = 0i64;
-    for n in nets.values() {
-        rx = rx.saturating_add(n.rx_bytes.unwrap_or(0) as i64);
-        tx = tx.saturating_add(n.tx_bytes.unwrap_or(0) as i64);
-    }
-    (rx, tx)
-}
-
-fn blkio_stats(s: &bollard::models::ContainerStatsResponse) -> (i64, i64) {
-    let b = match s.blkio_stats.as_ref() {
-        Some(b) => b,
-        None => return (0, 0),
-    };
-    let mut r = 0i64;
-    let mut w = 0i64;
-    if let Some(svc) = b.io_service_bytes_recursive.as_ref() {
-        for entry in svc {
-            if let (Some(op), Some(val)) = (entry.op.as_deref(), entry.value) {
-                match op {
-                    "read" | "Read" => r = r.saturating_add(val as i64),
-                    "write" | "Write" => w = w.saturating_add(val as i64),
-                    _ => {}
-                }
-            }
-        }
-    }
-    (r, w)
-}
-
-/// 退化路径：当 `read` 字段为空（部分边缘情况）时，用系统时间代替。
-fn chrono_like_now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 /// bollard 操作类错误 → OmniError。
 fn map_bollard(err: bollard::errors::Error) -> OmniError {
     let msg = err.to_string();
@@ -573,7 +431,7 @@ fn map_disk_usage_item(
     }
 }
 
-fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> DockerSystemDiskUsage {
+pub(crate) fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> DockerSystemDiskUsage {
     DockerSystemDiskUsage {
         images: resp
             .image_usage
@@ -604,142 +462,6 @@ fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> Dock
             })
             .unwrap_or_default(),
     }
-}
-
-/// 通过 bollard 批量拉取容器 stats（本地 / 远程 TCP Engine 通用）。
-async fn list_container_stats_bollard(
-    docker: &Docker,
-    container_ids: Option<&[String]>,
-) -> OmniResult<Vec<DockerContainerStats>> {
-    let ids = match container_ids {
-        Some(ids) if ids.is_empty() => return Ok(Vec::new()),
-        Some(ids) => ids.to_vec(),
-        None => {
-            let options = ListContainersOptionsBuilder::default().build();
-            let raw = docker.list_containers(Some(options)).await.map_err(map_bollard)?;
-            raw.into_iter()
-                .filter_map(|c| c.id)
-                .filter(|id| !id.is_empty())
-                .collect()
-        }
-    };
-
-    let mut out = Vec::with_capacity(ids.len());
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        scoped = container_ids.map(|ids| ids.len()),
-        container_count = ids.len(),
-        container_sample = ?ids.iter().take(5).collect::<Vec<_>>(),
-        "批量拉取 bollard stats"
-    );
-    for id in ids {
-        match fetch_container_stats_bollard(docker, &id).await {
-            Ok(stats) => out.push(stats),
-            Err(e) => {
-                tracing::debug!(
-                    target: "docker_stats",
-                    source = "bollard",
-                    container = %id,
-                    error = %e.message,
-                    "跳过容器 stats"
-                );
-            }
-        }
-    }
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        scoped = container_ids.map(|ids| ids.len()),
-        parsed_count = out.len(),
-        sample = ?out.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent)),
-        "list_container_stats 完成"
-    );
-    Ok(out)
-}
-
-/// bollard stats 需两帧才能算 CPU；先采样一帧再短暂等待后取第二帧。
-async fn fetch_container_stats_bollard(docker: &Docker, id: &str) -> OmniResult<DockerContainerStats> {
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        container = %id,
-        "bollard stats 双帧采样开始（首帧预热 CPU delta）"
-    );
-    let _ = sample_container_stats_once(docker, id, "warmup").await?;
-    tokio::time::sleep(std::time::Duration::from_millis(900)).await;
-    sample_container_stats_once(docker, id, "sample").await
-}
-
-fn log_bollard_stats_raw(
-    container_id: &str,
-    frame: &str,
-    s: &bollard::models::ContainerStatsResponse,
-) {
-    let cpu = s.cpu_stats.as_ref();
-    let precpu = s.precpu_stats.as_ref();
-    let memory = s.memory_stats.as_ref();
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        container = %container_id,
-        frame,
-        id = ?s.id,
-        name = ?s.name,
-        cpu_total = cpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
-        precpu_total = precpu.and_then(|c| c.cpu_usage.as_ref().and_then(|u| u.total_usage)),
-        cpu_system = cpu.and_then(|c| c.system_cpu_usage),
-        precpu_system = precpu.and_then(|c| c.system_cpu_usage),
-        online_cpus = cpu.and_then(|c| c.online_cpus),
-        percpu_len = cpu
-            .and_then(|c| c.cpu_usage.as_ref())
-            .and_then(|u| u.percpu_usage.as_ref())
-            .map(|v| v.len()),
-        mem_usage = memory.and_then(|m| m.usage),
-        mem_limit = memory.and_then(|m| m.limit),
-        mem_max_usage = memory.and_then(|m| m.max_usage),
-        "bollard stats 原始帧"
-    );
-}
-
-async fn sample_container_stats_once(
-    docker: &Docker,
-    id: &str,
-    frame: &str,
-) -> OmniResult<DockerContainerStats> {
-    let options = StatsOptionsBuilder::default()
-        .stream(false)
-        .one_shot(true)
-        .build();
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        container = %id,
-        frame,
-        api = "GET /containers/{id}/stats?stream=false&one-shot=true",
-        "请求 bollard stats API"
-    );
-    let stream = docker.stats(id, Some(options));
-    tokio::pin!(stream);
-    let item = stream
-        .next()
-        .await
-        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "stats 无输出"))?
-        .map_err(map_bollard)?;
-    log_bollard_stats_raw(id, frame, &item);
-    let converted = convert_stats(id, &item);
-    tracing::debug!(
-        target: "docker_stats",
-        source = "bollard",
-        container = %id,
-        frame,
-        cpu_percent = converted.cpu_percent,
-        memory_usage_bytes = converted.memory_usage_bytes,
-        memory_limit_bytes = ?converted.memory_limit_bytes,
-        memory_percent = converted.memory_percent,
-        "bollard stats 解析结果"
-    );
-    Ok(converted)
 }
 
 #[async_trait]
@@ -1303,11 +1025,23 @@ impl DockerAdapter for LocalDockerAdapter {
         crate::compose_files::write_local_compose_project_files(req).await
     }
 
+    async fn read_daemon_config(&self) -> OmniResult<DockerDaemonConfigFile> {
+        crate::daemon_config::read_local_daemon_config().await
+    }
+
+    async fn write_daemon_config(&self, content: &str) -> OmniResult<()> {
+        crate::daemon_config::write_local_daemon_config(content).await
+    }
+
+    async fn restart_docker_daemon(&self) -> OmniResult<()> {
+        crate::local_engine::restart_local_engine()
+    }
+
     async fn list_container_stats(
         &self,
         container_ids: Option<&[String]>,
     ) -> OmniResult<Vec<DockerContainerStats>> {
-        list_container_stats_bollard(&self.docker, container_ids).await
+        crate::stats::list_via_bollard(&self.docker, container_ids).await
     }
 
     async fn stream_stats(
@@ -1327,7 +1061,7 @@ impl DockerAdapter for LocalDockerAdapter {
                 break;
             }
             match item {
-                Ok(s) => sink(convert_stats(container_id, &s)),
+                Ok(s) => sink(crate::stats::convert_engine_stats(container_id, &s)),
                 Err(e) => return Err(map_bollard(e)),
             }
         }
@@ -2163,7 +1897,7 @@ fn split_log_output(log: &LogOutput) -> (&'static str, &[u8]) {
     }
 }
 
-fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainerSummary {
+pub(crate) fn to_container_summary(c: bollard::models::ContainerSummary) -> DockerContainerSummary {
     let id = c.id.unwrap_or_default();
     let name = c
         .names
@@ -2321,7 +2055,7 @@ pub(crate) fn to_container_detail(
 }
 
 /// 一个 bollard 镜像可能有多个 repo_tag，拆成多行展示。
-fn to_image_summaries(img: bollard::models::ImageSummary) -> Vec<DockerImageSummary> {
+pub(crate) fn to_image_summaries(img: bollard::models::ImageSummary) -> Vec<DockerImageSummary> {
     let id = img.id.clone();
     let sid = short_id(&id);
     let tags = if img.repo_tags.is_empty() {

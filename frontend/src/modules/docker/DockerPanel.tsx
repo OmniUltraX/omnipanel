@@ -14,8 +14,8 @@ import {
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { DockerConnectionInfoPanel } from "./DockerConnectionInfoPanel";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
-import { DockerDockPanel } from "./DockerDockPanel";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
@@ -160,14 +160,14 @@ export function DockerPanel() {
         setActiveNavKey(
           makeDockerComposeProjectTreeKey(target.connectionId, target.composeProject),
         );
-        return;
-      }
+      return;
+    }
 
       if (target.category === "containers" && target.itemId) {
         selectContainer(target.connectionId, target.itemId, mode);
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-        return;
-      }
+      return;
+    }
 
       if (target.category === "images" && !target.itemId) {
         selectImages(target.connectionId, mode);
@@ -192,7 +192,7 @@ export function DockerPanel() {
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
       } else if (target.category) {
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
-      } else {
+        } else {
         setActiveNavKey(makeDockerTreeKey(target.connectionId));
       }
     },
@@ -400,7 +400,7 @@ export function DockerPanel() {
               />
             </Suspense>
           ) : (
-            <DockerDockPanel connection={connection} isActive={isActive} />
+            <DockerConnectionInfoPanel connection={connection} isActive={isActive} />
           )}
         </div>
       );
@@ -453,10 +453,10 @@ export function DockerPanel() {
             onSavedLayoutChange={setDockLayout}
             renderPanel={renderDockerPanel}
             emptyContent={
-              <WorkspaceEmptyPage
-                title={t("routes.docker")}
-                prompt={t("docker.sidebar.selectConnection")}
-              />
+                <WorkspaceEmptyPage
+                  title={t("routes.docker")}
+                  prompt={t("docker.sidebar.selectConnection")}
+                />
             }
           />
         </ModuleWorkspaceLayout>
@@ -464,20 +464,20 @@ export function DockerPanel() {
 
       {showAddConn ? (
         <Suspense fallback={null}>
-          <DockerConnectionDialog
-            open={showAddConn}
-            onClose={() => {
-              setShowAddConn(false);
-              setEditDockerConnection(undefined);
-            }}
-            editConnection={editDockerConnection}
-            onSaved={() => {
-              void reloadConnections();
-              setEditDockerConnection(undefined);
-            }}
-          />
+      <DockerConnectionDialog
+        open={showAddConn}
+        onClose={() => {
+          setShowAddConn(false);
+          setEditDockerConnection(undefined);
+        }}
+        editConnection={editDockerConnection}
+        onSaved={() => {
+          void reloadConnections();
+          setEditDockerConnection(undefined);
+        }}
+      />
         </Suspense>
-      ) : null}
+          ) : null}
 
       {toast ? <div className="docker-toast">{toast}</div> : null}
     </>

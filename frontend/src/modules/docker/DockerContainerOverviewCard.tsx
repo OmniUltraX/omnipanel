@@ -3,9 +3,7 @@ import { Button } from "../../components/ui/Button";
 import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bindings";
 import {
   displayValue,
-  formatDockerIpAddress,
   formatDockerNetworks,
-  formatDockerPorts,
 } from "./dockerContainerCardFormat";
 import { DockerContainerCardStatusControls } from "./DockerContainerCardStatusControls";
 import {
@@ -124,8 +122,6 @@ export function DockerContainerOverviewCard({
     running && stats
       ? `${formatBytes(stats.memoryUsageBytes)} / ${stats.memoryLimitBytes ? formatBytes(stats.memoryLimitBytes) : "—"}`
       : undefined;
-  const ipText = displayValue(formatDockerIpAddress(container));
-  const portsText = displayValue(formatDockerPorts(container));
   const networksText = displayValue(formatDockerNetworks(container));
 
   const handleActionClick = (
@@ -201,8 +197,6 @@ export function DockerContainerOverviewCard({
         </div>
       </div>
       <div className="docker-container-card__meta">
-        <CardMetaRow label={t("docker.dockPanel.ip")} value={ipText} />
-        <CardMetaRow label={t("docker.dockPanel.ports")} value={portsText} />
         <CardMetaRow label={t("docker.dockPanel.networks")} value={networksText} />
       </div>
       <div className="docker-container-card__metrics">
