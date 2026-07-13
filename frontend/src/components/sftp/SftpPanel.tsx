@@ -38,6 +38,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
   const { t } = useI18n();
   const capabilities = resolveSftpCapabilities(adapter);
   const sessionKey = adapter ? (cacheKey ?? "sftp-adapter") : resourceId;
+  console.log(`[sftp-render] resourceId=${resourceId} sessionKey=${sessionKey}`);
   const [path, setPath] = useState(() => {
     if (sessionKey && !adapter) {
       const store = useSshDetailNavigationStore.getState();
@@ -95,6 +96,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
     dir: string,
     opts?: { fromNavigation?: boolean; originalPath?: string; seq?: number; silent?: boolean },
   ) => {
+    console.log(`[sftp-loadDir] dir=${dir} silent=${opts?.silent} fromNav=${opts?.fromNavigation} sessionKey=${sessionKeyRef.current} stack=${new Error().stack?.split('\n').slice(2,5).join(' | ')}`);
     if (!sessionKeyRef.current) return;
     const seq = opts?.seq ?? ++loadSeqRef.current;
     if (!opts?.silent) setLoading(true);

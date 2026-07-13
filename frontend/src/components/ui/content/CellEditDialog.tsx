@@ -6,7 +6,7 @@ import { useI18n } from "../../../i18n";
 export interface CellEditDialogProps {
   open: boolean;
   title: ReactNode;
-  /** 列名、类型等元信息，显示在标题与编辑区之�?*/
+  /** 列名、类型等元信息，显示在标题与编辑区之闀*/
   meta?: ReactNode;
   children: ReactNode;
   onConfirm: () => void;
@@ -18,7 +18,7 @@ export interface CellEditDialogProps {
 }
 
 /**
- * 单元格编辑专用弹窗：轻量表单壳，不含剪贴�?AI �?FormDialog 能力�?
+ * 单元格编辑专用弹窗：轻量表单壳，不含剪贴杀AI 筀FormDialog 能力　
  */
 export function CellEditDialog({
   open,

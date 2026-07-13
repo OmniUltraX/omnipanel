@@ -159,6 +159,15 @@ pub struct DockerOverview {
     pub warning_message: Option<String>,
 }
 
+/// Docker daemon.json 配置文件。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerDaemonConfigFile {
+    pub content: String,
+    pub path: String,
+    pub editable: bool,
+}
+
 /// 端口映射。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -204,6 +213,12 @@ pub struct DockerContainerSummary {
     pub network_attachments: Vec<DockerNetworkAttachment>,
     #[specta(type = f64)]
     pub created_at: i64,
+    /// Compose 项目名（`com.docker.compose.project`）；非 Compose 容器为 `None`。
+    #[serde(default)]
+    pub compose_project: Option<String>,
+    /// Compose 服务名（`com.docker.compose.service`）。
+    #[serde(default)]
+    pub compose_service: Option<String>,
 }
 
 /// 键值对（环境变量、标签）。
@@ -469,6 +484,8 @@ pub enum DockerComposeAction {
     Up,
     Down,
     Restart,
+    /// 重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）。
+    Rebuild,
     Pull,
     Logs,
 }
@@ -493,6 +510,40 @@ pub struct DockerComposeResult {
     pub stdout_excerpt: String,
     pub stderr_excerpt: String,
     pub exit_code: i32,
+}
+
+/// 读取 Compose 项目配置文件入参。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerComposeReadFilesRequest {
+    pub project: String,
+    pub working_dir: Option<String>,
+    pub config_file: Option<String>,
+}
+
+/// Compose 项目配置文件内容。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerComposeProjectFiles {
+    pub project: String,
+    pub working_dir: Option<String>,
+    pub compose_path: String,
+    pub compose_content: String,
+    pub env_path: String,
+    pub env_content: String,
+}
+
+/// 写入 Compose 项目配置文件入参（字段可选，仅写入提供的部分）。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerComposeWriteFilesRequest {
+    pub project: String,
+    pub working_dir: Option<String>,
+    pub config_file: Option<String>,
+    pub compose_path: Option<String>,
+    pub compose_content: Option<String>,
+    pub env_path: Option<String>,
+    pub env_content: Option<String>,
 }
 
 /// 容器统计快照。

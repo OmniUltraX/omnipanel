@@ -15,7 +15,6 @@ import {
   volumeRowLabel,
 } from "./dockerResourceLabels";
 import type { DockerTreeCategory } from "./dockerSidebarNav";
-import type { DockerServiceGroup } from "@/stores/dockerServiceGroupStore";
 
 export function dockerImageMatchesSearch(query: string, image: DockerImageSummary): boolean {
   return sidebarTreeSearchMatches(
@@ -37,6 +36,8 @@ export function dockerContainerMatchesSearch(query: string, container: DockerCon
     container.image,
     container.shortId,
     container.id,
+    container.composeProject,
+    container.composeService,
   );
 }
 
@@ -59,15 +60,15 @@ export function dockerVolumeMatchesSearch(query: string, volume: DockerVolumeSum
   );
 }
 
-export function dockerServiceGroupMatchesSearch(
+export function dockerComposeProjectMatchesSearch(
   query: string,
-  group: DockerServiceGroup,
-  groupContainers: DockerContainerSummary[],
+  project: string,
+  projectContainers: DockerContainerSummary[],
 ): boolean {
-  if (sidebarTreeSearchMatches(query, group.name)) {
+  if (sidebarTreeSearchMatches(query, project)) {
     return true;
   }
-  return groupContainers.some((container) => dockerContainerMatchesSearch(query, container));
+  return projectContainers.some((container) => dockerContainerMatchesSearch(query, container));
 }
 
 export function dockerConnectionSubtreeMatchesSearch(
@@ -80,7 +81,6 @@ export function dockerConnectionSubtreeMatchesSearch(
     volumes: DockerVolumeSummary[];
   },
   categoryLabels: Record<DockerTreeCategory, string>,
-  serviceGroups: DockerServiceGroup[],
 ): boolean {
   if (!hasSidebarTreeSearch(query)) {
     return true;
@@ -105,11 +105,19 @@ export function dockerConnectionSubtreeMatchesSearch(
   if (resources.volumes.some((volume) => dockerVolumeMatchesSearch(query, volume))) {
     return true;
   }
-  for (const group of serviceGroups) {
-    const groupContainers = group.containerIds
-      .map((id) => resources.containers.find((container) => container.id === id))
-      .filter((item): item is DockerContainerSummary => item != null);
-    if (dockerServiceGroupMatchesSearch(query, group, groupContainers)) {
+  const composeProjects = new Map<string, DockerContainerSummary[]>();
+  for (const container of resources.containers) {
+    const project = container.composeProject?.trim();
+    if (!project) continue;
+    const bucket = composeProjects.get(project);
+    if (bucket) {
+      bucket.push(container);
+    } else {
+      composeProjects.set(project, [container]);
+    }
+  }
+  for (const [project, projectContainers] of composeProjects) {
+    if (dockerComposeProjectMatchesSearch(query, project, projectContainers)) {
       return true;
     }
   }
