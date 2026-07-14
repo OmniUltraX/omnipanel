@@ -2,15 +2,9 @@ import type { SftpPanelAdapter } from "../../components/sftp/sftpAdapter";
 import type { SftpEntry } from "../../components/sftp/sftpUtils";
 import { commands } from "../../ipc/bindings";
 import type { DockerConnectionSource, DockerFileEntry } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 
-function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  return promise.then((res) => {
-    if (res.status === "ok") return res.data;
-    throw new Error(res.error.message);
-  });
-}
+const unwrap = unwrapCommand;
 
 function toSftpEntry(entry: DockerFileEntry): SftpEntry {
   return {

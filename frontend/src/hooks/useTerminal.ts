@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   commands,
 } from "../ipc/bindings";
+import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../ipc/events";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
@@ -907,7 +908,7 @@ export function useTerminal(
           //  且 claimFeedCaptureBlockId 被调用两次，claim 了两个不同 blockId）
           const blockId =
             pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
-          useTerminalUiStore.getState().enterFullTerminal(sessionId, blockId);
+          useTerminalUiStore.getState().enterFullTerminal(sessionId, blockId ?? undefined);
           if (blockId) {
             useBlocksStore.getState().updateBlock(blockId, {
               status: "completed",
@@ -959,7 +960,7 @@ export function useTerminal(
         remoteInitEchoFilter = createRemoteInitEchoFilter(queueOutput);
       }
       unlistenOutput = await listen<{ session_id: string; data: unknown }>(
-        "terminal-output",
+        TERMINAL_OUTPUT,
         (ev) => {
           if (destroyed || ev.payload.session_id !== backendSid) return;
           if (restoring) return;
@@ -988,7 +989,7 @@ export function useTerminal(
 
     async function attachEventListener() {
       unlistenEvent = await listen<{ session_id: string; event: string }>(
-        "terminal-event",
+        TERMINAL_EVENT,
         (ev) => {
           if (destroyed || ev.payload.session_id !== backendSid) return;
           if (ev.payload.event === "exited") {

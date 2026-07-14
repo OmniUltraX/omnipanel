@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type PoolCategorySummary, type PoolSummary } from "../ipc/bindings";
+import { SSH_POOL_SESSION, SSH_POOL_STATUS } from "../ipc/events";
 import { useSshPoolSessionStore } from "./sshPoolSessionStore";
 
 /** 连接池分类，与后端 `PoolCategorySummary.kind` 对齐。 */
@@ -141,8 +142,8 @@ export function initConnectionPool() {
     void refreshConnectionPool();
   };
 
-  listen("ssh-pool-session", onPoolChange).then((fn) => unsubs.push(fn)).catch(() => {});
-  listen("ssh-pool-status", onPoolChange).then((fn) => unsubs.push(fn)).catch(() => {});
+  listen(SSH_POOL_SESSION, onPoolChange).then((fn) => unsubs.push(fn)).catch(() => {});
+  listen(SSH_POOL_STATUS, onPoolChange).then((fn) => unsubs.push(fn)).catch(() => {});
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {

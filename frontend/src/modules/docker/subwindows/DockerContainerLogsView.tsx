@@ -5,6 +5,7 @@ import { Button } from "../../../components/ui/Button";
 import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
 import { IconClock, IconRefresh } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
+import { DOCKER_LOG, DOCKER_LOG_END } from "../../../ipc/events";
 import { appConfirm } from "../../../lib/appConfirm";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { DownloadIcon, FollowIcon, TrashIcon } from "../icons";
@@ -130,13 +131,13 @@ export function DockerContainerLogsView({
       streamIdRef.current = streamId;
       setFollowing(true);
 
-      const unlistenLog = await listen<DockerLogEventPayload>("docker-log", (event) => {
+      const unlistenLog = await listen<DockerLogEventPayload>(DOCKER_LOG, (event) => {
         if (event.payload.streamId !== streamId) return;
         const message = event.payload.message;
         if (!message) return;
         setLines((current) => [...current, message]);
       });
-      const unlistenEnd = await listen<DockerLogEndPayload>("docker-log-end", (event) => {
+      const unlistenEnd = await listen<DockerLogEndPayload>(DOCKER_LOG_END, (event) => {
         if (event.payload.streamId !== streamId) return;
         if (event.payload.error) {
           setError(event.payload.error);

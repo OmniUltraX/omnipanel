@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { IconChevronDown, IconDatabase, IconGlobe, IconServer } from "../../components/ui/Icons";
 import { useI18n } from "../../i18n";
 import { commands, type DockerConnectionInfo, type DockerSystemDiskUsage } from "../../ipc/bindings";
+import { unwrapCommand as unwrapOk } from "../../ipc/result";
 import { ComposeStackIcon, ContainerIcon, ImageLayersIcon } from "./icons";
 
 export interface DockerResourceOverviewCardsProps {
@@ -45,14 +46,6 @@ function sizeDetail(
       <span className="docker-resource-overview__size">{formatBytes(bytes)}</span>
     </>
   );
-}
-
-async function unwrapOk<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
 }
 
 function StatCard({ label, value, detail, icon }: Omit<StatCardDef, "id">) {

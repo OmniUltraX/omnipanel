@@ -1,14 +1,9 @@
 import { commands } from "@/ipc/bindings";
+import { unwrapCommand } from "@/ipc/result";
 import type { DockerSidebarCacheEntry, DockerSidebarRefreshScope } from "./dockerSidebarCache";
 import { EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY } from "./dockerSidebarCache";
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 async function fetchCategory(
   connectionId: string,

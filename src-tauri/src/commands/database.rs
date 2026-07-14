@@ -326,11 +326,32 @@ async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta
         .collect())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct TableInfo {
     pub name: String,
+    /// `serde_json::Value` 含 i64 Number，specta 需标成 Any 才能导出。
+    #[specta(type = Vec<HashMap<String, specta_typescript::Any>>)]
     pub rows: Vec<HashMap<String, serde_json::Value>>,
     pub columns: Vec<String>,
+}
+
+/// IPC 用查询结果（与领域 `QueryResult` 同形；rows 导出为 Any 避免 BigInt 禁令）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbQueryResult {
+    pub columns: Vec<String>,
+    #[specta(type = Vec<Vec<specta_typescript::Any>>)]
+    pub rows: Vec<Vec<serde_json::Value>>,
+    #[specta(type = f64)]
+    pub rows_affected: u64,
+}
+
+fn to_db_query_result(result: QueryResult) -> DbQueryResult {
+    DbQueryResult {
+        columns: result.columns,
+        rows: result.rows,
+        rows_affected: result.rows_affected,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1437,6 +1458,7 @@ pub async fn db_list_tables(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn db_preview_table(
     connection: DbConnectionConfig,
     table: String,
@@ -1468,7 +1490,7 @@ pub async fn db_count_table(
     schema: Option<String>,
     table: String,
     where_clause: Option<String>,
-) -> Result<i64, String> {
+) -> Result<f64, String> {
     let params = with_schema(&connection, schema);
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
@@ -1478,6 +1500,7 @@ pub async fn db_count_table(
         .count(table.trim(), where_clause.as_deref())
         .await
         .map_err(err_msg)
+        .map(|n| n as f64)
 }
 
 /// 在同一连接上顺序统计多表行数，避免前端并发 `db_count_table` 打满连接池。
@@ -1530,6 +1553,7 @@ pub async fn db_run_sql(
 /// `limit` / `offset` 非零时，SELECT/WITH 语句会被包裹为 `SELECT * FROM (...) LIMIT n OFFSET m`，防止超大结果集卡死前端。
 /// `run_id` 供前端中断长时间查询（`db_cancel_query`）。
 #[tauri::command]
+#[specta::specta]
 pub async fn db_execute_query(
     state: tauri::State<'_, crate::state::AppState>,
     connection: DbConnectionConfig,
@@ -1537,7 +1561,7 @@ pub async fn db_execute_query(
     run_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<QueryResult, String> {
+) -> Result<DbQueryResult, String> {
     let wrapped = match limit {
         Some(n) if n > 0 => omnipanel_db::wrap_select_with_limit(
             &sql,
@@ -1565,7 +1589,7 @@ pub async fn db_execute_query(
     };
 
     state.running_db_queries.lock().await.remove(&run_id);
-    result
+    result.map(to_db_query_result)
 }
 
 /// 中断正在执行的 SQL 查询（按 run_id，与 db_execute_query 配对）。
@@ -1595,6 +1619,7 @@ pub struct RedisSearchKeysArgs {
     #[serde(default = "default_redis_search_limit")]
     pub limit: u32,
     #[serde(default)]
+    #[specta(type = f64)]
     pub cursor: u64,
     #[serde(default)]
     pub include_value_preview: bool,
@@ -1624,13 +1649,14 @@ pub async fn db_redis_config_get_entries(
 #[specta::specta]
 pub async fn db_redis_config_get(
     connection: DbConnectionConfig,
-) -> Result<omnipanel_db::QueryResult, String> {
+) -> Result<DbQueryResult, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG GET".to_string());
     }
     omnipanel_db::redis_config_get_all(&to_params(&connection))
         .await
         .map_err(err_msg)
+        .map(to_db_query_result)
 }
 
 /// Redis `CLIENT LIST`：返回客户端连接列表。
@@ -1638,13 +1664,14 @@ pub async fn db_redis_config_get(
 #[specta::specta]
 pub async fn db_redis_client_list(
     connection: DbConnectionConfig,
-) -> Result<omnipanel_db::QueryResult, String> {
+) -> Result<DbQueryResult, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CLIENT LIST".to_string());
     }
     omnipanel_db::redis_client_list(&to_params(&connection))
         .await
         .map_err(err_msg)
+        .map(to_db_query_result)
 }
 
 /// Redis 键搜索：SCAN + 类型过滤 + 值预览。

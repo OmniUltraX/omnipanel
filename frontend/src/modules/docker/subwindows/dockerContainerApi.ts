@@ -1,13 +1,8 @@
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerDetail, DockerFileEntry, DockerLogLine } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 
-export async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+export const unwrap = unwrapCommand;
 
 export function inspectDockerContainer(connectionId: string, containerId: string): Promise<DockerContainerDetail> {
   return unwrap(commands.dockerInspectContainer(connectionId, containerId));

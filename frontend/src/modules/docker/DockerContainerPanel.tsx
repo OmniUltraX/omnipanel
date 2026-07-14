@@ -4,6 +4,7 @@ import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import type { DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
@@ -32,9 +33,7 @@ interface SortState {
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  const res = await commands.dockerListContainers(connectionId, null);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListContainers(connectionId, null));
 }
 
 function formatCreatedAt(ts: number | null | undefined): string {

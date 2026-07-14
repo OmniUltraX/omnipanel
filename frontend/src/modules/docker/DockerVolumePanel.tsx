@@ -10,6 +10,7 @@ import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import type { DockerConnectionInfo, DockerVolumeSummary } from "../../ipc/bindings";
+import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
@@ -25,9 +26,7 @@ export interface DockerVolumePanelProps {
 }
 
 async function fetchVolumes(connectionId: string): Promise<DockerVolumeSummary[]> {
-  const res = await commands.dockerListVolumes(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommandResult(await commands.dockerListVolumes(connectionId));
 }
 
 export function DockerVolumePanel({ connection, isActive = false }: DockerVolumePanelProps) {
@@ -110,11 +109,10 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       if (!confirmed) return;
       setBusy(true);
       try {
-        const res = await commands.dockerPruneVolumes(connection.connectionId);
-        if (res.status !== "ok") throw new Error(res.error.message);
+        const pruned = await unwrapCommand(commands.dockerPruneVolumes(connection.connectionId));
         showToast(
           t("docker.volumesPanel.pruneSuccess", {
-            count: res.data.deleted?.length ?? 0,
+            count: pruned.deleted?.length ?? 0,
           }),
         );
         await refresh();
@@ -136,12 +134,13 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       setBusy(true);
       setCreateError(null);
       try {
-        const res = await commands.dockerCreateVolume(connection.connectionId, {
-          name,
-          driver: null,
-          labels: [],
-        });
-        if (res.status !== "ok") throw new Error(res.error.message);
+        await unwrapCommand(
+          commands.dockerCreateVolume(connection.connectionId, {
+            name,
+            driver: null,
+            labels: [],
+          }),
+        );
         showToast(t("docker.volumesPanel.createSuccess", { name }));
         setCreateOpen(false);
         setCreateName("");

@@ -115,15 +115,28 @@ cargo fmt --check
 
 ## Tauri IPC Pattern
 
-Frontend calls Rust backend via `invoke`:
+正式业务路径是 **tauri-specta** 生成的 `commands.*`（见 `frontend/src/ipc/bindings.ts`），不是裸 `invoke`。
+
 ```typescript
-import { invoke } from "@tauri-apps/api/core";
-const id = await invoke<string>("create_terminal", { cols: 80, rows: 24 });
+import { commands } from "./ipc/bindings";
+import { unwrapCommand } from "./ipc/result";
+
+const id = await unwrapCommand(commands.createTerminal(80, 24));
 ```
 
-Backend sends events to frontend via `app.emit()`:
+### 约定（新代码必须遵守）
+
+1. **业务读/写只走 `commands.*`**：模块半层 Api（如 `dockerComposeApi`、`fileApi`）可包一层编排；**禁止**为新业务再写裸 `invoke`（窗口 / 插件 / 通用文件对话框等除外）。
+2. **Result 解包只用** `frontend/src/ipc/result.ts` 的 `unwrapCommand` / `unwrapCommandResult` / `formatIpcError`；不要复制 docker/files 里的本地 unwrap，并尽量保留 OmniError 的 `code` / `cause`。
+3. **新后端命令强制 `Result<T, OmniError>`**；db/terminal 等历史 `Result<_, String>` 按文件渐进迁移，不一刀切。
+4. **事件名** 用 `frontend/src/ipc/events.ts` 常量；长生命周期 / 跨 remount → App Event；请求绑定回调 → Channel。
+5. **注册双清单**：`collect_commands!`（类型导出）与 `generate_handler!`（运行时）须保持命令集合一致；改完跑 `npm run gen:bindings`（内部 `cargo run` + `OMNIPANEL_GEN_BINDINGS_ONLY=1`）。
+
+注意：JS `Error` 重抛不会进入 specta 的 `{ status: "error" }` envelope；终端热路径已有注释说明，勿误用。
+
+Backend 向前端推事件：
 ```rust
 app.emit("terminal-output", payload)?;
 ```
 
-Tauri Commands are defined in `src-tauri/src/commands/` and registered in `src-tauri/src/lib.rs`.
+Tauri Commands 定义在 `src-tauri/src/commands/`，在 `src-tauri/src/lib.rs` 注册。

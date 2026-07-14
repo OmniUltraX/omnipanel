@@ -1,4 +1,5 @@
-import { commands, type Connection, type FileIndexSearchResult, type FileIndexStatus, type FileListDirResult, type FileManagerConnectionInfo, type OmniError_Serialize } from "../../ipc/bindings";
+import { commands, type Connection, type FileIndexSearchResult, type FileIndexStatus, type FileListDirResult, type FileManagerConnectionInfo } from "../../ipc/bindings";
+import { unwrapCommandResult, type CommandResult, type IpcErrorLike } from "../../ipc/result";
 import { fmtError } from "./utils";
 
 export type FileIndexProgress = {
@@ -8,33 +9,16 @@ export type FileIndexProgress = {
   error?: string | null;
 };
 
-function ipcErrorToError(error: OmniError_Serialize): Error {
-  const message = error.cause ? `${error.message}（${error.cause}）` : error.message;
-  const err = new Error(message);
-  Object.assign(err, { code: error.code, cause: error.cause ?? null });
-  return err;
-}
-
-async function unwrap<T>(
-  res: { status: string; data?: T; error?: OmniError_Serialize },
+/** files 模块：已 await 的 CommandResult + 可选调试上下文。 */
+function unwrap<T>(
+  res: CommandResult<T, IpcErrorLike>,
   debugContext?: Record<string, unknown> & { quiet?: boolean },
-): Promise<T> {
-  if (res.status === "ok" && res.data !== undefined) return res.data;
-  if (res.error) {
-    if (!debugContext?.quiet) {
-      console.error("[files] IPC error:", {
-        ...debugContext,
-        code: res.error.code,
-        message: res.error.message,
-        cause: res.error.cause ?? null,
-      });
-    }
-    throw ipcErrorToError(res.error);
-  }
-  if (!debugContext?.quiet) {
-    console.error("[files] IPC error: unknown failure", debugContext);
-  }
-  throw new Error("请求失败");
+): T {
+  return unwrapCommandResult(res, {
+    quiet: debugContext?.quiet,
+    debugContext,
+    logLabel: "[files]",
+  });
 }
 
 export async function listFileConnections(): Promise<FileManagerConnectionInfo[]> {

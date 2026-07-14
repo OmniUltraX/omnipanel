@@ -8,6 +8,7 @@ import type {
   DockerContainerSummary,
   DockerImageSummary,
 } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
@@ -37,15 +38,11 @@ interface SortState {
 }
 
 async function fetchImages(connectionId: string): Promise<DockerImageSummary[]> {
-  const res = await commands.dockerListImages(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListImages(connectionId));
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  const res = await commands.dockerListContainers(connectionId, null);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListContainers(connectionId, null));
 }
 
 function formatCreatedAt(ts: number | null): string {

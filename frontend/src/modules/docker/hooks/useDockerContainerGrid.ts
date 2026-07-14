@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import { DOCKER_STATS_POLL_MS, runningContainerIds } from "../dockerContainerStats";
 import { pickStats } from "../dockerContainerStatsMatch";
 import { useDockerContainerStats } from "./useDockerContainerStats";
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 export type DockerContainerGridItem = {
   container: DockerContainerSummary;

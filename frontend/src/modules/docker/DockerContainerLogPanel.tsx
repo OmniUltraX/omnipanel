@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/Button";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands, type DockerConnectionInfo, type DockerContainerLogInfo } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
@@ -32,9 +33,7 @@ function displayName(info: DockerContainerLogInfo): string {
 }
 
 async function fetchLogInfos(connectionId: string): Promise<DockerContainerLogInfo[]> {
-  const res = await commands.dockerListContainerLogInfos(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListContainerLogInfos(connectionId));
 }
 
 export function DockerContainerLogPanel({

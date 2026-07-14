@@ -1,7 +1,20 @@
-import { invoke } from "@tauri-apps/api/core";
+import { commands } from "../../ipc/bindings";
+import type {
+  DbConnectionConfig as BindingsDbConnectionConfig,
+  DbQueryResult,
+  RedisSearchKeysResult_Serialize,
+  SchemaCacheSnapshot_Deserialize,
+  TableInfo,
+} from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
 import type { SchemaCacheSnapshot } from "./schema/schemaCache";
+
+/** 业务 IPC：走 commands.* + unwrapCommand，勿再写裸 invoke。 */
+function ipcConn(connection: DbConnectionConfig): BindingsDbConnectionConfig {
+  return connection as BindingsDbConnectionConfig;
+}
 
 export interface DbConnectionConfig {
   id: string;
@@ -197,84 +210,104 @@ export interface RedisSearchKeysResult {
 }
 
 export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisSearchKeysResult> {
-  return invoke<RedisSearchKeysResult>("db_redis_search_keys", {
-    args: {
-      connection: args.connection,
+  const result = await unwrapCommand(
+    commands.dbRedisSearchKeys({
+      connection: ipcConn(args.connection),
       pattern: args.pattern,
       types: args.types,
       limit: args.limit ?? 500,
       cursor: args.cursor ?? 0,
       includeValuePreview: args.includeValuePreview ?? false,
-    },
-  });
+    }),
+  );
+  return mapRedisSearchKeysResult(result);
+}
+
+function mapRedisSearchKeysResult(result: RedisSearchKeysResult_Serialize): RedisSearchKeysResult {
+  return {
+    entries: result.entries.map((e) => ({
+      key: e.key,
+      keyType: e.keyType,
+      value: e.value,
+    })),
+    nextCursor: result.nextCursor ?? 0,
+    hasMore: result.hasMore,
+    scanLimitHit: result.scanLimitHit,
+  };
 }
 
 export async function redisConfigGet(
   connection: DbConnectionConfig,
   pattern: string,
 ): Promise<Array<[string, string]>> {
-  return invoke<Array<[string, string]>>("db_redis_config_get_entries", {
-    connection,
-    pattern,
-  });
+  return unwrapCommand(commands.dbRedisConfigGetEntries(ipcConn(connection), pattern));
+}
+
+function mapQueryResult(result: DbQueryResult): { columns: string[]; rows: unknown[][] } {
+  return {
+    columns: result.columns,
+    rows: result.rows as unknown[][],
+  };
 }
 
 export async function redisGetConfigAll(connection: DbConnectionConfig): Promise<{
   columns: string[];
   rows: unknown[][];
 }> {
-  return invoke("db_redis_config_get", { connection });
+  return mapQueryResult(await unwrapCommand(commands.dbRedisConfigGet(ipcConn(connection))));
 }
 
 export async function redisGetClientList(connection: DbConnectionConfig): Promise<{
   columns: string[];
   rows: unknown[][];
 }> {
-  return invoke("db_redis_client_list", { connection });
+  return mapQueryResult(await unwrapCommand(commands.dbRedisClientList(ipcConn(connection))));
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {
-  return invoke<DbConnectionConfig[]>("db_list_connections");
+  return (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
 }
 
 export async function loadSchemaFilters(): Promise<SchemaFiltersSnapshot> {
-  return invoke<SchemaFiltersSnapshot>("db_load_schema_filters");
+  return (await unwrapCommand(commands.dbLoadSchemaFilters())) as SchemaFiltersSnapshot;
 }
 
 export async function saveSchemaFilters(snapshot: SchemaFiltersSnapshot): Promise<void> {
-  return invoke<void>("db_save_schema_filters", { snapshot });
+  await unwrapCommand(commands.dbSaveSchemaFilters(snapshot));
 }
 
 export async function loadSchemaTreeExpanded(): Promise<SchemaTreeExpandedSnapshot> {
-  return invoke<SchemaTreeExpandedSnapshot>("db_load_schema_tree_expanded");
+  return (await unwrapCommand(commands.dbLoadSchemaTreeExpanded())) as SchemaTreeExpandedSnapshot;
 }
 
 export async function saveSchemaTreeExpanded(snapshot: SchemaTreeExpandedSnapshot): Promise<void> {
-  return invoke<void>("db_save_schema_tree_expanded", { snapshot });
+  await unwrapCommand(commands.dbSaveSchemaTreeExpanded(snapshot));
 }
 
 export async function loadSchemaCache(): Promise<SchemaCacheSnapshot> {
-  return invoke<SchemaCacheSnapshot>("db_load_schema_cache");
+  return (await unwrapCommand(commands.dbLoadSchemaCache())) as SchemaCacheSnapshot;
 }
 
 export async function saveSchemaCache(snapshot: SchemaCacheSnapshot): Promise<void> {
-  return invoke<void>("db_save_schema_cache", { snapshot });
+  await unwrapCommand(
+    commands.dbSaveSchemaCache(snapshot as unknown as SchemaCacheSnapshot_Deserialize),
+  );
 }
 
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {
-  return invoke<DbConnectionConfig>("db_save_connection", { connection });
+  return (await unwrapCommand(commands.dbSaveConnection(ipcConn(connection)))) as DbConnectionConfig;
 }
 
 export async function deleteConnection(id: string): Promise<void> {
-  return invoke<void>("db_delete_connection", { id });
+  await unwrapCommand(commands.dbDeleteConnection(id));
 }
 
 export async function testConnection(connection: DbConnectionConfig): Promise<string> {
-  return invoke<string>("db_test_connection", { connection });
+  return unwrapCommand(commands.dbTestConnection(ipcConn(connection)));
 }
 
 export async function listDatabases(connection: DbConnectionConfig): Promise<string[]> {
-  return invoke<string[]>("db_list_databases", { connection });
+  return unwrapCommand(commands.dbListDatabases(ipcConn(connection)));
 }
 
 export interface CreateDatabaseArgs {
@@ -285,7 +318,14 @@ export interface CreateDatabaseArgs {
 }
 
 export async function createDatabase(args: CreateDatabaseArgs): Promise<string> {
-  return invoke<string>("db_create_database", { args });
+  return unwrapCommand(
+    commands.dbCreateDatabase({
+      connection: ipcConn(args.connection),
+      name: args.name,
+      charset: args.charset ?? null,
+      collation: args.collation ?? null,
+    }),
+  );
 }
 
 export interface DbCharsetMeta {
@@ -297,7 +337,7 @@ export interface DbCharsetMeta {
 export async function listCharacterSets(
   connection: DbConnectionConfig,
 ): Promise<DbCharsetMeta[]> {
-  return invoke<DbCharsetMeta[]>("db_list_character_sets", { connection });
+  return unwrapCommand(commands.dbListCharacterSets(ipcConn(connection)));
 }
 
 export interface DbColumnMeta {
@@ -344,17 +384,16 @@ export interface DbIntrospectResult {
 export async function listConnectionUsers(
   connection: DbConnectionConfig,
 ): Promise<DbUserMeta[]> {
-  return invoke<DbUserMeta[]>("db_list_connection_users", { connection });
+  return unwrapCommand(commands.dbListConnectionUsers(ipcConn(connection)));
 }
 
 export async function introspectSchema(
   connection: DbConnectionConfig,
   database?: string,
 ): Promise<DbIntrospectResult> {
-  return invoke<DbIntrospectResult>("db_introspect_schema", {
-    connection,
-    schema: database?.trim() ? database.trim() : null,
-  });
+  return unwrapCommand(
+    commands.dbIntrospectSchema(ipcConn(connection), database?.trim() ? database.trim() : null),
+  );
 }
 
 export async function introspectTable(
@@ -362,11 +401,13 @@ export async function introspectTable(
   database: string,
   table: string,
 ): Promise<DbTableSchema> {
-  return invoke<DbTableSchema>("db_introspect_table", {
-    connection,
-    schema: database.trim() ? database.trim() : null,
-    table,
-  });
+  return unwrapCommand(
+    commands.dbIntrospectTable(
+      ipcConn(connection),
+      database.trim() ? database.trim() : null,
+      table,
+    ),
+  );
 }
 
 export async function fetchTableDdl(
@@ -374,11 +415,9 @@ export async function fetchTableDdl(
   database: string,
   table: string,
 ): Promise<string> {
-  return invoke<string>("db_table_ddl", {
-    connection,
-    schema: database.trim() ? database.trim() : null,
-    table,
-  });
+  return unwrapCommand(
+    commands.dbTableDdl(ipcConn(connection), database.trim() ? database.trim() : null, table),
+  );
 }
 
 export interface DbTableDetails {
@@ -397,27 +436,36 @@ export async function fetchTableDetails(
   database: string,
   table: string,
 ): Promise<DbTableDetails> {
-  return invoke<DbTableDetails>("db_get_table_details", {
-    connection,
-    schema: database.trim() ? database.trim() : null,
-    table,
-  });
+  return unwrapCommand(
+    commands.dbGetTableDetails(
+      ipcConn(connection),
+      database.trim() ? database.trim() : null,
+      table,
+    ),
+  );
 }
 
 export async function listTables(
   connection: DbConnectionConfig,
-  schema?: string
+  schema?: string,
 ): Promise<string[]> {
-  return invoke<string[]>("db_list_tables", {
-    connection,
-    schema: schema?.trim() ? schema.trim() : null,
-  });
+  return unwrapCommand(
+    commands.dbListTables(ipcConn(connection), schema?.trim() ? schema.trim() : null),
+  );
 }
 
 export interface TablePreviewResult {
   name: string;
   columns: string[];
   rows: Record<string, unknown>[];
+}
+
+function mapTablePreview(info: TableInfo): TablePreviewResult {
+  return {
+    name: info.name,
+    columns: info.columns,
+    rows: info.rows as Record<string, unknown>[],
+  };
 }
 
 export async function previewTable(
@@ -428,14 +476,18 @@ export async function previewTable(
   orderBy?: string,
   whereClause?: string,
 ): Promise<TablePreviewResult> {
-  return invoke<TablePreviewResult>("db_preview_table", {
-    connection,
-    table,
-    limit,
-    offset,
-    orderBy,
-    whereClause: whereClause?.trim() ? whereClause.trim() : null,
-  });
+  return mapTablePreview(
+    await unwrapCommand(
+      commands.dbPreviewTable(
+        ipcConn(connection),
+        table,
+        limit,
+        offset,
+        orderBy ?? null,
+        whereClause?.trim() ? whereClause.trim() : null,
+      ),
+    ),
+  );
 }
 
 export interface TableRowCount {
@@ -449,12 +501,15 @@ export async function countTable(
   database?: string,
   whereClause?: string,
 ): Promise<number> {
-  return invoke<number>("db_count_table", {
-    connection,
-    table,
-    schema: database?.trim() ? database.trim() : null,
-    whereClause: whereClause?.trim() ? whereClause.trim() : null,
-  });
+  const count = await unwrapCommand(
+    commands.dbCountTable(
+      ipcConn(connection),
+      database?.trim() ? database.trim() : null,
+      table,
+      whereClause?.trim() ? whereClause.trim() : null,
+    ),
+  );
+  return count ?? 0;
 }
 
 /** 单连接顺序统计多表行数（工具箱数据同步用）。 */
@@ -463,9 +518,11 @@ export async function countTables(
   database: string,
   tables: string[],
 ): Promise<TableRowCount[]> {
-  return invoke<TableRowCount[]>("db_count_tables", {
-    connection,
-    schema: database.trim() ? database.trim() : null,
-    tables,
-  });
+  return unwrapCommand(
+    commands.dbCountTables(
+      ipcConn(connection),
+      database.trim() ? database.trim() : null,
+      tables,
+    ),
+  );
 }
