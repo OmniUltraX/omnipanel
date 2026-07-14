@@ -1,10 +1,21 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import type { TerminalPane, TerminalSessionInfo, TerminalTab } from "../../stores/terminalStore";
 import type { EnvironmentTag, WorkspaceResource } from "../../lib/resourceRegistry";
 import { useBlocksStore } from "../../stores/blocksStore";
 import { BlockContextMenu } from "../../components/terminal/BlockContextMenu";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
+import { showToast } from "../../stores/toastStore";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
 import { TerminalBlockFeed } from "./TerminalBlockFeed";
@@ -21,6 +32,12 @@ import { useTerminalRunStateStore } from "./terminalRunStateStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { Button } from "../../components/ui/primitives/Button";
 import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
+import {
+  clearAllSessionBlocks,
+  clearEmptyOutputBlocks,
+  clearFailedShellBlocks,
+  clearNoisyShellBlocks,
+} from "./terminalBlockActions";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -50,7 +67,147 @@ const ENV_BADGE_LABELS: Record<EnvironmentTag, string> = {
   unknown: "SSH",
 };
 
+/** 展开全部：内容向下展开 */
+function HeaderIconExpandAll() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 5.5L8 9.5l4-4" />
+      <path d="M4 9.5L8 13.5l4-4" />
+    </svg>
+  );
+}
+
+/** 收起全部：内容向上收拢 */
+function HeaderIconCollapseAll() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 10.5L8 6.5l4 4" />
+      <path d="M4 6.5L8 2.5l4 4" />
+    </svg>
+  );
+}
+
+function HeaderIconClearMenu() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 4.5h10" />
+      <path d="M6 4.5V3h4v1.5" />
+      <path d="M12.5 4.5l-.7 8.2a1.2 1.2 0 01-1.2 1.1H5.4a1.2 1.2 0 01-1.2-1.1L3.5 4.5" />
+      <path d="M6.5 7v4M9.5 7v4" />
+    </svg>
+  );
+}
+
+type ClearMenuItem = {
+  id: string;
+  label: string;
+  subtitle?: string;
+  danger?: boolean;
+  onSelect: () => void;
+};
+
+function HeaderClearMenu({
+  disabled,
+  items,
+  label,
+}: {
+  disabled: boolean;
+  items: ClearMenuItem[];
+  label: string;
+}) {
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const sync = () => {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const minWidth = 220;
+      const left = Math.min(rect.right - minWidth, window.innerWidth - minWidth - 8);
+      setPos({
+        top: rect.bottom + 4,
+        left: Math.max(8, left),
+        minWidth,
+      });
+    };
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !wrapRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <div className="term-session-header__clear-wrap" ref={wrapRef}>
+        <button
+          ref={btnRef}
+          type="button"
+          className="term-session-header__action-btn"
+          title={label}
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          disabled={disabled}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <HeaderIconClearMenu />
+        </button>
+      </div>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            id={menuId}
+            role="menu"
+            ref={menuRef}
+            className="term-session-header__clear-menu"
+            style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
+          >
+            {items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                className={`term-session-header__clear-item${
+                  item.danger ? " term-session-header__clear-item--danger" : ""
+                }`}
+                onClick={() => {
+                  item.onSelect();
+                  setOpen(false);
+                }}
+              >
+                <span className="term-session-header__clear-item-label">{item.label}</span>
+                {item.subtitle ? (
+                  <span className="term-session-header__clear-item-sub">{item.subtitle}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function TerminalSessionHeader({
+  paneId,
   resource,
   session,
   connected,
@@ -58,6 +215,7 @@ function TerminalSessionHeader({
   onToggleInputMode,
   onRunCommand,
 }: {
+  paneId: string;
   resource: WorkspaceResource | null;
   session: TerminalSessionInfo;
   connected: boolean;
@@ -72,6 +230,9 @@ function TerminalSessionHeader({
   const meta = buildSessionMetaLine(session, resource, stats);
   const hostAddress =
     parsed.host && parsed.port ? `${parsed.host}:${parsed.port}` : parsed.host;
+  const expandAllShellBodies = useTerminalUiStore((s) => s.expandAllShellBodies);
+  const collapseAllShellBodies = useTerminalUiStore((s) => s.collapseAllShellBodies);
+  const blockCount = useBlocksStore((s) => (s.blocks[paneId] ?? []).length);
 
   const pathNav = (
     <TerminalPathBreadcrumb
@@ -100,16 +261,133 @@ function TerminalSessionHeader({
     </Button>
   );
 
+  const handleClearEmpty = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.clearEmptyConfirm"),
+      t("terminal.feed.clearEmpty"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    const removed = clearEmptyOutputBlocks(paneId);
+    showToast(
+      removed > 0
+        ? t("terminal.feed.clearEmptyDone", { count: removed })
+        : t("terminal.feed.clearEmptyNone"),
+    );
+  };
+
+  const handleClearNoisy = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.clearNoisyConfirm"),
+      t("terminal.feed.clearNoisy"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    const removed = clearNoisyShellBlocks(paneId);
+    showToast(
+      removed > 0
+        ? t("terminal.feed.clearNoisyDone", { count: removed })
+        : t("terminal.feed.clearNoisyNone"),
+    );
+  };
+
+  const handleClearFailed = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.clearFailedConfirm"),
+      t("terminal.feed.clearFailed"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    const removed = clearFailedShellBlocks(paneId);
+    showToast(
+      removed > 0
+        ? t("terminal.feed.clearFailedDone", { count: removed })
+        : t("terminal.feed.clearFailedNone"),
+    );
+  };
+
+  const handleClearAll = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.clearAllConfirm"),
+      t("terminal.feed.clearAll"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    clearAllSessionBlocks(paneId);
+    showToast(t("terminal.feed.clearAllDone"));
+  };
+
+  const clearMenuItems: ClearMenuItem[] = [
+    {
+      id: "empty",
+      label: t("terminal.feed.clearEmpty"),
+      subtitle: t("terminal.feed.clearEmptyHint"),
+      onSelect: () => void handleClearEmpty(),
+    },
+    {
+      id: "noisy",
+      label: t("terminal.feed.clearNoisy"),
+      subtitle: t("terminal.feed.clearNoisyHint"),
+      onSelect: () => void handleClearNoisy(),
+    },
+    {
+      id: "failed",
+      label: t("terminal.feed.clearFailed"),
+      subtitle: t("terminal.feed.clearFailedHint"),
+      onSelect: () => void handleClearFailed(),
+    },
+    {
+      id: "all",
+      label: t("terminal.feed.clearAll"),
+      subtitle: t("terminal.feed.clearAllHint"),
+      danger: true,
+      onSelect: () => void handleClearAll(),
+    },
+  ];
+
+  const blockActions =
+    inputMode === "external" ? (
+      <div className="term-session-header__actions" role="toolbar" aria-label={t("terminal.feed.actionsToolbar")}>
+        <button
+          type="button"
+          className="term-session-header__action-btn"
+          title={t("terminal.feed.expandAll")}
+          aria-label={t("terminal.feed.expandAll")}
+          disabled={blockCount === 0}
+          onClick={() => expandAllShellBodies(paneId)}
+        >
+          <HeaderIconExpandAll />
+        </button>
+        <button
+          type="button"
+          className="term-session-header__action-btn"
+          title={t("terminal.feed.collapseAll")}
+          aria-label={t("terminal.feed.collapseAll")}
+          disabled={blockCount === 0}
+          onClick={() => collapseAllShellBodies(paneId)}
+        >
+          <HeaderIconCollapseAll />
+        </button>
+        <HeaderClearMenu
+          disabled={blockCount === 0}
+          label={t("terminal.feed.clearMenu")}
+          items={clearMenuItems}
+        />
+      </div>
+    ) : null;
+
   const rightMetaLine = [hostAddress, meta].filter(Boolean).join(" · ") || null;
 
   const headerRight = (
     <div className="term-session-header__right">
+      {blockActions}
       {modeToggle}
       {rightMetaLine ? (
         <span className="term-session-meta">{rightMetaLine}</span>
       ) : null}
     </div>
   );
+
 
   if (session.type === "local") {
     const hostLabel = stats?.hostName?.trim() || resource?.name || "本地终端";
@@ -224,6 +502,7 @@ function PaneViewBody(
       onMouseDown={onActivate}
     >
       <TerminalSessionHeader
+        paneId={paneId}
         resource={resource}
         session={session}
         connected={connected}

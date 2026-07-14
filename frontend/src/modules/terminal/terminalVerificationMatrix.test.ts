@@ -12,6 +12,7 @@ import {
   buildToolResultFromBlock,
   resolveBlockTextOutput,
 } from "./resolveToolBlockOutput";
+import { extractCommandOutput } from "./terminalOutputText";
 import {
   createEmptyOutputModel,
   flattenOutputModel,
@@ -145,6 +146,24 @@ describe("resolveToolBlockOutput", () => {
     });
     expect(payload.emptyOutput).toBe(true);
     expect(payload.diagnostic).toBeTruthy();
+  });
+
+  it("PowerShell Get-Date 粘连提示符仍能采集输出", () => {
+    const raw = "Get-Date\r\n2026年7月14日 14:39:36PS C:\\Users\\chaoj>";
+    expect(extractCommandOutput(raw, "Get-Date")).toBe("2026年7月14日 14:39:36");
+
+    const payload = buildToolResultFromBlock({
+      command: "Get-Date",
+      block: baseBlock({ command: "Get-Date", output: raw }),
+      profile: resolveCommandProfile("Get-Date", "AI"),
+      cwd: "C:\\Users\\chaoj",
+      startedAt: Date.now(),
+    });
+    expect(payload.emptyOutput).toBeFalsy();
+    expect(payload.output).toContain("2026年7月14日");
+    expect(resolveBlockTextOutput(baseBlock({ command: "Get-Date", output: raw }), "Get-Date")).toBe(
+      "2026年7月14日 14:39:36",
+    );
   });
 
   it("progress 类附带 progressTail", () => {

@@ -32,12 +32,15 @@ import { shouldUseDirectoryPreview } from "./terminalDirectoryPreview";
 import { EnrichedLsListingView } from "./lsListing/EnrichedLsListingView";
 import { tryParseLsListing } from "./lsListing/parseLsListing";
 import { resolveShellOutputCwd, resolveCdDestination } from "./lsListing/resolveLsListingDirectory";
+import { hasShellErrorSignals } from "./commandInputRouting";
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
 import {
   IconChevronRight,
   IconClipboard,
+  IconClose,
   IconCopy,
 } from "../../components/ui/icons/Icons";
+import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { focusTerminalTab } from "../../lib/terminalSession";
 import { BlockAttachToAiButton } from "./BlockAttachToAiButton";
@@ -49,6 +52,14 @@ import {
 } from "./useFollowOutputScroll";
 import { useTerminalCopyContextMenu } from "./terminalTextSelection";
 import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
+import { FeedSearchBar } from "./FeedSearchBar";
+import { FeedSearchHighlightText } from "./FeedSearchHighlightText";
+import {
+  DEFAULT_FEED_SEARCH_FILTERS,
+  isFeedSearchFiltering,
+  listFeedSearchMatchIds,
+  type FeedSearchFilters,
+} from "./feedSearchModel";
 
 type TerminalBlockFeedProps = {
   sessionId: string;
@@ -104,6 +115,7 @@ function formatDuration(block: TerminalBlock): string | null {
 }
 
 function shouldRenderBlock(block: TerminalBlock): boolean {
+  if (block.silent) return false;
   if (block.kind === "ai") return true;
   if (block.directoryPreview || block.attachedListing) return true;
   if (shouldUseDirectoryPreview(block)) return true;
@@ -251,6 +263,20 @@ function ShellBlockToolbar({
   hasOutputBody: boolean;
   onFocusInput?: () => void;
 }) {
+  const { t } = useI18n();
+  const removeBlock = useBlocksStore((s) => s.removeBlock);
+
+  const handleDelete = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.deleteBlockConfirm"),
+      t("terminal.feed.deleteBlock"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    removeBlock(block.id);
+    showToast(t("terminal.feed.deleteBlockDone"));
+  };
+
   return (
     <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
       <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
@@ -274,6 +300,15 @@ function ShellBlockToolbar({
           <IconClipboard size={14} />
         </button>
       ) : null}
+      <button
+        type="button"
+        className="term-warp-block__toolbar-btn term-warp-block__toolbar-btn--danger"
+        title={t("terminal.feed.deleteBlock")}
+        aria-label={t("terminal.feed.deleteBlock")}
+        onClick={() => void handleDelete()}
+      >
+        <IconClose size={14} />
+      </button>
     </div>
   );
 }
@@ -377,11 +412,37 @@ function AiBlockHeaderActions({
   aiBlockIds: string[];
 }) {
   const { t } = useI18n();
+  const removeBlock = useBlocksStore((s) => s.removeBlock);
+  const setExpandedAiBlock = useTerminalUiStore((s) => s.setExpandedAiBlock);
+
+  const handleDelete = async () => {
+    const ok = await appConfirm(
+      t("terminal.feed.deleteBlockConfirm"),
+      t("terminal.feed.deleteBlock"),
+      { kind: "warning", confirmLabel: t("terminal.feed.confirmAction") },
+    );
+    if (!ok) return;
+    if (expanded) setExpandedAiBlock(sessionId, null);
+    removeBlock(block.id);
+    showToast(t("terminal.feed.deleteBlockDone"));
+  };
 
   return (
     <div className="term-warp-block__header-actions">
       <AiBlockNavButtons sessionId={sessionId} blockId={block.id} aiBlockIds={aiBlockIds} />
       <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
+      <button
+        type="button"
+        className="term-warp-block__toolbar-btn term-warp-block__toolbar-btn--danger"
+        title={t("terminal.feed.deleteBlock")}
+        aria-label={t("terminal.feed.deleteBlock")}
+        onClick={(event) => {
+          event.stopPropagation();
+          void handleDelete();
+        }}
+      >
+        <IconClose size={14} />
+      </button>
       <button
         type="button"
         className="term-warp-block__toolbar-btn term-warp-block__toggle"
@@ -406,10 +467,12 @@ function AiBlockSummary({
   block,
   expanded,
   onToggle,
+  searchHighlightQuery = "",
 }: {
   block: TerminalBlock;
   expanded: boolean;
   onToggle: () => void;
+  searchHighlightQuery?: string;
 }) {
   return (
     <button
@@ -421,7 +484,9 @@ function AiBlockSummary({
         AI
       </span>
       <AiStatusIcon block={block} />
-      <span className="term-warp-block__title">{blockTitle(block)}</span>
+      <span className="term-warp-block__title">
+        <FeedSearchHighlightText text={blockTitle(block)} query={searchHighlightQuery} />
+      </span>
     </button>
   );
 }
@@ -429,6 +494,12 @@ function AiBlockSummary({
 function AiStatusIcon({ block }: { block: TerminalBlock }) {
   if (block.status === "running") {
     return <span className="term-warp-block__status term-warp-block__status--running" aria-hidden />;
+  }
+  if (block.kind === "ai") {
+    if (block.status === "failed") {
+      return <span className="term-warp-block__status term-warp-block__status--failed">✕</span>;
+    }
+    return <span className="term-warp-block__status term-warp-block__status--ok">✓</span>;
   }
   if (block.status === "failed" || (block.exitCode !== null && block.exitCode !== 0)) {
     return <span className="term-warp-block__status term-warp-block__status--failed">✕</span>;
@@ -448,6 +519,8 @@ function AiBlockCard({
   feedPinnedToBottom,
   onFocusInput,
   aiBlockIds,
+  searchFocused = false,
+  searchHighlightQuery = "",
 }: {
   blockId: string;
   sessionId: string;
@@ -462,6 +535,8 @@ function AiBlockCard({
   feedPinnedToBottom: boolean;
   onFocusInput?: () => void;
   aiBlockIds: string[];
+  searchFocused?: boolean;
+  searchHighlightQuery?: string;
 }) {
   const block = useBlocksStore((state) => state.findBlockById(blockId));
   const dockMaxHeight = useTerminalUiStore(
@@ -482,14 +557,20 @@ function AiBlockCard({
   const stickyClass =
     stickyOnCard && isStickyCandidate ? " term-warp-block--ai-sticky" : "";
   const dockClass = isDocked && expanded ? " term-warp-block--ai-sticky-docked" : "";
+  const searchClass = searchFocused ? " term-warp-block--search-focus" : "";
 
   if (!expanded) {
     return (
       <article
-        className={`term-warp-block term-warp-block--ai term-warp-block--collapsed${stickyClass}`}
+        className={`term-warp-block term-warp-block--ai term-warp-block--collapsed${stickyClass}${searchClass}`}
         data-block-id={block.id}
       >
-        <AiBlockSummary block={block} expanded={false} onToggle={onToggle} />
+        <AiBlockSummary
+          block={block}
+          expanded={false}
+          onToggle={onToggle}
+          searchHighlightQuery={searchHighlightQuery}
+        />
         <AiBlockHeaderActions
           block={block}
           sessionId={sessionId}
@@ -504,12 +585,17 @@ function AiBlockCard({
 
   return (
     <article
-      className={`term-warp-block term-warp-block--ai term-warp-block--expanded${stickyClass}${dockClass}`}
+      className={`term-warp-block term-warp-block--ai term-warp-block--expanded${stickyClass}${dockClass}${searchClass}`}
       style={isDocked ? { maxHeight: dockMaxHeight } : undefined}
       data-block-id={block.id}
     >
       <header className="term-warp-block__header">
-        <AiBlockSummary block={block} expanded onToggle={onToggle} />
+        <AiBlockSummary
+          block={block}
+          expanded
+          onToggle={onToggle}
+          searchHighlightQuery={searchHighlightQuery}
+        />
         <span className="term-warp-block__badge">助手</span>
         <AiBlockHeaderActions
           block={block}
@@ -540,7 +626,9 @@ const MemoAiBlockCard = memo(AiBlockCard, (prev, next) =>
   prev.stickyOnCard === next.stickyOnCard &&
   prev.feedPinnedToBottom === next.feedPinnedToBottom &&
   prev.onFocusInput === next.onFocusInput &&
-  prev.aiBlockIds === next.aiBlockIds,
+  prev.aiBlockIds === next.aiBlockIds &&
+  prev.searchFocused === next.searchFocused &&
+  prev.searchHighlightQuery === next.searchHighlightQuery,
 );
 
 function ShellBlockCard({
@@ -552,6 +640,8 @@ function ShellBlockCard({
   sessionType = "remote",
   sessionUser,
   onFocusInput,
+  searchFocused = false,
+  searchHighlightQuery = "",
 }: {
   block: TerminalBlock;
   sessionId: string;
@@ -561,6 +651,8 @@ function ShellBlockCard({
   sessionType?: TerminalSessionType;
   sessionUser?: string | null;
   onFocusInput?: () => void;
+  searchFocused?: boolean;
+  searchHighlightQuery?: string;
 }) {
   const { t } = useI18n();
   // 稳定 output 引用：避免 useSftpEnrichedLsListing effect 频繁 cleanup 导致
@@ -578,12 +670,18 @@ function ShellBlockCard({
   const running = block.status === "running";
   const cmd = stripAutoLsSuffix(normalizeBlockCommand(block.command));
   const isError =
-    block.status === "failed" || (block.exitCode !== null && block.exitCode !== 0);
+    block.status === "failed" ||
+    (block.exitCode !== null && block.exitCode !== 0) ||
+    hasShellErrorSignals(rawSource);
 
   const lsListing = useMemo(() => {
-    if (block.attachedListing) return block.attachedListing;
+    if (block.attachedListing) {
+      return block.attachedListing.entries.length > 0 ? block.attachedListing : null;
+    }
     if (!rawSource.trim() || isError) return null;
-    return tryParseLsListing(block.command, rawSource);
+    const parsed = tryParseLsListing(block.command, rawSource);
+    if (!parsed || parsed.entries.length === 0) return null;
+    return parsed;
   }, [block.attachedListing, block.command, rawSource, isError]);
 
   const listingCwd =
@@ -591,12 +689,31 @@ function ShellBlockCard({
     resolveCdDestination(cmd, block.cwd, sessionUser) ||
     block.cwd;
   const directoryPreview = shouldUseDirectoryPreview(block);
-  const showCommandLine = !directoryPreview && cmd.length > 0;
+  const showCommandLine = cmd.length > 0;
   const sshJumpTarget = block.linkedTabId?.trim() || null;
 
   const hasOutputBody =
     !!lsListing || (!!output && !directoryPreview) || !!sshJumpTarget;
   const [bodyCollapsed, setBodyCollapsed] = useState(false);
+  const collapseNonce = useTerminalUiStore(
+    (state) => state.shellBodyCollapseNonce[sessionId] ?? 0,
+  );
+  const sessionBodyCollapsed = useTerminalUiStore(
+    (state) => state.shellBodyCollapsedBySession[sessionId],
+  );
+  useEffect(() => {
+    if (typeof sessionBodyCollapsed !== "boolean") return;
+    setBodyCollapsed(sessionBodyCollapsed);
+  }, [collapseNonce, sessionBodyCollapsed]);
+
+  const showEmptyHint =
+    !running &&
+    !hasOutputBody &&
+    !bodyCollapsed &&
+    (directoryPreview || showCommandLine);
+  const emptyHintText = directoryPreview
+    ? t("terminal.feed.emptyDirectory")
+    : t("terminal.feed.emptyOutput");
   const outputLineCount = useMemo(() => {
     const text = lsListing ? output || block.output : output;
     if (!text) return 0;
@@ -609,6 +726,8 @@ function ShellBlockCard({
     <article
       className={`term-warp-block term-warp-block--shell${
         bodyCollapsed ? " term-warp-block--body-collapsed" : ""
+      }${directoryPreview && !hasOutputBody ? " term-warp-block--dir-empty" : ""}${
+        searchFocused ? " term-warp-block--search-focus" : ""
       }`}
       data-block-id={block.id}
     >
@@ -622,7 +741,9 @@ function ShellBlockCard({
             variant="block"
           />
           <span className="term-warp-prompt-line__symbol">{promptSymbol}</span>
-          <span className="term-warp-prompt-line__cmd">{cmd}</span>
+          <span className="term-warp-prompt-line__cmd">
+            <FeedSearchHighlightText text={cmd} query={searchHighlightQuery} />
+          </span>
           {duration ? <span className="term-warp-prompt-line__dur">{duration}</span> : null}
           {running && !directoryPreview && !output && !block.attachedListing ? (
             <span className="term-warp-prompt-line__spinner" aria-label="执行中" />
@@ -652,6 +773,7 @@ function ShellBlockCard({
           fallbackOutput={output}
           isError={isError}
           onRunCommand={onRunCommand}
+          highlightQuery={searchHighlightQuery}
         />
       ) : !bodyCollapsed && sshJumpTarget ? (
         <button
@@ -676,8 +798,12 @@ function ShellBlockCard({
         <pre
           className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}
         >
-          {output}
+          <FeedSearchHighlightText text={output} query={searchHighlightQuery} />
         </pre>
+      ) : showEmptyHint ? (
+        <div className="term-warp-output-empty" aria-label={emptyHintText}>
+          {emptyHintText}
+        </div>
       ) : null}
       <BlockCollapseFooter
         collapsed={bodyCollapsed}
@@ -722,6 +848,8 @@ function FeedAiRunSegmentView({
   sessionUser,
   onFocusInput,
   aiBlockIds,
+  searchFocusedBlockId = null,
+  searchHighlightQuery = "",
   useStickyAnchor = false,
 }: {
   segment: FeedAiRunSegment;
@@ -737,6 +865,8 @@ function FeedAiRunSegmentView({
   sessionUser?: string | null;
   onFocusInput?: () => void;
   aiBlockIds: string[];
+  searchFocusedBlockId?: string | null;
+  searchHighlightQuery?: string;
   /** 展开吸顶 AI 作为 sticky-context 直接子级，避免 segment 过短导致吸顶失效 */
   useStickyAnchor?: boolean;
 }) {
@@ -765,6 +895,8 @@ function FeedAiRunSegmentView({
       feedPinnedToBottom={feedPinnedToBottom}
       onFocusInput={onFocusInput}
       aiBlockIds={aiBlockIds}
+      searchFocused={searchFocusedBlockId === ai.id}
+      searchHighlightQuery={searchHighlightQuery}
     />
   );
 
@@ -779,6 +911,8 @@ function FeedAiRunSegmentView({
       sessionType={sessionType}
       sessionUser={sessionUser}
       onFocusInput={onFocusInput}
+      searchFocused={searchFocusedBlockId === shell.id}
+      searchHighlightQuery={searchHighlightQuery}
     />
   ));
 
@@ -814,6 +948,8 @@ type FeedSegmentViewProps = {
   sessionUser?: string | null;
   onFocusInput?: () => void;
   aiBlockIds: string[];
+  searchFocusedBlockId?: string | null;
+  searchHighlightQuery?: string;
 };
 
 function renderFeedSegment(
@@ -833,6 +969,8 @@ function renderFeedSegment(
         sessionType={props.sessionType}
         sessionUser={props.sessionUser}
         onFocusInput={props.onFocusInput}
+        searchFocused={props.searchFocusedBlockId === block.id}
+        searchHighlightQuery={props.searchHighlightQuery}
       />
     ));
   }
@@ -853,6 +991,8 @@ function renderFeedSegment(
       sessionUser={props.sessionUser}
       onFocusInput={props.onFocusInput}
       aiBlockIds={props.aiBlockIds}
+      searchFocusedBlockId={props.searchFocusedBlockId}
+      searchHighlightQuery={props.searchHighlightQuery}
       useStickyAnchor={options?.useStickyAnchor}
     />
   );
@@ -867,6 +1007,7 @@ export function TerminalBlockFeed({
   sessionType = "remote",
   sessionUser,
   onFocusInput,
+  isActive = true,
 }: TerminalBlockFeedProps) {
   const blocks = useBlocksStore((state) => state.blocks[sessionId] ?? EMPTY_TERMINAL_BLOCKS);
   const { t } = useI18n();
@@ -875,6 +1016,9 @@ export function TerminalBlockFeed({
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const prevBlockCountRef = useRef(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<FeedSearchFilters>(DEFAULT_FEED_SEARCH_FILTERS);
+  const [searchFocusIndex, setSearchFocusIndex] = useState(0);
   /** 用户未主动上滚时持续跟随输出；内容增高后不能用即时 isFeedPinnedToBottom 判断 */
   const followOutputRef = useRef(true);
   const [feedPinnedToBottom, setFeedPinnedToBottom] = useState(true);
@@ -889,13 +1033,84 @@ export function TerminalBlockFeed({
 
   useTerminalCopyContextMenu(scrollRef);
 
-  const visibleBlocks = blocks.filter(shouldRenderBlock);
+  const renderableBlocks = useMemo(() => blocks.filter(shouldRenderBlock), [blocks]);
+  const searchFiltering = searchOpen && isFeedSearchFiltering(searchFilters);
+  const matchIds = useMemo(
+    () => listFeedSearchMatchIds(blocks, searchFilters, shouldRenderBlock),
+    [blocks, searchFilters],
+  );
+
+  useEffect(() => {
+    setSearchFocusIndex(0);
+  }, [searchFilters.query, searchFilters.kind, searchFilters.failedOnly]);
+
+  const searchFocusedBlockId = useMemo(() => {
+    if (!searchOpen || matchIds.length === 0) return null;
+    if (!isFeedSearchFiltering(searchFilters) && searchFocusIndex === 0) return null;
+    const index = Math.min(searchFocusIndex, matchIds.length - 1);
+    return matchIds[index] ?? null;
+  }, [matchIds, searchFilters, searchFocusIndex, searchOpen]);
+
+  const searchHighlightQuery =
+    searchOpen && searchFilters.query.trim() ? searchFilters.query.trim() : "";
+
+  const visibleBlocks = useMemo(() => {
+    if (!searchFiltering) return renderableBlocks;
+    const idSet = new Set(matchIds);
+    return renderableBlocks.filter((block) => idSet.has(block.id));
+  }, [matchIds, renderableBlocks, searchFiltering]);
+
+  const focusMatchAt = useCallback(
+    (index: number) => {
+      if (matchIds.length === 0) return;
+      const clamped = ((index % matchIds.length) + matchIds.length) % matchIds.length;
+      setSearchFocusIndex(clamped);
+      const blockId = matchIds[clamped];
+      if (blockId) scrollTerminalBlockIntoView(sessionId, blockId);
+    },
+    [matchIds, sessionId],
+  );
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchFilters(DEFAULT_FEED_SEARCH_FILTERS);
+    setSearchFocusIndex(0);
+  }, []);
+
+  const patchSearchFilters = useCallback((patch: Partial<FeedSearchFilters>) => {
+    setSearchFilters((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    if (!searchOpen || !searchFiltering || matchIds.length === 0) return;
+    scrollTerminalBlockIntoView(sessionId, matchIds[0]!);
+  }, [
+    matchIds,
+    searchFilters.failedOnly,
+    searchFilters.kind,
+    searchFilters.query,
+    searchFiltering,
+    searchOpen,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isActive]);
   const aiBlockIds = useMemo(
     () =>
-      blocks
-        .filter((entry) => entry.kind === "ai" && shouldRenderBlock(entry))
+      renderableBlocks
+        .filter((entry) => entry.kind === "ai")
         .map((entry) => entry.id),
-    [blocks],
+    [renderableBlocks],
   );
   const feedSegments = useMemo(
     () => groupFeedBlocksIntoSegments(visibleBlocks),
@@ -934,6 +1149,8 @@ export function TerminalBlockFeed({
       sessionUser,
       onFocusInput,
       aiBlockIds,
+      searchFocusedBlockId,
+      searchHighlightQuery,
     }),
     [
       sessionId,
@@ -948,6 +1165,8 @@ export function TerminalBlockFeed({
       sessionUser,
       onFocusInput,
       aiBlockIds,
+      searchFocusedBlockId,
+      searchHighlightQuery,
     ],
   );
 
@@ -1128,11 +1347,25 @@ export function TerminalBlockFeed({
     [],
   );
 
-  if (visibleBlocks.length === 0) return null;
+  if (renderableBlocks.length === 0) return null;
 
   return (
-    <div className="term-warp-feed" ref={scrollRef}>
+    <div className={`term-warp-feed${searchOpen ? " term-warp-feed--search-open" : ""}`} ref={scrollRef}>
+      {searchOpen ? (
+        <FeedSearchBar
+          filters={searchFilters}
+          matchCount={matchIds.length}
+          focusIndex={Math.min(searchFocusIndex, Math.max(matchIds.length - 1, 0))}
+          onChange={patchSearchFilters}
+          onPrev={() => focusMatchAt(searchFocusIndex - 1)}
+          onNext={() => focusMatchAt(searchFocusIndex + 1)}
+          onClose={closeSearch}
+        />
+      ) : null}
       <div className="term-warp-feed__list" ref={listRef}>
+        {searchFiltering && visibleBlocks.length === 0 ? (
+          <div className="term-feed-search__empty">{t("terminal.feed.search.noMatch")}</div>
+        ) : null}
         {feedSegments.map((segment, index) => {
           if (expandedAiSegmentIndex >= 0) {
             if (index < expandedAiSegmentIndex) {

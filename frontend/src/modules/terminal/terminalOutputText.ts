@@ -40,7 +40,30 @@ export type TerminalBlockStatus = "running" | "completed" | "failed";
 const PROMPT_LINE_RE = /^[^\n]*[$#>]\s*$/;
 const PROMPT_WITH_CMD_RE = /^[^\n]*[$#>]\s+/;
 const WRAPPED_PROMPT_SUFFIX_RE = /^[[(]?[A-Za-z0-9._-]+@[A-Za-z0-9._-]+.*(?:[\])}]|[#$>])$/;
+const PS_PROMPT_ONLY_RE = /^PS\s+[A-Za-z]:[^>]*>\s*$/i;
+const PS_GLUED_PROMPT_SUFFIX_RE = /^(.+?)PS\s+[A-Za-z]:[^>\r\n]*>\s*$/i;
+const UNIX_PROMPT_ONLY_RE = /^[^\s]+@[^\s]+:[^\s]*[$#]\s*$/;
 const MAX_WRAPPED_PROMPT_LINES = 24;
+
+/** PowerShell 常把 stdout 与提示符粘在同一行，剥离尾部 PS C:\\...> */
+export function stripInlinePowerShellPromptSuffix(line: string): string {
+  const trimmed = line.trim();
+  const glued = PS_GLUED_PROMPT_SUFFIX_RE.exec(trimmed);
+  if (glued?.[1]?.trim()) return glued[1]!.trim();
+  if (PS_PROMPT_ONLY_RE.test(trimmed)) return "";
+  return trimmed;
+}
+
+function isStandalonePromptLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (PS_PROMPT_ONLY_RE.test(trimmed)) return true;
+  if (UNIX_PROMPT_ONLY_RE.test(trimmed)) return true;
+  if (/^[$#>]\s*$/.test(trimmed)) return true;
+  // 勿把「输出 + PS 提示符」整行当成纯提示符
+  if (PS_GLUED_PROMPT_SUFFIX_RE.test(trimmed)) return false;
+  return PROMPT_LINE_RE.test(trimmed) && !/[^\s$#>]{3,}/.test(trimmed.replace(/[$#>]/g, ""));
+}
 
 /** 从块记录或 OSC 读行中取出纯命令文本 */
 export function normalizeBlockCommand(command: string): string {
@@ -101,7 +124,7 @@ function stripTrailingPromptLines(lines: string[]): string[] {
   }
 
   let end = lines.length;
-  while (end > 0 && PROMPT_LINE_RE.test(lines[end - 1]?.trim() ?? "")) {
+  while (end > 0 && isStandalonePromptLine(lines[end - 1]?.trim() ?? "")) {
     end -= 1;
   }
 
@@ -164,19 +187,21 @@ export function extractCommandOutput(raw: string, command: string): string {
   let skippingPrefix = true;
 
   for (const line of lines) {
-    if (PROMPT_LINE_RE.test(line)) continue;
-    if (/^[^\s]+@[^\s]+:[^\s]*[$#]\s*$/.test(line)) continue;
+    const normalizedLine = stripInlinePowerShellPromptSuffix(line);
+    if (!normalizedLine) continue;
+    if (isStandalonePromptLine(line)) continue;
+    if (/^[^\s]+@[^\s]+:[^\s]*[$#]\s*$/.test(normalizedLine)) continue;
 
-    const withoutPrompt = line.replace(PROMPT_WITH_CMD_RE, "").trim();
+    const withoutPrompt = normalizedLine.replace(PROMPT_WITH_CMD_RE, "").trim();
     const lineNorm = withoutPrompt.replace(/\s+/g, " ");
 
-    if (looksLikeShellCommandEchoLine(withoutPrompt || line)) continue;
-    if (OMNIPANEL_PS_IEX_RUNNER_RE.test(withoutPrompt || line)) continue;
-    if (/^\s*cd\b/i.test(withoutPrompt || line) && /\s&&\s*(?:ls|dir|ll|la|l)\b/i.test(withoutPrompt || line)) {
+    if (looksLikeShellCommandEchoLine(withoutPrompt || normalizedLine)) continue;
+    if (OMNIPANEL_PS_IEX_RUNNER_RE.test(withoutPrompt || normalizedLine)) continue;
+    if (/^\s*cd\b/i.test(withoutPrompt || normalizedLine) && /\s&&\s*(?:ls|dir|ll|la|l)\b/i.test(withoutPrompt || normalizedLine)) {
       continue;
     }
 
-    if (variantNorms.some((variant) => variant === lineNorm) || line.replace(/\s+/g, " ") === sentNorm) {
+    if (variantNorms.some((variant) => variant === lineNorm) || normalizedLine.replace(/\s+/g, " ") === sentNorm) {
       continue;
     }
 
@@ -203,7 +228,7 @@ export function extractCommandOutput(raw: string, command: string): string {
       skippingPrefix = false;
     }
 
-    filtered.push(withoutPrompt || line);
+    filtered.push(withoutPrompt || normalizedLine);
   }
 
   const result = stripTrailingPromptLines(filtered).join("\n").trim();
@@ -232,7 +257,17 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
     return false;
   }
 
-  const rawNorm = stripTerminalControlSequences(raw).replace(/\s+/g, " ").trim();
+  const stripped = stripTerminalControlSequences(raw).trim();
+  const strippedWithoutPs = stripInlinePowerShellPromptSuffix(stripped);
+  if (
+    strippedWithoutPs &&
+    strippedWithoutPs !== sent &&
+    !strippedWithoutPs.toLowerCase().startsWith(sent.toLowerCase())
+  ) {
+    return false;
+  }
+
+  const rawNorm = stripped.replace(/\s+/g, " ").trim();
   const sentNorm = sent.replace(/\s+/g, " ").trim();
   if (!rawNorm || !sentNorm) return false;
   if (rawNorm === sentNorm) return true;

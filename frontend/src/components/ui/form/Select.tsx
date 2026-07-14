@@ -377,6 +377,13 @@ export function Select({
                   placeholder={
                     searchPlaceholder ?? t("ui.select.searchPlaceholder")
                   }
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-form-type="other"
                   onChange={(e) => {
                     setQuery(e.target.value);
                     setHighlightIndex(0);

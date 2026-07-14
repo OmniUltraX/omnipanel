@@ -1,4 +1,6 @@
 import { lazy, type ComponentType } from "react";
+import type { OverlayModuleKey } from "../lib/routePanels";
+import { preloadOverlayModuleChunk } from "../lib/moduleWarmup";
 
 function lazyNamedModule<T extends ComponentType<object>>(
   loader: () => Promise<Record<string, T>>,
@@ -69,22 +71,50 @@ export const LazyUserWorkspace = lazyNamedModule(
   "UserWorkspace",
 );
 
-const MODULE_CHUNK_LOADERS = [
-  () => import("../modules/terminal/TerminalPanel"),
-  () => import("../modules/database/DatabasePanel"),
-  () => import("../modules/docker/DockerPanel"),
-  () => import("../modules/server/ServerPanel"),
-  () => import("../modules/protocol/ProtocolPanel"),
-  () => import("../modules/workflow/WorkflowPanel"),
-  () => import("../modules/knowledge/KnowledgePanel"),
-  () => import("../modules/files/FilesPanel"),
+/** 空闲预热顺序：终端优先，其余随后；仅拉 chunk，不挂载 */
+const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
+  "terminal",
+  "database",
+  "docker",
+  "server",
+  "files",
+  "protocol",
+  "workflow",
+  "knowledge",
+];
+
+const EXTRA_IDLE_LOADERS = [
   () => import("../modules/workspace/DashboardPage"),
   () => import("../modules/workspace/UserWorkspace"),
 ] as const;
 
-/** 空闲时预拉取模块 chunk，首次点击侧栏即可秒开 */
+/** 空闲时逐个预拉取模块 chunk，首次点击侧栏即可秒开；避免一次打满主线程 */
 export function preloadModuleChunks(): void {
-  for (const load of MODULE_CHUNK_LOADERS) {
-    void load().catch(() => {});
-  }
+  let index = 0;
+  const loadNext = () => {
+    if (index < IDLE_CHUNK_KEYS.length) {
+      const key = IDLE_CHUNK_KEYS[index++];
+      void preloadOverlayModuleChunk(key).finally(() => {
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(loadNext, { timeout: 2000 });
+        } else {
+          window.setTimeout(loadNext, 50);
+        }
+      });
+      return;
+    }
+    const extraIndex = index - IDLE_CHUNK_KEYS.length;
+    if (extraIndex >= EXTRA_IDLE_LOADERS.length) return;
+    index++;
+    void EXTRA_IDLE_LOADERS[extraIndex]()
+      .catch(() => {})
+      .finally(() => {
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(loadNext, { timeout: 2000 });
+        } else {
+          window.setTimeout(loadNext, 50);
+        }
+      });
+  };
+  loadNext();
 }

@@ -14,8 +14,8 @@ import {
   prepareShellForAiTool,
   recoverShellAfterAiTool,
 } from "./terminalShellRecovery";
-import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete } from "./terminalAutoLs";
-import { isCdNavigationCommand } from "./terminalAutoLsPolicy";
+import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete } from "./terminalAutoLs";
+import { isCdNavigationCommand, isCdOnlyCommand } from "./terminalAutoLsPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 import { useTerminalUiStore } from "./terminalUiStore";
@@ -168,6 +168,14 @@ function armFeedCapture(sessionId: string, command: string, silent = false): str
     status: "running",
     ...(silent ? { silent: true } : {}),
   });
+
+  if (silent) {
+    if (isCdOnlyCommand(command)) {
+      scheduleCdBlockFallbackComplete(sessionId, blockId);
+    } else {
+      scheduleShellBlockFallbackComplete(sessionId, blockId);
+    }
+  }
 
   return blockId;
 }

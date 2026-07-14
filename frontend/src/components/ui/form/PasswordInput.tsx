@@ -29,6 +29,10 @@ export function PasswordInput({
   style,
   disabled,
   id: idProp,
+  autoComplete = "off",
+  spellCheck = false,
+  autoCorrect = "off",
+  autoCapitalize = "off",
   ...rest
 }: PasswordInputProps) {
   const { t } = useI18n();
@@ -55,7 +59,13 @@ export function PasswordInput({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         style={{ width: "100%", ...style }}
-        autoComplete={rest.autoComplete ?? "off"}
+        autoComplete={autoComplete}
+        spellCheck={spellCheck}
+        autoCorrect={autoCorrect}
+        autoCapitalize={autoCapitalize}
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
       />
       <div className="input-field__actions">
         <Button

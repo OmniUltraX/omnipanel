@@ -7,6 +7,7 @@ import { useSftpEnrichedLsListing } from "./useSftpEnrichedLsListing";
 import { useTerminalFilePreviewStore } from "../terminalFilePreviewStore";
 import { joinListingEntryPath } from "./resolveLsListingDirectory";
 import { LOCAL_CONNECTION_ID } from "../../files/utils";
+import { FeedSearchHighlightText } from "../FeedSearchHighlightText";
 type EnrichedLsListingViewProps = {
   listing: LsListing;
   command: string;
@@ -19,6 +20,7 @@ type EnrichedLsListingViewProps = {
   isError?: boolean;
   rawOutput?: string | null;
   onRunCommand?: (command: string) => void;
+  highlightQuery?: string;
 };
 
 function EnrichedLsListingViewInner({
@@ -33,6 +35,7 @@ function EnrichedLsListingViewInner({
   fallbackOutput,
   isError = false,
   onRunCommand,
+  highlightQuery = "",
 }: EnrichedLsListingViewProps) {
   const listingDirectory = useMemo(
     () => resolveListingDirectoryForBlock(command, cwd, sessionUser, rawOutput),
@@ -86,13 +89,14 @@ function EnrichedLsListingViewInner({
         listingDirectory={listingDirectory}
         onRunCommand={onRunCommand}
         onOpenFile={handleOpenFile}
+        highlightQuery={highlightQuery}
       />
     );
   }
 
   return (
     <pre className={`term-warp-output${isError ? " term-warp-output--error" : ""}`}>
-      {fallbackOutput}
+      <FeedSearchHighlightText text={fallbackOutput} query={highlightQuery} />
     </pre>
   );
 }

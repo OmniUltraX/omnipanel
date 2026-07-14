@@ -12,6 +12,9 @@ const inflightFetches = new Set<string>();
 const FETCH_THROTTLE_MS = 15_000;
 const LOCAL_HISTORY_MAX_BYTES = 2_000_000;
 
+/** 已成功通过 SFTP/PTY 同步过的 SSH 资源，避免重复拉取 */
+export const resourceHistorySyncedIds = new Set<string>();
+
 /** useTerminal 连接建立时写入，避免 store 未及时同步 backendSessionId */
 const runtimeBackendIds = new Map<string, string>();
 
@@ -90,6 +93,8 @@ function applyHistoryLines(sessionId: string, lines: string[]): boolean {
   useSessionShellHistoryStore.getState().setCommands(sessionId, commandsList);
   const backendId = resolveBackendSessionId(sessionId);
   if (backendId) ptyHistorySyncedBackendIds.add(backendId);
+  const pane = findTerminalPane(sessionId);
+  if (pane?.resourceId) resourceHistorySyncedIds.add(pane.resourceId);
   return true;
 }
 
@@ -160,19 +165,19 @@ export async function fetchShellHistoryFromBackend(sessionId: string): Promise<b
   const pane = findTerminalPane(sessionId);
   if (!pane || pane.type !== "remote") return false;
 
-  const backendId = resolveBackendSessionId(sessionId);
-  if (!backendId) return false;
+  const resourceId = pane.resourceId?.trim();
+  if (!resourceId) return false;
 
   if (shouldSkipFetch(sessionId)) {
     return useSessionShellHistoryStore.getState().getCommands(sessionId).length > 0;
   }
 
-  const user = resolveSshUsername(pane.resourceId);
+  const user = resolveSshUsername(resourceId);
   const paths = buildHistoryPaths(user, pane.cwd ?? "");
 
   for (const remotePath of paths) {
     try {
-      const res = await commands.sftpDownload(backendId, remotePath);
+      const res = await commands.sftpDownload(resourceId, remotePath);
       if (res.status !== "ok" || !res.data?.length) continue;
 
       const text = new TextDecoder().decode(new Uint8Array(res.data));

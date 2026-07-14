@@ -1,6 +1,9 @@
 import type { TerminalBlock } from "../../../stores/blocksStore";
 import { isAiThreadMessage } from "../../../stores/blocksStore";
+import { stripAutoLsSuffix } from "../terminalAutoLsPolicy";
+import { normalizeBlockCommand } from "../terminalOutputText";
 import { isInternalHistoryCommand } from "./internalHistoryCommands";
+import { fuzzyMatchScore } from "./fuzzyMatch";
 
 export type CommandHistoryKind = "shell" | "ai" | "readline";
 
@@ -12,50 +15,57 @@ export type CommandHistoryEntry = {
 export const HISTORY_PANEL_DISPLAY_LIMIT = 50;
 export const HISTORY_SEARCH_DISPLAY_LIMIT = 100;
 
-type BlockMeta = {
-  kind: CommandHistoryKind;
-  timestamp: number;
-};
-
-function extractAiCommandText(block: TerminalBlock): string[] {
-  const results: string[] = [];
-  const cmd = block.command.trim();
-  if (cmd.startsWith("#")) {
-    results.push(cmd);
-  } else if (block.kind === "ai" && block.title?.trim()) {
-    results.push(`# ${block.title.trim()}`);
-  }
-
-  for (const item of block.aiThread ?? []) {
-    if (!isAiThreadMessage(item) || item.role !== "user") continue;
-    const query = item.content.trim();
-    if (!query) continue;
-    results.push(query.startsWith("#") ? query : `# ${query}`);
-  }
-
-  return results;
+function normalizeShellHistoryCommand(command: string): string {
+  return stripAutoLsSuffix(normalizeBlockCommand(command)).trim();
 }
 
-function buildBlockMeta(blocks: TerminalBlock[]): Map<string, BlockMeta> {
-  const map = new Map<string, BlockMeta>();
+function formatAiHistoryText(query: string): string {
+  const trimmed = query.trim();
+  return trimmed.startsWith("#") ? trimmed : `# ${trimmed}`;
+}
+
+function upsertEntry(
+  map: Map<string, IndexedCommandHistoryEntry>,
+  text: string,
+  kind: CommandHistoryKind,
+  timestamp: number,
+): void {
+  if (!text || isInternalHistoryCommand(text)) return;
+  const searchText = text.toLowerCase();
+  const existing = map.get(searchText);
+  if (!existing || timestamp >= existing.timestamp) {
+    map.set(searchText, { text, kind, timestamp, searchText });
+  }
+}
+
+function collectBlockEntries(blocks: TerminalBlock[]): Map<string, IndexedCommandHistoryEntry> {
+  const map = new Map<string, IndexedCommandHistoryEntry>();
+
   for (const block of blocks) {
+    const blockTs = block.completedAt ?? block.timestamp;
+
     if (block.kind === "ai") {
-      for (const text of extractAiCommandText(block)) {
-        if (isInternalHistoryCommand(text)) continue;
-        const existing = map.get(text);
-        if (!existing || block.timestamp >= existing.timestamp) {
-          map.set(text, { kind: "ai", timestamp: block.timestamp });
-        }
+      for (const item of block.aiThread ?? []) {
+        if (!isAiThreadMessage(item) || item.role !== "user") continue;
+        const query = item.content.trim();
+        if (!query) continue;
+        upsertEntry(map, formatAiHistoryText(query), "ai", item.timestamp ?? blockTs);
+      }
+
+      const cmd = block.command.trim();
+      if (cmd.startsWith("#")) {
+        upsertEntry(map, cmd, "ai", blockTs);
+      } else if (block.title?.trim()) {
+        upsertEntry(map, formatAiHistoryText(block.title.trim()), "ai", blockTs);
       }
       continue;
     }
-    const cmd = block.command.trim();
-    if (!cmd || cmd.startsWith("#") || isInternalHistoryCommand(cmd)) continue;
-    const existing = map.get(cmd);
-    if (!existing || block.timestamp >= existing.timestamp) {
-      map.set(cmd, { kind: "shell", timestamp: block.timestamp });
-    }
+
+    const cmd = normalizeShellHistoryCommand(block.command);
+    if (!cmd || cmd.startsWith("#")) continue;
+    upsertEntry(map, cmd, "shell", blockTs);
   }
+
   return map;
 }
 
@@ -70,7 +80,7 @@ export function computeBlocksHistoryKey(blocks: TerminalBlock[]): string {
     if (thread && thread.length > 0) {
       for (const item of thread) {
         if (item.kind === "message" && item.role === "user") {
-          part += `\x01${item.id}:${item.content}`;
+          part += `\x01${item.id}:${item.content}:${item.timestamp}`;
         }
       }
     }
@@ -88,37 +98,29 @@ export function buildHistoryIndex(
   blocks: TerminalBlock[],
   readlineCommands: string[],
 ): IndexedCommandHistoryEntry[] {
-  const blockMeta = buildBlockMeta(blocks);
-  const seen = new Set<string>();
-  const entries: IndexedCommandHistoryEntry[] = [];
-  const recencyBase = Date.now();
+  const blockEntries = collectBlockEntries(blocks);
+  const sessionEntries = Array.from(blockEntries.values()).sort(
+    (a, b) => b.timestamp - a.timestamp,
+  );
+  const seen = new Set(blockEntries.keys());
+  const readlineEntries: IndexedCommandHistoryEntry[] = [];
 
   for (let i = 0; i < readlineCommands.length; i += 1) {
     const text = readlineCommands[i]!.trim();
-    if (!text || isInternalHistoryCommand(text) || seen.has(text)) continue;
-    seen.add(text);
-    const fromBlock = blockMeta.get(text);
-    entries.push({
+    if (!text || isInternalHistoryCommand(text)) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const kind: CommandHistoryKind = text.startsWith("#") ? "ai" : "readline";
+    readlineEntries.push({
       text,
-      kind: fromBlock?.kind ?? "readline",
-      timestamp: fromBlock?.timestamp ?? recencyBase - i,
-      searchText: text.toLowerCase(),
+      kind,
+      timestamp: readlineCommands.length - i,
+      searchText: key,
     });
   }
 
-  for (const [text, meta] of blockMeta) {
-    if (seen.has(text)) continue;
-    seen.add(text);
-    entries.push({
-      text,
-      kind: meta.kind,
-      timestamp: meta.timestamp,
-      searchText: text.toLowerCase(),
-    });
-  }
-
-  entries.sort((a, b) => b.timestamp - a.timestamp);
-  return entries;
+  return [...sessionEntries, ...readlineEntries];
 }
 
 export function filterHistoryIndex(
@@ -133,11 +135,17 @@ export function filterHistoryIndex(
   }
 
   const matched: CommandHistoryEntry[] = [];
+  const scored: Array<{ entry: IndexedCommandHistoryEntry; score: number }> = [];
   for (let i = 0; i < index.length; i += 1) {
     const entry = index[i]!;
-    if (!entry.searchText.includes(normalized)) continue;
-    matched.push(entry);
-    if (matched.length >= searchLimit) break;
+    const score = fuzzyMatchScore(normalized, entry.text);
+    if (score <= 0) continue;
+    scored.push({ entry, score });
+  }
+  scored.sort((a, b) => b.score - a.score || b.entry.timestamp - a.entry.timestamp);
+  const limit = searchLimit;
+  for (let i = 0; i < scored.length && matched.length < limit; i += 1) {
+    matched.push(scored[i]!.entry);
   }
   return matched;
 }

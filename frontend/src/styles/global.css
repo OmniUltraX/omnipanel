@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 @import "./fonts.css";
 @import "./tokens.css";
 
@@ -58,20 +58,20 @@ a {
     -webkit-user-drag: none;
 }
 
-/* 全局禁止文本选中，需要选择的元素自行添加 user-select: auto 或 text */
+/* 鍏ㄥ眬绂佹鏂囨湰閫変腑锛岄渶瑕侀€夋嫨鐨勫厓绱犺嚜琛屾坊鍔?user-select: auto 鎴?text */
 * {
     -webkit-user-select: none;
     user-select: none;
 }
 
-/* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
+/* 鍙鍖哄煙椤绘斁鍦?unlayered 瑙勫垯涓紝鍚﹀垯鏃犳硶瑕嗙洊涓婃柟 * 閫夋嫨鍣紙@layer components 浼樺厛绾ф洿浣庯級 */
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body * {
     -webkit-user-select: text !important;
     user-select: text !important;
 }
 
-/* ─── Workspace Framework ─────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ Workspace Framework 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .env-badge {
     display: inline-flex;
     align-items: center;
@@ -175,7 +175,7 @@ a {
     min-width: 0 !important;
 }
 
-/* ─── 底部侧栏（SidebarBottom）───────────────────────────────────── */
+/* 鈹€鈹€鈹€ 搴曢儴渚ф爮锛圫idebarBottom锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .dock-workspace.content-bottom .dock-panel-bottom {
     border-top: 1px solid var(--border);
     background: var(--bg-deeper);
@@ -191,7 +191,7 @@ a {
     overflow: hidden;
 }
 
-/* 底部工程工作区：多实例切换 + DockWorkspace 布局 */
+/* 搴曢儴宸ョ▼宸ヤ綔鍖猴細澶氬疄渚嬪垏鎹?+ DockWorkspace 甯冨眬 */
 .workspace-bottom-shell {
     height: 100%;
     width: 100%;
@@ -293,7 +293,7 @@ a {
     pointer-events: none;
 }
 
-/* 底部工程工作区全屏：隐藏顶栏与主内容区，保留状态栏 */
+/* 搴曢儴宸ョ▼宸ヤ綔鍖哄叏灞忥細闅愯棌椤舵爮涓庝富鍐呭鍖猴紝淇濈暀鐘舵€佹爮 */
 .workspace--bottom-fullscreen > .topbar {
     visibility: hidden;
     pointer-events: none;
@@ -350,7 +350,7 @@ a {
     flex-direction: column;
 }
 
-/* 工作区宿主：full / half / off 语义 */
+/* 宸ヤ綔鍖哄涓伙細full / half / off 璇箟 */
 .workspace-host {
     flex: 1;
     min-height: 0;
@@ -366,10 +366,9 @@ a {
     min-height: 0;
 }
 
-/* 全屏时由 workspace-preview__main 隐藏主区，勿再 visibility:hidden content-routes，
-   否则 navigate→exit 时多一层可见性切换，退出全屏会闪空白帧 */
+/* 鍏ㄥ睆鏃剁敱 workspace-preview__main 闅愯棌涓诲尯锛屽嬁鍐?visibility:hidden content-routes锛?   鍚﹀垯 navigate鈫抏xit 鏃跺涓€灞傚彲瑙佹€у垏鎹紝閫€鍑哄叏灞忎細闂┖鐧藉抚 */
 
-/* ─── 工作区预览（WorkspacePreview · split-window / task-bar）────────── */
+/* 鈹€鈹€鈹€ 宸ヤ綔鍖洪瑙堬紙WorkspacePreview 路 split-window / task-bar锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .workspace-preview {
     flex: 1;
     min-height: 0;
@@ -379,7 +378,7 @@ a {
     overflow: hidden;
 }
 
-/* task-bar 固定高度：须在宿主层定义，供 dock-panel-bottom 继承（勿依赖 .workspace-taskbar-strip） */
+/* task-bar 鍥哄畾楂樺害锛氶』鍦ㄥ涓诲眰瀹氫箟锛屼緵 dock-panel-bottom 缁ф壙锛堝嬁渚濊禆 .workspace-taskbar-strip锛?*/
 .workspace-preview--task-bar,
 .workspace-host--taskbar {
     --ws-taskbar-h: var(--topbar-h, 44px);
@@ -450,7 +449,7 @@ a {
     flex-direction: column;
 }
 
-/* split-window 下解除 task-bar 遗留的 40px 高度约束（宿主 class 切换可能滞后一帧） */
+/* split-window 涓嬭В闄?task-bar 閬楃暀鐨?40px 楂樺害绾︽潫锛堝涓?class 鍒囨崲鍙兘婊炲悗涓€甯э級 */
 .workspace-preview--split-window .dock-panel-bottom--workspace,
 .workspace-host--half .dock-panel-bottom--workspace {
     flex: 1 1 auto !important;
@@ -502,7 +501,7 @@ a {
     flex-direction: column;
 }
 
-/* task-bar 模式底栏（与半屏/全屏工程工作区 dock tab 栏视觉对齐） */
+/* task-bar 妯″紡搴曟爮锛堜笌鍗婂睆/鍏ㄥ睆宸ョ▼宸ヤ綔鍖?dock tab 鏍忚瑙夊榻愶級 */
 .workspace-preview-taskbar {
     flex: 1 1 auto;
     display: flex;
@@ -546,7 +545,7 @@ a {
     background: var(--bg);
 }
 
-/* taskbar tab：贴满栏高，顶边 inset 指示条（避免 border 挤出上边距） */
+/* taskbar tab锛氳创婊℃爮楂橈紝椤惰竟 inset 鎸囩ず鏉★紙閬垮厤 border 鎸ゅ嚭涓婅竟璺濓級 */
 .workspace-preview-taskbar .workspace-taskbar-tab {
     flex: 0 0 auto;
     align-self: stretch;
@@ -959,7 +958,7 @@ a {
     height: 100%;
 }
 
-/* 工作区内覆盖 Docker 抽屉固定高度（360px） */
+/* 宸ヤ綔鍖哄唴瑕嗙洊 Docker 鎶藉眽鍥哄畾楂樺害锛?60px锛?*/
 .docker-workspace-tab-pane .docker-exec-term,
 .workspace-panel-dock .docker-exec-term,
 .workspace-bottom-fullscreen-shell .docker-exec-term {
@@ -1152,7 +1151,7 @@ a {
     width: 100%;
 }
 
-/* 工程工作区半屏：tab 栏与全屏按钮统一为 shell 顶栏高度 */
+/* 宸ョ▼宸ヤ綔鍖哄崐灞忥細tab 鏍忎笌鍏ㄥ睆鎸夐挳缁熶竴涓?shell 椤舵爮楂樺害 */
 .workspace-panel-dock.dockable-workspace {
     --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
     --dv-tabs-and-actions-container-font-size: 14px;
@@ -1171,8 +1170,7 @@ a {
     box-sizing: border-box;
 }
 
-/* 半屏嵌入：仅为工程工作区根级顶部 tab 栏留白，避开右上角 mode-controls；
-   勿用后代选择器命中嵌套的 advance-terminal-side-dock 竖排侧栏（38px 宽加 padding 会整列空白） */
+/* 鍗婂睆宓屽叆锛氫粎涓哄伐绋嬪伐浣滃尯鏍圭骇椤堕儴 tab 鏍忕暀鐧斤紝閬垮紑鍙充笂瑙?mode-controls锛?   鍕跨敤鍚庝唬閫夋嫨鍣ㄥ懡涓祵濂楃殑 advance-terminal-side-dock 绔栨帓渚ф爮锛?8px 瀹藉姞 padding 浼氭暣鍒楃┖鐧斤級 */
 .workspace-panel-frame:has(.workspace-panel-mode-controls)
     .workspace-panel-dock.dockable-workspace.dock-header-top
     > .dockable-workspace__dockview
@@ -1222,7 +1220,7 @@ a {
     height: 100%;
 }
 
-/* 半屏嵌入空工作区：顶栏由 workspace-panel-empty-topbar 承载，隐藏 dockview 空 group 残留 tab 栏 */
+/* 鍗婂睆宓屽叆绌哄伐浣滃尯锛氶《鏍忕敱 workspace-panel-empty-topbar 鎵胯浇锛岄殣钘?dockview 绌?group 娈嬬暀 tab 鏍?*/
 .workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
@@ -1236,7 +1234,7 @@ a {
     pointer-events: none;
 }
 
-/* 保留 dv-content-container 尺寸供 dockview 空 group 接收跨 dock 拖放（半屏嵌入空态） */
+/* 淇濈暀 dv-content-container 灏哄渚?dockview 绌?group 鎺ユ敹璺?dock 鎷栨斁锛堝崐灞忓祵鍏ョ┖鎬侊級 */
 .workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
@@ -1245,7 +1243,7 @@ a {
     min-height: 0;
 }
 
-/* 用户工作区详情页（/workspace/:id） */
+/* 鐢ㄦ埛宸ヤ綔鍖鸿鎯呴〉锛?workspace/:id锛?*/
 .user-workspace {
     display: flex;
     flex-direction: column;
@@ -1269,7 +1267,7 @@ a {
     min-height: 0;
 }
 
-/* 空工作区占位层不拦截拖放，仅恢复输入控件可点击 */
+/* 绌哄伐浣滃尯鍗犱綅灞備笉鎷︽埅鎷栨斁锛屼粎鎭㈠杈撳叆鎺т欢鍙偣鍑?*/
 .workspace-panel-frame.workspace-panel--empty .dockable-workspace__empty--overlay,
 .workspace-panel-frame.workspace-panel--empty .dockable-workspace__empty--overlay * {
     pointer-events: none;
@@ -1459,7 +1457,7 @@ a {
     color: var(--meta);
 }
 
-/* ─── 工作区五态：缩略图 / 任务栏 / 全屏拖拽 ─── */
+/* 鈹€鈹€鈹€ 宸ヤ綔鍖轰簲鎬侊細缂╃暐鍥?/ 浠诲姟鏍?/ 鍏ㄥ睆鎷栨嫿 鈹€鈹€鈹€ */
 .sidebar-bottom-host {
     flex: 1;
     min-height: 0;
@@ -1498,7 +1496,7 @@ a {
     align-items: stretch;
 }
 
-/* 任务栏单行：Tab 区撑满，全屏按钮固定在最右 */
+/* 浠诲姟鏍忓崟琛岋細Tab 鍖烘拺婊★紝鍏ㄥ睆鎸夐挳鍥哄畾鍦ㄦ渶鍙?*/
 .workspace-taskbar-bar {
     display: flex;
     flex-direction: row;
@@ -1689,7 +1687,7 @@ a {
     background: var(--bg-deeper);
 }
 
-/* 悬浮控件：左上角切换器、右上角全屏 */
+/* 鎮诞鎺т欢锛氬乏涓婅鍒囨崲鍣ㄣ€佸彸涓婅鍏ㄥ睆 */
 .workspace-compact-float {
     position: absolute;
     z-index: 12;
@@ -2246,7 +2244,7 @@ a {
     overflow: hidden;
 }
 
-/* SQL 编辑器 CodeMirror 补全列表（tooltip 挂载在 body，随主题变量切换） */
+/* SQL 缂栬緫鍣?CodeMirror 琛ュ叏鍒楄〃锛坱ooltip 鎸傝浇鍦?body锛岄殢涓婚鍙橀噺鍒囨崲锛?*/
 .cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
     width: 8px;
 }
@@ -2281,7 +2279,7 @@ a {
     border-color: color-mix(in srgb, #bf5af2 32%, var(--border));
 }
 
-/* SQL Lint 波浪线 / gutter 诊断提示 */
+/* SQL Lint 娉㈡氮绾?/ gutter 璇婃柇鎻愮ず */
 .cm-tooltip-lint .cm-diagnosticText {
     display: block;
 }
@@ -2311,7 +2309,7 @@ a {
     color: var(--fg);
 }
 
-/* SQL 编辑器表/字段悬停信息卡（tooltip 挂载在 body） */
+/* SQL 缂栬緫鍣ㄨ〃/瀛楁鎮仠淇℃伅鍗★紙tooltip 鎸傝浇鍦?body锛?*/
 .cm-tooltip:has(.db-sql-hover-card) {
     padding: 0;
     border: none;
@@ -2320,7 +2318,7 @@ a {
     overflow: visible;
 }
 
-/* 覆盖全局 user-select: none，支持复制元信息与 SQL 定义 */
+/* 瑕嗙洊鍏ㄥ眬 user-select: none锛屾敮鎸佸鍒跺厓淇℃伅涓?SQL 瀹氫箟 */
 .db-sql-hover-card,
 .db-sql-hover-card * {
     -webkit-user-select: text !important;
@@ -2860,7 +2858,7 @@ a {
     white-space: nowrap;
 }
 
-/* 半屏嵌入：与全屏空页相同，仅在有限高度内可滚动 */
+/* 鍗婂睆宓屽叆锛氫笌鍏ㄥ睆绌洪〉鐩稿悓锛屼粎鍦ㄦ湁闄愰珮搴﹀唴鍙粴鍔?*/
 .workspace-empty-page--embedded {
     height: 100%;
     justify-content: flex-start;
@@ -3143,20 +3141,20 @@ a {
     background: var(--muted);
 }
 
-/* ─── App Layout ────────────────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ App Layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .app {
     display: grid;
     grid-template-columns: var(--sidebar-w) 1fr;
     grid-template-rows: 1fr;
     height: 100vh;
     width: 100vw;
-    /* 与 dockview .dv-tabs-and-actions-container 共用高度 */
+    /* 涓?dockview .dv-tabs-and-actions-container 鍏辩敤楂樺害 */
     --shell-dv-tab-bar-h: var(--topbar-h);
-    /* 窗口控制三键（minimize / maximize / close）占位宽度 */
+    /* 绐楀彛鎺у埗涓夐敭锛坢inimize / maximize / close锛夊崰浣嶅搴?*/
     --shell-win-controls-width: 138px;
 }
 
-/* 须在 @layer 外，避免 Tailwind layer 级联导致 hidden 顶栏仍可见 */
+/* 椤诲湪 @layer 澶栵紝閬垮厤 Tailwind layer 绾ц仈瀵艰嚧 hidden 椤舵爮浠嶅彲瑙?*/
 .topbar.topbar--hidden {
     display: none !important;
 }
@@ -3215,7 +3213,7 @@ a {
     overflow: hidden;
 }
 
-/* 普通模块：非激活直接卸载布局（轻量、切换快） */
+/* 鏅€氭ā鍧楋細闈炴縺娲荤洿鎺ュ嵏杞藉竷灞€锛堣交閲忋€佸垏鎹㈠揩锛?*/
 .route-panel:not(.route-panel--overlay):not(.route-panel--active) {
     display: none;
 }
@@ -3226,10 +3224,7 @@ a {
 }
 
 /*
- * 含 dockview 的模块（终端/数据库）：始终叠层占满 content-routes，
- * 仅切 visibility，禁止 display:none / relative↔absolute 切换。
- * 否则 dockview 量到 0 宽后 api.layout 会把整页锁死在 ~38px 压扁态。
- */
+ * 鍚?dockview 鐨勬ā鍧楋紙缁堢/鏁版嵁搴擄級锛氬缁堝彔灞傚崰婊?content-routes锛? * 浠呭垏 visibility锛岀姝?display:none / relative鈫攁bsolute 鍒囨崲銆? * 鍚﹀垯 dockview 閲忓埌 0 瀹藉悗 api.layout 浼氭妸鏁撮〉閿佹鍦?~38px 鍘嬫墎鎬併€? */
 .route-panel--overlay {
     position: absolute;
     inset: 0;
@@ -3254,18 +3249,15 @@ a {
 }
 
 /*
- * 隐藏的非 dockview overlay：跳过子树布局与绘制，减轻后台模块的渲染开销。
- * keep-layout 模块（终端/数据库 dockview）不参与，避免量到 0 宽后 api.layout 压扁。
- * 元素自身仍 absolute inset:0 占位，切回时子树按既有 box 恢复布局，无尺寸塌陷。
- */
+ * 闅愯棌鐨勯潪 dockview overlay锛氳烦杩囧瓙鏍戝竷灞€涓庣粯鍒讹紝鍑忚交鍚庡彴妯″潡鐨勬覆鏌撳紑閿€銆? * keep-layout 妯″潡锛堢粓绔?鏁版嵁搴?dockview锛変笉鍙備笌锛岄伩鍏嶉噺鍒?0 瀹藉悗 api.layout 鍘嬫墎銆? * 鍏冪礌鑷韩浠?absolute inset:0 鍗犱綅锛屽垏鍥炴椂瀛愭爲鎸夋棦鏈?box 鎭㈠甯冨眬锛屾棤灏哄濉岄櫡銆? */
 .route-panel--overlay:not(.route-panel--active):not(.route-panel--keep-layout) {
     content-visibility: hidden;
 }
 
-/* === 工作区全屏态：dock 容器 position:fixed 占满视口 ===
-   dockview 始终在 WorkspacePreview 内挂载（不 unmount），
-   全屏时用 position:fixed 脱离 SidebarBottom 的 panel size 限制。 */
-/* 覆盖 workspace--bottom-fullscreen 对 dock-panel-bottom 的 collapse，fixed dock 须可交互 */
+/* === 宸ヤ綔鍖哄叏灞忔€侊細dock 瀹瑰櫒 position:fixed 鍗犳弧瑙嗗彛 ===
+   dockview 濮嬬粓鍦?WorkspacePreview 鍐呮寕杞斤紙涓?unmount锛夛紝
+   鍏ㄥ睆鏃剁敤 position:fixed 鑴辩 SidebarBottom 鐨?panel size 闄愬埗銆?*/
+/* 瑕嗙洊 workspace--bottom-fullscreen 瀵?dock-panel-bottom 鐨?collapse锛宖ixed dock 椤诲彲浜や簰 */
 .workspace--bottom-fullscreen .workspace-preview--fullscreen .dock-panel-bottom--workspace {
     flex: 1 1 auto !important;
     min-height: 0 !important;
@@ -3330,7 +3322,7 @@ a {
 }
 
 .workspace-preview--fullscreen .workspace-preview__main {
-    /* 不用 display:none，保持子树 layout 尺寸，退出全屏时 dockview 无需从 0 重算 */
+    /* 涓嶇敤 display:none锛屼繚鎸佸瓙鏍?layout 灏哄锛岄€€鍑哄叏灞忔椂 dockview 鏃犻渶浠?0 閲嶇畻 */
     visibility: hidden;
     pointer-events: none;
     opacity: 0;
@@ -3341,7 +3333,7 @@ a {
     min-width: 0;
 }
 
-/* 子 route-panel 的 visibility:visible 会穿透父级 hidden，全屏时强制裁切 */
+/* 瀛?route-panel 鐨?visibility:visible 浼氱┛閫忕埗绾?hidden锛屽叏灞忔椂寮哄埗瑁佸垏 */
 .workspace-preview--fullscreen .workspace-preview__main .route-panel,
 .workspace-preview--fullscreen .workspace-preview__main .content-routes {
     visibility: hidden !important;
@@ -3358,8 +3350,9 @@ a {
     visibility: visible;
 }
 
-/* dockview 从窄宽/隐藏恢复：整棵 dock 先不可见，避免压扁中间帧 */
-.dockable-workspace--recovering .dockable-workspace__dockview {
+/* dockview 浠庣獎瀹?闅愯棌鎭㈠锛氫粎闅愯棌鍐呭鍖猴紝淇濈暀 Tab 鏍忥紙鍚?data-tauri-drag-region锛?   浠ヤ究鎭㈠鏈熼棿浠嶅彲鎷栨嫿绐楀彛锛涙暣妫?dockview visibility:hidden 浼氳绐楀彛鎷栦笉鍔ㄣ€?*/
+.dockable-workspace--recovering .dockable-workspace__dockview .dv-content-container,
+.dockable-workspace--recovering .dockable-workspace__dockview .dv-render-overlay {
     visibility: hidden !important;
 }
 
@@ -3385,7 +3378,7 @@ a {
     contain-intrinsic-size: auto 28px;
 }
 
-/* ─── Dock Layout ──────────────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ Dock Layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .dock-layout {
     flex: 1;
     display: flex;
@@ -3415,7 +3408,7 @@ a {
     min-height: var(--result-panel-min-h) !important;
 }
 
-/* 底部工程工作区：允许拖到 taskbar / hidden，不受 SQL 结果面板 180px 下限约束 */
+/* 搴曢儴宸ョ▼宸ヤ綔鍖猴細鍏佽鎷栧埌 taskbar / hidden锛屼笉鍙?SQL 缁撴灉闈㈡澘 180px 涓嬮檺绾︽潫 */
 .dock-panel-bottom--workspace {
     min-height: 0 !important;
     width: 100% !important;
@@ -3438,7 +3431,7 @@ a {
 .dock-handle {
     position: relative;
     flex-shrink: 0;
-    /* 高于相邻 dock-panel，避免后绘制的面板盖住分隔条热区（首次拖拽失效） */
+    /* 楂樹簬鐩搁偦 dock-panel锛岄伩鍏嶅悗缁樺埗鐨勯潰鏉跨洊浣忓垎闅旀潯鐑尯锛堥娆℃嫋鎷藉け鏁堬級 */
     z-index: 10;
     display: flex;
     align-items: center;
@@ -3490,7 +3483,7 @@ a {
     background: var(--accent);
 }
 
-/* ─── Dockable Workspace（dockview 通用拖拽停靠） ─────────────────────── */
+/* 鈹€鈹€鈹€ Dockable Workspace锛坉ockview 閫氱敤鎷栨嫿鍋滈潬锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .dockable-workspace {
     flex: 1;
     min-width: 0;
@@ -3507,7 +3500,7 @@ a {
     --dv-drag-over-background-color: var(--accent-soft);
 }
 
-/* 须在 dockview 根节点覆盖 themeDark 内置变量，写在 .dockable-workspace 上不会向下生效 */
+/* 椤诲湪 dockview 鏍硅妭鐐硅鐩?themeDark 鍐呯疆鍙橀噺锛屽啓鍦?.dockable-workspace 涓婁笉浼氬悜涓嬬敓鏁?*/
 .dockable-workspace .dockable-workspace__dockview,
 .dockable-workspace .dockable-workspace__dockview.dockview-theme-dark,
 .dockable-workspace .dockview-theme-dark {
@@ -3524,7 +3517,7 @@ a {
     --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
 }
 
-/* 模块顶级 Dock（ModuleSegmentDock）— 与终端 dock 共用 tab 栏 / windowControl 样式 */
+/* 妯″潡椤剁骇 Dock锛圡oduleSegmentDock锛夆€?涓庣粓绔?dock 鍏辩敤 tab 鏍?/ windowControl 鏍峰紡 */
 .module-root-dock.dockable-workspace,
 .module-segment-dock.dockable-workspace {
     flex: 1;
@@ -3565,7 +3558,7 @@ a {
     max-height: var(--shell-dv-tab-bar-h);
 }
 
-/* 路由未激活时仅隐藏模块顶栏（横向 tab）；竖排侧栏 .dv-groupview-header-vertical 不受影响 */
+/* 璺敱鏈縺娲绘椂浠呴殣钘忔ā鍧楅《鏍忥紙妯悜 tab锛夛紱绔栨帓渚ф爮 .dv-groupview-header-vertical 涓嶅彈褰卞搷 */
 .module-segment-dock--route-inactive.dockable-workspace > .dockable-workspace__dockview .dv-groupview > .dv-tabs-and-actions-container:not(.dv-groupview-header-vertical) {
     display: none;
 }
@@ -3595,7 +3588,7 @@ a {
     min-width: 0;
 }
 
-/* dockview tab 栏与面板区域（视觉对齐 .topbar-tab / .topbar-tabs） */
+/* dockview tab 鏍忎笌闈㈡澘鍖哄煙锛堣瑙夊榻?.topbar-tab / .topbar-tabs锛?*/
 .dockable-workspace .dv-tabs-and-actions-container {
     background: var(--bg);
     border-bottom: 1px solid var(--border);
@@ -3609,12 +3602,12 @@ a {
     flex-grow: 0;
 }
 
-/* 嵌套 dock（如 SQL/HTTP 结果会话 Tab）不参与窗口拖拽 */
+/* 宓屽 dock锛堝 SQL/HTTP 缁撴灉浼氳瘽 Tab锛変笉鍙備笌绐楀彛鎷栨嫿 */
 .dockable-workspace:not(.dock-window-control) .dv-void-container {
     -webkit-app-region: no-drag;
 }
 
-/* Tab 栏前缀操作区（dockview dv-pre-actions-container） */
+/* Tab 鏍忓墠缂€鎿嶄綔鍖猴紙dockview dv-pre-actions-container锛?*/
 .dockable-workspace .dv-pre-actions-container,
 .dockable-workspace .dock-prefix-actions {
     display: flex;
@@ -3631,7 +3624,7 @@ a {
     height: 100%;
 }
 
-/* 模块 dock 标题 — 对齐设计稿 .topbar-title + .topbar-tabs margin */
+/* 妯″潡 dock 鏍囬 鈥?瀵归綈璁捐绋?.topbar-title + .topbar-tabs margin */
 .dockable-workspace .dock-prefix-actions .module-dock-title {
     display: inline-flex;
     align-items: center;
@@ -3709,7 +3702,7 @@ a {
     border-radius: 0;
 }
 
-/* Tab 项 — 对齐 .topbar-tab（结构：.dv-tab > .dv-default-tab；背景由 dockview + 上方 --dv-* 变量控制） */
+/* Tab 椤?鈥?瀵归綈 .topbar-tab锛堢粨鏋勶細.dv-tab > .dv-default-tab锛涜儗鏅敱 dockview + 涓婃柟 --dv-* 鍙橀噺鎺у埗锛?*/
 .dockable-workspace .dv-default-tab {
     display: inline-flex;
     align-items: center;
@@ -3741,7 +3734,7 @@ a {
     border-bottom-color: var(--accent);
 }
 
-/* 关闭按钮 — 放大点击区域与图标 */
+/* 鍏抽棴鎸夐挳 鈥?鏀惧ぇ鐐瑰嚮鍖哄煙涓庡浘鏍?*/
 .dockable-workspace .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
     visibility: visible;
 }
@@ -3777,7 +3770,7 @@ a {
     background: var(--surface-hover);
 }
 
-/* Tab 栏在底部：激活指示条改到顶边，分隔线改到 Tab 栏上方 */
+/* Tab 鏍忓湪搴曢儴锛氭縺娲绘寚绀烘潯鏀瑰埌椤惰竟锛屽垎闅旂嚎鏀瑰埌 Tab 鏍忎笂鏂?*/
 .dockable-workspace.dock-header-bottom .dv-tabs-and-actions-container {
     border-bottom: none;
     border-top: 1px solid var(--border);
@@ -3808,7 +3801,7 @@ a {
     gap: var(--sp-2);
     min-width: 0;
     max-width: 220px;
-    /* 仅裁切标题；未保存/已保存圆点需保持可见 */
+    /* 浠呰鍒囨爣棰橈紱鏈繚瀛?宸蹭繚瀛樺渾鐐归渶淇濇寔鍙 */
     overflow: visible;
 }
 
@@ -3863,7 +3856,7 @@ a {
     position: relative;
 }
 
-/* 会话状态点（topbar 风格 tab） */
+/* 浼氳瘽鐘舵€佺偣锛坱opbar 椋庢牸 tab锛?*/
 .dockable-workspace .topbar-tab-dot {
     width: 6px;
     height: 6px;
@@ -3885,7 +3878,7 @@ a {
     background: var(--danger);
 }
 
-/* 侧栏 Tab（left/right）：仅图标，收窄宽度（终端侧栏用原生 DefaultTab 单独样式） */
+/* 渚ф爮 Tab锛坙eft/right锛夛細浠呭浘鏍囷紝鏀剁獎瀹藉害锛堢粓绔晶鏍忕敤鍘熺敓 DefaultTab 鍗曠嫭鏍峰紡锛?*/
 .dockable-workspace.dock-header-left:not(.advance-terminal-side-dock) .dv-tabs-and-actions-container,
 .dockable-workspace.dock-header-right:not(.advance-terminal-side-dock) .dv-tabs-and-actions-container {
     width: 36px;
@@ -3902,7 +3895,7 @@ a {
     background: var(--bg);
 }
 
-/* windowControl：tab 栏与 topbar 同高，右侧拖拽区 + 窗口控制按钮 */
+/* windowControl锛歵ab 鏍忎笌 topbar 鍚岄珮锛屽彸渚ф嫋鎷藉尯 + 绐楀彛鎺у埗鎸夐挳 */
 .dockable-workspace.dock-window-control {
     --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
     --dv-tabs-and-actions-container-font-size: 14px;
@@ -3961,12 +3954,12 @@ a {
     cursor: default;
 }
 
-/* void 移窗由 JS startDragging 处理；禁用原生 drag-region 避免盖住后续 tab */
+/* void 绉荤獥鐢?JS startDragging 澶勭悊锛涚鐢ㄥ師鐢?drag-region 閬垮厤鐩栦綇鍚庣画 tab */
 .dockable-workspace.dock-window-control .dock-window-void-drag {
     -webkit-app-region: no-drag;
 }
 
-/* tab 区按内容占宽，void 吃剩余空白；避免 void 与 tab 平分导致误折叠 */
+/* tab 鍖烘寜鍐呭鍗犲锛寁oid 鍚冨墿浣欑┖鐧斤紱閬垮厤 void 涓?tab 骞冲垎瀵艰嚧璇姌鍙?*/
 .dockable-workspace.dock-window-control .dv-scrollable,
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container > .dv-tabs-container {
     flex: 0 1 auto;
@@ -4086,7 +4079,7 @@ a {
     transition: color 0.12s, background 0.12s;
 }
 
-/* 左侧 header 添加按钮由上方 .dv-left-actions-container 规则覆盖高度 */
+/* 宸︿晶 header 娣诲姞鎸夐挳鐢变笂鏂?.dv-left-actions-container 瑙勫垯瑕嗙洊楂樺害 */
 
 .dockable-workspace .dock-panel-add-btn:hover,
 .dockable-workspace .dock-panel-close-btn:hover {
@@ -4147,7 +4140,7 @@ a {
     vertical-align: bottom;
 }
 
-/* rc-dock TabCache 在 title 外包 DragDropDiv，关闭按钮为 .dock-tab-close-btn */
+/* rc-dock TabCache 鍦?title 澶栧寘 DragDropDiv锛屽叧闂寜閽负 .dock-tab-close-btn */
 .rc-dock-wrap .dock-layout {
     position: absolute;
     inset: 0;
@@ -4159,7 +4152,7 @@ a {
     border-color: var(--border);
 }
 
-/* ── Tab 栏 ── */
+/* 鈹€鈹€ Tab 鏍?鈹€鈹€ */
 .rc-dock-wrap .dock-bar {
     background: var(--bg-deeper);
     border-bottom: 1px solid var(--border);
@@ -4212,7 +4205,7 @@ a {
     padding: 0;
 }
 
-/* TabCache 标签内容：DragDropDiv.drag-initiator 内含 title + 关闭按钮 */
+/* TabCache 鏍囩鍐呭锛欴ragDropDiv.drag-initiator 鍐呭惈 title + 鍏抽棴鎸夐挳 */
 .rc-dock-wrap .dock-tab-btn>.drag-initiator {
     display: inline-flex;
     align-items: center;
@@ -4268,7 +4261,7 @@ a {
     padding-right: var(--sp-3);
 }
 
-/* rc-dock TabCache 内置关闭按钮（依赖 ::before 显示 ×） */
+/* rc-dock TabCache 鍐呯疆鍏抽棴鎸夐挳锛堜緷璧?::before 鏄剧ず 脳锛?*/
 .rc-dock-wrap .dock-tab-btn .dock-tab-close-btn {
     position: static;
     flex-shrink: 0;
@@ -4298,7 +4291,7 @@ a {
 }
 
 .rc-dock-wrap .dock-tab-btn .dock-tab-close-btn::before {
-    content: "×";
+    content: "脳";
     display: block;
     font-family: inherit;
     font-size: 15px;
@@ -4319,7 +4312,7 @@ a {
     transform: none;
 }
 
-/* 浮动面板标题栏上的关闭全部按钮 */
+/* 娴姩闈㈡澘鏍囬鏍忎笂鐨勫叧闂叏閮ㄦ寜閽?*/
 .rc-dock-wrap .dock-extra-content .dock-tab-close-btn {
     position: relative;
     opacity: 1;
@@ -4336,7 +4329,7 @@ a {
     display: none;
 }
 
-/* ── 分屏拖拽分隔条（对齐 .dock-handle 风格） ── */
+/* 鈹€鈹€ 鍒嗗睆鎷栨嫿鍒嗛殧鏉★紙瀵归綈 .dock-handle 椋庢牸锛?鈹€鈹€ */
 .rc-dock-wrap .dock-divider {
     flex: 0 0 5px !important;
     transform: none !important;
@@ -4470,7 +4463,7 @@ a {
     background: var(--bg);
 }
 
-/* 终端模块工作区（兼容旧类名，样式已迁入 .module-root-dock） */
+/* 缁堢妯″潡宸ヤ綔鍖猴紙鍏煎鏃х被鍚嶏紝鏍峰紡宸茶縼鍏?.module-root-dock锛?*/
 .term-workspace-dock.dockable-workspace {
     flex: 1;
     min-height: 0;
@@ -4501,7 +4494,7 @@ a {
     flex-direction: column;
 }
 
-/* 旧版终端工作区（保留供迁移参考，已由 dockview 替代） */
+/* 鏃х増缁堢宸ヤ綔鍖猴紙淇濈暀渚涜縼绉诲弬鑰冿紝宸茬敱 dockview 鏇夸唬锛?*/
 .term-workspace {
     flex: 1;
     min-height: 0;
@@ -4533,7 +4526,7 @@ a {
     font-size: 13px;
 }
 
-/* AdvanceTerminal：终端 + 可拖拽右侧工具栏（SFTP / 隧道） */
+/* AdvanceTerminal锛氱粓绔?+ 鍙嫋鎷藉彸渚у伐鍏锋爮锛圫FTP / 闅ч亾锛?*/
 .advance-terminal {
     flex: 1;
     min-height: 0;
@@ -4566,7 +4559,7 @@ a {
     overflow: hidden;
 }
 
-/* 拖拽分隔条：展开态显示，收起态不渲染 */
+/* 鎷栨嫿鍒嗛殧鏉★細灞曞紑鎬佹樉绀猴紝鏀惰捣鎬佷笉娓叉煋 */
 .advance-terminal-side-resizer {
     width: 5px;
     height: 100%;
@@ -4582,7 +4575,7 @@ a {
     background: var(--accent);
 }
 
-/* ===== 收起态：自绘竖排 tab 按钮（无 dockview 实例） ===== */
+/* ===== 鏀惰捣鎬侊細鑷粯绔栨帓 tab 鎸夐挳锛堟棤 dockview 瀹炰緥锛?===== */
 .advance-terminal-side--collapsed {
     width: 38px !important;
     min-width: 38px !important;
@@ -4638,7 +4631,7 @@ a {
     user-select: none;
 }
 
-/* ===== 展开态：dockview 实例（保留原生分屏） ===== */
+/* ===== 灞曞紑鎬侊細dockview 瀹炰緥锛堜繚鐣欏師鐢熷垎灞忥級 ===== */
 .advance-terminal-side-dock-wrap {
     flex: 1;
     min-height: 0;
@@ -4661,9 +4654,8 @@ a {
     max-width: 100%;
     overflow: hidden;
 }
-/* dockview 的 right header 是 row-reverse flex。默认 content-container
-   没有 min-width:0，内部表格 min-width 会把整个 groupview 撑大，
-   导致所有 width:100% 都基于错误父宽计算。 */
+/* dockview 鐨?right header 鏄?row-reverse flex銆傞粯璁?content-container
+   娌℃湁 min-width:0锛屽唴閮ㄨ〃鏍?min-width 浼氭妸鏁翠釜 groupview 鎾戝ぇ锛?   瀵艰嚧鎵€鏈?width:100% 閮藉熀浜庨敊璇埗瀹借绠椼€?*/
 .advance-terminal-side-dock .dv-groupview.dv-groupview-header-right > .dv-content-container {
     flex: 1 1 0;
     min-width: 0;
@@ -4671,7 +4663,7 @@ a {
     overflow: hidden;
 }
 
-/* header 竖条：窄宽、占满高度、贴右缘 */
+/* header 绔栨潯锛氱獎瀹姐€佸崰婊￠珮搴︺€佽创鍙崇紭 */
 .advance-terminal-side-dock .dv-tabs-and-actions-container.dv-groupview-header-vertical {
     width: 38px !important;
     min-width: 38px;
@@ -4683,9 +4675,7 @@ a {
     border-bottom: none;
 }
 
-/* 关键：空的 pre-actions / left-actions 全局有 height:100%，在 column 布局下
-   会吃掉整列高度，把 tabs-container 挤成 0 高度（tab 全部不可见）。
-   归零让它们按内容高度，把空间留给 tabs-container。 */
+/* 鍏抽敭锛氱┖鐨?pre-actions / left-actions 鍏ㄥ眬鏈?height:100%锛屽湪 column 甯冨眬涓?   浼氬悆鎺夋暣鍒楅珮搴︼紝鎶?tabs-container 鎸ゆ垚 0 楂樺害锛坱ab 鍏ㄩ儴涓嶅彲瑙侊級銆?   褰掗浂璁╁畠浠寜鍐呭楂樺害锛屾妸绌洪棿鐣欑粰 tabs-container銆?*/
 .advance-terminal-side-dock .dv-groupview-header-vertical .dv-pre-actions-container,
 .advance-terminal-side-dock .dv-groupview-header-vertical .dv-left-actions-container {
     height: auto;
@@ -4698,13 +4688,13 @@ a {
     display: none;
 }
 
-/* 空白拖拽区 / 竖向 right-actions 纵向占位，隐藏 */
+/* 绌虹櫧鎷栨嫿鍖?/ 绔栧悜 right-actions 绾靛悜鍗犱綅锛岄殣钘?*/
 .advance-terminal-side-dock .dv-groupview-header-vertical .dv-void-container,
 .advance-terminal-side-dock .dv-groupview-header-vertical .dv-right-actions-container {
     display: none;
 }
 
-/* tabs 列：保留 dockview 默认竖排文字（不覆盖 writing-mode），占满剩余高度 */
+/* tabs 鍒楋細淇濈暀 dockview 榛樿绔栨帓鏂囧瓧锛堜笉瑕嗙洊 writing-mode锛夛紝鍗犳弧鍓╀綑楂樺害 */
 .advance-terminal-side-dock .dv-tabs-container.dv-tabs-container-vertical {
     flex: 1 1 auto;
     width: 100%;
@@ -4720,13 +4710,13 @@ a {
     margin: 0;
 }
 
-/* React 自定义 tab 的包裹层（高度依赖父，强制按内容撑开） */
+/* React 鑷畾涔?tab 鐨勫寘瑁瑰眰锛堥珮搴︿緷璧栫埗锛屽己鍒舵寜鍐呭鎾戝紑锛?*/
 .advance-terminal-side-dock .dv-tabs-container-vertical .dv-react-part {
     width: 100%;
     height: auto !important;
 }
 
-/* 单个 tab：竖排文字、水平居中、占满宽度，激活态用左侧 accent 边框 */
+/* 鍗曚釜 tab锛氱珫鎺掓枃瀛椼€佹按骞冲眳涓€佸崰婊″搴︼紝婵€娲绘€佺敤宸︿晶 accent 杈规 */
 .advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab .dv-default-tab {
     display: flex !important;
     align-items: center;
@@ -4742,7 +4732,7 @@ a {
     box-sizing: border-box;
 }
 
-/* 竖排文字不被全局 overflow:hidden / max-width 裁切 */
+/* 绔栨帓鏂囧瓧涓嶈鍏ㄥ眬 overflow:hidden / max-width 瑁佸垏 */
 .advance-terminal-side-dock .dv-tabs-container-vertical .dv-default-tab-content.dock-tab-header-inner,
 .advance-terminal-side-dock .dv-tabs-container-vertical .dock-tab-label {
     overflow: visible;
@@ -4764,172 +4754,6 @@ a {
     border-left-color: var(--accent);
 }
 
-.term-history-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    height: 100%;
-    min-height: 0;
-    padding: 12px;
-    box-sizing: border-box;
-    overflow: hidden;
-}
-
-.term-history-panel__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.term-history-panel__title {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--fg);
-}
-
-.term-history-panel__desc {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--fg-2);
-    line-height: 1.45;
-}
-
-.term-history-panel__toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.term-history-panel__search {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface);
-    color: var(--fg);
-    font-size: 13px;
-}
-
-.term-history-panel__filters {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.term-history-panel__filter {
-    padding: 4px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--fg-2);
-    font-size: 12px;
-    cursor: pointer;
-}
-
-.term-history-panel__filter--active {
-    color: var(--fg);
-    border-color: var(--accent);
-    background: var(--accent-soft);
-}
-
-.term-history-panel__meta {
-    font-size: 12px;
-    color: var(--fg-3);
-}
-
-.term-history-panel__list {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.term-history-panel__empty {
-    padding: 24px 12px;
-    text-align: center;
-    color: var(--fg-3);
-    font-size: 13px;
-}
-
-.term-history-panel__item {
-    padding: 10px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-}
-
-.term-history-panel__item-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-    flex-wrap: wrap;
-}
-
-.term-history-panel__badge {
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: var(--surface-hover);
-    color: var(--fg-2);
-}
-
-.term-history-panel__badge--ai {
-    color: var(--accent);
-    background: var(--accent-soft);
-}
-
-.term-history-panel__time {
-    font-size: 11px;
-    color: var(--fg-3);
-}
-
-.term-history-panel__status {
-    font-size: 11px;
-}
-
-.term-history-panel__status--error {
-    color: var(--danger);
-}
-
-.term-history-panel__command {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--fg);
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-    cursor: pointer;
-    word-break: break-word;
-}
-
-.term-history-panel__output {
-    margin: 8px 0 0;
-    padding: 8px;
-    border-radius: 8px;
-    background: var(--surface-2, var(--surface-hover));
-    color: var(--fg-2);
-    font-size: 11px;
-    line-height: 1.45;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 180px;
-    overflow: auto;
-}
-
-.term-history-panel__actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-}
 
 .advance-terminal-side-dock .dv-tabs-container-vertical .dv-default-tab .dv-default-tab-action {
     display: none;
@@ -5128,8 +4952,7 @@ a {
     min-width: 0;
 }
 
-/* 终端右侧进程面板：外层像 SFTP 一样跟随 dock 容器收缩；
-   表格仍使用通用进程表自己的列宽 / min-width，只在列表容器内部滚动。 */
+/* 缁堢鍙充晶杩涚▼闈㈡澘锛氬灞傚儚 SFTP 涓€鏍疯窡闅?dock 瀹瑰櫒鏀剁缉锛?   琛ㄦ牸浠嶄娇鐢ㄩ€氱敤杩涚▼琛ㄨ嚜宸辩殑鍒楀 / min-width锛屽彧鍦ㄥ垪琛ㄥ鍣ㄥ唴閮ㄦ粴鍔ㄣ€?*/
 .advance-terminal-side .proc-panel {
     flex: 1 1 auto;
     min-height: 0;
@@ -5182,7 +5005,7 @@ a {
     padding: 0;
 }
 
-/* 终端侧栏内 SFTP / Tunnel / 本地文件面板布局复用 */
+/* 缁堢渚ф爮鍐?SFTP / Tunnel / 鏈湴鏂囦欢闈㈡澘甯冨眬澶嶇敤 */
 .advance-terminal-side-dock .sftp-panel,
 .advance-terminal-side-dock .local-file-panel,
 .advance-terminal-side-dock .tunnel-panel,
@@ -5410,7 +5233,7 @@ a {
     color: var(--danger);
 }
 
-/* 数据库模块工作区 */
+/* 鏁版嵁搴撴ā鍧楀伐浣滃尯 */
 .db-workspace.db-workspace {
     flex: 1;
     min-height: 0;
@@ -5427,7 +5250,7 @@ a {
     height: 100%;
 }
 
-/* ─── Sidebar ──────────────────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ Sidebar 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .sidebar {
     grid-column: 1;
     grid-row: 1;
@@ -5520,7 +5343,7 @@ a {
     margin: var(--sp-2) 0;
 }
 
-/* ─── Component Classes ────────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ Component Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 @layer components {
 
     /* Buttons */
@@ -6782,7 +6605,7 @@ a {
         background: var(--accent-soft);
     }
 
-    /* AI Drawer — Markdown prose */
+    /* AI Drawer 鈥?Markdown prose */
     .prose-ai {
         font-size: 13px;
         line-height: 1.65;
@@ -6898,7 +6721,7 @@ a {
         margin: 0.75em 0;
     }
 
-    /* assistant-ui Markdown — aligned with .prose-ai / OmniPanel tokens */
+    /* assistant-ui Markdown 鈥?aligned with .prose-ai / OmniPanel tokens */
     .aui-md {
         font-size: 13px;
         line-height: 1.65;
@@ -7541,7 +7364,7 @@ a {
         white-space: nowrap;
     }
 
-    /* ─── 后台任务列表 SubWindow ─────────────────────────────────────── */
+    /* 鈹€鈹€鈹€ 鍚庡彴浠诲姟鍒楄〃 SubWindow 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
     .background-tasks-window .subwindow-body {
         background: var(--bg-deeper);
     }
@@ -7749,7 +7572,7 @@ a {
         margin-top: 1px;
     }
 
-    /* ─── Statusbar 工作区按钮 ───────────────────────────────────────── */
+    /* 鈹€鈹€鈹€ Statusbar 宸ヤ綔鍖烘寜閽?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
     .statusbar-workspace-controls {
         display: inline-flex;
         align-items: center;
@@ -7841,7 +7664,7 @@ a {
         color: var(--danger);
     }
 
-    /* ─── 工作区弹层 (WorkspacePopover) ────────────────────────────── */
+    /* 鈹€鈹€鈹€ 宸ヤ綔鍖哄脊灞?(WorkspacePopover) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
     .workspace-popover-backdrop {
         position: fixed;
         inset: 0;
@@ -9371,9 +9194,9 @@ a {
         margin-top: 2px;
     }
 
-    /* ══════════════════════════════════════════════════════════════════════
+    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
      Dashboard (index.html)
-     ══════════════════════════════════════════════════════════════════════ */
+     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
     .dashboard {
         flex: 1;
         overflow: hidden;
@@ -10251,7 +10074,7 @@ a {
         opacity: 0.85;
     }
 
-    /* ── Message list ── */
+    /* 鈹€鈹€ Message list 鈹€鈹€ */
     .ai-message-list {
         flex: 1;
         overflow-y: auto;
@@ -10287,7 +10110,7 @@ a {
         gap: 8px;
     }
 
-    /* ── Empty state ── */
+    /* 鈹€鈹€ Empty state 鈹€鈹€ */
     .ai-empty-state {
         position: relative;
         z-index: 1;
@@ -10418,7 +10241,7 @@ a {
         padding: 16px;
     }
 
-    /* ── Message bubbles ── */
+    /* 鈹€鈹€ Message bubbles 鈹€鈹€ */
     .ai-msg {
         position: relative;
         z-index: 1;
@@ -10756,7 +10579,7 @@ a {
         line-height: 1.45;
     }
 
-    /* AI Session List — aligned with resource-rail / resource-item */
+    /* AI Session List 鈥?aligned with resource-rail / resource-item */
     .ai-session-list {
         display: flex;
         flex-direction: column;
@@ -10908,7 +10731,7 @@ a {
         opacity: 0.35;
     }
 
-    /* AI 历史会话按钮（嵌入 chat pane 右上角） */
+    /* AI 鍘嗗彶浼氳瘽鎸夐挳锛堝祵鍏?chat pane 鍙充笂瑙掞級 */
     .ai-history-btn {
         position: absolute;
         top: 8px;
@@ -10942,7 +10765,7 @@ a {
         height: 16px;
     }
 
-    /* AI 历史会话 popover */
+    /* AI 鍘嗗彶浼氳瘽 popover */
     .ai-session-popover {
         position: absolute;
         top: 42px;
@@ -11387,9 +11210,9 @@ a {
         flex-shrink: 0;
     }
 
-    /* ══════════════════════════════════════════════════════════════════════
+    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
      Server (server.html)
-     ══════════════════════════════════════════════════════════════════════ */
+     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
     .server-sidebar {
         width: 100%;
         min-width: 0;
@@ -12622,9 +12445,9 @@ a {
         }
     }
 
-    /* ══════════════════════════════════════════════════════════════════════
+    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
      Settings (settings.html)
-     ══════════════════════════════════════════════════════════════════════ */
+     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
     .settings-workspace {
         display: flex;
         flex: 1;
@@ -13870,7 +13693,7 @@ a {
         background: color-mix(in oklch, var(--danger) 12%, transparent);
     }
 
-    /* ACP Services (与 AI 模型共用列表/卡片样式，仅追加 active 态与 activate 按钮) */
+    /* ACP Services (涓?AI 妯″瀷鍏辩敤鍒楄〃/鍗＄墖鏍峰紡锛屼粎杩藉姞 active 鎬佷笌 activate 鎸夐挳) */
     .ai-provider-card--active {
         border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
         background: color-mix(in oklch, var(--accent) 6%, var(--surface));
@@ -15148,9 +14971,8 @@ a {
     white-space: pre-wrap;
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Splash — 启动欢迎页
-   ══════════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   Splash 鈥?鍚姩娆㈣繋椤?   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .splash {
     position: fixed;
     inset: 0;
@@ -15583,7 +15405,7 @@ a {
     }
 }
 
-/* ====== Tab Content Transition (legacy — animation lives in @layer components) ====== */
+/* ====== Tab Content Transition (legacy 鈥?animation lives in @layer components) ====== */
 
 /* ====== Toast Animation ====== */
 @keyframes toastIn {
@@ -15779,7 +15601,7 @@ a {
 }
 
 
-/* ── Knowledge Module: Additional Classes ─────────── */
+/* 鈹€鈹€ Knowledge Module: Additional Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .knowledge-categories {
     padding: var(--sp-2) 0;
 }
@@ -15913,7 +15735,7 @@ a {
     gap: 3px;
 }
 
-/* ─── Database workspace dock ─────────────────────────────────────── */
+/* 鈹€鈹€鈹€ Database workspace dock 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .db-dock-host {
     flex: 1;
     min-width: 0;
@@ -15950,9 +15772,9 @@ a {
     color: var(--meta);
 }
 
-/* ─── File Manager ─────────────────────────────────────────────── */
+/* 鈹€鈹€鈹€ File Manager 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 
-/* 纵向分割侧栏（数据库 Schema、文件连接等模块复用） */
+/* 绾靛悜鍒嗗壊渚ф爮锛堟暟鎹簱 Schema銆佹枃浠惰繛鎺ョ瓑妯″潡澶嶇敤锛?*/
 .vsplit-sidebar,
 .schema-sidebar {
     width: 100%;
@@ -15964,11 +15786,11 @@ a {
     overflow: hidden;
     container-type: inline-size;
     container-name: vsplit-sidebar;
-    /* 与 database schema-tree / sql-query-file-tree 一致 */
+    /* 涓?database schema-tree / sql-query-file-tree 涓€鑷?*/
     --vsplit-sidebar-content-padding: var(--sp-2);
 }
 
-/* 各模块侧栏分区内容滚动区统一内边距 */
+/* 鍚勬ā鍧椾晶鏍忓垎鍖哄唴瀹规粴鍔ㄥ尯缁熶竴鍐呰竟璺?*/
 .vsplit-sidebar :is(
     .schema-tree,
     .sql-query-file-tree,
@@ -15985,7 +15807,7 @@ a {
     box-sizing: border-box;
 }
 
-/* sticky 祖先行模式：仅保留底部内边距（database schema-tree 行为） */
+/* sticky 绁栧厛琛屾ā寮忥細浠呬繚鐣欏簳閮ㄥ唴杈硅窛锛坉atabase schema-tree 琛屼负锛?*/
 .vsplit-sidebar :is(
     .schema-tree--virtual.schema-tree--sticky-ancestors,
     .schema-tree--sticky-ancestors,
@@ -16074,7 +15896,7 @@ a {
     flex-shrink: 0;
 }
 
-/* VerticalSplitSidebar 分段标题栏内联工具栏（各模块复用） */
+/* VerticalSplitSidebar 鍒嗘鏍囬鏍忓唴鑱斿伐鍏锋爮锛堝悇妯″潡澶嶇敤锛?*/
 .schema-toolbar {
     padding: var(--sp-2) var(--sp-3);
     border-bottom: 1px solid var(--border);
@@ -16107,7 +15929,7 @@ a {
     padding: 0;
 }
 
-/* 须放在 @layer 外，才能覆盖 Button 上的 Tailwind rounded-md（utilities 层优先级更高） */
+/* 椤绘斁鍦?@layer 澶栵紝鎵嶈兘瑕嗙洊 Button 涓婄殑 Tailwind rounded-md锛坲tilities 灞備紭鍏堢骇鏇撮珮锛?*/
 .schema-toolbar.schema-toolbar--inline [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline .btn-icon,
 .schema-toolbar.schema-toolbar--inline button,
@@ -16942,7 +16764,7 @@ a {
     color: var(--danger);
 }
 
-/* ─── Content preview (database cell / file preview) ───────────── */
+/* 鈹€鈹€鈹€ Content preview (database cell / file preview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .content-preview-view {
     display: flex;
     flex-direction: column;
@@ -17017,7 +16839,7 @@ a {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* react-obj-view 向上查找 overflow:auto|scroll 的祖先作为虚拟滚动容器 */
+    /* react-obj-view 鍚戜笂鏌ユ壘 overflow:auto|scroll 鐨勭鍏堜綔涓鸿櫄鎷熸粴鍔ㄥ鍣?*/
     overflow: auto;
     padding: 0;
 }
@@ -17038,7 +16860,7 @@ a {
     box-sizing: border-box;
 }
 
-/* react-json-view-lite — 与应用主题对齐（VirtualJsonView） */
+/* react-json-view-lite 鈥?涓庡簲鐢ㄤ富棰樺榻愶紙VirtualJsonView锛?*/
 .virtual-json-view {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -17469,7 +17291,7 @@ textarea.content-preview-text--editable {
     color: var(--fg);
 }
 
-/* ─── 工作区独立窗口（复用全屏工程工作区布局）──────────────────────── */
+/* 鈹€鈹€鈹€ 宸ヤ綔鍖虹嫭绔嬬獥鍙ｏ紙澶嶇敤鍏ㄥ睆宸ョ▼宸ヤ綔鍖哄竷灞€锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .workspace-window-root {
     display: flex;
     flex-direction: column;
@@ -17478,7 +17300,7 @@ textarea.content-preview-text--editable {
     overflow: hidden;
     background: var(--bg);
     color: var(--fg);
-    /* 与主窗 .app 对齐：dock tab 栏高度 / 窗口控制占位 */
+    /* 涓庝富绐?.app 瀵归綈锛歞ock tab 鏍忛珮搴?/ 绐楀彛鎺у埗鍗犱綅 */
     --shell-dv-tab-bar-h: var(--topbar-h);
     --shell-win-controls-width: 138px;
 }
@@ -17524,7 +17346,7 @@ textarea.content-preview-text--editable {
     word-break: break-word;
 }
 
-/* 跨窗口 tab 拖拽：目标窗可放置提示（旧版虚线，有落点预览时由 cross-window-drag-drop-preview 替代） */
+/* 璺ㄧ獥鍙?tab 鎷栨嫿锛氱洰鏍囩獥鍙斁缃彁绀猴紙鏃х増铏氱嚎锛屾湁钀界偣棰勮鏃剁敱 cross-window-drag-drop-preview 鏇夸唬锛?*/
 body.omnipanel-cross-window-dock-drag:not(.omnipanel-cross-window-drag-visual-active)
     .workspace-panel-dock
     .dockable-workspace__dockview,
@@ -17535,7 +17357,7 @@ body.omnipanel-cross-window-module-drag:not(.omnipanel-cross-window-drag-visual-
     outline-offset: -2px;
 }
 
-/* 跨窗拖拽视觉层：ghost tab + 落点高亮 */
+/* 璺ㄧ獥鎷栨嫿瑙嗚灞傦細ghost tab + 钀界偣楂樹寒 */
 .cross-window-drag-visual-root {
     position: fixed;
     inset: 0;

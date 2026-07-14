@@ -477,6 +477,8 @@ export function useTerminal(
   const { inputMode = "interactive", sendRef, active = true, reconnectKey = 0, fileLink } = options;
   const inputModeRef = useRef(inputMode);
   inputModeRef.current = inputMode;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const writeToBackendRef = useRef<(data: string) => void>(() => {});
   const inputBindingRef = useRef<TerminalInputBinding | null>(null);
   const { active: moduleActive } = useModuleVisibility();
@@ -1385,6 +1387,10 @@ export function useTerminal(
           if (entry.isIntersecting) {
             visibleRef.current = true;
             if (suspendedRef.current) continue;
+            // dockview defaultRenderer=always 下，非激活 tab 的 overlay 仍占满同尺寸
+            // 且 visibility:hidden 不影响 IntersectionObserver，必须用 active 门禁，
+            // 否则进入终端模块会同步为每个 tab 创建 WebGL/xterm/PTY，主线程卡死数秒。
+            if (!activeRef.current) continue;
             if (!term) {
               initTerminal();
             } else {
@@ -1482,7 +1488,8 @@ export function useTerminal(
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
     }
-    if (!term && rt.container && rt.initTerminal) {
+    // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程
+    if (!term && activeRef.current && rt.container && rt.initTerminal) {
       const rect = rt.container.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         rt.initTerminal();
@@ -1500,7 +1507,7 @@ export function useTerminal(
   }, [suspended]);
 
   useEffect(() => {
-    if (!moduleActive || suspended) return;
+    if (!moduleActive || suspended || !active) return;
     const rt = runtimeRef.current;
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
@@ -1514,7 +1521,7 @@ export function useTerminal(
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         rt.fitAddon?.fit();
-        if (active && inputMode !== "external") {
+        if (inputMode !== "external") {
           termRef.current?.focus();
         }
       });

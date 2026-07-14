@@ -1,6 +1,7 @@
 import { normalizeBlockCommand } from "../terminalOutputText";
 import { looksLikeShellCommandEcho } from "../terminalCommandEcho";
 import { extractListCommandFromCompound } from "../terminalAutoLsShell";
+import { hasShellErrorSignals } from "../commandInputRouting";
 export type LsEntryKind =
   | "directory"
   | "symlink"
@@ -272,10 +273,18 @@ function isGridNoiseToken(token: string): boolean {
   if (isWindowsModeToken(token)) return true;
   if (/^-{3,}$/.test(token)) return true;
   if (/^(Mode|LastWriteTime|Length|Name|Directory:|Directory)$/i.test(token)) return true;
+  if (
+    /^(CategoryInfo|FullyQualifiedErrorId|ObjectNotFound|ItemNotFoundException|PathNotFound|SetLocationCommand|NativeCommandError|ParserError)$/i.test(
+      token,
+    )
+  ) {
+    return true;
+  }
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(token)) return true;
   if (/^&&$/.test(token) || /^\|\|$/.test(token)) return true;
   if (/^cd$/i.test(token)) return true;
   if (/^[^\s]+@[^\s]+:/.test(token)) return true;
+  if (/^行:\d+$/i.test(token) || /^字符:\d+$/i.test(token)) return true;
   return false;
 }
 
@@ -441,6 +450,9 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
   const text = stripped.trim().replace(/\r/g, "\n");
   if (!text) return null;
+
+  // cd 失败后仅输出错误文本（含自动拼接的 ls 子命令），禁止误解析为目录列表
+  if (hasShellErrorSignals(text)) return null;
 
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length === 0) return null;

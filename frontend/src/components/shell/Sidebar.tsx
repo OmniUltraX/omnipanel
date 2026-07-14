@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
-import { startTransition } from "react";
+import { startTransition, useRef } from "react";
 import type { ReactNode } from "react";
 import { useAiStore } from "../../stores/aiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
@@ -12,6 +12,7 @@ import {
 } from "../../lib/workspaceNavigation";
 import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
 import { isOverlayModulePath } from "../../lib/routePanels";
+import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
 import { isModulePathEnabled, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 
@@ -120,6 +121,7 @@ export function Sidebar() {
   const settingsOpen = useSettingsUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   useAppModuleStore((s) => s.modules);
+  const hoverWarmCancelRef = useRef<(() => void) | null>(null);
 
   const isActive = (path: string) => {
     if (isWorkspaceHome) return false;
@@ -145,6 +147,16 @@ export function Sidebar() {
     go(path);
   };
 
+  const handleNavHoverStart = (path: string) => {
+    hoverWarmCancelRef.current?.();
+    hoverWarmCancelRef.current = scheduleNavHoverWarm(path);
+  };
+
+  const handleNavHoverEnd = () => {
+    hoverWarmCancelRef.current?.();
+    hoverWarmCancelRef.current = null;
+  };
+
   const renderItem = (item: { path: string; key: string; icon: ReactNode }) => (
     <button
       key={item.path}
@@ -152,6 +164,10 @@ export function Sidebar() {
       className={`sidebar-item${isActive(item.path) ? " active" : ""}`}
       title={t(item.key)}
       onClick={() => handleModuleNav(item.path)}
+      onMouseEnter={() => handleNavHoverStart(item.path)}
+      onMouseLeave={handleNavHoverEnd}
+      onFocus={() => handleNavHoverStart(item.path)}
+      onBlur={handleNavHoverEnd}
     >
       {item.icon}
     </button>

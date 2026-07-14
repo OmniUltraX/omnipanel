@@ -4,21 +4,22 @@ import { suggestHistory } from "./providers/historyProvider";
 import { suggestTemplates } from "./providers/templateProvider";
 import { suggestPaths, suggestWorkspaceResources } from "./providers/pathProvider";
 
-const PRIORITY_ORDER = { high: 0, default: 1, low: 2 } as const;
-
 function mergeCandidates(lists: CompletionCandidate[][]): CompletionCandidate[] {
   const seen = new Set<string>();
-  const merged: CompletionCandidate[] = [];
-  const flat = lists.flat().sort(
-    (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
-  );
-  for (const item of flat) {
-    const key = `${item.source}:${item.insertText}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(item);
+  const high: CompletionCandidate[] = [];
+  const normal: CompletionCandidate[] = [];
+
+  for (const list of lists) {
+    for (const item of list) {
+      const key = `${item.source}:${item.insertText}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (item.priority === "high") high.push(item);
+      else normal.push(item);
+    }
   }
-  return merged.slice(0, 30);
+
+  return [...high, ...normal].slice(0, 30);
 }
 
 interface UseCommandCompletionOptions {
@@ -35,7 +36,10 @@ export function useCommandCompletion(
   const [loading, setLoading] = useState(false);
 
   const ctxKey = useMemo(
-    () => (ctx ? `${ctx.sessionId}:${ctx.input}:${ctx.cursor}:${fetchPaths}` : ""),
+    () =>
+      ctx
+        ? `${ctx.sessionId}:${ctx.cwd}:${ctx.input}:${ctx.cursor}:${ctx.resourceId}:${fetchPaths}`
+        : "",
     [ctx, fetchPaths],
   );
 

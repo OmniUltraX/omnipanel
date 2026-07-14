@@ -542,6 +542,32 @@ export function isLayoutUsable(
 }
 
 /**
+ * 将布局中的 activeView 同步为指定 tab（若该 tab 存在于某个 leaf 中）。
+ */
+function applyActiveViewToLayout(
+  layout: SerializedDockview,
+  activeTabId: string,
+): SerializedDockview {
+  if (!activeTabId) return layout;
+  const root = fromGridNode(layout.grid.root);
+  let updatedActiveView = false;
+  const updated = mapRoot(root, (leaf) => {
+    if ((leaf.data.views ?? []).includes(activeTabId)) {
+      updatedActiveView = true;
+      return {
+        ...leaf,
+        data: { ...leaf.data, activeView: activeTabId },
+      };
+    }
+    return leaf;
+  });
+  if (!updatedActiveView) return layout;
+  const next = cloneLayout(layout);
+  next.grid.root = toGridNode(updated);
+  return next;
+}
+
+/**
  * 将外部 tab 列表与已保存布局合并（增删 panel、修正 activeGroup）。
  * tabs 为空时返回 null。
  */
@@ -553,7 +579,8 @@ export function mergePanelsIntoLayout(
   if (tabIds.length === 0) return null;
   if (!base) return createDefaultLayout(tabIds, activeTabId);
   if (!layoutNeedsMerge(base, tabIds)) {
-    return stripSideHeaderLayout(reorderLayoutViews(base, tabIds));
+    const reordered = stripSideHeaderLayout(reorderLayoutViews(base, tabIds));
+    return applyActiveViewToLayout(reordered, activeTabId);
   }
 
   const allowed = new Set(tabIds);
@@ -568,25 +595,8 @@ export function mergePanelsIntoLayout(
   }
   const missing = tabIds.filter((id) => !collectPanelIds(cleaned).has(id));
   if (missing.length === 0) {
-    // 即使没有 missing panels，如果 activeTabId 和当前 layout 内部的 activeView 不一致，强制更新
-    const withUpdatedActive = cloneLayout(cleaned);
-    const root = fromGridNode(withUpdatedActive.grid.root);
-    let updatedActiveView = false;
-    const updated = mapRoot(root, (leaf) => {
-      if ((leaf.data.views ?? []).includes(activeTabId)) {
-        updatedActiveView = true;
-        return {
-          ...leaf,
-          data: { ...leaf.data, activeView: activeTabId },
-        };
-      }
-      return leaf;
-    });
-    if (updatedActiveView) {
-      withUpdatedActive.grid.root = toGridNode(updated);
-      return stripSideHeaderLayout(reorderLayoutViews(withUpdatedActive, tabIds));
-    }
-    return stripSideHeaderLayout(reorderLayoutViews(cleaned, tabIds));
+    const withActive = applyActiveViewToLayout(cleaned, activeTabId);
+    return stripSideHeaderLayout(reorderLayoutViews(withActive, tabIds));
   }
 
   return stripSideHeaderLayout(

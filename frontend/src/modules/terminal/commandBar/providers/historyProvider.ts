@@ -1,5 +1,5 @@
 import type { CompletionCandidate, TerminalCompletionContext } from "../types";
-import { listSessionCommandHistoryFast } from "../useSessionCommandHistory";
+import { listSessionCommandHistoryEntriesFast } from "../useSessionCommandHistory";
 import { buildReplacementRange, parseCommandLineForCompletion } from "../parseCommandLine";
 
 export function suggestHistory(ctx: TerminalCompletionContext): CompletionCandidate[] {
@@ -8,18 +8,19 @@ export function suggestHistory(ctx: TerminalCompletionContext): CompletionCandid
   if (!token || token.kind === "path" || token.kind === "resource") return [];
 
   const prefix = token.text.toLowerCase();
-  const commands = listSessionCommandHistoryFast(ctx.sessionId, prefix);
+  const entries = listSessionCommandHistoryEntriesFast(ctx.sessionId, prefix);
   const candidates: CompletionCandidate[] = [];
 
-  for (const cmd of commands) {
-    if (prefix && !cmd.toLowerCase().startsWith(prefix)) continue;
+  for (const entry of entries) {
     const replacement = buildReplacementRange(token, ctx.cursor);
     candidates.push({
-      id: `history:${cmd}`,
-      label: cmd,
-      insertText: cmd,
-      description: cmd.startsWith("#") ? "AI 历史" : "历史命令",
-      source: "history",
+      id: `history:${entry.kind}:${entry.text}:${entry.timestamp}`,
+      label: entry.text,
+      insertText: entry.text,
+      description: entry.kind === "ai" ? "AI 历史" : "历史命令",
+      source: entry.kind === "ai" ? "ai" : "history",
+      historyKind: entry.kind,
+      timestamp: entry.timestamp,
       priority: "default",
       replacement,
     });

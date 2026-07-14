@@ -8,7 +8,7 @@ const CJK_FIRST_CHAR_RE =
   /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 const SHELL_ERROR_SIGNAL_RE =
-  /(?:command not found|not recognized as an internal or external command|no such file or directory|permission denied|syntax error|operation not permitted|cannot access|can't access|fatal:|segmentation fault|未找到命令|找不到命令|不是内部或外部命令|没有那个文件|权限不够|语法错误|您的意思是)/i;
+  /(?:command not found|not recognized as an internal or external command|no such file or directory|permission denied|syntax error|operation not permitted|cannot access|can't access|cannot find path|fatal:|segmentation fault|未找到命令|找不到命令|不是内部或外部命令|没有那个文件|权限不够|语法错误|您的意思是|找不到路径|因为该路径不存在|CategoryInfo|FullyQualifiedErrorId|ObjectNotFound|ItemNotFoundException|PathNotFound|SetLocationCommand|NativeCommandError|ParserError|所在位置\s*行:|终止错误)/i;
 
 const ENGLISH_NL_COMMAND_RE =
   /^(?:how|what|why|when|where|who|help|please|can you|could you|i need|tell me|show me|explain|analyze|analyse|list|check|find)\b/i;

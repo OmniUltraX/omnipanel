@@ -3,6 +3,7 @@ import {
   buildHistoryIndex,
   filterHistoryIndex,
 } from "./commandHistoryIndex";
+import { fuzzyMatchScore } from "./fuzzyMatch";
 
 export type { CommandHistoryKind };
 export type CommandHistoryEntry = {
@@ -28,14 +29,22 @@ export function listCommandHistoryFromBlocks(
   return filterHistoryIndex(index, query);
 }
 
-export function filterCompletionLabels<T extends { label: string; description?: string }>(
+export function filterCompletionLabels<T extends { label: string; description?: string; timestamp?: number }>(
   items: T[],
   query: string,
 ): T[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return items;
-  return items.filter((item) => {
-    const haystack = `${item.label} ${item.description ?? ""}`.toLowerCase();
-    return haystack.includes(normalized);
-  });
+  const scored = items
+    .map((item) => {
+      const haystack = `${item.label} ${item.description ?? ""}`;
+      return { item, score: fuzzyMatchScore(normalized, haystack) };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (b.item.timestamp ?? 0) - (a.item.timestamp ?? 0),
+    );
+  return scored.map((entry) => entry.item);
 }

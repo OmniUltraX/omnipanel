@@ -32,6 +32,10 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
     style,
     disabled,
     id: idProp,
+    autoComplete = "off",
+    spellCheck = false,
+    autoCorrect = "off",
+    autoCapitalize = "off",
     ...rest
   },
   ref,
@@ -64,10 +68,21 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
     .filter(Boolean)
     .join(" ");
 
+  const nativeGuardProps = {
+    autoComplete,
+    spellCheck,
+    autoCorrect,
+    autoCapitalize,
+    "data-1p-ignore": true,
+    "data-lpignore": "true",
+    "data-form-type": "other",
+  } as const;
+
   if (actionCount === 0) {
     return (
       <input
         {...rest}
+        {...nativeGuardProps}
         ref={inputRef}
         id={inputId}
         type="text"
@@ -84,6 +99,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
     <div className={inputFieldActionClass(actionCount, size)}>
       <input
         {...rest}
+        {...nativeGuardProps}
         ref={inputRef}
         id={inputId}
         type="text"

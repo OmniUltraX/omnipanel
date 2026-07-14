@@ -412,7 +412,9 @@ pub async fn open_workspace_window(
         .visible(true)
         .data_directory(data_dir)
         .initialization_script(&init_script)
-        .disable_drag_drop_handler();
+        .disable_drag_drop_handler()
+        // Windows WebView2：关闭「保存的信息」等原生自动填充建议
+        .general_autofill_enabled(false);
 
     if let Some(ref b) = bounds {
         builder = builder

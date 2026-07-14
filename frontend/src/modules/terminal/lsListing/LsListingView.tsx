@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, type CSSProperties } from "react";
+import { FeedSearchHighlightText } from "../FeedSearchHighlightText";
 import type { LsEntry, LsListing } from "./parseLsListing";
 import { joinListingEntryPath } from "./resolveLsListingDirectory";
 import { terminalCdCommand } from "../terminalPathCrumbs";
@@ -58,6 +59,7 @@ type LsListingViewProps = {
   onRunCommand?: (command: string) => void;
   /** 点击"文件"项时触发（kind 非 directory/symlink 等 navigable 项时） */
   onOpenFile?: (entry: LsEntry) => void;
+  highlightQuery?: string;
 };
 
 const KIND_CLASS: Record<LsEntry["kind"], string> = {
@@ -83,6 +85,7 @@ function LsEntryName({
   onRunCommand,
   onOpenFile,
   cdCommand,
+  highlightQuery = "",
 }: {
   entry: LsEntry;
   className: string;
@@ -90,9 +93,13 @@ function LsEntryName({
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
   cdCommand: string;
+  highlightQuery?: string;
 }) {
   const navigable = isLsEntryNavigable(entry);
   const displayName = lsEntryDisplayName(entry);
+  const nameNode = (
+    <FeedSearchHighlightText text={displayName} query={highlightQuery} />
+  );
 
   const handleClick = useCallback(() => {
     if (navigable) {
@@ -106,14 +113,14 @@ function LsEntryName({
   if (navigable || onOpenFile) {
     return (
       <button type="button" className={className} title={title} onClick={handleClick}>
-        {displayName}
+        {nameNode}
       </button>
     );
   }
 
   return (
     <span className={className} title={title}>
-      {displayName}
+      {nameNode}
     </span>
   );
 }
@@ -126,6 +133,7 @@ function LsLongRow({
   legacyWidths,
   onRunCommand,
   onOpenFile,
+  highlightQuery = "",
 }: {
   entry: LsEntry;
   listingDirectory: string;
@@ -134,6 +142,7 @@ function LsLongRow({
   legacyWidths: LongColumnWidths;
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
+  highlightQuery?: string;
 }) {
   const navigable = isLsEntryNavigable(entry);
   const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}${!navigable && onOpenFile ? " term-ls-entry--openable" : ""}`;
@@ -148,6 +157,7 @@ function LsLongRow({
       onRunCommand={onRunCommand}
       onOpenFile={onOpenFile}
       cdCommand={cdCommand}
+      highlightQuery={highlightQuery}
     />
   );
 
@@ -219,11 +229,13 @@ function LsGridColumnView({
   listingDirectory,
   onRunCommand,
   onOpenFile,
+  highlightQuery = "",
 }: {
   column: { entries: LsEntry[]; width: number };
   listingDirectory: string;
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
+  highlightQuery?: string;
 }) {
   return (
     <div
@@ -245,6 +257,7 @@ function LsGridColumnView({
               onRunCommand={onRunCommand}
               onOpenFile={onOpenFile}
               cdCommand={cdCommand}
+              highlightQuery={highlightQuery}
             />
           </div>
         );
@@ -253,7 +266,13 @@ function LsGridColumnView({
   );
 }
 
-function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFile }: LsListingViewProps) {
+function LsListingViewInner({
+  listing,
+  listingDirectory,
+  onRunCommand,
+  onOpenFile,
+  highlightQuery = "",
+}: LsListingViewProps) {
   const isGrid = listing.layout === "grid";
   const { containerRef, widthCh, isMeasured } = useLsGridTerminalWidth(isGrid);
 
@@ -310,6 +329,7 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFil
                 listingDirectory={listingDirectory}
                 onRunCommand={onRunCommand}
                 onOpenFile={onOpenFile}
+                highlightQuery={highlightQuery}
               />
             ))
           : null}
@@ -334,6 +354,7 @@ function LsListingViewInner({ listing, listingDirectory, onRunCommand, onOpenFil
           legacyWidths={legacyWidths ?? computeLongColumnWidths([entry])}
           onRunCommand={onRunCommand}
           onOpenFile={onOpenFile}
+          highlightQuery={highlightQuery}
         />
       ))}
     </div>
