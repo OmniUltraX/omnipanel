@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { IconPlus } from "../../components/ui/Icons";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
@@ -15,6 +15,7 @@ import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -136,11 +137,17 @@ function canRemoveNetwork(network: DockerNetworkSummary): boolean {
 
 export function DockerNetworkPanel({ connection, isActive = false }: DockerNetworkPanelProps) {
   const { t } = useI18n();
-  const [networks, setNetworks] = useState<DockerNetworkSummary[]>([]);
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
+  const [networks, setNetworks] = useState<DockerNetworkSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).networks,
+  );
+  const [containers, setContainers] = useState<DockerContainerSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).containers,
+  );
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   const [createOpen, setCreateOpen] = useState(false);
@@ -167,8 +174,10 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         fetchNetworks(connection.connectionId),
         fetchContainers(connection.connectionId),
       ]);
-      setNetworks(nextNetworks);
-      setContainers(nextContainers);
+      startTransition(() => {
+        setNetworks(nextNetworks);
+        setContainers(nextContainers);
+      });
       refreshSidebar();
     } catch (err) {
       setError(String(err));
@@ -178,10 +187,13 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
   }, [connection.connectionId, refreshSidebar]);
 
   useEffect(() => {
-    setNetworks([]);
-    setContainers([]);
-    setError(null);
-    setSearch("");
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setNetworks(cached.networks);
+      setContainers(cached.containers);
+      setError(cached.error);
+      setSearch("");
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {

@@ -351,21 +351,26 @@
         contain-intrinsic-size: auto 28px;
     }
 
-    .docker-sidebar-tree__show-more {
-        display: block;
-        width: 100%;
-        margin: 0;
-        padding: 4px 8px 4px 28px;
-        border: none;
-        background: transparent;
-        color: var(--fg-muted);
-        font-size: var(--text-xs);
-        text-align: left;
-        cursor: pointer;
+    /* 侧栏大列表虚拟滚动视口 */
+    .docker-sidebar-tree__virtual-list {
+        position: relative;
+        overflow: auto;
+        min-height: 0;
+        /* 防止虚拟行 absolute 溢出点击区域被吃掉 */
+        contain: layout style;
     }
 
-    .docker-sidebar-tree__show-more:hover {
-        color: var(--accent);
+    .docker-sidebar-tree__virtual-list-inner {
+        position: relative;
+        width: 100%;
+    }
+
+    .docker-sidebar-tree__virtual-row {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .docker-workspace-dock,

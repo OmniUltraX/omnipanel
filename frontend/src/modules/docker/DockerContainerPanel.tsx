@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { IconChevronDown } from "../../components/ui/Icons";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
@@ -7,6 +15,7 @@ import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bin
 import { unwrapCommand } from "../../ipc/result";
 import { sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import type { DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -125,9 +134,13 @@ function headerCellClassName(
 
 export function DockerContainerPanel({ connection, isActive = false }: DockerContainerPanelProps) {
   const { t } = useI18n();
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
+  const [containers, setContainers] = useState<DockerContainerSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).containers,
+  );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   /** 折叠中的 Compose 项目名；未列出则默认展开 */
@@ -144,7 +157,9 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     setError(null);
     try {
       const next = await fetchContainers(connection.connectionId);
-      setContainers(next);
+      startTransition(() => {
+        setContainers(next);
+      });
       refreshSidebarContainers();
     } catch (err) {
       setError(String(err));
@@ -154,10 +169,13 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
   }, [connection.connectionId, refreshSidebarContainers]);
 
   useEffect(() => {
-    setContainers([]);
-    setError(null);
-    setSearch("");
-    setCollapsedProjects(new Set());
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setContainers(cached.containers);
+      setError(cached.error);
+      setSearch("");
+      setCollapsedProjects(new Set());
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {

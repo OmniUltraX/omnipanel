@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
@@ -10,6 +10,7 @@ import type {
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -106,10 +107,16 @@ function ImageContainerTags({ containers }: { containers: DockerContainerSummary
 
 export function DockerImagePanel({ connection, isActive = false }: DockerImagePanelProps) {
   const { t } = useI18n();
-  const [images, setImages] = useState<DockerImageSummary[]>([]);
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
+  const [images, setImages] = useState<DockerImageSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).images,
+  );
+  const [containers, setContainers] = useState<DockerContainerSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).containers,
+  );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   const [pullOpen, setPullOpen] = useState(false);
@@ -131,8 +138,10 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         fetchImages(connection.connectionId),
         fetchContainers(connection.connectionId),
       ]);
-      setImages(nextImages);
-      setContainers(nextContainers);
+      startTransition(() => {
+        setImages(nextImages);
+        setContainers(nextContainers);
+      });
       refreshSidebarImages();
     } catch (err) {
       setError(String(err));
@@ -142,10 +151,14 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   }, [connection.connectionId, refreshSidebarImages]);
 
   useEffect(() => {
-    setImages([]);
-    setContainers([]);
-    setError(null);
-    setSearch("");
+    // cache-first：切换连接时先灌入侧栏缓存，再由 isActive 触发后台 refresh，禁止同步清空
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setImages(cached.images);
+      setContainers(cached.containers);
+      setError(cached.error);
+      setSearch("");
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {
