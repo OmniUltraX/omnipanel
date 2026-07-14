@@ -706,6 +706,33 @@ impl DockerAdapter for LocalDockerAdapter {
         clear_container_logs_via_docker_cli(id).await
     }
 
+    async fn list_container_log_infos(&self) -> OmniResult<Vec<DockerContainerLogInfo>> {
+        let containers = self.list_containers(ContainerFilter::All).await?;
+        let mut out = Vec::with_capacity(containers.len());
+        for c in &containers {
+            let raw = self
+                .docker
+                .inspect_container(&c.id, None)
+                .await
+                .map_err(map_bollard)?;
+            let log_path = raw.log_path.unwrap_or_default();
+            let size_bytes = if log_path.is_empty() {
+                None
+            } else {
+                std::fs::metadata(&log_path)
+                    .ok()
+                    .map(|m| m.len() as i64)
+            };
+            out.push(DockerContainerLogInfo {
+                container_id: c.id.clone(),
+                name: c.name.clone(),
+                log_path,
+                size_bytes,
+            });
+        }
+        Ok(out)
+    }
+
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
         let options = ListImagesOptionsBuilder::default().all(false).build();
         let raw = self
@@ -792,6 +819,14 @@ impl DockerAdapter for LocalDockerAdapter {
             deleted,
             freed_space_bytes: res.space_reclaimed.unwrap_or(0),
         })
+    }
+
+    async fn search_images(
+        &self,
+        term: &str,
+        limit: u32,
+    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+        search_images_via_docker_cli(term, limit).await
     }
 
     async fn pull_image(
@@ -1079,13 +1114,18 @@ impl DockerAdapter for LocalDockerAdapter {
             .map_err(map_bollard)?;
         Ok(raw
             .into_iter()
-            .map(|n| DockerNetworkSummary {
-                id: n.id.unwrap_or_default(),
-                name: n.name.unwrap_or_default(),
-                driver: n.driver.unwrap_or_default(),
-                scope: n.scope.unwrap_or_default(),
-                internal: n.internal.unwrap_or(false),
-                created_at: parse_iso_to_unix_ms(n.created.as_deref()),
+            .map(|n| {
+                let (ipv4_subnet, ipv4_gateway) = first_ipv4_from_ipam(n.ipam.as_ref());
+                DockerNetworkSummary {
+                    id: n.id.unwrap_or_default(),
+                    name: n.name.unwrap_or_default(),
+                    driver: n.driver.unwrap_or_default(),
+                    scope: n.scope.unwrap_or_default(),
+                    internal: n.internal.unwrap_or(false),
+                    created_at: parse_iso_to_unix_ms(n.created.as_deref()),
+                    ipv4_subnet,
+                    ipv4_gateway,
+                }
             })
             .collect())
     }
@@ -1113,6 +1153,19 @@ impl DockerAdapter for LocalDockerAdapter {
 
     async fn remove_network(&self, name: &str) -> OmniResult<()> {
         self.docker.remove_network(name).await.map_err(map_bollard)
+    }
+
+    async fn prune_networks(&self) -> OmniResult<DockerPruneResult> {
+        let res = self
+            .docker
+            .prune_networks(None::<bollard::query_parameters::PruneNetworksOptions>)
+            .await
+            .map_err(map_bollard)?;
+        Ok(DockerPruneResult {
+            deleted: res.networks_deleted.unwrap_or_default(),
+            // Engine API 网络 prune 不返回回收字节数
+            freed_space_bytes: 0,
+        })
     }
 
     async fn connect_container_to_network(
@@ -1335,61 +1388,31 @@ impl DockerAdapter for LocalDockerAdapter {
         container_id: &str,
         path: &str,
     ) -> OmniResult<Vec<DockerFileEntry>> {
-        // bollard 没有直接列出目录 API：下载 path/.. 的 tar 后解 tar。
-        // 仅当 `path` 是目录时有效（当 path 指向文件时返回空）。
-        use bollard::query_parameters::DownloadFromContainerOptionsBuilder;
-        use futures::StreamExt;
-        let options = DownloadFromContainerOptionsBuilder::default()
-            .path(path)
-            .build();
-        let stream = self
-            .docker
-            .download_from_container(container_id, Some(options));
-        tokio::pin!(stream);
-        let mut tar_bytes: Vec<u8> = Vec::new();
-        while let Some(item) = stream.next().await {
-            match item.map_err(map_bollard)? {
-                bytes if bytes.is_empty() => break,
-                bytes => tar_bytes.extend_from_slice(&bytes),
-            }
-        }
-        let mut entries = Vec::new();
-        let cursor = std::io::Cursor::new(tar_bytes);
-        let mut archive = tar::Archive::new(cursor);
-        for file in archive.entries().map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析容器目录 tar 失败").with_cause(e.to_string())
-        })? {
-            let file = file.map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "解析 tar 条目失败").with_cause(e.to_string())
+        // 禁止 download_from_container(path="/")：会把整棵文件系统打成 tar，前端一直「加载中」。
+        // 统一走非交互 `docker exec ls -lan`（与 SSH 路径一致）。
+        let path = crate::container_dir_ls::normalize_container_dir_path(path);
+        let output = tokio::process::Command::new("docker")
+            .args(["exec", container_id, "ls", "-lan", "--", path])
+            .output()
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "执行 docker exec 列出目录失败")
+                    .with_cause(e.to_string())
             })?;
-            let header = file.header().clone();
-            let raw_name = header.path().map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "解析 tar 路径失败").with_cause(e.to_string())
-            })?;
-            let name = raw_name
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let rel_path = raw_name.to_string_lossy().to_string();
-            let size = header.size().unwrap_or(0) as i64;
-            let mtime = header.mtime().unwrap_or(0) as i64 * 1000;
-            let mode = header.mode().unwrap_or(0);
-            let is_dir = header.entry_type().is_dir();
-            let is_symlink = header.entry_type().is_symlink();
-            if name.is_empty() {
-                continue;
-            }
-            entries.push(DockerFileEntry {
-                name,
-                path: rel_path,
-                size_bytes: size,
-                modified_at: mtime,
-                mode,
-                is_dir,
-                is_symlink,
-            });
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = if stderr.trim().is_empty() {
+                stdout.to_string()
+            } else {
+                stderr.to_string()
+            };
+            return Err(
+                OmniError::new(ErrorCode::Internal, "列出容器内目录失败").with_cause(detail)
+            );
         }
-        Ok(entries)
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(crate::container_dir_ls::parse_ls_lan_output(&stdout))
     }
 
     async fn read_container_file(
@@ -2105,6 +2128,115 @@ async fn clear_container_logs_via_docker_cli(id: &str) -> OmniResult<()> {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(OmniError::new(ErrorCode::Internal, "清空容器日志失败").with_cause(stderr.trim().to_string()))
+}
+
+/// 从 IPAM 配置提取首个 IPv4 子网与网关（优先含 `.` 且不含 `:` 的条目）。
+pub(crate) fn first_ipv4_from_ipam(
+    ipam: Option<&bollard::models::Ipam>,
+) -> (Option<String>, Option<String>) {
+    let Some(cfg) = ipam.and_then(|i| i.config.as_ref()) else {
+        return (None, None);
+    };
+    let pick = |c: &bollard::models::IpamConfig| (c.subnet.clone(), c.gateway.clone());
+    if let Some(c) = cfg.iter().find(|c| {
+        c.subnet
+            .as_deref()
+            .is_some_and(|s| s.contains('.') && !s.contains(':'))
+    }) {
+        return pick(c);
+    }
+    cfg.first().map(pick).unwrap_or((None, None))
+}
+
+/// 解析 `docker search --format '{{json .}}'` 逐行 JSON。
+pub(crate) fn parse_docker_search_json_lines(
+    stdout: &str,
+    limit: u32,
+) -> Vec<DockerImageSearchResult> {
+    let limit = limit.max(1) as usize;
+    let mut out = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let name = v
+            .get("Name")
+            .or_else(|| v.get("name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        out.push(DockerImageSearchResult {
+            name,
+            description: v
+                .get("Description")
+                .or_else(|| v.get("description"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            star_count: v
+                .get("StarCount")
+                .or_else(|| v.get("star_count"))
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            is_official: v
+                .get("IsOfficial")
+                .or_else(|| v.get("is_official"))
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
+            is_automated: v
+                .get("IsAutomated")
+                .or_else(|| v.get("is_automated"))
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
+        });
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
+/// 本地通过 `docker search --format '{{json .}}'` 搜索镜像。
+async fn search_images_via_docker_cli(
+    term: &str,
+    limit: u32,
+) -> OmniResult<Vec<DockerImageSearchResult>> {
+    let term = term.trim();
+    if term.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.max(1).min(100);
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "search",
+            "--limit",
+            &limit.to_string(),
+            "--format",
+            "{{json .}}",
+            term,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "搜索镜像失败").with_cause(e.to_string())
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(
+            OmniError::new(ErrorCode::Internal, "搜索镜像失败").with_cause(stderr.trim().to_string()),
+        );
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_docker_search_json_lines(&stdout, limit))
 }
 
 fn shell_quote_docker_id(s: &str) -> String {

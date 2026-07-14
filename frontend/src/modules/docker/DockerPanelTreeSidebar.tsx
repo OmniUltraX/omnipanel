@@ -36,6 +36,7 @@ import {
   useDockerConnectionResources,
 } from "./hooks/useDockerConnectionResources";
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
+import { DockerSidebarExpandableLeaves } from "./DockerSidebarExpandableLeaves";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
 import { usePersistedDockerTreeExpanded } from "./usePersistedDockerTreeExpanded";
@@ -80,10 +81,12 @@ function DockerTreeBranch({
   onNavigate,
 }: DockerTreeBranchProps) {
   const { t } = useI18n();
-  const loadConnection =
-    connectionExpanded && connectionSupportsSidebarResources(connection) ? connection : null;
+  const supportsResources = connectionSupportsSidebarResources(connection);
+  // 始终订阅缓存（折叠时也能留给搜索/徽章）；仅在展开且尚无缓存时首拉
   const { images, containers, networks, volumes, loading, error, refreshCategory } =
-    useDockerConnectionResources(loadConnection);
+    useDockerConnectionResources(supportsResources ? connection : null, {
+      autoFetchWhenEmpty: connectionExpanded,
+    });
   const connectionNameMatch = dockerConnectionNameMatchesSearch(searchQuery, connection);
 
   const categoryItems = useMemo(() => {
@@ -159,7 +162,7 @@ function DockerTreeBranch({
 
   if (!connectionExpanded) return null;
 
-  if (!connectionSupportsSidebarResources(connection)) {
+  if (!supportsResources) {
     return (
       <SidebarTreeEmpty style={{ paddingLeft: 28 }}>
         {t("docker.sidebar.treeUnsupported")}
@@ -234,7 +237,10 @@ function DockerTreeBranch({
                 ) : category.items.length === 0 ? (
                   <SidebarTreeEmpty>{t("docker.sidebar.treeEmpty")}</SidebarTreeEmpty>
                 ) : (
-                  category.items.map((item) => {
+                  <DockerSidebarExpandableLeaves
+                    items={category.items}
+                    getKey={(item) => `${category.id}:${item.id}:${item.label}`}
+                    renderItem={(item) => {
                     const itemKey = makeDockerTreeKey(connection.connectionId, category.id, item.id);
                     const openItem = (mode?: DockerConnectionDockOpenMode) => {
                       ensureExpanded(makeDockerTreeKey(connection.connectionId));
@@ -250,7 +256,6 @@ function DockerTreeBranch({
                     };
                     return (
                       <SidebarTreeNode
-                        key={`${category.id}:${item.id}:${item.label}`}
                         depth={2}
                         module="docker"
                         nodeType={category.id}
@@ -283,7 +288,8 @@ function DockerTreeBranch({
                         }
                       />
                     );
-                  })
+                    }}
+                  />
                 )}
               </div>
             ) : null}

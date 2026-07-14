@@ -151,30 +151,41 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
 
   useEffect(() => {
     if (!sessionKey) return;
-    if (adapter) {
-      void loadDir("/");
-      return;
-    }
-    const store = useSshDetailNavigationStore.getState();
-    const pending = store.pendingSftp;
-    if (pending?.resourceId === sessionKey) {
-      handledSftpNonceRef.current = pending.nonce;
-      void loadDir(pending.path, {
-        fromNavigation: true,
-        originalPath: pending.path,
-      });
-      return;
-    }
+    let disposed = false;
+    const run = async () => {
+      if (adapter) {
+        await loadDir("/");
+        return;
+      }
+      const store = useSshDetailNavigationStore.getState();
+      const pending = store.pendingSftp;
+      if (pending?.resourceId === sessionKey) {
+        handledSftpNonceRef.current = pending.nonce;
+        await loadDir(pending.path, {
+          fromNavigation: true,
+          originalPath: pending.path,
+        });
+        return;
+      }
 
-    const cached = store.sftpCaches[sessionKey];
-    if (cached) {
-      setPath(cached.path);
-      setEntries(cached.entries);
-      void loadDir(cached.path, { silent: true });
-      return;
-    }
+      const cached = store.sftpCaches[sessionKey];
+      if (cached) {
+        if (!disposed) {
+          setPath(cached.path);
+          setEntries(cached.entries);
+        }
+        await loadDir(cached.path, { silent: true });
+        return;
+      }
 
-    void loadDir("/");
+      await loadDir("/");
+    };
+    void run();
+    return () => {
+      disposed = true;
+      // 使进行中的 list 失效，避免 StrictMode/重挂载后永久卡在 loading
+      loadSeqRef.current += 1;
+    };
   }, [adapter, sessionKey]);
 
   useEffect(() => {

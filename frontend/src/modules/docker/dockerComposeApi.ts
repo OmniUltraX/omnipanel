@@ -22,11 +22,28 @@ type ComposeMetaCacheEntry = {
   fetchedAt: number;
 };
 
+type ComposeProjectsListCacheEntry = {
+  projects: DockerComposeProject[];
+  fetchedAt: number;
+};
+
 const composeMetaCache = new Map<string, ComposeMetaCacheEntry>();
+/** 连接级项目列表缓存：避免每个 Compose Tab 都再跑一次全量 list */
+const composeProjectsListCache = new Map<string, ComposeProjectsListCacheEntry>();
 const COMPOSE_META_TTL_MS = 60_000;
 
 function composeMetaCacheKey(connectionId: string, project: string): string {
   return `${connectionId}::${project.trim()}`;
+}
+
+function warmComposeMetaCache(connectionId: string, projects: DockerComposeProject[]): void {
+  const now = Date.now();
+  for (const meta of projects) {
+    composeMetaCache.set(composeMetaCacheKey(connectionId, meta.name), {
+      meta,
+      fetchedAt: now,
+    });
+  }
 }
 
 export function peekComposeProjectMeta(
@@ -50,11 +67,7 @@ export async function getComposeProjectMeta(
     return cached.meta;
   }
   const projects = await fetchComposeProjects(connectionId);
-  const meta = findComposeProjectMeta(projects, projectName);
-  if (meta) {
-    composeMetaCache.set(key, { meta, fetchedAt: Date.now() });
-  }
-  return meta;
+  return findComposeProjectMeta(projects, projectName);
 }
 
 export function invalidateComposeProjectMeta(connectionId: string, projectName?: string): void {
@@ -62,6 +75,7 @@ export function invalidateComposeProjectMeta(connectionId: string, projectName?:
     composeMetaCache.delete(composeMetaCacheKey(connectionId, projectName));
     return;
   }
+  composeProjectsListCache.delete(connectionId);
   for (const key of composeMetaCache.keys()) {
     if (key.startsWith(`${connectionId}::`)) {
       composeMetaCache.delete(key);
@@ -69,8 +83,30 @@ export function invalidateComposeProjectMeta(connectionId: string, projectName?:
   }
 }
 
+/**
+ * 列出连接上全部 Compose 项目（SSH 上等于扫一遍容器 labels，较慢）。
+ * 结果按连接缓存，并预热每个 project 的 meta，避免打开下一个项目再拉全量。
+ */
 export async function fetchComposeProjects(connectionId: string): Promise<DockerComposeProject[]> {
-  return unwrap(commands.dockerListComposeProjects(connectionId));
+  const cached = composeProjectsListCache.get(connectionId);
+  if (cached && Date.now() - cached.fetchedAt < COMPOSE_META_TTL_MS) {
+    debugCompose("fetchComposeProjects 命中连接级缓存", {
+      connectionId,
+      count: cached.projects.length,
+    });
+    return cached.projects;
+  }
+  debugCompose("fetchComposeProjects 请求全量列表", { connectionId });
+  const started = performance.now();
+  const projects = await unwrap(commands.dockerListComposeProjects(connectionId));
+  debugCompose("fetchComposeProjects 完成", {
+    connectionId,
+    count: projects.length,
+    ms: Math.round(performance.now() - started),
+  });
+  composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
+  warmComposeMetaCache(connectionId, projects);
+  return projects;
 }
 
 export async function readComposeProjectFiles(

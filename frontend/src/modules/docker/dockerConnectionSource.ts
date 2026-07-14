@@ -12,6 +12,11 @@ export function normalizeDockerSource(source: DockerConnectionSourceValue): stri
   return String(source).trim().toLowerCase().replace(/_/g, "-");
 }
 
+/** 是否为本地 Docker Engine。 */
+export function isLocalDockerSource(source: DockerConnectionSourceValue): boolean {
+  return normalizeDockerSource(source) === "local-engine";
+}
+
 /** 是否为 SSH 宿主机 Docker 来源（远端 docker CLI）。 */
 export function isSshDockerSource(source: DockerConnectionSourceValue): boolean {
   return normalizeDockerSource(source) === "ssh-engine";

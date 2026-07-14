@@ -32,12 +32,11 @@ export async function fetchDockerSidebarResources(
 ): Promise<DockerSidebarCacheEntry> {
   try {
     if (scope.kind === "connection") {
-      const [containers, images, networks, volumes] = await Promise.all([
-        unwrap(commands.dockerListContainers(scope.connectionId, null)),
-        unwrap(commands.dockerListImages(scope.connectionId)),
-        unwrap(commands.dockerListNetworks(scope.connectionId)),
-        unwrap(commands.dockerListVolumes(scope.connectionId)),
-      ]);
+      // 顺序拉取，避免 SSH 上对多个 docker list 并发抢 exec 锁导致整次首拉挂起
+      const containers = await unwrap(commands.dockerListContainers(scope.connectionId, null));
+      const images = await unwrap(commands.dockerListImages(scope.connectionId));
+      const networks = await unwrap(commands.dockerListNetworks(scope.connectionId));
+      const volumes = await unwrap(commands.dockerListVolumes(scope.connectionId));
       return {
         images,
         containers,
@@ -58,6 +57,8 @@ export async function fetchDockerSidebarResources(
   } catch (error) {
     return {
       ...current,
+      // 失败也标记已尝试，侧栏结束「加载中」并展示错误
+      refreshedAt: current.refreshedAt ?? Date.now(),
       error: String(error),
     };
   }

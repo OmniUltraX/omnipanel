@@ -11,6 +11,7 @@ import { initAcpServicesStore } from "./stores/acpServicesStore";
 import { initCliProvidersStore } from "./stores/cliProvidersStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
+import { warmAllSshPoolSessions } from "./stores/sshPoolWarmup";
 import { initBackgroundTasks } from "./stores/backgroundTaskStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { initBuiltinToolStore } from "./stores/builtinToolStore";
@@ -86,11 +87,23 @@ export function Bootstrap() {
         void syncGatewayConfig();
 
         await pushLog(t("app.splash.logs.connections"));
-        initConnections();
+        await initConnections();
 
         await pushLog(t("app.splash.logs.connectionPool"));
         initConnectionPool();
         initBackgroundTasks();
+
+        await pushLog(t("app.splash.logs.sshWarmup"));
+        const warm = await warmAllSshPoolSessions();
+        if (warm && warm.total > 0) {
+          await pushLog(
+            t("app.splash.logs.sshWarmupDone", {
+              ready: warm.ready,
+              total: warm.total,
+              failed: warm.failed,
+            }),
+          );
+        }
 
         await pushLog(t("app.splash.logs.actionListener"));
         initActionListener();

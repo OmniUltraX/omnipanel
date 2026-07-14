@@ -748,7 +748,7 @@ export function DatabasePanel() {
 
   /** 激活已有 Dock Tab；双击树节点时若当前为预览 Tab 则升格为常驻。 */
   const activateExistingDockTab = useCallback(
-    (tabId: string, mode: SchemaDockOpenMode = "preview") => {
+    (tabId: string, mode: SchemaDockOpenMode = "permanent") => {
       if (mode === "permanent") {
         const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
         if (tab?.preview) {
@@ -3376,7 +3376,7 @@ export function DatabasePanel() {
   );
 
   const handleSelectTable = useCallback(
-    (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "preview") => {
+    (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
 
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
@@ -3549,7 +3549,7 @@ export function DatabasePanel() {
   }, [activeWorkspaceTab, activeSqlSidebarSeed]);
 
   const handleSelectDatabase = useCallback(
-    (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "preview") => {
+    (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, connection } = selection;
@@ -3888,7 +3888,7 @@ export function DatabasePanel() {
 
   // @ts-ignore
   const openRedisQueryTab = useCallback(
-    (connId: string, dbName: string | undefined, label: string, mode: SchemaDockOpenMode = "preview") => {
+    (connId: string, dbName: string | undefined, label: string, mode: SchemaDockOpenMode = "permanent") => {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const existingTabId = findTabIdForRedisQuery(moduleTabs, connId, dbName);
       if (existingTabId) {
@@ -3941,7 +3941,7 @@ export function DatabasePanel() {
   );
 
   const handleSelectConnection = useCallback(
-    (connId: string, mode: SchemaDockOpenMode = "preview") => {
+    (connId: string, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
@@ -4640,7 +4640,7 @@ export function DatabasePanel() {
                     selection={selection}
                     onDesignTable={handleDesignTable}
                     onOpenTableData={(tableSelection) =>
-                      handleSelectTable(tableSelection, "preview")
+                      handleSelectTable(tableSelection, "permanent")
                     }
                   />
                 </div>

@@ -236,8 +236,9 @@ export function useWorkspaceResources(): WorkspaceResource[] {
 }
 
 /** 应用启动时拉取一次后端连接。 */
-export function initConnections() {
-  void useConnectionStore.getState().refresh();
+/** 加载连接列表；启动流程应 await，以便后续 SSH 预热拿到完整主机集。 */
+export async function initConnections(): Promise<void> {
+  await useConnectionStore.getState().refresh();
 }
 
 /** 将 `~/.ssh/config` 同步到本地持久化存储，并刷新连接列表。 */

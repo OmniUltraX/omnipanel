@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 import { Button } from "../../components/ui/Button";
 import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bindings";
 import {
@@ -101,7 +101,7 @@ export interface DockerContainerOverviewCardProps {
   ) => void;
 }
 
-export function DockerContainerOverviewCard({
+export const DockerContainerOverviewCard = memo(function DockerContainerOverviewCard({
   container,
   stats,
   t,
@@ -233,4 +233,4 @@ export function DockerContainerOverviewCard({
       ) : null}
     </article>
   );
-}
+});

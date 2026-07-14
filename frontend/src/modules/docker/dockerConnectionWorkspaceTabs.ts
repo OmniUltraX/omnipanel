@@ -1,4 +1,4 @@
-/** 侧栏单击打开的临时预览 Tab；双击变为常驻（无 preview）。 */
+/** 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据，新打开不再走预览槽。 */
 export type DockerConnectionDockOpenMode = "preview" | "permanent";
 
 export type DockerConnectionPanelTab = {
@@ -6,7 +6,7 @@ export type DockerConnectionPanelTab = {
   kind: "connection";
   label: string;
   connectionId: string;
-  /** 单击预览 Tab，标题斜体显示，下次单击其他连接时内容被替换 */
+  /** @deprecated 旧「单击预览」槽位；新打开固定为常驻（false/undefined） */
   preview?: boolean;
 };
 
@@ -183,12 +183,14 @@ export function isDockerComposeTab(
   return tab.kind === "compose";
 }
 
-/** 过滤持久化中已废弃的服务组 Tab。 */
+/** 过滤持久化中已废弃的服务组 Tab，并将旧预览 Tab 提升为常驻。 */
 export function sanitizeDockerDockTabs(
   tabs: DockerConnectionWorkspaceTab[],
 ): DockerConnectionWorkspaceTab[] {
-  return tabs.filter((tab) => {
-    const kind = (tab as { kind?: string }).kind;
-    return kind !== "service-group";
-  });
+  return tabs
+    .filter((tab) => {
+      const kind = (tab as { kind?: string }).kind;
+      return kind !== "service-group";
+    })
+    .map((tab) => (tab.preview ? { ...tab, preview: false } : tab));
 }

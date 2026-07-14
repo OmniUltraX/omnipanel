@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { CodeEditor } from "../../components/ui/content/CodeEditor";
 import { useI18n } from "../../i18n";
@@ -16,7 +16,6 @@ export interface DockerDaemonConfigTabPanelProps {
 
 export function DockerDaemonConfigTabPanel({
   connection,
-  isActive,
 }: DockerDaemonConfigTabPanelProps) {
   const { t } = useI18n();
   const [loading, setLoading] = useState(false);
@@ -26,27 +25,35 @@ export function DockerDaemonConfigTabPanel({
   const [savedContent, setSavedContent] = useState("");
   const [editable, setEditable] = useState(true);
   const [saving, setSaving] = useState(false);
+  /** 已成功加载过配置的连接 id；切回当前页签时复用缓存 */
+  const loadedConnectionIdRef = useRef<string | null>(null);
 
-  const loadConfig = useCallback(async () => {
-    if (!isActive) return;
+  const loadConfig = useCallback(async (force = false) => {
+    const connectionId = connection.connectionId;
+    if (!force && loadedConnectionIdRef.current === connectionId) {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const file = await readDockerDaemonConfig(connection.connectionId);
+      const file = await readDockerDaemonConfig(connectionId);
       setConfigPath(file.path);
       setContent(file.content);
       setSavedContent(file.content);
       setEditable(file.editable);
+      loadedConnectionIdRef.current = connectionId;
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [connection.connectionId, isActive]);
+  }, [connection.connectionId]);
 
   useEffect(() => {
-    void loadConfig();
-  }, [loadConfig]);
+    // 连接切换或 dock 面板重挂载时加载；子页签切换不触发
+    loadedConnectionIdRef.current = null;
+    void loadConfig(true);
+  }, [connection.connectionId, loadConfig]);
 
   const dirty = content !== savedContent;
 

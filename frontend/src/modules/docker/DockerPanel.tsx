@@ -154,7 +154,7 @@ export function DockerPanel() {
   };
 
   const handleNavigate = useCallback(
-    (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "preview") => {
+    (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
       if (target.composeProject) {
         selectCompose(target.connectionId, target.composeProject, mode);
         setActiveNavKey(
@@ -291,6 +291,7 @@ export function DockerPanel() {
               id: tab.id,
               label: containerName,
               panelType: "docker-container",
+              icon: "docker-container" as const,
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${containerName}`,
@@ -303,6 +304,7 @@ export function DockerPanel() {
               id: tab.id,
               label: imagesLabel,
               panelType: "docker-images",
+              icon: "docker-images" as const,
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${imagesLabel}`,
@@ -315,6 +317,7 @@ export function DockerPanel() {
               id: tab.id,
               label: networksLabel,
               panelType: "docker-networks",
+              icon: "docker-networks" as const,
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${networksLabel}`,
@@ -327,6 +330,7 @@ export function DockerPanel() {
               id: tab.id,
               label: volumesLabel,
               panelType: "docker-volumes",
+              icon: "docker-volumes" as const,
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${volumesLabel}`,
@@ -338,6 +342,7 @@ export function DockerPanel() {
               id: tab.id,
               label: tab.composeProject,
               panelType: "docker-compose",
+              icon: "docker-compose" as const,
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${tab.composeProject}`,
@@ -348,6 +353,7 @@ export function DockerPanel() {
             id: tab.id,
             label: connection.name,
             panelType: "docker-connection",
+            icon: "docker-connection" as const,
             closable: true,
             preview: tab.preview,
             tooltip: connection.hostLabel ?? connection.name,
@@ -357,56 +363,65 @@ export function DockerPanel() {
     [connectionById, dockTabs, sidebarContainersForTabs, t],
   );
 
-  const renderDockerPanel = useCallback(
-    (tabId: string) => {
-      const tab = dockTabs.find((item) => item.id === tabId);
-      if (!tab) {
-        return <div className="docker-connection-tab-pane" aria-hidden />;
-      }
-      const connection = connectionById.get(tab.connectionId);
-      if (!connection) {
-        return <div className="docker-connection-tab-pane" aria-hidden />;
-      }
-      const isActive = moduleLive && activeTabId === tabId;
+  // renderPanel 经 DockableWorkspace 的 ref 注入；稳定回调 + 最新 refs，避免 dockTabs 变更触发整树 soft-refresh
+  const dockTabsRef = useRef(dockTabs);
+  const connectionByIdRef = useRef(connectionById);
+  const activeTabIdRef = useRef(activeTabId);
+  const moduleLiveRef = useRef(moduleLive);
+  dockTabsRef.current = dockTabs;
+  connectionByIdRef.current = connectionById;
+  activeTabIdRef.current = activeTabId;
+  moduleLiveRef.current = moduleLive;
 
-      return (
-        <div className="docker-main">
-          {isDockerContainerTab(tab) ? (
-            <Suspense fallback={<DockerPanelLoadingFallback />}>
-              <DockerContainerDockPanel
-                connection={connection}
-                containerId={tab.containerId}
-                isActive={isActive}
-              />
-            </Suspense>
-          ) : isDockerImagesTab(tab) ? (
-            <Suspense fallback={<DockerPanelLoadingFallback />}>
-              <DockerImagePanel connection={connection} isActive={isActive} />
-            </Suspense>
-          ) : isDockerNetworksTab(tab) ? (
-            <Suspense fallback={<DockerPanelLoadingFallback />}>
-              <DockerNetworkPanel connection={connection} isActive={isActive} />
-            </Suspense>
-          ) : isDockerVolumesTab(tab) ? (
-            <Suspense fallback={<DockerPanelLoadingFallback />}>
-              <DockerVolumePanel connection={connection} isActive={isActive} />
-            </Suspense>
-          ) : isDockerComposeTab(tab) ? (
-            <Suspense fallback={<DockerPanelLoadingFallback />}>
-              <DockerComposePanel
-                connection={connection}
-                composeProject={tab.composeProject}
-                isActive={isActive}
-              />
-            </Suspense>
-          ) : (
-            <DockerConnectionInfoPanel connection={connection} isActive={isActive} />
-          )}
-        </div>
-      );
-    },
-    [activeTabId, connectionById, dockTabs, moduleLive],
-  );
+  const renderDockerPanel = useCallback((tabId: string) => {
+    const tab = dockTabsRef.current.find((item) => item.id === tabId);
+    if (!tab) {
+      return <div className="docker-connection-tab-pane" aria-hidden />;
+    }
+    const connection = connectionByIdRef.current.get(tab.connectionId);
+    if (!connection) {
+      return <div className="docker-connection-tab-pane" aria-hidden />;
+    }
+    const isActive = Boolean(moduleLiveRef.current && activeTabIdRef.current === tabId);
+
+    return (
+      <div className="docker-main">
+        {isDockerContainerTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerContainerDockPanel
+              connection={connection}
+              containerId={tab.containerId}
+              isActive={isActive}
+            />
+          </Suspense>
+        ) : isDockerImagesTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerImagePanel connection={connection} isActive={isActive} />
+          </Suspense>
+        ) : isDockerNetworksTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerNetworkPanel connection={connection} isActive={isActive} />
+          </Suspense>
+        ) : isDockerVolumesTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerVolumePanel connection={connection} isActive={isActive} />
+          </Suspense>
+        ) : isDockerComposeTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerComposePanel
+              connection={connection}
+              composeProject={tab.composeProject}
+              isActive={isActive}
+            />
+          </Suspense>
+        ) : (
+          <DockerConnectionInfoPanel connection={connection} isActive={isActive} />
+        )}
+      </div>
+    );
+  }, []);
+
+  const dockSoftRefreshKey = `${moduleLive ? 1 : 0}:${activeTabId ?? ""}`;
 
   const sidebarLinkageValue = useMemo(
     () => ({
@@ -452,6 +467,7 @@ export function DockerPanel() {
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
             renderPanel={renderDockerPanel}
+            softRefreshKey={dockSoftRefreshKey}
             emptyContent={
                 <WorkspaceEmptyPage
                   title={t("routes.docker")}

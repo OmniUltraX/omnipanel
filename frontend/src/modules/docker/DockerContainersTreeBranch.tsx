@@ -12,6 +12,7 @@ import type { DockerSidebarNavigate } from "./dockerSidebarNav";
 import { groupContainersByComposeProject, resolveComposeProjectName } from "./dockerComposeGroups";
 import { DockerTreeIcon, dockerTreeNodeClassName } from "./dockerTreeIcons";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
+import { DockerSidebarExpandableLeaves } from "./DockerSidebarExpandableLeaves";
 import {
   dockerComposeProjectMatchesSearch,
   dockerContainerMatchesSearch,
@@ -213,14 +214,22 @@ export function DockerContainersTreeBranch({
             />
             {projectExpanded ? (
               <div className="server-tree-children">
-                {projectContainers.map((container) => renderContainerNode(container, 3))}
+                <DockerSidebarExpandableLeaves
+                  items={projectContainers}
+                  getKey={(container) => container.id}
+                  renderItem={(container) => renderContainerNode(container, 3)}
+                />
               </div>
             ) : null}
           </div>
         );
       })}
 
-      {visibleStandaloneContainers.map((container) => renderContainerNode(container, 2))}
+      <DockerSidebarExpandableLeaves
+        items={visibleStandaloneContainers}
+        getKey={(container) => container.id}
+        renderItem={(container) => renderContainerNode(container, 2)}
+      />
     </>
   );
 }

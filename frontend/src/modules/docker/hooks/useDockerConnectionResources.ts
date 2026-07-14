@@ -6,12 +6,20 @@ import {
   selectDockerSidebarCacheEntry,
   selectEmptyDockerSidebarCacheEntry,
 } from "../dockerSidebarCache";
-import { isOnePanelDockerSource, isSshDockerSource } from "../dockerConnectionSource";
+import {
+  isLocalDockerSource,
+  isOnePanelDockerSource,
+  isSshDockerSource,
+} from "../dockerConnectionSource";
 import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 
-/** 侧栏资源树当前支持 1Panel / 面板适配与 SSH 宿主机来源。 */
+/** 侧栏资源树支持本地 Engine / SSH 宿主机 / 1Panel（及面板适配）。 */
 export function connectionSupportsSidebarResources(connection: DockerConnectionInfo): boolean {
-  return isOnePanelDockerSource(connection.source) || isSshDockerSource(connection.source);
+  return (
+    isLocalDockerSource(connection.source) ||
+    isOnePanelDockerSource(connection.source) ||
+    isSshDockerSource(connection.source)
+  );
 }
 
 function hasCachedResources(connectionId: string): boolean {
@@ -19,10 +27,23 @@ function hasCachedResources(connectionId: string): boolean {
   return entry.refreshedAt != null;
 }
 
+export type UseDockerConnectionResourcesOptions = {
+  /**
+   * 为 true 且尚无缓存时，才在后台拉取一次写入缓存。
+   * 折叠节点时应关闭，避免未展开就刷全量；之后仅靠树上的刷新按钮做局部刷新。
+   */
+  autoFetchWhenEmpty?: boolean;
+};
+
 /**
- * 读取单个 Docker 连接的侧栏资源缓存；展开连接时若无缓存则后台拉取并写入本地缓存。
+ * 读取单个 Docker 连接的侧栏资源缓存（内存常驻）。
+ * 默认不因展开/切换重复请求；仅 `autoFetchWhenEmpty` 且从未拉取过时补首拉。
  */
-export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
+export function useDockerConnectionResources(
+  connection: DockerConnectionInfo | null,
+  options?: UseDockerConnectionResourcesOptions,
+) {
+  const autoFetchWhenEmpty = options?.autoFetchWhenEmpty ?? true;
   const moduleSuspended = useModuleSuspended();
   const connectionId = connection?.connectionId ?? null;
   const supported = connection != null && connectionSupportsSidebarResources(connection);
@@ -33,12 +54,14 @@ export function useDockerConnectionResources(connection: DockerConnectionInfo | 
   );
   const entry = useDockerSidebarCacheStore(cacheSelector);
   const refreshScope = useDockerSidebarCacheStore((state) => state.refreshScope);
+  // 直接读 refreshingKeys，保证 zustand 订阅能随 key 变化触发重渲染
+  const connectionRefreshKey = connectionId ? dockerSidebarConnectionRefreshKey(connectionId) : null;
   const connectionRefreshing = useDockerSidebarCacheStore((state) =>
-    connectionId ? state.isRefreshing(dockerSidebarConnectionRefreshKey(connectionId)) : false,
+    connectionRefreshKey ? Boolean(state.refreshingKeys[connectionRefreshKey]) : false,
   );
 
   useEffect(() => {
-    if (!connectionId || !supported || moduleSuspended) return;
+    if (!connectionId || !supported || moduleSuspended || !autoFetchWhenEmpty) return;
     if (hasCachedResources(connectionId)) return;
 
     let cancelled = false;
@@ -60,7 +83,7 @@ export function useDockerConnectionResources(connection: DockerConnectionInfo | 
       cancelled = true;
       cancelIdle(handle as number);
     };
-  }, [connectionId, moduleSuspended, supported, refreshScope]);
+  }, [autoFetchWhenEmpty, connectionId, moduleSuspended, supported, refreshScope]);
 
   const refresh = useCallback(() => {
     if (!connectionId || !supported) return;
@@ -75,7 +98,9 @@ export function useDockerConnectionResources(connection: DockerConnectionInfo | 
     [connectionId, supported, refreshScope],
   );
 
-  const loading = supported && connectionRefreshing && entry.refreshedAt == null;
+  // 仅在「从未成功/失败落盘」且仍在刷新时显示加载；已有 error/refreshedAt 则不再假转圈
+  const loading =
+    supported && connectionRefreshing && entry.refreshedAt == null && entry.error == null;
 
   if (!supported) {
     return {
@@ -109,5 +134,7 @@ export function refreshDockerConnectionSidebarCache(connectionId: string): void 
 
 /** 判断某刷新 key 是否处于进行中。 */
 export function useDockerSidebarRefreshing(refreshKey: string | null): boolean {
-  return useDockerSidebarCacheStore((state) => (refreshKey ? state.isRefreshing(refreshKey) : false));
+  return useDockerSidebarCacheStore((state) =>
+    refreshKey ? Boolean(state.refreshingKeys[refreshKey]) : false,
+  );
 }

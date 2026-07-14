@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useI18n } from "../../i18n";
+import { Button } from "../../components/ui/Button";
+import { IconPlus } from "../../components/ui/Icons";
+import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
+import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import type {
   DockerConnectionInfo,
   DockerContainerSummary,
   DockerNetworkSummary,
 } from "../../ipc/bindings";
+import { appConfirm } from "../../lib/appConfirm";
+import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
@@ -17,19 +23,30 @@ import {
 } from "./dockerNetworkContainers";
 import { dockerContainerMatchesSearch, dockerNetworkMatchesSearch } from "./dockerTreeSearch";
 import { containerRowLabel, networkRowLabel } from "./dockerResourceLabels";
+import { TrashIcon } from "./icons";
 
 export interface DockerNetworkPanelProps {
   connection: DockerConnectionInfo;
   isActive?: boolean;
 }
 
-type SortColumn = "name" | "driver" | "scope" | "created" | "containers" | "internal";
+type SortColumn =
+  | "name"
+  | "driver"
+  | "scope"
+  | "created"
+  | "containers"
+  | "internal"
+  | "ipv4Subnet"
+  | "ipv4Gateway";
 type SortDirection = "asc" | "desc";
 
 interface SortState {
   column: SortColumn;
   direction: SortDirection;
 }
+
+const PROTECTED_NETWORKS = new Set(["bridge", "host", "none"]);
 
 async function fetchNetworks(connectionId: string): Promise<DockerNetworkSummary[]> {
   const res = await commands.dockerListNetworks(connectionId);
@@ -81,6 +98,12 @@ function compareNetworks(
     case "internal":
       cmp = Number(a.internal) - Number(b.internal);
       break;
+    case "ipv4Subnet":
+      cmp = (a.ipv4Subnet ?? "").localeCompare(b.ipv4Subnet ?? "", undefined, { sensitivity: "base" });
+      break;
+    case "ipv4Gateway":
+      cmp = (a.ipv4Gateway ?? "").localeCompare(b.ipv4Gateway ?? "", undefined, { sensitivity: "base" });
+      break;
   }
   return direction === "asc" ? cmp : -cmp;
 }
@@ -110,14 +133,25 @@ function NetworkContainerTags({ containers }: { containers: DockerContainerSumma
   );
 }
 
+function canRemoveNetwork(network: DockerNetworkSummary): boolean {
+  return !PROTECTED_NETWORKS.has(network.name.trim().toLowerCase());
+}
+
 export function DockerNetworkPanel({ connection, isActive = false }: DockerNetworkPanelProps) {
   const { t } = useI18n();
   const [networks, setNetworks] = useState<DockerNetworkSummary[]>([]);
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createDriver, setCreateDriver] = useState("bridge");
+  const [createSubnet, setCreateSubnet] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<Record<string, true>>({});
 
   const refreshSidebar = useCallback(() => {
     void useDockerSidebarCacheStore
@@ -177,6 +211,8 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     if (!query) return networks;
     return networks.filter((network) => {
       if (dockerNetworkMatchesSearch(query, network)) return true;
+      if ((network.ipv4Subnet || "").toLowerCase().includes(query.toLowerCase())) return true;
+      if ((network.ipv4Gateway || "").toLowerCase().includes(query.toLowerCase())) return true;
       return containersForNetwork(network, containerIndex).some((container) =>
         dockerContainerMatchesSearch(query, container),
       );
@@ -188,6 +224,90 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     sorted.sort((a, b) => compareNetworks(a, b, sort.column, sort.direction, containerIndex));
     return sorted;
   }, [containerIndex, filteredNetworks, sort.column, sort.direction]);
+
+  const handleRemove = useCallback(
+    (network: DockerNetworkSummary) => {
+      if (!canRemoveNetwork(network)) return;
+      void (async () => {
+        const confirmed = await appConfirm(
+          t("docker.networksPanel.removeConfirm", { name: network.name }),
+          t("docker.networksPanel.remove"),
+          { kind: "warning", confirmLabel: t("common.delete") },
+        );
+        if (!confirmed) return;
+        setPendingRemove((current) => ({ ...current, [network.id]: true }));
+        try {
+          const res = await commands.dockerRemoveNetwork(connection.connectionId, network.name);
+          if (res.status !== "ok") throw new Error(res.error.message);
+          showToast(t("docker.networksPanel.removeSuccess", { name: network.name }));
+          await refresh();
+        } catch (err) {
+          showToast(`${t("docker.networksPanel.removeFailed")}: ${String(err)}`);
+        } finally {
+          setPendingRemove((current) => {
+            if (!current[network.id]) return current;
+            const next = { ...current };
+            delete next[network.id];
+            return next;
+          });
+        }
+      })();
+    },
+    [connection.connectionId, refresh, t],
+  );
+
+  const handlePrune = useCallback(() => {
+    void (async () => {
+      const confirmed = await appConfirm(
+        t("docker.networksPanel.pruneConfirm"),
+        t("docker.networksPanel.prune"),
+        { kind: "warning", confirmLabel: t("docker.networksPanel.prune") },
+      );
+      if (!confirmed) return;
+      setBusy(true);
+      try {
+        const res = await commands.dockerPruneNetworks(connection.connectionId);
+        if (res.status !== "ok") throw new Error(res.error.message);
+        showToast(t("docker.networksPanel.pruneSuccess"));
+        await refresh();
+      } catch (err) {
+        showToast(`${t("docker.networksPanel.pruneFailed")}: ${String(err)}`);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [connection.connectionId, refresh, t]);
+
+  const handleCreate = useCallback(() => {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError(t("docker.networksPanel.createNameRequired"));
+      return;
+    }
+    void (async () => {
+      setBusy(true);
+      setCreateError(null);
+      try {
+        const res = await commands.dockerCreateNetwork(connection.connectionId, {
+          name,
+          driver: createDriver.trim() || null,
+          internal: false,
+          subnet: createSubnet.trim() || null,
+        });
+        if (res.status !== "ok") throw new Error(res.error.message);
+        showToast(t("docker.networksPanel.createSuccess", { name }));
+        setCreateOpen(false);
+        setCreateName("");
+        setCreateDriver("bridge");
+        setCreateSubnet("");
+        await refresh();
+      } catch (err) {
+        setCreateError(String(err));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [connection.connectionId, createDriver, createName, createSubnet, refresh, t]);
 
   const gridColumns = useMemo((): DbTablesPanelGridColumn<DockerNetworkSummary>[] => {
     return [
@@ -216,6 +336,24 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         render: (network) => network.driver || "—",
         getTitle: (network) => network.driver,
         getCopyValue: (network) => network.driver,
+      },
+      {
+        id: "ipv4Subnet",
+        sortId: "ipv4Subnet",
+        header: t("docker.networksPanel.column.ipv4Subnet"),
+        sortable: true,
+        render: (network) => network.ipv4Subnet || "—",
+        getTitle: (network) => network.ipv4Subnet ?? undefined,
+        getCopyValue: (network) => network.ipv4Subnet ?? undefined,
+      },
+      {
+        id: "ipv4Gateway",
+        sortId: "ipv4Gateway",
+        header: t("docker.networksPanel.column.ipv4Gateway"),
+        sortable: true,
+        render: (network) => network.ipv4Gateway || "—",
+        getTitle: (network) => network.ipv4Gateway ?? undefined,
+        getCopyValue: (network) => network.ipv4Gateway ?? undefined,
       },
       {
         id: "scope",
@@ -261,8 +399,33 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         getCopyValue: (network) =>
           networkContainerTagsCopyValue(containersForNetwork(network, containerIndex)),
       },
+      {
+        id: "actions",
+        header: t("docker.networksPanel.column.actions"),
+        variant: "actionsSticky",
+        copyable: false,
+        render: (network) => {
+          const removable = canRemoveNetwork(network);
+          const pending = Boolean(pendingRemove[network.id]);
+          return (
+            <div className="docker-network-panel__actions" onClick={(event) => event.stopPropagation()}>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                title={t("docker.networksPanel.remove")}
+                aria-label={t("docker.networksPanel.remove")}
+                disabled={!removable || pending || busy}
+                onClick={() => handleRemove(network)}
+              >
+                <TrashIcon />
+              </Button>
+            </div>
+          );
+        },
+      },
     ];
-  }, [containerIndex, t]);
+  }, [busy, containerIndex, handleRemove, pendingRemove, t]);
 
   const renderTable = () => {
     if (loading && networks.length === 0) {
@@ -303,13 +466,84 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
       </div>
       <div className="db-tables-panel-meta">
-        <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
-        <span className="db-tables-panel-meta-text">
-          {loading
-            ? t("common.loading")
-            : t("docker.networksPanel.count", { count: sortedNetworks.length })}
-        </span>
+        <div className="docker-network-panel__meta-left">
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            title={t("docker.networksPanel.create")}
+            aria-label={t("docker.networksPanel.create")}
+            disabled={loading || busy}
+            onClick={() => {
+              setCreateError(null);
+              setCreateName("");
+              setCreateDriver("bridge");
+              setCreateSubnet("");
+              setCreateOpen(true);
+            }}
+          >
+            <IconPlus size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            title={t("docker.networksPanel.prune")}
+            aria-label={t("docker.networksPanel.prune")}
+            disabled={loading || busy}
+            onClick={handlePrune}
+          >
+            <TrashIcon />
+          </Button>
+          <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading || busy} busy={loading} />
+          <span className="db-tables-panel-meta-text">
+            {loading
+              ? t("common.loading")
+              : t("docker.networksPanel.count", { count: sortedNetworks.length })}
+          </span>
+        </div>
       </div>
+
+      <FormDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t("docker.networksPanel.create")}
+        size="sm"
+        clipboardAssist={false}
+        cancelDisabled={busy}
+        closeDisabled={busy}
+        primaryAction={{
+          label: busy ? t("common.saving") : t("common.confirm"),
+          disabled: busy || !createName.trim(),
+          onClick: handleCreate,
+        }}
+        status={createError ? { kind: "error", message: createError } : null}
+      >
+        <FormField label={t("docker.networksPanel.createName")}>
+          <TextInput
+            value={createName}
+            onChange={setCreateName}
+            placeholder={t("docker.networksPanel.createNamePlaceholder")}
+            disabled={busy}
+          />
+        </FormField>
+        <FormField label={t("docker.networksPanel.createDriver")}>
+          <TextInput
+            value={createDriver}
+            onChange={setCreateDriver}
+            placeholder="bridge"
+            disabled={busy}
+          />
+        </FormField>
+        <FormField label={t("docker.networksPanel.createSubnet")} hint={t("docker.networksPanel.createSubnetHint")}>
+          <TextInput
+            value={createSubnet}
+            onChange={setCreateSubnet}
+            placeholder="172.28.0.0/16"
+            disabled={busy}
+          />
+        </FormField>
+      </FormDialog>
     </ScopedSearch>
   );
 }

@@ -5,6 +5,7 @@ import {
   findPreviewDockTab,
   findTabIdForServer,
   makeServerTabId,
+  sanitizeServerPanelDockTabs,
   type ServerPanelDockOpenMode,
   type ServerPanelWorkspaceTab,
 } from "../modules/server/panel/serverPanelWorkspaceTabs";
@@ -32,7 +33,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
       activeTabId: null,
       dockLayout: null,
 
-      selectServer: (serverId, mode = "preview") => {
+      selectServer: (serverId, mode = "permanent") => {
         set((state) => {
           const existingTabId = findTabIdForServer(state.tabs, serverId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -122,7 +123,20 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
     }),
     {
       name: "omnipanel-server-panel-dock.v1",
+      version: 2,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persisted) => {
+        if (!persisted || typeof persisted !== "object") {
+          return persisted as ServerPanelDockState;
+        }
+        const state = persisted as ServerPanelDockState;
+        const tabs = sanitizeServerPanelDockTabs(state.tabs ?? []);
+        let activeTabId = state.activeTabId ?? null;
+        if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+          activeTabId = tabs[tabs.length - 1]?.id ?? null;
+        }
+        return { ...state, tabs, activeTabId };
+      },
       partialize: (state) => ({
         tabs: state.tabs,
         activeTabId: state.activeTabId,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { commands } from "../../ipc/bindings";
@@ -15,8 +16,10 @@ import {
   containersForImage,
   groupContainersByImageId,
 } from "./dockerImageContainers";
+import { DockerImagePullDialog } from "./DockerImagePullDialog";
 import { dockerContainerMatchesSearch, dockerImageMatchesSearch } from "./dockerTreeSearch";
 import { containerRowLabel, imageRowLabel, imageRowSizeLabel } from "./dockerResourceLabels";
+import { DownloadIcon } from "./icons";
 
 export interface DockerImagePanelProps {
   connection: DockerConnectionInfo;
@@ -111,6 +114,7 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
+  const [pullOpen, setPullOpen] = useState(false);
 
   const refreshSidebarImages = useCallback(() => {
     void useDockerSidebarCacheStore
@@ -283,13 +287,33 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
       </div>
       <div className="db-tables-panel-meta">
-        <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
-        <span className="db-tables-panel-meta-text">
-          {loading
-            ? t("common.loading")
-            : t("docker.imagesPanel.count", { count: sortedImages.length })}
-        </span>
+        <div className="docker-image-panel__meta-left">
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            title={t("docker.imagesPanel.pull")}
+            aria-label={t("docker.imagesPanel.pull")}
+            disabled={loading}
+            onClick={() => setPullOpen(true)}
+          >
+            <DownloadIcon size={14} />
+          </Button>
+          <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
+          <span className="db-tables-panel-meta-text">
+            {loading
+              ? t("common.loading")
+              : t("docker.imagesPanel.count", { count: sortedImages.length })}
+          </span>
+        </div>
       </div>
+
+      <DockerImagePullDialog
+        open={pullOpen}
+        connectionId={connection.connectionId}
+        onClose={() => setPullOpen(false)}
+        onPulled={() => void refresh()}
+      />
     </ScopedSearch>
   );
 }

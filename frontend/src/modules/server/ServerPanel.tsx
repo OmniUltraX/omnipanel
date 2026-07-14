@@ -76,7 +76,7 @@ export function ServerPanel() {
   }, [panelServers, removeServerTabs]);
 
   const handleNavigate = useCallback(
-    (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
+    (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
       selectServer(target.serverId, mode);
       setNavTarget(target);
       if (target.itemId && target.detailTab) {

@@ -90,15 +90,15 @@ export type SidebarTreeNodeProps = {
   onDrop?: DragEventHandler<HTMLDivElement>;
   onDragEnd?: DragEventHandler<HTMLDivElement>;
   onToggle: () => void;
-  /** 单击：选中节点（推荐） */
+  /** 单击：选中节点（不打开面板） */
   onSelect?: (event: TreeRowMouseEvent) => void;
-  /** 双击：打开右侧面板（推荐） */
+  /** 双击：打开右侧常驻面板 */
   onActivate?: (event: TreeRowMouseEvent) => void;
   /** @deprecated 使用 onSelect */
   onClick?: (event: TreeRowMouseEvent) => void;
   /** @deprecated 使用 onActivate */
   onDoubleClick?: (event: TreeRowMouseEvent) => void;
-  /** @deprecated 单击预览延迟，已由「单击选中 / 双击打开」取代 */
+  /** @deprecated 单击预览延迟已废弃；现为单击选中 / 双击打开常驻 */
   clickDelayMs?: number;
   shouldIgnoreClick?: (target: EventTarget | null) => boolean;
   /** 右侧刷新；未提供时不渲染刷新按钮 */

@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { SftpPanel } from "../../components/sftp";
+import { Button } from "../../components/ui/Button";
+import { IconPlus } from "../../components/ui/Icons";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
+import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
+import { TextInput } from "../../components/ui/form/TextInput";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import type { DockerConnectionInfo, DockerVolumeSummary } from "../../ipc/bindings";
+import { appConfirm } from "../../lib/appConfirm";
+import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import { dockerVolumeMatchesSearch } from "./dockerTreeSearch";
 import { volumeRowLabel } from "./dockerResourceLabels";
 import { makeDockerVolumeSftpAdapter } from "./dockerVolumeSftpAdapter";
+import { TrashIcon } from "./icons";
 
 export interface DockerVolumePanelProps {
   connection: DockerConnectionInfo;
@@ -28,8 +35,12 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
   const [volumes, setVolumes] = useState<DockerVolumeSummary[]>([]);
   const [selectedVolumeName, setSelectedVolumeName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const refreshSidebarVolumes = useCallback(() => {
     void useDockerSidebarCacheStore
@@ -89,6 +100,61 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
     );
   }, [connection.connectionId, connection.source, selectedVolumeName]);
 
+  const handlePrune = useCallback(() => {
+    void (async () => {
+      const confirmed = await appConfirm(
+        t("docker.volumesPanel.pruneConfirm"),
+        t("docker.volumesPanel.prune"),
+        { kind: "warning", confirmLabel: t("docker.volumesPanel.prune") },
+      );
+      if (!confirmed) return;
+      setBusy(true);
+      try {
+        const res = await commands.dockerPruneVolumes(connection.connectionId);
+        if (res.status !== "ok") throw new Error(res.error.message);
+        showToast(
+          t("docker.volumesPanel.pruneSuccess", {
+            count: res.data.deleted?.length ?? 0,
+          }),
+        );
+        await refresh();
+      } catch (err) {
+        showToast(`${t("docker.volumesPanel.pruneFailed")}: ${String(err)}`);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [connection.connectionId, refresh, t]);
+
+  const handleCreate = useCallback(() => {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError(t("docker.volumesPanel.createNameRequired"));
+      return;
+    }
+    void (async () => {
+      setBusy(true);
+      setCreateError(null);
+      try {
+        const res = await commands.dockerCreateVolume(connection.connectionId, {
+          name,
+          driver: null,
+          labels: [],
+        });
+        if (res.status !== "ok") throw new Error(res.error.message);
+        showToast(t("docker.volumesPanel.createSuccess", { name }));
+        setCreateOpen(false);
+        setCreateName("");
+        await refresh();
+        setSelectedVolumeName(name);
+      } catch (err) {
+        setCreateError(String(err));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [connection.connectionId, createName, refresh, t]);
+
   if (!isActive) {
     return <div className="docker-volume-panel docker-volume-panel--inactive" aria-hidden />;
   }
@@ -102,14 +168,12 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       enabled
     >
       <div className="docker-volume-panel__header">
-        <div>
-          <h2 className="docker-volume-panel__title">{t("docker.tabs.volumes")}</h2>
-          <p className="docker-volume-panel__subtitle">
-            {connection.name}
-            {connection.hostLabel ? ` · ${connection.hostLabel}` : ""}
-            {selectedVolume?.mountpoint ? ` · ${selectedVolume.mountpoint}` : ""}
-          </p>
-        </div>
+        <h2 className="docker-volume-panel__title">{t("docker.tabs.volumes")}</h2>
+        <p className="docker-volume-panel__subtitle">
+          {connection.name}
+          {connection.hostLabel ? ` · ${connection.hostLabel}` : ""}
+          {selectedVolume?.mountpoint ? ` · ${selectedVolume.mountpoint}` : ""}
+        </p>
       </div>
 
       {error ? <div className="docker-volume-panel__error">{error}</div> : null}
@@ -119,7 +183,35 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
           <DockPanel defaultSize="22%" minSize="16%" maxSize="35%" className="docker-volume-panel__list-pane">
             <div className="docker-volume-panel__list-wrap">
               <div className="docker-volume-panel__list-header">
-                <span>{t("docker.volumesPanel.volumeList")}</span>
+                <div className="docker-volume-panel__list-header-left">
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon-xs"
+                    title={t("docker.volumesPanel.prune")}
+                    aria-label={t("docker.volumesPanel.prune")}
+                    disabled={loading || busy}
+                    onClick={handlePrune}
+                  >
+                    <TrashIcon />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon-xs"
+                    title={t("docker.volumesPanel.create")}
+                    aria-label={t("docker.volumesPanel.create")}
+                    disabled={loading || busy}
+                    onClick={() => {
+                      setCreateError(null);
+                      setCreateName("");
+                      setCreateOpen(true);
+                    }}
+                  >
+                    <IconPlus size={14} />
+                  </Button>
+                  <span>{t("docker.volumesPanel.volumeList")}</span>
+                </div>
                 <span className="docker-volume-panel__list-count">{filteredVolumes.length}</span>
               </div>
               <div className="docker-volume-panel__list-body">
@@ -154,32 +246,59 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
           </DockPanel>
           <DockHandle direction="horizontal" />
           <DockPanel defaultSize="78%" minSize="55%" className="docker-volume-panel__browser-pane">
-            {selectedVolume && adapter ? (
-              <div className="docker-volume-panel__sftp-wrap" key={selectedVolume.name}>
-                <SftpPanel
-                  resourceId={null}
-                  adapter={adapter}
-                  cacheKey={`${connection.connectionId}:${selectedVolume.name}`}
+            <div className="docker-volume-panel__browser-wrap">
+              {selectedVolume && adapter ? (
+                <div className="docker-volume-panel__sftp-wrap" key={selectedVolume.name}>
+                  <SftpPanel
+                    resourceId={null}
+                    adapter={adapter}
+                    cacheKey={`${connection.connectionId}:${selectedVolume.name}`}
+                  />
+                </div>
+              ) : (
+                <ModuleEmptyState
+                  preset="volume"
+                  title={t("docker.volumesPanel.selectVolume")}
                 />
-              </div>
-            ) : (
-              <ModuleEmptyState
-                preset="volume"
-                title={t("docker.volumesPanel.selectVolume")}
-              />
-            )}
+              )}
+            </div>
           </DockPanel>
         </DockLayout>
       </div>
 
       <div className="docker-volume-panel__meta">
-        <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
+        <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading || busy} busy={loading} />
         <span className="docker-volume-panel__meta-text">
           {loading
             ? t("common.loading")
             : t("docker.volumesPanel.count", { count: filteredVolumes.length })}
         </span>
       </div>
+
+      <FormDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t("docker.volumesPanel.create")}
+        size="sm"
+        clipboardAssist={false}
+        cancelDisabled={busy}
+        closeDisabled={busy}
+        primaryAction={{
+          label: busy ? t("common.saving") : t("common.confirm"),
+          disabled: busy || !createName.trim(),
+          onClick: handleCreate,
+        }}
+        status={createError ? { kind: "error", message: createError } : null}
+      >
+        <FormField label={t("docker.volumesPanel.createName")}>
+          <TextInput
+            value={createName}
+            onChange={setCreateName}
+            placeholder={t("docker.volumesPanel.createNamePlaceholder")}
+            disabled={busy}
+          />
+        </FormField>
+      </FormDialog>
     </ScopedSearch>
   );
 }
