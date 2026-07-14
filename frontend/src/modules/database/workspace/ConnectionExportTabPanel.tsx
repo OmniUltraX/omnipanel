@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../../i18n";
+import { appConfirm } from "../../../lib/appConfirm";
 import { showToast } from "../../../stores/toastStore";
 import type { DbConnectionConfig } from "../api";
 import {
+  deleteMysqlExport,
   formatExportFileSize,
   listMysqlExports,
   listenMysqlExportEvents,
@@ -35,19 +37,41 @@ function formatExportTime(timestamp: number, locale: string): string {
 }
 
 function exportStatusLabel(
-  status: string,
-  t: (key: string) => string,
+  record: MysqlExportRecord,
+  t: (key: string, params?: Record<string, string | number>) => string,
 ): string {
-  switch (status) {
+  switch (record.status) {
     case "running":
       return t("database.connectionInfo.exports.statusRunning");
     case "completed":
       return t("database.connectionInfo.exports.statusCompleted");
-    case "failed":
+    case "failed": {
+      const reason = record.error?.trim();
+      if (reason) {
+        return t("database.connectionInfo.exports.statusFailedWithReason", { error: reason });
+      }
       return t("database.connectionInfo.exports.statusFailed");
+    }
     default:
-      return status;
+      return record.status;
   }
+}
+
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M8 2v8M5 7l3 3 3-3" />
+      <path d="M3 12h10" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M3 4h10M6 4V3h4v1M5 4l.5 9h5L11 4" />
+    </svg>
+  );
 }
 
 export function ConnectionExportTabPanel({
@@ -61,6 +85,7 @@ export function ConnectionExportTabPanel({
   const [error, setError] = useState<string | null>(null);
   const [exports, setExports] = useState<MysqlExportRecord[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refreshExports = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
@@ -69,8 +94,8 @@ export function ConnectionExportTabPanel({
     setError(null);
     try {
       const records = await listMysqlExports(connection.id);
-      setExports(records);
-      onRecordsChange?.(records.length);
+      setExports(Array.isArray(records) ? records : []);
+      onRecordsChange?.(Array.isArray(records) ? records.length : 0);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -133,6 +158,39 @@ export function ConnectionExportTabPanel({
     [connection.id, t],
   );
 
+  const handleDelete = useCallback(
+    async (record: MysqlExportRecord) => {
+      if (record.status === "running") {
+        return;
+      }
+      const confirmed = await appConfirm(
+        t("database.connectionInfo.exports.deleteConfirmMessage", {
+          database: record.databaseName,
+        }),
+        t("database.connectionInfo.exports.deleteConfirmTitle"),
+        {
+          confirmLabel: t("database.connectionInfo.exports.delete"),
+          cancelLabel: t("common.cancel"),
+        },
+      );
+      if (!confirmed) {
+        return;
+      }
+      setDeletingId(record.id);
+      try {
+        await deleteMysqlExport(connection.id, record.id);
+        showToast(t("database.connectionInfo.exports.deleteDone"));
+        await refreshExports({ silent: true });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        showToast(message || t("database.connectionInfo.exports.deleteFailed"));
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [connection.id, refreshExports, t],
+  );
+
   const columns = useMemo<DbTablesPanelGridColumn<MysqlExportRecord>[]>(
     () => [
       {
@@ -157,31 +215,57 @@ export function ConnectionExportTabPanel({
       {
         id: "status",
         header: t("database.connectionInfo.exports.columnStatus"),
-        render: (record) => exportStatusLabel(record.status, t),
-        getTitle: (record) => exportStatusLabel(record.status, t),
+        render: (record) => exportStatusLabel(record, t),
+        getTitle: (record) => {
+          const label = exportStatusLabel(record, t);
+          const reason = record.status === "failed" ? record.error?.trim() : "";
+          return reason && !label.includes(reason) ? `${label}\n${reason}` : label;
+        },
       },
       {
         id: "actions",
         variant: "actionsSticky",
         header: t("database.connectionInfo.exports.columnActions"),
         headerAriaLabel: t("database.connectionInfo.exports.columnActions"),
-        render: (record) => (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={record.status !== "completed" || downloadingId === record.id}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleDownload(record);
-            }}
-          >
-            {t("database.connectionInfo.exports.download")}
-          </Button>
-        ),
+        render: (record) => {
+          const busy = downloadingId === record.id || deletingId === record.id;
+          return (
+            <div className="db-tables-panel-grid__row-actions">
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                title={t("database.connectionInfo.exports.download")}
+                aria-label={t("database.connectionInfo.exports.download")}
+                disabled={record.status !== "completed" || busy}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleDownload(record);
+                }}
+              >
+                <DownloadIcon />
+              </Button>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="db-tables-panel-grid__action-danger"
+                title={t("database.connectionInfo.exports.delete")}
+                aria-label={t("database.connectionInfo.exports.delete")}
+                disabled={record.status === "running" || busy}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleDelete(record);
+                }}
+              >
+                <DeleteIcon />
+              </Button>
+            </div>
+          );
+        },
       },
     ],
-    [downloadingId, handleDownload, locale, t],
+    [deletingId, downloadingId, handleDelete, handleDownload, locale, t],
   );
 
   if (error) {

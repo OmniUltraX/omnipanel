@@ -38,6 +38,11 @@ export interface MysqlDeploymentInfo {
   sshConnectionId?: string;
   /** 匹配到的 SSH 连接名称（服务器） */
   serverName?: string;
+  /**
+   * MySQL 实例自身监听端口（SHOW VARIABLES.port），
+   * Docker 导出时应使用该值而非连接配置里的宿主机 publish 端口。
+   */
+  mysqlPort?: number;
   reason?: MysqlDeploymentReason;
 }
 
@@ -45,6 +50,8 @@ interface MysqlDeployVariables {
   pidFile: string;
   basedir: string;
   datadir: string;
+  /** 服务端监听端口；缺省 3306 */
+  mysqlPort: number;
 }
 
 function shellQuote(value: string): string {
@@ -67,16 +74,18 @@ async function queryMysqlDeployVariables(
 ): Promise<MysqlDeployVariables> {
   const queryResult = await invoke<QueryResult>("db_execute_query", {
     connection,
-    sql: "SHOW VARIABLES WHERE Variable_name IN ('pid_file', 'basedir', 'datadir')",
+    sql: "SHOW VARIABLES WHERE Variable_name IN ('pid_file', 'basedir', 'datadir', 'port')",
     runId: makeQueryRunId(),
   });
   const rows = rowsToRecord(queryResult.columns, queryResult.rows);
   const read = (name: string) =>
     String(rows.find((row) => row.Variable_name === name)?.Value ?? "").trim();
+  const parsedPort = Number.parseInt(read("port"), 10);
   return {
     pidFile: read("pid_file"),
     basedir: read("basedir"),
     datadir: read("datadir"),
+    mysqlPort: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 3306,
   };
 }
 
@@ -158,14 +167,14 @@ export async function probeMysqlDeployment(
     return { kind: "unknown", reason: "probe_failed" };
   }
 
-  const { pidFile, basedir, datadir } = variables;
+  const { pidFile, basedir, datadir, mysqlPort } = variables;
   if (!pidFile) {
-    return { kind: "unknown", reason: "no_pid_file" };
+    return { kind: "unknown", reason: "no_pid_file", mysqlPort };
   }
 
   const ssh = await findSshConnectionForDbHost(sshConnections, connection.host);
   if (!ssh) {
-    return { kind: "unknown", reason: "no_ssh", pidFile };
+    return { kind: "unknown", reason: "no_ssh", pidFile, mysqlPort };
   }
 
   const sshReady = await ensureSshReady(ssh.id);
@@ -174,12 +183,13 @@ export async function probeMysqlDeployment(
       kind: "unknown",
       reason: "ssh_not_connected",
       pidFile,
+      mysqlPort,
       sshConnectionId: ssh.id,
       serverName: ssh.name,
     };
   }
 
-  const sshMeta = { sshConnectionId: ssh.id, serverName: ssh.name };
+  const sshMeta = { sshConnectionId: ssh.id, serverName: ssh.name, mysqlPort };
 
   try {
     if (await remoteFileExists(ssh.id, pidFile)) {
