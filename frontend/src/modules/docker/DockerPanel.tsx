@@ -19,7 +19,14 @@ import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
-import { isDockerComposeTab, isDockerContainerTab, isDockerImagesTab, isDockerNetworksTab, isDockerVolumesTab } from "./dockerConnectionWorkspaceTabs";
+import {
+  isDockerComposeTab,
+  isDockerContainerTab,
+  isDockerContainersTab,
+  isDockerImagesTab,
+  isDockerNetworksTab,
+  isDockerVolumesTab,
+} from "./dockerConnectionWorkspaceTabs";
 import { containerRowLabel, makeDockerComposeProjectTreeKey, makeDockerTreeKey } from "./dockerResourceLabels";
 import type { DockerSidebarNavTarget } from "./dockerSidebarNav";
 import { useDockerConnections } from "./hooks/useDockerConnections";
@@ -27,6 +34,10 @@ import type { Connection, DockerConnectionInfo, DockerContainerSummary } from ".
 
 const DockerContainerDockPanel = lazy(() =>
   import("./DockerContainerDockPanel").then((mod) => ({ default: mod.DockerContainerDockPanel })),
+);
+
+const DockerContainerPanel = lazy(() =>
+  import("./DockerContainerPanel").then((mod) => ({ default: mod.DockerContainerPanel })),
 );
 
 const DockerImagePanel = lazy(() =>
@@ -71,6 +82,7 @@ export function DockerPanel() {
   const dockLayout = useDockerPanelDockStore((s) => s.dockLayout);
   const selectConnection = useDockerPanelDockStore((s) => s.selectConnection);
   const selectContainer = useDockerPanelDockStore((s) => s.selectContainer);
+  const selectContainers = useDockerPanelDockStore((s) => s.selectContainers);
   const selectImages = useDockerPanelDockStore((s) => s.selectImages);
   const selectNetworks = useDockerPanelDockStore((s) => s.selectNetworks);
   const selectVolumes = useDockerPanelDockStore((s) => s.selectVolumes);
@@ -122,31 +134,48 @@ export function DockerPanel() {
     [connections],
   );
 
+  // 连接列表未就绪前不能做过期清理：validIds 为空时会误删刚从 localStorage 恢复的 Dock Tab
   useEffect(() => {
-    const tabs = useDockerPanelDockStore.getState().tabs;
-    const staleConnectionIds = [
-      ...new Set(
-        tabs.filter((tab) => !validIds.has(tab.connectionId)).map((tab) => tab.connectionId),
-      ),
-    ];
-    for (const connectionId of staleConnectionIds) {
-      removeConnectionTabs(connectionId);
-    }
+    if (connectionsLoading) return;
 
-    for (const tab of tabs) {
-      if (!isDockerContainerTab(tab) || !validIds.has(tab.connectionId)) continue;
-      const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
-      const normalized = tab.containerId.trim().toLowerCase();
-      const exists = containers.some(
-        (container) =>
-          container.id.trim().toLowerCase() === normalized ||
-          container.shortId.trim().toLowerCase() === normalized,
-      );
-      if (!exists && containers.length > 0) {
-        removeContainerTabs(tab.connectionId, tab.containerId);
+    const pruneStaleTabs = () => {
+      const tabs = useDockerPanelDockStore.getState().tabs;
+      const staleConnectionIds = [
+        ...new Set(
+          tabs.filter((tab) => !validIds.has(tab.connectionId)).map((tab) => tab.connectionId),
+        ),
+      ];
+      for (const connectionId of staleConnectionIds) {
+        removeConnectionTabs(connectionId);
       }
+
+      for (const tab of tabs) {
+        if (!isDockerContainerTab(tab) || !validIds.has(tab.connectionId)) continue;
+        const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
+        const normalized = tab.containerId.trim().toLowerCase();
+        const exists = containers.some(
+          (container) =>
+            container.id.trim().toLowerCase() === normalized ||
+            container.shortId.trim().toLowerCase() === normalized,
+        );
+        if (!exists && containers.length > 0) {
+          removeContainerTabs(tab.connectionId, tab.containerId);
+        }
+      }
+    };
+
+    if (useDockerPanelDockStore.persist.hasHydrated()) {
+      pruneStaleTabs();
+      return;
     }
-  }, [removeConnectionTabs, removeContainerTabs, sidebarContainersForTabs, validIds]);
+    return useDockerPanelDockStore.persist.onFinishHydration(pruneStaleTabs);
+  }, [
+    connectionsLoading,
+    removeConnectionTabs,
+    removeContainerTabs,
+    sidebarContainersForTabs,
+    validIds,
+  ]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -166,8 +195,14 @@ export function DockerPanel() {
       if (target.category === "containers" && target.itemId) {
         selectContainer(target.connectionId, target.itemId, mode);
         setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-      return;
-    }
+        return;
+      }
+
+      if (target.category === "containers" && !target.itemId) {
+        selectContainers(target.connectionId, mode);
+        setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
+        return;
+      }
 
       if (target.category === "images" && !target.itemId) {
         selectImages(target.connectionId, mode);
@@ -196,7 +231,15 @@ export function DockerPanel() {
         setActiveNavKey(makeDockerTreeKey(target.connectionId));
       }
     },
-    [selectConnection, selectContainer, selectCompose, selectImages, selectNetworks, selectVolumes],
+    [
+      selectConnection,
+      selectContainer,
+      selectContainers,
+      selectCompose,
+      selectImages,
+      selectNetworks,
+      selectVolumes,
+    ],
   );
 
   useEffect(() => {
@@ -207,6 +250,10 @@ export function DockerPanel() {
     }
     if (isDockerContainerTab(tab)) {
       setActiveNavKey(makeDockerTreeKey(tab.connectionId, "containers", tab.containerId));
+      return;
+    }
+    if (isDockerContainersTab(tab)) {
+      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "containers"));
       return;
     }
     if (isDockerImagesTab(tab)) {
@@ -295,6 +342,19 @@ export function DockerPanel() {
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${containerName}`,
+            };
+          }
+
+          if (isDockerContainersTab(tab)) {
+            const containersLabel = t("docker.tabs.containers");
+            return {
+              id: tab.id,
+              label: containersLabel,
+              panelType: "docker-containers",
+              icon: "docker-containers" as const,
+              closable: true,
+              preview: tab.preview,
+              tooltip: `${connection.name} · ${containersLabel}`,
             };
           }
 
@@ -393,6 +453,10 @@ export function DockerPanel() {
               containerId={tab.containerId}
               isActive={isActive}
             />
+          </Suspense>
+        ) : isDockerContainersTab(tab) ? (
+          <Suspense fallback={<DockerPanelLoadingFallback />}>
+            <DockerContainerPanel connection={connection} isActive={isActive} />
           </Suspense>
         ) : isDockerImagesTab(tab) ? (
           <Suspense fallback={<DockerPanelLoadingFallback />}>

@@ -1214,7 +1214,7 @@ pub async fn docker_create_exec_session(
 /// 宿主机交互终端会话 id 标记（复用 docker_exec_* write/resize/close）。
 const HOST_SHELL_SESSION_MARKER: &str = "__host__";
 
-/// 在 Docker 连接对应的宿主机上打开交互 shell（主要用于 SSH 宿主机执行 docker CLI）。
+/// 在 Docker 连接对应的宿主机上打开交互 shell（SSH / 1Panel；本地 Engine 走本机终端）。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_create_host_shell_session(
@@ -1241,14 +1241,15 @@ pub async fn docker_create_host_shell_session(
             DockerTarget::Local | DockerTarget::Remote(_) => {
                 return Err(OmniError::new(
                     ErrorCode::InvalidInput,
-                    "本地 / 远程 Engine 连接请使用本机终端；宿主机 Docker shell 仅支持 SSH 宿主机来源",
+                    "本地 / 远程 Engine 连接请使用本机终端；宿主机 Docker shell 仅支持 SSH / 1Panel",
                 ));
             }
-            DockerTarget::OnePanel(_) => {
-                return Err(OmniError::new(
-                    ErrorCode::InvalidInput,
-                    "1Panel 连接暂不支持宿主机 Docker 终端",
-                ));
+            DockerTarget::OnePanel(adapter) => {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    adapter.create_host_shell(cols, rows),
+                )
+                .await
             }
         };
 

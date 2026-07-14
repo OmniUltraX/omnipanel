@@ -6,12 +6,14 @@ import {
   findTabIdForCompose,
   findTabIdForConnection,
   findTabIdForContainer,
+  findTabIdForContainers,
   findTabIdForImages,
   findTabIdForNetworks,
   findTabIdForVolumes,
   makeComposeTabId,
   makeConnectionTabId,
   makeContainerTabId,
+  makeContainersListTabId,
   makeImagesTabId,
   makeNetworksTabId,
   makeVolumesTabId,
@@ -21,6 +23,7 @@ import {
   type DockerConnectionWorkspaceTab,
   type DockerComposePanelTab,
   type DockerContainerPanelTab,
+  type DockerContainersPanelTab,
   type DockerImagesPanelTab,
   type DockerNetworksPanelTab,
   type DockerVolumesPanelTab,
@@ -36,6 +39,8 @@ interface DockerPanelDockState {
     containerId: string,
     mode?: DockerConnectionDockOpenMode,
   ) => void;
+  /** 打开连接下「所有容器」列表面板 */
+  selectContainers: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
   selectImages: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
   selectNetworks: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
   selectVolumes: (connectionId: string, mode?: DockerConnectionDockOpenMode) => void;
@@ -82,6 +87,14 @@ function makeImagesTab(
   preview: boolean,
 ): DockerImagesPanelTab {
   return { id, kind: "images", connectionId, preview, label: "" };
+}
+
+function makeContainersListTab(
+  id: string,
+  connectionId: string,
+  preview: boolean,
+): DockerContainersPanelTab {
+  return { id, kind: "containers", connectionId, preview, label: "" };
 }
 
 function makeNetworksTab(
@@ -243,6 +256,67 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
           const id = makeContainerTabId();
           return {
             tabs: [...state.tabs, makeContainerTab(id, connectionId, containerId, true)],
+            activeTabId: id,
+          };
+        });
+      },
+
+      selectContainers: (connectionId, mode = "permanent") => {
+        set((state) => {
+          const existingTabId = findTabIdForContainers(state.tabs, connectionId);
+          const previewTab = findPreviewDockTab(state.tabs);
+
+          if (mode === "permanent") {
+            if (existingTabId) {
+              return {
+                tabs: state.tabs.map((tab) =>
+                  tab.id === existingTabId ? { ...tab, preview: false } : tab,
+                ),
+                activeTabId: existingTabId,
+              };
+            }
+            if (previewTab) {
+              return {
+                tabs: state.tabs.map((tab) =>
+                  tab.id === previewTab.id
+                    ? makeContainersListTab(previewTab.id, connectionId, false)
+                    : tab,
+                ),
+                activeTabId: previewTab.id,
+              };
+            }
+            const id = makeContainersListTabId();
+            return {
+              tabs: [...state.tabs, makeContainersListTab(id, connectionId, false)],
+              activeTabId: id,
+            };
+          }
+
+          if (existingTabId) {
+            const existing = state.tabs.find((tab) => tab.id === existingTabId);
+            if (existing && !existing.preview) {
+              return { activeTabId: existingTabId };
+            }
+          }
+
+          if (previewTab) {
+            return {
+              tabs: state.tabs.map((tab) =>
+                tab.id === previewTab.id
+                  ? makeContainersListTab(previewTab.id, connectionId, true)
+                  : tab,
+              ),
+              activeTabId: previewTab.id,
+            };
+          }
+
+          if (existingTabId) {
+            return { activeTabId: existingTabId };
+          }
+
+          const id = makeContainersListTabId();
+          return {
+            tabs: [...state.tabs, makeContainersListTab(id, connectionId, true)],
             activeTabId: id,
           };
         });

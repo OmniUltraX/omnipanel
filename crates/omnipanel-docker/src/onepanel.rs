@@ -18,18 +18,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
-    DockerComposeProject, DockerComposeRequest, DockerComposeResult, DockerContainerAction,
-    DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats, DockerContainerSummary,
-    DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
-    DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer,
-    DockerImageProgress, DockerImageSearchResult, DockerImageSummary, DockerKeyValue, DockerLogLine,
-    DockerLogQuery, DockerNetworkContainer, DockerNetworkDetail, DockerNetworkSubnet,
-    DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
-    DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
-    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, local::to_container_detail,
-    model::DockerCapabilities, model::DockerConnectionStatus, model::DockerDaemonConfigFile,
-    model::DockerDiskUsageItem,
+    DockerComposeProject, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
+    DockerComposeRequest, DockerComposeResult, DockerComposeService, DockerComposeWriteFilesRequest,
+    DockerContainerAction, DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats,
+    DockerContainerSummary, DockerCreateContainerRequest, DockerCreateNetworkRequest,
+    DockerCreateServiceRequest, DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail,
+    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchResult, DockerImageSummary,
+    DockerKeyValue, DockerLogLine, DockerLogQuery, DockerNetworkContainer, DockerNetworkDetail,
+    DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe,
+    DockerPruneResult, DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary,
+    DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary,
+    local::to_container_detail, model::DockerCapabilities, model::DockerConnectionStatus,
+    model::DockerDaemonConfigFile, model::DockerDiskUsageItem,
 };
+
+const DEFAULT_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// Compose operate/update 在 1Panel 侧常伴随 docker compose 执行，超时放宽。
+const COMPOSE_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// 1Panel 客户端。
 #[derive(Debug, Clone)]
@@ -83,7 +88,7 @@ impl OnePanelClient {
 
     /// 发起 GET 鉴权请求并把 `data` 字段反序列化出来。
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str) -> OmniResult<T> {
-        self.request::<(), T>(reqwest::Method::GET, path, None, None)
+        self.request::<(), T>(reqwest::Method::GET, path, None, None, DEFAULT_HTTP_TIMEOUT)
             .await
     }
 
@@ -93,16 +98,62 @@ impl OnePanelClient {
         path: &str,
         body: B,
     ) -> OmniResult<T> {
-        self.request::<B, T>(reqwest::Method::POST, path, Some(body), None)
-            .await
+        self.request::<B, T>(
+            reqwest::Method::POST,
+            path,
+            Some(body),
+            None,
+            DEFAULT_HTTP_TIMEOUT,
+        )
+        .await
+    }
+
+    /// POST 且允许 `data` 为空（1Panel `helper.Success` 无载荷）。
+    async fn post_ok_with_timeout<B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: B,
+        timeout: std::time::Duration,
+    ) -> OmniResult<()> {
+        let text = self
+            .request_raw(reqwest::Method::POST, path, Some(body), None, timeout)
+            .await?;
+        if !status_is_json_payload(&text) {
+            return Err(OmniError::new(
+                ErrorCode::Internal,
+                "1Panel 响应不是合法 JSON",
+            )
+            .with_cause(text.chars().take(300).collect::<String>()));
+        }
+        let parsed: OnePanelResponse<serde_json::Value> =
+            serde_json::from_str(&text).map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败").with_cause(e.to_string())
+            })?;
+        if parsed.code != 0 && parsed.code != 200 {
+            return Err(OmniError::new(
+                ErrorCode::Internal,
+                format!("1Panel 业务错误: {}", parsed.message),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn post_text_with_timeout<B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: B,
+        timeout: std::time::Duration,
+    ) -> OmniResult<String> {
+        let text = self
+            .request_raw(reqwest::Method::POST, path, Some(body), None, timeout)
+            .await?;
+        Self::parse_text_response(text)
     }
 
     /// POST 日志下载端点（`/containers/download/log` 等）：响应体可能是纯文本或 `{ data }` 包裹。
     async fn post_text<B: serde::Serialize>(&self, path: &str, body: B) -> OmniResult<String> {
-        let text = self
-            .request_raw(reqwest::Method::POST, path, Some(body), None)
-            .await?;
-        Self::parse_text_response(text)
+        self.post_text_with_timeout(path, body, DEFAULT_HTTP_TIMEOUT)
+            .await
     }
 
     fn parse_text_response(text: String) -> OmniResult<String> {
@@ -140,13 +191,14 @@ impl OnePanelClient {
         path: &str,
         body: Option<B>,
         query: Option<&[(&str, &str)]>,
+        timeout: std::time::Duration,
     ) -> OmniResult<T>
     where
         B: serde::Serialize,
         T: for<'de> Deserialize<'de>,
     {
         let text = self
-            .request_raw(method, path, body, query)
+            .request_raw(method, path, body, query, timeout)
             .await?;
         if !status_is_json_payload(&text) {
             return Err(OmniError::new(
@@ -175,6 +227,7 @@ impl OnePanelClient {
         path: &str,
         body: Option<B>,
         query: Option<&[(&str, &str)]>,
+        timeout: std::time::Duration,
     ) -> OmniResult<String>
     where
         B: serde::Serialize,
@@ -182,7 +235,7 @@ impl OnePanelClient {
         let url = format!("{}{}", self.base_url, path);
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(self.insecure)
-            .timeout(std::time::Duration::from_secs(20))
+            .timeout(timeout)
             .build()
             .map_err(|e| {
                 OmniError::new(ErrorCode::Connection, "构造 HTTP 客户端失败")
@@ -216,6 +269,12 @@ impl OnePanelClient {
         Ok(text)
     }
 
+    fn terminal_ws_base(&self) -> String {
+        self.base_url
+            .replace("https://", "wss://")
+            .replace("http://", "ws://")
+    }
+
     /// 构造容器终端 WebSocket URL（`/api/v2/hosts/terminal/container`）。
     pub fn container_terminal_ws_url(
         &self,
@@ -224,10 +283,7 @@ impl OnePanelClient {
         cols: u16,
         rows: u16,
     ) -> OmniResult<String> {
-        let ws_base = self
-            .base_url
-            .replace("https://", "wss://")
-            .replace("http://", "ws://");
+        let ws_base = self.terminal_ws_base();
         let mut url = reqwest::Url::parse(&format!("{ws_base}/api/v2/hosts/terminal/container"))
             .map_err(|e| {
                 OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 URL 失败")
@@ -242,6 +298,36 @@ impl OnePanelClient {
             pairs.append_pair("user", "");
             pairs.append_pair("command", command.trim());
             pairs.append_pair("operateNode", "local");
+        }
+        Ok(url.to_string())
+    }
+
+    /// 构造宿主机本地终端 WebSocket URL。
+    /// `prefer_local_suffix=true` → `/hosts/terminal/local`；否则旧版 `/hosts/terminal`。
+    pub fn host_terminal_ws_url(
+        &self,
+        cols: u16,
+        rows: u16,
+        command: &str,
+        prefer_local_suffix: bool,
+    ) -> OmniResult<String> {
+        let ws_base = self.terminal_ws_base();
+        let path = if prefer_local_suffix {
+            "/api/v2/hosts/terminal/local"
+        } else {
+            "/api/v2/hosts/terminal"
+        };
+        let mut url = reqwest::Url::parse(&format!("{ws_base}{path}")).map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "构造 1Panel 宿主机终端 URL 失败")
+                .with_cause(e.to_string())
+        })?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs.append_pair("cols", &cols.to_string());
+            pairs.append_pair("rows", &rows.to_string());
+            if !command.trim().is_empty() {
+                pairs.append_pair("command", command.trim());
+            }
         }
         Ok(url.to_string())
     }
@@ -308,6 +394,17 @@ impl OnePanelAdapter {
         Ok((crate::local::DockerExecSession::OnePanel(session), output))
     }
 
+    /// 创建 1Panel 宿主机本地 WebSocket 终端。
+    pub async fn create_host_shell(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> OmniResult<(crate::local::DockerExecSession, crate::local::DockerExecOutput)> {
+        let (session, output) =
+            crate::onepanel_terminal::create_host_shell(&self.client, cols, rows).await?;
+        Ok((crate::local::DockerExecSession::OnePanel(session), output))
+    }
+
     /// 探测：调用 `GET /api/v2/dashboard/base/os` 等轻量端点。
     pub async fn probe_raw(&self) -> OmniResult<serde_json::Value> {
         self.client.get_json("/api/v2/dashboard/base/os").await
@@ -346,6 +443,209 @@ fn not_supported(method: &str) -> OmniError {
         ErrorCode::Internal,
         format!("1Panel 适配器暂不支持 {}；可改用本地或 SSH 连接", method),
     )
+}
+
+/// 1Panel Compose 下属容器（对应 `dto.ComposeContainer`）。
+#[derive(Debug, Clone)]
+struct OnePanelComposeContainer {
+    id: String,
+    name: String,
+    state: String,
+}
+
+/// 1Panel Compose 列表项关键字段（对应 `dto.ComposeInfo`）。
+#[derive(Debug, Clone)]
+struct OnePanelComposeInfo {
+    name: String,
+    /// `workdir`：项目工作目录
+    working_dir: Option<String>,
+    /// `path`：compose 操作路径（可能为 yml，或多个文件逗号分隔）
+    path: Option<String>,
+    /// `configFile`：配置文件路径
+    config_file: Option<String>,
+    env: String,
+    container_count: u32,
+    running_count: u32,
+    containers: Vec<OnePanelComposeContainer>,
+}
+
+fn first_compose_file_path(path: &str) -> String {
+    path.split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn dirname_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    match normalized.rfind('/') {
+        Some(idx) if idx > 0 => normalized[..idx].to_string(),
+        _ => normalized,
+    }
+}
+
+fn parse_onepanel_compose_info(v: &serde_json::Value) -> Option<OnePanelComposeInfo> {
+    let name = v.get("name").and_then(|x| x.as_str())?.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let working_dir = v
+        .get("workdir")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let path = v
+        .get("path")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let config_file = v
+        .get("configFile")
+        .or_else(|| v.get("file"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let env = v
+        .get("env")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let container_count = v
+        .get("containerCount")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let running_count = v
+        .get("runningCount")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let containers = v
+        .get("containers")
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let id = item
+                        .get("containerID")
+                        .or_else(|| item.get("containerId"))
+                        .or_else(|| item.get("id"))
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    let cname = item
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .trim_start_matches('/')
+                        .to_string();
+                    if id.is_empty() && cname.is_empty() {
+                        return None;
+                    }
+                    let state = item
+                        .get("state")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Some(OnePanelComposeContainer {
+                        id,
+                        name: cname,
+                        state,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(OnePanelComposeInfo {
+        name,
+        working_dir,
+        path,
+        config_file,
+        env,
+        container_count,
+        running_count,
+        containers,
+    })
+}
+
+impl OnePanelComposeInfo {
+    fn operate_path(&self) -> Option<String> {
+        self.path
+            .clone()
+            .or_else(|| self.config_file.clone())
+            .or_else(|| self.working_dir.clone())
+    }
+
+    fn detail_path(&self) -> Option<String> {
+        self.config_file
+            .clone()
+            .or_else(|| self.path.as_ref().map(|p| first_compose_file_path(p)))
+    }
+
+    fn resolved_working_dir(&self) -> Option<String> {
+        if let Some(dir) = &self.working_dir {
+            return Some(dir.clone());
+        }
+        self.detail_path().map(|p| dirname_path(&p))
+    }
+
+    fn to_project(&self) -> DockerComposeProject {
+        let services: Vec<DockerComposeService> = self
+            .containers
+            .iter()
+            .map(|c| DockerComposeService {
+                name: if c.name.is_empty() {
+                    c.id.clone()
+                } else {
+                    c.name.clone()
+                },
+                image: String::new(),
+                container_count: 1,
+                running_container_count: u32::from(c.state.eq_ignore_ascii_case("running")),
+            })
+            .collect();
+        DockerComposeProject {
+            name: self.name.clone(),
+            working_dir: self.resolved_working_dir(),
+            config_files: self.detail_path(),
+            service_count: services.len() as u32,
+            container_count: self.container_count.max(services.len() as u32),
+            running_container_count: self.running_count,
+            services,
+        }
+    }
+}
+
+async fn fetch_onepanel_compose_list(
+    client: &OnePanelClient,
+) -> OmniResult<Vec<OnePanelComposeInfo>> {
+    let raw = client
+        .post_search_values(
+            "/api/v2/containers/compose/search",
+            generic_search_body(1, 200),
+        )
+        .await
+        .map_err(|e| e.with_cause("1Panel 列出 Compose 失败"))?;
+    Ok(raw.iter().filter_map(parse_onepanel_compose_info).collect())
+}
+
+async fn find_onepanel_compose(
+    client: &OnePanelClient,
+    project: &str,
+) -> OmniResult<OnePanelComposeInfo> {
+    let list = fetch_onepanel_compose_list(client).await?;
+    list.into_iter()
+        .find(|item| item.name == project)
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::NotFound,
+                format!("未找到 Compose 项目「{project}」"),
+            )
+        })
 }
 
 /// 从 1Panel 网络 JSON 中尽力提取首个 IPv4 子网 / 网关。
@@ -396,8 +696,8 @@ fn first_ipv4_from_json_ipam(v: &serde_json::Value) -> (Option<String>, Option<S
     arr.first().map(pick).unwrap_or((None, None))
 }
 
-/// 把 1Panel 响应的 `labels/options` 字段（HashMap 或 Vec<(String,String)> 形态）
-/// 统一转成 `Vec<DockerKeyValue>`；字段不存在/解析失败时返回空。
+/// 把 1Panel 响应的 `labels/options` 字段统一转成 `Vec<DockerKeyValue>`。
+/// 支持：对象 map、`[{key,value}]`、以及 1Panel 常见的 `["key=value"]` 字符串数组。
 fn parse_json_labels(value: Option<&serde_json::Value>) -> Vec<DockerKeyValue> {
     let Some(v) = value else { return Vec::new() };
     if let Some(map) = v.as_object() {
@@ -413,6 +713,23 @@ fn parse_json_labels(value: Option<&serde_json::Value>) -> Vec<DockerKeyValue> {
         return arr
             .iter()
             .filter_map(|item| {
+                if let Some(s) = item.as_str() {
+                    let s = s.trim();
+                    if s.is_empty() {
+                        return None;
+                    }
+                    let (key, value) = match s.split_once('=') {
+                        Some((k, v)) => (k.trim(), v),
+                        None => (s, ""),
+                    };
+                    if key.is_empty() {
+                        return None;
+                    }
+                    return Some(DockerKeyValue {
+                        key: key.to_string(),
+                        value: value.to_string(),
+                    });
+                }
                 let obj = item.as_object()?;
                 let k = obj.get("key")?.as_str()?.to_string();
                 let val = obj
@@ -686,6 +1003,52 @@ impl EmptyDefault for String {
     }
 }
 
+/// 1Panel 容器列表通常不带 `com.docker.compose.*` labels，仅有 `isFromCompose`。
+/// 用 Compose 搜索结果按 containerID / 名称回填 `compose_project`，供侧栏分组。
+fn enrich_containers_compose_project(
+    containers: &mut [DockerContainerSummary],
+    compose_list: &[OnePanelComposeInfo],
+) {
+    use std::collections::HashMap;
+
+    let mut by_id: HashMap<&str, &str> = HashMap::new();
+    let mut by_name: HashMap<&str, &str> = HashMap::new();
+    for project in compose_list {
+        for c in &project.containers {
+            if !c.id.is_empty() {
+                by_id.insert(c.id.as_str(), project.name.as_str());
+            }
+            if !c.name.is_empty() {
+                by_name.insert(c.name.as_str(), project.name.as_str());
+            }
+        }
+    }
+    if by_id.is_empty() && by_name.is_empty() {
+        return;
+    }
+
+    for container in containers.iter_mut() {
+        if container.compose_project.is_some() {
+            continue;
+        }
+        if let Some(project) = by_id.get(container.id.as_str()).copied() {
+            container.compose_project = Some(project.to_string());
+            continue;
+        }
+        // 长短 ID 互匹配（列表可能是短 ID，Compose 侧可能是完整 ID）
+        if let Some((_, project)) = by_id.iter().find(|(id, _)| {
+            container.id.starts_with(**id) || id.starts_with(container.id.as_str())
+        }) {
+            container.compose_project = Some((*project).to_string());
+            continue;
+        }
+        let name = container.name.trim_start_matches('/');
+        if let Some(project) = by_name.get(name).copied() {
+            container.compose_project = Some(project.to_string());
+        }
+    }
+}
+
 async fn fetch_container_summaries(
     client: &OnePanelClient,
     page_size: u32,
@@ -697,7 +1060,112 @@ async fn fetch_container_summaries(
         )
         .await
         .map_err(|e| e.with_cause("列出 1Panel 容器失败"))?;
-    Ok(raw.iter().filter_map(parse_container_summary).collect())
+    let mut out: Vec<DockerContainerSummary> =
+        raw.iter().filter_map(parse_container_summary).collect();
+    if out.iter().any(|c| c.compose_project.is_none()) {
+        if let Ok(compose_list) = fetch_onepanel_compose_list(client).await {
+            enrich_containers_compose_project(&mut out, &compose_list);
+        }
+    }
+    Ok(out)
+}
+
+/// 从 1Panel inspect 响应（`data` 多为 JSON 字符串）提取 `LogPath`。
+fn extract_log_path_from_inspect(data: &serde_json::Value) -> String {
+    let root = if let Some(s) = data.as_str() {
+        match serde_json::from_str::<serde_json::Value>(s.trim()) {
+            Ok(v) => v,
+            Err(_) => return String::new(),
+        }
+    } else {
+        data.clone()
+    };
+    let obj = if root.is_array() {
+        root.get(0)
+    } else {
+        Some(&root)
+    };
+    obj.and_then(|v| v.get("LogPath").or_else(|| v.get("logPath")))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+async fn fetch_container_log_path(client: &OnePanelClient, id: &str) -> OmniResult<String> {
+    let data: serde_json::Value = client
+        .post_json(
+            "/api/v2/containers/inspect",
+            serde_json::json!({ "id": id, "type": "container" }),
+        )
+        .await
+        .map_err(|e| e.with_cause("1Panel inspect 失败"))?;
+    Ok(extract_log_path_from_inspect(&data))
+}
+
+/// 宿主机文件/目录大小（1Panel `POST /files/size`）。
+async fn fetch_host_file_size(client: &OnePanelClient, path: &str) -> OmniResult<i64> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "文件路径为空"));
+    }
+    let data: serde_json::Value = client
+        .post_json("/api/v2/files/size", serde_json::json!({ "path": path }))
+        .await
+        .map_err(|e| e.with_cause("1Panel 获取文件大小失败"))?;
+    data.get("size")
+        .and_then(parse_u64_i64)
+        .or_else(|| data.as_i64())
+        .ok_or_else(|| {
+            OmniError::new(ErrorCode::Internal, "1Panel 文件大小响应缺少 size 字段")
+        })
+}
+
+/// 列出容器日志路径与大小：inspect → LogPath，再 `/files/size`（并发限流）。
+async fn fetch_container_log_infos(
+    client: &OnePanelClient,
+) -> OmniResult<Vec<DockerContainerLogInfo>> {
+    use futures::StreamExt;
+
+    let containers = fetch_container_summaries(client, 500).await?;
+    if containers.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = client.clone();
+    let mut stream = futures::stream::iter(containers.into_iter())
+        .map(|c| {
+            let client = client.clone();
+            async move {
+                let log_path = fetch_container_log_path(&client, &c.id)
+                    .await
+                    .unwrap_or_default();
+                let size_bytes = if log_path.is_empty() {
+                    None
+                } else {
+                    fetch_host_file_size(&client, &log_path).await.ok()
+                };
+                DockerContainerLogInfo {
+                    container_id: c.id,
+                    name: c.name,
+                    log_path,
+                    size_bytes,
+                }
+            }
+        })
+        .buffer_unordered(8);
+
+    let mut out = Vec::new();
+    while let Some(info) = stream.next().await {
+        out.push(info);
+    }
+    out.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.container_id.cmp(&b.container_id))
+    });
+    Ok(out)
 }
 
 async fn fetch_image_summaries(
@@ -1192,7 +1660,7 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn list_container_log_infos(&self) -> OmniResult<Vec<DockerContainerLogInfo>> {
-        Err(not_supported("列出容器日志文件信息"))
+        fetch_container_log_infos(&self.client).await
     }
 
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
@@ -1246,43 +1714,8 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>> {
-        let raw: Vec<serde_json::Value> = self
-            .client
-            .post_search_values(
-                "/api/v2/containers/compose/search",
-                generic_search_body(1, 200),
-            )
-            .await
-            .map_err(|e| e.with_cause("1Panel 列出 Compose 失败"))?;
-        let mut projects = Vec::new();
-        for v in raw {
-            let name = v
-                .get("name")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
-            if name.is_empty() {
-                continue;
-            }
-            projects.push(DockerComposeProject {
-                name,
-                working_dir: v
-                    .get("path")
-                    .or_else(|| v.get("workdir"))
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string()),
-                config_files: v
-                    .get("file")
-                    .or_else(|| v.get("configFile"))
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string()),
-                service_count: 0,
-                container_count: 0,
-                running_container_count: 0,
-                services: vec![],
-            });
-        }
-        Ok(projects)
+        let list = fetch_onepanel_compose_list(&self.client).await?;
+        Ok(list.iter().map(OnePanelComposeInfo::to_project).collect())
     }
 
     async fn pull_image(
@@ -1318,38 +1751,232 @@ impl DockerAdapter for OnePanelAdapter {
         action: DockerComposeAction,
         req: &DockerComposeRequest,
     ) -> OmniResult<DockerComposeResult> {
-        let op = match action {
-            DockerComposeAction::Up => "up",
-            DockerComposeAction::Down => "down",
-            DockerComposeAction::Restart => "restart",
-            DockerComposeAction::Rebuild => "up",
-            DockerComposeAction::Pull => "pull",
-            DockerComposeAction::Logs => "logs",
-        };
-        let mut body = serde_json::json!({
-            "name": req.project,
-            "path": req.working_dir,
-            "file": req.config_file,
-            "detached": req.detached,
-            "services": req.services,
-        });
-        if matches!(action, DockerComposeAction::Rebuild) {
-            body["detached"] = serde_json::json!(true);
-            body["build"] = serde_json::json!(true);
-            body["force"] = serde_json::json!(true);
+        let info = find_onepanel_compose(&self.client, &req.project).await?;
+        let operate_path = req
+            .config_file
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .or_else(|| req.working_dir.clone().filter(|s| !s.trim().is_empty()))
+            .or_else(|| info.operate_path())
+            .ok_or_else(|| {
+                OmniError::new(
+                    ErrorCode::InvalidInput,
+                    format!("Compose 项目「{}」缺少可用路径", req.project),
+                )
+            })?;
+        let detail_path = info
+            .detail_path()
+            .unwrap_or_else(|| first_compose_file_path(&operate_path));
+
+        match action {
+            DockerComposeAction::Up
+            | DockerComposeAction::Down
+            | DockerComposeAction::Restart => {
+                let operation = match action {
+                    DockerComposeAction::Up => "up",
+                    DockerComposeAction::Down => "down",
+                    DockerComposeAction::Restart => "restart",
+                    _ => unreachable!(),
+                };
+                self.client
+                    .post_ok_with_timeout(
+                        "/api/v2/containers/compose/operate",
+                        serde_json::json!({
+                            "name": req.project,
+                            "path": operate_path,
+                            "operation": operation,
+                            "withFile": false,
+                            "force": false,
+                        }),
+                        COMPOSE_HTTP_TIMEOUT,
+                    )
+                    .await
+                    .map_err(|e| e.with_cause(format!("1Panel compose {operation} 失败")))?;
+                Ok(DockerComposeResult {
+                    action,
+                    project: req.project.clone(),
+                    stdout_excerpt: format!("compose {operation} ok"),
+                    stderr_excerpt: String::new(),
+                    exit_code: 0,
+                })
+            }
+            DockerComposeAction::Rebuild | DockerComposeAction::Pull => {
+                // 1Panel 无独立 rebuild/pull；通过 compose/update + forcePull 触发镜像拉取并 up
+                let files = self
+                    .read_compose_project_files(&DockerComposeReadFilesRequest {
+                        project: req.project.clone(),
+                        working_dir: req.working_dir.clone(),
+                        config_file: req.config_file.clone(),
+                    })
+                    .await?;
+                self.client
+                    .post_ok_with_timeout(
+                        "/api/v2/containers/compose/update",
+                        serde_json::json!({
+                            "name": req.project,
+                            "path": operate_path,
+                            "detailPath": detail_path,
+                            "content": files.compose_content,
+                            "env": files.env_content,
+                            "forcePull": true,
+                        }),
+                        COMPOSE_HTTP_TIMEOUT,
+                    )
+                    .await
+                    .map_err(|e| e.with_cause("1Panel compose update(forcePull) 失败"))?;
+                Ok(DockerComposeResult {
+                    action,
+                    project: req.project.clone(),
+                    stdout_excerpt: "compose update with forcePull ok".into(),
+                    stderr_excerpt: String::new(),
+                    exit_code: 0,
+                })
+            }
+            DockerComposeAction::Logs => {
+                let logs = self
+                    .client
+                    .post_text_with_timeout(
+                        "/api/v2/containers/download/log",
+                        serde_json::json!({
+                            "container": first_compose_file_path(&operate_path),
+                            "since": "all",
+                            "tail": 200,
+                            "containerType": "compose",
+                        }),
+                        COMPOSE_HTTP_TIMEOUT,
+                    )
+                    .await
+                    .map_err(|e| e.with_cause("1Panel 下载 Compose 日志失败"))?;
+                Ok(DockerComposeResult {
+                    action,
+                    project: req.project.clone(),
+                    stdout_excerpt: logs,
+                    stderr_excerpt: String::new(),
+                    exit_code: 0,
+                })
+            }
         }
-        let v: serde_json::Value = self
+    }
+
+    async fn read_compose_project_files(
+        &self,
+        req: &DockerComposeReadFilesRequest,
+    ) -> OmniResult<DockerComposeProjectFiles> {
+        let info = find_onepanel_compose(&self.client, &req.project).await?;
+        let detail_path = req
+            .config_file
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .or_else(|| info.detail_path())
+            .ok_or_else(|| {
+                OmniError::new(
+                    ErrorCode::InvalidInput,
+                    format!("Compose 项目「{}」缺少 docker-compose.yml 路径", req.project),
+                )
+            })?;
+        let working_dir = req
+            .working_dir
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| info.resolved_working_dir());
+
+        let compose_content: String = self
             .client
-            .post_json(&format!("/api/v2/compose/{op}"), body)
+            .post_json(
+                "/api/v2/containers/inspect",
+                serde_json::json!({
+                    "id": req.project,
+                    "type": "compose",
+                    "detail": detail_path,
+                }),
+            )
             .await
-            .map_err(|e| e.with_cause(format!("1Panel compose {} 失败", op)))?;
-        Ok(DockerComposeResult {
-            action,
+            .map_err(|e| e.with_cause("1Panel 读取 Compose 文件失败"))?;
+
+        let env_content = if !info.env.is_empty() {
+            info.env.clone()
+        } else {
+            match self
+                .client
+                .post_json::<_, String>(
+                    "/api/v2/containers/compose/env",
+                    serde_json::json!({ "path": detail_path }),
+                )
+                .await
+            {
+                Ok(env) => env,
+                Err(_) => String::new(),
+            }
+        };
+
+        Ok(DockerComposeProjectFiles {
             project: req.project.clone(),
-            stdout_excerpt: v.to_string(),
-            stderr_excerpt: String::new(),
-            exit_code: 0,
+            working_dir,
+            compose_path: detail_path.clone(),
+            compose_content,
+            env_path: format!("{}/.env", dirname_path(&detail_path)),
+            env_content,
         })
+    }
+
+    async fn write_compose_project_files(
+        &self,
+        req: &DockerComposeWriteFilesRequest,
+    ) -> OmniResult<()> {
+        let info = find_onepanel_compose(&self.client, &req.project).await?;
+        let detail_path = req
+            .compose_path
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .or_else(|| {
+                req.config_file
+                    .as_ref()
+                    .filter(|s| !s.trim().is_empty())
+                    .cloned()
+            })
+            .or_else(|| info.detail_path())
+            .ok_or_else(|| {
+                OmniError::new(
+                    ErrorCode::InvalidInput,
+                    format!("Compose 项目「{}」缺少可写路径", req.project),
+                )
+            })?;
+        let operate_path = info
+            .operate_path()
+            .unwrap_or_else(|| detail_path.clone());
+
+        let current = self
+            .read_compose_project_files(&DockerComposeReadFilesRequest {
+                project: req.project.clone(),
+                working_dir: req.working_dir.clone(),
+                config_file: Some(detail_path.clone()),
+            })
+            .await?;
+        let content = req
+            .compose_content
+            .clone()
+            .unwrap_or(current.compose_content);
+        let env = req.env_content.clone().unwrap_or(current.env_content);
+
+        self.client
+            .post_ok_with_timeout(
+                "/api/v2/containers/compose/update",
+                serde_json::json!({
+                    "name": req.project,
+                    "path": operate_path,
+                    "detailPath": detail_path,
+                    "content": content,
+                    "env": env,
+                    "forcePull": false,
+                }),
+                COMPOSE_HTTP_TIMEOUT,
+            )
+            .await
+            .map_err(|e| e.with_cause("1Panel 写入 Compose 配置失败"))?;
+        Ok(())
     }
 
     async fn list_container_stats(

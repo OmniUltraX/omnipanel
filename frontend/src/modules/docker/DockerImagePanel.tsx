@@ -18,6 +18,7 @@ import {
 } from "./dockerImageContainers";
 import { DockerImagePullDialog } from "./DockerImagePullDialog";
 import { dockerContainerMatchesSearch, dockerImageMatchesSearch } from "./dockerTreeSearch";
+import { formatBytes } from "../../stores/sshStatsStore";
 import { containerRowLabel, imageRowLabel, imageRowSizeLabel } from "./dockerResourceLabels";
 import { DownloadIcon } from "./icons";
 
@@ -186,6 +187,12 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     return sorted;
   }, [containerIndex, filteredImages, sort.column, sort.direction]);
 
+  /** 当前列表（含搜索过滤）的镜像大小合计，与 footer 计数口径一致。 */
+  const totalSizeLabel = useMemo(() => {
+    const totalBytes = sortedImages.reduce((sum, image) => sum + (image.sizeBytes ?? 0), 0);
+    return formatBytes(totalBytes);
+  }, [sortedImages]);
+
   const gridColumns = useMemo((): DbTablesPanelGridColumn<DockerImageSummary>[] => {
     return [
       {
@@ -305,6 +312,11 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
               ? t("common.loading")
               : t("docker.imagesPanel.count", { count: sortedImages.length })}
           </span>
+          {!loading && sortedImages.length > 0 ? (
+            <span className="db-tables-panel-meta-text docker-image-panel__meta-size">
+              {t("docker.imagesPanel.totalSize", { size: totalSizeLabel })}
+            </span>
+          ) : null}
         </div>
       </div>
 

@@ -463,7 +463,7 @@ export function DockerConnectionDialog({
                 </label>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                1Panel 适配器当前不支持日志流式订阅、容器 exec、镜像 push/pull/build。
+                1Panel 适配器已支持容器管理与 Compose 编排；暂不支持镜像 push/pull/build 与 stats 实时流。
               </div>
             </>
           )}

@@ -38,7 +38,7 @@ pub enum DockerExecSession {
     },
     /// SSH 宿主机 PTY exec：复用 omnipanel-ssh 的 SshPtySession。
     Ssh(SshPtySession),
-    /// 1Panel WebSocket 容器终端。
+    /// 1Panel WebSocket 终端（容器 / 宿主机）。
     OnePanel(crate::onepanel_terminal::OnePanelExecSession),
 }
 
