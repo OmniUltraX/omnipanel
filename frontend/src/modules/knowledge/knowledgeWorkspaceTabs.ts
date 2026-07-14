@@ -1,4 +1,4 @@
-/** 侧栏单击打开的临时预览 Tab；双击变为常驻（无 preview）。 */
+/** 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据。 */
 export type KnowledgeDockOpenMode = "preview" | "permanent";
 
 export type KnowledgeWorkspaceTabKind = "document" | "chunks";

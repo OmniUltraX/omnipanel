@@ -19,15 +19,16 @@ use serde::{Deserialize, Serialize};
 use crate::{
     ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
     DockerComposeProject, DockerComposeRequest, DockerComposeResult, DockerContainerAction,
-    DockerContainerDetail, DockerContainerStats, DockerContainerSummary,
+    DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats, DockerContainerSummary,
     DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
     DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer,
-    DockerImageProgress, DockerImageSummary, DockerKeyValue, DockerLogLine, DockerLogQuery, DockerNetworkContainer,
-    DockerNetworkDetail, DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary,
-    DockerOverview, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
-    DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
-    DockerVolumeSummary, local::to_container_detail, model::DockerCapabilities,
-    model::DockerConnectionStatus, model::DockerDaemonConfigFile, model::DockerDiskUsageItem,
+    DockerImageProgress, DockerImageSearchResult, DockerImageSummary, DockerKeyValue, DockerLogLine,
+    DockerLogQuery, DockerNetworkContainer, DockerNetworkDetail, DockerNetworkSubnet,
+    DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
+    DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
+    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, local::to_container_detail,
+    model::DockerCapabilities, model::DockerConnectionStatus, model::DockerDaemonConfigFile,
+    model::DockerDiskUsageItem,
 };
 
 /// 1Panel 客户端。
@@ -345,6 +346,54 @@ fn not_supported(method: &str) -> OmniError {
         ErrorCode::Internal,
         format!("1Panel 适配器暂不支持 {}；可改用本地或 SSH 连接", method),
     )
+}
+
+/// 从 1Panel 网络 JSON 中尽力提取首个 IPv4 子网 / 网关。
+fn first_ipv4_from_json_ipam(v: &serde_json::Value) -> (Option<String>, Option<String>) {
+    let configs = v
+        .get("ipam")
+        .and_then(|i| i.get("config"))
+        .and_then(|c| c.as_array())
+        .or_else(|| {
+            v.get("IPAM")
+                .and_then(|i| i.get("Config"))
+                .and_then(|c| c.as_array())
+        });
+    let Some(arr) = configs else {
+        // 少数列表接口可能把 subnet 放在顶层
+        let subnet = v
+            .get("subnet")
+            .or_else(|| v.get("Subnet"))
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
+        let gateway = v
+            .get("gateway")
+            .or_else(|| v.get("Gateway"))
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
+        return (subnet, gateway);
+    };
+    let pick = |c: &serde_json::Value| -> (Option<String>, Option<String>) {
+        (
+            c.get("subnet")
+                .or_else(|| c.get("Subnet"))
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
+            c.get("gateway")
+                .or_else(|| c.get("Gateway"))
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
+        )
+    };
+    if let Some(c) = arr.iter().find(|c| {
+        c.get("subnet")
+            .or_else(|| c.get("Subnet"))
+            .and_then(|x| x.as_str())
+            .is_some_and(|s| s.contains('.') && !s.contains(':'))
+    }) {
+        return pick(c);
+    }
+    arr.first().map(pick).unwrap_or((None, None))
 }
 
 /// 把 1Panel 响应的 `labels/options` 字段（HashMap 或 Vec<(String,String)> 形态）
@@ -1142,6 +1191,10 @@ impl DockerAdapter for OnePanelAdapter {
         Ok(())
     }
 
+    async fn list_container_log_infos(&self) -> OmniResult<Vec<DockerContainerLogInfo>> {
+        Err(not_supported("列出容器日志文件信息"))
+    }
+
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
         Ok(fetch_image_summaries(&self.client, 500).await?)
     }
@@ -1173,6 +1226,15 @@ impl DockerAdapter for OnePanelAdapter {
             }
             r
         })
+    }
+
+    async fn search_images(
+        &self,
+        _term: &str,
+        _limit: u32,
+    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+        // 1Panel 无稳定的 Hub search API，返回空列表供前端降级
+        Ok(Vec::new())
     }
 
     async fn inspect_image(&self, _id: &str) -> OmniResult<DockerImageDetail> {
@@ -1321,29 +1383,34 @@ impl DockerAdapter for OnePanelAdapter {
             .map_err(|e| e.with_cause("1Panel 列出网络失败"))?;
         Ok(raw
             .into_iter()
-            .map(|v| DockerNetworkSummary {
-                id: v
-                    .get("id")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                name: v
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                driver: v
-                    .get("driver")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                scope: v
-                    .get("scope")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                internal: v.get("internal").and_then(|x| x.as_bool()).unwrap_or(false),
-                created_at: 0,
+            .map(|v| {
+                let (ipv4_subnet, ipv4_gateway) = first_ipv4_from_json_ipam(&v);
+                DockerNetworkSummary {
+                    id: v
+                        .get("id")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    name: v
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    driver: v
+                        .get("driver")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    scope: v
+                        .get("scope")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    internal: v.get("internal").and_then(|x| x.as_bool()).unwrap_or(false),
+                    created_at: 0,
+                    ipv4_subnet,
+                    ipv4_gateway,
+                }
             })
             .collect())
     }
@@ -1373,6 +1440,10 @@ impl DockerAdapter for OnePanelAdapter {
             .await
             .map(|_: serde_json::Value| ())
             .map_err(|e| e.with_cause("1Panel 删除网络失败"))
+    }
+
+    async fn prune_networks(&self) -> OmniResult<DockerPruneResult> {
+        Err(not_supported("清理未使用网络"))
     }
 
     async fn connect_container_to_network(

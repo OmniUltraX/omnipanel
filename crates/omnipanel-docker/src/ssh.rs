@@ -58,6 +58,9 @@ impl DockerAdapter for SshDockerAdapter {
     async fn clear_container_logs(&self, id: &str) -> OmniResult<()> {
         clear_container_logs(&*self.session, id).await
     }
+    async fn list_container_log_infos(&self) -> OmniResult<Vec<DockerContainerLogInfo>> {
+        list_container_log_infos(&*self.session).await
+    }
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>> {
         list_images(&*self.session).await
     }
@@ -66,6 +69,13 @@ impl DockerAdapter for SshDockerAdapter {
     }
     async fn prune_images(&self) -> OmniResult<DockerPruneResult> {
         prune_images(&*self.session).await
+    }
+    async fn search_images(
+        &self,
+        term: &str,
+        limit: u32,
+    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+        search_images(&*self.session, term, limit).await
     }
     async fn inspect_image(&self, id: &str) -> OmniResult<DockerImageDetail> {
         inspect_image(&*self.session, id).await
@@ -150,6 +160,9 @@ impl DockerAdapter for SshDockerAdapter {
     }
     async fn remove_network(&self, name: &str) -> OmniResult<()> {
         remove_network(&*self.session, name).await
+    }
+    async fn prune_networks(&self) -> OmniResult<DockerPruneResult> {
+        prune_networks(&*self.session).await
     }
     async fn connect_container_to_network(
         &self,
@@ -504,6 +517,114 @@ pub async fn clear_container_logs(session: &SshSession, id: &str) -> OmniResult<
         return Err(docker_cli_error("清空远端容器日志失败", &out.stderr));
     }
     Ok(())
+}
+
+/// 列出远端全部容器的日志路径与文件大小。
+pub async fn list_container_log_infos(
+    session: &SshSession,
+) -> OmniResult<Vec<DockerContainerLogInfo>> {
+    // 一次 shell：批量 inspect LogPath，再对存在的路径 `stat -c %s`
+    let cmd = r#"
+ids=$(docker ps -aq 2>/dev/null)
+if [ -z "$ids" ]; then exit 0; fi
+docker inspect -f '{{.Id}}|{{.Name}}|{{.LogPath}}' $ids 2>/dev/null | while IFS='|' read -r id name path; do
+  name=${name#/}
+  size=""
+  if [ -n "$path" ] && [ -e "$path" ]; then
+    size=$(stat -c %s -- "$path" 2>/dev/null || true)
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$id" "$name" "$path" "$size"
+done
+"#;
+    let out = session.exec_capture(cmd).await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("远端列出容器日志信息失败", &out.stderr));
+    }
+    let mut infos = Vec::new();
+    for line in out.stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(4, '\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let size_bytes = parts
+            .get(3)
+            .and_then(|s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    None
+                } else {
+                    s.parse::<i64>().ok()
+                }
+            });
+        infos.push(DockerContainerLogInfo {
+            container_id: parts[0].to_string(),
+            name: parts[1].trim_start_matches('/').to_string(),
+            log_path: parts[2].to_string(),
+            size_bytes,
+        });
+    }
+    Ok(infos)
+}
+
+/// 远端 `docker search --format '{{json .}}'`。
+pub async fn search_images(
+    session: &SshSession,
+    term: &str,
+    limit: u32,
+) -> OmniResult<Vec<DockerImageSearchResult>> {
+    let term = term.trim();
+    if term.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.max(1).min(100);
+    let cmd = format!(
+        "docker search --limit {} --format '{{{{json .}}}}' {}",
+        limit,
+        shell_quote(term)
+    );
+    let out = session.exec_capture(&cmd).await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("远端搜索镜像失败", &out.stderr));
+    }
+    Ok(crate::local::parse_docker_search_json_lines(
+        &out.stdout, limit,
+    ))
+}
+
+/// 远端宿主机交互 shell（用于直接执行 `docker` CLI，而不是 `docker exec` 进容器）。
+/// 依次尝试 login shell / bash / sh。
+pub async fn create_host_shell(
+    session: &SshSession,
+    cols: u16,
+    rows: u16,
+) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
+    let candidates = [
+        "bash -l",
+        "bash",
+        "sh -l",
+        "sh",
+        // 部分环境仅装了 zsh / ash
+        "zsh -l",
+        "zsh",
+        "ash",
+    ];
+    let mut last_err: Option<OmniError> = None;
+    for cmd in candidates {
+        match create_exec_with_cmd(session, cmd, cols, rows).await {
+            Ok(pair) => return Ok(pair),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        OmniError::new(
+            ErrorCode::Ssh,
+            "无法在远端宿主机启动交互 shell（已尝试 bash/sh/zsh）",
+        )
+    }))
 }
 
 /// 远端容器交互终端：在独立 PTY exec channel 上跑 `docker exec -it`，
@@ -1253,13 +1374,19 @@ pub async fn list_networks(session: &SshSession) -> OmniResult<Vec<DockerNetwork
     let raw: Vec<bollard::models::NetworkSummary> = api.get_json("/networks").await?;
     Ok(raw
         .into_iter()
-        .map(|n| DockerNetworkSummary {
-            id: n.id.unwrap_or_default(),
-            name: n.name.unwrap_or_default(),
-            driver: n.driver.unwrap_or_default(),
-            scope: n.scope.unwrap_or_default(),
-            internal: n.internal.unwrap_or(false),
-            created_at: 0,
+        .map(|n| {
+            let (ipv4_subnet, ipv4_gateway) =
+                crate::local::first_ipv4_from_ipam(n.ipam.as_ref());
+            DockerNetworkSummary {
+                id: n.id.unwrap_or_default(),
+                name: n.name.unwrap_or_default(),
+                driver: n.driver.unwrap_or_default(),
+                scope: n.scope.unwrap_or_default(),
+                internal: n.internal.unwrap_or(false),
+                created_at: 0,
+                ipv4_subnet,
+                ipv4_gateway,
+            }
         })
         .collect())
 }
@@ -1296,6 +1423,26 @@ pub async fn remove_network(session: &SshSession, name: &str) -> OmniResult<()> 
         .await?
         .ok_or_err("远端删除网络失败")?;
     Ok(())
+}
+
+pub async fn prune_networks(session: &SshSession) -> OmniResult<DockerPruneResult> {
+    let out = session.exec_capture("docker network prune -f").await?;
+    if out.exit_code != 0 {
+        return Err(docker_cli_error("远端清理网络失败", &out.stderr));
+    }
+    let deleted: Vec<String> = out
+        .stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .collect();
+    let freed = parse_docker_reclaimed(&out.stderr)
+        .or_else(|| parse_docker_reclaimed(&out.stdout))
+        .unwrap_or(0);
+    Ok(DockerPruneResult {
+        deleted,
+        freed_space_bytes: freed,
+    })
 }
 
 pub async fn connect_container_to_network(
@@ -1542,116 +1689,33 @@ fn parse_docker_reclaimed(text: &str) -> Option<i64> {
     Some(human_size_to_bytes(token))
 }
 
-// -------- 容器内文件（走 `docker cp`） --------
+// -------- 容器内文件 --------
+// 目录列表走 `docker exec ls`（禁止 docker cp 整树：对 `/` 会复制整个文件系统以致一直「加载中」）。
+// 单文件读写仍走 `docker cp`。
 
 pub async fn list_container_dir(
     session: &SshSession,
     container_id: &str,
     path: &str,
 ) -> OmniResult<Vec<DockerFileEntry>> {
-    // 把容器内目录 cp 到临时目录，再用 `ls -lan` 解析。
-    let remote_tmp = format!("/tmp/omnipanel-ls-{}.d", uuid_like());
-    let _ = session
-        .exec_capture(&format!("rm -rf {}", shell_quote(&remote_tmp)))
-        .await;
-    let copy_target = if path.ends_with('/') {
-        format!("{}:{}", container_id, path.trim_end_matches('/'))
-    } else {
-        format!("{}:{}", container_id, path)
-    };
+    let path = crate::container_dir_ls::normalize_container_dir_path(path);
     let cmd = format!(
-        "docker cp {} {} 2>/dev/null && ls -lan {}",
-        copy_target,
-        shell_quote(&remote_tmp),
-        shell_quote(&remote_tmp)
+        "docker exec {} ls -lan -- {}",
+        shell_quote(container_id),
+        shell_quote(path),
     );
     let out = session.exec_capture(&cmd).await?;
-    let _ = session
-        .exec_capture(&format!("rm -rf {}", shell_quote(&remote_tmp)))
-        .await;
     if out.exit_code != 0 {
-        return Err(docker_cli_error("列出容器内目录失败", &out.stderr));
-    }
-    let mut entries = Vec::new();
-    for line in out.stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("total ") {
-            continue;
-        }
-        if let Some(entry) = parse_ls_lan_line(line) {
-            entries.push(entry);
-        }
-    }
-    Ok(entries)
-}
-
-fn parse_ls_lan_line(line: &str) -> Option<DockerFileEntry> {
-    // `ls -lan` 输出如：
-    //   -rw-r--r-- 1 0 0 1234 Jun 5 10:11 file.txt
-    // 解析：mode links uid gid size mon day time name
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() < 9 {
-        return None;
-    }
-    let mode_str = parts[0];
-    let size: i64 = parts.get(4)?.parse().ok()?;
-    let is_link = mode_str.starts_with('l');
-    let is_dir = mode_str.starts_with('d');
-    let mode = parse_mode_string(mode_str);
-    let name = parts[8..].join(" ");
-    let path = name.clone();
-    Some(DockerFileEntry {
-        name,
-        path,
-        size_bytes: size,
-        modified_at: 0,
-        mode,
-        is_dir,
-        is_symlink: is_link,
-    })
-}
-
-fn parse_mode_string(s: &str) -> u32 {
-    // 简化：仅返回十进制数字。
-    if s.len() < 10 {
-        return 0;
-    }
-    let mut mode: u32 = match s.chars().next() {
-        Some('d') => 0o040000,
-        Some('l') => 0o120000,
-        Some('-') => 0o100000,
-        Some('c') => 0o020000,
-        Some('b') => 0o060000,
-        Some('p') => 0o010000,
-        Some('s') => 0o140000,
-        _ => 0,
-    };
-    let chars: Vec<char> = s.chars().collect();
-    let triplet = |i: usize| -> u32 {
-        let user = chars.get(i).copied().unwrap_or('-');
-        let group = chars.get(i + 1).copied().unwrap_or('-');
-        let other = chars.get(i + 2).copied().unwrap_or('-');
-        let parse_bit = |c: char, bit: u32| {
-            if c == 'r' || c == 'w' || c == 'x' || c == 's' || c == 't' {
-                bit
+        return Err(docker_cli_error(
+            "列出容器内目录失败",
+            if out.stderr.trim().is_empty() {
+                &out.stdout
             } else {
-                0
-            }
-        };
-        parse_bit(user, 0o400)
-            | parse_bit(user, 0o200)
-            | parse_bit(user, 0o100)
-            | parse_bit(group, 0o040)
-            | parse_bit(group, 0o020)
-            | parse_bit(group, 0o010)
-            | parse_bit(other, 0o004)
-            | parse_bit(other, 0o002)
-            | parse_bit(other, 0o001)
-    };
-    mode |= triplet(1);
-    mode |= triplet(4);
-    mode |= triplet(7);
-    mode
+                &out.stderr
+            },
+        ));
+    }
+    Ok(crate::container_dir_ls::parse_ls_lan_output(&out.stdout))
 }
 
 pub async fn read_container_file(

@@ -4,6 +4,7 @@ import {
   selectDockerSidebarCacheEntry,
 } from "../dockerSidebarCache";
 import { resolveComposeProjectName } from "../dockerComposeGroups";
+import { DOCKER_STATS_POLL_MS } from "../dockerContainerStats";
 import { pickStats } from "../dockerContainerStatsMatch";
 import { useDockerContainerStats } from "./useDockerContainerStats";
 import { useDockerSidebarCacheStore } from "../../../stores/dockerSidebarCacheStore";
@@ -13,8 +14,7 @@ export type ComposeProjectContainerItem = {
   stats: DockerContainerStats | null;
 };
 
-const STATS_POLL_MS = 2000;
-const SIDEBAR_STALE_MS = 30_000;
+const STATS_POLL_MS = DOCKER_STATS_POLL_MS;
 
 export function useComposeProjectContainers(
   connectionId: string,
@@ -84,28 +84,14 @@ export function useComposeProjectContainers(
     refreshStatsNow();
   }, [refreshContainers, refreshStatsNow]);
 
+  // 侧栏容器列表走缓存：仅从未拉取过时补一次；后续靠节点刷新按钮或生命周期 refreshNow
   useEffect(() => {
     if (!enabled || !connectionId) return;
-    const stale =
-      sidebarEntry.refreshedAt == null ||
-      Date.now() - sidebarEntry.refreshedAt > SIDEBAR_STALE_MS ||
-      sidebarEntry.containers.length === 0;
-    if (stale) {
-      refreshContainers();
-    }
-  }, [
-    connectionId,
-    enabled,
-    projectKey,
-    refreshContainers,
-    sidebarEntry.containers.length,
-    sidebarEntry.refreshedAt,
-  ]);
+    if (sidebarEntry.refreshedAt != null) return;
+    refreshContainers();
+  }, [connectionId, enabled, refreshContainers, sidebarEntry.refreshedAt]);
 
-  const loading =
-    enabled &&
-    projectContainers.length === 0 &&
-    (sidebarEntry.refreshedAt == null || sidebarEntry.containers.length === 0);
+  const loading = enabled && projectContainers.length === 0 && sidebarEntry.refreshedAt == null;
 
   return {
     items,
@@ -113,4 +99,4 @@ export function useComposeProjectContainers(
     error: statsError ?? sidebarEntry.error,
     refreshNow,
   };
-};
+}

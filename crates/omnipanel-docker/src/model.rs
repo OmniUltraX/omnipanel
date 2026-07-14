@@ -352,6 +352,29 @@ pub struct DockerPruneResult {
     pub freed_space_bytes: i64,
 }
 
+/// `docker search` 单条结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerImageSearchResult {
+    pub name: String,
+    pub description: String,
+    #[specta(type = f64)]
+    pub star_count: i64,
+    pub is_official: bool,
+    pub is_automated: bool,
+}
+
+/// 容器日志文件信息（日志路径 + 可选文件大小）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerContainerLogInfo {
+    pub container_id: String,
+    pub name: String,
+    pub log_path: String,
+    #[specta(type = f64)]
+    pub size_bytes: Option<i64>,
+}
+
 /// `docker system df` 单项磁盘占用。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -581,6 +604,10 @@ pub struct DockerNetworkSummary {
     pub internal: bool,
     #[specta(type = f64)]
     pub created_at: i64,
+    /// 首个 IPv4 IPAM 子网（list 时尽力填充；无则前端降级）。
+    pub ipv4_subnet: Option<String>,
+    /// 首个 IPv4 IPAM 网关。
+    pub ipv4_gateway: Option<String>,
 }
 
 /// 创建网络请求。

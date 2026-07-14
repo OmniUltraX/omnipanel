@@ -1,4 +1,4 @@
-/** Schema 单击打开的临时预览 Tab；双击或编辑后变为常驻（无 preview）。 */
+/** Schema 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据。 */
 export type SchemaDockOpenMode = "preview" | "permanent";
 
 export type SqlWorkspaceTab = {
@@ -9,7 +9,7 @@ export type SqlWorkspaceTab = {
   sqlFileId?: string;
   /** 是否仅在底部工作区中显示（例如移动到工作区后） */
   workspaceOnly?: boolean;
-  /** Schema 单击预览 Tab，标题斜体显示，下次单击其他节点时内容被替换 */
+  /** @deprecated 旧预览槽位；新打开为常驻 */
   preview?: boolean;
 };
 

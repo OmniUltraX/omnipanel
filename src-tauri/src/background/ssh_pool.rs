@@ -28,6 +28,10 @@ const STATS_CACHE_TTL: Duration = Duration::from_secs(5);
 const PROCESSES_CACHE_TTL: Duration = Duration::from_secs(30);
 const PORTS_CACHE_TTL: Duration = Duration::from_secs(60);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// 启动时预热单台 SSH 会话的超时
+const WARM_SESSION_TIMEOUT: Duration = Duration::from_secs(20);
+/// 启动时并发预热上限，避免瞬时打满认证握手
+const WARM_MAX_PARALLEL: usize = 4;
 
 const STATS_SCRIPT: &str = r#"/bin/bash -c '
 set +e
@@ -203,6 +207,16 @@ pub struct PoolSessionEvent {
     pub active: bool,
 }
 
+/// 启动时批量预热 SSH 连接池会话的结果摘要。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshPoolWarmResult {
+    pub total: u32,
+    pub ready: u32,
+    pub failed: u32,
+    pub skipped: u32,
+}
+
 /// 概览页一次加载的完整数据（系统指标 + 进程列表）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -254,6 +268,8 @@ pub struct SshPool {
     storage: Arc<Mutex<Storage>>,
     log: LogStore,
     background_started: AtomicBool,
+    /// `reload_hosts` 至少完成过一次（可能为空列表）后为 true，供启动预热等待。
+    hosts_loaded: AtomicBool,
 }
 
 #[allow(dead_code)]
@@ -269,6 +285,7 @@ impl SshPool {
             storage,
             log,
             background_started: AtomicBool::new(false),
+            hosts_loaded: AtomicBool::new(false),
         }
     }
 
@@ -361,6 +378,7 @@ impl SshPool {
             self.log
                 .log("ssh-pool", "info", "无已保存的 SSH 主机")
                 .await;
+            self.hosts_loaded.store(true, Ordering::SeqCst);
             return;
         }
 
@@ -391,6 +409,124 @@ impl SshPool {
             self.probe_all_hosts(&app_handle).await;
         }
         self.emit_all_status(&app_handle).await;
+        self.hosts_loaded.store(true, Ordering::SeqCst);
+    }
+
+    async fn wait_until_hosts_loaded(&self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while !self.hosts_loaded.load(Ordering::SeqCst) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+    }
+
+    /// 为已配置主机建立连接池会话（至少保证端口可达的主机各有一条可用会话）。
+    /// 单台失败不中断整体；可重复调用（已就绪会话会复用）。
+    pub async fn ensure_all_sessions(&self) -> SshPoolWarmResult {
+        self.wait_until_hosts_loaded(Duration::from_secs(12)).await;
+
+        let targets: Vec<(String, String)> = {
+            let pool = self.entries.lock().await;
+            pool.iter()
+                .filter(|(_, e)| !e.config.host.trim().is_empty())
+                // 端口探测失败的主机跳过，避免启动阶段长时间阻塞
+                .filter(|(_, e)| matches!(e.status.as_str(), "connected" | "idle"))
+                .map(|(id, e)| (id.clone(), e.host_name.clone()))
+                .collect()
+        };
+
+        let skipped = {
+            let pool = self.entries.lock().await;
+            pool.values()
+                .filter(|e| {
+                    !e.config.host.trim().is_empty()
+                        && !matches!(e.status.as_str(), "connected" | "idle")
+                })
+                .count() as u32
+        };
+
+        if targets.is_empty() {
+            return SshPoolWarmResult {
+                total: 0,
+                ready: 0,
+                failed: 0,
+                skipped,
+            };
+        }
+
+        self.log
+            .log(
+                "ssh-pool",
+                "info",
+                &format!(
+                    "开始预热 SSH 会话：{} 台（并发 ≤ {}）…",
+                    targets.len(),
+                    WARM_MAX_PARALLEL
+                ),
+            )
+            .await;
+
+        let mut ready = 0u32;
+        let mut failed = 0u32;
+        let total = targets.len() as u32;
+
+        for chunk in targets.chunks(WARM_MAX_PARALLEL) {
+            let results = join_all(chunk.iter().map(|(id, name)| {
+                let id = id.clone();
+                let name = name.clone();
+                async move {
+                    let outcome =
+                        tokio::time::timeout(WARM_SESSION_TIMEOUT, self.ensure_session(&id)).await;
+                    (id, name, outcome)
+                }
+            }))
+            .await;
+
+            for (id, name, outcome) in results {
+                match outcome {
+                    Ok(Ok(_)) => {
+                        ready += 1;
+                    }
+                    Ok(Err(e)) => {
+                        failed += 1;
+                        warn!("SSH 会话预热失败 {name} ({id}): {e}");
+                        self.log
+                            .log(
+                                "ssh-pool",
+                                "warn",
+                                &format!("会话预热失败 {name}: {e}"),
+                            )
+                            .await;
+                    }
+                    Err(_) => {
+                        failed += 1;
+                        warn!(
+                            "SSH 会话预热超时 {name} ({id}) (>{}s)",
+                            WARM_SESSION_TIMEOUT.as_secs()
+                        );
+                        self.log
+                            .log(
+                                "ssh-pool",
+                                "warn",
+                                &format!(
+                                    "会话预热超时 {name} (>{}s)",
+                                    WARM_SESSION_TIMEOUT.as_secs()
+                                ),
+                            )
+                            .await;
+                    }
+                }
+            }
+        }
+
+        SshPoolWarmResult {
+            total,
+            ready,
+            failed,
+            skipped,
+        }
     }
 
     fn specs_from_connections(

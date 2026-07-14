@@ -9,6 +9,7 @@
 
 mod compose;
 mod compose_files;
+mod container_dir_ls;
 mod daemon_config;
 mod log_util;
 mod stats;
@@ -90,6 +91,8 @@ pub trait DockerAdapter: Send + Sync {
     async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>>;
     /// 清空容器日志文件（1Panel / SSH / 本地 CLI 路径）。
     async fn clear_container_logs(&self, id: &str) -> OmniResult<()>;
+    /// 列出全部容器（含停止）的日志路径与文件大小。
+    async fn list_container_log_infos(&self) -> OmniResult<Vec<DockerContainerLogInfo>>;
     /// 镜像列表。
     async fn list_images(&self) -> OmniResult<Vec<DockerImageSummary>>;
     /// 镜像详情（配置 / 历史层）。
@@ -100,6 +103,12 @@ pub trait DockerAdapter: Send + Sync {
     async fn remove_image(&self, id: &str, force: bool) -> OmniResult<()>;
     /// 清理悬空镜像。
     async fn prune_images(&self) -> OmniResult<DockerPruneResult>;
+    /// Hub / 仓库镜像搜索（`docker search`）。
+    async fn search_images(
+        &self,
+        term: &str,
+        limit: u32,
+    ) -> OmniResult<Vec<DockerImageSearchResult>>;
     /// Compose 项目识别。
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>>;
     /// 拉取镜像。`progress` 回调（可选）逐条上报拉取阶段。
@@ -193,6 +202,8 @@ pub trait DockerAdapter: Send + Sync {
     async fn create_network(&self, req: &DockerCreateNetworkRequest) -> OmniResult<String>;
     /// 删除网络。
     async fn remove_network(&self, name: &str) -> OmniResult<()>;
+    /// 清理未使用网络（`docker network prune`）。
+    async fn prune_networks(&self) -> OmniResult<DockerPruneResult>;
     /// 把容器接入网络。
     async fn connect_container_to_network(
         &self,

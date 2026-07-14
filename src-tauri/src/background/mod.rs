@@ -11,7 +11,7 @@ pub mod worker_pool;
 use std::sync::Arc;
 
 use omnipanel_store::Storage;
-pub use ssh_pool::{PoolStatusEvent, SshHostOverview, SshPool};
+pub use ssh_pool::{PoolStatusEvent, SshHostOverview, SshPool, SshPoolWarmResult};
 pub use worker_pool::{BackgroundWorkerPool, default_worker_count};
 pub use omnipanel_ssh::HostSystemStats;
 

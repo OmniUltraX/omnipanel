@@ -68,7 +68,7 @@ export function useKnowledgeOpenEntry() {
   );
 
   const openEntry = useCallback(
-    (entryId: string, mode: KnowledgeDockOpenMode = "preview") => {
+    (entryId: string, mode: KnowledgeDockOpenMode = "permanent") => {
       const entry = entries.find((item) => item.id === entryId);
       if (!entry || isKnowledgeFolder(entry)) {
         return;

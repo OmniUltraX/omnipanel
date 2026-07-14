@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { Button } from "../../components/ui/Button";
 import { CodeEditor, codeEditorLanguageFromPath, type CodeEditorLanguage } from "../../components/ui/content/CodeEditor";
-import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import type {
-  DockerConnectionInfo,
-  DockerContainerStats,
-  DockerContainerSummary,
-} from "../../ipc/bindings";
+import type { DockerConnectionInfo } from "../../ipc/bindings";
 import {
   getComposeProjectMeta,
   peekComposeProjectMeta,
@@ -18,15 +13,13 @@ import {
   writeComposeProjectFiles,
 } from "./dockerComposeApi";
 import { debugCompose } from "./dockerComposeDebug";
-import { runDockerContainerAction } from "./dockerContainerActions";
 import {
-  getContainerLifecyclePhase,
-  lifecycleStatusLabel,
-  type DockerContainerLifecycleAction,
-} from "./dockerContainerLifecycle";
-import { containerRowLabel } from "./dockerResourceLabels";
-import { useComposeProjectContainers } from "./hooks/useComposeProjectContainers";
-import { PlayIcon, RestartIcon, StopIcon } from "./icons";
+  peekComposePanelCache,
+  seedComposePanelFromMeta,
+  writeComposePanelCache,
+} from "./dockerComposePanelCache";
+import { DockerComposeContainersColumn } from "./DockerComposeContainersColumn";
+import { DockerComposeLogsColumn } from "./DockerComposeLogsColumn";
 
 export interface DockerComposePanelProps {
   connection: DockerConnectionInfo;
@@ -34,183 +27,7 @@ export interface DockerComposePanelProps {
   isActive?: boolean;
 }
 
-const LOGS_POLL_MS = 5000;
-const LOGS_INITIAL_DELAY_MS = 800;
-
-function clampPercent(value: number | null | undefined): number {
-  if (value == null || Number.isNaN(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-}
-
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null || bytes <= 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function memoryHint(stats: DockerContainerStats | null): string | undefined {
-  if (!stats) return undefined;
-  const usage = formatBytes(stats.memoryUsageBytes);
-  const limit = formatBytes(stats.memoryLimitBytes ?? undefined);
-  if (!usage) return undefined;
-  return limit ? `${usage} / ${limit}` : usage;
-}
-
-function ComposeMetricBar({
-  label,
-  value,
-  hint,
-  tone = "accent",
-}: {
-  label: string;
-  value: number;
-  hint?: string;
-  tone?: "accent" | "warn";
-}) {
-  const percent = clampPercent(value);
-  return (
-    <div className="docker-compose-panel__metric">
-      <div className="docker-compose-panel__metric-head">
-        <span>{label}</span>
-        <span className="docker-compose-panel__metric-value">
-          {percent.toFixed(1)}%
-          {hint ? <span className="docker-compose-panel__metric-hint">{hint}</span> : null}
-        </span>
-      </div>
-      <div className="docker-compose-panel__bar-track">
-        <div
-          className={`docker-compose-panel__bar-fill docker-compose-panel__bar-fill--${tone}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ComposeContainerActions({
-  phase,
-  busy,
-  onAction,
-  t,
-}: {
-  phase: ReturnType<typeof getContainerLifecyclePhase>;
-  busy: boolean;
-  onAction: (action: DockerContainerLifecycleAction, event: MouseEvent<HTMLButtonElement>) => void;
-  t: (key: string) => string;
-}) {
-  if (phase === "transitional" || busy) {
-    return (
-      <div className="docker-compose-panel__container-actions docker-compose-panel__container-actions--busy">
-        <span className="docker-compose-panel__container-spinner" aria-hidden />
-      </div>
-    );
-  }
-
-  if (phase === "running") {
-    return (
-      <div className="docker-compose-panel__container-actions">
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          className="docker-compose-panel__container-action-btn"
-          title={t("docker.dockPanel.stopContainer")}
-          aria-label={t("docker.dockPanel.stopContainer")}
-          onClick={(event) => onAction("stop", event)}
-        >
-          <StopIcon />
-        </Button>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          className="docker-compose-panel__container-action-btn"
-          title={t("docker.dockPanel.restartContainer")}
-          aria-label={t("docker.dockPanel.restartContainer")}
-          onClick={(event) => onAction("restart", event)}
-        >
-          <RestartIcon />
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="docker-compose-panel__container-actions">
-      <Button
-        type="button"
-        variant="icon"
-        size="icon-xs"
-        className="docker-compose-panel__container-action-btn docker-compose-panel__container-action-btn--start"
-        title={t("docker.dockPanel.startContainer")}
-        aria-label={t("docker.dockPanel.startContainer")}
-        onClick={(event) => onAction("start", event)}
-      >
-        <PlayIcon />
-      </Button>
-    </div>
-  );
-}
-
-function ComposeContainerRow({
-  container,
-  stats,
-  busy,
-  onAction,
-  t,
-}: {
-  container: DockerContainerSummary;
-  stats: DockerContainerStats | null;
-  busy: boolean;
-  onAction: (action: DockerContainerLifecycleAction, event: MouseEvent<HTMLButtonElement>) => void;
-  t: (key: string) => string;
-}) {
-  const phase = getContainerLifecyclePhase(container, busy);
-  const statusLabel = lifecycleStatusLabel(container, phase, t);
-  const cpu = container.running ? (stats?.cpuPercent ?? 0) : 0;
-  const memory = container.running ? (stats?.memoryPercent ?? 0) : 0;
-  const name = container.composeService?.trim() || containerRowLabel(container);
-
-  return (
-    <article className={`docker-compose-panel__container-card docker-compose-panel__container-card--${phase}`}>
-      <div className="docker-compose-panel__container-card-top">
-        <div className="docker-compose-panel__container-identity">
-          <span className="docker-compose-panel__container-name" title={name}>
-            {name}
-          </span>
-          <span className="docker-compose-panel__container-image" title={container.image}>
-            {container.image}
-          </span>
-        </div>
-        <div className="docker-compose-panel__container-toolbar">
-          <span
-            className={`docker-compose-panel__container-status docker-compose-panel__container-status--${phase}`}
-          >
-            {statusLabel}
-          </span>
-          <ComposeContainerActions phase={phase} busy={busy} onAction={onAction} t={t} />
-        </div>
-      </div>
-      {container.running ? (
-        <div className="docker-compose-panel__container-metrics">
-          <ComposeMetricBar label={t("docker.dockPanel.cpu")} value={cpu} />
-          <ComposeMetricBar
-            label={t("docker.dockPanel.memory")}
-            value={memory}
-            hint={memoryHint(stats)}
-            tone={memory >= 85 ? "warn" : "accent"}
-          />
-        </div>
-      ) : (
-        <p className="docker-compose-panel__container-idle">{t("docker.composePanel.containerStoppedHint")}</p>
-      )}
-    </article>
-  );
-}
-
-function EditorPane({
+const EditorPane = memo(function EditorPane({
   title,
   pathHint,
   language,
@@ -228,44 +45,36 @@ function EditorPane({
   value: string;
   dirty: boolean;
   saving: boolean;
-  readOnly?: boolean;
+  readOnly: boolean;
   saveLabel: string;
   onChange: (value: string) => void;
   onSave: () => void;
 }) {
-  const resolvedLanguage =
-    language ?? codeEditorLanguageFromPath(pathHint ?? "docker-compose.yml");
-
   return (
     <div className="docker-compose-panel__editor-pane">
       <div className="docker-compose-panel__editor-header">
-        <div className="docker-compose-panel__editor-title">
+        <div className="docker-compose-panel__editor-title" title={pathHint || title}>
           <span>{title}</span>
           {pathHint ? (
-            <span className="docker-compose-panel__editor-path" title={pathHint}>
-              {pathHint}
-            </span>
+            <span className="docker-compose-panel__editor-path">{pathHint}</span>
           ) : null}
         </div>
-        {!readOnly ? (
-          <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
-            {saveLabel}
-          </Button>
-        ) : null}
+        <Button size="xs" variant="secondary" disabled={readOnly || !dirty || saving} onClick={onSave}>
+          {saving ? "…" : saveLabel}
+        </Button>
       </div>
       <div className="docker-compose-panel__editor-body">
         <CodeEditor
+          className="docker-compose-panel__code-editor"
           value={value}
-          onChange={onChange}
-          language={resolvedLanguage}
+          language={language ?? codeEditorLanguageFromPath(pathHint ?? "")}
           readOnly={readOnly}
-          height="100%"
-          className="docker-compose-panel__editor"
+          onChange={onChange}
         />
       </div>
     </div>
   );
-}
+});
 
 export function DockerComposePanel({
   connection,
@@ -277,25 +86,29 @@ export function DockerComposePanel({
     () => peekComposeProjectMeta(connection.connectionId, composeProject),
     [connection.connectionId, composeProject],
   );
-  const { items: projectContainers, loading, error, refreshNow } = useComposeProjectContainers(
-    connection.connectionId,
-    composeProject,
-    isActive,
+  const panelCache = useMemo(
+    () => peekComposePanelCache(connection.connectionId, composeProject),
+    [connection.connectionId, composeProject],
   );
+  const seededMeta = useMemo(() => seedComposePanelFromMeta(cachedMeta), [cachedMeta]);
 
-  const [workingDir, setWorkingDir] = useState<string | null>(cachedMeta?.workingDir ?? null);
-  const [configFile, setConfigFile] = useState<string | null>(
-    cachedMeta?.configFiles?.split(",")[0]?.trim() || null,
+  const [workingDir, setWorkingDir] = useState<string | null>(
+    panelCache?.workingDir ?? seededMeta.workingDir,
   );
-  const [composePath, setComposePath] = useState("");
-  const [envPath, setEnvPath] = useState("");
-  const [composeContent, setComposeContent] = useState("");
-  const [envContent, setEnvContent] = useState("");
-  const [savedComposeContent, setSavedComposeContent] = useState("");
-  const [savedEnvContent, setSavedEnvContent] = useState("");
+  const [configFile, setConfigFile] = useState<string | null>(
+    panelCache?.configFile ?? seededMeta.configFile,
+  );
+  const [composePath, setComposePath] = useState(panelCache?.composePath ?? "");
+  const [envPath, setEnvPath] = useState(panelCache?.envPath ?? "");
+  const [composeContent, setComposeContent] = useState(panelCache?.composeContent ?? "");
+  const [envContent, setEnvContent] = useState(panelCache?.envContent ?? "");
+  const [savedComposeContent, setSavedComposeContent] = useState(
+    panelCache?.savedComposeContent ?? "",
+  );
+  const [savedEnvContent, setSavedEnvContent] = useState(panelCache?.savedEnvContent ?? "");
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
-  const [filesReadOnly, setFilesReadOnly] = useState(false);
+  const [filesReadOnly, setFilesReadOnly] = useState(panelCache?.filesReadOnly ?? false);
   const [savingCompose, setSavingCompose] = useState(false);
   const [savingEnv, setSavingEnv] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -304,18 +117,70 @@ export function DockerComposePanel({
   const [composeActionPending, setComposeActionPending] = useState<"restart" | "rebuild" | null>(
     null,
   );
-  const [logsText, setLogsText] = useState("");
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [pendingContainerActions, setPendingContainerActions] = useState<Record<string, true>>({});
-  const [metaReady, setMetaReady] = useState(Boolean(cachedMeta?.workingDir));
+  const [logsText, setLogsText] = useState(panelCache?.logsText ?? "");
+  const [logEnabledByService, setLogEnabledByService] = useState<Record<string, boolean>>(
+    () => panelCache?.logEnabledByService ?? {},
+  );
+  const [metaReady, setMetaReady] = useState(panelCache?.metaReady ?? seededMeta.metaReady);
+  const [containersRefreshToken, setContainersRefreshToken] = useState(0);
 
   const composeDirty = composeContent !== savedComposeContent;
   const envDirty = envContent !== savedEnvContent;
 
+  const pathsRef = useRef({
+    workingDir,
+    configFile,
+    composeContent,
+    envContent,
+    metaReady,
+  });
+  pathsRef.current = {
+    workingDir,
+    configFile,
+    composeContent,
+    envContent,
+    metaReady,
+  };
+
+  // 状态变更写入内存缓存，关闭 dock 后再打开可回填
+  useEffect(() => {
+    writeComposePanelCache(connection.connectionId, composeProject, {
+      workingDir,
+      configFile,
+      composePath,
+      envPath,
+      composeContent,
+      envContent,
+      savedComposeContent,
+      savedEnvContent,
+      filesReadOnly,
+      metaReady,
+      logsText,
+      logEnabledByService,
+    });
+  }, [
+    composeContent,
+    composePath,
+    composeProject,
+    configFile,
+    connection.connectionId,
+    envContent,
+    envPath,
+    filesReadOnly,
+    logEnabledByService,
+    logsText,
+    metaReady,
+    savedComposeContent,
+    savedEnvContent,
+    workingDir,
+  ]);
+
   const loadProjectMeta = useCallback(async () => {
+    const started = performance.now();
     const meta = await getComposeProjectMeta(connection.connectionId, composeProject);
     debugCompose("loadProjectMeta", {
       composeProject,
+      ms: Math.round(performance.now() - started),
       meta: meta
         ? {
             workingDir: meta.workingDir,
@@ -330,54 +195,93 @@ export function DockerComposePanel({
     return meta;
   }, [connection.connectionId, composeProject]);
 
-  const loadFiles = useCallback(async () => {
-    setFilesError(null);
-    const hasContent = composeContent.length > 0 || envContent.length > 0;
-    if (!hasContent) {
-      setFilesLoading(true);
-    }
-    try {
-      const meta = await loadProjectMeta();
-      const readRequest = {
-        project: composeProject,
-        workingDir: meta?.workingDir ?? null,
-        configFile: meta?.configFiles?.split(",")[0]?.trim() || null,
-      };
-      debugCompose("loadFiles 开始", readRequest);
-      const files = await readComposeProjectFiles(connection.connectionId, readRequest);
-      debugCompose("loadFiles 完成", {
-        composePath: files.composePath,
-        envPath: files.envPath,
-        composeBytes: files.composeContent.length,
-        envBytes: files.envContent.length,
-      });
-      setComposePath(files.composePath);
-      setEnvPath(files.envPath);
-      setComposeContent(files.composeContent);
-      setEnvContent(files.envContent);
-      setSavedComposeContent(files.composeContent);
-      setSavedEnvContent(files.envContent);
-      setFilesReadOnly(false);
-    } catch (e) {
-      debugCompose("loadFiles 失败", { error: String(e) });
-      setFilesError(String(e));
-      setFilesReadOnly(true);
-      setMetaReady(true);
-    } finally {
-      setFilesLoading(false);
-    }
-  }, [
-    composeContent.length,
-    composeProject,
-    connection.connectionId,
-    envContent.length,
-    loadProjectMeta,
-  ]);
+  /**
+   * 读 compose/.env：
+   * - 已有内容 → 直接跳过
+   * - 已有 workingDir（面板缓存 / 上次 meta）→ 跳过昂贵的 dockerListComposeProjects
+   * - 否则才拉全量项目列表拿路径，再读文件
+   */
+  const loadFiles = useCallback(
+    async (force = false) => {
+      setFilesError(null);
+      const snap = pathsRef.current;
+      const hasContent = snap.composeContent.length > 0 || snap.envContent.length > 0;
+      if (!force && hasContent) {
+        debugCompose("loadFiles 跳过：命中面板缓存", {
+          composeProject,
+          composeBytes: snap.composeContent.length,
+          envBytes: snap.envContent.length,
+        });
+        if (!snap.metaReady) setMetaReady(true);
+        return;
+      }
+      if (!hasContent) {
+        setFilesLoading(true);
+      }
+      const overallStarted = performance.now();
+      try {
+        let wd = snap.workingDir;
+        let cf = snap.configFile;
+        let skippedMetaList = false;
+        if (wd) {
+          skippedMetaList = true;
+          setMetaReady(true);
+          debugCompose("loadFiles 跳过全量 Compose 列表：已有 workingDir", {
+            composeProject,
+            workingDir: wd,
+            configFile: cf,
+          });
+        } else {
+          const meta = await loadProjectMeta();
+          wd = meta?.workingDir ?? null;
+          cf = meta?.configFiles?.split(",")[0]?.trim() || null;
+        }
+
+        const readRequest = {
+          project: composeProject,
+          workingDir: wd,
+          configFile: cf,
+        };
+        debugCompose("loadFiles 开始读文件", { ...readRequest, skippedMetaList });
+        const readStarted = performance.now();
+        const files = await readComposeProjectFiles(connection.connectionId, readRequest);
+        debugCompose("loadFiles 完成", {
+          composePath: files.composePath,
+          envPath: files.envPath,
+          composeBytes: files.composeContent.length,
+          envBytes: files.envContent.length,
+          readMs: Math.round(performance.now() - readStarted),
+          totalMs: Math.round(performance.now() - overallStarted),
+          skippedMetaList,
+        });
+        setWorkingDir(files.workingDir ?? wd);
+        setComposePath(files.composePath);
+        setEnvPath(files.envPath);
+        setComposeContent(files.composeContent);
+        setEnvContent(files.envContent);
+        setSavedComposeContent(files.composeContent);
+        setSavedEnvContent(files.envContent);
+        setFilesReadOnly(false);
+        setMetaReady(Boolean(files.workingDir ?? wd));
+      } catch (e) {
+        debugCompose("loadFiles 失败", {
+          error: String(e),
+          totalMs: Math.round(performance.now() - overallStarted),
+        });
+        setFilesError(String(e));
+        setFilesReadOnly(true);
+        setMetaReady(true);
+      } finally {
+        setFilesLoading(false);
+      }
+    },
+    [composeProject, connection.connectionId, loadProjectMeta],
+  );
 
   useEffect(() => {
     if (!isActive) return;
-    void loadFiles();
-  }, [isActive, loadFiles]);
+    void loadFiles(false);
+  }, [isActive, connection.connectionId, composeProject, loadFiles]);
 
   const showSaveToast = useCallback((message: string) => {
     setSaveMessage(message);
@@ -398,29 +302,6 @@ export function DockerComposePanel({
       detached: true,
     }),
     [composeProject, configFile, workingDir],
-  );
-
-  const handleContainerLifecycle = useCallback(
-    (container: DockerContainerSummary, action: DockerContainerLifecycleAction, event: MouseEvent<HTMLButtonElement>) => {
-      event.stopPropagation();
-      void (async () => {
-        setActionError(null);
-        setPendingContainerActions((current) => ({ ...current, [container.id]: true }));
-        try {
-          await runDockerContainerAction(connection.connectionId, container.id, action);
-          refreshNow();
-        } catch (e) {
-          setActionError(String(e));
-        } finally {
-          setPendingContainerActions((current) => {
-            const next = { ...current };
-            delete next[container.id];
-            return next;
-          });
-        }
-      })();
-    },
-    [connection.connectionId, refreshNow],
   );
 
   const handleComposeLifecycle = useCallback(
@@ -445,7 +326,7 @@ export function DockerComposePanel({
               ? t("docker.composePanel.restarted")
               : t("docker.composePanel.rebuilt"),
           );
-          refreshNow();
+          setContainersRefreshToken((n) => n + 1);
         } catch (e) {
           setActionError(String(e));
         } finally {
@@ -457,7 +338,6 @@ export function DockerComposePanel({
       composeActionRequest,
       composeProject,
       connection.connectionId,
-      refreshNow,
       showActionToast,
       t,
     ],
@@ -525,56 +405,15 @@ export function DockerComposePanel({
     workingDir,
   ]);
 
-  const logsRequestRef = useRef({
-    project: composeProject,
-    workingDir,
-    configFile,
-  });
-  logsRequestRef.current = { project: composeProject, workingDir, configFile };
+  const handleLogEnabledChange = useCallback((next: Record<string, boolean>) => {
+    setLogEnabledByService(next);
+  }, []);
 
-  useEffect(() => {
-    if (!isActive || !metaReady) {
-      setLogsText("");
-      setLogsError(null);
-      return;
-    }
+  const handleLogsTextChange = useCallback((text: string) => {
+    setLogsText(text);
+  }, []);
 
-    let cancelled = false;
-    let timer: number | null = null;
-
-    const refreshLogs = async () => {
-      const { project, workingDir: wd, configFile: cf } = logsRequestRef.current;
-      try {
-        const result = await runComposeAction(connection.connectionId, "logs", {
-          project,
-          workingDir: wd,
-          configFile: cf,
-          services: [],
-          detached: false,
-        });
-        if (cancelled) return;
-        const chunks = [result.stdoutExcerpt, result.stderrExcerpt].filter(Boolean);
-        setLogsText(chunks.join(chunks.length > 1 ? "\n" : ""));
-        setLogsError(result.exitCode !== 0 && !chunks.length ? t("docker.composePanel.logsFailed") : null);
-      } catch (e) {
-        if (!cancelled) {
-          setLogsError(String(e));
-        }
-      }
-    };
-
-    const initialTimer = window.setTimeout(() => {
-      void refreshLogs();
-      timer = window.setInterval(() => void refreshLogs(), LOGS_POLL_MS);
-    }, LOGS_INITIAL_DELAY_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(initialTimer);
-      if (timer != null) window.clearInterval(timer);
-    };
-  }, [connection.connectionId, isActive, metaReady, t]);
-
+  // 非激活：卸载重型子树，保留缓存供重开回填
   if (!isActive) {
     return <div className="docker-compose-panel docker-compose-panel--inactive" aria-hidden />;
   }
@@ -582,14 +421,17 @@ export function DockerComposePanel({
   return (
     <div className="docker-compose-panel">
       <div className="docker-compose-panel__header">
-        <div>
-          <h2 className="docker-compose-panel__title">{composeProject}</h2>
-          <p className="docker-compose-panel__subtitle">
+        <h2
+          className="docker-compose-panel__title"
+          title={[connection.name, connection.hostLabel, workingDir].filter(Boolean).join(" · ")}
+        >
+          <span className="docker-compose-panel__title-name">{composeProject}</span>
+          <span className="docker-compose-panel__title-meta">
             {connection.name}
             {connection.hostLabel ? ` · ${connection.hostLabel}` : ""}
             {workingDir ? ` · ${workingDir}` : ""}
-          </p>
-        </div>
+          </span>
+        </h2>
         <div className="docker-compose-panel__header-actions">
           <Button
             size="sm"
@@ -616,37 +458,22 @@ export function DockerComposePanel({
         </div>
       </div>
 
-      {error || filesError || actionError ? (
-        <div className="docker-compose-panel__error">{error ?? filesError ?? actionError}</div>
+      {filesError || actionError ? (
+        <div className="docker-compose-panel__error">{filesError ?? actionError}</div>
       ) : null}
 
       <div className="docker-compose-panel__body">
         <DockLayout direction="horizontal" className="docker-compose-panel__split">
           <DockPanel defaultSize="20%" minSize="14%" maxSize="35%" className="docker-compose-panel__list-pane">
-            <div className="docker-compose-panel__list-wrap">
-              <div className="docker-compose-panel__list-header">
-                <span>{t("docker.composePanel.containers")}</span>
-                <span className="docker-compose-panel__list-count">{projectContainers.length}</span>
-              </div>
-              <div className="docker-compose-panel__list-body">
-                {loading && projectContainers.length === 0 ? (
-                  <div className="docker-compose-panel__list-loading">{t("docker.dockPanel.loading")}</div>
-                ) : projectContainers.length === 0 ? (
-                  <ModuleEmptyState preset="container" title={t("docker.composePanel.noContainers")} />
-                ) : (
-                  projectContainers.map(({ container, stats }) => (
-                    <ComposeContainerRow
-                      key={container.id}
-                      container={container}
-                      stats={stats}
-                      busy={Boolean(pendingContainerActions[container.id])}
-                      onAction={(action, event) => handleContainerLifecycle(container, action, event)}
-                      t={t}
-                    />
-                  ))
-                )}
-              </div>
-            </div>
+            <DockerComposeContainersColumn
+              connection={connection}
+              composeProject={composeProject}
+              isActive={isActive}
+              refreshToken={containersRefreshToken}
+              logEnabledByService={logEnabledByService}
+              onLogEnabledByServiceChange={handleLogEnabledChange}
+              onActionError={setActionError}
+            />
           </DockPanel>
           <DockHandle direction="horizontal" />
           <DockPanel defaultSize="80%" minSize="55%" className="docker-compose-panel__main-pane">
@@ -655,7 +482,9 @@ export function DockerComposePanel({
                 <DockLayout direction="horizontal" className="docker-compose-panel__editors-split">
                   <DockPanel defaultSize="50%" minSize="30%" className="docker-compose-panel__compose-editor-pane">
                     {filesLoading && !composeContent ? (
-                      <div className="docker-compose-panel__files-loading">{t("docker.composePanel.loadingFiles")}</div>
+                      <div className="docker-compose-panel__files-loading">
+                        {t("docker.composePanel.loadingFiles")}
+                      </div>
                     ) : (
                       <EditorPane
                         title={t("docker.composePanel.composeFile")}
@@ -674,7 +503,9 @@ export function DockerComposePanel({
                   <DockHandle direction="horizontal" />
                   <DockPanel defaultSize="50%" minSize="30%" className="docker-compose-panel__env-editor-pane">
                     {filesLoading && !envContent ? (
-                      <div className="docker-compose-panel__files-loading">{t("docker.composePanel.loadingFiles")}</div>
+                      <div className="docker-compose-panel__files-loading">
+                        {t("docker.composePanel.loadingFiles")}
+                      </div>
                     ) : (
                       <EditorPane
                         title={t("docker.composePanel.envFile")}
@@ -694,17 +525,17 @@ export function DockerComposePanel({
               </DockPanel>
               <DockHandle direction="vertical" />
               <DockPanel defaultSize="38%" minSize="18%" className="docker-compose-panel__logs-pane">
-                <div className="docker-compose-panel__logs-wrap">
-                  <div className="docker-compose-panel__logs-header">{t("docker.composePanel.logs")}</div>
-                  <div className="docker-compose-panel__logs-body">
-                    {logsError ? (
-                      <div className="docker-compose-panel__logs-error">{logsError}</div>
-                    ) : null}
-                    <pre className="docker-compose-panel__logs-content">
-                      {logsText || t("docker.dockPanel.subwindowEmptyLogs")}
-                    </pre>
-                  </div>
-                </div>
+                <DockerComposeLogsColumn
+                  connectionId={connection.connectionId}
+                  composeProject={composeProject}
+                  isActive={isActive}
+                  metaReady={metaReady}
+                  workingDir={workingDir}
+                  configFile={configFile}
+                  logEnabledByService={logEnabledByService}
+                  initialLogsText={logsText}
+                  onLogsTextChange={handleLogsTextChange}
+                />
               </DockPanel>
             </DockLayout>
           </DockPanel>
