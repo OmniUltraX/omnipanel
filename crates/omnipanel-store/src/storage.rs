@@ -490,10 +490,10 @@ impl Storage {
         self.conn
             .execute_batch(HTTP_SCHEMA_BOOTSTRAP)
             .map_err(map_sqlite)?;
-        if let Err(err) = self.conn.execute(
-            "ALTER TABLE http_history ADD COLUMN request_id TEXT",
-            [],
-        ) {
+        if let Err(err) = self
+            .conn
+            .execute("ALTER TABLE http_history ADD COLUMN request_id TEXT", [])
+        {
             let msg = err.to_string();
             if !msg.contains("duplicate column") {
                 return Err(map_sqlite(err));
@@ -800,6 +800,7 @@ mod tests {
             auth_value: String::new(),
             collection_id: None,
             environment_id: None,
+            path_params: String::new(),
             created_at: 1,
             updated_at: 1,
         };
