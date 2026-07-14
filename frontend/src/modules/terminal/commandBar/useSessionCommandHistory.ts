@@ -61,11 +61,18 @@ export function useSessionCommandHistory(
 }
 
 /** 无 React 依赖的同步查询（↑↓ 浏览等） */
-export function listSessionCommandHistoryFast(sessionId: string, query = ""): string[] {
+export function listSessionCommandHistoryEntriesFast(
+  sessionId: string,
+  query = "",
+): CommandHistoryEntry[] {
   const blocks = useBlocksStore.getState().getBlocks(sessionId);
   const blockKey = computeBlocksHistoryKey(blocks);
   const readline =
     useSessionShellHistoryStore.getState().getCommands(sessionId) ?? EMPTY_READLINE_HISTORY;
   const index = getCachedIndex(sessionId, blockKey, readline);
-  return filterHistoryIndex(index, query).map((entry) => entry.text);
+  return filterHistoryIndex(index, query);
+}
+
+export function listSessionCommandHistoryFast(sessionId: string, query = ""): string[] {
+  return listSessionCommandHistoryEntriesFast(sessionId, query).map((entry) => entry.text);
 }

@@ -11,6 +11,8 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
+  startTransition,
 } from "react";
 import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
@@ -31,10 +33,15 @@ import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import {
-  createOverlayMountedAll,
+  createInitialOverlayMounted,
+  isOverlayModuleKey,
   isOverlayModulePath,
   isShellRoutePath,
 } from "./lib/routePanels";
+import {
+  scheduleIdleTerminalWarm,
+  subscribeModuleShellWarm,
+} from "./lib/moduleWarmup";
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
@@ -84,8 +91,6 @@ import {
   LazyWorkflowPanel,
   preloadModuleChunks,
 } from "./routes/lazyModules";
-
-const OVERLAY_MOUNTED = createOverlayMountedAll();
 
 function TopbarPageActions() {
   const { t } = useI18n();
@@ -247,12 +252,16 @@ function AppShell() {
   useEffect(() => {
     const schedule = () => preloadModuleChunks();
     if (typeof requestIdleCallback === "function") {
-      const id = requestIdleCallback(schedule, { timeout: 4000 });
+      // 给首页交互留足空闲窗口，避免启动后立刻抢主线程
+      const id = requestIdleCallback(schedule, { timeout: 12000 });
       return () => cancelIdleCallback(id);
     }
-    const timer = window.setTimeout(schedule, 800);
+    const timer = window.setTimeout(schedule, 2500);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // 空闲预热终端：先拉 chunk，再低优先级挂载壳（suspended，不建 xterm）
+  useEffect(() => scheduleIdleTerminalWarm(), []);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -299,6 +308,49 @@ function AppShell() {
   const isWorkflow = location.pathname === MODULE_PATHS.workflow;
   const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
   const isShellRoute = isShellRoutePath(location.pathname);
+
+  // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
+  const [overlayMounted, setOverlayMounted] = useState(() =>
+    createInitialOverlayMounted(location.pathname),
+  );
+
+  useEffect(() => {
+    const key = moduleKeyFromPath(location.pathname);
+    if (isOverlayModuleKey(key)) {
+      setOverlayMounted((prev) =>
+        prev[key] ? prev : { ...prev, [key]: true },
+      );
+    }
+  }, [location.pathname]);
+
+  // 悬停 / 空闲预热：提前挂载模块壳（路由未激活时仍 suspended）
+  useEffect(() => {
+    return subscribeModuleShellWarm((key) => {
+      startTransition(() => {
+        setOverlayMounted((prev) =>
+          prev[key] ? prev : { ...prev, [key]: true },
+        );
+      });
+    });
+  }, []);
+
+  // 工作区已有数据库 Tab 时预挂载，避免切到其他功能后底部 SQL 失效
+  useEffect(() => {
+    const { tabsByWorkspace } = useWorkspaceBottomDockStore.getState();
+    for (const tabs of Object.values(tabsByWorkspace)) {
+      for (const tab of tabs ?? []) {
+        if (
+          (tab.kind === "mirrored" && tab.originScope === "database") ||
+          (tab.kind === "payload" && tab.payload?.module === "database")
+        ) {
+          setOverlayMounted((prev) =>
+            prev.database ? prev : { ...prev, database: true },
+          );
+          return;
+        }
+      }
+    }
+  }, []);
 
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
@@ -492,51 +544,51 @@ function AppShell() {
     <div className="content-routes">
       <OverlayModuleRoutePanel
         active={isTerminal}
-        mounted={OVERLAY_MOUNTED.terminal}
+        mounted={overlayMounted.terminal}
         keepLayout
       >
         <LazyTerminalPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDocker}
-        mounted={OVERLAY_MOUNTED.docker}
+        mounted={overlayMounted.docker}
       >
         <LazyDockerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDatabase}
-        mounted={OVERLAY_MOUNTED.database}
+        mounted={overlayMounted.database}
         keepLayout
       >
         <LazyDatabasePanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isFiles}
-        mounted={OVERLAY_MOUNTED.files}
+        mounted={overlayMounted.files}
       >
         <LazyFilesPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isServer}
-        mounted={OVERLAY_MOUNTED.server}
+        mounted={overlayMounted.server}
       >
         <LazyServerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isProtocol}
-        mounted={OVERLAY_MOUNTED.protocol}
+        mounted={overlayMounted.protocol}
       >
         <LazyProtocolPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isWorkflow}
-        mounted={OVERLAY_MOUNTED.workflow}
+        mounted={overlayMounted.workflow}
       >
         <LazyWorkflowPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isKnowledge}
-        mounted={OVERLAY_MOUNTED.knowledge}
+        mounted={overlayMounted.knowledge}
       >
         <LazyKnowledgePanel />
       </OverlayModuleRoutePanel>

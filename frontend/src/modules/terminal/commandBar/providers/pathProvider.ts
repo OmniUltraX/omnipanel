@@ -3,7 +3,11 @@ import { listDirectory } from "../../../files/fileApi";
 import { LOCAL_CONNECTION_ID } from "../../../files/utils";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import type { FileEntry } from "../../../../ipc/bindings";
+import { normalizeTerminalCwdForSftp } from "../../../server/ssh/utils/parseCommandPaths";
+import { resolveBlockCwd } from "../../lsListing/resolveLsListingDirectory";
+import { resolveAbsoluteTerminalCwd } from "../../terminalPathCrumbs";
 import type { CompletionCandidate, TerminalCompletionContext } from "../types";
+import { fuzzyMatches } from "../fuzzyMatch";
 import { buildReplacementRange, parseCommandLineForCompletion } from "../parseCommandLine";
 
 function resolvePathBase(cwd: string, partial: string): { dir: string; prefix: string } {
@@ -30,8 +34,79 @@ function shouldSuggestPath(ctx: TerminalCompletionContext): boolean {
   const token = parsed.activeToken;
   if (!token) return false;
   if (token.kind === "path") return true;
-  const cmd = parsed.tokens[0]?.text;
-  return cmd === "cd" || cmd === "ls" || cmd === "cat" || cmd === "vim" || cmd === "nano";
+  const cmd = parsed.tokens[0]?.text?.toLowerCase();
+  if (!cmd) return false;
+  return PATH_COMMANDS.has(cmd);
+}
+
+const PATH_COMMANDS = new Set([
+  "cd",
+  "ls",
+  "cat",
+  "vim",
+  "nano",
+  "vi",
+  "cp",
+  "mv",
+  "rm",
+  "touch",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "grep",
+  "find",
+  "chmod",
+  "chown",
+  "mkdir",
+  "rmdir",
+  "scp",
+  "source",
+  "tar",
+  "unzip",
+  "zip",
+]);
+
+export function isPathCompletionInput(ctx: TerminalCompletionContext): boolean {
+  return shouldSuggestPath(ctx);
+}
+
+function resolveRemoteSessionUser(resourceId: string | null): string | null {
+  if (!resourceId) return "root";
+  try {
+    const conn = useConnectionStore.getState().connections.find((item) => item.id === resourceId);
+    if (!conn?.config) return "root";
+    const cfg = JSON.parse(conn.config) as Record<string, unknown>;
+    return typeof cfg.user === "string" ? cfg.user : "root";
+  } catch {
+    return "root";
+  }
+}
+
+/** 将终端 cwd + 部分路径转为可用于 SFTP / 本地列目录的绝对路径 */
+export function resolveCompletionListingDirectory(
+  ctx: TerminalCompletionContext,
+  partial: string,
+): { dir: string; prefix: string } {
+  const { dir, prefix } = resolvePathBase(ctx.cwd || "/", partial);
+  if (ctx.sessionType === "local") {
+    return { dir: (resolveBlockCwd(dir, null) ?? dir) || "/", prefix };
+  }
+
+  const sessionUser = resolveRemoteSessionUser(ctx.resourceId);
+  let resolved =
+    normalizeTerminalCwdForSftp(dir) ??
+    (dir.startsWith("~") || dir.startsWith("/")
+      ? resolveAbsoluteTerminalCwd(dir, sessionUser)
+      : null) ??
+    resolveBlockCwd(dir, sessionUser) ??
+    resolveBlockCwd(ctx.cwd, sessionUser) ??
+    resolveAbsoluteTerminalCwd(dir, sessionUser);
+  const trimmed = resolved?.trim();
+  if (!trimmed || trimmed === "~") {
+    return { dir: resolveAbsoluteTerminalCwd(ctx.cwd, sessionUser), prefix };
+  }
+  return { dir: trimmed, prefix };
 }
 
 function mapDirEntries(
@@ -42,7 +117,7 @@ function mapDirEntries(
   replacement: { start: number; end: number },
 ): CompletionCandidate[] {
   return names
-    .filter((entry) => !prefix || entry.name.toLowerCase().startsWith(prefix.toLowerCase()))
+    .filter((entry) => !prefix || fuzzyMatches(prefix, entry.name))
     .slice(0, 20)
     .map((entry) => {
       const suffix = entry.isDir ? "/" : " ";
@@ -87,7 +162,7 @@ export async function suggestPaths(ctx: TerminalCompletionContext): Promise<Comp
   if (!token) return [];
 
   const partial = token.text;
-  const { dir, prefix } = resolvePathBase(ctx.cwd || "/", partial);
+  const { dir, prefix } = resolveCompletionListingDirectory(ctx, partial);
   const replacement = buildReplacementRange(token, ctx.cursor);
 
   try {

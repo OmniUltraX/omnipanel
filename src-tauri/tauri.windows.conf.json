@@ -4,6 +4,7 @@
     "windows": [
       {
         "decorations": false,
+        "generalAutofillEnabled": false,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist"
       }
     ]

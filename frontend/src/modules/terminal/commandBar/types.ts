@@ -21,6 +21,10 @@ export interface CompletionCandidate {
   source: CompletionSource;
   priority: CompletionPriority;
   replacement: ReplacementRange;
+  /** 来自历史索引时保留时间，用于排序 */
+  timestamp?: number;
+  /** 历史条目类型（shell / ai / readline） */
+  historyKind?: "shell" | "ai" | "readline";
 }
 
 export interface TerminalCompletionContext {

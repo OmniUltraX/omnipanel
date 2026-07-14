@@ -18,6 +18,12 @@ interface TerminalUiState {
   expandedAiBlockIds: Record<string, string | null>;
   /** 吸顶 AI 面板高度（px） */
   aiDockHeights: Record<string, number>;
+  /**
+   * 会话级 shell block 正文折叠偏好。
+   * 配合 shellBodyCollapseNonce：展开/收起全部时写入并 bump nonce，各卡片同步。
+   */
+  shellBodyCollapsedBySession: Record<string, boolean>;
+  shellBodyCollapseNonce: Record<string, number>;
 
   setInputMode: (
     sessionId: string,
@@ -41,6 +47,9 @@ interface TerminalUiState {
   getExpandedAiBlock: (sessionId: string) => string | null;
   setAiDockHeight: (sessionId: string, height: number) => void;
   getAiDockHeight: (sessionId: string) => number;
+
+  expandAllShellBodies: (sessionId: string) => void;
+  collapseAllShellBodies: (sessionId: string) => void;
 }
 
 export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
@@ -48,6 +57,8 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
   autoReturnToCommandBar: {},
   expandedAiBlockIds: {},
   aiDockHeights: {},
+  shellBodyCollapsedBySession: {},
+  shellBodyCollapseNonce: {},
 
   setInputMode: (sessionId, mode, options) => {
     if (mode === "external") {
@@ -128,4 +139,32 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
     })),
 
   getAiDockHeight: (sessionId) => get().aiDockHeights[sessionId] ?? DEFAULT_AI_DOCK_HEIGHT,
+
+  expandAllShellBodies: (sessionId) =>
+    set((state) => ({
+      shellBodyCollapsedBySession: {
+        ...state.shellBodyCollapsedBySession,
+        [sessionId]: false,
+      },
+      shellBodyCollapseNonce: {
+        ...state.shellBodyCollapseNonce,
+        [sessionId]: (state.shellBodyCollapseNonce[sessionId] ?? 0) + 1,
+      },
+    })),
+
+  collapseAllShellBodies: (sessionId) =>
+    set((state) => ({
+      shellBodyCollapsedBySession: {
+        ...state.shellBodyCollapsedBySession,
+        [sessionId]: true,
+      },
+      shellBodyCollapseNonce: {
+        ...state.shellBodyCollapseNonce,
+        [sessionId]: (state.shellBodyCollapseNonce[sessionId] ?? 0) + 1,
+      },
+      expandedAiBlockIds: {
+        ...state.expandedAiBlockIds,
+        [sessionId]: null,
+      },
+    })),
 }));

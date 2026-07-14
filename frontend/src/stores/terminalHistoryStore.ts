@@ -4,6 +4,11 @@ import type { AiThreadItem, TerminalBlock } from "./blocksStore";
 import { useBlocksStore } from "./blocksStore";
 import { useSettingsStore } from "./settingsStore";
 import { renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
+import {
+  normalizeRestoredTerminalBlock,
+  normalizeStaleRunningBlock,
+  reconcileStaleRunningBlocks,
+} from "../modules/terminal/terminalBlockRestore";
 
 export const TERMINAL_HISTORY_STORAGE_KEY = "omnipanel-terminal-history.v1";
 export const DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS = 200;
@@ -54,21 +59,19 @@ function trimAiThread(thread: AiThreadItem[] | undefined): AiThreadItem[] | unde
 }
 
 export function toPersistedTerminalBlock(block: TerminalBlock): PersistedTerminalBlock {
-  const { liveOutput, ...rest } = block;
+  const normalized = normalizeStaleRunningBlock(block);
+  const { liveOutput, ...rest } = normalized;
   return {
     ...rest,
     marker: null,
-    output: trimOutput(renderLiveOutputText(liveOutput, block.output)),
-    reasoning: block.reasoning ? trimOutput(block.reasoning) : block.reasoning,
-    aiThread: trimAiThread(block.aiThread),
+    output: trimOutput(renderLiveOutputText(liveOutput, normalized.output)),
+    reasoning: normalized.reasoning ? trimOutput(normalized.reasoning) : normalized.reasoning,
+    aiThread: trimAiThread(normalized.aiThread),
   };
 }
 
 function fromPersistedTerminalBlock(block: PersistedTerminalBlock): TerminalBlock {
-  return {
-    ...block,
-    marker: null,
-  };
+  return normalizeRestoredTerminalBlock(block);
 }
 
 function resolveMaxBlocks(): number {
@@ -106,12 +109,20 @@ export const useTerminalHistoryStore = create<TerminalHistoryState>()(
       restoreSession: (sessionId) => {
         if (!sessionId) return;
         const persisted = get().bySession[sessionId];
-        if (!persisted?.length) return;
-        const current = useBlocksStore.getState().getBlocks(sessionId);
-        if (current.length > 0) return;
-        useBlocksStore
-          .getState()
-          .replaceSessionBlocks(sessionId, persisted.map(fromPersistedTerminalBlock));
+        const store = useBlocksStore.getState();
+        const current = store.getBlocks(sessionId);
+        if (current.length === 0) {
+          if (!persisted?.length) return;
+          store.replaceSessionBlocks(
+            sessionId,
+            persisted.map(fromPersistedTerminalBlock),
+          );
+          return;
+        }
+        const reconciled = reconcileStaleRunningBlocks(sessionId, current);
+        if (reconciled.some((block, index) => block !== current[index])) {
+          store.replaceSessionBlocks(sessionId, reconciled);
+        }
       },
 
       restoreAllKnownSessions: (sessionIds) => {

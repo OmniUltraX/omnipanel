@@ -1195,7 +1195,11 @@ export function DockableWorkspace({
     }
 
     const pending = pendingSavedLayoutRef.current;
-    const desired = mergePanelsIntoLayout(pending, tabsRef.current.map((t) => t.id), "");
+    const desired = mergePanelsIntoLayout(
+      pending,
+      tabsRef.current.map((t) => t.id),
+      activeTabIdRef.current,
+    );
     if (desired) {
       // 二次校验：mergePanelsIntoLayout 通过只能说明 panel↔view 数量一致，
       // 不代表 dockview 的 _deserializer.fromJSON 一定能消化（外部脏数据
