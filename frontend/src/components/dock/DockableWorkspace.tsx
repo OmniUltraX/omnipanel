@@ -882,48 +882,46 @@ export function DockableWorkspace({
   }, []);
 
   const pressedActiveTabIdRef = useRef<string | null>(null);
-  useEffect(() => {
+
+  // Tauri 窗口拖拽属性同步：给 tab 关闭按钮、scrollable、void-container 打上
+  // data-tauri-drag-region / drag-ignore 标记。
+  // 旧实现用两个 MutationObserver({ childList:true, subtree:true }) 监听整个
+  // 工作区 DOM —— 终端 xterm 渲染、面板内容更新都会触发 querySelectorAll，
+  // 在高频终端输出下造成严重卡顿。改为 dockview 事件驱动 + rAF 延迟刷新。
+  const syncTabDragAttributes = useCallback(() => {
     const root = wrapperRef.current;
     if (!root) return;
-    const handle = () => {
-      root
-        .querySelectorAll<HTMLElement>(".dv-default-tab .dv-default-tab-action")
-        .forEach((el: HTMLElement) => el.classList.add("drag-ignore"));
-      if (windowControl) {
-        root.querySelectorAll<HTMLElement>(DOCK_TAB_NO_DRAG_SELECTOR).forEach((el) => {
-          el.setAttribute("data-tauri-drag-region", "false");
-        });
-      }
-    };
-    handle();
-    const observer = new MutationObserver(handle);
-    observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [tabs.length, windowControl]);
-
-  // windowControl：void 标记 no-drag（不含嵌套 DockableWorkspace）
-  useEffect(() => {
-    const root = wrapperRef.current;
-    if (!root) return;
-
-    const syncVoids = () => {
-      root.querySelectorAll<HTMLElement>(".dv-void-container").forEach((el) => {
-        if (el.closest(".dockable-workspace") !== root) return;
-        if (windowControl) {
-          el.setAttribute("data-tauri-drag-region", "false");
-          el.classList.add("dock-window-void-drag");
-        } else {
-          el.removeAttribute("data-tauri-drag-region");
-          el.classList.remove("dock-window-void-drag");
-        }
+    root
+      .querySelectorAll<HTMLElement>(".dv-default-tab .dv-default-tab-action")
+      .forEach((el: HTMLElement) => el.classList.add("drag-ignore"));
+    if (windowControlRef.current) {
+      root.querySelectorAll<HTMLElement>(DOCK_TAB_NO_DRAG_SELECTOR).forEach((el) => {
+        el.setAttribute("data-tauri-drag-region", "false");
       });
-    };
+    }
+    root.querySelectorAll<HTMLElement>(".dv-void-container").forEach((el) => {
+      if (el.closest(".dockable-workspace") !== root) return;
+      if (windowControlRef.current) {
+        el.setAttribute("data-tauri-drag-region", "false");
+        el.classList.add("dock-window-void-drag");
+      } else {
+        el.removeAttribute("data-tauri-drag-region");
+        el.classList.remove("dock-window-void-drag");
+      }
+    });
+  }, []);
+  const syncTabDragAttributesRef = useRef(syncTabDragAttributes);
+  syncTabDragAttributesRef.current = syncTabDragAttributes;
 
-    syncVoids();
-    const observer = new MutationObserver(syncVoids);
-    observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [windowControl, tabs.length, layoutReady]);
+  // deps 变化时同步一次；dockview 事件回调中也会 rAF 调用
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => syncTabDragAttributesRef.current());
+    return () => cancelAnimationFrame(raf);
+  }, [tabs.length, windowControl, layoutReady]);
+
+  const scheduleSyncTabDragAttributes = useCallback(() => {
+    requestAnimationFrame(() => syncTabDragAttributesRef.current());
+  }, []);
 
   // windowControl：Tab 栏空白区 JS 移窗 + 双击最大化
   useEffect(() => {
@@ -1718,6 +1716,7 @@ export function DockableWorkspace({
 
       const layoutDisposable = api.onDidLayoutChange(() => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
+        scheduleSyncTabDragAttributes();
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
         const raw = api.toJSON();
         const normalized = normalizeDockLayout(raw) ?? raw;
@@ -1735,6 +1734,7 @@ export function DockableWorkspace({
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
+        scheduleSyncTabDragAttributes();
         if (isSyncingRef.current) return;
         if (transferredOutRef.current.delete(panel.id)) return;
         if (
@@ -1783,6 +1783,15 @@ export function DockableWorkspace({
           onActiveTabChangeRef.current(panel.id);
         }
         syncStatusBarActiveDockRef.current(panel?.id ?? null);
+        // 用户切换 tab 后，强制 dockview 重新布局，确保 overlay 位置正确。
+        // defaultRenderer="always" 下，overlay 的 resize 通过 rAF 异步执行，
+        // 在前一个 tab 侧栏展开等场景下可能时序冲突导致内容区域空白。
+        // 两个 rAF 确保在 dockview 内部 resize 完成后再触发一次 layout。
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            relayoutFromContainer();
+          });
+        });
       });
       const scheduleTabGroupSync = () => {
         if (!layoutLoadedRef.current) return;
@@ -1794,10 +1803,12 @@ export function DockableWorkspace({
       const addDisposable = api.onDidAddPanel((panel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
+        scheduleSyncTabDragAttributes();
       });
       const moveDisposable = api.onDidMovePanel(() => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
+        scheduleSyncTabDragAttributes();
       });
 
       const scope = dockScopeRef.current;
@@ -1890,6 +1901,7 @@ export function DockableWorkspace({
 
       applyInitialLayout(api);
       syncWindowChromeHostRef.current(api);
+      scheduleSyncTabDragAttributes();
 
       // 同步当前 active tab（用 ref，避免 onReady 因 activeTabId 变化反复注册）
       const initialActiveTabId = activeTabIdRef.current;
@@ -1903,7 +1915,7 @@ export function DockableWorkspace({
         syncStatusBarActiveDockRef.current(initialActiveTabId);
       }
     },
-    [applyInitialLayout, syncTabGroups, scheduleLayoutPersist, runProgrammaticActive],
+    [applyInitialLayout, syncTabGroups, scheduleLayoutPersist, runProgrammaticActive, relayoutFromContainer, scheduleSyncTabDragAttributes],
   );
 
   useEffect(() => {

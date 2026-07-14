@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { hasFullTerminalSignal } from "./fullTerminalSignals";
+import {
+  hasFullTerminalSignal,
+  hasFullTerminalExitSignal,
+} from "./fullTerminalSignals";
 import {
   buildProfileRejectPayload,
   resolveCommandProfile,
@@ -241,6 +244,17 @@ describe("fullTerminalSignals", () => {
     const clear = new TextEncoder().encode("\x1b[2J");
     expect(hasFullTerminalSignal(alt)).toBe(true);
     expect(hasFullTerminalSignal(clear)).toBe(false);
+  });
+
+  it("alt screen 退出信号可被检测", () => {
+    const exit = new TextEncoder().encode("\x1b[?1049l");
+    const enter = new TextEncoder().encode("\x1b[?1049h");
+    const mouseExit = new TextEncoder().encode("\x1b[?1000l");
+    expect(hasFullTerminalExitSignal(exit)).toBe(true);
+    // 进入信号不应被误判为退出
+    expect(hasFullTerminalExitSignal(enter)).toBe(false);
+    // 鼠标关闭不作为退出信号（误报率高）
+    expect(hasFullTerminalExitSignal(mouseExit)).toBe(false);
   });
 });
 

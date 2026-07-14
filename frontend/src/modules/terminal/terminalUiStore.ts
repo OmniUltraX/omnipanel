@@ -34,7 +34,7 @@ interface TerminalUiState {
   beginCommandLive: (sessionId: string) => void;
   endCommandLive: (sessionId: string) => void;
   isCommandLive: (sessionId: string) => boolean;
-  enterFullTerminal: (sessionId: string) => void;
+  enterFullTerminal: (sessionId: string, blockId?: string) => void;
   isFullTerminal: (sessionId: string) => boolean;
 
   setExpandedAiBlock: (sessionId: string, blockId: string | null) => void;
@@ -92,8 +92,8 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
   isCommandLive: (sessionId) =>
     useTerminalRunStateStore.getState().shouldShowLiveXterm(sessionId),
 
-  enterFullTerminal: (sessionId) => {
-    useTerminalRunStateStore.getState().enterFullTerminal(sessionId);
+  enterFullTerminal: (sessionId, blockId) => {
+    useTerminalRunStateStore.getState().enterFullTerminal(sessionId, blockId);
   },
 
   isFullTerminal: (sessionId) =>

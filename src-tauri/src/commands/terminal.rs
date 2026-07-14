@@ -40,7 +40,11 @@ pub async fn create_terminal(
     std::thread::spawn(move || {
         use std::io::Read;
         let mut reader = reader;
-        let mut buf = [0u8; 8192];
+        // 64KB 读缓冲：大输出场景（如 cat 大文件）下单次 read 可吞下整个
+        // Windows conpty 默认 64KB 管道缓冲，旧 8KB 缓冲会让一次大输出
+        // 触发 8 倍以上的 emit + base64 编码 + JSON 序列化开销。
+        // 注意：这是栈上分配，std::thread::spawn 默认 2MB 栈空间，安全。
+        let mut buf = [0u8; 65536];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
