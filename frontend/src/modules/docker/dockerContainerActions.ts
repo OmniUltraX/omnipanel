@@ -1,13 +1,8 @@
 import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import type { DockerContainerLifecycleAction } from "./dockerContainerLifecycle";
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 export async function runDockerContainerAction(
   connectionId: string,

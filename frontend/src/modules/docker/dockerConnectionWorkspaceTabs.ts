@@ -27,6 +27,15 @@ export type DockerImagesPanelTab = {
   preview?: boolean;
 };
 
+/** 连接下「所有容器」列表 Tab（侧栏容器分类父节点） */
+export type DockerContainersPanelTab = {
+  id: string;
+  kind: "containers";
+  label: string;
+  connectionId: string;
+  preview?: boolean;
+};
+
 export type DockerNetworksPanelTab = {
   id: string;
   kind: "networks";
@@ -55,6 +64,7 @@ export type DockerComposePanelTab = {
 export type DockerConnectionWorkspaceTab =
   | DockerConnectionPanelTab
   | DockerContainerPanelTab
+  | DockerContainersPanelTab
   | DockerImagesPanelTab
   | DockerNetworksPanelTab
   | DockerVolumesPanelTab
@@ -96,6 +106,14 @@ export function findTabIdForImages(
   connectionId: string,
 ): string | undefined {
   return tabs.find((tab) => tab.kind === "images" && tab.connectionId === connectionId)?.id;
+}
+
+/** 查找已打开的指定连接容器列表 Tab */
+export function findTabIdForContainers(
+  tabs: DockerConnectionWorkspaceTab[],
+  connectionId: string,
+): string | undefined {
+  return tabs.find((tab) => tab.kind === "containers" && tab.connectionId === connectionId)?.id;
 }
 
 /** 查找已打开的指定连接网络列表 Tab */
@@ -141,6 +159,10 @@ export function makeImagesTabId(): string {
   return `dockimg:${Date.now()}`;
 }
 
+export function makeContainersListTabId(): string {
+  return `dockctrs:${Date.now()}`;
+}
+
 export function makeNetworksTabId(): string {
   return `docknet:${Date.now()}`;
 }
@@ -163,6 +185,12 @@ export function isDockerImagesTab(
   tab: DockerConnectionWorkspaceTab,
 ): tab is DockerImagesPanelTab {
   return tab.kind === "images";
+}
+
+export function isDockerContainersTab(
+  tab: DockerConnectionWorkspaceTab,
+): tab is DockerContainersPanelTab {
+  return tab.kind === "containers";
 }
 
 export function isDockerNetworksTab(

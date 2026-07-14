@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { SftpPanel } from "../../components/sftp";
 import { Button } from "../../components/ui/Button";
@@ -10,10 +10,12 @@ import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import type { DockerConnectionInfo, DockerVolumeSummary } from "../../ipc/bindings";
+import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { dockerVolumeMatchesSearch } from "./dockerTreeSearch";
 import { volumeRowLabel } from "./dockerResourceLabels";
 import { makeDockerVolumeSftpAdapter } from "./dockerVolumeSftpAdapter";
@@ -25,18 +27,22 @@ export interface DockerVolumePanelProps {
 }
 
 async function fetchVolumes(connectionId: string): Promise<DockerVolumeSummary[]> {
-  const res = await commands.dockerListVolumes(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommandResult(await commands.dockerListVolumes(connectionId));
 }
 
 export function DockerVolumePanel({ connection, isActive = false }: DockerVolumePanelProps) {
   const { t } = useI18n();
-  const [volumes, setVolumes] = useState<DockerVolumeSummary[]>([]);
-  const [selectedVolumeName, setSelectedVolumeName] = useState<string | null>(null);
+  const [volumes, setVolumes] = useState<DockerVolumeSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).volumes,
+  );
+  const [selectedVolumeName, setSelectedVolumeName] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).volumes[0]?.name ?? null,
+  );
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -53,14 +59,16 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
     setError(null);
     try {
       const next = await fetchVolumes(connection.connectionId);
-      setVolumes(next);
-      refreshSidebarVolumes();
-      setSelectedVolumeName((current) => {
-        if (current && next.some((volume) => volume.name === current)) {
-          return current;
-        }
-        return next[0]?.name ?? null;
+      startTransition(() => {
+        setVolumes(next);
+        setSelectedVolumeName((current) => {
+          if (current && next.some((volume) => volume.name === current)) {
+            return current;
+          }
+          return next[0]?.name ?? null;
+        });
       });
+      refreshSidebarVolumes();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -69,10 +77,13 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
   }, [connection.connectionId, refreshSidebarVolumes]);
 
   useEffect(() => {
-    setVolumes([]);
-    setSelectedVolumeName(null);
-    setError(null);
-    setSearch("");
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setVolumes(cached.volumes);
+      setSelectedVolumeName(cached.volumes[0]?.name ?? null);
+      setError(cached.error);
+      setSearch("");
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {
@@ -110,11 +121,10 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       if (!confirmed) return;
       setBusy(true);
       try {
-        const res = await commands.dockerPruneVolumes(connection.connectionId);
-        if (res.status !== "ok") throw new Error(res.error.message);
+        const pruned = await unwrapCommand(commands.dockerPruneVolumes(connection.connectionId));
         showToast(
           t("docker.volumesPanel.pruneSuccess", {
-            count: res.data.deleted?.length ?? 0,
+            count: pruned.deleted?.length ?? 0,
           }),
         );
         await refresh();
@@ -136,12 +146,13 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       setBusy(true);
       setCreateError(null);
       try {
-        const res = await commands.dockerCreateVolume(connection.connectionId, {
-          name,
-          driver: null,
-          labels: [],
-        });
-        if (res.status !== "ok") throw new Error(res.error.message);
+        await unwrapCommand(
+          commands.dockerCreateVolume(connection.connectionId, {
+            name,
+            driver: null,
+            labels: [],
+          }),
+        );
         showToast(t("docker.volumesPanel.createSuccess", { name }));
         setCreateOpen(false);
         setCreateName("");

@@ -1,4 +1,7 @@
-//! 1Panel 容器交互终端：WebSocket `/api/v2/hosts/terminal/container`。
+//! 1Panel 交互终端：WebSocket `/api/v2/hosts/terminal/...`。
+//!
+//! - 容器：`/hosts/terminal/container`
+//! - 宿主机：`/hosts/terminal/local`（旧版兼容 `/hosts/terminal`）
 //!
 //! 协议与 1Panel 前端 `components/terminal/index.vue` 一致：
 //! - 上行：`{"type":"cmd","data":"<base64>"}` / `{"type":"resize","cols":N,"rows":N}`
@@ -15,7 +18,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use crate::local::DockerExecOutput;
 use crate::onepanel::OnePanelClient;
 
-/// 1Panel WebSocket 容器终端会话。
+/// 1Panel WebSocket 终端会话（容器 / 宿主机共用）。
 pub struct OnePanelExecSession {
     write_tx: mpsc::UnboundedSender<String>,
     close_tx: mpsc::UnboundedSender<()>,
@@ -28,7 +31,7 @@ impl OnePanelExecSession {
             "data": BASE64.encode(data),
         });
         self.write_tx.send(payload.to_string()).map_err(|_| {
-            OmniError::new(ErrorCode::Internal, "1Panel 容器终端已断开")
+            OmniError::new(ErrorCode::Internal, "1Panel 终端已断开")
         })
     }
 
@@ -39,7 +42,7 @@ impl OnePanelExecSession {
             "rows": rows,
         });
         self.write_tx.send(payload.to_string()).map_err(|_| {
-            OmniError::new(ErrorCode::Internal, "1Panel 容器终端已断开")
+            OmniError::new(ErrorCode::Internal, "1Panel 终端已断开")
         })
     }
 
@@ -58,34 +61,70 @@ pub async fn create_container_exec(
     rows: u16,
 ) -> OmniResult<(OnePanelExecSession, DockerExecOutput)> {
     let ws_url = client.container_terminal_ws_url(container_id, shell, cols, rows)?;
-    let mut request = ws_url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 WebSocket 请求失败").with_cause(e.to_string()))?;
+    connect_terminal_ws(client, &ws_url, "连接 1Panel 容器终端失败").await
+}
+
+/// 建立 1Panel 宿主机本地终端（`WsSSH` / local host）。
+pub async fn create_host_shell(
+    client: &OnePanelClient,
+    cols: u16,
+    rows: u16,
+) -> OmniResult<(OnePanelExecSession, DockerExecOutput)> {
+    // 多数已发布 Agent：`/hosts/terminal`；OpenAPI / 新版可能是 `/hosts/terminal/local`
+    let primary = client.host_terminal_ws_url(cols, rows, "", false)?;
+    match connect_terminal_ws(client, &primary, "连接 1Panel 宿主机终端失败").await {
+        Ok(pair) => Ok(pair),
+        Err(primary_err) => {
+            let fallback = client.host_terminal_ws_url(cols, rows, "", true)?;
+            if fallback == primary {
+                return Err(primary_err);
+            }
+            connect_terminal_ws(client, &fallback, "连接 1Panel 宿主机终端失败")
+                .await
+                .map_err(|fallback_err| {
+                    OmniError::new(ErrorCode::Connection, "连接 1Panel 宿主机终端失败").with_cause(
+                        format!(
+                            "legacy: {}; local: {}",
+                            primary_err.user_message(),
+                            fallback_err.user_message()
+                        ),
+                    )
+                })
+        }
+    }
+}
+
+async fn connect_terminal_ws(
+    client: &OnePanelClient,
+    ws_url: &str,
+    connect_error: &str,
+) -> OmniResult<(OnePanelExecSession, DockerExecOutput)> {
+    let mut request = ws_url.into_client_request().map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 WebSocket 请求失败")
+            .with_cause(e.to_string())
+    })?;
 
     for (key, value) in client.auth_headers() {
-        let header_name = key.parse::<tokio_tungstenite::tungstenite::http::HeaderName>().map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头").with_cause(e.to_string())
-        })?;
+        let header_name = key
+            .parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头").with_cause(e.to_string())
+            })?;
         let header_value = value
             .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
             .map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头值").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头值")
+                    .with_cause(e.to_string())
             })?;
         request.headers_mut().insert(header_name, header_value);
     }
 
-    let (ws_stream, _) = connect_async_tls_with_config(
-        request,
-        None,
-        false,
-        client.ws_connector(),
-    )
-    .await
-    .map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "连接 1Panel 容器终端失败")
-            .with_cause(format!("{ws_url}: {e}"))
-    })?;
+    let (ws_stream, _) = connect_async_tls_with_config(request, None, false, client.ws_connector())
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, connect_error)
+                .with_cause(format!("{ws_url}: {e}"))
+        })?;
 
     let (mut ws_write, mut ws_read) = ws_stream.split();
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OmniResult<Vec<u8>>>();
@@ -167,10 +206,11 @@ fn push_terminal_output(text: &str, out_tx: &mpsc::UnboundedSender<OmniResult<Ve
             let _ = out_tx.send(Ok(bytes));
         }
         Err(err) => {
-            let _ = out_tx.send(Err(
-                OmniError::new(ErrorCode::Internal, "解析 1Panel 终端输出失败")
-                    .with_cause(err.to_string()),
-            ));
+            let _ = out_tx.send(Err(OmniError::new(
+                ErrorCode::Internal,
+                "解析 1Panel 终端输出失败",
+            )
+            .with_cause(err.to_string())));
         }
     }
 }

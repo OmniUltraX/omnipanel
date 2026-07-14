@@ -272,8 +272,8 @@ async fn compare_table_rows(
             None,
         ),
     );
-    let source_total = source_count.map(clamp_row_count).unwrap_or(0);
-    let target_total = target_count.map(clamp_row_count).unwrap_or(0);
+    let source_total = source_count.map(|n| clamp_row_count(n as i64)).unwrap_or(0);
+    let target_total = target_count.map(|n| clamp_row_count(n as i64)).unwrap_or(0);
     let row_total = source_total.saturating_add(target_total).max(1);
     let row_completed = Arc::new(AtomicU32::new(0));
 
@@ -700,7 +700,8 @@ pub async fn run_db_data_sync_analysis(
                     None,
                 )
                 .await
-                .ok();
+                .ok()
+                .map(|n| n as i64);
 
                 emit_db_event(
                     &app,
@@ -1272,7 +1273,7 @@ async fn fetch_table_row_keys(
         table_name.to_string(),
         None,
     )
-    .await?;
+    .await? as i64;
     if total <= 0 {
         return Ok(HashSet::new());
     }
@@ -1330,7 +1331,7 @@ async fn fetch_table_rows_map(
         table_name.to_string(),
         None,
     )
-    .await?;
+    .await? as i64;
     if total <= 0 {
         return Ok(HashMap::new());
     }
@@ -1435,12 +1436,12 @@ async fn copy_table_data_with_modes(
 
     let source_total = database::db_count_table(source_conn.clone(), None, table.to_string(), None)
         .await
-        .unwrap_or(0)
-        .max(0) as u32;
+        .unwrap_or(0.0)
+        .max(0.0) as u32;
     let target_total = database::db_count_table(target_conn.clone(), None, table.to_string(), None)
         .await
-        .unwrap_or(0)
-        .max(0) as u32;
+        .unwrap_or(0.0)
+        .max(0.0) as u32;
 
     let mut stats = SyncWriteStats {
         inserted: 0,

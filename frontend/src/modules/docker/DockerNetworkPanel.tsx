@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { IconPlus } from "../../components/ui/Icons";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
@@ -11,9 +11,11 @@ import type {
   DockerContainerSummary,
   DockerNetworkSummary,
 } from "../../ipc/bindings";
+import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -49,15 +51,11 @@ interface SortState {
 const PROTECTED_NETWORKS = new Set(["bridge", "host", "none"]);
 
 async function fetchNetworks(connectionId: string): Promise<DockerNetworkSummary[]> {
-  const res = await commands.dockerListNetworks(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommandResult(await commands.dockerListNetworks(connectionId));
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  const res = await commands.dockerListContainers(connectionId, null);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommandResult(await commands.dockerListContainers(connectionId, null));
 }
 
 function formatCreatedAt(ts: number | null): string {
@@ -139,11 +137,17 @@ function canRemoveNetwork(network: DockerNetworkSummary): boolean {
 
 export function DockerNetworkPanel({ connection, isActive = false }: DockerNetworkPanelProps) {
   const { t } = useI18n();
-  const [networks, setNetworks] = useState<DockerNetworkSummary[]>([]);
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
+  const [networks, setNetworks] = useState<DockerNetworkSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).networks,
+  );
+  const [containers, setContainers] = useState<DockerContainerSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).containers,
+  );
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   const [createOpen, setCreateOpen] = useState(false);
@@ -170,8 +174,10 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         fetchNetworks(connection.connectionId),
         fetchContainers(connection.connectionId),
       ]);
-      setNetworks(nextNetworks);
-      setContainers(nextContainers);
+      startTransition(() => {
+        setNetworks(nextNetworks);
+        setContainers(nextContainers);
+      });
       refreshSidebar();
     } catch (err) {
       setError(String(err));
@@ -181,10 +187,13 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
   }, [connection.connectionId, refreshSidebar]);
 
   useEffect(() => {
-    setNetworks([]);
-    setContainers([]);
-    setError(null);
-    setSearch("");
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setNetworks(cached.networks);
+      setContainers(cached.containers);
+      setError(cached.error);
+      setSearch("");
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {
@@ -237,8 +246,7 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         if (!confirmed) return;
         setPendingRemove((current) => ({ ...current, [network.id]: true }));
         try {
-          const res = await commands.dockerRemoveNetwork(connection.connectionId, network.name);
-          if (res.status !== "ok") throw new Error(res.error.message);
+          await unwrapCommand(commands.dockerRemoveNetwork(connection.connectionId, network.name));
           showToast(t("docker.networksPanel.removeSuccess", { name: network.name }));
           await refresh();
         } catch (err) {
@@ -266,8 +274,7 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
       if (!confirmed) return;
       setBusy(true);
       try {
-        const res = await commands.dockerPruneNetworks(connection.connectionId);
-        if (res.status !== "ok") throw new Error(res.error.message);
+        await unwrapCommand(commands.dockerPruneNetworks(connection.connectionId));
         showToast(t("docker.networksPanel.pruneSuccess"));
         await refresh();
       } catch (err) {
@@ -288,13 +295,14 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
       setBusy(true);
       setCreateError(null);
       try {
-        const res = await commands.dockerCreateNetwork(connection.connectionId, {
-          name,
-          driver: createDriver.trim() || null,
-          internal: false,
-          subnet: createSubnet.trim() || null,
-        });
-        if (res.status !== "ok") throw new Error(res.error.message);
+        await unwrapCommand(
+          commands.dockerCreateNetwork(connection.connectionId, {
+            name,
+            driver: createDriver.trim() || null,
+            internal: false,
+            subnet: createSubnet.trim() || null,
+          }),
+        );
         showToast(t("docker.networksPanel.createSuccess", { name }));
         setCreateOpen(false);
         setCreateName("");

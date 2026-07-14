@@ -1,17 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
+import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
 import { DOCKER_STATS_POLL_MS, runningContainerIds } from "../dockerContainerStats";
 import { pickStats } from "../dockerContainerStatsMatch";
 import { useDockerContainerStats } from "./useDockerContainerStats";
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 export type DockerContainerGridItem = {
   container: DockerContainerSummary;
@@ -74,10 +70,13 @@ export function useDockerContainerGrid(
 
     let cancelled = false;
     const needsInitialFetch = loadedConnectionIdRef.current !== connectionId;
-    if (needsInitialFetch && loadedConnectionIdRef.current != null) {
-      // 切换连接到另一条时清空旧列表，避免短暂串数据
-      setContainers([]);
-      setContainersError(null);
+    if (needsInitialFetch) {
+      // cache-first：换连接时先灌侧栏缓存，避免闪白串数感
+      const cached = peekDockerSidebarCache(connectionId);
+      startTransition(() => {
+        setContainers(cached.containers);
+        setContainersError(cached.error);
+      });
     }
 
     const refreshContainers = async (initial: boolean) => {
@@ -85,8 +84,10 @@ export function useDockerContainerGrid(
       try {
         const list = await unwrap(commands.dockerListContainers(connectionId, null));
         if (cancelled) return;
-        setContainers(list);
-        setContainersError(null);
+        startTransition(() => {
+          setContainers(list);
+          setContainersError(null);
+        });
         loadedConnectionIdRef.current = connectionId;
       } catch (e) {
         if (!cancelled) setContainersError(String(e));

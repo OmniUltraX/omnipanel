@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
@@ -8,7 +8,9 @@ import type {
   DockerContainerSummary,
   DockerImageSummary,
 } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -18,6 +20,7 @@ import {
 } from "./dockerImageContainers";
 import { DockerImagePullDialog } from "./DockerImagePullDialog";
 import { dockerContainerMatchesSearch, dockerImageMatchesSearch } from "./dockerTreeSearch";
+import { formatBytes } from "../../stores/sshStatsStore";
 import { containerRowLabel, imageRowLabel, imageRowSizeLabel } from "./dockerResourceLabels";
 import { DownloadIcon } from "./icons";
 
@@ -36,15 +39,11 @@ interface SortState {
 }
 
 async function fetchImages(connectionId: string): Promise<DockerImageSummary[]> {
-  const res = await commands.dockerListImages(connectionId);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListImages(connectionId));
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  const res = await commands.dockerListContainers(connectionId, null);
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
+  return unwrapCommand(commands.dockerListContainers(connectionId, null));
 }
 
 function formatCreatedAt(ts: number | null): string {
@@ -108,10 +107,16 @@ function ImageContainerTags({ containers }: { containers: DockerContainerSummary
 
 export function DockerImagePanel({ connection, isActive = false }: DockerImagePanelProps) {
   const { t } = useI18n();
-  const [images, setImages] = useState<DockerImageSummary[]>([]);
-  const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
+  const [images, setImages] = useState<DockerImageSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).images,
+  );
+  const [containers, setContainers] = useState<DockerContainerSummary[]>(
+    () => peekDockerSidebarCache(connection.connectionId).containers,
+  );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => peekDockerSidebarCache(connection.connectionId).error,
+  );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   const [pullOpen, setPullOpen] = useState(false);
@@ -133,8 +138,10 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         fetchImages(connection.connectionId),
         fetchContainers(connection.connectionId),
       ]);
-      setImages(nextImages);
-      setContainers(nextContainers);
+      startTransition(() => {
+        setImages(nextImages);
+        setContainers(nextContainers);
+      });
       refreshSidebarImages();
     } catch (err) {
       setError(String(err));
@@ -144,10 +151,14 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   }, [connection.connectionId, refreshSidebarImages]);
 
   useEffect(() => {
-    setImages([]);
-    setContainers([]);
-    setError(null);
-    setSearch("");
+    // cache-first：切换连接时先灌入侧栏缓存，再由 isActive 触发后台 refresh，禁止同步清空
+    const cached = peekDockerSidebarCache(connection.connectionId);
+    startTransition(() => {
+      setImages(cached.images);
+      setContainers(cached.containers);
+      setError(cached.error);
+      setSearch("");
+    });
   }, [connection.connectionId]);
 
   useEffect(() => {
@@ -185,6 +196,12 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     sorted.sort((a, b) => compareImages(a, b, sort.column, sort.direction, containerIndex));
     return sorted;
   }, [containerIndex, filteredImages, sort.column, sort.direction]);
+
+  /** 当前列表（含搜索过滤）的镜像大小合计，与 footer 计数口径一致。 */
+  const totalSizeLabel = useMemo(() => {
+    const totalBytes = sortedImages.reduce((sum, image) => sum + (image.sizeBytes ?? 0), 0);
+    return formatBytes(totalBytes);
+  }, [sortedImages]);
 
   const gridColumns = useMemo((): DbTablesPanelGridColumn<DockerImageSummary>[] => {
     return [
@@ -305,6 +322,11 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
               ? t("common.loading")
               : t("docker.imagesPanel.count", { count: sortedImages.length })}
           </span>
+          {!loading && sortedImages.length > 0 ? (
+            <span className="db-tables-panel-meta-text docker-image-panel__meta-size">
+              {t("docker.imagesPanel.totalSize", { size: totalSizeLabel })}
+            </span>
+          ) : null}
         </div>
       </div>
 

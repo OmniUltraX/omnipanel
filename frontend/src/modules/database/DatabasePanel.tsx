@@ -96,8 +96,15 @@ import {
 import { readMysqlDeploymentCache } from "./mysqlDeploymentCache";
 import {
   resolveMysqlExportDeployment,
+  beginWatchMysqlExportTask,
   submitDbMysqlExport,
 } from "./mysqlExport";
+import {
+  beginWatchMysqlImportTask,
+  submitDbMysqlImport,
+  type MysqlImportSource,
+} from "./mysqlImport";
+import { MysqlImportDialog } from "./workspace/MysqlImportDialog";
 import { useDbConnectionInfoNavStore } from "./stores/dbConnectionInfoNavStore";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
@@ -616,6 +623,11 @@ export function DatabasePanel() {
       }
     | null
   >(null);
+  const [importDialog, setImportDialog] = useState<{
+    connection: DbConnectionConfig;
+    databaseName: string;
+  } | null>(null);
+  const [importSubmitting, setImportSubmitting] = useState(false);
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
@@ -3142,17 +3154,105 @@ export function DatabasePanel() {
         }
       }
       const exportDeployment = resolveMysqlExportDeployment(deployment);
+      const watch = await beginWatchMysqlExportTask(connection.id, (event) => {
+        if (event.eventType !== "failed") {
+          return;
+        }
+        const detail =
+          event.error?.trim() ||
+          event.export?.error?.trim() ||
+          "";
+        showToast(
+          detail
+            ? t("database.export.failedDetail", { error: detail })
+            : t("database.connectionInfo.exports.statusFailed"),
+        );
+      });
       try {
-        await submitDbMysqlExport(connection, databaseName, exportDeployment);
+        const taskId = await submitDbMysqlExport(connection, databaseName, exportDeployment);
+        watch.bindTaskId(taskId);
         showToast(t("database.export.started", { database: databaseName }));
         useDbConnectionInfoNavStore.getState().requestSubTab(connection.id, "exports");
         openConnectionInfoTabRef.current(connection.id, "permanent");
       } catch (error) {
+        watch.cancel();
         const message = error instanceof Error ? error.message : String(error);
-        showToast(message || t("database.export.failed"));
+        showToast(
+          message
+            ? t("database.export.failedDetail", { error: message })
+            : t("database.export.failed"),
+        );
       }
     },
     [sshConnections, t],
+  );
+
+  const handleOpenImportDatabase = useCallback(
+    (connection: DbConnectionConfig, databaseName: string) => {
+      if (!isConnectionEnabled(connection)) {
+        showToast(t("database.import.connectionDisabled"));
+        return;
+      }
+      setImportDialog({ connection, databaseName });
+    },
+    [t],
+  );
+
+  const handleConfirmImportDatabase = useCallback(
+    async (source: MysqlImportSource) => {
+      if (!importDialog) {
+        return;
+      }
+      const { connection, databaseName } = importDialog;
+      setImportSubmitting(true);
+      try {
+        let deployment = readMysqlDeploymentCache(connection);
+        if (!deployment || deployment.kind === "unknown") {
+          try {
+            deployment = await probeMysqlDeployment(connection, sshConnections);
+          } catch {
+            deployment = deployment ?? null;
+          }
+        }
+        const importDeployment = resolveMysqlExportDeployment(deployment);
+        const watch = await beginWatchMysqlImportTask((task) => {
+          if (task.status === "completed") {
+            showToast(t("database.import.completed", { database: databaseName }));
+            return;
+          }
+          if (task.status === "failed") {
+            const detail = task.error?.trim() || "";
+            showToast(
+              detail
+                ? t("database.import.failedDetail", { error: detail })
+                : t("database.import.failed"),
+            );
+          }
+        });
+        try {
+          const taskId = await submitDbMysqlImport(
+            connection,
+            databaseName,
+            importDeployment,
+            source,
+          );
+          watch.bindTaskId(taskId);
+          showToast(t("database.import.started", { database: databaseName }));
+          setImportDialog(null);
+        } catch (error) {
+          watch.cancel();
+          const message = error instanceof Error ? error.message : String(error);
+          showToast(
+            message
+              ? t("database.import.failedDetail", { error: message })
+              : t("database.import.failed"),
+          );
+        }
+      } finally {
+        setImportSubmitting(false);
+      }
+    },
+    [importDialog, sshConnections, t],
   );
 
   const buildSchemaContextMenuItems = useCallback(
@@ -3207,6 +3307,13 @@ export function DatabasePanel() {
           <path d="M3 14h10" />
         </svg>
       );
+      const importIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M8 10V2" />
+          <path d="M5 5l3-3 3 3" />
+          <path d="M3 14h10" />
+        </svg>
+      );
       const slowLogIcon = (
         <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
           <path d="M3 2.5h10v11H3z" />
@@ -3220,14 +3327,24 @@ export function DatabasePanel() {
         if (!isMysqlConnectionInfoCapable(connection)) {
           return [];
         }
+        const enabled = isConnectionEnabled(connection);
         return [
           {
             id: "export-database",
             label: t("database.contextMenu.exportDatabase"),
             icon: exportIcon,
-            disabled: !isConnectionEnabled(connection),
+            disabled: !enabled,
             onClick: () => {
               void handleExportDatabase(connection, item.dbName!);
+            },
+          },
+          {
+            id: "import-database",
+            label: t("database.contextMenu.importDatabase"),
+            icon: importIcon,
+            disabled: !enabled,
+            onClick: () => {
+              handleOpenImportDatabase(connection, item.dbName!);
             },
           },
         ];
@@ -3341,6 +3458,7 @@ export function DatabasePanel() {
       handleDesignTable,
       handleDeleteConnection,
       handleExportDatabase,
+      handleOpenImportDatabase,
       openSlowQueryLogTab,
       resolveSlowLogDisabledReason,
       slowLogAvailabilityByConnId,
@@ -4992,6 +5110,20 @@ export function DatabasePanel() {
           refreshConnDatabases(connId);
           setActiveConnId(connId);
         }
+      }}
+    />
+    <MysqlImportDialog
+      open={importDialog !== null}
+      connection={importDialog?.connection ?? null}
+      databaseName={importDialog?.databaseName ?? ""}
+      submitting={importSubmitting}
+      onClose={() => {
+        if (!importSubmitting) {
+          setImportDialog(null);
+        }
+      }}
+      onConfirm={(source) => {
+        void handleConfirmImportDatabase(source);
       }}
     />
     <ConnectionDialog

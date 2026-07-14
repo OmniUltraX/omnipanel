@@ -413,13 +413,12 @@ export function DockerComposePanel({
     setLogsText(text);
   }, []);
 
-  // 非激活：卸载重型子树，保留缓存供重开回填
-  if (!isActive) {
-    return <div className="docker-compose-panel docker-compose-panel--inactive" aria-hidden />;
-  }
-
+  // 非激活：keep-alive（CSS 隐藏），子列用 isActive 停拉取/日志流，避免切回丢失滚动与编辑态
   return (
-    <div className="docker-compose-panel">
+    <div
+      className={`docker-compose-panel${isActive ? "" : " docker-compose-panel--inactive"}`}
+      aria-hidden={!isActive}
+    >
       <div className="docker-compose-panel__header">
         <h2
           className="docker-compose-panel__title"

@@ -1,5 +1,6 @@
 import { commands } from "../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 
 /** 默认 stats 轮询间隔（空闲） */
 export const DOCKER_STATS_POLL_MS = 3000;
@@ -7,13 +8,7 @@ export const DOCKER_STATS_POLL_MS = 3000;
 export const DOCKER_STATS_POLL_MS_BUSY = 5000;
 export const DOCKER_STATS_REQUEST_TIMEOUT_MS = 45_000;
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | undefined;

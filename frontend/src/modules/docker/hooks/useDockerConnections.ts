@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerConnectionInfo, DockerScanResult } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import { useConnectionStore } from "../../../stores/connectionStore";
 
-async function unwrap<T>(
-  promise: Promise<{ status: "ok"; data: T } | { status: "error"; error: { message: string } }>,
-): Promise<T> {
-  const res = await promise;
-  if (res.status === "ok") return res.data;
-  throw new Error(res.error.message);
-}
+const unwrap = unwrapCommand;
 
 /** 仅加载 Docker 连接列表（不含容器/镜像等业务数据）。 */
 export function useDockerConnections() {

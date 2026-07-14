@@ -235,8 +235,12 @@ export function formatBackgroundTaskStatusMessage(
   runningCount: number,
   t: TranslateFn,
 ): string {
-  let message = task.progress.trim() || task.title;
-  if (task.rowTotal != null && task.rowTotal > 0) {
+  const errorText = task.error?.trim() ?? "";
+  let message =
+    task.status === "failed" && errorText
+      ? `${task.title}：${errorText}`
+      : task.progress.trim() || task.title;
+  if (task.rowTotal != null && task.rowTotal > 0 && task.status !== "failed") {
     message += ` · ${t("shell.backgroundTasks.rowProgress", {
       completed: String(task.rowCompleted ?? 0),
       total: String(task.rowTotal),

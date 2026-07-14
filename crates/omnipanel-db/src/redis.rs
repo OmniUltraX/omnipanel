@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::{DbDriver, DbParams, QueryResult};
 
 /// Redis 键搜索结果（供查询面板展示）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisKeyEntry {
     pub key: String,
@@ -16,11 +16,12 @@ pub struct RedisKeyEntry {
 }
 
 /// 分页 SCAN 搜索结果。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisSearchKeysResult {
     pub entries: Vec<RedisKeyEntry>,
     /// 下次请求传入的 SCAN 游标；0 表示当前模式已扫完。
+    #[specta(type = f64)]
     pub next_cursor: u64,
     pub has_more: bool,
     /// 单次请求扫描的 key 数量达到上限，需缩小模式或继续加载。

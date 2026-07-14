@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { formatIpcError, type IpcErrorLike } from "../../ipc/result";
 import type { DbConnectionConfig } from "./api";
 import type { MysqlDeploymentInfo } from "./mysqlDeploymentDetect";
 import { resolveDockerExecTarget } from "./dockerContainerResolve";
@@ -8,6 +9,8 @@ export type MysqlExportDeploymentOption = {
   kind: "local" | "host" | "docker";
   sshConnectionId?: string;
   containerId?: string;
+  /** Docker 容器内监听端口；勿传宿主机 publish 端口 */
+  mysqlPort?: number;
 };
 
 export type MysqlExportRecord = {
@@ -34,6 +37,10 @@ export type MysqlExportEvent = {
 export function resolveMysqlExportDeployment(
   deployment: MysqlDeploymentInfo | null | undefined,
 ): MysqlExportDeploymentOption {
+  const mysqlPort =
+    typeof deployment?.mysqlPort === "number" && deployment.mysqlPort > 0
+      ? deployment.mysqlPort
+      : undefined;
   if (deployment?.kind === "docker" && deployment.sshConnectionId) {
     const containerId = resolveDockerExecTarget({
       containerId: deployment.containerId,
@@ -45,6 +52,7 @@ export function resolveMysqlExportDeployment(
         kind: "docker",
         sshConnectionId: deployment.sshConnectionId,
         containerId,
+        mysqlPort: mysqlPort ?? 3306,
       };
     }
   }
@@ -57,8 +65,16 @@ export function resolveMysqlExportDeployment(
   return { kind: "local" };
 }
 
+function formatMysqlExportError(error: unknown): string {
+  return formatIpcError(error as IpcErrorLike);
+}
+
 export async function listMysqlExports(connectionId: string): Promise<MysqlExportRecord[]> {
-  return invoke<MysqlExportRecord[]>("db_mysql_export_list", { connectionId });
+  try {
+    return await invoke<MysqlExportRecord[]>("db_mysql_export_list", { connectionId });
+  } catch (error) {
+    throw new Error(formatMysqlExportError(error));
+  }
 }
 
 export async function saveMysqlExportAs(
@@ -66,11 +82,29 @@ export async function saveMysqlExportAs(
   exportId: string,
   destPath: string,
 ): Promise<string> {
-  return invoke<string>("db_mysql_export_save_as", {
-    connectionId,
-    exportId,
-    destPath,
-  });
+  try {
+    return await invoke<string>("db_mysql_export_save_as", {
+      connectionId,
+      exportId,
+      destPath,
+    });
+  } catch (error) {
+    throw new Error(formatMysqlExportError(error));
+  }
+}
+
+export async function deleteMysqlExport(
+  connectionId: string,
+  exportId: string,
+): Promise<void> {
+  try {
+    await invoke<void>("db_mysql_export_delete", {
+      connectionId,
+      exportId,
+    });
+  } catch (error) {
+    throw new Error(formatMysqlExportError(error));
+  }
 }
 
 export async function submitDbMysqlExport(
@@ -78,11 +112,15 @@ export async function submitDbMysqlExport(
   databaseName: string,
   deployment: MysqlExportDeploymentOption,
 ): Promise<string> {
-  return invoke<string>("bg_task_submit_db_mysql_export", {
-    connection,
-    databaseName,
-    deployment,
-  });
+  try {
+    return await invoke<string>("bg_task_submit_db_mysql_export", {
+      connection,
+      databaseName,
+      deployment,
+    });
+  } catch (error) {
+    throw new Error(formatMysqlExportError(error));
+  }
 }
 
 export function listenMysqlExportEvents(
@@ -95,6 +133,37 @@ export function listenMysqlExportEvents(
     }
     onEvent(payload.payload);
   });
+}
+
+/**
+ * 在提交导出前注册监听，避免任务极快失败时漏掉终态事件。
+ * `bindTaskId` 在拿到 taskId 后调用；终态后自动取消订阅。
+ */
+export async function beginWatchMysqlExportTask(
+  connectionId: string,
+  onTerminal: (event: MysqlExportEvent) => void,
+): Promise<{ bindTaskId: (taskId: string) => void; cancel: () => void }> {
+  let settled = false;
+  let taskId: string | null = null;
+  let unlisten: (() => void) | undefined;
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    unlisten?.();
+  };
+  unlisten = await listenMysqlExportEvents(connectionId, (event) => {
+    if (settled || !taskId || event.taskId !== taskId) return;
+    if (event.eventType !== "failed" && event.eventType !== "completed") return;
+    onTerminal(event);
+    cancel();
+  });
+  window.setTimeout(cancel, 2 * 60 * 60 * 1000);
+  return {
+    bindTaskId: (id) => {
+      taskId = id;
+    },
+    cancel,
+  };
 }
 
 export function formatExportFileSize(bytes: number): string {

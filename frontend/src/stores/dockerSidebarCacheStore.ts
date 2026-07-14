@@ -1,3 +1,4 @@
+import { startTransition } from "react";
 import { create } from "zustand";
 import {
   dockerSidebarCategoryRefreshKey,
@@ -136,12 +137,15 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set
     },
 
     patchEntry: (connectionId, entry) => {
-      set((state) => ({
-        connections: {
-          ...state.connections,
-          [connectionId]: entry,
-        },
-      }));
+      // cache-first：刷新结果用 transition 提交，避免挤掉侧栏点击/展开的交互帧
+      startTransition(() => {
+        set((state) => ({
+          connections: {
+            ...state.connections,
+            [connectionId]: entry,
+          },
+        }));
+      });
     },
 
     refreshScope: async (scope) => {

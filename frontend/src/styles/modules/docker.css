@@ -351,21 +351,26 @@
         contain-intrinsic-size: auto 28px;
     }
 
-    .docker-sidebar-tree__show-more {
-        display: block;
-        width: 100%;
-        margin: 0;
-        padding: 4px 8px 4px 28px;
-        border: none;
-        background: transparent;
-        color: var(--fg-muted);
-        font-size: var(--text-xs);
-        text-align: left;
-        cursor: pointer;
+    /* 侧栏大列表虚拟滚动视口 */
+    .docker-sidebar-tree__virtual-list {
+        position: relative;
+        overflow: auto;
+        min-height: 0;
+        /* 防止虚拟行 absolute 溢出点击区域被吃掉 */
+        contain: layout style;
     }
 
-    .docker-sidebar-tree__show-more:hover {
-        color: var(--accent);
+    .docker-sidebar-tree__virtual-list-inner {
+        position: relative;
+        width: 100%;
+    }
+
+    .docker-sidebar-tree__virtual-row {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .docker-workspace-dock,
@@ -1292,20 +1297,22 @@
         flex-direction: column;
     }
 
-    .docker-compose-panel__editor.code-editor,
-    .docker-compose-panel__editor .code-editor__host,
-    .docker-compose-panel__editor .code-editor__host .cm-editor,
-    .docker-compose-panel__editor .code-editor__host .cm-scroller {
+    .docker-compose-panel__code-editor.code-editor,
+    .docker-compose-panel__code-editor .code-editor__host,
+    .docker-compose-panel__code-editor .code-editor__host .cm-editor,
+    .docker-compose-panel__code-editor .code-editor__host .cm-scroller {
         flex: 1;
         height: 100%;
         min-height: 0;
     }
 
-    .docker-compose-panel__editor .code-editor__host .cm-scroller {
+    .docker-compose-panel__code-editor .code-editor__host .cm-scroller {
         overflow: auto !important;
     }
 
-    .docker-compose-panel__editor {
+    .docker-compose-panel__code-editor {
+        display: flex;
+        flex-direction: column;
         flex: 1;
         min-height: 0;
     }
@@ -3378,11 +3385,82 @@
     }
 
     .docker-network-panel__meta-left,
-    .docker-image-panel__meta-left {
+    .docker-image-panel__meta-left,
+    .docker-container-panel__meta-left {
         display: inline-flex;
         align-items: center;
         gap: 6px;
         min-width: 0;
+    }
+
+    .docker-image-panel__meta-size {
+        color: var(--fg-muted, var(--text-muted, inherit));
+    }
+
+    .docker-container-panel__status {
+        color: var(--text-muted, inherit);
+    }
+
+    .docker-container-panel__status--running {
+        color: var(--success, #22c55e);
+    }
+
+    .docker-container-panel__group-row {
+        cursor: pointer;
+        background: color-mix(in srgb, var(--panel-bg, var(--bg-elevated, #1e1e1e)) 92%, var(--border, #333));
+    }
+
+    .docker-container-panel__group-row--standalone {
+        cursor: default;
+    }
+
+    .docker-container-panel__group-row td {
+        padding: 6px 10px !important;
+        border-bottom: 1px solid var(--border-subtle, var(--border, #333));
+    }
+
+    .docker-container-panel__group-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        padding: 0;
+        cursor: pointer;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .docker-container-panel__group-toggle--static {
+        cursor: default;
+    }
+
+    .docker-container-panel__group-chevron {
+        flex-shrink: 0;
+        transition: transform 0.15s ease;
+    }
+
+    .docker-container-panel__group-chevron--collapsed {
+        transform: rotate(-90deg);
+    }
+
+    .docker-container-panel__group-title {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .docker-container-panel__group-meta {
+        color: var(--text-muted, #888);
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+
+    .docker-container-panel__nested-name {
+        padding-left: 28px !important;
     }
 
     .docker-network-panel__actions,

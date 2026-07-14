@@ -3,6 +3,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { commands } from "../../../ipc/bindings";
+import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../../../ipc/events";
+import { unwrapCommand } from "../../../ipc/result";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
@@ -76,22 +78,17 @@ export function useDockerHostShellTerminal(
 
     void (async () => {
       try {
-        const res = await commands.dockerCreateHostShellSession(
-          connectionId,
-          term.cols,
-          term.rows,
+        const sessionId = await unwrapCommand(
+          commands.dockerCreateHostShellSession(connectionId, term.cols, term.rows),
         );
-        if (res.status !== "ok") {
-          throw new Error(res.error.message);
-        }
         if (cancelled) {
-          void commands.dockerExecClose(res.data);
+          void commands.dockerExecClose(sessionId);
           return;
         }
-        backendSessionRef.current = res.data;
+        backendSessionRef.current = sessionId;
 
         outputUnlisten = await listen<{ session_id?: string; data?: string }>(
-          "terminal-output",
+          TERMINAL_OUTPUT,
           (event) => {
             if (event.payload.session_id !== backendSessionRef.current) return;
             const bytes = decodeBase64(event.payload.data ?? "");
@@ -100,7 +97,7 @@ export function useDockerHostShellTerminal(
         );
 
         eventUnlisten = await listen<{ session_id?: string; event?: string }>(
-          "terminal-event",
+          TERMINAL_EVENT,
           (event) => {
             if (event.payload.session_id !== backendSessionRef.current) return;
             if (event.payload.event === "exited") {
@@ -178,18 +175,15 @@ export function useLocalDockerShellTerminal(
 
     void (async () => {
       try {
-        const res = await commands.createTerminal(term.cols, term.rows);
-        if (res.status !== "ok") {
-          throw new Error(typeof res.error === "string" ? res.error : String(res.error));
-        }
+        const sessionId = await unwrapCommand(commands.createTerminal(term.cols, term.rows));
         if (cancelled) {
-          void commands.closeTerminal(res.data);
+          void commands.closeTerminal(sessionId);
           return;
         }
-        backendSessionRef.current = res.data;
+        backendSessionRef.current = sessionId;
 
         outputUnlisten = await listen<{ session_id?: string; data?: string }>(
-          "terminal-output",
+          TERMINAL_OUTPUT,
           (event) => {
             if (event.payload.session_id !== backendSessionRef.current) return;
             const bytes = decodeBase64(event.payload.data ?? "");
@@ -198,7 +192,7 @@ export function useLocalDockerShellTerminal(
         );
 
         eventUnlisten = await listen<{ session_id?: string; event?: string }>(
-          "terminal-event",
+          TERMINAL_EVENT,
           (event) => {
             if (event.payload.session_id !== backendSessionRef.current) return;
             if (event.payload.event === "exited") {

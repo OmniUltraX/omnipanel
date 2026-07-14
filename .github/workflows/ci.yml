@@ -49,6 +49,9 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Check IPC command registry
+        run: npm run check:ipc-registry
+
       - name: Build frontend
         run: npm run build
         working-directory: frontend
