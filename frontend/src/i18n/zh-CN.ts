@@ -960,7 +960,7 @@ export const zhCN = {
       deleteFolderTitle: "删除文件夹",
       deleteFolderConfirm: "确定删除此文件夹？其中的连接将移到根级，子文件夹也会被删除。",
     },
-    import: {
+    connectionImport: {
       previewTitle: "导入 Navicat 连接",
       previewSubtitle: "文件 {file}，共 {count} 条连接",
       targetGroup: "导入到分组",

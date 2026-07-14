@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useRef,
   type ReactNode,
 } from "react";
@@ -40,8 +41,13 @@ export function SidebarTreeSelectionProvider({
     [applySelect, orderedKeys],
   );
 
+  const contextValue = useMemo(
+    () => ({ registerKey, handleSelect, isSelected, selectedIds }),
+    [registerKey, handleSelect, isSelected, selectedIds],
+  );
+
   return (
-    <SidebarTreeSelectionContext.Provider value={{ registerKey, handleSelect, isSelected, selectedIds }}>
+    <SidebarTreeSelectionContext.Provider value={contextValue}>
       {children}
     </SidebarTreeSelectionContext.Provider>
   );

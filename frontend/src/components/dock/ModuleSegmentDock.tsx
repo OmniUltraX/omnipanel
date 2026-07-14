@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
 import type { SerializedDockview } from "dockview-core";
 import {
   DockableWorkspace,
@@ -78,7 +78,7 @@ const EMPTY_LAYOUT = null;
  * 模块顶级 Dock：分段 Tab 或 session Tab 均通过此组件挂载，
  * 与终端模块共用 tabStyle / windowControl / 布局 chrome 行为。
  */
-export function ModuleSegmentDock({
+export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   tabs,
   activeTabId,
   onActiveTabChange,
@@ -178,4 +178,4 @@ export function ModuleSegmentDock({
       defaultRenderer={defaultRenderer}
     />
   );
-}
+});

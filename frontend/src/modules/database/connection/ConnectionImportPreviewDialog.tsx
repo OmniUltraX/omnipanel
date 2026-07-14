@@ -29,15 +29,15 @@ function issueLabel(
 ): string {
   switch (issue) {
     case "unsupported_engine":
-      return t("database.import.issueUnsupportedEngine");
+      return t("database.connectionImport.issueUnsupportedEngine");
     case "duplicate_name":
-      return t("database.import.issueDuplicateName");
+      return t("database.connectionImport.issueDuplicateName");
     case "duplicate_fingerprint":
-      return t("database.import.issueDuplicateFingerprint");
+      return t("database.connectionImport.issueDuplicateFingerprint");
     case "password_decrypt_failed":
-      return t("database.import.issuePasswordFailed");
+      return t("database.connectionImport.issuePasswordFailed");
     case "missing_host":
-      return t("database.import.issueMissingHost");
+      return t("database.connectionImport.issueMissingHost");
     default:
       return issue;
   }
@@ -83,13 +83,13 @@ export function ConnectionImportPreviewDialog({
 
   const columnLabels = useMemo(
     () => ({
-      select: t("database.import.columnSelect"),
-      name: t("database.import.columnName"),
-      engine: t("database.import.columnEngine"),
-      host: t("database.import.columnHost"),
-      user: t("database.import.columnUser"),
-      database: t("database.import.columnDatabase"),
-      status: t("database.import.columnStatus"),
+      select: t("database.connectionImport.columnSelect"),
+      name: t("database.connectionImport.columnName"),
+      engine: t("database.connectionImport.columnEngine"),
+      host: t("database.connectionImport.columnHost"),
+      user: t("database.connectionImport.columnUser"),
+      database: t("database.connectionImport.columnDatabase"),
+      status: t("database.connectionImport.columnStatus"),
     }),
     [t],
   );
@@ -203,12 +203,12 @@ export function ConnectionImportPreviewDialog({
   const handleImport = useCallback(async () => {
     const toImport = importableItems.filter((item) => selectedIds.has(item.id));
     if (toImport.length === 0) {
-      setStatus({ kind: "error", message: t("database.import.noSelection") });
+      setStatus({ kind: "error", message: t("database.connectionImport.noSelection") });
       return;
     }
 
     setImporting(true);
-    setStatus({ kind: "info", message: t("database.import.importing") });
+    setStatus({ kind: "info", message: t("database.connectionImport.importing") });
     let success = 0;
     let failed = 0;
     for (const item of toImport) {
@@ -224,7 +224,7 @@ export function ConnectionImportPreviewDialog({
     if (failed > 0) {
       setStatus({
         kind: "error",
-        message: t("database.import.partialFailed", { success, failed }),
+        message: t("database.connectionImport.partialFailed", { success, failed }),
       });
       setImporting(false);
       if (success > 0) {
@@ -235,7 +235,7 @@ export function ConnectionImportPreviewDialog({
 
     setStatus({
       kind: "success",
-      message: t("database.import.success", { count: success }),
+      message: t("database.connectionImport.success", { count: success }),
     });
     setImporting(false);
     onImported();
@@ -246,8 +246,8 @@ export function ConnectionImportPreviewDialog({
     <FormDialog
       open={open}
       onClose={onClose}
-      title={t("database.import.previewTitle")}
-      subtitle={t("database.import.previewSubtitle", { file: fileName, count: items.length })}
+      title={t("database.connectionImport.previewTitle")}
+      subtitle={t("database.connectionImport.previewSubtitle", { file: fileName, count: items.length })}
       size="xl"
       className="db-import-preview-dialog"
       bodyClassName="db-import-preview-dialog__body"
@@ -256,7 +256,7 @@ export function ConnectionImportPreviewDialog({
       status={status}
       primaryAction={{
         key: "import",
-        label: t("database.import.confirm", { count: selectedCount }),
+        label: t("database.connectionImport.confirm", { count: selectedCount }),
         disabled: importing || selectedCount === 0,
         onClick: () => void handleImport(),
       }}
@@ -269,7 +269,7 @@ export function ConnectionImportPreviewDialog({
             disabled={importing || importableItems.length === 0}
             onChange={(event) => toggleAllImportable(event.target.checked)}
           />
-          <span>{t("database.import.selectAllImportable", { count: importableItems.length })}</span>
+          <span>{t("database.connectionImport.selectAllImportable", { count: importableItems.length })}</span>
         </label>
       </div>
 
@@ -320,7 +320,7 @@ export function ConnectionImportPreviewDialog({
                     <TextInput
                       className="db-import-preview-name-input input"
                       value={displayName}
-                      placeholder={t("database.import.namePlaceholder")}
+                      placeholder={t("database.connectionImport.namePlaceholder")}
                       disabled={importing}
                       onChange={(value) => updateCustomName(item.id, value)}
                     />,
@@ -348,7 +348,7 @@ export function ConnectionImportPreviewDialog({
                     "status",
                     issues.length === 0 ? (
                       <span className="db-import-preview-status db-import-preview-status--ready">
-                        {t("database.import.statusReady")}
+                        {t("database.connectionImport.statusReady")}
                       </span>
                     ) : (
                       <div className="db-import-preview-issues">

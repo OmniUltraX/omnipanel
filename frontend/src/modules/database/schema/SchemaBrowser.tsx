@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -176,7 +177,7 @@ interface TreeNodeProps {
   onLayoutPointerDown?: (e: React.PointerEvent<HTMLElement>) => void;
 }
 
-function TreeNode({
+const TreeNode = memo(function TreeNode({
   item,
   depth,
   expanded,
@@ -446,7 +447,7 @@ function TreeNode({
       onContextMenu={onContextMenu}
     />
   );
-}
+});
 
 export { makeDatabaseNodeId } from "./schemaTreeIds";
 
@@ -1362,9 +1363,6 @@ export function SchemaBrowser({
         expandedNodeIds,
         databaseFilters,
         tableFilters,
-        activeConnId,
-        activeTableKey,
-        activeDatabaseKey,
         refreshingConnectionIds,
         refreshingNodeIds,
         resolvedTheme,
@@ -1379,9 +1377,6 @@ export function SchemaBrowser({
       expandedNodeIds,
       databaseFilters,
       tableFilters,
-      activeConnId,
-      activeTableKey,
-      activeDatabaseKey,
       refreshingConnectionIds,
       refreshingNodeIds,
       resolvedTheme,
@@ -1639,6 +1634,16 @@ export function SchemaBrowser({
 
       const layoutPayload = buildLayoutDragPayload(row.item);
 
+      // Compute active state without rebuilding flatRows on tab switch
+      let isActive = false;
+      if (row.labelClickKind === "connection" && row.labelClickConnId) {
+        isActive = activeConnId === row.labelClickConnId;
+      } else if (row.labelClickKind === "database") {
+        isActive = activeDatabaseKey === row.item.id;
+      } else if (row.labelClickKind === "table") {
+        isActive = activeTableKey === row.item.id;
+      }
+
       return (
         <TreeNode
           item={row.item}
@@ -1646,7 +1651,7 @@ export function SchemaBrowser({
           expanded={row.expanded}
           onToggle={() => toggle(row.item.id)}
           hasChildren={row.hasChildren}
-          active={row.active}
+          active={isActive}
           meta={row.meta}
           metaTitle={row.metaTitle}
           onMetaClick={onMetaClick}
@@ -1686,6 +1691,9 @@ export function SchemaBrowser({
       layoutDragOverNodeId,
       layoutDraggingSourceId,
       beginLayoutPointerDrag,
+      activeConnId,
+      activeTableKey,
+      activeDatabaseKey,
     ],
   );
 
@@ -1729,10 +1737,10 @@ export function SchemaBrowser({
             {
               id: "datagrip",
               label: t("database.sidebar.importFormatDatagrip"),
-              subtitle: t("database.import.inDevelopment"),
+              subtitle: t("database.connectionImport.inDevelopment"),
               onSelect: () => {
                 void appAlert(
-                  t("database.import.inDevelopment"),
+                  t("database.connectionImport.inDevelopment"),
                   t("database.sidebar.importFormatDatagrip"),
                 );
               },
@@ -1745,10 +1753,10 @@ export function SchemaBrowser({
             {
               id: "dbeaver",
               label: t("database.sidebar.importFormatDbeaver"),
-              subtitle: t("database.import.inDevelopment"),
+              subtitle: t("database.connectionImport.inDevelopment"),
               onSelect: () => {
                 void appAlert(
-                  t("database.import.inDevelopment"),
+                  t("database.connectionImport.inDevelopment"),
                   t("database.sidebar.importFormatDbeaver"),
                 );
               },

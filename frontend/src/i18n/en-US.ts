@@ -964,7 +964,7 @@ export const enUS: TranslationDict = {
       deleteFolderTitle: "Delete folder",
       deleteFolderConfirm: "Delete this folder? Connections inside will move to the root; subfolders will be removed.",
     },
-    import: {
+    connectionImport: {
       previewTitle: "Import Navicat Connections",
       previewSubtitle: "File {file}, {count} connection(s)",
       targetGroup: "Target group",

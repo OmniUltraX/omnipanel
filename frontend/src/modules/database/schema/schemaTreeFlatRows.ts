@@ -106,9 +106,6 @@ export interface SchemaFlatRowsParams {
   expandedNodeIds: Set<string>;
   databaseFilters: Record<string, SchemaFilterState | undefined>;
   tableFilters: Record<string, SchemaFilterState | undefined>;
-  activeConnId: string | null;
-  activeTableKey: string | null;
-  activeDatabaseKey: string | null;
   refreshingConnectionIds: Record<string, true>;
   refreshingNodeIds: Record<string, true>;
   resolvedTheme: "light" | "dark";
@@ -187,7 +184,7 @@ function appendTableObjectRows(
   depth: number,
   tablePinned: boolean | undefined,
 ) {
-  const { t, expandedNodeIds, activeTableKey, refreshingNodeIds, searchQuery } =
+  const { t, expandedNodeIds, refreshingNodeIds, searchQuery } =
     params;
   const q = searchQuery?.trim() ?? "";
   const isSearchMode = q.length > 0;
@@ -256,7 +253,6 @@ function appendTableObjectRows(
     depth,
     expanded: tableExpanded,
     hasChildren: showTableSchemaChildren && (showColumnsSection || showIndexesSection),
-    active: activeTableKey === tableKey,
     labelComment: tbl.comment?.trim() || undefined,
     meta: metaFor(tableKey, undefined),
     pinActive: objectKind === "table" ? tablePinned : undefined,
@@ -393,8 +389,6 @@ function appendConnectionSchemaRows(
     expandedNodeIds,
     databaseFilters,
     tableFilters,
-    activeConnId,
-    activeDatabaseKey,
     refreshingConnectionIds,
     refreshingNodeIds,
     resolvedTheme,
@@ -441,7 +435,6 @@ function appendConnectionSchemaRows(
       depth: baseDepth,
       expanded: connExpanded,
       hasChildren: connEnabled,
-      active: activeConnId === conn.config.id,
       connectionEnabled: connEnabled,
       iconUrl: engineIconUrl,
       deploymentServerTag: params.deploymentServerByConnId?.[conn.config.id],
@@ -608,7 +601,6 @@ function appendConnectionSchemaRows(
           depth: baseDepth + 1,
           expanded: dbExpanded,
           hasChildren: !isRedis && (hasDbObjectFolders || Boolean(db.loadError)),
-          active: activeDatabaseKey === dbId,
           labelClickKind: "database",
           labelClickConnId: conn.config.id,
           labelClickDbName: db.name,

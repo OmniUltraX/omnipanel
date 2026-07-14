@@ -1846,7 +1846,7 @@ export function DockableWorkspace({
           syncTabGroups(apiRef.current);
         });
       };
-      const addDisposable = api.onDidAddPanel((panel) => {
+      const addDisposable = api.onDidAddPanel(() => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleTabGroupSync();
         scheduleSyncTabDragAttributes();

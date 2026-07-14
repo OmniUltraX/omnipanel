@@ -590,7 +590,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
         }
         event.preventDefault();
         event.stopPropagation();
-        handlePopoverKeyDownRef.current(event);
+        handlePopoverKeyDownRef.current(event as unknown as KeyboardEvent);
       };
       window.addEventListener("keydown", onKeyDown, true);
       return () => window.removeEventListener("keydown", onKeyDown, true);

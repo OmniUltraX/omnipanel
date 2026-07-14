@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { SerializedDockview } from "dockview-core";
 import { useDbWorkspaceActiveTab } from "../../../contexts/DbWorkspaceContext";
 import { ModuleSegmentDock, type DockableTab } from "../../../components/dock";
@@ -27,7 +27,7 @@ export interface DatabaseWorkspaceDockProps {
 }
 
 /** 数据库模块右侧 Dock 工作区（表 / SQL / 设计器等 Tab）。 */
-export function DatabaseWorkspaceDock({
+export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
   workspaceInitialized,
   dockTabs,
   onCloseTab,
@@ -91,4 +91,4 @@ export function DatabaseWorkspaceDock({
       }
     />
   );
-}
+});

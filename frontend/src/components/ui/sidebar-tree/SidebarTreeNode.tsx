@@ -1,4 +1,5 @@
 import {
+  memo,
   useMemo,
   useState,
   type CSSProperties,
@@ -127,7 +128,7 @@ export type SidebarTreeNodeProps = {
   treeKey?: string;
 };
 
-export function SidebarTreeNode({
+export const SidebarTreeNode = memo(function SidebarTreeNode({
   module,
   nodeType,
   depth = 0,
@@ -332,7 +333,7 @@ export function SidebarTreeNode({
       ) : null}
     </>
   );
-}
+});
 
 export function SidebarTreeRoot({
   className = "",

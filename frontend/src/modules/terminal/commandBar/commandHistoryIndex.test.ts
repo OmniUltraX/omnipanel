@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildHistoryIndex } from "./commandHistoryIndex";
-import type { TerminalBlock } from "../../stores/blocksStore";
+import type { TerminalBlock } from "../../../stores/blocksStore";
 
 describe("buildHistoryIndex", () => {
   it("会话块（含 AI）排在 readline 之前", () => {

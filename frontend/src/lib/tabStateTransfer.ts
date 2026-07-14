@@ -260,7 +260,7 @@ async function applyDatabaseState(
       useDbWorkspaceTabStore.setState((state) => {
         const next: Record<string, unknown> = {};
         for (const [key, val] of Object.entries(updates)) {
-          const current = (state as Record<string, unknown>)[key];
+          const current = (state as unknown as Record<string, unknown>)[key];
           next[key] = { ...(current as Record<string, unknown>), ...(val as Record<string, unknown>) };
         }
         return next as never;

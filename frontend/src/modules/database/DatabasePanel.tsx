@@ -1101,9 +1101,9 @@ export function DatabasePanel() {
     } catch (error) {
       const message =
         String(error).includes("EMPTY")
-          ? t("database.import.emptyFile")
-          : t("database.import.parseFailed", { error: String(error) });
-      await appAlert(message, t("database.import.previewTitle"));
+          ? t("database.connectionImport.emptyFile")
+          : t("database.connectionImport.parseFailed", { error: String(error) });
+      await appAlert(message, t("database.connectionImport.previewTitle"));
     }
   }, [connections, t]);
 
@@ -4962,6 +4962,24 @@ export function DatabasePanel() {
     return tab?.kind === "tree-chart" ? tab.treeChartFileId : null;
   }, [workspaceTabs, activeWorkspaceTabId]);
 
+  const handleCreateConnection = useCallback(() => {
+    setEditingConnection(null);
+    setDialogOpen(true);
+  }, []);
+
+  const handleImportNavicat = useCallback(() => {
+    void handleImportConnections();
+  }, [handleImportConnections]);
+
+  const handleNewTreeChart = useCallback(() => {
+    void openTreeChartTab();
+  }, [openTreeChartTab]);
+
+  const handleCloseDockTab = useCallback(
+    (tabId: string) => requestTabAction({ kind: "close", tabId }),
+    [requestTabAction],
+  );
+
   const sidebarLinkageConnId = useMemo(() => {
     if (activeTableKey) {
       const parsed = parseTableNodeId(activeTableKey);
@@ -5065,14 +5083,11 @@ export function DatabasePanel() {
       }
       leftSidebar={
           <DatabaseSchemaSidebar
-            onCreateConnection={() => {
-              setEditingConnection(null);
-              setDialogOpen(true);
-            }}
-            onImportNavicat={() => void handleImportConnections()}
+            onCreateConnection={handleCreateConnection}
+            onImportNavicat={handleImportNavicat}
             onSelectConnection={handleSelectConnection}
             onOpenSqlFile={openSqlFile}
-            onNewTreeChart={() => void openTreeChartTab()}
+            onNewTreeChart={handleNewTreeChart}
             onOpenTreeChartFile={openTreeChartFile}
             activeTreeChartFileId={activeTreeChartFileId}
             onOpenSyncTask={handleOpenSyncTask}
@@ -5095,7 +5110,7 @@ export function DatabasePanel() {
             moduleTitle={t("routes.database")}
             enabled={moduleLive}
             windowControl
-            onCloseTab={(tabId) => requestTabAction({ kind: "close", tabId })}
+            onCloseTab={handleCloseDockTab}
             dockLayout={dockLayout}
             onDockLayoutChange={setDockLayout}
             renderDockPanel={renderDockPanel}
