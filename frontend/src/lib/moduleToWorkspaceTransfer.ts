@@ -20,6 +20,7 @@ import {
   ensureTerminalTabFromSnapshot,
   moveTerminalTabToWorkspaceSnapshot,
 } from "./workspaceTabActions";
+import { parseFileConnPanelId } from "../modules/files/filesWorkspacePanels";
 
 export function isEngineeringWorkspaceScope(scope: string | undefined): boolean {
   return Boolean(scope?.startsWith("workspace-bottom-"));
@@ -515,6 +516,21 @@ export function applyCrossWindowWorkspaceTabToModule(
             label: tab.label,
           },
         },
+      }),
+    );
+    return true;
+  }
+
+  if (
+    tab.kind === "mirrored" &&
+    (tab.originScope === "files-browser" || tab.panelType === "file-connection")
+  ) {
+    const originPanelId = tab.originPanelId ?? tab.id;
+    const connId = parseFileConnPanelId(originPanelId);
+    if (!connId) return false;
+    window.dispatchEvent(
+      new CustomEvent("omnipanel:restore-files-workspace-tab", {
+        detail: { connId },
       }),
     );
     return true;

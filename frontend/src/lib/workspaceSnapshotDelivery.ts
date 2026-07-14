@@ -9,6 +9,8 @@ import {
 import { isWorkspacePoppedOut } from "../stores/workspaceWindowStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useWorkspaceBottomDockStore, type WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 import type { WorkspaceTabSnapshot } from "../stores/workspaceTabStore";
 
 export const WORKSPACE_ADD_SNAPSHOT_EVENT = "omnipanel:workspace-add-snapshot";
@@ -18,6 +20,14 @@ export interface WorkspaceAddSnapshotPayload {
   snapshot: WorkspaceTabSnapshot;
   activate?: boolean;
   backendSessionId?: string | null;
+}
+
+export const WORKSPACE_ADD_MIRRORED_TAB_EVENT = "omnipanel:workspace-add-mirrored-tab";
+
+export interface WorkspaceAddMirroredTabPayload {
+  workspaceId: string;
+  tab: Omit<WorkspaceDockTab, "kind"> & { kind?: "mirrored" };
+  activate?: boolean;
 }
 
 function applySnapshotLocally(
@@ -79,7 +89,8 @@ export async function deliverSnapshotToWorkspace(
 export function initWorkspaceAddSnapshotListener(): () => void {
   if (!isTauriRuntime()) return () => {};
 
-  let unlisten: UnlistenFn | null = null;
+  const unlisteners: UnlistenFn[] = [];
+
   void listen<WorkspaceAddSnapshotPayload>(
     WORKSPACE_ADD_SNAPSHOT_EVENT,
     (event) => {
@@ -92,11 +103,60 @@ export function initWorkspaceAddSnapshotListener(): () => void {
     },
     { target: { kind: "Any" } },
   ).then((fn) => {
-    unlisten = fn;
+    if (fn) unlisteners.push(fn);
+  });
+
+  void listen<WorkspaceAddMirroredTabPayload>(
+    WORKSPACE_ADD_MIRRORED_TAB_EVENT,
+    (event) => {
+      const payload = event.payload;
+      if (!payload?.workspaceId || !payload.tab) return;
+      const workspace = useWorkspaceStore
+        .getState()
+        .workspaces.find((ws) => ws.id === payload.workspaceId);
+      if (!workspace) return;
+      useWorkspaceBottomDockStore
+        .getState()
+        .addMirroredTab(payload.workspaceId, workspace, payload.tab);
+    },
+    { target: { kind: "Any" } },
+  ).then((fn) => {
+    if (fn) unlisteners.push(fn);
   });
 
   return () => {
-    unlisten?.();
-    unlisten = null;
+    for (const fn of unlisteners) fn();
   };
+}
+
+/**
+ * 将镜像 Tab 投递到目标工作区：嵌入主窗时本地写入；已弹出独立 OS 窗时通过 Tauri 事件投递。
+ */
+export async function deliverMirroredTabToWorkspace(
+  workspaceId: string,
+  tab: Omit<WorkspaceDockTab, "kind"> & { kind?: "mirrored" },
+): Promise<void> {
+  const targetLabel = workspaceWindowLabel(workspaceId);
+  const currentLabel = isTauriRuntime() ? getCurrentWebviewWindow().label : "main";
+  const remoteTarget =
+    isTauriRuntime() && isWorkspacePoppedOut(workspaceId) && currentLabel !== targetLabel;
+
+  if (remoteTarget) {
+    await emitTo(targetLabel, WORKSPACE_ADD_MIRRORED_TAB_EVENT, {
+      workspaceId,
+      tab,
+      activate: true,
+    } satisfies WorkspaceAddMirroredTabPayload);
+    void focusWorkspaceWindow(workspaceId);
+    return;
+  }
+
+  const workspace = useWorkspaceStore
+    .getState()
+    .workspaces.find((ws) => ws.id === workspaceId);
+  if (!workspace) return;
+  useWorkspaceBottomDockStore.getState().addMirroredTab(workspaceId, workspace, tab);
+  if (currentLabel === "main" && !isWorkspacePoppedOut(workspaceId)) {
+    useBottomPanelStore.getState().requestExpand();
+  }
 }
