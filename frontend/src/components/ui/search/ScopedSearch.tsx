@@ -17,6 +17,7 @@ import { TextInput } from "../form/TextInput";
 import {
   applyScopedSearchHighlights,
   clearScopedSearchHighlights,
+  scrollScopedSearchMatchIntoView,
 } from "./scopedSearchHighlight";
 import { registerScopedSearch } from "./scopedSearchRegistry";
 import {
@@ -182,12 +183,27 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
     let observer: MutationObserver | null = null;
     let rafId = 0;
 
+    let scrollRafId = 0;
+    /** 已对该 query 成功滚到过首个匹配（含 JSON 树展开后补滚） */
+    let lastScrolledQuery = "";
+
     const apply = () => {
       observer?.disconnect();
       applyingHighlightRef.current = true;
-      applyScopedSearchHighlights(root, value);
+      const matched = applyScopedSearchHighlights(root, value);
       applyingHighlightRef.current = false;
-      if (value.trim() && observer) {
+      const needle = value.trim();
+      if (!needle) {
+        lastScrolledQuery = "";
+      } else if (matched && lastScrolledQuery !== needle) {
+        // 首次为该词找到 DOM 匹配时再滚动（树展开后也会走到这里）
+        lastScrolledQuery = needle;
+        cancelAnimationFrame(scrollRafId);
+        scrollRafId = requestAnimationFrame(() => {
+          scrollScopedSearchMatchIntoView(root);
+        });
+      }
+      if (needle && observer) {
         observer.observe(root, {
           childList: true,
           subtree: true,
@@ -201,6 +217,7 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
     if (!value.trim()) {
       return () => {
         cancelAnimationFrame(rafId);
+        cancelAnimationFrame(scrollRafId);
         clearScopedSearchHighlights(root);
       };
     }
@@ -221,6 +238,7 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
 
     return () => {
       cancelAnimationFrame(rafId);
+      cancelAnimationFrame(scrollRafId);
       observer?.disconnect();
       clearScopedSearchHighlights(root);
     };

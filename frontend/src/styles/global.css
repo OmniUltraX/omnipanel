@@ -5780,9 +5780,20 @@ a {
         -webkit-box-decoration-break: clone;
     }
 
+    mark.scoped-search-mark.is-current,
+    .scoped-search-mark.is-current {
+        background: color-mix(in srgb, var(--warn) 70%, transparent);
+        outline: 1px solid color-mix(in srgb, var(--warn) 80%, transparent);
+    }
+
     .cm-editor .cm-search-highlight {
         background: color-mix(in srgb, var(--warn) 35%, transparent);
         border-radius: 2px;
+    }
+
+    .cm-editor .cm-search-highlight-current {
+        background: color-mix(in srgb, var(--warn) 70%, transparent);
+        outline: 1px solid color-mix(in srgb, var(--warn) 80%, transparent);
     }
 
     .scoped-search-bar {

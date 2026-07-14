@@ -11,6 +11,7 @@ import {
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
+import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { formatHttpJsonBody } from "./httpJsonBody";
 import { parseHttpHeaders, serializeHttpHeaders } from "./httpHeaderUtils";
 import { parsePathParams, serializePathParams, syncPathParamsFromUrl } from "./httpPathParams";
@@ -113,7 +114,7 @@ interface ProtocolHttpContextValue {
   openRequestTab: (req: SavedHttpRequest) => void;
   clearSelectedRequest: () => void;
   createRequest: (name: string, parentFolderId: string | null) => Promise<SavedHttpRequest | null>;
-  saveCurrentRequest: (name: string, collectionId: string | null) => Promise<void>;
+  saveCurrentRequest: (name: string, collectionId: string | null) => Promise<string | null>;
   persistCurrentRequest: () => Promise<boolean>;
   renameSavedRequest: (requestId: string, name: string) => Promise<void>;
   updateRequestCollection: (requestId: string, collectionId: string | null) => Promise<void>;
@@ -136,6 +137,7 @@ interface ProtocolHttpContextValue {
     responseSize: number | null;
     response: HttpResponseData;
     curlCommand?: string | null;
+    requestId?: string | null;
   }) => Promise<void>;
 }
 
@@ -686,7 +688,14 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         await loadSavedRequests();
         setSelectedRequestId(req.id);
         useProtocolHttpDockStore.getState().openTab(req.id);
+        useProtocolWorkspaceStore.getState().openSessionTab({
+          protocol: "http",
+          resourceId: req.id,
+          label: req.name,
+        });
+        return req.id;
       }
+      return null;
     },
     [editor, loadSavedRequests],
   );
@@ -764,9 +773,12 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       responseSize: number | null;
       response: HttpResponseData;
       curlCommand?: string | null;
+      requestId?: string | null;
     }) => {
       const historyId = generateId();
       const responseFields = responseDataToHistoryFields(data.response);
+      const requestId =
+        data.requestId !== undefined ? data.requestId : selectedRequestIdRef.current;
       const entry = {
         id: historyId,
         label: "",
@@ -777,7 +789,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         requestSize: data.requestSize,
         responseSize: data.responseSize,
         createdAt: Date.now(),
-        requestId: selectedRequestId,
+        requestId,
         environmentId: data.environmentId,
         responseStatusText: responseFields.responseStatusText,
         responseContentType: responseFields.responseContentType,
@@ -791,7 +803,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         await loadHistory();
       }
     },
-    [addResponseSession, loadHistory, selectedRequestId],
+    [addResponseSession, loadHistory],
   );
 
   const value = useMemo<ProtocolHttpContextValue>(

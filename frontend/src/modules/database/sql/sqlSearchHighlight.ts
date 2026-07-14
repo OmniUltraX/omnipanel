@@ -11,16 +11,22 @@ function buildHighlightDecorations(doc: string, query: string): DecorationSet {
     return Decoration.none;
   }
 
-  const mark = Decoration.mark({ class: "cm-search-highlight" });
   const ranges: { from: number; to: number; value: Decoration }[] = [];
   const lowerDoc = doc.toLowerCase();
   const lowerNeedle = needle.toLowerCase();
   let index = 0;
+  let isFirst = true;
 
   while (index < doc.length) {
     const found = lowerDoc.indexOf(lowerNeedle, index);
     if (found < 0) break;
+    const mark = Decoration.mark({
+      class: isFirst
+        ? "cm-search-highlight cm-search-highlight-current"
+        : "cm-search-highlight",
+    });
     ranges.push({ from: found, to: found + needle.length, value: mark });
+    isFirst = false;
     index = found + Math.max(1, needle.length);
   }
 
@@ -48,7 +54,19 @@ export const searchHighlightField = StateField.define<DecorationSet>({
 });
 
 export function updateSearchHighlight(view: EditorView, query: string) {
+  const prevNeedle = currentHighlightQuery.trim();
+  const needle = query.trim();
   view.dispatch({ effects: setSearchHighlight.of(query) });
+  if (!needle || needle === prevNeedle) {
+    return;
+  }
+  const found = view.state.doc.toString().toLowerCase().indexOf(needle.toLowerCase());
+  if (found < 0) {
+    return;
+  }
+  view.dispatch({
+    effects: EditorView.scrollIntoView(found, { y: "center" }),
+  });
 }
 
 export function getSearchHighlightExtension() {

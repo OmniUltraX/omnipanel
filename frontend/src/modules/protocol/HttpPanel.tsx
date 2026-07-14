@@ -73,6 +73,21 @@ function invokeResponseToData(result: HttpInvokeResponse): HttpResponseData {
   };
 }
 
+/** 发送时自动保存：无选中请求时用 URL 推导名称 */
+function suggestRequestNameFromUrl(url: string, fallback: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return fallback;
+  try {
+    const withProto = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withProto);
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    const name = `${parsed.host}${path}`.slice(0, 80);
+    return name || fallback;
+  } catch {
+    return trimmed.slice(0, 80) || fallback;
+  }
+}
+
 export function HttpPanel() {
   const { t } = useI18n();
   const {
@@ -194,6 +209,18 @@ export function HttpPanel() {
     if (!resolvedRequestUrl) return;
     setSending(true);
     try {
+      // 发送前自动保存当前请求，保证历史能挂到具体 requestId
+      let requestIdForHistory = selectedRequestId;
+      if (selectedRequestId) {
+        await persistCurrentRequest();
+      } else {
+        const name = suggestRequestNameFromUrl(
+          resolvedRequestUrl,
+          t("protocol.sidebar.defaultRequestName"),
+        );
+        requestIdForHistory = await saveCurrentRequest(name, activeCollectionId);
+      }
+
       const enabledParams = params.filter((p) => p.enabled && p.key);
 
       const queryParams: Record<string, string> = {};
@@ -239,6 +266,7 @@ export function HttpPanel() {
           responseSize: result.size_bytes,
           response,
           curlCommand,
+          requestId: requestIdForHistory,
         });
       } catch {
         addResponseSession(response, null, curlCommand);
@@ -267,8 +295,13 @@ export function HttpPanel() {
     bodyType,
     authType,
     authValue,
+    selectedRequestId,
+    activeCollectionId,
+    persistCurrentRequest,
+    saveCurrentRequest,
     recordSendHistory,
     addResponseSession,
+    t,
   ]);
 
   const handleSaveRequest = async () => {

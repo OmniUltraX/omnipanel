@@ -808,6 +808,34 @@ export function ProtocolHttpSidebar() {
           title={t("protocol.sidebar.history")}
           expanded={sections.history}
           onToggle={() => toggleSection("history")}
+          actions={
+            <div className="schema-toolbar schema-toolbar--inline">
+              <button
+                type="button"
+                className="proto-sidebar-new"
+                title={t("protocol.sidebar.clearRequestHistory")}
+                aria-label={t("protocol.sidebar.clearRequestHistory")}
+                disabled={!selectedRequest || requestHistory.length === 0 || !http}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!selectedRequest || !http) return;
+                  void appConfirm(
+                    t("protocol.sidebar.clearRequestHistoryConfirm"),
+                    t("protocol.sidebar.clearRequestHistoryTitle"),
+                  ).then((ok) => {
+                    if (ok) void http.clearRequestHistory(selectedRequest.id);
+                  });
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                </svg>
+              </button>
+            </div>
+          }
         >
           <div
             className="proto-sidebar-history-wrap"

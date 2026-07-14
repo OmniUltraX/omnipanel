@@ -119,6 +119,16 @@
         color: var(--accent);
     }
 
+    .proto-sidebar-new:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    .proto-sidebar-new:disabled:hover {
+        background: transparent;
+        color: var(--fg-2);
+    }
+
     /* Protocol sidebar utility classes */
     .proto-tab-btn {
         flex: 1;

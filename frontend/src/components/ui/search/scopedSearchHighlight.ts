@@ -44,7 +44,7 @@ function collectTextNodes(root: HTMLElement): Text[] {
   return nodes;
 }
 
-/** 清除宿主内由区域搜索产生的高亀mark　*/
+/** 清除宿主内由区域搜索产生的高亮 mark */
 export function clearScopedSearchHighlights(root: HTMLElement): void {
   root.querySelectorAll(`mark.${MARK_CLASS}`).forEach((mark) => {
     const parent = mark.parentNode;
@@ -56,15 +56,32 @@ export function clearScopedSearchHighlights(root: HTMLElement): void {
   root.normalize();
 }
 
-/** 在宿一DOM 内为匹配 query 的文本片段包裹高亀mark（支持拼音与原文）　*/
-export function applyScopedSearchHighlights(root: HTMLElement, query: string): void {
+/** 将首个匹配滚动进可见区，并标记为当前命中 */
+export function scrollScopedSearchMatchIntoView(root: HTMLElement): void {
+  root
+    .querySelectorAll(`mark.${MARK_CLASS}.is-current`)
+    .forEach((mark) => mark.classList.remove("is-current"));
+  const first = root.querySelector(`mark.${MARK_CLASS}`) as HTMLElement | null;
+  if (!first) {
+    return;
+  }
+  first.classList.add("is-current");
+  first.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+}
+
+/**
+ * 在宿主 DOM 内为匹配 query 的文本片段包裹高亮 mark（支持拼音与原文）。
+ * @returns 本次是否产生了匹配高亮
+ */
+export function applyScopedSearchHighlights(root: HTMLElement, query: string): boolean {
   clearScopedSearchHighlights(root);
 
   const needle = query.trim();
   if (!needle) {
-    return;
+    return false;
   }
 
+  let matched = false;
   for (const textNode of collectTextNodes(root)) {
     const text = textNode.textContent ?? "";
     const indices = getTextSearchMatchIndices(text, needle);
@@ -72,6 +89,7 @@ export function applyScopedSearchHighlights(root: HTMLElement, query: string): v
       continue;
     }
 
+    matched = true;
     const fragment = document.createDocumentFragment();
     for (const part of splitTextByMatchIndices(text, indices)) {
       if (part.matched) {
@@ -86,4 +104,5 @@ export function applyScopedSearchHighlights(root: HTMLElement, query: string): v
 
     textNode.parentNode?.replaceChild(fragment, textNode);
   }
+  return matched;
 }
