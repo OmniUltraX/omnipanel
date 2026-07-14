@@ -129,17 +129,21 @@ export function ConnectionDialog({
   };
 
   const validateForm = (): string | null => {
-    if (!form.name.trim() && form.engine !== "sqlite") {
+    // 编辑回显时部分字段可能缺省（如后端无 group），统一按空串校验
+    const name = form.name ?? "";
+    const host = form.host ?? "";
+    const database = form.database ?? "";
+    if (!name.trim() && form.engine !== "sqlite") {
       return t("database.dialog.nameRequired");
     }
     if (!isSupportedEngine(form.engine)) {
       return t("database.dialog.unsupportedEngine");
     }
     if (form.engine === "sqlite") {
-      if (!form.database.trim()) {
+      if (!database.trim()) {
         return t("database.dialog.databasePathRequired");
       }
-    } else if (!form.host.trim()) {
+    } else if (!host.trim()) {
       return t("database.dialog.hostRequired");
     }
     return null;
@@ -298,8 +302,8 @@ export function ConnectionDialog({
           (next as Record<string, unknown>)[key] = String(raw);
         }
       }
-      if (!next.name.trim() && next.host.trim()) {
-        next.name = next.host.trim();
+      if (!(next.name ?? "").trim() && (next.host ?? "").trim()) {
+        next.name = (next.host ?? "").trim();
       }
       return next;
     });

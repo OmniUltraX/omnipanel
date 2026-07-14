@@ -77,7 +77,8 @@ export const HttpResponseSessionsDock = memo(function HttpResponseSessionsDock({
       onSavedLayoutChange={handleLayoutChange}
       renderPanel={renderPanel}
       panelContentKeysByTab={panelContentKeysByTab}
-      softRefreshKey={resolvedActiveId}
+      // 切 Tab 由 DockableWorkspace 局部 soft bump；勿用 activeId 做全局 softRefresh
+      defaultRenderer="onlyWhenVisible"
       enableTabGroups={false}
       defaultHeaderPosition="top"
       windowControl={false}

@@ -186,7 +186,6 @@ function ProtocolPanelInner() {
         savedLayout={savedLayout}
         onSavedLayoutChange={setSavedLayout}
         renderPanel={renderPanel}
-        softRefreshKey={activeTabId ?? ""}
         addTabConfig={addTabConfig}
         emptyContent={
           <WorkspaceEmptyPage

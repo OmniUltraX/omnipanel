@@ -292,15 +292,6 @@ pub async fn ssh_pool_probe_all(state: State<'_, AppState>) -> Result<(), OmniEr
     Ok(())
 }
 
-/// 为已配置且端口可达的 SSH 主机建立连接池会话（应用启动预热）。
-#[tauri::command]
-#[specta::specta]
-pub async fn ssh_pool_ensure_all_sessions(
-    state: State<'_, AppState>,
-) -> Result<crate::background::SshPoolWarmResult, OmniError> {
-    Ok(state.ssh_pool.ensure_all_sessions().await)
-}
-
 /// 列出远端目录。
 #[tauri::command]
 #[specta::specta]

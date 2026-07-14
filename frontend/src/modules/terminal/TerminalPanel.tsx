@@ -862,9 +862,11 @@ export function TerminalPanel() {
             acceptExternalDrops: true,
             tabs: mergedDockTabs,
             activeTabId: effectiveDockActiveId,
-            // 与 database/protocol 等模块一致：激活 tab 变化时 softRev bump，
-            // 让 renderPanel 闭包内的 isActive 随切 tab 刷新（否则嵌套侧栏 overlay 会盖住新 tab）。
-            softRefreshKey: `${effectiveDockActiveId}:${taskbarSubWindowTabId ?? ""}`,
+            // xterm / 嵌套侧栏需常驻；切 Tab 的 isActive 由 DockableWorkspace 局部 soft bump
+            defaultRenderer: "always" as const,
+            softRefreshKey: taskbarSubWindowTabId
+              ? `taskbar:${taskbarSubWindowTabId}`
+              : undefined,
             onActiveTabChange: handleDockActiveChange,
             onCloseTab: handleCloseTab,
             savedLayout: visibleTabs.length === 0 ? null : dockLayout,

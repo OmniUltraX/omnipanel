@@ -27,11 +27,36 @@ type ConnectionPoolState = {
   setServerSummary: (summary: PoolSummary) => void;
 };
 
+/** 后端快照无实质变化时跳过 setState，避免 StatusBar 无意义重渲染。 */
+function poolSummariesEqual(a: PoolSummary | null, b: PoolSummary): boolean {
+  if (!a) return false;
+  if (a.active !== b.active || a.idle !== b.idle) return false;
+  if (a.categories.length !== b.categories.length) return false;
+  for (let i = 0; i < a.categories.length; i += 1) {
+    const left = a.categories[i];
+    const right = b.categories[i];
+    if (
+      left.kind !== right.kind ||
+      left.active !== right.active ||
+      left.idle !== right.idle
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 const useConnectionPoolStore = create<ConnectionPoolState>((set) => ({
   serverSummary: null,
   localRefs: { ...EMPTY_LOCAL },
   loading: false,
-  setServerSummary: (summary) => set({ serverSummary: summary, loading: false }),
+  setServerSummary: (summary) =>
+    set((state) => {
+      if (poolSummariesEqual(state.serverSummary, summary)) {
+        return state.loading ? { loading: false } : state;
+      }
+      return { serverSummary: summary, loading: false };
+    }),
 }));
 
 function sumLocalRefs(refs: Record<string, number>): number {
@@ -126,6 +151,20 @@ export async function refreshConnectionPool() {
 
 let poolInitialized = false;
 
+/** SSH 池状态/会话事件常在健康检查时连发，合并后再刷连接池摘要。 */
+const POOL_EVENT_DEBOUNCE_MS = 400;
+let eventRefreshTimer: number | null = null;
+
+function schedulePoolRefreshFromEvent() {
+  if (eventRefreshTimer != null) {
+    window.clearTimeout(eventRefreshTimer);
+  }
+  eventRefreshTimer = window.setTimeout(() => {
+    eventRefreshTimer = null;
+    void refreshConnectionPool();
+  }, POOL_EVENT_DEBOUNCE_MS);
+}
+
 /** 启动轮询与事件监听，在 Bootstrap 中调用一次。 */
 export function initConnectionPool() {
   if (poolInitialized) return;
@@ -139,7 +178,7 @@ export function initConnectionPool() {
 
   const unsubs: Array<() => void> = [];
   const onPoolChange = () => {
-    void refreshConnectionPool();
+    schedulePoolRefreshFromEvent();
   };
 
   listen(SSH_POOL_SESSION, onPoolChange).then((fn) => unsubs.push(fn)).catch(() => {});
@@ -148,6 +187,10 @@ export function initConnectionPool() {
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       window.clearInterval(timer);
+      if (eventRefreshTimer != null) {
+        window.clearTimeout(eventRefreshTimer);
+        eventRefreshTimer = null;
+      }
       for (const fn of unsubs) fn();
     });
   }

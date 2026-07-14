@@ -85,13 +85,14 @@ export function useComposeProjectContainers(
   }, [refreshContainers, refreshStatsNow]);
 
   // 侧栏容器列表走缓存：仅从未拉取过时补一次；后续靠节点刷新按钮或生命周期 refreshNow
+  const containersLoaded = Boolean(sidebarEntry.loadedCategories?.containers);
   useEffect(() => {
     if (!enabled || !connectionId) return;
-    if (sidebarEntry.refreshedAt != null) return;
+    if (containersLoaded) return;
     refreshContainers();
-  }, [connectionId, enabled, refreshContainers, sidebarEntry.refreshedAt]);
+  }, [connectionId, containersLoaded, enabled, refreshContainers]);
 
-  const loading = enabled && projectContainers.length === 0 && sidebarEntry.refreshedAt == null;
+  const loading = enabled && projectContainers.length === 0 && !containersLoaded;
 
   return {
     items,

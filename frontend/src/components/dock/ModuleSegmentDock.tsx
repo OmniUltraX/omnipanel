@@ -65,6 +65,11 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   /** 为 false 时隐藏 Tab 栏，仅保留标题行与窗口控制（待办全宽页等） */
   showTabBar?: boolean;
   panelContentKeysByTab?: Record<string, string>;
+  /**
+   * 模块工作区默认 onlyWhenVisible，避免开 Tab 时非激活 panel 全量常驻 reconcile。
+   * 终端等需要常驻的场景显式传 always。
+   */
+  defaultRenderer?: "always" | "onlyWhenVisible";
 }
 
 const EMPTY_LAYOUT = null;
@@ -98,6 +103,7 @@ export function ModuleSegmentDock({
   panelContentKey,
   panelContentKeysByTab,
   softRefreshKey,
+  defaultRenderer = "onlyWhenVisible",
 }: ModuleSegmentDockProps) {
   const layoutRef = useRef(EMPTY_LAYOUT);
   const noopClose = useCallback(() => {}, []);
@@ -169,6 +175,7 @@ export function ModuleSegmentDock({
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
       softRefreshKey={softRefreshKey}
+      defaultRenderer={defaultRenderer}
     />
   );
 }

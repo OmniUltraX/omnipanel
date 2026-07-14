@@ -163,9 +163,6 @@ export function WorkspaceDockCore({
     [tabs, activeTabId],
   );
 
-  // 仅随激活 Tab 触发 softRefresh，更新 isActive 状态，避免 remount 导致状态丢失
-  const softRefreshKey = activeTabId;
-
   const handleCloseTab = useCallback(
     (tabId: string) => {
       if (isWorkspaceBuiltinTabId(tabId)) return;
@@ -279,7 +276,7 @@ export function WorkspaceDockCore({
       savedLayout={effectiveSavedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
       renderPanel={renderPanel}
-      softRefreshKey={softRefreshKey}
+      defaultRenderer="onlyWhenVisible"
       tabStyle={tabStyle}
       preActions={preActions}
       windowControl={windowControl}

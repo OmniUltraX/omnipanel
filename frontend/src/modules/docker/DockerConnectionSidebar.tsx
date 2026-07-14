@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
@@ -26,7 +26,8 @@ export interface DockerConnectionSidebarProps {
   onDeleteConnection?: (connectionId: string) => void;
 }
 
-export function DockerConnectionSidebar({
+/** memo：Dock tabs/layout 变化时父组件重渲，侧栏 props 不变则跳过树 reconcile */
+export const DockerConnectionSidebar = memo(function DockerConnectionSidebar({
   connections,
   loading,
   scanning,
@@ -80,7 +81,7 @@ export function DockerConnectionSidebar({
       </ScopedSearch>
     </VerticalSplitSidebar>
   );
-}
+});
 
 /** @deprecated 使用 onNavigate 回调 */
 export type DockerConnectionSidebarSelect = (

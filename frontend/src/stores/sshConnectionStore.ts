@@ -19,20 +19,38 @@ type SshConnectionState = {
   hydrateActiveSessions: (resourceIds: string[]) => void;
 };
 
+function statusEventUnchanged(prev: PoolStatusEvent | undefined, next: PoolStatusEvent): boolean {
+  return (
+    prev != null &&
+    prev.status === next.status &&
+    (prev.error ?? null) === (next.error ?? null)
+  );
+}
+
 export const useSshConnectionStore = create<SshConnectionState>((set) => ({
   statusMap: {},
   sessionActiveMap: {},
   setStatus: (ev) =>
-    set((state) => ({
-      statusMap: { ...state.statusMap, [ev.resourceId]: ev },
-    })),
+    set((state) => {
+      if (statusEventUnchanged(state.statusMap[ev.resourceId], ev)) {
+        return state;
+      }
+      return {
+        statusMap: { ...state.statusMap, [ev.resourceId]: ev },
+      };
+    }),
   hydrateStatuses: (events) =>
     set((state) => {
+      let changed = false;
       const next = { ...state.statusMap };
       for (const ev of events) {
+        if (statusEventUnchanged(next[ev.resourceId], ev)) {
+          continue;
+        }
+        changed = true;
         next[ev.resourceId] = ev;
       }
-      return { statusMap: next };
+      return changed ? { statusMap: next } : state;
     }),
   setSessionActive: (resourceId, active) =>
     set((state) => {
@@ -84,11 +102,33 @@ export async function loadSshPoolActiveSessions() {
 }
 
 let listening = false;
+
+/** 健康检查会短时间连发多主机状态；合并到同一 microtask 再 hydrate，降低侧栏重渲染次数。 */
+let pendingStatusEvents: PoolStatusEvent[] = [];
+let statusFlushScheduled = false;
+
+function queueStatusEvent(ev: PoolStatusEvent) {
+  pendingStatusEvents.push(ev);
+  if (statusFlushScheduled) return;
+  statusFlushScheduled = true;
+  queueMicrotask(() => {
+    statusFlushScheduled = false;
+    const batch = pendingStatusEvents;
+    pendingStatusEvents = [];
+    if (batch.length === 0) return;
+    if (batch.length === 1) {
+      useSshConnectionStore.getState().setStatus(batch[0]);
+      return;
+    }
+    useSshConnectionStore.getState().hydrateStatuses(batch);
+  });
+}
+
 function ensureListener() {
   if (listening) return;
   listening = true;
   listen<PoolStatusEvent>("ssh-pool-status", (ev) => {
-    useSshConnectionStore.getState().setStatus(ev.payload);
+    queueStatusEvent(ev.payload);
   }).catch(() => {
     listening = false;
   });

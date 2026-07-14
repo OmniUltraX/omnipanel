@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import type { DockerContainerStats } from "../../../ipc/bindings";
 import {
   DOCKER_STATS_POLL_MS,
@@ -14,6 +14,8 @@ export type UseDockerContainerStatsOptions = {
   /** 动态解析 scoped 容器 ID（如从 containers 列表） */
   resolveContainerIds?: () => string[];
   pollMs?: number;
+  /** 首次拉取前延迟，用于与容器列表请求错开 */
+  initialDelayMs?: number;
   enabled?: boolean;
 };
 
@@ -92,6 +94,7 @@ export function useDockerContainerStats(
 ) {
   const enabled = options?.enabled ?? true;
   const basePollMs = options?.pollMs ?? DOCKER_STATS_POLL_MS;
+  const initialDelayMs = options?.initialDelayMs ?? 0;
 
   const [statsById, setStatsById] = useState(() => readStatsCache(connectionId));
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +181,10 @@ export function useDockerContainerStats(
 
         if (!statsMapsEqual(statsByIdRef.current, next)) {
           statsByIdRef.current = next;
-          setStatsById(next);
+          // stats 更新降优先级，避免挤掉侧栏/概览卡片交互帧
+          startTransition(() => {
+            setStatsById(next);
+          });
         }
         setError(null);
       } catch (e) {
@@ -199,7 +205,11 @@ export function useDockerContainerStats(
 
     refreshRef.current = refresh;
 
-    void refresh();
+    if (initialDelayMs > 0) {
+      scheduleNext(initialDelayMs);
+    } else {
+      void refresh();
+    }
 
     return () => {
       cancelled = true;
@@ -210,7 +220,7 @@ export function useDockerContainerStats(
       inflightRef.current = false;
       clearTimer();
     };
-  }, [basePollMs, connectionId, polling]);
+  }, [basePollMs, connectionId, initialDelayMs, polling]);
 
   const refreshNow = useCallback(() => {
     void refreshRef.current?.();

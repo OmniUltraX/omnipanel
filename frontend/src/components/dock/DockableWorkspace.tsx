@@ -147,6 +147,12 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   renderPanel: (tabId: string) => ReactNode;
   /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
   panelContentKeysByTab?: Record<string, string>;
+  /**
+   * dockview panel 渲染策略。
+   * - `always`：非激活 panel 也常驻（终端 xterm / 嵌套侧栏等需要）
+   * - `onlyWhenVisible`：按需挂载，降低开 Tab 时全量 reconcile（模块工作区默认）
+   */
+  defaultRenderer?: "always" | "onlyWhenVisible";
   className?: string;
   emptyContent?: ReactNode;
   onTabContextMenu?: (
@@ -297,6 +303,7 @@ export function DockableWorkspace({
   panelContentKey = "default",
   softRefreshKey,
   panelContentKeysByTab,
+  defaultRenderer = "always",
   className,
   emptyContent,
   onTabContextMenu,
@@ -576,6 +583,28 @@ export function DockableWorkspace({
     }
   }, []);
 
+  /** 仅 bump 指定 tab 的 softRev（切 Tab 时新旧 active 对，避免全 panel reconcile） */
+  const bumpPanelSoftRevForTabIds = useCallback((api: DockviewApi, tabIds: string[]) => {
+    if (tabIds.length === 0) return;
+    isSyncingRef.current = true;
+    try {
+      const seen = new Set<string>();
+      for (const tabId of tabIds) {
+        if (!tabId || seen.has(tabId)) continue;
+        seen.add(tabId);
+        const panel = api.getPanel(tabId);
+        if (!panel) continue;
+        const current = (panel.api.getParameters() ?? {}) as PanelParams;
+        panel.api.updateParameters({
+          ...current,
+          softRev: (current.softRev ?? 0) + 1,
+        });
+      }
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, []);
+
   // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId + contentRev
   // 注意：key 仅含 contentRev，softRev 变化时 reconcile 而非 remount
   const components = useMemo(
@@ -624,7 +653,7 @@ export function DockableWorkspace({
     bumpPanelContentRev(api);
   }, [panelContentKey, panelContentKeysByTab, layoutReady, bumpPanelContentRev, bumpPanelContentRevForTabIds]);
 
-  // softRefreshKey 变更时 bump softRev（reconcile 而非 remount，保持嵌套 dock 状态）
+  // softRefreshKey：仅用于真正的全局软刷新（如路由 live）；勿把 activeTabId 塞进来
   useEffect(() => {
     const api = apiRef.current;
     if (!api || !layoutLoadedRef.current || isSyncingRef.current) return;
@@ -633,6 +662,21 @@ export function DockableWorkspace({
     lastBumpedSoftRefreshKeyRef.current = softRefreshKey;
     bumpPanelSoftRev(api);
   }, [softRefreshKey, layoutReady, bumpPanelSoftRev]);
+
+  // 切 Tab：只 soft bump 旧/新 active，让 renderPanel 内 isActive 更新，避免全量 reconcile
+  const lastSoftActiveTabIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current || isSyncingRef.current) return;
+    const prev = lastSoftActiveTabIdRef.current;
+    const next = activeTabId || null;
+    if (prev === next) return;
+    lastSoftActiveTabIdRef.current = next;
+    bumpPanelSoftRevForTabIds(
+      api,
+      [prev, next].filter((id): id is string => Boolean(id)),
+    );
+  }, [activeTabId, layoutReady, bumpPanelSoftRevForTabIds]);
 
   // 自定义 tab：元数据通过 panel params + DockWorkspaceTabHeader 内 liveMeta 同步
   const defaultTabComponent = nativeTabs ? undefined : DockWorkspaceTabHeader;
@@ -1756,17 +1800,15 @@ export function DockableWorkspace({
         // dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，但
         // onDidActivePanelChange 是同步的。onActiveTabChange → setActiveSideTab
         // 会触发 React re-render，其 microtask 可能在 onDidLayoutChange 之前执行。
-        // 若不在此同步更新 lastWrittenLayoutRef，savedLayout effect 会看到陈旧的
-        // layout 引用并调用 fromJSON，导致所有 panel 被清空重建。
+        // 必须同步更新 lastWrittenLayoutRef 防误 fromJSON；写 store/persist 改 debounce。
         if (!isSyncingRef.current && layoutLoadedRef.current && panel) {
           try {
             const raw = api.toJSON();
             const normalized = normalizeDockLayout(raw) ?? raw;
             const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
             lastWrittenLayoutRef.current = next;
-            pendingLayoutPersistRef.current = next;
-            onSavedLayoutChangeRef.current(next);
             lastWrittenFromActiveRef.current = true;
+            scheduleLayoutPersist(next, { preserveLastWritten: true });
           } catch {
             // 过渡期间 toJSON 可能抛错，忽略
           }
@@ -1978,7 +2020,7 @@ export function DockableWorkspace({
           <DockviewReact
             className="dockable-workspace__dockview"
             components={components}
-            defaultRenderer="always"
+            defaultRenderer={defaultRenderer}
             {...(defaultTabComponent ? { defaultTabComponent } : {})}
             leftHeaderActionsComponent={
               createPanelRequest || addTabConfig?.show ? leftHeaderActions : undefined

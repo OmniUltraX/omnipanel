@@ -22,8 +22,6 @@ export const enUS: TranslationDict = {
         builtinTools: "Loading built-in tool catalog…",
         connections: "Syncing connection list…",
         connectionPool: "Initializing connection pool…",
-        sshWarmup: "Warming up SSH connections…",
-        sshWarmupDone: "SSH warmup done: {ready}/{total} ready, {failed} failed",
         actionListener: "Registering action listener…",
         aiModels: "Loading AI model configuration…",
         sqlFiles: "Loading SQL query files…",

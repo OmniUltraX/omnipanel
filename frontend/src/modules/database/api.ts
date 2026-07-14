@@ -69,34 +69,39 @@ export interface ConnectionFormData {
   group: string;
 }
 
+/** IPC / 旧配置可能缺字段；统一成可 trim 的字符串，避免测试连接时 TypeError。 */
+function formText(value: string | null | undefined): string {
+  return value ?? "";
+}
+
 export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
   const parsed = Number.parseInt(form.port, 10);
   const port =
     Number.isFinite(parsed) && parsed > 0 ? parsed : ENGINE_DEFAULT_PORTS[form.engine];
-  const database = form.database.trim();
-  const host = form.host.trim();
+  const database = formText(form.database).trim();
+  const host = formText(form.host).trim();
   const nameFromPath =
     form.engine === "sqlite" && database
       ? (database.split(/[/\\]/).pop() ?? database)
       : "";
   return {
     id,
-    name: form.name.trim() || nameFromPath || host || "Untitled",
+    name: formText(form.name).trim() || nameFromPath || host || "Untitled",
     db_type: form.engine,
     host,
     port,
-    user: form.username.trim(),
-    password: form.password,
+    user: formText(form.username).trim(),
+    password: formText(form.password),
     database,
-    ssl: form.ssl,
-    group: form.group.trim() || "默认",
+    ssl: Boolean(form.ssl),
+    group: normalizeConnectionGroup(form.group),
     status: "unknown",
     enabled: true,
   };
 }
 
 export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
-  const rawType = conn.db_type.toLowerCase();
+  const rawType = formText(conn.db_type).toLowerCase();
   let engine: ConnectionFormData["engine"];
   if (rawType === "sqlite3") {
     engine = "sqlite";
@@ -108,19 +113,22 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     engine = "postgresql";
   } else if (rawType === "mssql" || rawType === "sql server") {
     engine = "sqlserver";
+  } else if (rawType in ENGINE_DEFAULT_PORTS) {
+    engine = rawType as ConnectionFormData["engine"];
   } else {
-    engine = conn.db_type as ConnectionFormData["engine"];
+    engine = "mysql";
   }
   return {
     engine,
-    name: conn.name,
-    host: conn.host,
-    port: String(conn.port),
-    database: conn.database,
-    username: conn.user,
-    password: conn.password,
-    ssl: conn.ssl,
-    group: conn.group,
+    name: formText(conn.name),
+    host: formText(conn.host),
+    port: String(conn.port ?? ENGINE_DEFAULT_PORTS[engine] ?? ""),
+    database: formText(conn.database),
+    username: formText(conn.user),
+    password: formText(conn.password),
+    ssl: Boolean(conn.ssl),
+    // 后端 connections.json 暂无 group 字段，编辑回显时需兜底
+    group: normalizeConnectionGroup(conn.group),
   };
 }
 

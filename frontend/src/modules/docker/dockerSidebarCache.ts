@@ -5,11 +5,15 @@ import type {
   DockerVolumeSummary,
 } from "@/ipc/bindings";
 
+export type DockerSidebarCategory = "images" | "containers" | "networks" | "volumes";
+
 export type DockerSidebarCacheEntry = {
   images: DockerImageSummary[];
   containers: DockerContainerSummary[];
   networks: DockerNetworkSummary[];
   volumes: DockerVolumeSummary[];
+  /** 已成功拉取过的分类；未标记则视为尚未加载（空数组 ≠ 已加载） */
+  loadedCategories: Partial<Record<DockerSidebarCategory, true>>;
   refreshedAt: number | null;
   error: string | null;
 };
@@ -20,6 +24,7 @@ export const EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY: DockerSidebarCacheEntry = {
   containers: [],
   networks: [],
   volumes: [],
+  loadedCategories: {},
   refreshedAt: null,
   error: null,
 };
@@ -30,9 +35,17 @@ export function emptyDockerSidebarCacheEntry(): DockerSidebarCacheEntry {
     containers: [],
     networks: [],
     volumes: [],
+    loadedCategories: {},
     refreshedAt: null,
     error: null,
   };
+}
+
+export function isDockerSidebarCategoryLoaded(
+  entry: DockerSidebarCacheEntry,
+  category: DockerSidebarCategory,
+): boolean {
+  return Boolean(entry.loadedCategories[category]);
 }
 
 export function selectDockerSidebarCacheEntry(connectionId: string) {
@@ -46,7 +59,7 @@ export function selectEmptyDockerSidebarCacheEntry() {
 
 export type DockerSidebarRefreshScope =
   | { kind: "connection"; connectionId: string }
-  | { kind: "category"; connectionId: string; category: "images" | "containers" | "networks" | "volumes" };
+  | { kind: "category"; connectionId: string; category: DockerSidebarCategory };
 
 export function dockerSidebarConnectionRefreshKey(connectionId: string): string {
   return `conn:${connectionId}`;
@@ -54,7 +67,7 @@ export function dockerSidebarConnectionRefreshKey(connectionId: string): string 
 
 export function dockerSidebarCategoryRefreshKey(
   connectionId: string,
-  category: "images" | "containers" | "networks" | "volumes",
+  category: DockerSidebarCategory,
 ): string {
   return `cat:${connectionId}:${category}`;
 }

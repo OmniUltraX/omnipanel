@@ -20,8 +20,6 @@ export const zhCN = {
         builtinTools: "正在加载内置工具目录…",
         connections: "正在同步连接列表…",
         connectionPool: "正在初始化连接池…",
-        sshWarmup: "正在预热 SSH 连接…",
-        sshWarmupDone: "SSH 连接预热完成：就绪 {ready}/{total}，失败 {failed}",
         actionListener: "正在注册动作监听器…",
         aiModels: "正在加载 AI 模型配置…",
         sqlFiles: "正在加载 SQL 查询文件…",

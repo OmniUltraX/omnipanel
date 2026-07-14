@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { flushSync } from "react-dom";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -685,8 +692,11 @@ export function DatabasePanel() {
 
   const activateWorkspaceTab = useCallback(
     (tabId: string) => {
-      setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
-      syncConnForTabId(tabId);
+      // 开/切 Tab 降为 transition，优先保住侧栏点击反馈帧
+      startTransition(() => {
+        setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
+        syncConnForTabId(tabId);
+      });
     },
     [syncConnForTabId],
   );
@@ -748,7 +758,8 @@ export function DatabasePanel() {
 
   const promotePreviewTab = useCallback(
     (tabId: string) => {
-      flushSync(() => {
+      // 去掉 flushSync：升格预览不再强制同步阻塞开 Tab 帧
+      startTransition(() => {
         setWorkspaceTabs((prev) =>
           prev.map((tab) => (tab.id === tabId ? { ...tab, preview: undefined } : tab)),
         );
@@ -3495,6 +3506,7 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "permanent") => {
+      startTransition(() => {
       setActiveConnIdIfChanged(selection.connId);
 
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
@@ -3589,6 +3601,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
       ensureTablePreview(tabId);
+      });
     },
     [
       activateExistingDockTab,
@@ -3598,6 +3611,8 @@ export function DatabasePanel() {
       setActiveConnIdIfChanged,
       setTableColumnMeta,
       setTablePreviews,
+      activateWorkspaceTab,
+      setWorkspaceTabs,
     ],
   );
 
@@ -4060,6 +4075,7 @@ export function DatabasePanel() {
 
   const handleSelectConnection = useCallback(
     (connId: string, mode: SchemaDockOpenMode = "permanent") => {
+      startTransition(() => {
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
@@ -4161,8 +4177,9 @@ export function DatabasePanel() {
       patchDockTabPreviewMeta(tabId, true);
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
+      });
     },
-    [connections, groups, setActiveGroupId, activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [connections, groups, setActiveGroupId, activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged, setWorkspaceTabs],
   );
   openConnectionInfoTabRef.current = handleSelectConnection;
 
@@ -4929,15 +4946,15 @@ export function DatabasePanel() {
     setExportMenu(null);
   }, [isActiveRoute]);
 
+  // 勿绑 activeTabId / 整份 tabs；切 Tab 由 DockableWorkspace 局部 soft bump
   const moduleSoftRefreshKey = useMemo(
     () =>
       [
-        connections.map((c) => c.id).join(","),
+        moduleLive ? "1" : "0",
         connectionsLoading ? "1" : "0",
-        workspaceTabs.map((t) => `${t.id}:${t.workspaceOnly ? "1" : "0"}`).join(","),
-        activeWorkspaceTabId,
+        connections.map((c) => c.id).join(","),
       ].join("|"),
-    [connections, connectionsLoading, workspaceTabs, activeWorkspaceTabId],
+    [moduleLive, connections, connectionsLoading],
   );
 
   const activeTreeChartFileId = useMemo(() => {

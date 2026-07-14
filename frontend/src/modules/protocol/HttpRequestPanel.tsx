@@ -199,7 +199,6 @@ export function HttpRequestPanel({
         savedLayout={dockLayout}
         onSavedLayoutChange={setDockLayout}
         renderPanel={renderDockPanel}
-        softRefreshKey={activeTabId ?? ""}
         onTabContextMenu={handleTabContextMenu}
         onTabDoubleClick={handleTabDoubleClick}
         emptyContent={

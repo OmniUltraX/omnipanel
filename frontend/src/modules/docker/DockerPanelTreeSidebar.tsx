@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
@@ -82,12 +82,48 @@ function DockerTreeBranch({
 }: DockerTreeBranchProps) {
   const { t } = useI18n();
   const supportsResources = connectionSupportsSidebarResources(connection);
-  // 始终订阅缓存（折叠时也能留给搜索/徽章）；仅在展开且尚无缓存时首拉
-  const { images, containers, networks, volumes, loading, error, refreshCategory } =
-    useDockerConnectionResources(supportsResources ? connection : null, {
-      autoFetchWhenEmpty: connectionExpanded,
-    });
+  // 始终订阅缓存（折叠时也能留给搜索/徽章）；展开时仅首拉 containers，其余分类展开再拉
+  const {
+    images,
+    containers,
+    networks,
+    volumes,
+    loadedCategories,
+    loading,
+    error,
+    refreshCategory,
+  } = useDockerConnectionResources(supportsResources ? connection : null, {
+    autoFetchWhenEmpty: connectionExpanded,
+  });
   const connectionNameMatch = dockerConnectionNameMatchesSearch(searchQuery, connection);
+
+  // 分类节点展开后按需拉取（镜像/网络/卷）；同一展开周期只请求一次，避免失败后 effect 死循环
+  const categoryFetchRequestedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!connectionExpanded || !supportsResources) return;
+    for (const category of DOCKER_TREE_CATEGORIES) {
+      const categoryKey = makeDockerTreeKey(connection.connectionId, category);
+      const requestKey = `${connection.connectionId}:${category}`;
+      if (!isExpanded(categoryKey)) {
+        categoryFetchRequestedRef.current.delete(requestKey);
+        continue;
+      }
+      if (loadedCategories[category]) {
+        categoryFetchRequestedRef.current.delete(requestKey);
+        continue;
+      }
+      if (categoryFetchRequestedRef.current.has(requestKey)) continue;
+      categoryFetchRequestedRef.current.add(requestKey);
+      refreshCategory(category);
+    }
+  }, [
+    connection.connectionId,
+    connectionExpanded,
+    isExpanded,
+    loadedCategories,
+    refreshCategory,
+    supportsResources,
+  ]);
 
   const categoryItems = useMemo(() => {
     type TreeItem = { id: string; label: string; meta?: string };
@@ -198,7 +234,7 @@ function DockerTreeBranch({
               onActivate={() => openCategory("permanent")}
               trailing={
                 <>
-                  {loading && category.items.length === 0 ? (
+                  {!loadedCategories[category.id] ? (
                     <span className="server-tree-badge">…</span>
                   ) : (
                     <span className="server-tree-badge">{category.count}</span>
@@ -222,7 +258,7 @@ function DockerTreeBranch({
                     activeNavKey={activeNavKey}
                     searchQuery={searchQuery}
                     connectionNameMatch={connectionNameMatch}
-                    loading={loading}
+                    loading={loading || !loadedCategories.containers}
                     error={error}
                     isExpanded={isExpanded}
                     toggle={toggle}
@@ -230,7 +266,7 @@ function DockerTreeBranch({
                     onNavigate={onNavigate}
                     onRefreshCategory={() => refreshCategory("containers")}
                   />
-                ) : loading && category.items.length === 0 ? (
+                ) : !loadedCategories[category.id] ? (
                   <SidebarTreeEmpty>{t("docker.sidebar.treeLoading")}</SidebarTreeEmpty>
                 ) : error && category.items.length === 0 ? (
                   <SidebarTreeEmpty>{error}</SidebarTreeEmpty>

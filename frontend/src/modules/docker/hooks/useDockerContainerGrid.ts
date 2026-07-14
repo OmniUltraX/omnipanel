@@ -3,7 +3,12 @@ import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
-import { DOCKER_STATS_POLL_MS, runningContainerIds } from "../dockerContainerStats";
+import {
+  DOCKER_CONTAINERS_POLL_MS,
+  DOCKER_STATS_INITIAL_DELAY_MS,
+  DOCKER_STATS_POLL_MS,
+  runningContainerIds,
+} from "../dockerContainerStats";
 import { pickStats } from "../dockerContainerStatsMatch";
 import { useDockerContainerStats } from "./useDockerContainerStats";
 
@@ -25,7 +30,7 @@ export function useDockerContainerGrid(
   options?: UseDockerContainerGridOptions,
 ) {
   const statsPollMs = options?.statsPollMs ?? DOCKER_STATS_POLL_MS;
-  const containersPollMs = options?.containersPollMs ?? statsPollMs;
+  const containersPollMs = options?.containersPollMs ?? DOCKER_CONTAINERS_POLL_MS;
 
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,6 +52,7 @@ export function useDockerContainerGrid(
   } = useDockerContainerStats(connectionId, {
     enabled,
     pollMs: statsPollMs,
+    initialDelayMs: DOCKER_STATS_INITIAL_DELAY_MS,
     resolveContainerIds,
   });
 
@@ -113,7 +119,7 @@ export function useDockerContainerGrid(
       refreshContainersRef.current = null;
       window.clearInterval(timer);
     };
-  }, [connectionId, containersPollMs, enabled, statsPollMs]);
+  }, [connectionId, containersPollMs, enabled]);
 
   const refreshNow = useCallback(() => {
     void refreshContainersRef.current?.();

@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  lazy,
+  Suspense,
+  startTransition,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
@@ -184,52 +193,55 @@ export function DockerPanel() {
 
   const handleNavigate = useCallback(
     (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
-      if (target.composeProject) {
-        selectCompose(target.connectionId, target.composeProject, mode);
-        setActiveNavKey(
-          makeDockerComposeProjectTreeKey(target.connectionId, target.composeProject),
-        );
-      return;
-    }
+      // 开 Tab 降为 transition，优先保住侧栏点击反馈帧
+      startTransition(() => {
+        if (target.composeProject) {
+          selectCompose(target.connectionId, target.composeProject, mode);
+          setActiveNavKey(
+            makeDockerComposeProjectTreeKey(target.connectionId, target.composeProject),
+          );
+          return;
+        }
 
-      if (target.category === "containers" && target.itemId) {
-        selectContainer(target.connectionId, target.itemId, mode);
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-        return;
-      }
+        if (target.category === "containers" && target.itemId) {
+          selectContainer(target.connectionId, target.itemId, mode);
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
+          return;
+        }
 
-      if (target.category === "containers" && !target.itemId) {
-        selectContainers(target.connectionId, mode);
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
-        return;
-      }
+        if (target.category === "containers" && !target.itemId) {
+          selectContainers(target.connectionId, mode);
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
+          return;
+        }
 
-      if (target.category === "images" && !target.itemId) {
-        selectImages(target.connectionId, mode);
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, "images"));
-        return;
-      }
+        if (target.category === "images" && !target.itemId) {
+          selectImages(target.connectionId, mode);
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, "images"));
+          return;
+        }
 
-      if (target.category === "networks" && !target.itemId) {
-        selectNetworks(target.connectionId, mode);
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, "networks"));
-        return;
-      }
+        if (target.category === "networks" && !target.itemId) {
+          selectNetworks(target.connectionId, mode);
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, "networks"));
+          return;
+        }
 
-      if (target.category === "volumes" && !target.itemId) {
-        selectVolumes(target.connectionId, mode);
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, "volumes"));
-        return;
-      }
+        if (target.category === "volumes" && !target.itemId) {
+          selectVolumes(target.connectionId, mode);
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, "volumes"));
+          return;
+        }
 
-      selectConnection(target.connectionId, mode);
-      if (target.itemId && target.category) {
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-      } else if (target.category) {
-        setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
+        selectConnection(target.connectionId, mode);
+        if (target.itemId && target.category) {
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
+        } else if (target.category) {
+          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
         } else {
-        setActiveNavKey(makeDockerTreeKey(target.connectionId));
-      }
+          setActiveNavKey(makeDockerTreeKey(target.connectionId));
+        }
+      });
     },
     [
       selectConnection,
@@ -239,6 +251,7 @@ export function DockerPanel() {
       selectImages,
       selectNetworks,
       selectVolumes,
+      setActiveNavKey,
     ],
   );
 
@@ -485,7 +498,8 @@ export function DockerPanel() {
     );
   }, []);
 
-  const dockSoftRefreshKey = `${moduleLive ? 1 : 0}:${activeTabId ?? ""}`;
+  // 仅路由 live 变化时全局 soft；切 Tab 由 DockableWorkspace 局部 soft bump
+  const dockSoftRefreshKey = moduleLive ? "live" : "idle";
 
   const sidebarLinkageValue = useMemo(
     () => ({

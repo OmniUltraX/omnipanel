@@ -3,9 +3,13 @@ import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bin
 import { unwrapCommand } from "../../ipc/result";
 
 /** 默认 stats 轮询间隔（空闲） */
-export const DOCKER_STATS_POLL_MS = 3000;
+export const DOCKER_STATS_POLL_MS = 5000;
 /** 运行中容器较多时的降频间隔 */
-export const DOCKER_STATS_POLL_MS_BUSY = 5000;
+export const DOCKER_STATS_POLL_MS_BUSY = 8000;
+/** 容器列表轮询：低于 stats，避免与全量 stats 同频双冲击 */
+export const DOCKER_CONTAINERS_POLL_MS = 12_000;
+/** 首帧先拉容器列表，stats 稍后错开启动 */
+export const DOCKER_STATS_INITIAL_DELAY_MS = 800;
 export const DOCKER_STATS_REQUEST_TIMEOUT_MS = 45_000;
 
 const unwrap = unwrapCommand;

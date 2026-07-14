@@ -120,7 +120,12 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set
     connections: {},
     refreshingKeys: {},
 
-    getEntry: (connectionId) => get().connections[connectionId] ?? EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY,
+    getEntry: (connectionId) => {
+      const entry = get().connections[connectionId] ?? EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY;
+      // 兼容热更新前缓存缺省字段
+      if (entry.loadedCategories) return entry;
+      return { ...entry, loadedCategories: {} };
+    },
 
     isRefreshing: (key) => Boolean(get().refreshingKeys[key]),
 
@@ -137,12 +142,16 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set
     },
 
     patchEntry: (connectionId, entry) => {
+      const normalized: DockerSidebarCacheEntry = {
+        ...entry,
+        loadedCategories: entry.loadedCategories ?? {},
+      };
       // cache-first：刷新结果用 transition 提交，避免挤掉侧栏点击/展开的交互帧
       startTransition(() => {
         set((state) => ({
           connections: {
             ...state.connections,
-            [connectionId]: entry,
+            [connectionId]: normalized,
           },
         }));
       });
