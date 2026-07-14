@@ -10,7 +10,18 @@
 const FULL_TERMINAL_SIGNAL_RE =
   /\x1b\[\?(?:1049|1047|47)h|\x1b\[\?(?:1000|1002|1003|1006)h/;
 
+// 退出信号仅匹配 alt screen 离开（1049l/1047l/47l），
+// 不匹配鼠标追踪关闭（1000l 等）：TUI 可能临时关闭鼠标而不退出，
+// 鼠标 ?l 误报率过高。alt screen ?l 是 TUI 恢复主屏幕缓冲的可靠退出标志。
+const FULL_TERMINAL_EXIT_SIGNAL_RE = /\x1b\[\?(?:1049|1047|47)l/;
+
 export function hasFullTerminalSignal(bytes: Uint8Array): boolean {
   if (bytes.length === 0) return false;
   return FULL_TERMINAL_SIGNAL_RE.test(new TextDecoder().decode(bytes));
+}
+
+/** 检测 TUI 退出 alt screen 的信号（vim/less/htop 等离开时发送）。 */
+export function hasFullTerminalExitSignal(bytes: Uint8Array): boolean {
+  if (bytes.length === 0) return false;
+  return FULL_TERMINAL_EXIT_SIGNAL_RE.test(new TextDecoder().decode(bytes));
 }

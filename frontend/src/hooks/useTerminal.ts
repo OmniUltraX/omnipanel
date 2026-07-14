@@ -82,7 +82,10 @@ import {
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
 import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
-import { hasFullTerminalSignal } from "../modules/terminal/fullTerminalSignals";
+import {
+  hasFullTerminalSignal,
+  hasFullTerminalExitSignal,
+} from "../modules/terminal/fullTerminalSignals";
 import {
   FULL_TERMINAL_BLOCK_SUMMARY,
   useTerminalRunStateStore,
@@ -495,6 +498,13 @@ export function useTerminal(
     outputBuffer: Uint8Array[];
     initTerminal: (() => void) | null;
   }>({ resizeObserver: null, fitAddon: null, container: null, outputBuffer: [], initTerminal: null });
+  // tab 可见性（IntersectionObserver 维护）：与 module 级 suspended 独立。
+  // 不可见时仍解析 block / shell history，仅跳过 term.write 渲染；恢复时 flush 累积字节。
+  const visibleRef = useRef(true);
+  // 温和重连句柄：保留 term/webgl/addon/listener，仅重建后端 PTY session。
+  // 由外部 useEffect[reconnectKey] 调用，避免历史"全销毁重建"的卡顿。
+  const performReconnectRef = useRef<(() => void) | null>(null);
+  const firstReconnectRef = useRef(true);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -891,12 +901,13 @@ export function useTerminal(
           runStore.shouldShowLiveXterm(sessionId) &&
           hasFullTerminalSignal(merged)
         ) {
-          runStore.enterFullTerminal(
-            sessionId,
-            pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId) ?? undefined,
-          );
-          useTerminalUiStore.getState().enterFullTerminal(sessionId);
-          const blockId = pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
+          // 进入全屏 TUI：claim block 一次，经 UI store 单次下发到 run store
+          // （旧代码先 runStore.enterFullTerminal 再 uiStore.enterFullTerminal，
+          //  后者内部再调一次 runStore.enterFullTerminal，导致两次 set + 两次 re-render；
+          //  且 claimFeedCaptureBlockId 被调用两次，claim 了两个不同 blockId）
+          const blockId =
+            pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
+          useTerminalUiStore.getState().enterFullTerminal(sessionId, blockId);
           if (blockId) {
             useBlocksStore.getState().updateBlock(blockId, {
               status: "completed",
@@ -904,6 +915,13 @@ export function useTerminal(
               output: FULL_TERMINAL_BLOCK_SUMMARY,
             });
           }
+        } else if (
+          isWarpDisplay(sessionId) &&
+          runStore.getRunState(sessionId) === "full-terminal" &&
+          hasFullTerminalExitSignal(merged)
+        ) {
+          // TUI 退出 alt screen（vim/less/htop 离开）：回到 Command Bar
+          useTerminalUiStore.getState().returnToCommandBar(sessionId);
         } else if (
           isWarpDisplay(sessionId) &&
           (runStore.getRunState(sessionId) === "block-running" ||
@@ -925,6 +943,11 @@ export function useTerminal(
           scheduleFeedBlockIdleComplete(outputBlockId!);
         }
         if (suspendedRef.current) {
+          runtimeRef.current.outputBuffer.push(merged);
+          return;
+        }
+        // tab 不可见时累积字节，切回可见时由 IntersectionObserver 回调 flush
+        if (!visibleRef.current) {
           runtimeRef.current.outputBuffer.push(merged);
           return;
         }
@@ -1168,14 +1191,50 @@ export function useTerminal(
         term.loadAddon(searchAddon);
         searchAddonRef.current = searchAddon;
 
-        if (settings.terminalGpuAccel) {
+        // WebGL 渲染器：失败 / context loss 时自动重建，最坏兜底到 xterm 默认 DOM renderer。
+        // 不再依赖 @xterm/addon-canvas（已废弃，peer 仍锁 xterm 5.x）。
+        // DOM renderer 性能虽不如 WebGL，但作为兜底至少不会空白，且仅在 GPU 真不可用时触发。
+        const setupWebglRenderer = (): boolean => {
+          if (!settings.terminalGpuAccel) return false;
+          if (!term) return false;
           try {
-            webglAddon = new WebglAddon();
-            term.loadAddon(webglAddon);
-          } catch {
-            // WebGL not available, fall back to canvas renderer
+            const addon = new WebglAddon();
+            // onContextLoss 必须在 loadAddon 之前注册，避免漏掉首帧丢失事件
+            addon.onContextLoss(() => {
+              if (destroyed) return;
+              if (!term) return;
+              try {
+                addon.dispose();
+              } catch {
+                /* noop */
+              }
+              if (webglAddon === addon) {
+                webglAddon = null;
+              }
+              // 下一帧重建，避免在 context loss 同步路径里再次抛错
+              requestAnimationFrame(() => {
+                if (destroyed) return;
+                if (!term) return;
+                if (!setupWebglRenderer()) {
+                  console.warn(
+                    `[Terminal ${sessionId}] WebGL context lost and re-init failed; falling back to DOM renderer`,
+                  );
+                }
+              });
+            });
+            term.loadAddon(addon);
+            webglAddon = addon;
+            return true;
+          } catch (err) {
+            console.warn(
+              `[Terminal ${sessionId}] WebGL renderer unavailable; using DOM renderer`,
+              err,
+            );
+            webglAddon = null;
+            return false;
           }
-        }
+        };
+        setupWebglRenderer();
 
         term.open(container!);
         fitAddon.fit();
@@ -1285,13 +1344,52 @@ export function useTerminal(
 
     runtimeRef.current.initTerminal = initTerminal;
 
+    // 切回可见时把不可见期间累积的字节 flush 到 xterm。
+    // 与 useEffect[suspended] 恢复路径独立：suspended 是 module 级别，visible 是 tab 级别。
+    function flushOutputBuffer() {
+      if (!term) return;
+      const rt = runtimeRef.current;
+      if (rt.outputBuffer.length === 0) return;
+      for (const bytes of rt.outputBuffer) {
+        term.write(bytes);
+      }
+      rt.outputBuffer = [];
+    }
+
+    // 温和重连：保留 term / WebGL / 所有 addon / output listener / batcher，
+    // 仅重建后端 PTY session。外部 cleanup（autoReconnect / TerminalPanel reconnect handler）
+    // 已 dispose 旧 PTY 资源 + 清 store backendSessionId，这里只做"前端侧"重新拉起。
+    function performReconnect() {
+      if (destroyed || !term) return;
+      // 1) 清理旧 backend session 引用（外部已 dispose 真正的 PTY）
+      backendSid = null;
+      registerRuntimeBackendSession(sessionId, null);
+      // 2) 清理 output echo filter（首次远程会话引导用，重连视为新会话需要重新过滤）
+      restoring = false;
+      if (remoteInitEchoFilter) {
+        remoteInitEchoFilter.releasePending();
+        remoteInitEchoFilter = null;
+      }
+      if (remoteInitEchoFilterTimer) {
+        clearTimeout(remoteInitEchoFilterTimer);
+        remoteInitEchoFilterTimer = null;
+      }
+      // 3) 重新创建 backend session（ensureBackendSession 内部会 spawn 新 PTY 并触发 restoreSnapshot）
+      void ensureBackendSession(term.cols, term.rows);
+    }
+    performReconnectRef.current = performReconnect;
+
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && !suspendedRef.current) {
+          if (entry.isIntersecting) {
+            visibleRef.current = true;
+            if (suspendedRef.current) continue;
             if (!term) {
               initTerminal();
             } else {
+              // 切回可见：flush 不可见期间累积的输出
+              flushOutputBuffer();
               requestAnimationFrame(() => {
                 if (destroyed || suspendedRef.current) return;
                 fitAddon?.fit();
@@ -1300,6 +1398,8 @@ export function useTerminal(
                 }
               });
             }
+          } else {
+            visibleRef.current = false;
           }
         }
       },
@@ -1345,8 +1445,20 @@ export function useTerminal(
       termRef.current = null;
       searchAddonRef.current = null;
       runtimeRef.current.initTerminal = null;
+      performReconnectRef.current = null;
     };
-  }, [sessionId, reconnectKey]);
+  }, [sessionId]);
+
+  // 温和重连：reconnectKey 变化时仅重建后端 PTY，不再 dispose term/webgl/addon/listener。
+  // 首次 mount 跳过（reconnectKey 初始为 0）。
+  useEffect(() => {
+    if (firstReconnectRef.current) {
+      firstReconnectRef.current = false;
+      return;
+    }
+    performReconnectRef.current?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconnectKey]);
 
   useEffect(() => {
     const term = termRef.current;

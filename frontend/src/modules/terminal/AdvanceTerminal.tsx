@@ -121,6 +121,32 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
 
   // 展开态 dockview 容器 ref
   const sideDockWrapRef = useRef<HTMLDivElement | null>(null);
+  // 内层侧栏 dockview 的 relayout 入口（由 DockableWorkspace 通过 relayoutRef 注入）
+  const sideRelayoutRef = useRef<(() => void) | null>(null);
+  // 跟踪上一轮 isActive，用于检测外层 tab 切换
+  const prevIsActiveRef = useRef(isActive);
+
+  // 外层终端 tab 切换时，内层侧栏 dockview 的 OverlayRenderContainer 不会收到
+  // onDidVisibilityChange（内层 panel 一直 active），overlay 位置可能停留在
+  // 旧值导致侧栏空白。监听 isActive 从 false→true，强制内层 dockview relayout。
+  useEffect(() => {
+    const wasActive = prevIsActiveRef.current;
+    prevIsActiveRef.current = isActive;
+    if (!isActive || wasActive) return;
+    if (!sideDockMounted || sideCollapsed) return;
+    // 多层 rAF 确保外层 dockview 的 overlay resize 与 api.layout() 完成后，
+    // 再触发内层 dockview relayout，避免使用陈旧的 DOM 尺寸。
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        sideRelayoutRef.current?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [isActive, sideDockMounted, sideCollapsed]);
 
   // DockableWorkspace.onTabClick：仅当 wasActive=true（点击当前已激活 tab）时收起。
   // wasActive 的判断由 DockableWorkspace 在 pointerdown capture 阶段通过
@@ -389,6 +415,7 @@ export function AdvanceTerminal({ tabId, isActive, onActivate, sideDockScope }: 
               defaultHeaderPosition="right"
               disableTabsOverflowList
               scrollbars="native"
+              relayoutRef={sideRelayoutRef}
             />
           </div>
         )}

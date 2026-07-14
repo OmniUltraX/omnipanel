@@ -578,8 +578,7 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
           useTerminalRunStateStore.getState().promoteToInlineRun(pending.tabId);
         }
         if (shouldUseFullTerminalForUser(displayCommand)) {
-          useTerminalRunStateStore.getState().enterFullTerminal(pending.tabId, blockId);
-          useTerminalUiStore.getState().enterFullTerminal(pending.tabId);
+          useTerminalUiStore.getState().enterFullTerminal(pending.tabId, blockId);
           useBlocksStore.getState().updateBlock(blockId, {
             status: "completed",
             exitCode: 0,

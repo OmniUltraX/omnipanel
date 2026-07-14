@@ -19,7 +19,7 @@ import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 
-const MIN_SPLASH_MS = 1400;
+const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
 
 type BootPhase = "splash" | "exit" | "app";
@@ -64,6 +64,9 @@ export function Bootstrap() {
 
       try {
         advance(1);
+        // 尽早启动 App chunk 加载（最大的 JS chunk），与后续 store 初始化并行
+        const appPromise = import("./App");
+
         await pushLog(t("app.splash.logs.settings"));
         initSettings();
 
@@ -79,12 +82,14 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.modules"));
         await initAppModuleStore();
 
+        // builtinTools → toolHost 注册有依赖，单独成链
         await pushLog(t("app.splash.logs.builtinTools"));
-        await initBuiltinToolStore();
-        const { registerToolHandlers } = await import("./lib/ai/toolHost");
-        registerToolHandlers();
-        const { syncGatewayConfig } = await import("./lib/ai/gatewayConfig");
-        void syncGatewayConfig();
+        const toolsChain = initBuiltinToolStore().then(async () => {
+          const { registerToolHandlers } = await import("./lib/ai/toolHost");
+          registerToolHandlers();
+          const { syncGatewayConfig } = await import("./lib/ai/gatewayConfig");
+          void syncGatewayConfig();
+        });
 
         await pushLog(t("app.splash.logs.connections"));
         await initConnections();
@@ -108,16 +113,16 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.actionListener"));
         initActionListener();
 
+        // 以下 store 互相独立，并行初始化
         await pushLog(t("app.splash.logs.aiModels"));
-        await initAiModelsStore();
-
-        await pushLog(t("app.splash.logs.sqlFiles"));
-        await initDbSqlFilesStore();
-        await initDbTreeChartFilesStore();
-
-        await pushLog(t("app.splash.logs.acpServices"));
-        await initAcpServicesStore();
-        await initCliProvidersStore();
+        const parallelInits = Promise.all([
+          initAiModelsStore(),
+          initDbSqlFilesStore(),
+          initDbTreeChartFilesStore(),
+          initAcpServicesStore(),
+          initCliProvidersStore(),
+        ]);
+        await Promise.all([toolsChain, parallelInits]);
 
         advance(3);
         await pushLog(t("app.splash.logs.xterm"));
@@ -125,7 +130,7 @@ export function Bootstrap() {
 
         advance(4);
         await pushLog(t("app.splash.logs.appShell"));
-        const { default: App } = await import("./App");
+        const { default: App } = await appPromise;
 
         await pushLog(t("app.splash.logs.ready"));
 
