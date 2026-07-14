@@ -23,6 +23,7 @@ interface FilesWorkspaceSessionState extends FilesWorkspaceSessionSnapshot {
   closeConnection: (connId: string) => void;
   setPanelState: (connId: string, snapshot: FileConnectionPanelSnapshot) => void;
   pruneMissingConnections: (validConnIds: string[]) => void;
+  setConnectionWorkspaceOnly: (connId: string, workspaceOnly: boolean) => void;
   reset: () => void;
 }
 
@@ -73,6 +74,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
             ? state.openConnIds
             : [...state.openConnIds, connId],
           activePanelId: fileConnPanelId(connId),
+          workspaceOnlyConnIds: state.workspaceOnlyConnIds.filter((id) => id !== connId),
         })),
       closeConnection: (connId) => {
         const tabId = fileConnPanelId(connId);
@@ -82,8 +84,16 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
           openConnIds,
           activePanelId: pickNextActivePanelId(state.openConnIds, connId, state.activePanelId),
           savedLayout: removeFileTabFromLayout(state.savedLayout, tabId),
+          workspaceOnlyConnIds: state.workspaceOnlyConnIds.filter((id) => id !== connId),
         });
       },
+      setConnectionWorkspaceOnly: (connId, workspaceOnly) =>
+        set((state) => {
+          const set = new Set(state.workspaceOnlyConnIds);
+          if (workspaceOnly) set.add(connId);
+          else set.delete(connId);
+          return { workspaceOnlyConnIds: [...set] };
+        }),
       setPanelState: (connId, snapshot) =>
         set((state) => ({
           panelStates: { ...state.panelStates, [connId]: snapshot },
@@ -92,6 +102,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         const allowed = new Set(validConnIds);
         const state = get();
         const openConnIds = state.openConnIds.filter((id) => allowed.has(id));
+        const workspaceOnlyConnIds = state.workspaceOnlyConnIds.filter((id) => allowed.has(id));
         let activePanelId = state.activePanelId;
         if (activePanelId) {
           const activeConnId = activePanelId.replace(/^fm-conn:/, "");
@@ -106,12 +117,13 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         );
         if (
           openConnIds.length === state.openConnIds.length
+          && workspaceOnlyConnIds.length === state.workspaceOnlyConnIds.length
           && activePanelId === state.activePanelId
           && Object.keys(panelStates).length === Object.keys(state.panelStates).length
         ) {
           return;
         }
-        set({ openConnIds, activePanelId, panelStates });
+        set({ openConnIds, activePanelId, panelStates, workspaceOnlyConnIds });
       },
       reset: () => set({ ...EMPTY_SESSION }),
     }),
@@ -124,6 +136,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         activePanelId: state.activePanelId,
         savedLayout: state.savedLayout,
         panelStates: state.panelStates,
+        workspaceOnlyConnIds: state.workspaceOnlyConnIds,
       }),
       migrate: (persistedState, fromVersion) => {
         if (!persistedState || fromVersion < 1) {

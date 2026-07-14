@@ -855,7 +855,7 @@ async function completeCrossWindowTransfer(
   ]);
 }
 
-/** 根据 tab 类型推断对应的主窗模块 dock scope（terminal / database）。 */
+/** 根据 tab 类型推断对应的主窗模块 dock scope（terminal / database / files-browser）。 */
 function resolveModuleScopeForTab(tab: WorkspaceDockTab): string | null {
   if (tab.kind === "builtin") return null;
   if (tab.kind === "payload") {
@@ -866,6 +866,8 @@ function resolveModuleScopeForTab(tab: WorkspaceDockTab): string | null {
   // mirrored
   if (tab.originScope === "terminal" || tab.panelType === "terminal") return "terminal";
   if (tab.originScope === "database" || tab.panelType === "database") return "database";
+  if (tab.originScope === "files-browser" || tab.panelType === "file-connection")
+    return "files-browser";
   return null;
 }
 

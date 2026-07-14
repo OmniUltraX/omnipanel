@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useLocation } from "react-router-dom";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import {
   ModuleSegmentDock,
   type DockableTab,
@@ -14,6 +15,10 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { useI18n } from "../../i18n";
 import { migrateLayoutStorage } from "../../lib/layoutMigration";
 import { appConfirm } from "../../lib/appConfirm";
+import { subscribeDockviewTransfer, relayoutDockviewInstances } from "../../lib/dockviewRegistry";
+import { deliverMirroredTabToWorkspace } from "../../lib/workspaceSnapshotDelivery";
+import { removeFileTabFromLayout } from "../../stores/filesWorkspaceSessionStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import type { Connection, FileIndexStatus, FileLocalSystemInfo, FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileIndexProgress } from "./fileApi";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -55,11 +60,15 @@ function FilesBrowserView() {
   const activePanelId = useFilesWorkspaceSessionStore((s) => s.activePanelId);
   const savedLayout = useFilesWorkspaceSessionStore((s) => s.savedLayout);
   const panelStates = useFilesWorkspaceSessionStore((s) => s.panelStates);
+  const workspaceOnlyConnIds = useFilesWorkspaceSessionStore((s) => s.workspaceOnlyConnIds);
   const setSavedLayout = useFilesWorkspaceSessionStore((s) => s.setSavedLayout);
   const setActivePanelId = useFilesWorkspaceSessionStore((s) => s.setActivePanelId);
   const openConnection = useFilesWorkspaceSessionStore((s) => s.openConnection);
   const closeConnection = useFilesWorkspaceSessionStore((s) => s.closeConnection);
   const pruneMissingConnections = useFilesWorkspaceSessionStore((s) => s.pruneMissingConnections);
+  const setConnectionWorkspaceOnly = useFilesWorkspaceSessionStore((s) => s.setConnectionWorkspaceOnly);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.workspace.id);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
 
   const [sessionHydrated, setSessionHydrated] = useState(
     () => useFilesWorkspaceSessionStore.persist.hasHydrated(),
@@ -70,6 +79,12 @@ function FilesBrowserView() {
   const [dialogInitialSshId, setDialogInitialSshId] = useState<string | undefined>();
   const [editConnection, setEditConnection] = useState<Connection | undefined>();
   const [ctxMenu, setCtxMenu] = useState<ConnCtxState>(null);
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+    index: number;
+  } | null>(null);
   const [quickPaths, setQuickPaths] = useState<{
     home: string;
     desktop: string;
@@ -167,7 +182,9 @@ function FilesBrowserView() {
 
   const dockTabs = useMemo((): DockableTab[] => {
     const tabs: DockableTab[] = [];
+    const workspaceOnlySet = new Set(workspaceOnlyConnIds);
     for (const connId of openConnIds) {
+      if (workspaceOnlySet.has(connId)) continue;
       const conn = connections.find((c) => c.id === connId);
       if (!conn) continue;
       tabs.push({
@@ -180,7 +197,7 @@ function FilesBrowserView() {
       });
     }
     return tabs;
-  }, [connections, openConnIds]);
+  }, [connections, openConnIds, workspaceOnlyConnIds]);
 
   useEffect(() => {
     void loadConnections();
@@ -373,10 +390,138 @@ function FilesBrowserView() {
       if (!targetScope.startsWith("workspace-bottom-")) return;
       const connId = parseFileConnPanelId(panelId);
       if (!connId) return;
-      closeConnection(connId);
+      // 拖入工作区：标记 workspaceOnly，从布局移除，保留连接以便拖回时恢复
+      setConnectionWorkspaceOnly(connId, true);
+      setSavedLayout(removeFileTabFromLayout(savedLayout, panelId));
     },
-    [closeConnection],
+    [savedLayout, setConnectionWorkspaceOnly, setSavedLayout],
   );
+
+  const performMoveTabToWorkspace = useCallback(
+    (tabId: string, targetWorkspaceId: string) => {
+      if (!targetWorkspaceId) return;
+      const connId = parseFileConnPanelId(tabId);
+      if (!connId) return;
+      if (workspaceOnlyConnIds.includes(connId)) return;
+
+      const conn = connections.find((c) => c.id === connId);
+      if (!conn) return;
+
+      // 标记 workspaceOnly + 从布局移除
+      setConnectionWorkspaceOnly(connId, true);
+      setSavedLayout(removeFileTabFromLayout(savedLayout, tabId));
+
+      // 投递镜像 tab 到目标工作区
+      const dockScope = `workspace-bottom-${targetWorkspaceId}`;
+      void deliverMirroredTabToWorkspace(targetWorkspaceId, {
+        id: `${dockScope}:${tabId}`,
+        label: conn.name,
+        originScope: "files-browser",
+        originPanelId: tabId,
+        panelType: "file-connection",
+        closable: true,
+      });
+
+      setTabCtxMenu(null);
+    },
+    [connections, savedLayout, setConnectionWorkspaceOnly, setSavedLayout, workspaceOnlyConnIds],
+  );
+
+  const handleDockTabContextMenu = useCallback(
+    (event: React.MouseEvent, tabId: string, index: number) => {
+      event.preventDefault();
+      setTabCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
+  );
+
+  const handleContextAction = useCallback(
+    (action: TabContextMenuAction) => {
+      if (!tabCtxMenu) return;
+      const { tabId } = tabCtxMenu;
+      const visibleTabs = dockTabs;
+      const idx = visibleTabs.findIndex((tab) => tab.id === tabId);
+
+      if (action === "close") {
+        handleCloseTab(tabId);
+      } else if (action === "closeLeft") {
+        if (idx > 0) {
+          for (const tab of visibleTabs.slice(0, idx)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeRight") {
+        if (idx >= 0 && idx < visibleTabs.length - 1) {
+          for (const tab of visibleTabs.slice(idx + 1)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeOthers") {
+        if (idx >= 0) {
+          for (const tab of visibleTabs.filter((t) => t.id !== tabId)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeAll") {
+        for (const tab of visibleTabs) {
+          handleCloseTab(tab.id);
+        }
+      }
+      setTabCtxMenu(null);
+    },
+    [dockTabs, handleCloseTab, tabCtxMenu],
+  );
+
+  // 监听跨 dockview 实例拖拽转移：从工作区 dock 拖回文件主面板时恢复 tab
+  useEffect(() => {
+    return subscribeDockviewTransfer((meta) => {
+      if (!meta.newPanelId.startsWith("files-browser:")) return;
+      if (!meta.originScope.startsWith("workspace-bottom-")) return;
+
+      // 从 originPanelId 中解析出原始文件 tab id
+      // workspace dock 中 panel id 格式: "workspace-bottom-{wsId}:{原始tabId}"
+      const prefix = `${meta.originScope}:`;
+      const originalTabId = meta.originPanelId.startsWith(prefix)
+        ? meta.originPanelId.slice(prefix.length)
+        : meta.originPanelId;
+      const connId = parseFileConnPanelId(originalTabId);
+      if (!connId) return;
+
+      // 恢复 workspaceOnly = false，让 tab 重新在主面板可见
+      setConnectionWorkspaceOnly(connId, false);
+      setActivePanelId(originalTabId);
+      requestAnimationFrame(() => relayoutDockviewInstances("files-browser"));
+    });
+  }, [setActivePanelId, setConnectionWorkspaceOnly]);
+
+  // 监听跨窗「移动到主窗口」恢复事件
+  useEffect(() => {
+    const handleRestore = (e: Event) => {
+      const detail = (e as CustomEvent<{ connId: string }>).detail;
+      if (!detail?.connId) return;
+      const connId = detail.connId;
+      // 确保连接已打开
+      const store = useFilesWorkspaceSessionStore.getState();
+      if (!store.openConnIds.includes(connId)) {
+        store.openConnection(connId);
+      } else {
+        store.setConnectionWorkspaceOnly(connId, false);
+      }
+      store.setActivePanelId(fileConnPanelId(connId));
+      requestAnimationFrame(() => relayoutDockviewInstances("files-browser"));
+    };
+    window.addEventListener("omnipanel:restore-files-workspace-tab", handleRestore);
+    return () => {
+      window.removeEventListener("omnipanel:restore-files-workspace-tab", handleRestore);
+    };
+  }, []);
+
+  // 离开路由时关闭 tab 右键菜单
+  useEffect(() => {
+    if (!isActiveRoute) {
+      setTabCtxMenu(null);
+    }
+  }, [isActiveRoute]);
 
   const renderDockPanel = useCallback(
     (panelId: string) => {
@@ -466,6 +611,7 @@ function FilesBrowserView() {
               activeTabId={activePanelId ?? ""}
               onActiveTabChange={setActivePanelId}
               onCloseTab={handleCloseTab}
+              onTabContextMenu={handleDockTabContextMenu}
               onPanelTransferredOut={handlePanelTransferredOut}
               acceptExternalDrops
               savedLayout={savedLayout}
@@ -505,6 +651,31 @@ function FilesBrowserView() {
           onClose={() => setCtxMenu(null)}
         />
       )}
+
+      {isActiveRoute && tabCtxMenu && (() => {
+        const visibleDockTabs = dockTabs;
+        const menuTabIndex = visibleDockTabs.findIndex((tab) => tab.id === tabCtxMenu.tabId);
+        const closeItems = buildTabCloseMenuItems(
+          t,
+          visibleDockTabs.length,
+          menuTabIndex >= 0 ? menuTabIndex : 0,
+          handleContextAction,
+          {
+            showWorkspaceActions: true,
+            currentWorkspaceId: activeWorkspaceId,
+            workspaces,
+            onMoveToWorkspace: (workspaceId) =>
+              performMoveTabToWorkspace(tabCtxMenu.tabId, workspaceId),
+          },
+        );
+        return (
+          <ContextMenu
+            items={closeItems}
+            position={{ x: tabCtxMenu.x, y: tabCtxMenu.y }}
+            onClose={() => setTabCtxMenu(null)}
+          />
+        );
+      })()}
     </>
   );
 }

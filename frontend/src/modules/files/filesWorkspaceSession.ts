@@ -17,6 +17,8 @@ export interface FilesWorkspaceSessionSnapshot {
   activePanelId: string | null;
   savedLayout: SerializedDockview | null;
   panelStates: Record<string, FileConnectionPanelSnapshot>;
+  /** 已移动到工作区、主面板需隐藏的连接 id */
+  workspaceOnlyConnIds: string[];
 }
 
 export function createDefaultPanelState(): FileConnectionPanelSnapshot {
@@ -55,6 +57,7 @@ export function sanitizeFilesWorkspaceSession(
       activePanelId: null,
       savedLayout: null,
       panelStates: {},
+      workspaceOnlyConnIds: [],
     };
   }
   const o = raw as Partial<FilesWorkspaceSessionSnapshot>;
@@ -73,5 +76,8 @@ export function sanitizeFilesWorkspaceSession(
       if (sanitized) panelStates[connId] = sanitized;
     }
   }
-  return { openConnIds, activePanelId, savedLayout, panelStates };
+  const workspaceOnlyConnIds = Array.isArray(o.workspaceOnlyConnIds)
+    ? [...new Set(o.workspaceOnlyConnIds.filter((id): id is string => typeof id === "string"))]
+    : [];
+  return { openConnIds, activePanelId, savedLayout, panelStates, workspaceOnlyConnIds };
 }
