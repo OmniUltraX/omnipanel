@@ -1754,6 +1754,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
+  // 列向虚拟化器尚未接入；传空 virtualItems，layout 会安全回退为全列渲染
   const columnLayout = useMemo(
     () => buildColumnVirtualizationLayout(leafColumns, transposed, [], [], 0),
     [leafColumns, transposed],

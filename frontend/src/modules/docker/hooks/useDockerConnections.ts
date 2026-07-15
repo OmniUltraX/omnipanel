@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerConnectionInfo, DockerScanResult } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
@@ -12,13 +12,18 @@ export function useDockerConnections() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 已成功拉过一次后，后续刷新不再把侧栏整树切回「加载中」 */
+  const hasLoadedOnceRef = useRef(false);
 
   const reloadConnections = useCallback(async () => {
-    setLoading(true);
     setError(null);
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    }
     try {
       const list = await unwrap(commands.dockerListConnections());
       setConnections(list);
+      hasLoadedOnceRef.current = true;
     } catch (e) {
       setError(String(e));
     } finally {

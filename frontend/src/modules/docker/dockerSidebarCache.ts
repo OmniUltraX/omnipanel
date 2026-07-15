@@ -71,3 +71,21 @@ export function dockerSidebarCategoryRefreshKey(
 ): string {
   return `cat:${connectionId}:${category}`;
 }
+
+/** 将某一分类的拉取结果合并进最新缓存，避免并行刷新互相覆盖。 */
+export function mergeDockerSidebarCategoryFetch(
+  latest: DockerSidebarCacheEntry,
+  fetched: DockerSidebarCacheEntry,
+  category: DockerSidebarCategory,
+): DockerSidebarCacheEntry {
+  return {
+    ...latest,
+    [category]: fetched[category],
+    loadedCategories: {
+      ...(latest.loadedCategories ?? {}),
+      ...(fetched.loadedCategories ?? {}),
+    },
+    refreshedAt: fetched.refreshedAt ?? latest.refreshedAt,
+    error: fetched.error,
+  };
+}

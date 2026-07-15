@@ -1,9 +1,9 @@
-import { startTransition } from "react";
 import { create } from "zustand";
 import {
   dockerSidebarCategoryRefreshKey,
   dockerSidebarConnectionRefreshKey,
   EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY,
+  mergeDockerSidebarCategoryFetch,
   type DockerSidebarCacheEntry,
   type DockerSidebarRefreshScope,
 } from "@/modules/docker/dockerSidebarCache";
@@ -116,6 +116,25 @@ function failedEntry(current: DockerSidebarCacheEntry, error: unknown): DockerSi
 export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set, get) => {
   clearLegacyPersistedSidebarCache();
 
+  /** 将拉取结果落到最新缓存上；分类刷新必须与并发结果合并，否则后完成的会抹掉先完成的分类。 */
+  const commitFetchedEntry = (
+    connectionId: string,
+    scope: DockerSidebarRefreshScope,
+    fetched: DockerSidebarCacheEntry,
+  ): DockerSidebarCacheEntry => {
+    if (scope.kind === "category") {
+      const merged = mergeDockerSidebarCategoryFetch(
+        get().getEntry(connectionId),
+        fetched,
+        scope.category,
+      );
+      get().patchEntry(connectionId, merged);
+      return merged;
+    }
+    get().patchEntry(connectionId, fetched);
+    return fetched;
+  };
+
   return {
     connections: {},
     refreshingKeys: {},
@@ -146,15 +165,13 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set
         ...entry,
         loadedCategories: entry.loadedCategories ?? {},
       };
-      // cache-first：刷新结果用 transition 提交，避免挤掉侧栏点击/展开的交互帧
-      startTransition(() => {
-        set((state) => ({
-          connections: {
-            ...state.connections,
-            [connectionId]: normalized,
-          },
-        }));
-      });
+      // 同步写入：若用 startTransition，会出现 refreshing 已结束但数据未到的空窗，侧栏「加载中」闪烁
+      set((state) => ({
+        connections: {
+          ...state.connections,
+          [connectionId]: normalized,
+        },
+      }));
     },
 
     refreshScope: async (scope) => {
@@ -177,17 +194,17 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>()((set
           }
           const current = get().getEntry(connectionId);
           try {
-            const next = await fetchDockerSidebarResources(scope, current);
+            const fetched = await fetchDockerSidebarResources(scope, current);
             if (refreshEpochByKey.get(key) !== epoch) {
               return get().getEntry(connectionId);
             }
-            get().patchEntry(connectionId, next);
-            return next;
+            return commitFetchedEntry(connectionId, scope, fetched);
           } catch (error) {
             if (refreshEpochByKey.get(key) !== epoch) {
               return get().getEntry(connectionId);
             }
-            const failed = failedEntry(current, error);
+            // 失败时也基于最新缓存合并，避免抹掉其它分类
+            const failed = failedEntry(get().getEntry(connectionId), error);
             get().patchEntry(connectionId, failed);
             return failed;
           }

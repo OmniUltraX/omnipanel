@@ -1330,6 +1330,55 @@
         white-space: nowrap;
     }
 
+    .db-tables-panel-grid--resizable {
+        table-layout: fixed;
+        width: 100%;
+        min-width: 100%;
+    }
+
+    .db-tables-panel-grid--resizable thead th {
+        position: sticky;
+        overflow: visible;
+        box-sizing: border-box;
+    }
+
+    .db-tables-panel-grid--resizable tbody td {
+        box-sizing: border-box;
+        max-width: none;
+    }
+
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__name {
+        max-width: none;
+    }
+
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__actions-col,
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__actions-col--sticky {
+        max-width: none;
+    }
+
+    .db-tables-panel-grid__col-resize {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 10px;
+        height: 100%;
+        cursor: col-resize;
+        z-index: 3;
+        transform: translateX(50%);
+    }
+
+    .db-tables-panel-grid__col-resize:hover,
+    .db-tables-panel-grid__col-resize:active,
+    .db-tables-panel-grid__th--resizing .db-tables-panel-grid__col-resize {
+        background: color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    .db-tables-panel-grid-host--col-resizing,
+    .db-tables-panel-grid-host--col-resizing * {
+        cursor: col-resize !important;
+        user-select: none !important;
+    }
+
     .db-tables-panel-grid__sortable {
         cursor: pointer;
         user-select: none;
@@ -1382,6 +1431,7 @@
     .db-tables-panel-grid-host {
         height: 100%;
         min-height: 0;
+        width: 100%;
         outline: none;
     }
 

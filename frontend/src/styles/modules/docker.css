@@ -757,36 +757,37 @@
         }
     }
 
-    .docker-dock-panel__view-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 2px;
-        padding: 2px;
-        border: 1px solid var(--border);
-        border-radius: var(--r-sm);
-        background: var(--bg-deeper);
-    }
-
-    .docker-dock-panel__view-btn {
-        color: var(--fg-muted);
-    }
-
-    .docker-dock-panel__view-btn.is-active {
-        color: var(--accent);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
-    }
-
     .docker-container-table-wrap {
         flex: 1;
         min-height: 0;
+        width: 100%;
         overflow: auto;
     }
 
+    .docker-container-table__status-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .docker-container-table__status {
+        flex-shrink: 0;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--muted) 14%, transparent);
+        color: var(--muted);
+        white-space: nowrap;
+    }
+
     .docker-container-table__status.is-running {
+        background: color-mix(in srgb, var(--success) 14%, transparent);
         color: var(--success);
     }
 
     .docker-container-table__status.is-transition {
+        background: color-mix(in srgb, var(--warn) 14%, transparent);
         color: var(--warn);
     }
 

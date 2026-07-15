@@ -66,7 +66,12 @@ export function buildColumnVirtualizationLayout(
   totalVirtualSize: number,
 ): ColumnVirtualizationLayout {
   const pinnedIndices = buildPinnedColumnIndices(leafColumns, transposed);
-  if (!shouldVirtualizeGridColumns(leafColumns.length)) {
+  // 列虚拟化未接线（无 virtualItems）或列数未超阈值时：渲染全部列，避免只剩行号列导致「表头有、格子全黑」
+  if (
+    !shouldVirtualizeGridColumns(leafColumns.length) ||
+    virtualItems.length === 0 ||
+    virtualizableIndices.length === 0
+  ) {
     return {
       enabled: false,
       pinnedIndices,
@@ -80,11 +85,8 @@ export function buildColumnVirtualizationLayout(
   const virtualIndices = virtualItems.map(
     (item) => virtualizableIndices[item.index] ?? item.index,
   );
-  const paddingLeft = virtualItems.length > 0 ? virtualItems[0]!.start : 0;
-  const paddingRight =
-    virtualItems.length > 0
-      ? totalVirtualSize - virtualItems[virtualItems.length - 1]!.end
-      : 0;
+  const paddingLeft = virtualItems[0]!.start;
+  const paddingRight = totalVirtualSize - virtualItems[virtualItems.length - 1]!.end;
   const spacerCount = (paddingLeft > 0 ? 1 : 0) + (paddingRight > 0 ? 1 : 0);
 
   return {
