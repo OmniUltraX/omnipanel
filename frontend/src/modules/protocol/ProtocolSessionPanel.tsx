@@ -1,5 +1,4 @@
 import { useI18n } from "../../i18n";
-import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import { GrpcPanel } from "./GrpcPanel";
 import { ModbusPanel } from "./ModbusPanel";
@@ -24,10 +23,9 @@ function ProtocolHttpSessionPanel({ resourceId, enabled }: ProtocolHttpSessionPa
 
   if (!resourceId) {
     return (
-      <WorkspaceEmptyPage
-        title={t("protocol.tabs.http")}
-        prompt={t("protocol.http.workspaceEmpty")}
-      />
+      <div className="http-panel http-panel--loading" role="status">
+        {t("common.loading")}
+      </div>
     );
   }
 

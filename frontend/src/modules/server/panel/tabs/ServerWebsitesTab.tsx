@@ -34,6 +34,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       </div>
       {error && <div className="server-apps-error">{error}</div>}
       <div className="server-resource-list">
+        {loading && rows.length === 0 ? (
+          <div className="server-apps-empty">{t("server.refreshing")}</div>
+        ) : null}
         {rows.map((row, idx) => {
           const rowId = websiteRowId(row, idx);
           const active = selectedItemId === rowId;

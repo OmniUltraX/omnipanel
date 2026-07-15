@@ -420,12 +420,13 @@ export function disposePaneBackendSession(paneId: string) {
 }
 
 /** 关闭 Tab 对应的后端 PTY/SSH（仅在用户结束会话时调用） */
-export function disposeTabBackendSessions(tabId: string) {
+export function disposeTabBackendSessions(tabId: string, knownBackendSessionId?: string | null) {
   const state = useTerminalStore.getState();
   const tab = state.tabs.find((item) => item.id === tabId || item.sessionId === tabId);
   const sessionId = tab?.sessionId ?? tabId;
   const detached = state.detachedRuntime[sessionId] ?? state.detachedRuntime[tabId];
-  const backendSessionId = tab?.backendSessionId ?? detached?.backendSessionId;
+  const backendSessionId =
+    knownBackendSessionId ?? tab?.backendSessionId ?? detached?.backendSessionId;
   if (!backendSessionId) return;
   disposeBackendSession(sessionId, backendSessionId);
   useTerminalBackendStateStore.getState().removeInjectedSession(backendSessionId);
@@ -433,8 +434,8 @@ export function disposeTabBackendSessions(tabId: string) {
 }
 
 /** 结束长期会话：释放后端并清理 detached 状态 */
-export function disposeSessionBackend(sessionId: string) {
-  disposeTabBackendSessions(sessionId);
+export function disposeSessionBackend(sessionId: string, knownBackendSessionId?: string | null) {
+  disposeTabBackendSessions(sessionId, knownBackendSessionId);
   clearTerminalSessionRuntime(sessionId);
   useTerminalUiStore.getState().returnToCommandBar(sessionId);
 }

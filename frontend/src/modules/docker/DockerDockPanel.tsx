@@ -10,9 +10,6 @@ import {
   DockerContainerListTable,
   type DockerContainerTableSortColumn,
 } from "./DockerContainerListTable";
-import { DockerContainerOverviewCard } from "./DockerContainerOverviewCard";
-import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
-import { DockerContainerViewModeToggle } from "./DockerContainerViewModeToggle";
 import { useDockerContainerGrid } from "./hooks/useDockerContainerGrid";
 import { runDockerContainerAction } from "./dockerContainerActions";
 import type { DockerContainerLifecycleAction } from "./dockerContainerLifecycle";
@@ -20,7 +17,7 @@ import { formatDockerNetworks } from "./dockerContainerCardFormat";
 import { dockerContainerMatchesSearch } from "./dockerTreeSearch";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
-import { usePersistedDockerContainerViewMode } from "./usePersistedDockerContainerViewMode";
+import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
 
 export type DockerContainerSubWindowKind = "detail" | "params" | "logs" | "directory";
 
@@ -97,15 +94,6 @@ function compareContainerGridItems(
   return direction === "asc" ? cmp : -cmp;
 }
 
-function defaultSortContainerGridItems(items: DockerContainerGridItem[]): DockerContainerGridItem[] {
-  return [...items].sort((a, b) => {
-    if (a.container.running !== b.container.running) {
-      return a.container.running ? -1 : 1;
-    }
-    return a.container.name.localeCompare(b.container.name);
-  });
-}
-
 function subWindowTitle(kind: DockerContainerSubWindowKind, t: (key: string) => string): string {
   switch (kind) {
     case "detail":
@@ -129,7 +117,6 @@ export function DockerDockPanel({
 }: DockerDockPanelProps) {
   const { t } = useI18n();
   const { items, loading, error, refreshNow } = useDockerContainerGrid(connection.connectionId, isActive);
-  const { viewMode, setViewMode } = usePersistedDockerContainerViewMode();
   const [openSubWindow, setOpenSubWindow] = useState<OpenContainerSubWindow | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, true>>({});
   const [actionError, setActionError] = useState<string | null>(null);
@@ -159,13 +146,10 @@ export function DockerDockPanel({
   }, [containerIdSet, items, search]);
 
   const displayItems = useMemo(() => {
-    if (viewMode === "table") {
-      const sorted = [...filteredItems];
-      sorted.sort((a, b) => compareContainerGridItems(a, b, sort.column, sort.direction));
-      return sorted;
-    }
-    return defaultSortContainerGridItems(filteredItems);
-  }, [filteredItems, sort.column, sort.direction, viewMode]);
+    const sorted = [...filteredItems];
+    sorted.sort((a, b) => compareContainerGridItems(a, b, sort.column, sort.direction));
+    return sorted;
+  }, [filteredItems, sort.column, sort.direction]);
 
   const toggleSort = useCallback((columnId: string) => {
     const column = columnId as DockerContainerTableSortColumn;
@@ -174,14 +158,6 @@ export function DockerDockPanel({
         ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
         : { column, direction: column === "cpu" || column === "memory" ? "desc" : "asc" },
     );
-  }, []);
-
-  const openDetail = useCallback((container: DockerContainerSummary) => {
-    setOpenSubWindow({
-      containerId: container.id,
-      containerName: container.name || container.shortId || container.id.slice(0, 12),
-      kind: "detail",
-    });
   }, []);
 
   const openAction = useCallback(
@@ -241,7 +217,7 @@ export function DockerDockPanel({
     refreshDockerConnectionSidebarCache(connection.connectionId);
   }, [connection.connectionId, refreshNow]);
 
-  // 非激活：卸载网格 / 子弹窗，保留轻量占位（轮询已由 isActive=false 停止）
+  // 非激活：卸载表格 / 子弹窗，保留轻量占位（轮询已由 isActive=false 停止）
   if (!isActive) {
     return (
       <div
@@ -288,7 +264,7 @@ export function DockerDockPanel({
             <ModuleEmptyState preset="container" title={t("docker.dockPanel.empty")} />
           ) : displayItems.length === 0 ? (
             <ModuleEmptyState preset="container" title={t("docker.dockPanel.noResults")} />
-          ) : viewMode === "table" ? (
+          ) : (
             <DockerContainerListTable
               items={displayItems}
               pendingActions={pendingActions}
@@ -298,22 +274,6 @@ export function DockerDockPanel({
               onOpenAction={openAction}
               onLifecycleAction={handleLifecycleAction}
             />
-          ) : (
-            <div className="docker-container-grid docker-dock-panel__container-grid">
-              {displayItems.map((item) => (
-                <DockerContainerOverviewCard
-                  key={item.container.id}
-                  container={item.container}
-                  stats={item.stats}
-                  t={t}
-                  navigable
-                  actionPending={Boolean(pendingActions[normalizeContainerKey(item.container.id)])}
-                  onOpenDetail={openDetail}
-                  onOpenAction={openAction}
-                  onLifecycleAction={handleLifecycleAction}
-                />
-              ))}
-            </div>
           )}
         </div>
 
@@ -335,7 +295,6 @@ export function DockerDockPanel({
               {t("docker.dockPanel.containerCount", { count: displayItems.length })}
             </span>
           </div>
-          <DockerContainerViewModeToggle mode={viewMode} onChange={setViewMode} />
         </footer>
       </ScopedSearch>
 

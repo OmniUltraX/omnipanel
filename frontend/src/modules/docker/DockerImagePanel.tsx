@@ -113,7 +113,9 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   const [containers, setContainers] = useState<DockerContainerSummary[]>(
     () => peekDockerSidebarCache(connection.connectionId).containers,
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    () => peekDockerSidebarCache(connection.connectionId).images.length === 0,
+  );
   const [error, setError] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).error,
   );

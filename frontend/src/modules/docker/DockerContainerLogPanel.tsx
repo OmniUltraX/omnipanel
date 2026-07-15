@@ -158,6 +158,8 @@ export function DockerContainerLogPanel({
         header: t("docker.containerLogsPanel.column.name"),
         sortable: true,
         nameCell: true,
+        defaultWidth: 160,
+        minWidth: 96,
         render: (row) => displayName(row),
         getTitle: (row) => displayName(row),
         getCopyValue: (row) => displayName(row),
@@ -167,6 +169,8 @@ export function DockerContainerLogPanel({
         sortId: "size",
         header: t("docker.containerLogsPanel.column.size"),
         sortable: true,
+        defaultWidth: 100,
+        minWidth: 72,
         render: (row) => formatBytes(row.sizeBytes),
         getTitle: (row) => formatBytes(row.sizeBytes),
         getCopyValue: (row) => formatBytes(row.sizeBytes),
@@ -176,6 +180,8 @@ export function DockerContainerLogPanel({
         sortId: "path",
         header: t("docker.containerLogsPanel.column.path"),
         sortable: true,
+        defaultWidth: 320,
+        minWidth: 120,
         render: (row) => row.logPath || "—",
         getTitle: (row) => row.logPath || undefined,
         getCopyValue: (row) => row.logPath || undefined,
@@ -185,6 +191,9 @@ export function DockerContainerLogPanel({
         header: t("docker.containerLogsPanel.column.actions"),
         variant: "actionsSticky",
         copyable: false,
+        resizable: false,
+        defaultWidth: 56,
+        minWidth: 56,
         render: (row) => {
           const busy = Boolean(pendingIds[row.containerId]);
           return (
@@ -233,6 +242,7 @@ export function DockerContainerLogPanel({
         sortColumnId={sort.column}
         sortDirection={sort.direction}
         onSortColumn={toggleSort}
+        columnResizeStorageKey="omnipanel.docker.container-logs.column-widths.v1"
       />
     );
   };

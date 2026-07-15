@@ -49,22 +49,32 @@ function loadStoredWidths(
   }
 }
 
-function applyColumnWidth(table: HTMLElement, columnId: string, width: number) {
+function applyColumnWidth(
+  table: HTMLElement,
+  columnId: string,
+  width: number,
+  constrainMaxWidth: boolean,
+) {
   const px = `${width}px`;
   table.querySelectorAll<HTMLElement>(`[data-col-id="${CSS.escape(columnId)}"]`).forEach((el) => {
     el.style.width = px;
     if (el.tagName !== "COL") {
       el.style.minWidth = px;
-      el.style.maxWidth = px;
+      if (constrainMaxWidth) {
+        el.style.maxWidth = px;
+      } else {
+        el.style.maxWidth = "";
+      }
     }
   });
 }
 
 export function useResizableTableColumns(
   columns: ResizableColumnDef[],
-  options?: { storageKey?: string; minWidth?: number },
+  options?: { storageKey?: string; minWidth?: number; /** 为 false 时不锁 maxWidth，便于表格撑满父级 */ constrainMaxWidth?: boolean },
 ) {
   const globalMinWidth = options?.minWidth ?? 48;
+  const constrainMaxWidth = options?.constrainMaxWidth !== false;
   const tableRef = useRef<HTMLTableElement>(null);
   const dragRef = useRef<ColumnDragState | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
@@ -90,9 +100,9 @@ export function useResizableTableColumns(
     }
     for (const column of columns) {
       const width = columnWidths[column.id] ?? column.defaultWidth;
-      applyColumnWidth(table, column.id, width);
+      applyColumnWidth(table, column.id, width, constrainMaxWidth);
     }
-  }, [columnWidths, columns]);
+  }, [columnWidths, columns, constrainMaxWidth]);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -108,7 +118,7 @@ export function useResizableTableColumns(
         return;
       }
       drag.lastWidth = nextWidth;
-      applyColumnWidth(table, drag.columnId, nextWidth);
+      applyColumnWidth(table, drag.columnId, nextWidth, constrainMaxWidth);
     };
 
     const onMouseUp = () => {
@@ -131,7 +141,7 @@ export function useResizableTableColumns(
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [columns, globalMinWidth]);
+  }, [columns, constrainMaxWidth, globalMinWidth]);
 
   const startColumnResize = useCallback(
     (columnId: string, clientX: number) => {
@@ -155,13 +165,19 @@ export function useResizableTableColumns(
     (columnId: string): CSSProperties => {
       const column = columns.find((item) => item.id === columnId);
       const width = columnWidths[columnId] ?? column?.defaultWidth ?? globalMinWidth;
+      if (constrainMaxWidth) {
+        return {
+          width,
+          minWidth: width,
+          maxWidth: width,
+        };
+      }
       return {
         width,
         minWidth: width,
-        maxWidth: width,
       };
     },
-    [columnWidths, columns, globalMinWidth],
+    [columnWidths, columns, constrainMaxWidth, globalMinWidth],
   );
 
   const isColumnResizable = useCallback(

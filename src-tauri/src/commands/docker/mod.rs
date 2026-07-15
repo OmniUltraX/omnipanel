@@ -135,10 +135,13 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
 
     match cfg.source.as_deref().map(DockerConnectionSource::parse) {
         Some(DockerConnectionSource::SshEngine) => {
-            let ssh = cfg.ssh.ok_or_else(|| {
-                OmniError::new(ErrorCode::InvalidInput, "ssh-engine 类型缺少 Docker SSH 配置")
-            })?;
-            let session = ensure_docker_ssh(state, connection_id, ssh).await?;
+            let session = ensure_docker_ssh(
+                state,
+                connection_id,
+                cfg.ssh,
+                cfg.bound_ssh_connection_id,
+            )
+            .await?;
             Ok(DockerTarget::Ssh(session))
         }
         Some(DockerConnectionSource::RemoteEngine) => {
@@ -182,11 +185,47 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
     }
 }
 
+/// 读取 Docker 连接绑定的 SSH 连接 id（如有）。
+async fn lookup_bound_ssh_id(state: &AppState, connection_id: &str) -> Option<String> {
+    let storage = state.storage.lock().await;
+    storage.get_connection(connection_id).ok().flatten().and_then(|c| {
+        serde_json::from_str::<DockerConnectionConfig>(&c.config)
+            .ok()
+            .and_then(|cfg| cfg.bound_ssh_connection_id)
+            .filter(|id| !id.trim().is_empty())
+    })
+}
+
+/// 清除所有绑定同一 SSH 主机的 Docker 会话缓存（释放池会话前调用）。
+async fn clear_docker_ssh_cache_for_bound(state: &AppState, ssh_id: &str) {
+    let docker_ids: Vec<String> = {
+        let storage = state.storage.lock().await;
+        match storage.list_connections_by_kind(omnipanel_store::ConnectionKind::Docker) {
+            Ok(conns) => conns
+                .into_iter()
+                .filter_map(|c| {
+                    let cfg: DockerConnectionConfig = serde_json::from_str(&c.config).ok()?;
+                    (cfg.bound_ssh_connection_id.as_deref() == Some(ssh_id)).then_some(c.id)
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    };
+    let mut pool = state.docker_ssh_sessions.lock().await;
+    for id in docker_ids {
+        pool.remove(&id);
+    }
+}
+
 /// 从复用池获取 SSH 会话，不存在则建立并缓存。
+///
+/// 绑定了 SSH 主机时优先复用 `ssh_pool` 会话（与 UI「复用凭据与会话」一致），
+/// 避免切换 Docker 模块时再开一条 TCP 导致远端 MaxStartups / 会话数打满被 RST。
 pub(crate) async fn ensure_docker_ssh(
     state: &AppState,
     connection_id: &str,
-    mut ssh: SshConfig,
+    ssh: Option<SshConfig>,
+    bound_id: Option<String>,
 ) -> Result<Arc<SshSession>, OmniError> {
     {
         let pool = state.docker_ssh_sessions.lock().await;
@@ -195,31 +234,40 @@ pub(crate) async fn ensure_docker_ssh(
         }
     }
 
-    let bound_id: Option<String> = {
-        let storage = state.storage.lock().await;
-        storage.get_connection(connection_id)?.and_then(|c| {
-            serde_json::from_str::<DockerConnectionConfig>(&c.config)
-                .ok()
-                .and_then(|cfg| cfg.bound_ssh_connection_id)
-        })
+    let bound_id = bound_id.filter(|id| !id.trim().is_empty());
+
+    let session = if let Some(ref ssh_id) = bound_id {
+        tracing::info!("Docker 连接 {connection_id} 复用 SSH 池会话 {ssh_id}");
+        state.ssh_pool.ensure_session(ssh_id).await?
+    } else {
+        let ssh = ssh.ok_or_else(|| {
+            OmniError::new(ErrorCode::InvalidInput, "ssh-engine 类型缺少 Docker SSH 配置")
+        })?;
+        Arc::new(SshSession::connect_no_shell(ssh).await?)
     };
 
-    if let Some(ref ssh_id) = bound_id {
-        if let Some(bound_cfg) = state.ssh_pool.get_ssh_config(ssh_id).await {
-            ssh = bound_cfg;
-            tracing::info!("Docker 连接 {connection_id} 已绑定 SSH 会话 {ssh_id}，跳过 exec 探测");
-        }
-    }
-
-    let session = Arc::new(SshSession::connect_no_shell(ssh).await?);
     let mut pool = state.docker_ssh_sessions.lock().await;
+    // 并发建连时后完成的一方复用已写入的会话，避免覆盖并泄漏 TCP。
+    if let Some(existing) = pool.get(connection_id) {
+        return Ok(existing.clone());
+    }
     pool.insert(connection_id.to_string(), session.clone());
     Ok(session)
 }
 
 pub(crate) async fn invalidate_docker_ssh(state: &AppState, connection_id: &str) {
+    let bound_id = lookup_bound_ssh_id(state, connection_id).await;
+
+    if let Some(ssh_id) = bound_id {
+        tracing::warn!("使 Docker 绑定的 SSH 池会话失效: docker={connection_id} ssh={ssh_id}");
+        clear_docker_ssh_cache_for_bound(state, &ssh_id).await;
+        // 共享会话只从池释放；不要对 docker 缓存里的 Arc 单独 disconnect，以免误伤池内引用。
+        state.ssh_pool.release_session(&ssh_id).await;
+        return;
+    }
+
     if let Some(session) = state.docker_ssh_sessions.lock().await.remove(connection_id) {
-        tracing::warn!("移除 Docker SSH 会话: {connection_id}");
+        tracing::warn!("移除 Docker 独立 SSH 会话: {connection_id}");
         session.disconnect().await;
     }
 }
@@ -241,6 +289,11 @@ pub(crate) fn is_ssh_session_recoverable(err: &OmniError) -> bool {
                 "broken pipe",
                 "input device is not a tty",
                 "not a tty",
+                // Windows WSAECONNRESET / 中文系统文案
+                "10054",
+                "强迫关闭",
+                "forcibly closed",
+                "forcible",
             ];
 
             recoverable_patterns
@@ -260,7 +313,14 @@ where
     Fut: std::future::Future<Output = Result<T, OmniError>> + Send,
 {
     for attempt in 0..2 {
-        let target = resolve_target(state, connection_id).await?;
+        let target = match resolve_target(state, connection_id).await {
+            Ok(target) => target,
+            Err(err) if attempt == 0 && is_ssh_session_recoverable(&err) => {
+                invalidate_docker_ssh(state, connection_id).await;
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
         let adapter = adapter_for(target)?;
         match op(adapter).await {
             Ok(value) => return Ok(value),
@@ -338,6 +398,14 @@ mod tests {
         assert!(is_ssh_session_recoverable(&err));
 
         let err = OmniError::new(ErrorCode::Connection, "连接被重置");
+        assert!(is_ssh_session_recoverable(&err));
+    }
+
+    #[test]
+    fn windows_connreset_cause_is_recoverable() {
+        let err = OmniError::new(ErrorCode::Internal, "底层 IO 失败").with_cause(
+            "远程主机强迫关闭了一个现有的连接。 (os error 10054)",
+        );
         assert!(is_ssh_session_recoverable(&err));
     }
 

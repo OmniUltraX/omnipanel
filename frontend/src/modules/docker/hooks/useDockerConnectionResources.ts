@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { useModuleSuspended } from "../../../lib/moduleVisibility";
+import { useCallback, useMemo } from "react";
 import type { DockerConnectionInfo } from "../../../ipc/bindings";
 import {
   dockerSidebarCategoryRefreshKey,
   dockerSidebarConnectionRefreshKey,
   EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY,
-  isDockerSidebarCategoryLoaded,
   selectDockerSidebarCacheEntry,
   selectEmptyDockerSidebarCacheEntry,
   type DockerSidebarCategory,
@@ -26,29 +24,11 @@ export function connectionSupportsSidebarResources(connection: DockerConnectionI
   );
 }
 
-function hasLoadedContainers(connectionId: string): boolean {
-  const entry = useDockerSidebarCacheStore.getState().getEntry(connectionId);
-  return isDockerSidebarCategoryLoaded(entry, "containers");
-}
-
-export type UseDockerConnectionResourcesOptions = {
-  /**
-   * 为 true 且尚无容器缓存时，才在后台首拉 containers。
-   * 折叠节点时应关闭，避免未展开就刷列表；镜像/网络/卷由分类展开再拉。
-   */
-  autoFetchWhenEmpty?: boolean;
-};
-
 /**
- * 读取单个 Docker 连接的侧栏资源缓存（内存常驻）。
- * 默认不因展开/切换重复请求；仅 `autoFetchWhenEmpty` 且从未拉取过容器时补首拉（仅 containers）。
+ * 读取单个 Docker 连接的侧栏资源缓存（localStorage 持久化，启动自动 rehydrate）。
+ * 只读缓存，不在展开/挂载时自动请求；仅点击刷新按钮时 refresh / refreshCategory 写缓存并更新 UI。
  */
-export function useDockerConnectionResources(
-  connection: DockerConnectionInfo | null,
-  options?: UseDockerConnectionResourcesOptions,
-) {
-  const autoFetchWhenEmpty = options?.autoFetchWhenEmpty ?? true;
-  const moduleSuspended = useModuleSuspended();
+export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
   const connectionId = connection?.connectionId ?? null;
   const supported = connection != null && connectionSupportsSidebarResources(connection);
 
@@ -70,32 +50,6 @@ export function useDockerConnectionResources(
     containersRefreshKey ? Boolean(state.refreshingKeys[containersRefreshKey]) : false,
   );
 
-  useEffect(() => {
-    if (!connectionId || !supported || moduleSuspended || !autoFetchWhenEmpty) return;
-    if (hasLoadedContainers(connectionId)) return;
-
-    let cancelled = false;
-    const scheduleIdle =
-      typeof requestIdleCallback === "function"
-        ? (cb: () => void) => requestIdleCallback(cb, { timeout: 1500 })
-        : (cb: () => void) => window.setTimeout(cb, 48);
-    const cancelIdle =
-      typeof cancelIdleCallback === "function"
-        ? (id: number) => cancelIdleCallback(id)
-        : (id: number) => window.clearTimeout(id);
-
-    const handle = scheduleIdle(() => {
-      if (cancelled) return;
-      // 首拉只拉 containers；镜像/网络/卷在分类展开时再请求
-      void refreshScope({ kind: "category", connectionId, category: "containers" });
-    });
-
-    return () => {
-      cancelled = true;
-      cancelIdle(handle as number);
-    };
-  }, [autoFetchWhenEmpty, connectionId, moduleSuspended, supported, refreshScope]);
-
   const refresh = useCallback(() => {
     if (!connectionId || !supported) return;
     void refreshScope({ kind: "connection", connectionId });
@@ -112,11 +66,11 @@ export function useDockerConnectionResources(
   // 缺省字段用稳定空对象，避免每次渲染新引用触发下游 effect
   const loadedCategories = entry.loadedCategories ?? EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.loadedCategories;
 
-  // 仅在「容器从未落盘」且仍在刷新时显示连接级加载；已有 error/loaded 则不再假转圈
+  // 仅在用户主动刷新且尚无数据时显示加载
   const loading =
     supported &&
     (containersRefreshing || connectionRefreshing) &&
-    !loadedCategories.containers &&
+    entry.containers.length === 0 &&
     entry.error == null;
 
   if (!supported) {

@@ -137,7 +137,9 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
   const [containers, setContainers] = useState<DockerContainerSummary[]>(
     () => peekDockerSidebarCache(connection.connectionId).containers,
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    () => peekDockerSidebarCache(connection.connectionId).containers.length === 0,
+  );
   const [error, setError] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).error,
   );

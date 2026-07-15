@@ -8,7 +8,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -85,14 +84,12 @@ import {
 } from "./schemaTreeIds";
 import {
   buildSchemaFlatRows,
-  collectStickySchemaAncestors,
-  estimateSchemaFlatRowSize,
-  filterStickySchemaAncestorsForOverlay,
+  collectSchemaPathCrumbsForNodeId,
   findSchemaFlatRowIndexByNodeId,
   isSchemaFlatRowIndexCenteredInViewport,
   scrollSchemaFlatRowToCenter,
   type SchemaFlatRow,
-  type SchemaNodeFlatRow,
+  type StickySchemaAncestor,
 } from "./schemaTreeFlatRows";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
@@ -109,7 +106,8 @@ import {
   refreshAndApplySchemaTreeNode,
   type SchemaTreeRefreshHooks,
 } from "./schemaTreeRefresh";
-import { SidebarTreeNode, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
+import { SidebarTreeNode, SidebarTreeSelectionProvider, useSidebarTreeSelection } from "@/components/ui/sidebar-tree";
+import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 import {
   buildDeploymentServerTagMap,
@@ -169,8 +167,8 @@ interface TreeNodeProps {
   refreshDisabled?: boolean;
   onDelete?: () => void;
   deleteDisabled?: boolean;
-  /** 虚拟树吸顶条中的祖先节点样式 */
-  stickyAncestor?: boolean;
+  /** 单击选中或双击打开时更新顶部路径 */
+  onPathFocus?: () => void;
   layoutDraggable?: boolean;
   layoutDraggingSource?: boolean;
   dragOver?: boolean;
@@ -202,13 +200,14 @@ const TreeNode = memo(function TreeNode({
   refreshDisabled = false,
   onDelete,
   deleteDisabled = false,
-  stickyAncestor = false,
+  onPathFocus,
   layoutDraggable = false,
   layoutDraggingSource = false,
   dragOver = false,
   onLayoutPointerDown,
 }: TreeNodeProps) {
   const { t } = useI18n();
+  const selection = useSidebarTreeSelection();
   const { type, label } = item;
   const isConnection = type === "connection";
   const connectionStateClass = isConnection
@@ -219,7 +218,6 @@ const TreeNode = memo(function TreeNode({
 
   const ignoreClick = (target: EventTarget | null) => isLayoutPointerDragExcludedTarget(target);
 
-  const stickyClass = stickyAncestor && hasChildren && expanded ? " tree-node--sticky" : "";
   const dragClass = dragOver ? " tree-node--drag-over" : "";
   const layoutDragClass = layoutDraggable ? " tree-node--layout-draggable" : "";
   const layoutSourceClass = layoutDraggingSource ? " tree-node--layout-source-dragging" : "";
@@ -430,14 +428,21 @@ const TreeNode = memo(function TreeNode({
         </>
       }
       trailing={trailingNode}
-      className={`tree-node--${type}${connectionStateClass}${stickyClass}${dragClass}${layoutDragClass}${layoutSourceClass}`}
+      className={`tree-node--${type}${connectionStateClass}${dragClass}${layoutDragClass}${layoutSourceClass}`}
       style={{ ["--tree-depth" as string]: depth }}
       dataAttrs={{
         "data-schema-item-type": type,
         "data-schema-node-id": item.id,
       }}
       onToggle={onToggle}
-      onActivate={onActivate ? () => onActivate() : undefined}
+      onSelect={(event: TreeRowMouseEvent) => {
+        selection?.handleSelect(item.id, event);
+        onPathFocus?.();
+      }}
+      onActivate={() => {
+        onPathFocus?.();
+        onActivate?.();
+      }}
       shouldIgnoreClick={ignoreClick}
       onPointerDown={(event) => {
         if (layoutDraggable) {
@@ -536,7 +541,6 @@ export function SchemaBrowser({
   const useExternalConnections =
     connectionConfigs !== undefined && connectionsReady !== undefined;
   const [search, setSearch] = useState("");
-  const stickyAncestors = useMemo(() => !search.trim(), [search]);
   const expandedNodeIds = useDbSchemaTreeExpandedStore((s) => s.expandedNodeIds);
   const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
   const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
@@ -586,6 +590,9 @@ export function SchemaBrowser({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const schemaTreeRef = useRef<HTMLDivElement>(null);
   const scopedSearchRef = useRef<ScopedSearchHandle>(null);
+  const [pathCrumbs, setPathCrumbs] = useState<StickySchemaAncestor[]>([]);
+  const pathFocusNodeIdRef = useRef<string | null>(null);
+  const flatRowsRef = useRef<SchemaFlatRow[]>([]);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const refreshingConnectionIds = useDbSchemaCacheStore((s) => s.refreshingConnectionIds);
   const refreshingNodeIds = useDbSchemaCacheStore((s) => s.refreshingNodeIds);
@@ -1396,19 +1403,10 @@ export function SchemaBrowser({
   const selectableNodeIds = useMemo(
     () =>
       flatRows
-        .filter((row): row is SchemaNodeFlatRow => row.kind === "node")
+        .filter((row): row is Extract<SchemaFlatRow, { kind: "node" }> => row.kind === "node")
         .map((row) => row.item.id),
     [flatRows],
   );
-
-  const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => schemaTreeRef.current,
-    estimateSize: (index) => estimateSchemaFlatRowSize(flatRows[index]),
-    overscan: 24,
-  });
-  const rowVirtualizerRef = useRef(rowVirtualizer);
-  rowVirtualizerRef.current = rowVirtualizer;
 
   const hasAnyConnection = connections.length > 0;
 
@@ -1474,13 +1472,7 @@ export function SchemaBrowser({
     }
 
     const scrollToCenter = () => {
-      scrollSchemaFlatRowToCenter(
-        container,
-        flatRows,
-        rowIndex,
-        (index) =>
-          rowVirtualizerRef.current.scrollToIndex(index, { align: "center", behavior: "auto" }),
-      );
+      scrollSchemaFlatRowToCenter(container, flatRows, rowIndex);
     };
 
     if (sidebarLinkageRafRef.current != null) {
@@ -1507,6 +1499,60 @@ export function SchemaBrowser({
     };
   }, [sidebarScrollTargetId, loading, search, flatRows]);
 
+  flatRowsRef.current = flatRows;
+
+  const updatePathForNodeId = useCallback((nodeId: string) => {
+    pathFocusNodeIdRef.current = nodeId;
+    const next = collectSchemaPathCrumbsForNodeId(flatRowsRef.current, nodeId);
+    setPathCrumbs((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((crumb, index) => crumb.row.key === next[index]?.row.key)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const focusId = pathFocusNodeIdRef.current;
+    if (!focusId || search.trim()) {
+      if (search.trim()) {
+        setPathCrumbs((prev) => (prev.length === 0 ? prev : []));
+      }
+      return;
+    }
+    const next = collectSchemaPathCrumbsForNodeId(flatRows, focusId);
+    if (next.length === 0) {
+      return;
+    }
+    setPathCrumbs((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((crumb, index) => crumb.row.key === next[index]?.row.key)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [flatRows, search]);
+
+  const handlePathCrumbClick = useCallback(
+    (rowIndex: number) => {
+      const container = schemaTreeRef.current;
+      const row = flatRowsRef.current[rowIndex];
+      if (row?.kind === "node") {
+        updatePathForNodeId(row.item.id);
+      }
+      if (!container) {
+        return;
+      }
+      scrollSchemaFlatRowToCenter(container, flatRowsRef.current, rowIndex);
+    },
+    [updatePathForNodeId],
+  );
+
   const filterDialogConn = filterDialogConnId
     ? connections.find((conn) => conn.config.id === filterDialogConnId)
     : undefined;
@@ -1518,7 +1564,7 @@ export function SchemaBrowser({
       ?.databases?.find((db) => db.name === filterDialogTable.dbName);
 
   const renderFlatRow = useCallback(
-    (row: SchemaFlatRow, options?: { stickyAncestor?: boolean }) => {
+    (row: SchemaFlatRow) => {
       if (row.kind === "message") {
         const paddingLeft = row.depth * 16 + 24;
         const color =
@@ -1665,7 +1711,7 @@ export function SchemaBrowser({
           onPinToggle={onPinToggle}
           onActivate={onActivate}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
-          stickyAncestor={options?.stickyAncestor}
+          onPathFocus={() => updatePathForNodeId(row.item.id)}
           layoutDraggable={isLayoutDraggable}
           layoutDraggingSource={layoutDraggingSourceId === row.item.id}
           dragOver={isLayoutDropTarget && layoutDragOverNodeId === row.item.id}
@@ -1694,19 +1740,9 @@ export function SchemaBrowser({
       activeConnId,
       activeTableKey,
       activeDatabaseKey,
+      updatePathForNodeId,
     ],
   );
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const stickyOverlayRows = useMemo(() => {
-    if (!stickyAncestors || flatRows.length === 0) {
-      return [] as { row: SchemaNodeFlatRow; rowIndex: number }[];
-    }
-    const firstVisibleIndex = virtualRows[0]?.index ?? 0;
-    const ancestors = collectStickySchemaAncestors(flatRows, firstVisibleIndex);
-    const visibleIndexes = virtualRows.map((item) => item.index);
-    return filterStickySchemaAncestorsForOverlay(ancestors, visibleIndexes);
-  }, [stickyAncestors, flatRows, virtualRows]);
 
   const handleCollapseAll = useCallback(() => {
     updateExpanded(() => new Set());
@@ -1801,13 +1837,37 @@ export function SchemaBrowser({
         placeholder={t("database.sidebar.search")}
         enabled={filterDialogConnId === null && filterDialogTable === null}
       >
-        <div
-          className={`schema-tree schema-tree--virtual${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
-          ref={schemaTreeRef}
-          tabIndex={-1}
-          onKeyDown={handleTreeKeyDown}
-          onContextMenu={handleContextLayoutRoot}
-        >
+        <div className="schema-tree-stack">
+          {pathCrumbs.length > 0 ? (
+            <nav className="schema-tree-path" aria-label={t("database.sidebar.scrollPath")}>
+              {pathCrumbs.map((crumb, index) => (
+                <span key={crumb.row.key} className="schema-tree-path__item">
+                  {index > 0 ? (
+                    <span className="schema-tree-path__sep" aria-hidden>
+                      /
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`schema-tree-path__crumb${
+                      index === pathCrumbs.length - 1 ? " schema-tree-path__crumb--current" : ""
+                    }`}
+                    title={crumb.row.item.label}
+                    onClick={() => handlePathCrumbClick(crumb.rowIndex)}
+                  >
+                    {crumb.row.item.label}
+                  </button>
+                </span>
+              ))}
+            </nav>
+          ) : null}
+          <div
+            className="schema-tree"
+            ref={schemaTreeRef}
+            tabIndex={-1}
+            onKeyDown={handleTreeKeyDown}
+            onContextMenu={handleContextLayoutRoot}
+          >
         <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
@@ -1826,46 +1886,14 @@ export function SchemaBrowser({
         )}
         {!loading && !loadError && hasAnyConnection && (
           <>
-            {stickyOverlayRows.length > 0 && (
-              <div className="schema-tree-sticky-ancestors">
-                {stickyOverlayRows.map(({ row }) => (
-                  <div key={`sticky:${row.key}`} className="schema-tree-sticky-ancestor-row">
-                    {renderFlatRow(row, { stickyAncestor: true })}
-                  </div>
-                ))}
-              </div>
-            )}
-          <div
-            className="schema-tree-virtual-inner"
-            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const row = flatRows[virtualRow.index];
-              if (!row) {
-                return null;
-              }
-              return (
-                <div
-                  key={row.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  className="schema-tree-virtual-row"
-                  style={{
-                    position: "absolute",
-                    top: virtualRow.start,
-                    left: 0,
-                    width: "100%",
-                  }}
-                >
-                  {renderFlatRow(row)}
-                </div>
-              );
-            })}
-          </div>
+            {flatRows.map((row) => (
+              <div key={row.key}>{renderFlatRow(row)}</div>
+            ))}
           </>
         )}
         </SidebarTreeSelectionProvider>
       </div>
+        </div>
       </ScopedSearch>
 
       {filterDialogConn && filterDialogConn.databases && (

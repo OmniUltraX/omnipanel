@@ -36,17 +36,6 @@
         overflow: hidden;
     }
 
-    .schema-sidebar .schema-tree,
-    .schema-sidebar .sql-query-file-tree {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .schema-sidebar .schema-tree::-webkit-scrollbar,
-    .schema-sidebar .sql-query-file-tree::-webkit-scrollbar {
-        display: none;
-    }
-
     .schema-browser {
         width: 100%;
         min-width: 0;
@@ -829,9 +818,71 @@
         overflow: hidden;
     }
 
-    /* sticky 祖先节点 z-index 可达 20+，搜索栏需在其上方 */
+    /* sticky 祖先已改为顶部路径条；搜索栏仍需压在树上 */
     .schema-tree-scoped-search .scoped-search-bar {
         z-index: 50;
+    }
+
+    .schema-tree-stack {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .schema-tree-path {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 0;
+        min-height: 26px;
+        padding: 3px 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .schema-tree-path__item {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .schema-tree-path__sep {
+        margin: 0 4px;
+        color: var(--muted);
+        font-size: 11px;
+        flex-shrink: 0;
+        user-select: none;
+    }
+
+    .schema-tree-path__crumb {
+        max-width: 140px;
+        padding: 1px 4px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 18px;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .schema-tree-path__crumb:hover {
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .schema-tree-path__crumb--current {
+        color: var(--fg);
+        font-weight: 500;
     }
 
     .schema-tree {
@@ -839,71 +890,6 @@
         min-height: 0;
         overflow-y: auto;
         --schema-tree-row-height: 22px;
-    }
-
-    .schema-tree-sticky-ancestors {
-        position: sticky;
-        top: 0;
-        z-index: 60;
-        margin: 0 calc(-1 * var(--vsplit-sidebar-content-padding, var(--sp-2)));
-        padding: 0 var(--vsplit-sidebar-content-padding, var(--sp-2));
-        background: var(--bg);
-        pointer-events: none;
-    }
-
-    .schema-tree-sticky-ancestors .tree-node {
-        pointer-events: auto;
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky {
-        position: relative;
-        top: auto;
-        min-height: var(--schema-tree-row-height);
-        border-radius: 0;
-        background: var(--bg);
-        box-shadow: 0 1px 0 var(--border);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky.tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky:hover {
-        background: var(--surface-hover);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky.tree-node--active:hover {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree-virtual-inner {
-        width: 100%;
-    }
-
-    .schema-tree-virtual-row {
-        box-sizing: border-box;
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky {
-        position: sticky;
-        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
-        z-index: calc(20 + var(--tree-depth, 0));
-        min-height: var(--schema-tree-row-height);
-        border-radius: 0;
-        background: var(--bg);
-        box-shadow: 0 1px 0 var(--border);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky:hover {
-        background: var(--surface-hover);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active:hover {
-        background: var(--accent-soft);
     }
 
     .schema-tree:focus {
@@ -1330,6 +1316,55 @@
         white-space: nowrap;
     }
 
+    .db-tables-panel-grid--resizable {
+        table-layout: fixed;
+        width: 100%;
+        min-width: 100%;
+    }
+
+    .db-tables-panel-grid--resizable thead th {
+        position: sticky;
+        overflow: visible;
+        box-sizing: border-box;
+    }
+
+    .db-tables-panel-grid--resizable tbody td {
+        box-sizing: border-box;
+        max-width: none;
+    }
+
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__name {
+        max-width: none;
+    }
+
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__actions-col,
+    .db-tables-panel-grid--resizable .db-tables-panel-grid__actions-col--sticky {
+        max-width: none;
+    }
+
+    .db-tables-panel-grid__col-resize {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 10px;
+        height: 100%;
+        cursor: col-resize;
+        z-index: 3;
+        transform: translateX(50%);
+    }
+
+    .db-tables-panel-grid__col-resize:hover,
+    .db-tables-panel-grid__col-resize:active,
+    .db-tables-panel-grid__th--resizing .db-tables-panel-grid__col-resize {
+        background: color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    .db-tables-panel-grid-host--col-resizing,
+    .db-tables-panel-grid-host--col-resizing * {
+        cursor: col-resize !important;
+        user-select: none !important;
+    }
+
     .db-tables-panel-grid__sortable {
         cursor: pointer;
         user-select: none;
@@ -1382,6 +1417,7 @@
     .db-tables-panel-grid-host {
         height: 100%;
         min-height: 0;
+        width: 100%;
         outline: none;
     }
 
@@ -5547,13 +5583,6 @@
 
     .db-data-table tbody tr.db-data-table-row--striped>td:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
         background: var(--surface);
-    }
-
-    .db-data-table-spacer-row td {
-        padding: 0;
-        border: none;
-        background: transparent;
-        line-height: 0;
     }
 
     .db-data-table tbody tr.db-data-table-row>td {

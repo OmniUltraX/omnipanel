@@ -17,13 +17,14 @@ interface UseServerWebsitesResult {
 
 export function useServerWebsites(server: ServerEntry | null): UseServerWebsitesResult {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!server) {
       setItems([]);
       setError(null);
+      setLoading(false);
       return;
     }
 

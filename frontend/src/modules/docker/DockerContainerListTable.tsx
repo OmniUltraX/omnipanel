@@ -102,6 +102,8 @@ export function DockerContainerListTable({
         header: t("docker.dockPanel.column.name"),
         sortable: true,
         nameCell: true,
+        defaultWidth: 160,
+        minWidth: 96,
         render: (item) => item.container.name || item.container.shortId || item.container.id.slice(0, 12),
         getTitle: (item) => item.container.name || item.container.id,
         getCopyValue: (item) => item.container.name || item.container.id,
@@ -111,21 +113,33 @@ export function DockerContainerListTable({
         sortId: "status",
         header: t("docker.dockPanel.column.status"),
         sortable: true,
+        defaultWidth: 168,
+        minWidth: 120,
         render: (item) => {
           const pending = Boolean(pendingActions[normalizeContainerKey(item.container.id)]);
           const phase = getContainerLifecyclePhase(item.container, pending);
           return (
-            <span
-              className={[
-                "docker-container-table__status",
-                phase === "running" ? "is-running" : "",
-                phase === "transitional" ? "is-transition" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
+            <div
+              className="docker-container-table__status-cell"
+              onClick={(event) => event.stopPropagation()}
             >
-              {lifecycleStatusLabel(item.container, phase, t)}
-            </span>
+              <span
+                className={[
+                  "docker-container-table__status",
+                  phase === "running" ? "is-running" : "",
+                  phase === "transitional" ? "is-transition" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                {lifecycleStatusLabel(item.container, phase, t)}
+              </span>
+              <DockerContainerCardStatusControls
+                phase={phase}
+                busy={pending}
+                onAction={(action, event) => onLifecycleAction(item.container, action, event)}
+              />
+            </div>
           );
         },
         getTitle: (item) => {
@@ -140,6 +154,8 @@ export function DockerContainerListTable({
         sortId: "image",
         header: t("docker.dockPanel.column.image"),
         sortable: true,
+        defaultWidth: 180,
+        minWidth: 96,
         render: (item) => displayValue(item.container.image),
         getTitle: (item) => item.container.image,
         getCopyValue: (item) => item.container.image,
@@ -150,6 +166,8 @@ export function DockerContainerListTable({
         header: t("docker.dockPanel.cpu"),
         sortable: true,
         copyable: false,
+        defaultWidth: 96,
+        minWidth: 72,
         render: (item) => (
           <TableMetricCell value={item.stats?.cpuPercent} running={item.container.running} />
         ),
@@ -161,6 +179,8 @@ export function DockerContainerListTable({
         header: t("docker.dockPanel.memory"),
         sortable: true,
         copyable: false,
+        defaultWidth: 96,
+        minWidth: 72,
         render: (item) => (
           <TableMetricCell value={item.stats?.memoryPercent} running={item.container.running} />
         ),
@@ -169,6 +189,8 @@ export function DockerContainerListTable({
       {
         id: "ports",
         header: t("docker.dockPanel.ports"),
+        defaultWidth: 140,
+        minWidth: 80,
         render: (item) => displayValue(formatDockerPorts(item.container)),
         getTitle: (item) => formatDockerPorts(item.container) ?? undefined,
         getCopyValue: (item) => formatDockerPorts(item.container) ?? undefined,
@@ -178,6 +200,8 @@ export function DockerContainerListTable({
         sortId: "networks",
         header: t("docker.dockPanel.networks"),
         sortable: true,
+        defaultWidth: 120,
+        minWidth: 80,
         render: (item) => displayValue(formatDockerNetworks(item.container)),
         getTitle: (item) => formatDockerNetworks(item.container) ?? undefined,
         getCopyValue: (item) => formatDockerNetworks(item.container) ?? undefined,
@@ -187,17 +211,15 @@ export function DockerContainerListTable({
         header: t("docker.dockPanel.column.actions"),
         variant: "actionsSticky",
         copyable: false,
+        resizable: false,
+        defaultWidth: 96,
+        minWidth: 96,
         render: (item) => {
           const pending = Boolean(pendingActions[normalizeContainerKey(item.container.id)]);
           const phase = getContainerLifecyclePhase(item.container, pending);
           const busy = phase === "transitional" || pending;
           return (
             <div className="docker-container-table__actions" onClick={(event) => event.stopPropagation()}>
-              <DockerContainerCardStatusControls
-                phase={phase}
-                busy={pending}
-                onAction={(action, event) => onLifecycleAction(item.container, action, event)}
-              />
               <Button
                 type="button"
                 variant="icon"
@@ -258,6 +280,7 @@ export function DockerContainerListTable({
         sortColumnId={sortColumnId}
         sortDirection={sortDirection}
         onSortColumn={onSortColumn}
+        columnResizeStorageKey="omnipanel.docker.overview-containers.column-widths.v2"
         rowClassName={(item) =>
           item.container.running ? "docker-container-table__row--running" : "docker-container-table__row--stopped"
         }

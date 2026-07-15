@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
 import {
+  dockerSidebarCategoryRefreshKey,
+  dockerSidebarConnectionRefreshKey,
   selectDockerSidebarCacheEntry,
 } from "../dockerSidebarCache";
 import { resolveComposeProjectName } from "../dockerComposeGroups";
@@ -84,15 +86,17 @@ export function useComposeProjectContainers(
     refreshStatsNow();
   }, [refreshContainers, refreshStatsNow]);
 
-  // 侧栏容器列表走缓存：仅从未拉取过时补一次；后续靠节点刷新按钮或生命周期 refreshNow
-  const containersLoaded = Boolean(sidebarEntry.loadedCategories?.containers);
-  useEffect(() => {
-    if (!enabled || !connectionId) return;
-    if (containersLoaded) return;
-    refreshContainers();
-  }, [connectionId, containersLoaded, enabled, refreshContainers]);
-
-  const loading = enabled && projectContainers.length === 0 && !containersLoaded;
+  // 侧栏只读缓存：未拉取过时显示空态，不自动补拉；仅刷新按钮触发 refreshNow
+  const containersRefreshing = useDockerSidebarCacheStore((state) => {
+    const categoryKey = dockerSidebarCategoryRefreshKey(connectionId, "containers");
+    const connectionKey = dockerSidebarConnectionRefreshKey(connectionId);
+    return Boolean(state.refreshingKeys[categoryKey] || state.refreshingKeys[connectionKey]);
+  });
+  const loading =
+    enabled &&
+    projectContainers.length === 0 &&
+    containersRefreshing &&
+    sidebarEntry.error == null;
 
   return {
     items,

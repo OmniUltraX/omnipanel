@@ -1,8 +1,10 @@
 import { quickInput } from "../../lib/quickInput";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
+import { openDockTabNow } from "../../components/dock/dockPanelLifecycle";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
+import { showToast } from "../../stores/toastStore";
 
 export interface CreateProtocolSessionOptions {
   protocol: ProtocolTabKey;
@@ -14,7 +16,7 @@ export interface CreateProtocolSessionOptions {
   t: (key: string) => string;
 }
 
-/** 创建协议会话：HTTP 写入后端，其它协议写入本地条目 store，并打开 Dock Tab。 */
+/** 创建协议会话：先打开 Dock Tab，再异步落盘/准备资源。 */
 export async function createProtocolSession({
   protocol,
   name,
@@ -22,25 +24,38 @@ export async function createProtocolSession({
   http,
   t,
 }: CreateProtocolSessionOptions): Promise<void> {
-  const openSessionTab = useProtocolWorkspaceStore.getState().openSessionTab;
-  const layout = useProtocolHttpLayoutStore.getState();
+  const trimmedName = name.trim();
 
   if (protocol === "http") {
     if (!http) return;
-    const created = await http.createRequest(name.trim(), parentFolderId);
-    if (!created) return;
-    openSessionTab({
-      protocol: "http",
-      resourceId: created.id,
-      label: created.name,
+    const label = trimmedName || t("protocol.sidebar.defaultRequestName");
+    let draftTabId = "";
+    openDockTabNow({
+      applyTabSync: () => {
+        draftTabId = useProtocolWorkspaceStore.getState().openSessionTab({
+          protocol: "http",
+          label,
+          resourceId: null,
+        });
+      },
+      prepareAsync: async () => {
+        const created = await http.createRequest(label, parentFolderId);
+        if (!created) {
+          showToast(t("protocol.http.createRequestFailed"));
+          useProtocolWorkspaceStore.getState().closeTab(draftTabId);
+          return;
+        }
+        useProtocolWorkspaceStore.getState().bindTabResource(draftTabId, created.id, created.name);
+      },
     });
     return;
   }
 
   const entry = useProtocolLabEntryStore.getState().createEntry({
     protocol,
-    name: name.trim() || t(`protocol.tabs.${protocol}`),
+    name: trimmedName || t(`protocol.tabs.${protocol}`),
   });
+  const layout = useProtocolHttpLayoutStore.getState();
   layout.setEntryParent(entry.id, parentFolderId);
   if (parentFolderId) {
     layout.ensureFolderExpanded(parentFolderId);
@@ -49,10 +64,14 @@ export async function createProtocolSession({
     `entry:${entry.id}`,
     parentFolderId ? { kind: "folder", folderId: parentFolderId } : { kind: "root" },
   );
-  openSessionTab({
-    protocol: entry.protocol,
-    resourceId: entry.id,
-    label: entry.name,
+  openDockTabNow({
+    applyTabSync: () => {
+      useProtocolWorkspaceStore.getState().openSessionTab({
+        protocol: entry.protocol,
+        resourceId: entry.id,
+        label: entry.name,
+      });
+    },
   });
 }
 

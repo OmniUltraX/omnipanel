@@ -16,7 +16,6 @@ import {
   type ColumnDef,
   type ColumnSizingState,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import type { RuleGroupType } from "react-querybuilder";
 
 import { Button } from "../../../components/ui/Button";
@@ -73,7 +72,7 @@ import {
   TableDataGridTransposeFieldCell,
 } from "./TableDataGridCellContent";
 import {
-  TableDataGridVirtualBody,
+  TableDataGridBody,
   type GridBodyCellInteractionContext,
   type GridBodyStaticConfig,
   type TableDataGridBodyActions,
@@ -90,7 +89,6 @@ import {
   ROW_NUM_COL_ID,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
-import { buildColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
   applyColumnWidthDom,
@@ -1559,27 +1557,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     t,
   ]);
 
-  const getRowHeight = useCallback(
-    (index: number) => {
-      const row = tableRows[index];
-      if (!row) return DEFAULT_ROW_HEIGHT;
-      return rowHeights[row.index] ?? DEFAULT_ROW_HEIGHT;
-    },
-    [tableRows, rowHeights],
-  );
-
-  const rowVirtualizer = useVirtualizer({
-    count: tableRows.length,
-    getScrollElement: () => wrapRef.current,
-    estimateSize: getRowHeight,
-    overscan: 12,
-    getItemKey: (index) => tableRows[index]?.id ?? String(index),
-  });
-
-  useLayoutEffect(() => {
-    rowVirtualizer.measure();
-  }, [rowHeights, tableRows.length]);
-
   const scrollAndHighlightColumn = useCallback(
     (columnName: string) => {
       const wrap = wrapRef.current;
@@ -1594,7 +1571,10 @@ export const TableDataGrid = memo(function TableDataGrid({
         if (rowIdx < 0) {
           return;
         }
-        rowVirtualizer.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
+        const tr = wrap.querySelector<HTMLElement>(`tr[data-row-index="${rowIdx}"]`);
+        if (tr) {
+          scrollElementToCenter(wrap, tr);
+        }
         const maxCol = leafColumnCount - 1;
         if (maxCol >= 0) {
           setSelectedRows(new Set());
@@ -1635,7 +1615,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       leafColumns,
       leafColumnCount,
       tableRows.length,
-      rowVirtualizer,
     ],
   );
 
@@ -1754,11 +1733,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
-  const columnLayout = useMemo(
-    () => buildColumnVirtualizationLayout(leafColumns, transposed, [], [], 0),
-    [leafColumns, transposed],
-  );
-
   const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
     return {
       transposed,
@@ -1773,7 +1747,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta,
       leafColumnCount,
       columnSizedIds,
-      columnLayout,
       relationHighlightColumnIds,
     };
   }, [
@@ -1789,7 +1762,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     fillDelta,
     leafColumnCount,
     columnSizedIds,
-    columnLayout,
     relationHighlightColumnIds,
   ]);
 
@@ -1981,13 +1953,6 @@ export const TableDataGrid = memo(function TableDataGrid({
   const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
-  const virtualPaddingBottom =
-    virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
-      : 0;
-  const virtualRowIndices = virtualRows.map((virtualRow) => virtualRow.index);
   return (
     <div className="db-data-table-panel">
     <div className="db-data-table-body">
@@ -2012,7 +1977,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap db-data-table-wrap--virtual${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
+      className={`db-data-table-wrap${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
     >
       <table
         className="db-data-table"
@@ -2197,11 +2162,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             </tr>
           ))}
         </thead>
-        <TableDataGridVirtualBody
-          virtualPaddingTop={virtualPaddingTop}
-          virtualPaddingBottom={virtualPaddingBottom}
-          visibleCellCount={columnLayout.visibleCellCount}
-          virtualRowIndices={virtualRowIndices}
+        <TableDataGridBody
           tableRows={tableRows}
           buildRowProps={buildGridBodyRowProps}
           bodyActionsRef={bodyActionsRef}

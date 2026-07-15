@@ -43,3 +43,5 @@ export {
   type TabGroupMeta,
 } from "./dockPanelType";
 export { syncTabGroupsByPanelType } from "./dockTabGroups";
+export { openDockTabNow, closeDockTabNow } from "./dockPanelLifecycle";
+export type { OpenDockTabNowOptions, CloseDockTabNowOptions } from "./dockPanelLifecycle";

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { ModuleSegmentDock } from "../../components/dock";
+import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
@@ -77,17 +77,30 @@ export function ServerPanel() {
 
   const handleNavigate = useCallback(
     (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
-      selectServer(target.serverId, mode);
-      setNavTarget(target);
-      if (target.itemId && target.detailTab) {
-        setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab, target.itemId));
-      } else if (target.detailTab) {
-        setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab));
-      } else {
-        setActiveNavKey(makeServerTreeKey(target.serverId));
-      }
+      openDockTabNow({
+        applyTabSync: () => {
+          selectServer(target.serverId, mode);
+          setNavTarget(target);
+          if (target.itemId && target.detailTab) {
+            setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab, target.itemId));
+          } else if (target.detailTab) {
+            setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab));
+          } else {
+            setActiveNavKey(makeServerTreeKey(target.serverId));
+          }
+        },
+      });
     },
     [selectServer],
+  );
+
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      closeDockTabNow({
+        removeTabSync: () => closeTab(tabId),
+      });
+    },
+    [closeTab],
   );
 
   const handleCreateServer = useCallback(() => {
@@ -188,7 +201,7 @@ export function ServerPanel() {
             tabs={moduleDockTabs}
             activeTabId={activeTabId ?? ""}
             onActiveTabChange={setActiveTabId}
-            onCloseTab={closeTab}
+            onCloseTab={handleCloseTab}
             enabled={isActiveRoute}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
