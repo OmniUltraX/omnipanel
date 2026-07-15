@@ -637,6 +637,15 @@ export const zhCN = {
       high: "高风险",
       critical: "极高风险",
     },
+    closeBehavior: {
+      title: "关闭窗口",
+      message: "要将窗口放到系统托盘，还是退出应用？",
+      remember: "记住我的选择",
+      toTray: "放到系统托盘",
+      quit: "退出应用",
+      trayShowAll: "显示全部窗口",
+      trayQuit: "退出",
+    },
     commandPalette: {
       placeholder: "搜索命令…",
       noResults: "无匹配命令",
@@ -3160,6 +3169,15 @@ export const zhCN = {
       desc: "控制 OmniPanel 的显示语言",
       zhCN: "中文（简体）",
       enUS: "English",
+    },
+    closeBehavior: {
+      label: "关闭行为",
+      desc: "点击窗口关闭按钮时：询问、最小化到托盘，或退出应用",
+      options: {
+        ask: "每次询问",
+        tray: "最小化到托盘",
+        quit: "直接退出",
+      },
     },
     uiScale: {
       label: "界面缩放",

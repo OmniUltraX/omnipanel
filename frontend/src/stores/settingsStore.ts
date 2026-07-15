@@ -16,6 +16,16 @@ export type Locale = "zh-CN" | "en-US";
 export type UiDensity = "compact" | "standard" | "comfortable";
 export type Theme = "system" | "light" | "dark";
 
+/** 主窗口 / 工作区独立窗口点击关闭时的行为 */
+export type CloseBehavior = "ask" | "tray" | "quit";
+
+export const CLOSE_BEHAVIOR_OPTIONS: readonly CloseBehavior[] = ["ask", "tray", "quit"];
+
+export function normalizeCloseBehavior(value: unknown): CloseBehavior {
+  if (value === "ask" || value === "tray" || value === "quit") return value;
+  return "ask";
+}
+
 /** 强调色预设：影响全局 --accent / --accent-hover / --accent-active / --accent-soft 变量 */
 export type AccentColor = "blue" | "green" | "orange" | "red" | "purple";
 
@@ -238,8 +248,11 @@ interface SettingsState {
   fileIndexStorageDir: string;
   /** 协议实验室可配置 Tab 的开关状态 */
   protocolLabTabs: Record<ControllableProtocolTabKey, "open" | "closed">;
+  /** 点击窗口关闭按钮：询问 / 最小化到托盘 / 直接退出 */
+  closeBehavior: CloseBehavior;
   resolved: "light" | "dark";
   setLocale: (locale: Locale) => void;
+  setCloseBehavior: (closeBehavior: CloseBehavior) => void;
   setUiDensity: (density: UiDensity) => void;
   setUiScale: (percent: number) => void;
   setTheme: (theme: Theme) => void;
@@ -376,11 +389,13 @@ export const useSettingsStore = create<SettingsState>()(
       filePreviewThresholdBytes: DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
       fileIndexStorageDir: "",
       protocolLabTabs: { ...DEFAULT_CONTROLLABLE_PROTOCOL_STATUS },
+      closeBehavior: "ask",
       resolved: resolveTheme("system"),
       setLocale: (locale) => {
         applyDocumentLocale(locale);
         set({ locale });
       },
+      setCloseBehavior: (closeBehavior) => set({ closeBehavior: normalizeCloseBehavior(closeBehavior) }),
       setUiDensity: (uiDensity) => set({ uiDensity }),
       setUiScale: (percent) => {
         const uiScale = clampUiScale(percent);
@@ -532,6 +547,7 @@ export const useSettingsStore = create<SettingsState>()(
         filePreviewThresholdBytes: state.filePreviewThresholdBytes,
         fileIndexStorageDir: state.fileIndexStorageDir,
         protocolLabTabs: state.protocolLabTabs,
+        closeBehavior: state.closeBehavior,
       }),
       onRehydrateStorage: () => (state) => {
         applyDocumentLocale(state?.locale ?? "zh-CN");
@@ -549,6 +565,7 @@ export const useSettingsStore = create<SettingsState>()(
             state?.filePreviewThresholdBytes ?? DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
           fileIndexStorageDir: state?.fileIndexStorageDir ?? "",
           protocolLabTabs: normalizeControllableProtocolStatus(state?.protocolLabTabs),
+          closeBehavior: normalizeCloseBehavior(state?.closeBehavior),
         });
       },
     }

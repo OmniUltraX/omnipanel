@@ -641,6 +641,15 @@ export const enUS: TranslationDict = {
       high: "High risk",
       critical: "Critical risk",
     },
+    closeBehavior: {
+      title: "Close window",
+      message: "Minimize to the system tray, or quit the application?",
+      remember: "Remember my choice",
+      toTray: "Minimize to tray",
+      quit: "Quit application",
+      trayShowAll: "Show all windows",
+      trayQuit: "Quit",
+    },
     commandPalette: {
       placeholder: "Search commands…",
       noResults: "No matching commands",
@@ -3210,6 +3219,15 @@ export const enUS: TranslationDict = {
       desc: "Display language for OmniPanel",
       zhCN: "中文（简体）",
       enUS: "English",
+    },
+    closeBehavior: {
+      label: "Close behavior",
+      desc: "When clicking the window close button: ask, minimize to tray, or quit",
+      options: {
+        ask: "Ask every time",
+        tray: "Minimize to tray",
+        quit: "Quit immediately",
+      },
     },
     uiScale: {
       label: "UI scale",

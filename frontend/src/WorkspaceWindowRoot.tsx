@@ -2,9 +2,11 @@ import { Component, Suspense, useEffect, useMemo, useState, type ErrorInfo, type
 import { MemoryRouter } from "react-router-dom";
 import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
+import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
+import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
@@ -123,6 +125,10 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
     return () => cleanup?.();
   }, [workspaceId]);
 
+  useEffect(() => {
+    return subscribePersistStoreCrossWindow("omnipanel-settings", useSettingsStore);
+  }, []);
+
   useCrossWindowDragInit();
 
   useEffect(() => {
@@ -211,6 +217,7 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
       <WorkspaceWindowShell workspace={workspace} ready={ready} />
       <QuickInputHost />
       <AppDialogHost />
+      <CloseBehaviorDialogHost />
       <ToastHost />
       <CrossWindowDragVisualLayer />
       {/* 隐藏挂载 DatabasePanel：独立窗口中 DatabasePanel 不挂载会导致

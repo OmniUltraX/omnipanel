@@ -14,6 +14,7 @@ import {
 import {
   useSettingsStore,
   LOCALE_OPTIONS,
+  CLOSE_BEHAVIOR_OPTIONS,
   UI_SCALE,
   ACCENT_PRESETS,
   ACCENT_ORDER,
@@ -32,6 +33,7 @@ import {
   FILE_PREVIEW_THRESHOLD_OPTIONS,
   clampFilePreviewThresholdBytes,
   type Locale,
+  type CloseBehavior,
   type ProxyProtocol,
   type AiDisplayMode,
   type DetailPanelMode,
@@ -794,6 +796,8 @@ export function SettingsPanel() {
 
   const locale = useSettingsStore((s) => s.locale);
   const setLocale = useSettingsStore((s) => s.setLocale);
+  const closeBehavior = useSettingsStore((s) => s.closeBehavior);
+  const setCloseBehavior = useSettingsStore((s) => s.setCloseBehavior);
   const uiScale = useSettingsStore((s) => s.uiScale);
   const setUiScale = useSettingsStore((s) => s.setUiScale);
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
@@ -1067,6 +1071,23 @@ export function SettingsPanel() {
             <div className="settings-section">
               <h2>通用</h2>
               <p className="section-desc">应用行为、启动和会话恢复设置</p>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.closeBehavior.label")}</h4>
+                  <p>{t("settings.closeBehavior.desc")}</p>
+                </div>
+                <Select
+                  className="setting-select"
+                  size="sm"
+                  value={closeBehavior}
+                  onChange={(v) => setCloseBehavior(v as CloseBehavior)}
+                  searchable={false}
+                  options={CLOSE_BEHAVIOR_OPTIONS.map((opt) => ({
+                    value: opt,
+                    label: t(`settings.closeBehavior.options.${opt}`),
+                  }))}
+                />
+              </div>
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>{t("settings.language.label")}</h4>
