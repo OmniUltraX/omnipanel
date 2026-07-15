@@ -889,7 +889,78 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+        overflow-x: hidden;
+        overflow-anchor: none;
         --schema-tree-row-height: 22px;
+    }
+
+    .schema-tree--virtual {
+        position: relative;
+    }
+
+    .schema-tree-virtual-inner {
+        width: 100%;
+        position: relative;
+    }
+
+    .schema-tree-native-inner {
+        width: 100%;
+    }
+
+    .schema-tree-virtual-row,
+    .schema-tree-native-row {
+        box-sizing: border-box;
+        overflow: hidden;
+        contain: layout style;
+    }
+
+    .schema-tree-message {
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        width: 100%;
+        padding-right: var(--sp-2);
+        overflow: hidden;
+        font-size: 11px;
+        line-height: 1.2;
+        cursor: default;
+    }
+
+    .schema-tree-message--error {
+        color: var(--color-danger, #ff3b30);
+    }
+
+    .schema-tree-message--empty {
+        color: var(--text-secondary, #8e8e93);
+    }
+
+    .schema-tree-message__text {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .schema-tree .topbar-tab-dot {
+        flex-shrink: 0;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--meta);
+    }
+
+    .schema-tree .topbar-tab-dot.online,
+    .schema-tree .topbar-tab-dot.connected {
+        background: var(--success);
+    }
+
+    .schema-tree .topbar-tab-dot.connecting {
+        background: var(--warn);
+    }
+
+    .schema-tree .topbar-tab-dot.offline {
+        background: var(--danger);
     }
 
     .schema-tree:focus {
@@ -4668,6 +4739,11 @@
         flex: 1;
         min-height: 0;
         overflow: auto;
+        overflow-anchor: none;
+    }
+
+    .db-data-table-wrap {
+        overflow-anchor: none;
     }
 
     .db-data-table {

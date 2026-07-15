@@ -1,10 +1,11 @@
+import { startTransition } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { isConnectionEnabled, listConnections } from "../api";
-import { reestablishSshForDbConnection } from "../mysqlSlowQueryLog";
+import { isConnectionEnabled, listConnections, testConnection, type DbConnectionConfig } from "../api";
 import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schemaCache";
+import { mergeConnectionSchemaCacheEntry } from "./schemaCache";
 import type { SchemaCacheRefreshReporter } from "./schemaCacheRefresh";
-import { useConnectionStore } from "../../../stores/connectionStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
+import { useDbConnectionRuntimeStore } from "../../../stores/dbConnectionRuntimeStore";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
 import { submitDbSchemaCacheRefresh } from "../../../stores/backgroundTaskStore";
 
@@ -22,8 +23,14 @@ export interface BgTaskSchemaCacheEvent {
 }
 
 const refreshingConnectionIds = new Set<string>();
+/** 任务中尚未 connection_done 的连接（单连接即时刷新路径用） */
 const connectionIdsByTaskId = new Map<string, string[]>();
+/** 任务启动时的完整连接列表（进度与 complete 回写） */
+const originalConnectionIdsByTaskId = new Map<string, string[]>();
+const taskConnectionsDoneCount = new Map<string, number>();
 const reporterByTaskId = new Map<string, SchemaCacheRefreshReporter>();
+/** 全量刷新：connection_done 只缓冲，complete 时一次合并，避免边刷边改树卡死 */
+const pendingEntriesByTaskId = new Map<string, Map<string, SchemaCacheConnectionEntry>>();
 const refreshStateListeners = new Set<() => void>();
 let schemaCacheBgTaskInitialized = false;
 
@@ -44,25 +51,120 @@ export function isSchemaCacheConnectionRefreshing(connId: string): boolean {
   return refreshingConnectionIds.has(connId);
 }
 
-function markConnectionsRefreshing(connIds: string[], taskId: string) {
-  const store = useDbSchemaCacheStore.getState();
-  for (const connId of connIds) {
-    refreshingConnectionIds.add(connId);
-    store.setConnectionRefreshing(connId, true);
+function isBulkRefreshTask(taskId: string): boolean {
+  return (originalConnectionIdsByTaskId.get(taskId)?.length ?? 0) > 1;
+}
+
+function clearConnectionRefreshing(connId: string, taskId: string) {
+  refreshingConnectionIds.delete(connId);
+  useDbSchemaCacheStore.getState().setConnectionRefreshing(connId, false);
+  const remaining = (connectionIdsByTaskId.get(taskId) ?? []).filter((id) => id !== connId);
+  if (remaining.length === 0) {
+    connectionIdsByTaskId.delete(taskId);
+  } else {
+    connectionIdsByTaskId.set(taskId, remaining);
   }
-  connectionIdsByTaskId.set(taskId, connIds);
   notifyRefreshStateChange();
 }
 
-function unmarkTaskRefreshing(taskId: string) {
-  const connIds = connectionIdsByTaskId.get(taskId) ?? [];
-  const store = useDbSchemaCacheStore.getState();
-  for (const connId of connIds) {
-    refreshingConnectionIds.delete(connId);
-    store.setConnectionRefreshing(connId, false);
+/** Schema 缓存条目是否表示连接成功（无 error；允许库列表为空）。 */
+export function isSchemaCacheEntryOk(
+  entry: SchemaCacheConnectionEntry | null | undefined,
+): boolean {
+  return Boolean(entry) && !(entry?.error && entry.error.trim());
+}
+
+/**
+ * 刷新中 → connecting；本地缓存存在 ≠ 在线。
+ * 绿点只由 probe 成功设置。
+ */
+export function syncConnectionRuntimeFromSchemaCache(connId: string): void {
+  if (isSchemaCacheConnectionRefreshing(connId)) {
+    useDbConnectionRuntimeStore.getState().markConnecting([connId]);
   }
+}
+
+/**
+ * 打开连接 / Tab 按需：用本地缓存展示 Schema，后台测连通性（不拉库表）。
+ * Schema 更新请走手动刷新。
+ */
+export async function probeDbConnectionRuntime(connection: DbConnectionConfig): Promise<boolean> {
+  if (!isConnectionEnabled(connection)) {
+    useDbConnectionRuntimeStore.getState().syncEnabled(connection.id, false);
+    return false;
+  }
+
+  const runtime = useDbConnectionRuntimeStore.getState();
+  runtime.markConnecting([connection.id]);
+
+  try {
+    await testConnection(connection);
+    runtime.markOnline([connection.id]);
+    return true;
+  } catch {
+    runtime.markOffline([connection.id]);
+    return false;
+  }
+}
+
+function markConnectionsRefreshing(connIds: string[], taskId: string) {
+  for (const connId of connIds) {
+    refreshingConnectionIds.add(connId);
+  }
+  // 一次 setState，避免 N 次刷新标记打爆侧栏
+  useDbSchemaCacheStore.setState((state) => {
+    const next = { ...state.refreshingConnectionIds };
+    for (const id of connIds) {
+      next[id] = true;
+    }
+    return { refreshingConnectionIds: next };
+  });
+  connectionIdsByTaskId.set(taskId, [...connIds]);
+  originalConnectionIdsByTaskId.set(taskId, [...connIds]);
+  taskConnectionsDoneCount.set(taskId, 0);
+  if (connIds.length > 1) {
+    pendingEntriesByTaskId.set(taskId, new Map());
+  }
+  // 全量刷新不把全部连接标成 connecting（黄点风暴）；仅工具栏 refreshing 指示
+  notifyRefreshStateChange();
+}
+
+function unmarkTaskRefreshing(taskId: string, options?: { failed?: boolean; cancelled?: boolean }) {
+  const remaining = connectionIdsByTaskId.get(taskId) ?? [];
+  const original = originalConnectionIdsByTaskId.get(taskId) ?? remaining;
+  for (const connId of original) {
+    refreshingConnectionIds.delete(connId);
+  }
+  useDbSchemaCacheStore.setState((state) => {
+    const next = { ...state.refreshingConnectionIds };
+    for (const connId of original) {
+      delete next[connId];
+    }
+    return { refreshingConnectionIds: next };
+  });
   connectionIdsByTaskId.delete(taskId);
+  originalConnectionIdsByTaskId.delete(taskId);
+  taskConnectionsDoneCount.delete(taskId);
+  pendingEntriesByTaskId.delete(taskId);
   reporterByTaskId.delete(taskId);
+  const runtime = useDbConnectionRuntimeStore.getState();
+  if (options?.failed) {
+    runtime.markOffline(original);
+  } else if (options?.cancelled) {
+    for (const connId of original) {
+      if (runtime.statusByConnId[connId] === "connecting") {
+        runtime.setStatus(connId, "idle");
+      }
+    }
+  }
+  // 成功：只写缓存，不改绿点；若仍停在 connecting 则回到 idle
+  if (!options?.failed && !options?.cancelled) {
+    for (const connId of original) {
+      if (runtime.statusByConnId[connId] === "connecting") {
+        runtime.setStatus(connId, "idle");
+      }
+    }
+  }
   notifyRefreshStateChange();
 }
 
@@ -80,6 +182,51 @@ function dispatchRefreshComplete(snapshot: SchemaCacheSnapshot) {
       detail: { snapshot },
     }),
   );
+}
+
+function reportConnectionProgress(
+  taskId: string,
+  reporter: SchemaCacheRefreshReporter | undefined,
+  connectionName: string | null | undefined,
+  entry: SchemaCacheConnectionEntry | null | undefined,
+) {
+  if (!connectionName || !reporter) {
+    return;
+  }
+  const original = originalConnectionIdsByTaskId.get(taskId) ?? [];
+  const done = (taskConnectionsDoneCount.get(taskId) ?? 0) + 1;
+  taskConnectionsDoneCount.set(taskId, done);
+  const total = Math.max(1, original.length);
+  const index = Math.min(done, total);
+  reporter.onConnectionStart?.({
+    name: connectionName,
+    index,
+    total,
+  });
+  reporter.onConnectionComplete?.({
+    name: connectionName,
+    index,
+    total,
+    databaseCount: entry?.databases.length ?? 0,
+  });
+}
+
+function applyBufferedEntriesToStore(taskId: string): SchemaCacheSnapshot {
+  const pending = pendingEntriesByTaskId.get(taskId);
+  pendingEntriesByTaskId.delete(taskId);
+  const store = useDbSchemaCacheStore.getState();
+  const previous = store.snapshot;
+  if (!pending || pending.size === 0) {
+    return previous;
+  }
+  const connections = { ...previous.connections };
+  for (const [connId, entry] of pending) {
+    connections[connId] = mergeConnectionSchemaCacheEntry(connections[connId], entry);
+  }
+  const next: SchemaCacheSnapshot = { connections };
+  // 后端 complete 时已落盘；此处只同步内存，一次合并避免 N 次改树
+  void store.replaceSnapshot(next, { persist: false });
+  return next;
 }
 
 async function resolveTargetConnectionIds(connectionIds?: string[]): Promise<string[]> {
@@ -104,33 +251,49 @@ export function initSchemaCacheBackgroundTasks() {
     if (payload.eventType === "connection_done") {
       const connId = payload.connectionId;
       const entry = payload.entry;
+      const bulk = isBulkRefreshTask(payload.taskId);
+
       if (connId && entry) {
-        void useDbSchemaCacheStore.getState().patchConnection(connId, entry);
-        dispatchConnectionPatched(connId, entry);
+        if (bulk) {
+          // 全量：只缓冲 + 状态栏进度，不改侧栏树 / 不标绿点
+          const previous = useDbSchemaCacheStore.getState().snapshot.connections?.[connId];
+          const merged = mergeConnectionSchemaCacheEntry(previous, entry);
+          let pending = pendingEntriesByTaskId.get(payload.taskId);
+          if (!pending) {
+            pending = new Map();
+            pendingEntriesByTaskId.set(payload.taskId, pending);
+          }
+          pending.set(connId, merged);
+        } else {
+          // 单连接：仍即时 patch，打开空连接时能马上看到库名
+          const previous = useDbSchemaCacheStore.getState().snapshot.connections?.[connId];
+          const merged = mergeConnectionSchemaCacheEntry(previous, entry);
+          startTransition(() => {
+            void useDbSchemaCacheStore.getState().patchConnection(connId, merged, { persist: false });
+          });
+          dispatchConnectionPatched(connId, merged);
+          clearConnectionRefreshing(connId, payload.taskId);
+        }
+      } else if (connId && !bulk) {
+        clearConnectionRefreshing(connId, payload.taskId);
       }
-      if (payload.connectionName && reporter) {
-        const connIds = connectionIdsByTaskId.get(payload.taskId) ?? [];
-        const index = Math.max(1, connIds.indexOf(connId ?? "") + 1);
-        const total = connIds.length || 1;
-        reporter.onConnectionStart?.({
-          name: payload.connectionName,
-          index,
-          total,
-        });
-        reporter.onConnectionComplete?.({
-          name: payload.connectionName,
-          index,
-          total,
-          databaseCount: entry?.databases.length ?? 0,
-        });
-      }
+
+      reportConnectionProgress(payload.taskId, reporter, payload.connectionName, entry ?? undefined);
       return;
     }
 
     if (payload.eventType === "complete") {
+      const bulk = isBulkRefreshTask(payload.taskId);
       if (payload.snapshot) {
-        void useDbSchemaCacheStore.getState().replaceSnapshot(payload.snapshot);
+        void useDbSchemaCacheStore.getState().replaceSnapshot(payload.snapshot, { persist: false });
         dispatchRefreshComplete(payload.snapshot);
+      } else if (bulk) {
+        const snapshot = applyBufferedEntriesToStore(payload.taskId);
+        startTransition(() => {
+          dispatchRefreshComplete(snapshot);
+        });
+      } else {
+        dispatchRefreshComplete(useDbSchemaCacheStore.getState().snapshot);
       }
       reporter?.onComplete?.();
       unmarkTaskRefreshing(payload.taskId);
@@ -139,7 +302,7 @@ export function initSchemaCacheBackgroundTasks() {
 
     if (payload.eventType === "failed") {
       reporter?.onError?.(payload.error ?? "Schema 缓存刷新失败");
-      unmarkTaskRefreshing(payload.taskId);
+      unmarkTaskRefreshing(payload.taskId, { failed: true });
     }
   })
     .then((fn) => unsubs.push(fn))
@@ -148,15 +311,15 @@ export function initSchemaCacheBackgroundTasks() {
   listen<BackgroundTaskInfo>("bg-task-update", (event) => {
     const task = event.payload;
     if (task.kind !== "dbSchemaCacheRefresh") return;
-    if (
-      task.status === "failed" ||
-      task.status === "cancelled"
-    ) {
+    if (task.status === "failed" || task.status === "cancelled") {
       const reporter = reporterByTaskId.get(task.id);
       if (task.status === "failed") {
         reporter?.onError?.(task.error ?? "Schema 缓存刷新失败");
       }
-      unmarkTaskRefreshing(task.id);
+      unmarkTaskRefreshing(task.id, {
+        failed: task.status === "failed",
+        cancelled: task.status === "cancelled",
+      });
     }
   })
     .then((fn) => unsubs.push(fn))
@@ -169,19 +332,6 @@ export function initSchemaCacheBackgroundTasks() {
   }
 }
 
-async function reestablishSshForSchemaCacheTargets(targetIds: string[]): Promise<void> {
-  const [dbConnections, sshConnections] = await Promise.all([
-    listConnections(),
-    Promise.resolve(useConnectionStore.getState().connections.filter((conn) => conn.kind === "ssh")),
-  ]);
-  const targets = dbConnections.filter(
-    (conn) => targetIds.includes(conn.id) && isConnectionEnabled(conn),
-  );
-  await Promise.allSettled(
-    targets.map((conn) => reestablishSshForDbConnection(conn, sshConnections)),
-  );
-}
-
 /** 提交 Schema 缓存刷新后台任务，立即返回 taskId。 */
 export async function submitSchemaCacheRefresh(
   connectionIds?: string[],
@@ -191,8 +341,6 @@ export async function submitSchemaCacheRefresh(
   if (targetIds.length === 0) {
     return "";
   }
-
-  await reestablishSshForSchemaCacheTargets(targetIds);
 
   reporter?.onStart?.({ connectionCount: targetIds.length });
 

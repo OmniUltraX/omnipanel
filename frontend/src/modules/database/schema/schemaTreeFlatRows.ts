@@ -50,8 +50,14 @@ import {
 } from "./schemaTreeSearch";
 
 export const SCHEMA_TREE_NODE_ROW_HEIGHT = 22;
+/** Schema 树消息行高度 */
 export const SCHEMA_TREE_MESSAGE_ROW_HEIGHT = 24;
 export const SCHEMA_TREE_LOAD_MORE_ROW_HEIGHT = 22;
+/**
+ * 超过该扁平行数才启用虚拟滚动。
+ * 小树原生滚动更跟手；大树（多库展开 / 搜索全量）仍需虚拟化控 DOM。
+ */
+export const SCHEMA_TREE_VIRTUALIZE_THRESHOLD = 500;
 
 export type SchemaNodeMetaClick = "database-filter" | "table-filter";
 
@@ -104,6 +110,7 @@ export interface SchemaFlatRowsParams {
   t: (key: string, params?: Record<string, string | number>) => string;
   connections: CachedConnection[];
   expandedNodeIds: Set<string>;
+  childVisibleLimits: Record<string, number>;
   databaseFilters: Record<string, SchemaFilterState | undefined>;
   tableFilters: Record<string, SchemaFilterState | undefined>;
   refreshingConnectionIds: Record<string, true>;
@@ -184,7 +191,7 @@ function appendTableObjectRows(
   depth: number,
   tablePinned: boolean | undefined,
 ) {
-  const { t, expandedNodeIds, refreshingNodeIds, searchQuery } =
+  const { t, expandedNodeIds, childVisibleLimits, refreshingNodeIds, searchQuery } =
     params;
   const q = searchQuery?.trim() ?? "";
   const isSearchMode = q.length > 0;
@@ -221,8 +228,8 @@ function appendTableObjectRows(
             : allIndexes.filter((idx) => schemaIndexMatchesSearch(q, idx))
           : []
       : [];
-  const pagedColumns = paginateSchemaChildren(columnsToShow, colsFolderId);
-  const pagedIndexes = paginateSchemaChildren(indexesToShow, idxFolderId);
+  const pagedColumns = paginateSchemaChildren(columnsToShow, colsFolderId, childVisibleLimits);
+  const pagedIndexes = paginateSchemaChildren(indexesToShow, idxFolderId, childVisibleLimits);
   const tableItem: SchemaTreeItem =
     objectKind === "view"
       ? {
@@ -245,6 +252,9 @@ function appendTableObjectRows(
     (!isSearchMode
       ? allIndexes.length > 0
       : indexesFolderMatches || (idxExpanded && indexesToShow.length > 0));
+  const tableRefreshing = Boolean(refreshingNodeIds[tableKey]);
+  const needsDetailsLoad =
+    showTableSchemaChildren && !tbl.detailsError && allColumns.length === 0;
 
   pushNode(rows, {
     kind: "node",
@@ -252,7 +262,9 @@ function appendTableObjectRows(
     item: tableItem,
     depth,
     expanded: tableExpanded,
-    hasChildren: showTableSchemaChildren && (showColumnsSection || showIndexesSection),
+    hasChildren:
+      showTableSchemaChildren &&
+      (showColumnsSection || showIndexesSection || needsDetailsLoad || tableRefreshing),
     labelComment: tbl.comment?.trim() || undefined,
     meta: metaFor(tableKey, undefined),
     pinActive: objectKind === "table" ? tablePinned : undefined,
@@ -270,10 +282,14 @@ function appendTableObjectRows(
     pushMessage(rows, `${tableKey}:details-error`, depth + 1, tbl.detailsError, "error");
   }
 
-  if (!tbl.columns) {
+  if (needsDetailsLoad) {
+    pushMessage(rows, `${tableKey}:loading-details`, depth + 1, t("common.loading"), "empty");
     return;
   }
 
+  if (!tbl.columns) {
+    return;
+  }
   if (showColumnsSection) {
     const colsFolderItem = buildFolderTreeItem(
       colsFolderId,
@@ -387,6 +403,7 @@ function appendConnectionSchemaRows(
   const {
     t,
     expandedNodeIds,
+    childVisibleLimits,
     databaseFilters,
     tableFilters,
     refreshingConnectionIds,
@@ -420,7 +437,7 @@ function appendConnectionSchemaRows(
     const visibleCount = visibleDatabases.length;
     const totalCount = allDatabases.length;
     const isFiltered = totalCount > 0 && visibleCount < totalCount;
-    const pagedDatabases = paginateSchemaChildren(visibleDatabases, databasesFolderId);
+    const pagedDatabases = paginateSchemaChildren(visibleDatabases, databasesFolderId, childVisibleLimits);
 
     const engineIconUrl = getEngineIconByType(conn.config.db_type, resolvedTheme);
     const connItem = buildConnectionTreeItem(conn.config.id, conn.config.name, conn.config.db_type);
@@ -563,9 +580,9 @@ function appendConnectionSchemaRows(
                 )
             : []
           : allRoutines;
-        const pagedTables = paginateSchemaChildren(tablesToShow, tblsFolderId);
-        const pagedViews = paginateSchemaChildren(viewsToShow, viewsFolderId);
-        const pagedRoutines = paginateSchemaChildren(routinesToShow, otherFolderId);
+        const pagedTables = paginateSchemaChildren(tablesToShow, tblsFolderId, childVisibleLimits);
+        const pagedViews = paginateSchemaChildren(viewsToShow, viewsFolderId, childVisibleLimits);
+        const pagedRoutines = paginateSchemaChildren(routinesToShow, otherFolderId, childVisibleLimits);
         const dbItem = buildDatabaseTreeItem(conn.config.id, db.name);
         const dbNodeRefreshing = Boolean(refreshingNodeIds[dbId]);
         const tblsFolderRefreshing = Boolean(refreshingNodeIds[tblsFolderId]);
@@ -584,6 +601,11 @@ function appendConnectionSchemaRows(
             ? otherFolderMatches || (otherExpanded && routinesToShow.length > 0)
             : routineTotalCount > 0) || otherFolderRefreshing;
         const hasDbObjectFolders = showTablesFolder || showViewsFolder || showOtherFolder;
+        const needsObjectsLoad =
+          !isRedis &&
+          !db.loadError &&
+          !db.objectsLoaded &&
+          tableTotalCount + viewTotalCount + routineTotalCount === 0;
         const objectSummary = isRedis
           ? undefined
           : [
@@ -600,11 +622,13 @@ function appendConnectionSchemaRows(
           item: dbItem,
           depth: baseDepth + 1,
           expanded: dbExpanded,
-          hasChildren: !isRedis && (hasDbObjectFolders || Boolean(db.loadError)),
+          hasChildren:
+            !isRedis &&
+            (hasDbObjectFolders || Boolean(db.loadError) || needsObjectsLoad || dbNodeRefreshing),
           labelClickKind: "database",
           labelClickConnId: conn.config.id,
           labelClickDbName: db.name,
-          meta: dbNodeRefreshing
+          meta: dbNodeRefreshing || (dbExpanded && needsObjectsLoad)
             ? t("common.loading")
             : db.loadError
               ? t("database.sidebar.tablesFailed")
@@ -612,6 +636,12 @@ function appendConnectionSchemaRows(
         });
 
         if (!dbExpanded) {
+          continue;
+        }
+
+        if (needsObjectsLoad && !dbNodeRefreshing) {
+          // 展开后由 SchemaBrowser 触发懒加载；此处占位避免空白闪烁
+          pushMessage(rows, `${dbId}:loading-objects`, baseDepth + 2, t("common.loading"), "empty");
           continue;
         }
 
@@ -803,7 +833,7 @@ function appendConnectionSchemaRows(
         });
 
         if (usersExpanded) {
-          const pagedUsers = paginateSchemaChildren(usersToShow, usersFolderId);
+          const pagedUsers = paginateSchemaChildren(usersToShow, usersFolderId, childVisibleLimits);
           for (const user of pagedUsers.visible) {
             const uid = userNodeId(conn.config.id, user.name, user.host);
             const userItem: SchemaTreeItem = {
@@ -838,13 +868,13 @@ function appendConnectionLayoutRows(
   baseDepth: number,
   ctx: SchemaFlatRowsBuildContext,
 ): void {
-  const { connections, expandedNodeIds, layoutFolders, connectionParents } = params;
+  const { connections, expandedNodeIds, childVisibleLimits, layoutFolders, connectionParents } = params;
   const { isSearchMode } = ctx;
   const folders = layoutFolders ?? [];
   const parents = connectionParents ?? {};
   const parentKey = parentFolderId ?? SCHEMA_ROOT_CONNECTIONS_ID;
   const entries = listSchemaConnectionLayoutChildren(parentFolderId, folders, connections, parents);
-  const paged = paginateSchemaChildren(entries, parentKey);
+  const paged = paginateSchemaChildren(entries, parentKey, childVisibleLimits, isSearchMode ? { unpaginated: true } : undefined);
 
   for (const entry of paged.visible) {
     if (entry.kind === "folder") {
@@ -873,7 +903,7 @@ function appendConnectionLayoutRows(
 }
 
 export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow[] {
-  const { t, connections, searchQuery } = params;
+  const { t, connections, childVisibleLimits, searchQuery } = params;
 
   const q = searchQuery?.trim() ?? "";
   const isSearchMode = q.length > 0;
@@ -896,7 +926,7 @@ export function buildSchemaFlatRows(params: SchemaFlatRowsParams): SchemaFlatRow
   };
 
   if (isSearchMode) {
-    const pagedRootConns = paginateSchemaChildren(connections, SCHEMA_ROOT_CONNECTIONS_ID);
+    const pagedRootConns = paginateSchemaChildren(connections, SCHEMA_ROOT_CONNECTIONS_ID, childVisibleLimits, isSearchMode ? { unpaginated: true } : undefined);
     for (const conn of pagedRootConns.visible) {
       appendConnectionSchemaRows(rows, params, conn, 0, ctx);
     }
@@ -952,6 +982,46 @@ export function computeSchemaFlatRowScrollTopForCenter(
   const offset = computeSchemaFlatRowOffset(rows, rowIndex);
   const rowHeight = estimateSchemaFlatRowSize(rows[rowIndex]!);
   return offset - Math.max(0, (viewportHeight - rowHeight) / 2);
+}
+
+/** 目标行是否已完整落在视口内（用于侧栏联动：可见则不滚）。 */
+export function isSchemaFlatRowIndexInViewport(
+  container: HTMLElement,
+  rows: SchemaFlatRow[],
+  rowIndex: number,
+  marginPx = 2,
+): boolean {
+  if (rowIndex < 0 || rowIndex >= rows.length || container.clientHeight <= 0) {
+    return false;
+  }
+  const offset = computeSchemaFlatRowOffset(rows, rowIndex);
+  const rowHeight = estimateSchemaFlatRowSize(rows[rowIndex]!);
+  const top = container.scrollTop + marginPx;
+  const bottom = container.scrollTop + container.clientHeight - marginPx;
+  return offset >= top && offset + rowHeight <= bottom;
+}
+
+/** 将目标行以最小位移滚入视口（不强制居中）。 */
+export function computeSchemaFlatRowScrollTopForNearest(
+  rows: SchemaFlatRow[],
+  rowIndex: number,
+  viewportHeight: number,
+  scrollTop: number,
+): number {
+  if (rowIndex < 0 || rowIndex >= rows.length || viewportHeight <= 0) {
+    return scrollTop;
+  }
+  const offset = computeSchemaFlatRowOffset(rows, rowIndex);
+  const rowHeight = estimateSchemaFlatRowSize(rows[rowIndex]!);
+  const rowBottom = offset + rowHeight;
+  const viewBottom = scrollTop + viewportHeight;
+  if (offset < scrollTop) {
+    return offset;
+  }
+  if (rowBottom > viewBottom) {
+    return rowBottom - viewportHeight;
+  }
+  return scrollTop;
 }
 
 /** 目标行是否已在视口内大致居中（用于避免重复滚动）。 */
@@ -1097,6 +1167,30 @@ export function isSchemaFlatRowNodeInView(
     return false;
   }
   return virtualItems.some((item) => item.index === index);
+}
+
+/** 将目标行滚动到视口内（最小位移，不居中）。 */
+export function scrollSchemaFlatRowIntoView(
+  container: HTMLElement,
+  rows: SchemaFlatRow[],
+  rowIndex: number,
+  scrollToIndex?: (index: number) => void,
+): void {
+  if (rowIndex < 0 || rowIndex >= rows.length) {
+    return;
+  }
+  if (isSchemaFlatRowIndexInViewport(container, rows, rowIndex)) {
+    return;
+  }
+  scrollToIndex?.(rowIndex);
+  const nextTop = computeSchemaFlatRowScrollTopForNearest(
+    rows,
+    rowIndex,
+    container.clientHeight,
+    container.scrollTop,
+  );
+  const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+  container.scrollTop = Math.min(maxScroll, Math.max(0, nextTop));
 }
 
 /** 将目标行滚动到视口居中。 */

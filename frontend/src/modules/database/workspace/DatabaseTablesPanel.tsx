@@ -338,12 +338,34 @@ export function DatabaseTablesPanel({
     }
   }, [loadTableDetails, loadTableDdl, selectedTableName, selection.connId, selection.dbName, tables]);
 
+  // 先进去再拉详情：表名来自本地缓存即可立刻渲染；行数/引擎等后台空闲再填，避免重启后首进卡在建连风暴
   useEffect(() => {
     if (tables.length === 0) {
       setDetailsByTable({});
       return;
     }
-    void loadTableDetails(tables);
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) {
+        void loadTableDetails(tables);
+      }
+    };
+    let idleId: number | null = null;
+    let timerId: number | null = null;
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(run, { timeout: 500 });
+    } else {
+      timerId = window.setTimeout(run, 0);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId != null && typeof cancelIdleCallback === "function") {
+        cancelIdleCallback(idleId);
+      }
+      if (timerId != null) {
+        window.clearTimeout(timerId);
+      }
+    };
   }, [loadTableDetails, tables]);
 
   useEffect(() => {

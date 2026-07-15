@@ -24,7 +24,9 @@ pub fn mysql_connect_options(params: &DbParams) -> MySqlConnectOptions {
     let ssl_mode = if params.ssl {
         MySqlSslMode::Required
     } else {
-        MySqlSslMode::Preferred
+        // Preferred 会对非 TLS 服务器先尝试握手，易触发 HandshakeFailure；
+        // 显式关闭 SSL 时用 Disabled，与连接配置语义一致。
+        MySqlSslMode::Disabled
     };
 
     let mut opts = MySqlConnectOptions::new()

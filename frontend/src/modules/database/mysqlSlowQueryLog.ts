@@ -235,6 +235,21 @@ export async function ensureSshReady(sshConnectionId: string): Promise<boolean> 
     if (res.status === "ok") {
       return true;
     }
+    // 池中无资源 / 配置无效：不要回退交互式连接（无密码占位 SSH 会卡数秒）
+    const code =
+      typeof res.error === "object" && res.error && "code" in res.error
+        ? String((res.error as { code?: string }).code ?? "")
+        : "";
+    if (
+      code === "notFound" ||
+      code === "invalidInput" ||
+      code === "auth" ||
+      code === "NotFound" ||
+      code === "InvalidInput" ||
+      code === "Auth"
+    ) {
+      return false;
+    }
   } catch {
     // 回退终端连接
   }

@@ -13,6 +13,7 @@ import {
   type RedisDeploymentInfo,
 } from "../redisDeploymentDetect";
 import {
+  isRedisDeploymentCacheUsable,
   readRedisDeploymentCache,
   writeRedisDeploymentCache,
 } from "../redisDeploymentCache";
@@ -342,14 +343,23 @@ export function RedisConnectionInfoPanel({
     }
   }, [capable, connection]);
 
-  const refreshDeployment = useCallback(async () => {
+  const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
     if (!capable) {
       setDeployment(null);
       setDeploymentLoading(false);
       return;
     }
 
-    setDeploymentLoading(true);
+    const cached = readRedisDeploymentCache(connection);
+    if (!options?.force && isRedisDeploymentCacheUsable(cached)) {
+      setDeployment(cached);
+      setDeploymentLoading(false);
+      return;
+    }
+
+    if (!isRedisDeploymentCacheUsable(cached)) {
+      setDeploymentLoading(true);
+    }
     try {
       const info = await probeRedisDeployment(connection, sshConnections);
       writeRedisDeploymentCache(connection, info);
@@ -370,7 +380,7 @@ export function RedisConnectionInfoPanel({
       } else if (subTab === "status") {
         await refreshConfig(options);
       } else {
-        await refreshDeployment();
+        await refreshDeployment({ force: true });
       }
     },
     [refreshClients, refreshConfig, refreshDeployment, subTab],
@@ -378,7 +388,7 @@ export function RedisConnectionInfoPanel({
 
   const handleRestartService = useCallback(() => {
     void restartService(deployment, "redis", async () => {
-      await refreshDeployment();
+      await refreshDeployment({ force: true });
       await refreshActiveTab();
     });
   }, [deployment, refreshActiveTab, refreshDeployment, restartService]);
@@ -432,11 +442,14 @@ export function RedisConnectionInfoPanel({
       return;
     }
     void refreshDeployment();
-  }, [active, capable, connection.id, sshConnections.length, refreshDeployment]);
+  }, [active, capable, connection.id, refreshDeployment]);
 
-  /** SSH 列表或会话就绪后重试（避免面板打开瞬间探测时 SSH 尚未连接） */
+  /** SSH 列表或会话就绪后重试（仅 unknown / 缺 SSH 时） */
   useEffect(() => {
     if (!active || !capable || deploymentLoading) {
+      return;
+    }
+    if (isRedisDeploymentCacheUsable(deployment)) {
       return;
     }
     if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
@@ -449,12 +462,12 @@ export function RedisConnectionInfoPanel({
     if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
       return;
     }
-    void refreshDeployment();
+    void refreshDeployment({ force: true });
   }, [
     active,
     capable,
     deploymentLoading,
-    deployment?.reason,
+    deployment,
     connection.host,
     sshConnections,
     sshSessionActiveMap,
@@ -788,7 +801,7 @@ export function RedisConnectionInfoPanel({
         <DbPanelMetaRefreshButton
           onClick={() => {
             void refreshActiveTab();
-            void refreshDeployment();
+            void refreshDeployment({ force: true });
           }}
           disabled={tabLoading || deploymentLoading || !capable}
         />

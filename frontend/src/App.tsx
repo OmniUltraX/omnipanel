@@ -40,6 +40,7 @@ import {
 } from "./lib/routePanels";
 import {
   scheduleIdleTerminalWarm,
+  scheduleIdleDatabaseWarm,
   subscribeModuleShellWarm,
 } from "./lib/moduleWarmup";
 import { WindowResize } from "./components/shell/WindowResize";
@@ -262,6 +263,8 @@ function AppShell() {
 
   // 空闲预热终端：先拉 chunk，再低优先级挂载壳（suspended，不建 xterm）
   useEffect(() => scheduleIdleTerminalWarm(), []);
+  // 空闲预热数据库模块壳，避免重启后首次点侧栏「数据库」卡在 chunk/挂载
+  useEffect(() => scheduleIdleDatabaseWarm(), []);
 
   const location = useLocation();
   const navigate = useNavigate();

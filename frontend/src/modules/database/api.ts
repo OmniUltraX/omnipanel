@@ -3,13 +3,13 @@ import type {
   DbConnectionConfig as BindingsDbConnectionConfig,
   DbQueryResult,
   RedisSearchKeysResult_Serialize,
+  SchemaCacheSnapshot as BindingsSchemaCacheSnapshot,
   SchemaCacheSnapshot_Deserialize,
   TableInfo,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
-import type { SchemaCacheSnapshot } from "./schema/schemaCache";
 
 /** 业务 IPC：走 commands.* + unwrapCommand，勿再写裸 invoke。 */
 function ipcConn(connection: DbConnectionConfig): BindingsDbConnectionConfig {
@@ -292,13 +292,13 @@ export async function saveSchemaTreeExpanded(snapshot: SchemaTreeExpandedSnapsho
   await unwrapCommand(commands.dbSaveSchemaTreeExpanded(snapshot));
 }
 
-export async function loadSchemaCache(): Promise<SchemaCacheSnapshot> {
-  return (await unwrapCommand(commands.dbLoadSchemaCache())) as SchemaCacheSnapshot;
+export async function loadSchemaCache(): Promise<BindingsSchemaCacheSnapshot> {
+  return unwrapCommand(commands.dbLoadSchemaCache());
 }
 
-export async function saveSchemaCache(snapshot: SchemaCacheSnapshot): Promise<void> {
+export async function saveSchemaCache(snapshot: BindingsSchemaCacheSnapshot): Promise<void> {
   await unwrapCommand(
-    commands.dbSaveSchemaCache(snapshot as unknown as SchemaCacheSnapshot_Deserialize),
+    commands.dbSaveSchemaCache(snapshot as SchemaCacheSnapshot_Deserialize),
   );
 }
 

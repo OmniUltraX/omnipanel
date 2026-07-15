@@ -17,6 +17,7 @@ import {
 } from "../mysqlDeploymentDetect";
 import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
+  isMysqlDeploymentCacheUsable,
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
 } from "../mysqlDeploymentCache";
@@ -372,14 +373,24 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [capable, connection]);
 
-  const refreshDeployment = useCallback(async () => {
+  const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
     if (!capable) {
       setDeployment(null);
       setDeploymentLoading(false);
       return;
     }
 
-    setDeploymentLoading(true);
+    const cached = readMysqlDeploymentCache(connection);
+    if (!options?.force && isMysqlDeploymentCacheUsable(cached)) {
+      setDeployment(cached);
+      setDeploymentLoading(false);
+      return;
+    }
+
+    // 已有可展示缓存时静默刷新，避免顶部「部署方式」反复转圈
+    if (!isMysqlDeploymentCacheUsable(cached)) {
+      setDeploymentLoading(true);
+    }
     try {
       const info = await probeMysqlDeployment(connection, sshConnections);
       writeMysqlDeploymentCache(connection, info);
@@ -402,7 +413,7 @@ export function DatabaseConnectionInfoPanel({
       } else if (subTab === "exports") {
         setExportsRefreshToken((value) => value + 1);
       } else {
-        await refreshDeployment();
+        await refreshDeployment({ force: true });
       }
     },
     [refreshConnections, refreshDeployment, refreshVariables, subTab],
@@ -410,7 +421,7 @@ export function DatabaseConnectionInfoPanel({
 
   const handleRestartService = useCallback(() => {
     void restartService(deployment, "mysql", async () => {
-      await refreshDeployment();
+      await refreshDeployment({ force: true });
       await refreshActiveTab();
     });
   }, [deployment, refreshActiveTab, refreshDeployment, restartService]);
@@ -442,12 +453,16 @@ export function DatabaseConnectionInfoPanel({
       return;
     }
     void refreshConnections();
+    // 有有效部署缓存则直接展示，不再每次进 Tab 重查
     void refreshDeployment();
-  }, [active, capable, connection.id, sshConnections.length, refreshConnections, refreshDeployment]);
+  }, [active, capable, connection.id, refreshConnections, refreshDeployment]);
 
-  /** SSH 列表或会话就绪后重试（避免面板打开瞬间探测时 SSH 尚未连接） */
+  /** SSH 列表或会话就绪后重试（仅 unknown / 缺 SSH 时） */
   useEffect(() => {
     if (!active || !capable || deploymentLoading) {
+      return;
+    }
+    if (isMysqlDeploymentCacheUsable(deployment)) {
       return;
     }
     if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
@@ -460,12 +475,12 @@ export function DatabaseConnectionInfoPanel({
     if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
       return;
     }
-    void refreshDeployment();
+    void refreshDeployment({ force: true });
   }, [
     active,
     capable,
     deploymentLoading,
-    deployment?.reason,
+    deployment,
     connection.host,
     sshConnections,
     sshSessionActiveMap,
@@ -939,7 +954,7 @@ export function DatabaseConnectionInfoPanel({
         <DbPanelMetaRefreshButton
           onClick={() => {
             void refreshActiveTab();
-            void refreshDeployment();
+            void refreshDeployment({ force: true });
           }}
           disabled={tabLoading || deploymentLoading || !capable}
         />

@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use omnipanel_store::{
-    load_schema_cache, save_schema_cache, DbConnectionConfig, SchemaCacheConnection,
-    SchemaCacheSnapshot,
+    load_schema_cache, merge_schema_cache_connection, save_schema_cache, DbConnectionConfig,
+    SchemaCacheConnection, SchemaCacheSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -87,9 +87,13 @@ pub async fn run_db_schema_cache_refresh(
         );
 
         let entry = build_schema_cache_connection(&connection).await;
+        let merged = merge_schema_cache_connection(
+            snapshot.connections.get(&connection.id),
+            entry,
+        );
         snapshot
             .connections
-            .insert(connection.id.clone(), entry.clone());
+            .insert(connection.id.clone(), merged.clone());
 
         emit_schema_cache_event(
             &app,
@@ -98,7 +102,7 @@ pub async fn run_db_schema_cache_refresh(
                 event_type: "connection_done".to_string(),
                 connection_id: Some(connection.id.clone()),
                 connection_name: Some(connection.name.clone()),
-                entry: Some(entry),
+                entry: Some(merged),
                 snapshot: None,
                 error: None,
             },
@@ -113,6 +117,7 @@ pub async fn run_db_schema_cache_refresh(
     save_schema_cache(&snapshot).map_err(|e| e.to_string())?;
 
     progress("Schema 缓存刷新完成".to_string(), total, total, None, None);
+    // 不回传完整 snapshot：前端已在 connection_done 逐条 patch，避免巨型 JSON 堵死 WebView 主线程。
     emit_schema_cache_event(
         &app,
         BgTaskSchemaCacheEvent {
@@ -121,7 +126,7 @@ pub async fn run_db_schema_cache_refresh(
             connection_id: None,
             connection_name: None,
             entry: None,
-            snapshot: Some(snapshot),
+            snapshot: None,
             error: None,
         },
     )

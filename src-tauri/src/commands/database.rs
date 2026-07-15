@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use omnipanel_db::{DbDriver, DbParams, MongoDriver, QueryResult, RedisSearchKeysResult, mongodb_list_databases, mysql_connect_options};
 use omnipanel_error::OmniError;
@@ -14,8 +16,38 @@ use sqlx::Row;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tauri::State;
+use tokio::sync::Mutex;
 
 use crate::state::AppState;
+
+/// 进程内复用 sqlx 连接池：避免每次查询都 TCP+认证+close（重启后首次点库会卡数秒）。
+struct SqlxPoolCache {
+    mysql: HashMap<String, (String, MySqlPool)>,
+    pg: HashMap<String, (String, PgPool)>,
+}
+
+fn sqlx_pool_cache() -> &'static Mutex<SqlxPoolCache> {
+    static CACHE: OnceLock<Mutex<SqlxPoolCache>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Mutex::new(SqlxPoolCache {
+            mysql: HashMap::new(),
+            pg: HashMap::new(),
+        })
+    })
+}
+
+fn pool_fingerprint(connection: &DbConnectionConfig) -> String {
+    format!(
+        "{}|{}|{}|{}|{}|{}|{}",
+        connection.db_type,
+        connection.host,
+        connection.port,
+        connection.user,
+        connection.password,
+        connection.database,
+        connection.ssl
+    )
+}
 
 /// `information_schema` 部分列在 MySQL 驱动下为 BLOB，需兼容解码为 `String`。
 fn mysql_row_string(row: &MySqlRow, index: usize) -> String {
@@ -238,7 +270,6 @@ async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserM
         .fetch_all(&pool)
         .await
         .map_err(|e| format!("Query failed: {e}"))?;
-    pool.close().await;
 
     Ok(rows
         .into_iter()
@@ -315,7 +346,6 @@ async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta
         .fetch_all(&pool)
         .await
         .map_err(|e| format!("PG users query failed: {e}"))?;
-    pool.close().await;
 
     Ok(rows
         .into_iter()
@@ -496,15 +526,56 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
 }
 
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
+    let key = connection.id.clone();
+    let fingerprint = pool_fingerprint(connection);
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.mysql.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
     let opts = mysql_connect_options(&to_params(connection));
-    MySqlPoolOptions::new()
-        .max_connections(1)
+    let pool = MySqlPoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Some(Duration::from_secs(300)))
         .connect_with(opts)
         .await
-        .map_err(|e| format!("MySQL 连接失败: {e}"))
+        .map_err(|e| format!("MySQL 连接失败: {e}"))?;
+
+    let mut cache = sqlx_pool_cache().lock().await;
+    if let Some((cached_fp, existing)) = cache.mysql.get(&key) {
+        if cached_fp == &fingerprint {
+            return Ok(existing.clone());
+        }
+        let stale = cache.mysql.remove(&key);
+        drop(cache);
+        if let Some((_, stale_pool)) = stale {
+            stale_pool.close().await;
+        }
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache.mysql.insert(key, (fingerprint, pool.clone()));
+        return Ok(pool);
+    }
+    cache.mysql.insert(key, (fingerprint, pool.clone()));
+    Ok(pool)
 }
 
 async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
+    let key = connection.id.clone();
+    let fingerprint = pool_fingerprint(connection);
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.pg.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
     let p = to_params(connection);
     let opts = sqlx::postgres::PgConnectOptions::new()
         .host(&p.host)
@@ -512,11 +583,30 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
         .username(&p.user)
         .password(&p.password)
         .database(&p.database);
-    PgPoolOptions::new()
-        .max_connections(1)
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Some(Duration::from_secs(300)))
         .connect_with(opts)
         .await
-        .map_err(|e| format!("PostgreSQL 连接失败: {e}"))
+        .map_err(|e| format!("PostgreSQL 连接失败: {e}"))?;
+
+    let mut cache = sqlx_pool_cache().lock().await;
+    if let Some((cached_fp, existing)) = cache.pg.get(&key) {
+        if cached_fp == &fingerprint {
+            return Ok(existing.clone());
+        }
+        let stale = cache.pg.remove(&key);
+        drop(cache);
+        if let Some((_, stale_pool)) = stale {
+            stale_pool.close().await;
+        }
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache.pg.insert(key, (fingerprint, pool.clone()));
+        return Ok(pool);
+    }
+    cache.pg.insert(key, (fingerprint, pool.clone()));
+    Ok(pool)
 }
 
 fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
@@ -634,7 +724,6 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             .await
             .map_err(|e| format!("Query failed: {e}"))?;
             let databases: Vec<String> = rows.iter().map(|r| mysql_row_string(r, 0)).collect();
-            pool.close().await;
             Ok(databases)
         }
         "redis" => {
@@ -677,7 +766,6 @@ async fn mysql_list_character_sets(
             default_collation: mysql_row_string(row, 2),
         })
         .collect();
-    pool.close().await;
     Ok(charsets)
 }
 
@@ -769,7 +857,6 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 .execute(&pool)
                 .await
                 .map_err(|e| format!("创建数据库失败：{e}"))?;
-            pool.close().await;
             Ok(name)
         }
         _ => Err(format!(
@@ -958,7 +1045,6 @@ async fn mysql_table_details(
     .fetch_optional(&pool)
     .await
     .map_err(|e| format!("查询表信息失败: {e}"))?;
-    pool.close().await;
 
     let Some(row) = row else {
         return Err(format!("表 {table_name} 不存在"));
@@ -1005,7 +1091,6 @@ async fn pg_table_details(
     .fetch_optional(&pool)
     .await
     .map_err(|e| format!("查询表信息失败: {e}"))?;
-    pool.close().await;
 
     let Some(row) = row else {
         return Err(format!("表 {table_name} 不存在"));
@@ -1110,7 +1195,6 @@ async fn mysql_table_ddl(
     .fetch_one(&pool)
     .await
     .map_err(|e| format!("SHOW CREATE TABLE 失败: {e}"))?;
-    pool.close().await;
 
     // SHOW CREATE TABLE 返回两列：Table 名称 + Create Table 语句
     let create_sql: String = row.try_get(1).map_err(|e| format!("解码 DDL 失败: {e}"))?;
@@ -1125,7 +1209,6 @@ async fn pg_table_ddl(
 ) -> Result<String, String> {
     let pool = pg_pool(connection).await?;
     let ddl = pg_build_ddl(&pool, table_name).await?;
-    pool.close().await;
     Ok(ddl)
 }
 
@@ -1280,7 +1363,6 @@ async fn introspect_mysql_schema(
     let comments = mysql_fetch_table_comments(&pool, db_name).await?;
     let type_map = mysql_fetch_object_types(&pool, db_name).await?;
     let routines = mysql_fetch_routines(&pool, db_name).await?;
-    pool.close().await;
 
     let mut all_objects: Vec<DbTableSchema> = Vec::new();
     for row in &col_rows {
@@ -1366,7 +1448,6 @@ async fn introspect_mysql_table(
     .map_err(|e| format!("Query failed: {e}"))?;
 
     let comment = mysql_fetch_table_comment(&pool, db_name, table_name).await?;
-    pool.close().await;
 
     let columns: Vec<DbColumnMeta> = col_rows
         .iter()
@@ -1706,6 +1787,9 @@ pub struct SchemaCacheDatabasePayload {
     pub routines: Vec<DbRoutineMeta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// 连接浅刷新为 false；库对象名列表已拉取为 true（列/索引仍可按表懒加载）。
+    #[serde(default)]
+    pub objects_loaded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1784,37 +1868,145 @@ fn table_key_from_details_folder(id: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 库级浅加载：仅表/视图/例程名（可含表注释），不含列与索引。
+/// 展开未缓存库时避免全量 COLUMNS introspect + 巨型 IPC 堵 UI。
+async fn list_database_objects_shallow(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<SchemaCacheDatabasePayload, String> {
+    let db_type = connection.db_type.to_ascii_lowercase();
+    match db_type.as_str() {
+        "mysql" | "mariadb" => {
+            let pool = mysql_pool(connection).await?;
+            let type_map = mysql_fetch_object_types(&pool, db_name).await?;
+            let comments = mysql_fetch_table_comments(&pool, db_name).await?;
+            let routines = mysql_fetch_routines(&pool, db_name).await?;
+
+            let mut tables = Vec::new();
+            let mut views = Vec::new();
+            let mut names: Vec<_> = type_map.keys().cloned().collect();
+            names.sort();
+            for name in names {
+                let kind = type_map.get(&name).map(String::as_str);
+                let schema = DbTableSchema {
+                    name: name.clone(),
+                    columns: Vec::new(),
+                    indexes: Vec::new(),
+                    comment: comments.get(&name).cloned(),
+                };
+                match kind {
+                    Some("VIEW") => views.push(schema),
+                    _ => tables.push(schema),
+                }
+            }
+            Ok(SchemaCacheDatabasePayload {
+                name: db_name.to_string(),
+                tables,
+                views,
+                routines,
+                load_error: None,
+                objects_loaded: true,
+            })
+        }
+        "postgresql" | "postgres" => {
+            let pool = pg_pool(connection).await?;
+            let type_map = pg_fetch_object_types(&pool, "public").await?;
+            let comments = pg_fetch_table_comments(&pool, "public").await?;
+            let routines = pg_fetch_routines(&pool, "public").await?;
+
+            let mut tables = Vec::new();
+            let mut views = Vec::new();
+            let mut names: Vec<_> = type_map.keys().cloned().collect();
+            names.sort();
+            for name in names {
+                let kind = type_map.get(&name).map(String::as_str);
+                let schema = DbTableSchema {
+                    name: name.clone(),
+                    columns: Vec::new(),
+                    indexes: Vec::new(),
+                    comment: comments.get(&name).cloned(),
+                };
+                match kind {
+                    Some("VIEW") => views.push(schema),
+                    _ => tables.push(schema),
+                }
+            }
+            Ok(SchemaCacheDatabasePayload {
+                name: db_name.to_string(),
+                tables,
+                views,
+                routines,
+                load_error: None,
+                objects_loaded: true,
+            })
+        }
+        "sqlite" | "sqlite3" => {
+            let names = db_list_tables(connection.clone(), Some(db_name.to_string())).await?;
+            let tables = names
+                .into_iter()
+                .map(|name| DbTableSchema {
+                    name,
+                    columns: Vec::new(),
+                    indexes: Vec::new(),
+                    comment: None,
+                })
+                .collect();
+            Ok(SchemaCacheDatabasePayload {
+                name: db_name.to_string(),
+                tables,
+                views: Vec::new(),
+                routines: Vec::new(),
+                load_error: None,
+                objects_loaded: true,
+            })
+        }
+        "mongodb" | "mongo" => {
+            let names = db_list_tables(connection.clone(), Some(db_name.to_string())).await?;
+            let tables = names
+                .into_iter()
+                .map(|name| DbTableSchema {
+                    name,
+                    columns: Vec::new(),
+                    indexes: Vec::new(),
+                    comment: None,
+                })
+                .collect();
+            Ok(SchemaCacheDatabasePayload {
+                name: db_name.to_string(),
+                tables,
+                views: Vec::new(),
+                routines: Vec::new(),
+                load_error: None,
+                objects_loaded: true,
+            })
+        }
+        other => Err(format!("Unsupported database type for shallow list: {other}")),
+    }
+}
+
 async fn refresh_database_payload(
     connection: &DbConnectionConfig,
     db_name: &str,
 ) -> Result<SchemaCacheDatabasePayload, String> {
-    let result = db_introspect_schema(connection.clone(), Some(db_name.to_string())).await?;
-    Ok(SchemaCacheDatabasePayload {
-        name: result.database,
-        tables: result.tables,
-        views: result.views,
-        routines: result.routines,
-        load_error: None,
-    })
+    list_database_objects_shallow(connection, db_name).await
 }
 
+/// 连接级浅刷新：仅库名 + 用户，不拉取各库表结构（避免打开连接时主线程被巨型 JSON 卡死）。
 async fn refresh_connection_payload(
     connection: &DbConnectionConfig,
 ) -> Result<SchemaConnectionRefreshPayload, String> {
     let db_names = db_list_databases(connection.clone()).await?;
-    let mut databases = Vec::with_capacity(db_names.len());
-    for name in db_names {
-        match refresh_database_payload(connection, &name).await {
-            Ok(entry) => databases.push(entry),
-            Err(err) => databases.push(SchemaCacheDatabasePayload {
-                name,
-                tables: Vec::new(),
-                views: Vec::new(),
-                routines: Vec::new(),
-                load_error: Some(err),
-            }),
-        }
-    }
+    let databases = db_names
+        .into_iter()
+        .map(|name| SchemaCacheDatabasePayload {
+            name,
+            tables: Vec::new(),
+            views: Vec::new(),
+            routines: Vec::new(),
+            load_error: None,
+            objects_loaded: false,
+        })
+        .collect();
     let users = db_list_connection_users(connection.clone())
         .await
         .unwrap_or_default();
@@ -1876,6 +2068,7 @@ fn connection_payload_to_cache(
                     })
                     .collect(),
                 load_error: db.load_error,
+                objects_loaded: db.objects_loaded,
             })
             .collect(),
         users: payload
@@ -2110,7 +2303,6 @@ async fn introspect_pg_schema(
     let comments = pg_fetch_table_comments(&pool, "public").await?;
     let type_map = pg_fetch_object_types(&pool, "public").await?;
     let routines = pg_fetch_routines(&pool, "public").await?;
-    pool.close().await;
 
     let mut all_objects: Vec<DbTableSchema> = Vec::new();
     for row in &col_rows {
@@ -2232,7 +2424,6 @@ async fn introspect_pg_table(
     .map_err(|e| format!("PG indexes query failed: {e}"))?;
 
     let comment = pg_fetch_table_comment(&pool, "public", table_name).await?;
-    pool.close().await;
 
     let columns: Vec<DbColumnMeta> = col_rows
         .iter()
