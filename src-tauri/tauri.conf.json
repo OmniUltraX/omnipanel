@@ -22,7 +22,8 @@
         "transparent": false,
         "resizable": true,
         "dragDropEnabled": false,
-        "generalAutofillEnabled": false
+        "generalAutofillEnabled": false,
+        "backgroundColor": [26, 23, 23, 255]
       }
     ],
     "security": {

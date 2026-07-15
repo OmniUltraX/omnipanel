@@ -4196,6 +4196,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "webview2-com",
  "windows 0.61.3",
 ]
 

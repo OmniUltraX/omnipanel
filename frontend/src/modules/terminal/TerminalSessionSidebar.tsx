@@ -133,15 +133,6 @@ function FolderIcon() {
   );
 }
 
-function SessionIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
 export interface TerminalSessionSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
@@ -535,7 +526,6 @@ export function TerminalSessionSidebar({
                             nodeType="session"
                             treeKey={makeSessionTreeKey(session.id)}
                             label={session.title}
-                            icon={<SessionIcon />}
                             hasChildren={false}
                             expanded={false}
                             active={isActive}

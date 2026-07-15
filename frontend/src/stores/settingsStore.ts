@@ -286,7 +286,12 @@ function applyDocumentUiScale(percent: number) {
   const scale = clampUiScale(percent) / 100;
   document.documentElement.style.setProperty("--ui-scale", String(scale));
   document.documentElement.setAttribute("data-ui-scale", String(clampUiScale(percent)));
-  document.documentElement.style.zoom = String(scale);
+  // 100% 时卸掉 zoom，减少与系统 DPI / RasterizationScale 叠乘造成的跨屏脏帧
+  if (scale === 1) {
+    document.documentElement.style.removeProperty("zoom");
+  } else {
+    document.documentElement.style.zoom = String(scale);
+  }
 }
 
 function applyDocumentLocale(locale: Locale) {
