@@ -211,14 +211,20 @@ export function isDockerComposeTab(
   return tab.kind === "compose";
 }
 
-/** 过滤持久化中已废弃的服务组 Tab，并将旧预览 Tab 提升为常驻。 */
+/** 过滤废弃 Tab（含旧顶层镜像/网络/卷/容器列表），并将旧预览 Tab 提升为常驻。 */
 export function sanitizeDockerDockTabs(
   tabs: DockerConnectionWorkspaceTab[],
 ): DockerConnectionWorkspaceTab[] {
   return tabs
     .filter((tab) => {
       const kind = (tab as { kind?: string }).kind;
-      return kind !== "service-group";
+      return (
+        kind !== "service-group" &&
+        kind !== "images" &&
+        kind !== "networks" &&
+        kind !== "volumes" &&
+        kind !== "containers"
+      );
     })
     .map((tab) => (tab.preview ? { ...tab, preview: false } : tab));
 }

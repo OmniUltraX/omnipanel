@@ -3427,14 +3427,10 @@
     }
 
     .docker-network-panel__actions,
-    .docker-container-logs-panel__actions {
+    .docker-container-panel__actions {
         display: inline-flex;
         align-items: center;
         gap: 2px;
-    }
-
-    .docker-container-logs-panel--inactive {
-        display: none;
     }
 
     .docker-image-pull-dialog {

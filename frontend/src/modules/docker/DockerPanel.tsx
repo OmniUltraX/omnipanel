@@ -32,34 +32,18 @@ import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTa
 import {
   isDockerComposeTab,
   isDockerContainerTab,
-  isDockerContainersTab,
-  isDockerImagesTab,
-  isDockerNetworksTab,
-  isDockerVolumesTab,
 } from "./dockerConnectionWorkspaceTabs";
-import { containerRowLabel, makeDockerComposeProjectTreeKey, makeDockerTreeKey } from "./dockerResourceLabels";
+import {
+  containerRowLabel,
+  makeDockerComposeProjectTreeKey,
+  makeDockerTreeKey,
+} from "./dockerResourceLabels";
 import type { DockerSidebarNavTarget } from "./dockerSidebarNav";
 import { useDockerConnections } from "./hooks/useDockerConnections";
 import type { Connection, DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
 
 const DockerContainerDockPanel = lazy(() =>
   import("./DockerContainerDockPanel").then((mod) => ({ default: mod.DockerContainerDockPanel })),
-);
-
-const DockerContainerPanel = lazy(() =>
-  import("./DockerContainerPanel").then((mod) => ({ default: mod.DockerContainerPanel })),
-);
-
-const DockerImagePanel = lazy(() =>
-  import("./DockerImagePanel").then((mod) => ({ default: mod.DockerImagePanel })),
-);
-
-const DockerNetworkPanel = lazy(() =>
-  import("./DockerNetworkPanel").then((mod) => ({ default: mod.DockerNetworkPanel })),
-);
-
-const DockerVolumePanel = lazy(() =>
-  import("./DockerVolumePanel").then((mod) => ({ default: mod.DockerVolumePanel })),
 );
 
 const DockerComposePanel = lazy(() =>
@@ -92,10 +76,6 @@ export function DockerPanel() {
   const dockLayout = useDockerPanelDockStore((s) => s.dockLayout);
   const selectConnection = useDockerPanelDockStore((s) => s.selectConnection);
   const selectContainer = useDockerPanelDockStore((s) => s.selectContainer);
-  const selectContainers = useDockerPanelDockStore((s) => s.selectContainers);
-  const selectImages = useDockerPanelDockStore((s) => s.selectImages);
-  const selectNetworks = useDockerPanelDockStore((s) => s.selectNetworks);
-  const selectVolumes = useDockerPanelDockStore((s) => s.selectVolumes);
   const selectCompose = useDockerPanelDockStore((s) => s.selectCompose);
   const closeTab = useDockerPanelDockStore((s) => s.closeTab);
   const handleCloseTab = useCallback(
@@ -220,34 +200,9 @@ export function DockerPanel() {
               return;
             }
 
-            if (target.category === "containers" && !target.itemId) {
-              selectContainers(target.connectionId, mode);
-              setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
-              return;
-            }
-
-            if (target.category === "images" && !target.itemId) {
-              selectImages(target.connectionId, mode);
-              setActiveNavKey(makeDockerTreeKey(target.connectionId, "images"));
-              return;
-            }
-
-            if (target.category === "networks" && !target.itemId) {
-              selectNetworks(target.connectionId, mode);
-              setActiveNavKey(makeDockerTreeKey(target.connectionId, "networks"));
-              return;
-            }
-
-            if (target.category === "volumes" && !target.itemId) {
-              selectVolumes(target.connectionId, mode);
-              setActiveNavKey(makeDockerTreeKey(target.connectionId, "volumes"));
-              return;
-            }
-
+            // 镜像 / 网络 / 卷 / 容器列表：打开连接 Dock，由连接内分段 Tab 承接
             selectConnection(target.connectionId, mode);
-            if (target.itemId && target.category) {
-              setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-            } else if (target.category) {
+            if (target.category) {
               setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
             } else {
               setActiveNavKey(makeDockerTreeKey(target.connectionId));
@@ -256,16 +211,7 @@ export function DockerPanel() {
         },
       });
     },
-    [
-      selectConnection,
-      selectContainer,
-      selectContainers,
-      selectCompose,
-      selectImages,
-      selectNetworks,
-      selectVolumes,
-      setActiveNavKey,
-    ],
+    [selectConnection, selectContainer, selectCompose, setActiveNavKey],
   );
 
   useEffect(() => {
@@ -278,27 +224,18 @@ export function DockerPanel() {
       setActiveNavKey(makeDockerTreeKey(tab.connectionId, "containers", tab.containerId));
       return;
     }
-    if (isDockerContainersTab(tab)) {
-      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "containers"));
-      return;
-    }
-    if (isDockerImagesTab(tab)) {
-      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "images"));
-      return;
-    }
-    if (isDockerNetworksTab(tab)) {
-      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "networks"));
-      return;
-    }
-    if (isDockerVolumesTab(tab)) {
-      setActiveNavKey(makeDockerTreeKey(tab.connectionId, "volumes"));
-      return;
-    }
     if (isDockerComposeTab(tab)) {
       setActiveNavKey(makeDockerComposeProjectTreeKey(tab.connectionId, tab.composeProject));
       return;
     }
-    setActiveNavKey(makeDockerTreeKey(tab.connectionId));
+    // 连接 Dock：若侧栏导航已指向同连接的分段 Tab（镜像/网络等），不要冲掉
+    const connectionKey = makeDockerTreeKey(tab.connectionId);
+    setActiveNavKey((prev) => {
+      if (prev === connectionKey || prev?.startsWith(`${connectionKey}:`)) {
+        return prev;
+      }
+      return connectionKey;
+    });
   }, [activeTabId, dockTabs]);
 
   const handleEditDockerConnection = (info: { connectionId: string }) => {
@@ -372,58 +309,6 @@ export function DockerPanel() {
             };
           }
 
-          if (isDockerContainersTab(tab)) {
-            const containersLabel = t("docker.tabs.containers");
-            return {
-              id: tab.id,
-              label: containersLabel,
-              panelType: "docker-containers",
-              icon: "docker-containers" as const,
-              closable: true,
-              preview: tab.preview,
-              tooltip: `${connection.name} · ${containersLabel}`,
-            };
-          }
-
-          if (isDockerImagesTab(tab)) {
-            const imagesLabel = t("docker.tabs.images");
-            return {
-              id: tab.id,
-              label: imagesLabel,
-              panelType: "docker-images",
-              icon: "docker-images" as const,
-              closable: true,
-              preview: tab.preview,
-              tooltip: `${connection.name} · ${imagesLabel}`,
-            };
-          }
-
-          if (isDockerNetworksTab(tab)) {
-            const networksLabel = t("docker.tabs.networks");
-            return {
-              id: tab.id,
-              label: networksLabel,
-              panelType: "docker-networks",
-              icon: "docker-networks" as const,
-              closable: true,
-              preview: tab.preview,
-              tooltip: `${connection.name} · ${networksLabel}`,
-            };
-          }
-
-          if (isDockerVolumesTab(tab)) {
-            const volumesLabel = t("docker.tabs.volumes");
-            return {
-              id: tab.id,
-              label: volumesLabel,
-              panelType: "docker-volumes",
-              icon: "docker-volumes" as const,
-              closable: true,
-              preview: tab.preview,
-              tooltip: `${connection.name} · ${volumesLabel}`,
-            };
-          }
-
           if (isDockerComposeTab(tab)) {
             return {
               id: tab.id,
@@ -447,7 +332,7 @@ export function DockerPanel() {
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [connectionById, dockTabs, sidebarContainersForTabs, t],
+    [connectionById, dockTabs, sidebarContainersForTabs],
   );
 
   // renderPanel 经 DockableWorkspace 的 ref 注入；稳定回调 + 最新 refs，避免 dockTabs 变更触发整树 soft-refresh
@@ -480,22 +365,6 @@ export function DockerPanel() {
               containerId={tab.containerId}
               isActive={isActive}
             />
-          </Suspense>
-        ) : isDockerContainersTab(tab) ? (
-          <Suspense fallback={<DockerPanelLoadingFallback />}>
-            <DockerContainerPanel connection={connection} isActive={isActive} />
-          </Suspense>
-        ) : isDockerImagesTab(tab) ? (
-          <Suspense fallback={<DockerPanelLoadingFallback />}>
-            <DockerImagePanel connection={connection} isActive={isActive} />
-          </Suspense>
-        ) : isDockerNetworksTab(tab) ? (
-          <Suspense fallback={<DockerPanelLoadingFallback />}>
-            <DockerNetworkPanel connection={connection} isActive={isActive} />
-          </Suspense>
-        ) : isDockerVolumesTab(tab) ? (
-          <Suspense fallback={<DockerPanelLoadingFallback />}>
-            <DockerVolumePanel connection={connection} isActive={isActive} />
           </Suspense>
         ) : isDockerComposeTab(tab) ? (
           <Suspense fallback={<DockerPanelLoadingFallback />}>
@@ -561,10 +430,10 @@ export function DockerPanel() {
             renderPanel={renderDockerPanel}
             softRefreshKey={dockSoftRefreshKey}
             emptyContent={
-                <WorkspaceEmptyPage
-                  title={t("routes.docker")}
-                  prompt={t("docker.sidebar.selectConnection")}
-                />
+              <WorkspaceEmptyPage
+                title={t("routes.docker")}
+                prompt={t("docker.sidebar.selectConnection")}
+              />
             }
           />
         </ModuleWorkspaceLayout>
@@ -572,21 +441,21 @@ export function DockerPanel() {
 
       {showAddConn ? (
         <Suspense fallback={null}>
-      <DockerConnectionDialog
-        open={showAddConn}
-        onClose={() => {
-          setShowAddConn(false);
-          setEditDockerConnection(undefined);
-        }}
-        editConnection={editDockerConnection}
-        onSaved={(connection) => {
-          void reloadConnections();
-          refreshDockerConnectionSidebarCache(connection.id);
-          setEditDockerConnection(undefined);
-        }}
-      />
+          <DockerConnectionDialog
+            open={showAddConn}
+            onClose={() => {
+              setShowAddConn(false);
+              setEditDockerConnection(undefined);
+            }}
+            editConnection={editDockerConnection}
+            onSaved={(connection) => {
+              void reloadConnections();
+              refreshDockerConnectionSidebarCache(connection.id);
+              setEditDockerConnection(undefined);
+            }}
+          />
         </Suspense>
-          ) : null}
+      ) : null}
 
       {toast ? <div className="docker-toast">{toast}</div> : null}
     </>

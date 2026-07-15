@@ -613,7 +613,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
     }),
     {
       name: "omnipanel-docker-panel-dock.v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {

@@ -286,7 +286,9 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         variant="variables"
         columns={gridColumns}
         rows={sortedImages}
-        rowKey={(image) => image.id}
+        rowKey={(image, index) =>
+          `${image.id}:${image.repository ?? ""}:${image.tag ?? ""}:${index}`
+        }
         sortColumnId={sort.column}
         sortDirection={sort.direction}
         onSortColumn={toggleSort}

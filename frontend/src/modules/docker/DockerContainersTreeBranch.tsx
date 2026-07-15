@@ -23,7 +23,6 @@ import { dockerSidebarCategoryRefreshKey } from "./dockerSidebarCache";
 type DockerContainersTreeBranchProps = {
   connection: DockerConnectionInfo;
   containers: DockerContainerSummary[];
-  categoryKey: string;
   activeNavKey: string | null;
   searchQuery: string;
   connectionNameMatch: boolean;
@@ -39,7 +38,6 @@ type DockerContainersTreeBranchProps = {
 export function DockerContainersTreeBranch({
   connection,
   containers,
-  categoryKey,
   activeNavKey,
   searchQuery,
   connectionNameMatch,
@@ -103,7 +101,6 @@ export function DockerContainersTreeBranch({
 
   const openComposeProject = (project: string, mode?: DockerConnectionDockOpenMode) => {
     ensureExpanded(makeDockerTreeKey(connection.connectionId));
-    ensureExpanded(categoryKey);
     ensureExpanded(makeDockerComposeProjectTreeKey(connection.connectionId, project));
     onNavigate(
       {
@@ -120,7 +117,6 @@ export function DockerContainersTreeBranch({
     const containersRefreshKey = dockerSidebarCategoryRefreshKey(connection.connectionId, "containers");
     const openItem = (mode?: DockerConnectionDockOpenMode) => {
       ensureExpanded(makeDockerTreeKey(connection.connectionId));
-      ensureExpanded(categoryKey);
       onNavigate(
         {
           connectionId: connection.connectionId,
@@ -188,7 +184,7 @@ export function DockerContainersTreeBranch({
         return (
           <div key={group.project} className="server-tree-category docker-compose-project-category">
             <SidebarTreeNode
-              depth={2}
+              depth={1}
               module="docker"
               nodeType="compose-project"
               treeKey={projectKey}
@@ -217,7 +213,7 @@ export function DockerContainersTreeBranch({
                 <DockerSidebarExpandableLeaves
                   items={projectContainers}
                   getKey={(container) => container.id}
-                  renderItem={(container) => renderContainerNode(container, 3)}
+                  renderItem={(container) => renderContainerNode(container, 2)}
                 />
               </div>
             ) : null}
@@ -228,7 +224,7 @@ export function DockerContainersTreeBranch({
       <DockerSidebarExpandableLeaves
         items={visibleStandaloneContainers}
         getKey={(container) => container.id}
-        renderItem={(container) => renderContainerNode(container, 2)}
+        renderItem={(container) => renderContainerNode(container, 1)}
       />
     </>
   );

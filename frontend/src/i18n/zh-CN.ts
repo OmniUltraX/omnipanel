@@ -2609,7 +2609,6 @@ export const zhCN = {
     connectionPanel: {
       tabs: {
         overview: "概览",
-        logs: "容器日志",
         terminal: "终端",
         config: "配置",
       },
@@ -2720,7 +2719,9 @@ export const zhCN = {
         image: "镜像",
         ports: "端口",
         networks: "网络",
+        logSize: "日志大小",
         created: "创建时间",
+        actions: "操作",
       },
     },
     imagesPanel: {
