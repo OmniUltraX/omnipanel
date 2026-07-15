@@ -3,7 +3,10 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use omnipanel_ssh::{merge_ports, parse_windows_netstat_ports, SshProcessPort};
+use omnipanel_ssh::{merge_ports, SshProcessPort};
+
+#[cfg(windows)]
+use omnipanel_ssh::parse_windows_netstat_ports;
 
 #[cfg(unix)]
 use omnipanel_ssh::{parse_netstat_ports, parse_ss_ports};

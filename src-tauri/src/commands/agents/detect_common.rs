@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;

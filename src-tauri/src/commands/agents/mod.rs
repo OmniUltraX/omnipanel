@@ -2,8 +2,9 @@ mod detect_common;
 
 use detect_common::{
     command_output, detect_from_candidates, home_dir, push_candidate, resolve_in_path,
-    where_all,
 };
+#[cfg(windows)]
+use detect_common::where_all;
 use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;

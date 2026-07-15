@@ -242,6 +242,7 @@ pub fn restart_local_engine() -> OmniResult<()> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = install_kind;
         if let Some(exe) = docker_desktop_exe() {
             let _ = Command::new("taskkill")
                 .args(["/IM", "Docker Desktop.exe", "/F"])
@@ -260,10 +261,15 @@ pub fn restart_local_engine() -> OmniResult<()> {
                 })?;
             return Ok(());
         }
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前环境不支持应用内重启 Docker，请手动重启 Docker 服务",
+        ));
     }
 
     #[cfg(target_os = "macos")]
     {
+        let _ = install_kind;
         let _ = Command::new("osascript")
             .args(["-e", "quit app \"Docker\""])
             .status();
@@ -304,11 +310,18 @@ pub fn restart_local_engine() -> OmniResult<()> {
         if status.success() {
             return Ok(());
         }
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前环境不支持应用内重启 Docker，请手动重启 Docker 服务",
+        ));
     }
 
-    let _ = install_kind;
-    Err(OmniError::new(
-        ErrorCode::InvalidInput,
-        "当前环境不支持应用内重启 Docker，请手动重启 Docker 服务",
-    ))
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = install_kind;
+        Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前环境不支持应用内重启 Docker，请手动重启 Docker 服务",
+        ))
+    }
 }
