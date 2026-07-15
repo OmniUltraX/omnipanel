@@ -8,7 +8,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -85,14 +84,10 @@ import {
 } from "./schemaTreeIds";
 import {
   buildSchemaFlatRows,
-  collectStickySchemaAncestors,
-  estimateSchemaFlatRowSize,
-  filterStickySchemaAncestorsForOverlay,
   findSchemaFlatRowIndexByNodeId,
   isSchemaFlatRowIndexCenteredInViewport,
   scrollSchemaFlatRowToCenter,
   type SchemaFlatRow,
-  type SchemaNodeFlatRow,
 } from "./schemaTreeFlatRows";
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
@@ -169,7 +164,7 @@ interface TreeNodeProps {
   refreshDisabled?: boolean;
   onDelete?: () => void;
   deleteDisabled?: boolean;
-  /** 虚拟树吸顶条中的祖先节点样式 */
+  /** 展开祖先节点使用 CSS sticky 吸顶 */
   stickyAncestor?: boolean;
   layoutDraggable?: boolean;
   layoutDraggingSource?: boolean;
@@ -1396,19 +1391,10 @@ export function SchemaBrowser({
   const selectableNodeIds = useMemo(
     () =>
       flatRows
-        .filter((row): row is SchemaNodeFlatRow => row.kind === "node")
+        .filter((row): row is Extract<SchemaFlatRow, { kind: "node" }> => row.kind === "node")
         .map((row) => row.item.id),
     [flatRows],
   );
-
-  const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => schemaTreeRef.current,
-    estimateSize: (index) => estimateSchemaFlatRowSize(flatRows[index]),
-    overscan: 24,
-  });
-  const rowVirtualizerRef = useRef(rowVirtualizer);
-  rowVirtualizerRef.current = rowVirtualizer;
 
   const hasAnyConnection = connections.length > 0;
 
@@ -1474,13 +1460,7 @@ export function SchemaBrowser({
     }
 
     const scrollToCenter = () => {
-      scrollSchemaFlatRowToCenter(
-        container,
-        flatRows,
-        rowIndex,
-        (index) =>
-          rowVirtualizerRef.current.scrollToIndex(index, { align: "center", behavior: "auto" }),
-      );
+      scrollSchemaFlatRowToCenter(container, flatRows, rowIndex);
     };
 
     if (sidebarLinkageRafRef.current != null) {
@@ -1665,7 +1645,7 @@ export function SchemaBrowser({
           onPinToggle={onPinToggle}
           onActivate={onActivate}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
-          stickyAncestor={options?.stickyAncestor}
+          stickyAncestor={Boolean(options?.stickyAncestor)}
           layoutDraggable={isLayoutDraggable}
           layoutDraggingSource={layoutDraggingSourceId === row.item.id}
           dragOver={isLayoutDropTarget && layoutDragOverNodeId === row.item.id}
@@ -1696,17 +1676,6 @@ export function SchemaBrowser({
       activeDatabaseKey,
     ],
   );
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const stickyOverlayRows = useMemo(() => {
-    if (!stickyAncestors || flatRows.length === 0) {
-      return [] as { row: SchemaNodeFlatRow; rowIndex: number }[];
-    }
-    const firstVisibleIndex = virtualRows[0]?.index ?? 0;
-    const ancestors = collectStickySchemaAncestors(flatRows, firstVisibleIndex);
-    const visibleIndexes = virtualRows.map((item) => item.index);
-    return filterStickySchemaAncestorsForOverlay(ancestors, visibleIndexes);
-  }, [stickyAncestors, flatRows, virtualRows]);
 
   const handleCollapseAll = useCallback(() => {
     updateExpanded(() => new Set());
@@ -1802,7 +1771,7 @@ export function SchemaBrowser({
         enabled={filterDialogConnId === null && filterDialogTable === null}
       >
         <div
-          className={`schema-tree schema-tree--virtual${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
+          className={`schema-tree${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
           ref={schemaTreeRef}
           tabIndex={-1}
           onKeyDown={handleTreeKeyDown}
@@ -1826,42 +1795,13 @@ export function SchemaBrowser({
         )}
         {!loading && !loadError && hasAnyConnection && (
           <>
-            {stickyOverlayRows.length > 0 && (
-              <div className="schema-tree-sticky-ancestors">
-                {stickyOverlayRows.map(({ row }) => (
-                  <div key={`sticky:${row.key}`} className="schema-tree-sticky-ancestor-row">
-                    {renderFlatRow(row, { stickyAncestor: true })}
-                  </div>
-                ))}
+            {flatRows.map((row) => (
+              <div key={row.key}>
+                {renderFlatRow(row, {
+                  stickyAncestor: stickyAncestors && row.kind === "node" && row.hasChildren && row.expanded,
+                })}
               </div>
-            )}
-          <div
-            className="schema-tree-virtual-inner"
-            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const row = flatRows[virtualRow.index];
-              if (!row) {
-                return null;
-              }
-              return (
-                <div
-                  key={row.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  className="schema-tree-virtual-row"
-                  style={{
-                    position: "absolute",
-                    top: virtualRow.start,
-                    left: 0,
-                    width: "100%",
-                  }}
-                >
-                  {renderFlatRow(row)}
-                </div>
-              );
-            })}
-          </div>
+            ))}
           </>
         )}
         </SidebarTreeSelectionProvider>

@@ -47,15 +47,6 @@
         margin-left: 0;
     }
 
-    .ssh-host-sidebar .vsplit-sidebar-section__body .host-list {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section__body .host-list::-webkit-scrollbar {
-        display: none;
-    }
-
     .ssh-workspace {
         flex: 1;
         min-height: 0;

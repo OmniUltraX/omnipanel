@@ -36,17 +36,6 @@
         overflow: hidden;
     }
 
-    .schema-sidebar .schema-tree,
-    .schema-sidebar .sql-query-file-tree {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .schema-sidebar .schema-tree::-webkit-scrollbar,
-    .schema-sidebar .sql-query-file-tree::-webkit-scrollbar {
-        display: none;
-    }
-
     .schema-browser {
         width: 100%;
         min-width: 0;
@@ -839,49 +828,6 @@
         min-height: 0;
         overflow-y: auto;
         --schema-tree-row-height: 22px;
-    }
-
-    .schema-tree-sticky-ancestors {
-        position: sticky;
-        top: 0;
-        z-index: 60;
-        margin: 0 calc(-1 * var(--vsplit-sidebar-content-padding, var(--sp-2)));
-        padding: 0 var(--vsplit-sidebar-content-padding, var(--sp-2));
-        background: var(--bg);
-        pointer-events: none;
-    }
-
-    .schema-tree-sticky-ancestors .tree-node {
-        pointer-events: auto;
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky {
-        position: relative;
-        top: auto;
-        min-height: var(--schema-tree-row-height);
-        border-radius: 0;
-        background: var(--bg);
-        box-shadow: 0 1px 0 var(--border);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky.tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky:hover {
-        background: var(--surface-hover);
-    }
-
-    .schema-tree-sticky-ancestors .tree-node--sticky.tree-node--active:hover {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree-virtual-inner {
-        width: 100%;
-    }
-
-    .schema-tree-virtual-row {
-        box-sizing: border-box;
     }
 
     .schema-tree--sticky-ancestors .tree-node--sticky {

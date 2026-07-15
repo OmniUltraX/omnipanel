@@ -30,15 +30,6 @@
         background: transparent;
     }
 
-    .docker-connection-sidebar .vsplit-sidebar-section__body .server-sidebar-body {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .docker-connection-sidebar .vsplit-sidebar-section__body .server-sidebar-body::-webkit-scrollbar {
-        display: none;
-    }
-
     .docker-tree-scoped-search {
         flex: 1;
         min-height: 0;
@@ -342,35 +333,6 @@
 
     .docker-sidebar-tree .docker-tree-node--volumes .tree-icon {
         color: var(--muted);
-    }
-
-    /* 侧栏大列表：跳过屏外叶子布局/绘制 */
-    .docker-sidebar-tree .server-tree-children > .sidebar-tree-node,
-    .docker-sidebar-tree .server-tree-children > .server-tree-category {
-        content-visibility: auto;
-        contain-intrinsic-size: auto 28px;
-    }
-
-    /* 侧栏大列表虚拟滚动视口 */
-    .docker-sidebar-tree__virtual-list {
-        position: relative;
-        overflow: auto;
-        min-height: 0;
-        /* 防止虚拟行 absolute 溢出点击区域被吃掉 */
-        contain: layout style;
-    }
-
-    .docker-sidebar-tree__virtual-list-inner {
-        position: relative;
-        width: 100%;
-    }
-
-    .docker-sidebar-tree__virtual-row {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        box-sizing: border-box;
     }
 
     .docker-workspace-dock,

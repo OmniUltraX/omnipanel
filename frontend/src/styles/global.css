@@ -11401,15 +11401,6 @@ a {
         background: transparent;
     }
 
-    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .server-panel-sidebar .vsplit-sidebar-section__body .server-sidebar-body::-webkit-scrollbar {
-        display: none;
-    }
-
     .server-tree-scoped-search {
         flex: 1;
         min-height: 0;
@@ -15818,9 +15809,8 @@ a {
     box-sizing: border-box;
 }
 
-/* sticky 绁栧厛琛屾ā寮忥細浠呬繚鐣欏簳閮ㄥ唴杈硅窛锛坉atabase schema-tree 琛屼负锛?*/
+/* sticky 祖先行模式：只保留底部内边距（database schema-tree 行为） */
 .vsplit-sidebar :is(
-    .schema-tree--virtual.schema-tree--sticky-ancestors,
     .schema-tree--sticky-ancestors,
     .sql-query-file-tree--sticky-ancestors
 ) {

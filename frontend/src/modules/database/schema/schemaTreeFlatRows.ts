@@ -1026,7 +1026,7 @@ export function isSchemaFlatRowNodeInView(
   return virtualItems.some((item) => item.index === index);
 }
 
-/** 将虚拟列表中的目标行滚动到视口居中。 */
+/** 将目标行滚动到视口居中。 */
 export function scrollSchemaFlatRowToCenter(
   container: HTMLElement,
   rows: SchemaFlatRow[],

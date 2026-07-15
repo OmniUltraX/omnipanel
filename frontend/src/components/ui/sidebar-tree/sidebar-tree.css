@@ -17,8 +17,6 @@
     cursor: pointer;
     font-size: 12px;
     transition: background 0.1s;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 22px;
 }
 
 .sidebar-tree-node:hover,
