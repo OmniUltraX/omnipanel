@@ -84,6 +84,47 @@ export function isSchemaSyncSourceTableMissingInTarget(
   return findTableByName(targetTables, sourceName, caseSensitive) === undefined;
 }
 
+/**
+ * 结构同步可执行判断：结构一致不执行；新增/差异可执行；
+ * 目标缺失表仅在允许建表时执行。
+ */
+export function isSchemaSyncTableExecutable(
+  tableName: string,
+  diffs: Record<string, Pick<SchemaTableDiff, "status">>,
+  targetTables: SyncTableInfo[],
+  caseSensitive: boolean,
+  createMissingTables: boolean,
+): boolean {
+  const missing = isSchemaSyncSourceTableMissingInTarget(
+    tableName,
+    targetTables,
+    caseSensitive,
+  );
+  if (missing) {
+    return createMissingTables;
+  }
+  const status = diffs[tableName]?.status;
+  return status === "diff" || status === "new";
+}
+
+export function filterSchemaSyncExecutableTableNames(
+  tableNames: string[],
+  diffs: Record<string, Pick<SchemaTableDiff, "status">>,
+  targetTables: SyncTableInfo[],
+  caseSensitive: boolean,
+  createMissingTables: boolean,
+): string[] {
+  return tableNames.filter((name) =>
+    isSchemaSyncTableExecutable(
+      name,
+      diffs,
+      targetTables,
+      caseSensitive,
+      createMissingTables,
+    ),
+  );
+}
+
 function collectAlignedDisplayNames(
   sourceSnapshot: SyncSideSnapshot,
   targetSnapshot: SyncSideSnapshot,

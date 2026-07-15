@@ -3414,6 +3414,14 @@
         cursor: not-allowed;
     }
 
+    .db-toolbox-select-all-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+        font-size: 11px;
+        padding-inline: var(--sp-2);
+        min-height: 26px;
+    }
+
     .db-toolbox-search {
         width: 100%;
         font-size: 11px;

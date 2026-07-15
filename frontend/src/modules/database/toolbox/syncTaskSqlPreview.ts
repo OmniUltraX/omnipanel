@@ -2,8 +2,14 @@ import { fetchTableDdl } from "../api";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import {
   isSchemaSyncSourceTableMissingInTarget,
+  findTableByName,
   resolveSchemaSyncTargetTableName,
 } from "./schemaSyncAlignedTables";
+import {
+  formatMysqlAddColumnPositionClause,
+  resolveMysqlAddColumnPosition,
+  type MysqlAddColumnPosition,
+} from "./schemaSyncAddColumnPosition";
 import type { SchemaTableDiff } from "./schemaDiff";
 import {
   type DataAnalysisResult,
@@ -137,11 +143,19 @@ function buildInsertPreviewSql(
   return `${rowsHint}\n${valuesHint}`;
 }
 
-function buildAddColumnSql(dbType: string, table: string, col: DbColumnMeta): string {
+function buildAddColumnSql(
+  dbType: string,
+  table: string,
+  col: DbColumnMeta,
+  position: MysqlAddColumnPosition = { kind: "none" },
+): string {
   const tableIdent = quoteIdent(dbType, table);
   const colIdent = quoteIdent(dbType, col.name);
   const nullSql = col.nullable !== false ? "NULL" : "NOT NULL";
-  return `ALTER TABLE ${tableIdent} ADD COLUMN ${colIdent} ${col.type} ${nullSql}`;
+  const positionSql = isMysqlEngine(dbType)
+    ? formatMysqlAddColumnPositionClause(position, (name) => quoteIdent(dbType, name))
+    : "";
+  return `ALTER TABLE ${tableIdent} ADD COLUMN ${colIdent} ${col.type} ${nullSql}${positionSql}`;
 }
 
 function buildModifyColumnSql(dbType: string, table: string, col: DbColumnMeta): string {
@@ -238,7 +252,34 @@ async function buildSchemaTablePreview(
     return lines;
   }
 
+  const targetTable = findTableByName(
+    input.targetTables,
+    targetName,
+    input.schemaCaseSensitive,
+  );
+  const existingColumnNames = new Set(
+    (targetTable?.columns ?? []).map((column) => column.name),
+  );
+  const addedColumnNames = new Set(
+    diff.columns.filter((colDiff) => colDiff.kind === "added").map((colDiff) => colDiff.name),
+  );
+
+  // 按源表列顺序生成 ADD，以便 MySQL AFTER / FIRST 与源顺序对齐
+  for (const col of columns) {
+    if (!addedColumnNames.has(col.name)) {
+      continue;
+    }
+    const position = isMysqlEngine(dbType)
+      ? resolveMysqlAddColumnPosition(columns, col.name, existingColumnNames)
+      : ({ kind: "none" } as const);
+    lines.push(`${buildAddColumnSql(dbType, targetName, col, position)};`);
+    existingColumnNames.add(col.name);
+  }
+
   for (const colDiff of diff.columns) {
+    if (colDiff.kind === "added") {
+      continue;
+    }
     const col = columns.find((c) => c.name === colDiff.name);
     if (!col) {
       if (colDiff.kind === "removed") {
@@ -246,9 +287,7 @@ async function buildSchemaTablePreview(
       }
       continue;
     }
-    if (colDiff.kind === "added") {
-      lines.push(`${buildAddColumnSql(dbType, targetName, col)};`);
-    } else if (colDiff.kind === "changed") {
+    if (colDiff.kind === "changed") {
       const sql = buildModifyColumnSql(dbType, targetName, col);
       if (sql) {
         lines.push(`${sql};`);

@@ -2498,26 +2498,55 @@ async fn execute_data_sync_table(
     }
 }
 
-fn build_add_column_sql(db_type: &str, table: &str, col: &DbColumnMeta) -> String {
+fn build_add_column_sql(
+    db_type: &str,
+    table: &str,
+    col: &DbColumnMeta,
+    position: MysqlAddColumnPosition<'_>,
+) -> String {
     let table_ident = quote_ident(db_type, table);
     let col_ident = quote_ident(db_type, &col.name);
     let null = if col.nullable { "NULL" } else { "NOT NULL" };
-    if is_mysql_engine(db_type) {
-        format!(
-            "ALTER TABLE {table_ident} ADD COLUMN {col_ident} {} {null}",
-            col.column_type
-        )
-    } else if is_postgres_engine(db_type) {
-        format!(
-            "ALTER TABLE {table_ident} ADD COLUMN {col_ident} {} {null}",
-            col.column_type
-        )
+    let position_sql = if is_mysql_engine(db_type) {
+        match position {
+            MysqlAddColumnPosition::First => " FIRST".to_string(),
+            MysqlAddColumnPosition::After(name) => {
+                format!(" AFTER {}", quote_ident(db_type, name))
+            }
+            MysqlAddColumnPosition::None => String::new(),
+        }
     } else {
-        format!(
-            "ALTER TABLE {table_ident} ADD COLUMN {col_ident} {} {null}",
-            col.column_type
-        )
+        String::new()
+    };
+    format!(
+        "ALTER TABLE {table_ident} ADD COLUMN {col_ident} {} {null}{position_sql}",
+        col.column_type
+    )
+}
+
+enum MysqlAddColumnPosition<'a> {
+    First,
+    After(&'a str),
+    None,
+}
+
+/// 根据源表列顺序解析 MySQL ADD COLUMN 的 FIRST / AFTER。
+/// `existing_names`：目标已有列 ∪ 本批次已执行 ADD 的列。
+fn resolve_mysql_add_column_position<'a>(
+    source_columns: &'a [DbColumnMeta],
+    column_name: &str,
+    existing_names: &HashSet<&str>,
+) -> MysqlAddColumnPosition<'a> {
+    let Some(idx) = source_columns.iter().position(|c| c.name == column_name) else {
+        return MysqlAddColumnPosition::None;
+    };
+    for i in (0..idx).rev() {
+        let prev = source_columns[i].name.as_str();
+        if existing_names.contains(prev) {
+            return MysqlAddColumnPosition::After(prev);
+        }
     }
+    MysqlAddColumnPosition::First
 }
 
 fn build_modify_column_sql(db_type: &str, table: &str, col: &DbColumnMeta) -> String {
@@ -2587,15 +2616,44 @@ async fn apply_schema_diff(
     let idx_diffs = compare_table_indexes(&spec.indexes, &target_table.indexes);
     let mut applied = 0u32;
 
+    let added_names: HashSet<&str> = col_diffs
+        .iter()
+        .filter(|d| d.kind == "added")
+        .map(|d| d.name.as_str())
+        .collect();
+    let mut existing_names: HashSet<&str> = target_table
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+
+    // 按源表列顺序 ADD，使 MySQL AFTER / FIRST 与源顺序一致
+    for col in &spec.columns {
+        if !added_names.contains(col.name.as_str()) {
+            continue;
+        }
+        let position = if is_mysql_engine(&target.db_type) {
+            resolve_mysql_add_column_position(&spec.columns, &col.name, &existing_names)
+        } else {
+            MysqlAddColumnPosition::None
+        };
+        let sql = build_add_column_sql(&target.db_type, target_table_name, col, position);
+        if sql.is_empty() {
+            continue;
+        }
+        database::db_run_sql(target.clone(), Some(target_db.to_string()), sql).await?;
+        existing_names.insert(col.name.as_str());
+        applied += 1;
+    }
+
     for diff in &col_diffs {
+        if diff.kind != "changed" {
+            continue;
+        }
         let Some(col) = spec.columns.iter().find(|c| c.name == diff.name) else {
             continue;
         };
-        let sql = match diff.kind.as_str() {
-            "added" => build_add_column_sql(&target.db_type, target_table_name, col),
-            "changed" => build_modify_column_sql(&target.db_type, target_table_name, col),
-            _ => continue,
-        };
+        let sql = build_modify_column_sql(&target.db_type, target_table_name, col);
         if sql.is_empty() {
             continue;
         }
@@ -2862,4 +2920,52 @@ pub async fn run_db_schema_sync_execute(
         None,
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod add_column_position_tests {
+    use super::{
+        build_add_column_sql, resolve_mysql_add_column_position, MysqlAddColumnPosition,
+    };
+    use crate::commands::database::DbColumnMeta;
+    use std::collections::HashSet;
+
+    fn col(name: &str) -> DbColumnMeta {
+        DbColumnMeta {
+            name: name.to_string(),
+            column_type: "json".to_string(),
+            is_pk: false,
+            is_fk: false,
+            nullable: true,
+            is_auto_increment: false,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn mysql_add_column_uses_after_previous_existing() {
+        let source = vec![col("id"), col("update_time"), col("chapter_json"), col("name")];
+        let existing: HashSet<&str> = ["id", "update_time", "name"].into_iter().collect();
+        let position =
+            resolve_mysql_add_column_position(&source, "chapter_json", &existing);
+        assert!(matches!(
+            position,
+            MysqlAddColumnPosition::After("update_time")
+        ));
+        let sql = build_add_column_sql("mysql", "tiku_chapter", &source[2], position);
+        assert_eq!(
+            sql,
+            "ALTER TABLE `tiku_chapter` ADD COLUMN `chapter_json` json NULL AFTER `update_time`"
+        );
+    }
+
+    #[test]
+    fn mysql_add_column_uses_first_when_no_previous() {
+        let source = vec![col("id"), col("name")];
+        let existing: HashSet<&str> = ["name"].into_iter().collect();
+        let position = resolve_mysql_add_column_position(&source, "id", &existing);
+        assert!(matches!(position, MysqlAddColumnPosition::First));
+        let sql = build_add_column_sql("mysql", "t", &source[0], position);
+        assert!(sql.ends_with(" FIRST"));
+    }
 }
