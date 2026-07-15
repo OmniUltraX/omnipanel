@@ -143,7 +143,9 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
   const [containers, setContainers] = useState<DockerContainerSummary[]>(
     () => peekDockerSidebarCache(connection.connectionId).containers,
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    () => peekDockerSidebarCache(connection.connectionId).networks.length === 0,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).error,

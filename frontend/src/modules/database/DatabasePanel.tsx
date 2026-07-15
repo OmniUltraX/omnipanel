@@ -83,6 +83,7 @@ import {
   isRedisConnection,
   isToolboxCapableConnection,
   type DbCharsetMeta,
+  type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
@@ -2070,15 +2071,24 @@ export function DatabasePanel() {
   );
 
   const commitTabDirty = useCallback(
-    async (tabId: string) => {
+    async (
+      tabId: string,
+      snapshot?: {
+        dirty: Record<string, Record<string, unknown>>;
+        preview: { connId: string; dbName: string; tableName: string };
+        colMeta: DbColumnMeta[];
+        connection: DbConnectionConfig;
+      },
+    ) => {
       const tabState = useDbWorkspaceTabStore.getState();
-      const dirty = tabState.tabDirtyRows[tabId];
+      const dirty = snapshot?.dirty ?? tabState.tabDirtyRows[tabId];
       if (!dirty) return;
-      const preview = tabState.tablePreviews[tabId];
+      const preview = snapshot?.preview ?? tabState.tablePreviews[tabId];
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
-      const connection = connections.find((c) => c.id === preview.connId);
+      const connection =
+        snapshot?.connection ?? connections.find((c) => c.id === preview.connId);
       if (!connection) return;
-      const colMeta = tabState.tableColumnMeta[tabId];
+      const colMeta = snapshot?.colMeta ?? tabState.tableColumnMeta[tabId];
       if (!colMeta) return;
       const pkCols = colMeta.filter((c) => c.isPk);
       if (pkCols.length === 0) {
@@ -2145,7 +2155,10 @@ export function DatabasePanel() {
           });
         }
         clearTabDirty(tabId);
-        refreshTabPreviewNow(tabId);
+        // Tab 可能已关闭：仅在仍存在预览态时刷新
+        if (useDbWorkspaceTabStore.getState().tablePreviews[tabId]) {
+          refreshTabPreviewNow(tabId);
+        }
       } catch (err) {
         console.error("[db.commit] failed", err);
         throw err;
@@ -2495,7 +2508,61 @@ export function DatabasePanel() {
       filter?: RuleGroupType | null;
     }) => {
       void (async () => {
-        if (hasDirty(action.tabId)) {
+        if (action.kind === "close" && hasDirty(action.tabId)) {
+          const tabState = useDbWorkspaceTabStore.getState();
+          const dirty = tabState.tabDirtyRows[action.tabId];
+          const preview = tabState.tablePreviews[action.tabId];
+          const colMeta = tabState.tableColumnMeta[action.tabId];
+          const dirtyCount = Object.keys(dirty ?? {}).length;
+          const commit = await appConfirm(
+            t("database.results.dirtyMessage", { count: dirtyCount }),
+            t("database.results.dirtyTitle"),
+            {
+              confirmLabel: t("database.results.dirtyCommit"),
+              cancelLabel: t("database.results.dirtyRollback"),
+              kind: "warning",
+            },
+          );
+
+          // 关 Tab 前拷贝提交所需快照（关闭后 store 数据会被清掉）
+          const connection =
+            preview?.connId != null
+              ? connections.find((c) => c.id === preview.connId)
+              : undefined;
+          const commitSnapshot =
+            commit && dirty && preview?.connId && preview.dbName && preview.tableName && colMeta && connection
+              ? {
+                  dirty: structuredClone(dirty),
+                  preview: {
+                    connId: preview.connId,
+                    dbName: preview.dbName,
+                    tableName: preview.tableName,
+                  },
+                  colMeta: [...colMeta],
+                  connection,
+                }
+              : null;
+
+          if (!commit) {
+            rollbackTabDirty(action.tabId);
+          }
+
+          // 先关页面，再后台提交（避免卡在 dock 上）
+          executeTabAction(action);
+
+          if (commitSnapshot) {
+            void commitTabDirty(action.tabId, commitSnapshot).catch((err) => {
+              showToast(
+                t("database.results.dirtyCommitFailed", {
+                  message: err instanceof Error ? err.message : String(err),
+                }),
+              );
+            });
+          }
+          return;
+        }
+
+        if (hasDirty(action.tabId) && action.kind !== "close") {
           const dirtyCount = Object.keys(
             useDbWorkspaceTabStore.getState().tabDirtyRows[action.tabId] ?? {},
           ).length;
@@ -2512,7 +2579,6 @@ export function DatabasePanel() {
             try {
               await commitTabDirty(action.tabId);
             } catch {
-              // 提交失败时不清空 dirty，提示用户去处理
               return;
             }
           } else {
@@ -2522,7 +2588,7 @@ export function DatabasePanel() {
         executeTabAction(action);
       })();
     },
-    [hasDirty, executeTabAction, commitTabDirty, rollbackTabDirty, t],
+    [hasDirty, executeTabAction, commitTabDirty, rollbackTabDirty, connections, t],
   );
 
   const handleRowEdit = useCallback(

@@ -164,7 +164,7 @@ export function FileConnectionPanel({
 
   const [currentPath, setCurrentPath] = useState(savedState?.currentPath ?? "");
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listNextToken, setListNextToken] = useState<string | null>(null);
   const [hasMoreEntries, setHasMoreEntries] = useState(false);

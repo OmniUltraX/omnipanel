@@ -5,6 +5,8 @@ import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/Cont
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import {
   ModuleSegmentDock,
+  openDockTabNow,
+  closeDockTabNow,
   type DockableTab,
 } from "../../components/dock";
 import {
@@ -171,13 +173,17 @@ function FilesBrowserView() {
   }, []);
 
   const openConnectionPanel = useCallback((conn: FileManagerConnectionInfo) => {
-    openConnection(conn.id);
+    openDockTabNow({
+      applyTabSync: () => openConnection(conn.id),
+    });
   }, [openConnection]);
 
   const handleCloseTab = useCallback((tabId: string) => {
     const connId = parseFileConnPanelId(tabId);
     if (!connId) return;
-    closeConnection(connId);
+    closeDockTabNow({
+      removeTabSync: () => closeConnection(connId),
+    });
   }, [closeConnection]);
 
   const dockTabs = useMemo((): DockableTab[] => {

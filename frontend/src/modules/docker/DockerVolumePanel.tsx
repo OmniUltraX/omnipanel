@@ -38,7 +38,9 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
   const [selectedVolumeName, setSelectedVolumeName] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).volumes[0]?.name ?? null,
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    () => peekDockerSidebarCache(connection.connectionId).volumes.length === 0,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).error,

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
-import { ModuleSegmentDock } from "../../components/dock";
+import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
@@ -23,6 +23,7 @@ import {
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { DockerConnectionInfoPanel } from "./DockerConnectionInfoPanel";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
@@ -97,6 +98,14 @@ export function DockerPanel() {
   const selectVolumes = useDockerPanelDockStore((s) => s.selectVolumes);
   const selectCompose = useDockerPanelDockStore((s) => s.selectCompose);
   const closeTab = useDockerPanelDockStore((s) => s.closeTab);
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      closeDockTabNow({
+        removeTabSync: () => closeTab(tabId),
+      });
+    },
+    [closeTab],
+  );
   const setActiveTabId = useDockerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useDockerPanelDockStore((s) => s.setDockLayout);
   const removeConnectionTabs = useDockerPanelDockStore((s) => s.removeConnectionTabs);
@@ -193,54 +202,58 @@ export function DockerPanel() {
 
   const handleNavigate = useCallback(
     (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
-      // 开 Tab 降为 transition，优先保住侧栏点击反馈帧
-      startTransition(() => {
-        if (target.composeProject) {
-          selectCompose(target.connectionId, target.composeProject, mode);
-          setActiveNavKey(
-            makeDockerComposeProjectTreeKey(target.connectionId, target.composeProject),
-          );
-          return;
-        }
+      // 先同步开 Tab（transition 保侧栏反馈），数据由 panel isActive 后异步拉取
+      openDockTabNow({
+        applyTabSync: () => {
+          startTransition(() => {
+            if (target.composeProject) {
+              selectCompose(target.connectionId, target.composeProject, mode);
+              setActiveNavKey(
+                makeDockerComposeProjectTreeKey(target.connectionId, target.composeProject),
+              );
+              return;
+            }
 
-        if (target.category === "containers" && target.itemId) {
-          selectContainer(target.connectionId, target.itemId, mode);
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-          return;
-        }
+            if (target.category === "containers" && target.itemId) {
+              selectContainer(target.connectionId, target.itemId, mode);
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
+              return;
+            }
 
-        if (target.category === "containers" && !target.itemId) {
-          selectContainers(target.connectionId, mode);
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
-          return;
-        }
+            if (target.category === "containers" && !target.itemId) {
+              selectContainers(target.connectionId, mode);
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, "containers"));
+              return;
+            }
 
-        if (target.category === "images" && !target.itemId) {
-          selectImages(target.connectionId, mode);
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, "images"));
-          return;
-        }
+            if (target.category === "images" && !target.itemId) {
+              selectImages(target.connectionId, mode);
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, "images"));
+              return;
+            }
 
-        if (target.category === "networks" && !target.itemId) {
-          selectNetworks(target.connectionId, mode);
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, "networks"));
-          return;
-        }
+            if (target.category === "networks" && !target.itemId) {
+              selectNetworks(target.connectionId, mode);
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, "networks"));
+              return;
+            }
 
-        if (target.category === "volumes" && !target.itemId) {
-          selectVolumes(target.connectionId, mode);
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, "volumes"));
-          return;
-        }
+            if (target.category === "volumes" && !target.itemId) {
+              selectVolumes(target.connectionId, mode);
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, "volumes"));
+              return;
+            }
 
-        selectConnection(target.connectionId, mode);
-        if (target.itemId && target.category) {
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
-        } else if (target.category) {
-          setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
-        } else {
-          setActiveNavKey(makeDockerTreeKey(target.connectionId));
-        }
+            selectConnection(target.connectionId, mode);
+            if (target.itemId && target.category) {
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category, target.itemId));
+            } else if (target.category) {
+              setActiveNavKey(makeDockerTreeKey(target.connectionId, target.category));
+            } else {
+              setActiveNavKey(makeDockerTreeKey(target.connectionId));
+            }
+          });
+        },
       });
     },
     [
@@ -302,6 +315,7 @@ export function DockerPanel() {
     if (isBuiltinLocalDockerConnection(connectionId)) return;
     if (!(await appConfirm(t("docker.sidebar.deleteConfirm")))) return;
     removeConnectionTabs(connectionId);
+    useDockerSidebarCacheStore.getState().removeConnection(connectionId);
     await removeStoredConnection(connectionId);
     void reloadConnections();
     showToast(t("docker.sidebar.deleted"));
@@ -540,7 +554,7 @@ export function DockerPanel() {
             tabs={moduleDockTabs}
             activeTabId={activeTabId ?? ""}
             onActiveTabChange={setActiveTabId}
-            onCloseTab={closeTab}
+            onCloseTab={handleCloseTab}
             enabled={isActiveRoute}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
@@ -565,8 +579,9 @@ export function DockerPanel() {
           setEditDockerConnection(undefined);
         }}
         editConnection={editDockerConnection}
-        onSaved={() => {
+        onSaved={(connection) => {
           void reloadConnections();
+          refreshDockerConnectionSidebarCache(connection.id);
           setEditDockerConnection(undefined);
         }}
       />

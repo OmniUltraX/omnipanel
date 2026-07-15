@@ -17,13 +17,14 @@ interface UseServerCertificatesResult {
 
 export function useServerCertificates(server: ServerEntry | null): UseServerCertificatesResult {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!server) {
       setItems([]);
       setError(null);
+      setLoading(false);
       return;
     }
 

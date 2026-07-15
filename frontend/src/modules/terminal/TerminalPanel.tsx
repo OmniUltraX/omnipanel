@@ -33,7 +33,7 @@ import {
 import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import { subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import { restoreTerminalTabFromWorkspaceTransfer } from "../../lib/moduleToWorkspaceTransfer";
-import { ModuleSegmentDock } from "../../components/dock";
+import { ModuleSegmentDock, closeDockTabNow } from "../../components/dock";
 import {
   removeTabFromTerminalLayout,
   useTerminalDockLayoutStore,
@@ -338,32 +338,43 @@ export function TerminalPanel() {
   }, [beginSuppressSshDockActivation, closeTabOnly, focusSessionsPanel, setActiveTab, setDockLayout]);
 
   const handleEndSession = useCallback((sessionId: string) => {
-    const openTab = useTerminalStore.getState().tabs.find((tab) => tab.sessionId === sessionId);
+    const store = useTerminalStore.getState();
+    const openTab = store.tabs.find((tab) => tab.sessionId === sessionId);
+    const backendSessionId =
+      openTab?.backendSessionId ?? store.detachedRuntime[sessionId]?.backendSessionId ?? null;
     beginSuppressSshDockActivation();
     clearTerminalPaneSender(sessionId);
     clearPaneBackendPending(sessionId);
-    disposeSessionBackend(sessionId);
-    clearTerminalBackendSessionTouch(sessionId);
-    endSession(sessionId);
+    cancelAutoReconnectSsh(sessionId);
 
-    const nextActive = useTerminalStore.getState().activeTabId;
-    if (nextActive) {
-      setActiveTab(nextActive);
-      setDockActiveId(nextActive);
-      focusSessionsPanel();
-    } else {
-      setDockActiveId("");
-    }
+    closeDockTabNow({
+      removeTabSync: () => {
+        clearTerminalBackendSessionTouch(sessionId);
+        endSession(sessionId);
 
-    if (openTab) {
-      setDockLayout(
-        removeTabFromTerminalLayout(
-          useTerminalDockLayoutStore.getState().savedLayout,
-          openTab.id,
-          nextActive ?? undefined,
-        ),
-      );
-    }
+        const nextActive = useTerminalStore.getState().activeTabId;
+        if (nextActive) {
+          setActiveTab(nextActive);
+          setDockActiveId(nextActive);
+          focusSessionsPanel();
+        } else {
+          setDockActiveId("");
+        }
+
+        if (openTab) {
+          setDockLayout(
+            removeTabFromTerminalLayout(
+              useTerminalDockLayoutStore.getState().savedLayout,
+              openTab.id,
+              nextActive ?? undefined,
+            ),
+          );
+        }
+      },
+      afterCloseAsync: () => {
+        disposeSessionBackend(sessionId, backendSessionId);
+      },
+    });
   }, [beginSuppressSshDockActivation, endSession, focusSessionsPanel, setActiveTab, setDockLayout]);
 
   useEffect(() => {

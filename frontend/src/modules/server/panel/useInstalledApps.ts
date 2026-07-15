@@ -30,7 +30,7 @@ interface UseInstalledAppsResult {
 export function useInstalledApps(server: ServerEntry | null): UseInstalledAppsResult {
   const [apps, setApps] = useState<ServerInstalledApp[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -38,6 +38,7 @@ export function useInstalledApps(server: ServerEntry | null): UseInstalledAppsRe
       setApps([]);
       setTotal(0);
       setError(null);
+      setLoading(false);
       return;
     }
 

@@ -30,7 +30,7 @@ interface SshHostInfo {
 interface DockerConnectionDialogProps {
   open: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (connection: Connection) => void;
   editConnection?: Connection;
 }
 
@@ -365,7 +365,7 @@ export function DockerConnectionDialog({
         setError("保存失败");
         return;
       }
-      onSaved?.();
+      onSaved?.(saved);
       onClose();
     } catch (e) {
       setError(String(e));

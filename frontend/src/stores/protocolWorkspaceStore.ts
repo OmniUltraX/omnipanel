@@ -26,6 +26,8 @@ interface ProtocolWorkspaceState {
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string | null) => void;
   updateTabLabel: (tabId: string, label: string) => void;
+  /** 将草稿 Tab 绑定到已持久化资源（如 HTTP createRequest 完成后） */
+  bindTabResource: (tabId: string, resourceId: string, label?: string) => void;
   setSavedLayout: (layout: SerializedDockview | null) => void;
   reset: () => void;
 }
@@ -97,6 +99,19 @@ export const useProtocolWorkspaceStore = create<ProtocolWorkspaceState>()(
         set((state) => ({
           tabs: state.tabs.map((tab) =>
             tab.id === tabId ? { ...tab, label: label.trim() || tab.label } : tab,
+          ),
+        }));
+      },
+      bindTabResource: (tabId, resourceId, label) => {
+        set((state) => ({
+          tabs: state.tabs.map((tab) =>
+            tab.id === tabId
+              ? {
+                  ...tab,
+                  resourceId,
+                  label: label?.trim() || tab.label,
+                }
+              : tab,
           ),
         }));
       },
