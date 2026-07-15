@@ -23,6 +23,8 @@ pub const LOCAL_CONNECTION_ID: &str = "__local__";
 /// Windows「此电脑」虚拟根路径（列出盘符）。
 pub const LOCAL_COMPUTER_ROOT: &str = "\\\\";
 
+/// Windows「此电脑」虚拟根路径判定。
+#[cfg(windows)]
 fn is_local_computer_root(path: &str) -> bool {
     path == LOCAL_COMPUTER_ROOT || path == "\\"
 }

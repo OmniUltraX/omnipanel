@@ -4,10 +4,11 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use omnipanel_ssh::{
-    attach_process_gpu, parse_intel_lspci_output, parse_nvidia_gpu_output, parse_nvidia_process_gpu,
-    parse_rocm_smi_output, GpuDeviceStats, GpuStats, SshProcessInfo, NVIDIA_GPU_QUERY,
-    ROCM_SMI_QUERY,
+    attach_process_gpu, parse_nvidia_gpu_output, parse_nvidia_process_gpu, parse_rocm_smi_output,
+    GpuDeviceStats, GpuStats, SshProcessInfo, NVIDIA_GPU_QUERY, ROCM_SMI_QUERY,
 };
+#[cfg(all(not(windows), not(target_os = "macos")))]
+use omnipanel_ssh::parse_intel_lspci_output;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -62,19 +63,25 @@ fn collect_local_gpu_uncached() -> GpuStats {
     }
 
     if devices.is_empty() {
-        if cfg!(target_os = "macos") {
+        #[cfg(target_os = "macos")]
+        {
             if let Some(out) = run_command("system_profiler", &["SPDisplaysDataType"]) {
                 devices.extend(parse_macos_displays(&out));
             }
-        } else if cfg!(windows) {
+        }
+        #[cfg(windows)]
+        {
             devices.extend(collect_windows_gpu());
             enrich_windows_gpu_perf(&mut devices);
-        } else if let Some(out) = run_shell_pipeline(
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        if let Some(out) = run_shell_pipeline(
             "lspci 2>/dev/null | grep -iE 'VGA|3D|Display' | grep -i intel || true",
         ) {
             devices.extend(parse_intel_lspci_output(&out));
         }
-    } else if cfg!(windows) {
+    } else {
+        #[cfg(windows)]
         enrich_windows_gpu_perf(&mut devices);
     }
 
@@ -231,11 +238,7 @@ fn collect_windows_gpu() -> Vec<GpuDeviceStats> {
     parse_windows_gpu_lines(&out)
 }
 
-#[cfg(not(windows))]
-fn collect_windows_gpu() -> Vec<GpuDeviceStats> {
-    Vec::new()
-}
-
+#[cfg(windows)]
 fn parse_windows_gpu_lines(out: &str) -> Vec<GpuDeviceStats> {
     out.lines()
         .enumerate()
@@ -279,6 +282,7 @@ fn parse_windows_gpu_lines(out: &str) -> Vec<GpuDeviceStats> {
         .collect()
 }
 
+#[cfg(windows)]
 fn is_virtual_gpu_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     [
@@ -356,9 +360,7 @@ $adapters.GetEnumerator() | Sort-Object { $_.Value.Total } -Descending | ForEach
     }
 }
 
-#[cfg(not(windows))]
-fn enrich_windows_gpu_perf(_devices: &mut [GpuDeviceStats]) {}
-
+#[cfg(windows)]
 fn parse_windows_gpu_perf_line(line: &str) -> Option<(f64, u64, u64)> {
     let line = line.trim();
     let rest = line.strip_prefix("ADP|")?;
@@ -379,6 +381,7 @@ fn system_exe(name: &str) -> String {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn parse_macos_displays(output: &str) -> Vec<GpuDeviceStats> {
     let mut devices = Vec::new();
     let mut name = String::new();
