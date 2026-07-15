@@ -20,11 +20,6 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
-raw-window-handle = "0.6"
-
 tauri-plugin-updater = "2"
 omnipanel-core = { path = "../crates/omnipanel-core" }
 omnipanel-ai = { path = "../crates/omnipanel-ai" }
@@ -76,3 +71,7 @@ md5 = "0.7"
 pdf-extract = "0.7"
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+raw-window-handle = "0.6"
