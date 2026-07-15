@@ -976,6 +976,26 @@ export type StickySchemaAncestor = {
   rowIndex: number;
 };
 
+/** 根据 scrollTop 估算首个可见扁平行索引。 */
+export function findFirstVisibleSchemaFlatRowIndex(
+  rows: SchemaFlatRow[],
+  scrollTop: number,
+): number {
+  if (rows.length === 0) {
+    return 0;
+  }
+  const threshold = Math.max(0, scrollTop);
+  let offset = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const height = estimateSchemaFlatRowSize(rows[i]);
+    if (offset + height > threshold + 0.5) {
+      return i;
+    }
+    offset += height;
+  }
+  return rows.length - 1;
+}
+
 /** 根据首行可见索引，收集当前滚动上下文中的展开祖先节点。 */
 export function collectStickySchemaAncestors(
   rows: SchemaFlatRow[],
@@ -1005,7 +1025,60 @@ export function collectStickySchemaAncestors(
     .map(([, entry]) => entry);
 }
 
-/** 过滤掉虚拟列表视口内已渲染的节点，避免吸顶条与列表重复。 */
+/**
+ * 根据节点 id 收集从根到该节点的完整路径（含自身）。
+ * 节点不在当前扁平树中时返回空。
+ */
+export function collectSchemaPathCrumbsForNodeId(
+  rows: SchemaFlatRow[],
+  nodeId: string,
+): StickySchemaAncestor[] {
+  const targetIndex = findSchemaFlatRowIndexByNodeId(rows, nodeId);
+  if (targetIndex < 0) {
+    return [];
+  }
+  const byDepth = new Map<number, StickySchemaAncestor>();
+  for (let i = 0; i <= targetIndex; i++) {
+    const row = rows[i];
+    if (row?.kind !== "node") {
+      continue;
+    }
+    for (const depth of [...byDepth.keys()]) {
+      if (depth >= row.depth) {
+        byDepth.delete(depth);
+      }
+    }
+    byDepth.set(row.depth, { row, rowIndex: i });
+  }
+  return [...byDepth.entries()]
+    .sort(([leftDepth], [rightDepth]) => leftDepth - rightDepth)
+    .map(([, entry]) => entry);
+}
+
+/**
+ * @deprecated 路径条已改为选中/打开驱动；保留导出以免破坏外部引用
+ */
+export function collectSchemaScrollPathCrumbs(
+  rows: SchemaFlatRow[],
+  firstVisibleIndex: number,
+): StickySchemaAncestor[] {
+  const ancestors = collectStickySchemaAncestors(rows, firstVisibleIndex).filter(
+    (entry) => entry.rowIndex < firstVisibleIndex,
+  );
+  if (ancestors.length === 0) {
+    return [];
+  }
+  const current = rows[firstVisibleIndex];
+  if (current?.kind !== "node") {
+    return ancestors;
+  }
+  if (ancestors.some((entry) => entry.rowIndex === firstVisibleIndex)) {
+    return ancestors;
+  }
+  return [...ancestors, { row: current, rowIndex: firstVisibleIndex }];
+}
+
+/** @deprecated 虚拟列表吸顶 overlay 已移除；保留导出以免破坏外部引用 */
 export function filterStickySchemaAncestorsForOverlay(
   ancestors: StickySchemaAncestor[],
   visibleRowIndexes: readonly number[],

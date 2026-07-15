@@ -921,6 +921,7 @@ export const enUS: TranslationDict = {
       importFormatNavicat: "Navicat",
       importFormatDbeaver: "DBeaver",
       collapseAll: "Collapse all",
+      scrollPath: "Current location",
       empty: "No connections yet. Click + to create one.",
       noConnectionsInGroup: "No connections in this group",
       loadFailed: "Failed to load connections",

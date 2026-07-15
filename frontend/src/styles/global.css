@@ -3122,23 +3122,51 @@ a {
     }
 }
 
-/* Scrollbar */
+/* Scrollbar — 纤细半透明；默认隐藏，悬停或焦点区域内显示 */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+*:hover,
+*:focus-within {
+    scrollbar-color: color-mix(in srgb, var(--muted) 50%, transparent) transparent;
+}
+
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
     background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
+::-webkit-scrollbar-corner {
+    background: transparent;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--muted);
+::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    box-shadow: none;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+*:hover::-webkit-scrollbar-thumb:hover,
+*:focus-within::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--fg-2) 55%, transparent);
+}
+
+*:hover::-webkit-scrollbar-thumb:active,
+*:focus-within::-webkit-scrollbar-thumb:active {
+    background-color: color-mix(in srgb, var(--fg-2) 72%, transparent);
 }
 
 /* 鈹€鈹€鈹€ App Layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
@@ -15809,11 +15837,8 @@ a {
     box-sizing: border-box;
 }
 
-/* sticky 祖先行模式：只保留底部内边距（database schema-tree 行为） */
-.vsplit-sidebar :is(
-    .schema-tree--sticky-ancestors,
-    .sql-query-file-tree--sticky-ancestors
-) {
+/* SQL 查询文件树 sticky 祖先行：只保留底部内边距 */
+.vsplit-sidebar .sql-query-file-tree--sticky-ancestors {
     padding: 0 0 var(--vsplit-sidebar-content-padding);
 }
 

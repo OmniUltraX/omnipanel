@@ -917,6 +917,7 @@ export const zhCN = {
       importFormatNavicat: "Navicat",
       importFormatDbeaver: "DBeaver",
       collapseAll: "全部收起",
+      scrollPath: "当前位置",
       empty: "暂无连接，点击 + 创建",
       noConnectionsInGroup: "该分组暂无连接",
       loadFailed: "加载连接失败",

@@ -818,9 +818,71 @@
         overflow: hidden;
     }
 
-    /* sticky 祖先节点 z-index 可达 20+，搜索栏需在其上方 */
+    /* sticky 祖先已改为顶部路径条；搜索栏仍需压在树上 */
     .schema-tree-scoped-search .scoped-search-bar {
         z-index: 50;
+    }
+
+    .schema-tree-stack {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .schema-tree-path {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 0;
+        min-height: 26px;
+        padding: 3px 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .schema-tree-path__item {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .schema-tree-path__sep {
+        margin: 0 4px;
+        color: var(--muted);
+        font-size: 11px;
+        flex-shrink: 0;
+        user-select: none;
+    }
+
+    .schema-tree-path__crumb {
+        max-width: 140px;
+        padding: 1px 4px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 18px;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .schema-tree-path__crumb:hover {
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .schema-tree-path__crumb--current {
+        color: var(--fg);
+        font-weight: 500;
     }
 
     .schema-tree {
@@ -828,28 +890,6 @@
         min-height: 0;
         overflow-y: auto;
         --schema-tree-row-height: 22px;
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky {
-        position: sticky;
-        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
-        z-index: calc(20 + var(--tree-depth, 0));
-        min-height: var(--schema-tree-row-height);
-        border-radius: 0;
-        background: var(--bg);
-        box-shadow: 0 1px 0 var(--border);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active {
-        background: var(--accent-soft);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky:hover {
-        background: var(--surface-hover);
-    }
-
-    .schema-tree--sticky-ancestors .tree-node--sticky.tree-node--active:hover {
-        background: var(--accent-soft);
     }
 
     .schema-tree:focus {
@@ -5543,13 +5583,6 @@
 
     .db-data-table tbody tr.db-data-table-row--striped>td:not(.db-data-table-cell--selected):not(.db-data-table-cell--dirty) {
         background: var(--surface);
-    }
-
-    .db-data-table-spacer-row td {
-        padding: 0;
-        border: none;
-        background: transparent;
-        line-height: 0;
     }
 
     .db-data-table tbody tr.db-data-table-row>td {

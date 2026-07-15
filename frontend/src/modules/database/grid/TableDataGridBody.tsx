@@ -15,7 +15,6 @@ import {
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
 import { isRelationDisplayColumn } from "./tableColumnRelation";
-import type { ColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnCellStyle, isNearRowBottom } from "./tableDataGridLayout";
 import {
   isCellSelected,
@@ -124,16 +123,6 @@ const GridBodyCell = memo(
     prev.cell === next.cell,
 );
 
-function ColumnSpacerCell({ width }: { width: number }) {
-  return (
-    <td
-      className="db-data-table-spacer-col"
-      aria-hidden
-      style={{ width, minWidth: width, maxWidth: width, padding: 0, border: "none" }}
-    />
-  );
-}
-
 export type GridBodyStaticConfig = {
   transposed: boolean;
   columnMetaMap: Record<string, DbColumnMeta> | null;
@@ -147,7 +136,6 @@ export type GridBodyStaticConfig = {
   fillDelta: number;
   leafColumnCount: number;
   columnSizedIds: ReadonlySet<string>;
-  columnLayout: ColumnVirtualizationLayout;
   relationHighlightColumnIds: ReadonlySet<string>;
 };
 
@@ -260,7 +248,6 @@ const GridBodyRow = memo(
     selectedRows,
     staticConfig,
   }: GridBodyRowProps) {
-    const { columnLayout } = staticConfig;
     const isCustomHeight = rowHeight !== undefined;
     const transposedFieldName = staticConfig.transposed
       ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
@@ -273,58 +260,19 @@ const GridBodyRow = memo(
         className={`db-data-table-row${Math.floor(row.index / 2) % 2 === 1 ? " db-data-table-row--striped" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
         style={isCustomHeight ? { height: rowHeight } : undefined}
       >
-        {columnLayout.enabled ? (
-          <>
-            {columnLayout.pinnedIndices.map((cellIdx) =>
-              renderBodyCell(
-                cellIdx,
-                cells,
-                row,
-                staticConfig,
-                overrideForRow,
-                rowDirty,
-                cellRange,
-                selectedRows,
-                transposedFieldName,
-                isCustomHeight,
-              ),
-            )}
-            {columnLayout.paddingLeft > 0 ? (
-              <ColumnSpacerCell width={columnLayout.paddingLeft} />
-            ) : null}
-            {columnLayout.virtualIndices.map((cellIdx) =>
-              renderBodyCell(
-                cellIdx,
-                cells,
-                row,
-                staticConfig,
-                overrideForRow,
-                rowDirty,
-                cellRange,
-                selectedRows,
-                transposedFieldName,
-                isCustomHeight,
-              ),
-            )}
-            {columnLayout.paddingRight > 0 ? (
-              <ColumnSpacerCell width={columnLayout.paddingRight} />
-            ) : null}
-          </>
-        ) : (
-          cells.map((_, cellIdx) =>
-            renderBodyCell(
-              cellIdx,
-              cells,
-              row,
-              staticConfig,
-              overrideForRow,
-              rowDirty,
-              cellRange,
-              selectedRows,
-              transposedFieldName,
-              isCustomHeight,
-            ),
-          )
+        {cells.map((_, cellIdx) =>
+          renderBodyCell(
+            cellIdx,
+            cells,
+            row,
+            staticConfig,
+            overrideForRow,
+            rowDirty,
+            cellRange,
+            selectedRows,
+            transposedFieldName,
+            isCustomHeight,
+          ),
         )}
       </tr>
     );
@@ -358,11 +306,7 @@ function resolveCellFromTarget(target: EventTarget | null) {
   return { td, tr, rowIndex, colIndex };
 }
 
-export type TableDataGridVirtualBodyProps = {
-  virtualPaddingTop: number;
-  virtualPaddingBottom: number;
-  visibleCellCount: number;
-  virtualRowIndices: number[];
+export type TableDataGridBodyProps = {
   tableRows: Row<Record<string, unknown>>[];
   buildRowProps: (rowIndex: number) => Omit<GridBodyRowProps, "row"> | null;
   bodyActionsRef: MutableRefObject<TableDataGridBodyActions | null>;
@@ -372,16 +316,12 @@ export type TableDataGridVirtualBodyProps = {
   ) => GridBodyCellInteractionContext | null;
 };
 
-export function TableDataGridVirtualBody({
-  virtualPaddingTop,
-  virtualPaddingBottom,
-  visibleCellCount,
-  virtualRowIndices,
+export function TableDataGridBody({
   tableRows,
   buildRowProps,
   bodyActionsRef,
   resolveCellContext,
-}: TableDataGridVirtualBodyProps) {
+}: TableDataGridBodyProps) {
   const handleMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLTableSectionElement>) => {
       const actions = bodyActionsRef.current;
@@ -469,22 +409,11 @@ export function TableDataGridVirtualBody({
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
-      {virtualPaddingTop > 0 ? (
-        <tr className="db-data-table-spacer-row" aria-hidden>
-          <td colSpan={visibleCellCount} style={{ height: virtualPaddingTop }} />
-        </tr>
-      ) : null}
-      {virtualRowIndices.map((rowIndex) => {
-        const tableRow = tableRows[rowIndex];
+      {tableRows.map((tableRow, rowIndex) => {
         const rowProps = buildRowProps(rowIndex);
-        if (!tableRow || !rowProps) return null;
+        if (!rowProps) return null;
         return <GridBodyRow key={tableRow.id} row={tableRow} {...rowProps} />;
       })}
-      {virtualPaddingBottom > 0 ? (
-        <tr className="db-data-table-spacer-row" aria-hidden>
-          <td colSpan={visibleCellCount} style={{ height: virtualPaddingBottom }} />
-        </tr>
-      ) : null}
     </tbody>
   );
 }
