@@ -7,6 +7,8 @@ mod output_buffer;
 mod panel;
 mod protocol;
 mod state;
+#[cfg(windows)]
+mod webview_dpi;
 
 use std::sync::Arc;
 
@@ -513,6 +515,10 @@ pub fn run() {
                     });
                 window.set_title(&title).ok();
                 window.center().ok();
+                // 与前端 --bg 对齐，消掉跨 DPI 时原生客户区与 WebView 表面色差
+                let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+                #[cfg(windows)]
+                webview_dpi::hook_window(&window);
                 #[cfg(any(debug_assertions, feature = "debug-inspector"))]
                 if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
                     window.open_devtools();

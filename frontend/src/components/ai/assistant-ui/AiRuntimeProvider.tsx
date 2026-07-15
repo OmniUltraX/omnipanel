@@ -314,8 +314,13 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const appendText = (chunk: string) => {
       if (inline?.assistantTurnId) {
         touchInlineAiDelta(inline.blockId);
-        if (useBlocksStore.getState().findBlockById(inline.blockId)?.aiStalled) {
-          useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+        const block = useBlocksStore.getState().findBlockById(inline.blockId);
+        if (block && (block.status !== "running" || block.aiStalled)) {
+          useBlocksStore.getState().updateBlock(inline.blockId, {
+            status: "running",
+            exitCode: null,
+            aiStalled: false,
+          });
         }
         appendInlineAiStreamChunk(
           inline.blockId,
@@ -331,8 +336,13 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const appendReasoning = (chunk: string) => {
       if (inline?.assistantTurnId) {
         touchInlineAiDelta(inline.blockId);
-        if (useBlocksStore.getState().findBlockById(inline.blockId)?.aiStalled) {
-          useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+        const block = useBlocksStore.getState().findBlockById(inline.blockId);
+        if (block && (block.status !== "running" || block.aiStalled)) {
+          useBlocksStore.getState().updateBlock(inline.blockId, {
+            status: "running",
+            exitCode: null,
+            aiStalled: false,
+          });
         }
         appendInlineAiStreamChunk(
           inline.blockId,
@@ -471,7 +481,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     let stallTimer: ReturnType<typeof setInterval> | null = null;
     if (inline) {
       resetInlineAiStall(inline.blockId);
-      useBlocksStore.getState().updateBlock(inline.blockId, { aiStalled: false });
+      // 生成开始时强制 running，避免被历史同步/恢复误标 failed 后一直显示 ✕
+      useBlocksStore.getState().updateBlock(inline.blockId, {
+        status: "running",
+        exitCode: null,
+        aiStalled: false,
+      });
       stallTimer = setInterval(() => {
         if (signal.aborted) return;
         if (checkInlineAiStall(inline.blockId)) {

@@ -410,6 +410,8 @@ pub async fn open_workspace_window(
         .decorations(false)
         .focused(true)
         .visible(true)
+        // 与前端 --bg / boot-splash 对齐，避免跨 DPI 时原生客户区与 WebView 表面色差形成「小灰块」
+        .background_color(tauri::window::Color(26, 23, 23, 255))
         .data_directory(data_dir)
         .initialization_script(&init_script)
         .disable_drag_drop_handler()
@@ -433,6 +435,10 @@ pub async fn open_workspace_window(
             append_log(&app, &msg);
             msg
         })?;
+
+    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+    #[cfg(windows)]
+    crate::webview_dpi::hook_window(&window);
 
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {

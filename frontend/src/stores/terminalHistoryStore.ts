@@ -4,11 +4,7 @@ import type { AiThreadItem, TerminalBlock } from "./blocksStore";
 import { useBlocksStore } from "./blocksStore";
 import { useSettingsStore } from "./settingsStore";
 import { renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
-import {
-  normalizeRestoredTerminalBlock,
-  normalizeStaleRunningBlock,
-  reconcileStaleRunningBlocks,
-} from "../modules/terminal/terminalBlockRestore";
+import { normalizeRestoredTerminalBlock } from "../modules/terminal/terminalBlockRestore";
 
 export const TERMINAL_HISTORY_STORAGE_KEY = "omnipanel-terminal-history.v1";
 export const DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS = 200;
@@ -59,14 +55,15 @@ function trimAiThread(thread: AiThreadItem[] | undefined): AiThreadItem[] | unde
 }
 
 export function toPersistedTerminalBlock(block: TerminalBlock): PersistedTerminalBlock {
-  const normalized = normalizeStaleRunningBlock(block);
-  const { liveOutput, ...rest } = normalized;
+  // 同步时保持 live 状态原样；勿在此 normalize，否则会把进行中的 AI 误标为 failed。
+  // 冷启动恢复走 fromPersistedTerminalBlock → normalizeRestoredTerminalBlock。
+  const { liveOutput, ...rest } = block;
   return {
     ...rest,
     marker: null,
-    output: trimOutput(renderLiveOutputText(liveOutput, normalized.output)),
-    reasoning: normalized.reasoning ? trimOutput(normalized.reasoning) : normalized.reasoning,
-    aiThread: trimAiThread(normalized.aiThread),
+    output: trimOutput(renderLiveOutputText(liveOutput, block.output)),
+    reasoning: block.reasoning ? trimOutput(block.reasoning) : block.reasoning,
+    aiThread: trimAiThread(block.aiThread),
   };
 }
 
@@ -111,18 +108,13 @@ export const useTerminalHistoryStore = create<TerminalHistoryState>()(
         const persisted = get().bySession[sessionId];
         const store = useBlocksStore.getState();
         const current = store.getBlocks(sessionId);
-        if (current.length === 0) {
-          if (!persisted?.length) return;
-          store.replaceSessionBlocks(
-            sessionId,
-            persisted.map(fromPersistedTerminalBlock),
-          );
-          return;
-        }
-        const reconciled = reconcileStaleRunningBlocks(sessionId, current);
-        if (reconciled.some((block, index) => block !== current[index])) {
-          store.replaceSessionBlocks(sessionId, reconciled);
-        }
+        // 仅冷灌入：已有 live blocks 时不得 reconcile，否则会把进行中的 AI/shell 收尾成 failed。
+        if (current.length > 0) return;
+        if (!persisted?.length) return;
+        store.replaceSessionBlocks(
+          sessionId,
+          persisted.map(fromPersistedTerminalBlock),
+        );
       },
 
       restoreAllKnownSessions: (sessionIds) => {
