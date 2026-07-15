@@ -87,6 +87,79 @@ fn mysql_row_i32(row: &MySqlRow, index: usize, default: i32) -> i32 {
     mysql_row_string(row, index).parse().unwrap_or(default)
 }
 
+/// 读取可能为 NULL 的整数列（如 CHARACTER_MAXIMUM_LENGTH / NUMERIC_PRECISION）。
+/// 返回 i32 以兼容 specta 的 TypeScript 导出（禁止 i64）；列长度/精度不会超过 i32 范围。
+fn mysql_row_optional_i32(row: &MySqlRow, index: usize) -> Option<i32> {
+    if let Ok(v) = row.try_get::<Option<i32>, _>(index) {
+        return v;
+    }
+    if let Ok(v) = row.try_get::<Option<i64>, _>(index) {
+        return v.map(|x| x as i32);
+    }
+    if let Ok(v) = row.try_get::<Option<u32>, _>(index) {
+        return v.map(|x| x as i32);
+    }
+    if let Ok(v) = row.try_get::<Option<u64>, _>(index) {
+        return v.map(|x| x as i32);
+    }
+    let s = mysql_row_string(row, index);
+    if s.is_empty() {
+        None
+    } else {
+        s.trim().parse::<i32>().ok()
+    }
+}
+
+/// 归一化 MySQL 的 COLUMN_DEFAULT：
+/// - NULL（字符串 "NULL" 或真正 NULL 列）→ None
+/// - 当前时间戳的特殊标记 "CURRENT_TIMESTAMP" / "current_timestamp()" 保留原样
+/// - 字符串字面量去外层引号（MySQL 返回 `'foo'`，我们存 `foo`），在 apply 时按需再加引号
+/// - 数值字面量保持原样
+fn normalize_mysql_column_default(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
+        return None;
+    }
+    // 去除字符串字面量的外层单引号（MySQL information_schema 用双单引号转义）
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "current_timestamp" || lower == "current_timestamp()" || lower == "now()" {
+        return Some(trimmed.to_string());
+    }
+    if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        return Some(inner.replace("''", "'"));
+    }
+    Some(trimmed.to_string())
+}
+
+/// 归一化 PG 的 column_default：
+/// - NULL → None
+/// - 序列默认值（nextval(...)）属于 auto-increment 的实现细节，不展示为用户可编辑的 default
+/// - 字符串字面量 `'foo'`::text → foo（去引号和类型标注）
+/// - 数值 / 表达式保持原样
+fn normalize_pg_column_default(raw: Option<&str>, is_auto_increment: bool) -> Option<String> {
+    let s = raw?.trim();
+    if s.is_empty() || s.eq_ignore_ascii_case("null") {
+        return None;
+    }
+    // 序列默认值由 is_auto_increment 标识，不在 default 字段重复展示
+    if is_auto_increment || s.starts_with("nextval(") {
+        return None;
+    }
+    // 去掉 ::type 类型标注（如 'foo'::text → 'foo'）
+    let s = if let Some(pos) = s.find("::") {
+        s[..pos].trim()
+    } else {
+        s
+    };
+    // 去掉字符串字面量的外层单引号（PG 用双单引号转义）
+    if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
+        let inner = &s[1..s.len() - 1];
+        return Some(inner.replace("''", "'"));
+    }
+    Some(s.to_string())
+}
+
 fn normalize_table_comment(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -136,32 +209,6 @@ async fn mysql_fetch_table_comment(
     .map_err(|e| format!("Query failed: {e}"))?;
 
     Ok(row.and_then(|r| normalize_table_comment(&mysql_row_string(&r, 0))))
-}
-
-async fn pg_fetch_table_comments(
-    pool: &PgPool,
-    schema: &str,
-) -> Result<HashMap<String, String>, String> {
-    let rows = sqlx::query(
-        "SELECT c.relname, obj_description(c.oid, 'pg_class')::text \
-         FROM pg_class c \
-         JOIN pg_namespace n ON n.oid = c.relnamespace \
-         WHERE n.nspname = $1 AND c.relkind = 'r'",
-    )
-    .bind(schema)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("PG table comments query failed: {e}"))?;
-
-    let mut map = HashMap::new();
-    for row in rows {
-        let name: String = row.try_get(0).unwrap_or_default();
-        let comment: Option<String> = row.try_get(1).ok();
-        if let Some(normalized) = comment.and_then(|c| normalize_table_comment(&c)) {
-            map.insert(name, normalized);
-        }
-    }
-    Ok(map)
 }
 
 async fn pg_fetch_table_comment(
@@ -303,64 +350,123 @@ async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserM
         .collect())
 }
 
-async fn pg_fetch_object_types(pool: &PgPool, schema: &str) -> Result<HashMap<String, String>, String> {
-    let rows = sqlx::query(
-        "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = $1",
-    )
-    .bind(schema)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("PG table types query failed: {e}"))?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
+/// 跨多个 schema 收集对象类型，返回 (schema, table_name, table_type) 列表。
+/// 用于替代单 schema 的 pg_fetch_object_types，让边栏树显示所有 schema 的表。
+async fn pg_fetch_object_types_all_schemas(
+    pool: &PgPool,
+    schemas: &[String],
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut out = Vec::new();
+    for schema in schemas {
+        let rows = sqlx::query(
+            "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = $1",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("PG table types query failed: {e}"))?;
+        for row in rows {
+            out.push((
+                schema.clone(),
                 row.try_get::<String, _>(0).unwrap_or_default(),
                 row.try_get::<String, _>(1).unwrap_or_default(),
-            )
-        })
-        .collect())
+            ));
+        }
+    }
+    Ok(out)
 }
 
-async fn pg_fetch_routines(pool: &PgPool, schema: &str) -> Result<Vec<DbRoutineMeta>, String> {
+/// 跨多个 schema 收集表注释，返回 (table_display_name, comment)。
+/// table_display_name 与 pg_resolve_table_display 一致。
+async fn pg_fetch_table_comments_all_schemas(
+    pool: &PgPool,
+    schemas: &[String],
+) -> Result<HashMap<String, String>, String> {
+    let mut map = HashMap::new();
+    for schema in schemas {
+        let rows = sqlx::query(
+            "SELECT c.relname, obj_description(c.oid, 'pg_class')::text \
+             FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 AND c.relkind = 'r'",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("PG table comments query failed: {e}"))?;
+        for row in rows {
+            let name: String = row.try_get(0).unwrap_or_default();
+            let comment: Option<String> = row.try_get(1).ok();
+            if let Some(normalized) = comment.and_then(|c| normalize_table_comment(&c)) {
+                map.insert(pg_resolve_table_display(schema, &name), normalized);
+            }
+        }
+    }
+    Ok(map)
+}
+
+/// 跨多个 schema 收集 routines/triggers，返回聚合列表。
+async fn pg_fetch_routines_all_schemas(
+    pool: &PgPool,
+    schemas: &[String],
+) -> Result<Vec<DbRoutineMeta>, String> {
     let mut routines = Vec::new();
-    let routine_rows = sqlx::query(
-        "SELECT routine_name, routine_type FROM information_schema.routines \
-         WHERE routine_schema = $1 ORDER BY routine_name, routine_type",
-    )
-    .bind(schema)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("PG routines query failed: {e}"))?;
-
-    for row in routine_rows {
-        routines.push(DbRoutineMeta {
-            name: row.try_get(0).unwrap_or_default(),
-            routine_type: row
-                .try_get::<String, _>(1)
-                .unwrap_or_default()
-                .to_ascii_lowercase(),
-        });
+    for schema in schemas {
+        let routine_rows = sqlx::query(
+            "SELECT routine_name, routine_type FROM information_schema.routines \
+             WHERE routine_schema = $1 ORDER BY routine_name, routine_type",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("PG routines query failed: {e}"))?;
+        for row in routine_rows {
+            routines.push(DbRoutineMeta {
+                name: row.try_get(0).unwrap_or_default(),
+                routine_type: row
+                    .try_get::<String, _>(1)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase(),
+            });
+        }
+        let trigger_rows = sqlx::query(
+            "SELECT trigger_name FROM information_schema.triggers \
+             WHERE trigger_schema = $1 ORDER BY trigger_name",
+        )
+        .bind(schema)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("PG triggers query failed: {e}"))?;
+        for row in trigger_rows {
+            routines.push(DbRoutineMeta {
+                name: row.try_get(0).unwrap_or_default(),
+                routine_type: "trigger".to_string(),
+            });
+        }
     }
-
-    let trigger_rows = sqlx::query(
-        "SELECT trigger_name FROM information_schema.triggers \
-         WHERE trigger_schema = $1 ORDER BY trigger_name",
-    )
-    .bind(schema)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("PG triggers query failed: {e}"))?;
-
-    for row in trigger_rows {
-        routines.push(DbRoutineMeta {
-            name: row.try_get(0).unwrap_or_default(),
-            routine_type: "trigger".to_string(),
-        });
-    }
-
     Ok(routines)
+}
+
+/// 解析表名为 (schema, table)：支持 "schema.table" 形式或纯 "table"（默认 public）。
+/// 与 pg_resolve_table_display 对应，用于 introspect_pg_table 跨 schema 查询。
+fn pg_parse_qualified_table(name: &str) -> (String, String) {
+    if let Some((schema, table)) = name.rsplit_once('.') {
+        if !schema.is_empty() && !table.is_empty() {
+            return (schema.to_string(), table.to_string());
+        }
+    }
+    ("public".to_string(), name.to_string())
+}
+
+/// 生成表的展示名：仅一个 schema 时或默认 public 下用纯表名，
+/// 多 schema 且有重名时用 "schema.table" 避免歧义。
+/// 这里统一用：schema == "public" 时用纯表名，否则用 "schema.table"。
+fn pg_resolve_table_display(schema: &str, table: &str) -> String {
+    if schema == "public" {
+        table.to_string()
+    } else {
+        format!("{schema}.{table}")
+    }
 }
 
 async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
@@ -421,6 +527,12 @@ pub struct DbColumnMeta {
     pub is_auto_increment: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    /// 列长度（来自 information_schema）：MySQL CHARACTER_MAXIMUM_LENGTH / NUMERIC_PRECISION；PG character_maximum_length / numeric_precision
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<i32>,
+    /// 列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
 }
 
 fn mysql_extra_is_auto_increment(extra: &str) -> bool {
@@ -688,6 +800,119 @@ fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
     params
 }
 
+/// 连接到指定数据库的 PG 连接池（用于跨库 introspection：PG 的 information_schema
+/// 是库级本地视图，必须切到目标库才能拿到该库的表/列/索引）。
+/// 缓存 key 为 `{conn_id}:{db_name}`，fingerprint 包含 db_name 以便区分。
+async fn pg_pool_for_db(connection: &DbConnectionConfig, db_name: &str) -> Result<PgPool, String> {
+    let trimmed = db_name.trim();
+    if trimmed.is_empty() {
+        // 未指定库名时退回到默认连接池（连接配置里的 database）
+        return pg_pool(connection).await;
+    }
+    // 与默认 database 相同则直接用 pg_pool，避免重复建池
+    if connection.database.trim() == trimmed {
+        return pg_pool(connection).await;
+    }
+
+    let key = format!("{}:{}", connection.id, trimmed);
+    let fingerprint = format!(
+        "{}|{}|{}|{}|{}|{}|{}",
+        connection.db_type,
+        connection.host,
+        connection.port,
+        connection.user,
+        connection.password,
+        trimmed,
+        connection.ssl
+    );
+
+    // Fast path
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.pg.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
+    let establish_lock = {
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache
+            .pg_establishing
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _guard = establish_lock.lock().await;
+
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.pg.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
+    let p = to_params(connection);
+    let opts = sqlx::postgres::PgConnectOptions::new()
+        .host(&p.host)
+        .port(p.port)
+        .username(&p.user)
+        .password(&p.password)
+        .database(trimmed);
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Some(Duration::from_secs(300)))
+        .connect_with(opts)
+        .await
+        .map_err(|e| format!("PostgreSQL 连接数据库 `{trimmed}` 失败: {e}"))?;
+
+    let mut cache = sqlx_pool_cache().lock().await;
+    if let Some((cached_fp, existing)) = cache.pg.get(&key) {
+        if cached_fp == &fingerprint {
+            return Ok(existing.clone());
+        }
+        let stale = cache.pg.remove(&key);
+        drop(cache);
+        if let Some((_, stale_pool)) = stale {
+            stale_pool.close().await;
+        }
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache.pg.insert(key, (fingerprint, pool.clone()));
+        return Ok(pool);
+    }
+    cache.pg.insert(key, (fingerprint, pool.clone()));
+    Ok(pool)
+}
+
+/// 枚举 PG 非 system schema（pg_catalog / information_schema 之外的用户 schema）。
+/// 用于替代硬编码 'public'，让边栏树能显示所有 schema 下的表。
+async fn pg_list_user_schemas(pool: &PgPool) -> Result<Vec<String>, String> {
+    let rows = sqlx::query(
+        "SELECT nspname FROM pg_namespace \
+         WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+         AND nspname NOT LIKE 'pg_temp_%' \
+         AND nspname NOT LIKE 'pg_toast_temp_%' \
+         ORDER BY nspname",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("PG schemas query failed: {e}"))?;
+    let mut schemas: Vec<String> = rows
+        .into_iter()
+        .map(|row| row.try_get::<String, _>(0).unwrap_or_default())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // 确保至少有 'public'（新建库可能还没有 public schema 的表，但 schema 名仍在）
+    if !schemas.iter().any(|s| s == "public") {
+        schemas.push("public".to_string());
+    }
+    Ok(schemas)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn db_list_connections(
@@ -814,6 +1039,19 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
             Ok((0..16).map(|n| n.to_string()).collect())
         }
+        "postgresql" | "postgres" => {
+            let pool = pg_pool(&connection).await?;
+            let rows = sqlx::query(
+                "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname",
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Query failed: {e}"))?;
+            Ok(rows
+                .into_iter()
+                .map(|row| row.try_get::<String, _>(0).unwrap_or_default())
+                .collect())
+        }
         "mongodb" | "mongo" => mongodb_list_databases(&to_params(&connection))
             .await
             .map_err(err_msg),
@@ -890,7 +1128,52 @@ pub async fn db_list_databases_with_stats(
                 })
                 .collect())
         }
-        // 非 MySQL 引擎退化为仅库名
+        "postgresql" | "postgres" => {
+            let pool = pg_pool(&connection).await?;
+            // pg_database_size() 可跨库查询任意库大小；encoding/datcollate 给出
+            // 字符集与排序规则。PG 的 information_schema 仅含当前库的表，无法跨库
+            // 统计表数/行数，故 table_count / rows_estimate 留空（前端显示「—」）。
+            let rows = sqlx::query(
+                "SELECT d.datname, \
+                   pg_encoding_to_char(d.encoding) AS encoding, \
+                   d.datcollate AS collation, \
+                   pg_database_size(d.datname) AS size_bytes \
+                 FROM pg_database d \
+                 WHERE NOT d.datistemplate \
+                 ORDER BY d.datname",
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Query failed: {e}"))?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let name: String = row.try_get(0).unwrap_or_default();
+                    let charset = {
+                        let s: String = row.try_get(1).unwrap_or_default();
+                        if s.is_empty() { None } else { Some(s) }
+                    };
+                    let collation = {
+                        let s: String = row.try_get(2).unwrap_or_default();
+                        if s.is_empty() { None } else { Some(s) }
+                    };
+                    let size_bytes = {
+                        let v: i64 = row.try_get(3).unwrap_or(0);
+                        Some(v as f64)
+                    };
+                    DbDatabaseMeta {
+                        name,
+                        charset,
+                        collation,
+                        table_count: None,
+                        size_bytes,
+                        rows_estimate: None,
+                    }
+                })
+                .collect())
+        }
+        // 非 MySQL/PG 引擎退化为仅库名
         _ => {
             let names = db_list_databases(connection).await?;
             Ok(names
@@ -960,6 +1243,50 @@ pub async fn db_list_character_sets(
 ) -> Result<Vec<DbCharsetMeta>, String> {
     match connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => mysql_list_character_sets(&connection).await,
+        // PostgreSQL 用 ENCODING 而非 MySQL 的 CHARACTER SET 概念；
+        // 返回常见编码供前端「创建数据库」对话框选择。
+        "postgresql" | "postgres" => Ok(vec![
+            DbCharsetMeta {
+                charset: "UTF8".into(),
+                description: "Unicode, 8-bit".into(),
+                default_collation: "C.UTF-8".into(),
+            },
+            DbCharsetMeta {
+                charset: "LATIN1".into(),
+                description: "ISO 8859-1, ECMA 94, 8-bit".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "LATIN2".into(),
+                description: "ISO 8859-2, ECMA 94, 8-bit".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "LATIN9".into(),
+                description: "ISO 8859-15, 8-bit".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "WIN1252".into(),
+                description: "Windows CP1252, 8-bit".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "EUC_JP".into(),
+                description: "Japanese EUC".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "EUC_CN".into(),
+                description: "Chinese EUC, GB2312".into(),
+                default_collation: "C".into(),
+            },
+            DbCharsetMeta {
+                charset: "SQL_ASCII".into(),
+                description: "unspecified, 7-bit".into(),
+                default_collation: "C".into(),
+            },
+        ]),
         _ => Ok(Vec::new()),
     }
 }
@@ -1037,6 +1364,43 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 None => String::new(),
             };
             let sql = format!("CREATE DATABASE `{escaped_name}`{charset_clause}{collation_clause}");
+            sqlx::query(&sql)
+                .execute(&pool)
+                .await
+                .map_err(|e| format!("创建数据库失败：{e}"))?;
+            Ok(name)
+        }
+        "postgresql" | "postgres" => {
+            let pool = pg_pool(&args.connection).await?;
+            // PG 标识符用双引号；CREATE DATABASE 不能在事务块中执行，
+            // sqlx 单条 query 默认不开启事务，可直接执行。
+            let escaped_name = name.replace('"', "\"\"");
+            // PG：charset → ENCODING，collation → LC_COLLATE
+            let encoding_clause = match args
+                .charset
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                Some(enc) => {
+                    let e = enc.replace('\'', "''");
+                    format!(" ENCODING '{e}'")
+                }
+                None => String::new(),
+            };
+            let collation_clause = match args
+                .collation
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                Some(co) => {
+                    let c = co.replace('\'', "''");
+                    format!(" LC_COLLATE '{c}'")
+                }
+                None => String::new(),
+            };
+            let sql = format!("CREATE DATABASE \"{escaped_name}\"{encoding_clause}{collation_clause}");
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
@@ -1251,27 +1615,20 @@ async fn pg_table_details(
     db_name: &str,
     table_name: &str,
 ) -> Result<DbTableDetails, String> {
-    let pool = pg_pool(connection).await?;
-    let schema = if db_name.trim().is_empty() {
-        "public".to_string()
-    } else {
-        db_name.to_string()
-    };
+    let pool = pg_pool_for_db(connection, db_name).await?;
+    let (schema_name, pure_table) = pg_parse_qualified_table(table_name);
 
     let row = sqlx::query(
         "SELECT c.reltuples::bigint, pg_relation_size(c.oid)::bigint, \
          obj_description(c.oid, 'pg_class'), \
-         COALESCE( \
-           (SELECT collcollate FROM pg_collation WHERE oid = c.relcollate AND c.relcollate <> 0), \
-           (SELECT datcollate FROM pg_database WHERE datname = current_database()) \
-         ) \
+         (SELECT datcollate FROM pg_database WHERE datname = current_database()) \
          FROM pg_class c \
          JOIN pg_namespace n ON n.oid = c.relnamespace \
          WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p') \
          LIMIT 1",
     )
-    .bind(&schema)
-    .bind(table_name)
+    .bind(&schema_name)
+    .bind(&pure_table)
     .fetch_optional(&pool)
     .await
     .map_err(|e| format!("查询表信息失败: {e}"))?;
@@ -1388,15 +1745,21 @@ async fn mysql_table_ddl(
 /// PostgreSQL: 拼接标准 DDL（PG 没有原生 `SHOW CREATE TABLE`）。
 async fn pg_table_ddl(
     connection: &DbConnectionConfig,
-    _db_name: &str,
+    db_name: &str,
     table_name: &str,
 ) -> Result<String, String> {
-    let pool = pg_pool(connection).await?;
-    let ddl = pg_build_ddl(&pool, table_name).await?;
+    // 切到目标库 + 解析 schema.table 前缀
+    let pool = pg_pool_for_db(connection, db_name).await?;
+    let (schema_name, pure_table) = pg_parse_qualified_table(table_name);
+    let ddl = pg_build_ddl(&pool, &schema_name, &pure_table).await?;
     Ok(ddl)
 }
 
-async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String> {
+async fn pg_build_ddl(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<String, String> {
     let col_rows = sqlx::query(
         "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, \
          pg_get_expr(d.adbin, d.adrelid) AS default_expr \
@@ -1404,10 +1767,12 @@ async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String>
          JOIN pg_class c ON c.oid = a.attrelid \
          JOIN pg_type t ON t.oid = a.atttypid \
          LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
-         WHERE c.relname = $1 AND a.attnum > 0 AND NOT a.attisdropped \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE c.relname = $1 AND n.nspname = $2 AND a.attnum > 0 AND NOT a.attisdropped \
          ORDER BY a.attnum",
     )
     .bind(table_name)
+    .bind(schema_name)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("PG columns query failed: {e}"))?;
@@ -1417,33 +1782,37 @@ async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String>
          FROM pg_index i \
          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) \
          JOIN pg_class c ON c.oid = i.indrelid \
-         WHERE c.relname = $1 AND i.indisprimary \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE c.relname = $1 AND n.nspname = $2 AND i.indisprimary \
          ORDER BY array_position(i.indkey, a.attnum)",
     )
     .bind(table_name)
+    .bind(schema_name)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("PG pk query failed: {e}"))?;
 
     let idx_rows = sqlx::query(
         "SELECT i.relname AS index_name, \
-                array_agg(a.attname ORDER BY array_position(i.indkey, a.attnum)) AS cols, \
+                array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) AS cols, \
                 ix.indisunique AS is_unique \
          FROM pg_index ix \
          JOIN pg_class i ON i.oid = ix.indexrelid \
          JOIN pg_class t ON t.oid = ix.indrelid \
          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey) \
-         WHERE t.relname = $1 AND NOT ix.indisprimary \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE t.relname = $1 AND n.nspname = $2 AND NOT ix.indisprimary \
          GROUP BY i.relname, ix.indisunique \
          ORDER BY i.relname",
     )
     .bind(table_name)
+    .bind(schema_name)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("PG index query failed: {e}"))?;
 
     if col_rows.is_empty() {
-        return Err(format!("PG 表 {table_name} 不存在或无字段"));
+        return Err(format!("PG 表 {schema_name}.{table_name} 不存在或无字段"));
     }
 
     let mut lines: Vec<String> = Vec::new();
@@ -1470,7 +1839,13 @@ async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String>
         lines.push(format!("  PRIMARY KEY ({})", cols.join(", ")));
     }
 
-    let mut ddl = format!("CREATE TABLE \"{table_name}\" (\n{});\n", lines.join(",\n"));
+    // 非 public schema 时 DDL 用 schema 限定表名
+    let qualified = if schema_name == "public" {
+        format!("\"{table_name}\"")
+    } else {
+        format!("\"{schema_name}\".\"{table_name}\"")
+    };
+    let mut ddl = format!("CREATE TABLE {qualified} (\n{});\n", lines.join(",\n"));
 
     for row in &idx_rows {
         let name: String = row.try_get(0).unwrap_or_default();
@@ -1479,7 +1854,7 @@ async fn pg_build_ddl(pool: &PgPool, table_name: &str) -> Result<String, String>
         let unique = if is_unique { "UNIQUE " } else { "" };
         ddl.push('\n');
         ddl.push_str(&format!(
-            "CREATE {unique}INDEX \"{name}\" ON \"{table_name}\" ({});\n",
+            "CREATE {unique}INDEX \"{name}\" ON {qualified} ({});\n",
             cols.iter()
                 .map(|c| format!("\"{c}\""))
                 .collect::<Vec<_>>()
@@ -1523,7 +1898,9 @@ async fn introspect_mysql_schema(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA \
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
+         COLUMN_DEFAULT, \
+         COALESCE(CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION) \
          FROM information_schema.COLUMNS \
          WHERE TABLE_SCHEMA = ? \
          ORDER BY TABLE_NAME, ORDINAL_POSITION",
@@ -1559,6 +1936,8 @@ async fn introspect_mysql_schema(
         let nullable = mysql_row_string(row, 4).eq_ignore_ascii_case("yes");
         let comment = normalize_table_comment(&mysql_row_string(row, 5));
         let is_auto_increment = mysql_extra_is_auto_increment(&mysql_row_string(row, 6));
+        let default_value = normalize_mysql_column_default(&mysql_row_string(row, 7));
+        let length = mysql_row_optional_i32(row, 8);
 
         if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
             table.columns.push(DbColumnMeta {
@@ -1569,6 +1948,8 @@ async fn introspect_mysql_schema(
                 nullable,
                 is_auto_increment,
                 comment,
+                length,
+                default_value,
             });
         } else {
             all_objects.push(DbTableSchema {
@@ -1581,6 +1962,8 @@ async fn introspect_mysql_schema(
                     nullable,
                     is_auto_increment,
                     comment,
+                    length,
+                    default_value,
                 }],
                 indexes: Vec::new(),
                 comment: None,
@@ -1608,7 +1991,9 @@ async fn introspect_mysql_table(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA \
+        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
+         COLUMN_DEFAULT, \
+         COALESCE(CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION) \
          FROM information_schema.COLUMNS \
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
          ORDER BY ORDINAL_POSITION",
@@ -1647,6 +2032,8 @@ async fn introspect_mysql_table(
                 nullable: mysql_row_string(row, 3).eq_ignore_ascii_case("yes"),
                 is_auto_increment: mysql_extra_is_auto_increment(&mysql_row_string(row, 5)),
                 comment: normalize_table_comment(&mysql_row_string(row, 4)),
+                default_value: normalize_mysql_column_default(&mysql_row_string(row, 6)),
+                length: mysql_row_optional_i32(row, 7),
             }
         })
         .collect();
@@ -2093,26 +2480,35 @@ async fn list_database_objects_shallow(
             })
         }
         "postgresql" | "postgres" => {
-            let pool = pg_pool(connection).await?;
-            let type_map = pg_fetch_object_types(&pool, "public").await?;
-            let comments = pg_fetch_table_comments(&pool, "public").await?;
-            let routines = pg_fetch_routines(&pool, "public").await?;
+            // PG 的 information_schema 是库级本地视图：必须切到目标库才能拿到该库的表。
+            // pg_pool_for_db 在 db_name 与 connection.database 相同时复用默认池。
+            let pool = pg_pool_for_db(connection, db_name).await?;
+            let schemas = pg_list_user_schemas(&pool).await?;
+            let type_rows = pg_fetch_object_types_all_schemas(&pool, &schemas).await?;
+            let comments = pg_fetch_table_comments_all_schemas(&pool, &schemas).await?;
+            let routines = pg_fetch_routines_all_schemas(&pool, &schemas).await?;
 
             let mut tables = Vec::new();
             let mut views = Vec::new();
-            let mut names: Vec<_> = type_map.keys().cloned().collect();
-            names.sort();
-            for name in names {
-                let kind = type_map.get(&name).map(String::as_str);
+            // 按展示名排序（public.table 或 schema.table）
+            let mut entries: Vec<(String, String)> = type_rows
+                .into_iter()
+                .map(|(schema, table, kind)| {
+                    (pg_resolve_table_display(&schema, &table), kind)
+                })
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (display_name, kind) in entries {
                 let schema = DbTableSchema {
-                    name: name.clone(),
+                    name: display_name.clone(),
                     columns: Vec::new(),
                     indexes: Vec::new(),
-                    comment: comments.get(&name).cloned(),
+                    comment: comments.get(&display_name).cloned(),
                 };
-                match kind {
-                    Some("VIEW") => views.push(schema),
-                    _ => tables.push(schema),
+                if kind == "VIEW" {
+                    views.push(schema);
+                } else {
+                    tables.push(schema);
                 }
             }
             Ok(SchemaCacheDatabasePayload {
@@ -2443,79 +2839,65 @@ async fn introspect_pg_schema(
     connection: &DbConnectionConfig,
     db_name: &str,
 ) -> Result<DbIntrospectResult, String> {
-    let pool = pg_pool(connection).await?;
-
-    let col_rows = sqlx::query(
-        "SELECT c.table_name, c.column_name, c.data_type, \
-         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk, \
-         c.is_nullable = 'YES' AS nullable, \
-         (c.is_identity = 'YES' OR COALESCE(c.column_default, '') LIKE 'nextval%') AS is_auto_increment, \
-         pgd.description AS column_comment \
-         FROM information_schema.columns c \
-         LEFT JOIN ( \
-             SELECT ku.column_name, ku.table_name \
-             FROM information_schema.table_constraints tc \
-             JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name \
-             WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' \
-         ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
-         LEFT JOIN pg_catalog.pg_statio_all_tables st \
-           ON c.table_schema = st.schemaname AND c.table_name = st.relname \
-         LEFT JOIN pg_catalog.pg_description pgd \
-           ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position \
-         WHERE c.table_schema = 'public' \
-         ORDER BY c.table_name, c.ordinal_position",
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("PG columns query failed: {e}"))?;
-
-    let idx_rows = sqlx::query(
-        "SELECT t.relname AS table_name, i.relname AS index_name, \
-         a.attname AS column_name, ix.indisunique AS is_unique \
-         FROM pg_class t \
-         JOIN pg_index ix ON t.oid = ix.indrelid \
-         JOIN pg_class i ON i.oid = ix.indexrelid \
-         JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey) \
-         JOIN pg_namespace n ON n.oid = t.relnamespace \
-         WHERE n.nspname = 'public' AND NOT ix.indisprimary \
-         ORDER BY t.relname, i.relname, a.attnum",
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| format!("PG indexes query failed: {e}"))?;
-
-    let comments = pg_fetch_table_comments(&pool, "public").await?;
-    let type_map = pg_fetch_object_types(&pool, "public").await?;
-    let routines = pg_fetch_routines(&pool, "public").await?;
+    // 切到目标库：PG 的 information_schema 是库级本地视图
+    let pool = pg_pool_for_db(connection, db_name).await?;
+    let schemas = pg_list_user_schemas(&pool).await?;
 
     let mut all_objects: Vec<DbTableSchema> = Vec::new();
-    for row in &col_rows {
-        let table_name: String = row.try_get(0).unwrap_or_default();
-        let column_name: String = row.try_get(1).unwrap_or_default();
-        let data_type: String = row.try_get(2).unwrap_or_default();
-        let is_pk: bool = row.try_get(3).unwrap_or(false);
-        let nullable: bool = row.try_get(4).unwrap_or(false);
-        let is_auto_increment: bool = row.try_get(5).unwrap_or(false);
-        let comment: Option<String> = row
-            .try_get::<Option<String>, _>(6)
-            .ok()
-            .flatten()
-            .and_then(|c| normalize_table_comment(&c));
+    // 收集所有 schema 的列，按展示名（public.table 或 schema.table）归并
+    for schema_name in &schemas {
+        let col_rows = sqlx::query(
+            "SELECT c.table_name, c.column_name, c.data_type, \
+             CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk, \
+             c.is_nullable = 'YES' AS nullable, \
+             (c.is_identity = 'YES' OR COALESCE(c.column_default, '') LIKE 'nextval%') AS is_auto_increment, \
+             pgd.description AS column_comment, \
+             c.column_default, \
+             COALESCE(c.character_maximum_length, c.numeric_precision, c.datetime_precision) \
+             FROM information_schema.columns c \
+             LEFT JOIN ( \
+                 SELECT ku.column_name, ku.table_name \
+                 FROM information_schema.table_constraints tc \
+                 JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name \
+                 WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 \
+             ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
+             LEFT JOIN pg_catalog.pg_statio_all_tables st \
+               ON c.table_schema = st.schemaname AND c.table_name = st.relname \
+             LEFT JOIN pg_catalog.pg_description pgd \
+               ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position \
+             WHERE c.table_schema = $1 \
+             ORDER BY c.table_name, c.ordinal_position",
+        )
+        .bind(schema_name)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PG columns query failed: {e}"))?;
 
-        if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
-            table.columns.push(DbColumnMeta {
-                name: column_name,
-                column_type: data_type,
-                is_pk,
-                is_fk: false,
-                nullable,
-                is_auto_increment,
-                comment,
-            });
-        } else {
-            all_objects.push(DbTableSchema {
-                name: table_name,
-                columns: vec![DbColumnMeta {
+        for row in &col_rows {
+            let table_name: String = row.try_get(0).unwrap_or_default();
+            let column_name: String = row.try_get(1).unwrap_or_default();
+            let data_type: String = row.try_get(2).unwrap_or_default();
+            let is_pk: bool = row.try_get(3).unwrap_or(false);
+            let nullable: bool = row.try_get(4).unwrap_or(false);
+            let is_auto_increment: bool = row.try_get(5).unwrap_or(false);
+            let comment: Option<String> = row
+                .try_get::<Option<String>, _>(6)
+                .ok()
+                .flatten()
+                .and_then(|c| normalize_table_comment(&c));
+            let raw_default: Option<String> = row
+                .try_get::<Option<String>, _>(7)
+                .ok()
+                .flatten();
+            let default_value = normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
+            let length: Option<i32> = row
+                .try_get::<Option<i32>, _>(8)
+                .ok()
+                .flatten();
+
+            let display = pg_resolve_table_display(schema_name, &table_name);
+            if let Some(table) = all_objects.iter_mut().find(|t| t.name == display) {
+                table.columns.push(DbColumnMeta {
                     name: column_name,
                     column_type: data_type,
                     is_pk,
@@ -2523,31 +2905,75 @@ async fn introspect_pg_schema(
                     nullable,
                     is_auto_increment,
                     comment,
-                }],
-                indexes: Vec::new(),
-                comment: None,
-            });
-        }
-    }
-
-    for row in &idx_rows {
-        let table_name: String = row.try_get(0).unwrap_or_default();
-        let index_name: String = row.try_get(1).unwrap_or_default();
-        let column_name: String = row.try_get(2).unwrap_or_default();
-        let is_unique: bool = row.try_get(3).unwrap_or(false);
-
-        if let Some(table) = all_objects.iter_mut().find(|t| t.name == table_name) {
-            if let Some(index) = table.indexes.iter_mut().find(|i| i.name == index_name) {
-                index.columns.push(column_name);
+                    length,
+                    default_value,
+                });
             } else {
-                table.indexes.push(DbIndexMeta {
-                    name: index_name,
-                    columns: vec![column_name],
-                    unique: is_unique,
+                all_objects.push(DbTableSchema {
+                    name: display,
+                    columns: vec![DbColumnMeta {
+                        name: column_name,
+                        column_type: data_type,
+                        is_pk,
+                        is_fk: false,
+                        nullable,
+                        is_auto_increment,
+                        comment,
+                        length,
+                        default_value,
+                    }],
+                    indexes: Vec::new(),
+                    comment: None,
                 });
             }
         }
+
+        let idx_rows = sqlx::query(
+            "SELECT t.relname AS table_name, i.relname AS index_name, \
+             a.attname AS column_name, ix.indisunique AS is_unique \
+             FROM pg_class t \
+             JOIN pg_index ix ON t.oid = ix.indrelid \
+             JOIN pg_class i ON i.oid = ix.indexrelid \
+             JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey) \
+             JOIN pg_namespace n ON n.oid = t.relnamespace \
+             WHERE n.nspname = $1 AND NOT ix.indisprimary \
+             ORDER BY t.relname, i.relname, a.attnum",
+        )
+        .bind(schema_name)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PG indexes query failed: {e}"))?;
+
+        for row in &idx_rows {
+            let table_name: String = row.try_get(0).unwrap_or_default();
+            let index_name: String = row.try_get(1).unwrap_or_default();
+            let column_name: String = row.try_get(2).unwrap_or_default();
+            let is_unique: bool = row.try_get(3).unwrap_or(false);
+
+            let display = pg_resolve_table_display(schema_name, &table_name);
+            if let Some(table) = all_objects.iter_mut().find(|t| t.name == display) {
+                if let Some(index) = table.indexes.iter_mut().find(|i| i.name == index_name) {
+                    index.columns.push(column_name);
+                } else {
+                    table.indexes.push(DbIndexMeta {
+                        name: index_name,
+                        columns: vec![column_name],
+                        unique: is_unique,
+                    });
+                }
+            }
+        }
     }
+
+    let comments = pg_fetch_table_comments_all_schemas(&pool, &schemas).await?;
+    let type_rows = pg_fetch_object_types_all_schemas(&pool, &schemas).await?;
+    let routines = pg_fetch_routines_all_schemas(&pool, &schemas).await?;
+
+    // 构建 展示名 -> 类型 映射
+    let type_map: HashMap<String, String> = type_rows
+        .into_iter()
+        .map(|(schema, table, kind)| (pg_resolve_table_display(&schema, &table), kind))
+        .collect();
 
     apply_table_comments(&mut all_objects, comments);
     let (tables, views) = split_schemas_by_type(all_objects, &type_map);
@@ -2562,32 +2988,37 @@ async fn introspect_pg_schema(
 
 async fn introspect_pg_table(
     connection: &DbConnectionConfig,
-    _db_name: &str,
+    db_name: &str,
     table_name: &str,
 ) -> Result<DbTableSchema, String> {
-    let pool = pg_pool(connection).await?;
+    // 切到目标库 + 解析可能的 schema.table 前缀
+    let pool = pg_pool_for_db(connection, db_name).await?;
+    let (schema_name, pure_table) = pg_parse_qualified_table(table_name);
 
     let col_rows = sqlx::query(
         "SELECT c.column_name, c.data_type, \
          CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk, \
          c.is_nullable = 'YES' AS nullable, \
          (c.is_identity = 'YES' OR COALESCE(c.column_default, '') LIKE 'nextval%') AS is_auto_increment, \
-         pgd.description AS column_comment \
+         pgd.description AS column_comment, \
+         c.column_default, \
+         COALESCE(c.character_maximum_length, c.numeric_precision, c.datetime_precision) \
          FROM information_schema.columns c \
          LEFT JOIN ( \
              SELECT ku.column_name, ku.table_name \
              FROM information_schema.table_constraints tc \
              JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name \
-             WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' \
+             WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 \
          ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
          LEFT JOIN pg_catalog.pg_statio_all_tables st \
            ON c.table_schema = st.schemaname AND c.table_name = st.relname \
          LEFT JOIN pg_catalog.pg_description pgd \
            ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position \
-         WHERE c.table_schema = 'public' AND c.table_name = $1 \
+         WHERE c.table_schema = $1 AND c.table_name = $2 \
          ORDER BY c.ordinal_position",
     )
-    .bind(table_name)
+    .bind(&schema_name)
+    .bind(&pure_table)
     .fetch_all(&pool)
     .await
     .map_err(|e| format!("PG columns query failed: {e}"))?;
@@ -2599,30 +3030,45 @@ async fn introspect_pg_table(
          JOIN pg_class i ON i.oid = ix.indexrelid \
          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey) \
          JOIN pg_namespace n ON n.oid = t.relnamespace \
-         WHERE n.nspname = 'public' AND t.relname = $1 AND NOT ix.indisprimary \
+         WHERE n.nspname = $1 AND t.relname = $2 AND NOT ix.indisprimary \
          ORDER BY i.relname, a.attnum",
     )
-    .bind(table_name)
+    .bind(&schema_name)
+    .bind(&pure_table)
     .fetch_all(&pool)
     .await
     .map_err(|e| format!("PG indexes query failed: {e}"))?;
 
-    let comment = pg_fetch_table_comment(&pool, "public", table_name).await?;
+    let comment = pg_fetch_table_comment(&pool, &schema_name, &pure_table).await?;
 
     let columns: Vec<DbColumnMeta> = col_rows
         .iter()
-        .map(|row| DbColumnMeta {
-            name: row.try_get(0).unwrap_or_default(),
-            column_type: row.try_get(1).unwrap_or_default(),
-            is_pk: row.try_get(2).unwrap_or(false),
-            is_fk: false,
-            nullable: row.try_get(3).unwrap_or(false),
-            is_auto_increment: row.try_get(4).unwrap_or(false),
-            comment: row
-                .try_get::<Option<String>, _>(5)
+        .map(|row| {
+            let is_auto_increment: bool = row.try_get(4).unwrap_or(false);
+            let raw_default: Option<String> = row
+                .try_get::<Option<String>, _>(6)
                 .ok()
-                .flatten()
-                .and_then(|c| normalize_table_comment(&c)),
+                .flatten();
+            let default_value = normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
+            let length: Option<i32> = row
+                .try_get::<Option<i32>, _>(7)
+                .ok()
+                .flatten();
+            DbColumnMeta {
+                name: row.try_get(0).unwrap_or_default(),
+                column_type: row.try_get(1).unwrap_or_default(),
+                is_pk: row.try_get(2).unwrap_or(false),
+                is_fk: false,
+                nullable: row.try_get(3).unwrap_or(false),
+                is_auto_increment,
+                comment: row
+                    .try_get::<Option<String>, _>(5)
+                    .ok()
+                    .flatten()
+                    .and_then(|c| normalize_table_comment(&c)),
+                length,
+                default_value,
+            }
         })
         .collect();
 
@@ -2767,6 +3213,18 @@ fn sqlite_pragma_columns(
         .query_map([], |row| {
             let notnull: i32 = row.get(3)?;
             let column_type: String = row.get(2)?;
+            let raw_default: Option<String> = row.get::<_, Option<String>>(4)?;
+            let default_value = raw_default
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("null"))
+                .map(|s| {
+                    // SQLite 默认值已含引号则去除外层引号
+                    let trimmed = s.trim();
+                    if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
+                        trimmed[1..trimmed.len() - 1].replace("''", "'")
+                    } else {
+                        trimmed.to_string()
+                    }
+                });
             Ok(DbColumnMeta {
                 name: row.get::<_, String>(1)?,
                 column_type: column_type.clone(),
@@ -2775,6 +3233,8 @@ fn sqlite_pragma_columns(
                 nullable: notnull == 0,
                 is_auto_increment: type_implies_auto_increment(&column_type),
                 comment: None,
+                length: None,
+                default_value,
             })
         })
         .map_err(|e| format!("PRAGMA table_info query failed: {e}"))?;
@@ -2869,6 +3329,8 @@ async fn introspect_mongo_table(
                 nullable: true,
                 is_auto_increment: false,
                 comment: None,
+                length: None,
+                default_value: None,
             })
             .collect(),
         indexes: Vec::new(),

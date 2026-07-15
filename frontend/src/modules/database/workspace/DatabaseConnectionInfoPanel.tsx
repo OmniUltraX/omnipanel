@@ -14,6 +14,7 @@ import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { Connection } from "../../../ipc/bindings";
 import {
   isMysqlConnectionInfoCapable,
+  isPostgresConnectionInfoCapable,
   listDatabasesWithStats,
   type DbConnectionConfig,
   type DbDatabaseMeta,
@@ -47,8 +48,16 @@ import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
 import { ConnectionUsersTabPanel } from "./ConnectionUsersTabPanel";
 import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
 
-const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
-const VARIABLES_SQL = "SHOW VARIABLES;";
+const MYSQL_PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
+const MYSQL_VARIABLES_SQL = "SHOW VARIABLES;";
+// PostgreSQL：进程列表来自 pg_stat_activity，变量来自 pg_settings
+// 列别名与 MySQL 的 User/Host/Time 对齐，复用 SORTABLE_COLUMN_CANDIDATES 排序逻辑
+const PG_PROCESSLIST_SQL =
+  "SELECT pid AS Id, usename AS User, client_addr AS Host, datname AS db, state AS State, query AS Query, " +
+  "EXTRACT(EPOCH FROM now() - query_start)::bigint AS Time " +
+  "FROM pg_stat_activity WHERE datname IS NOT NULL ORDER BY Time DESC";
+const PG_VARIABLES_SQL =
+  "SELECT name, setting, source, context FROM pg_settings ORDER BY name";
 
 /** localStorage 缓存 key：按 connection.id 持久化 databasesList，重开 tab 先用缓存 */
 const DATABASES_CACHE_PREFIX = "db-conn-info-databases-cache:";
@@ -106,8 +115,8 @@ const SORTABLE_COLUMN_CANDIDATES: Record<ProcessSortColumn, string[]> = {
 
 const ID_COLUMN_CANDIDATES = ["Id", "ID", "id"];
 
-const VARIABLE_NAME_COLUMNS = ["Variable_name", "variable_name"];
-const VARIABLE_VALUE_COLUMNS = ["Value", "value"];
+const VARIABLE_NAME_COLUMNS = ["Variable_name", "variable_name", "name"];
+const VARIABLE_VALUE_COLUMNS = ["Value", "value", "setting"];
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
@@ -294,7 +303,10 @@ export function DatabaseConnectionInfoPanel({
   active = true,
 }: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
-  const capable = isMysqlConnectionInfoCapable(connection);
+  const isMysql = isMysqlConnectionInfoCapable(connection);
+  const isPostgres = isPostgresConnectionInfoCapable(connection);
+  /** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL） */
+  const capable = isMysql || isPostgres;
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
@@ -422,7 +434,7 @@ export function DatabaseConnectionInfoPanel({
     try {
       const queryResult = await invoke<QueryResult>("db_execute_query", {
         connection,
-        sql: PROCESSLIST_SQL,
+        sql: isPostgres ? PG_PROCESSLIST_SQL : MYSQL_PROCESSLIST_SQL,
         runId: makeQueryRunId(),
       });
       setConnectionsResult(queryResult);
@@ -433,7 +445,7 @@ export function DatabaseConnectionInfoPanel({
         setConnectionsLoading(false);
       }
     }
-  }, [capable, connection]);
+  }, [capable, connection, isPostgres]);
 
   const refreshVariables = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
@@ -449,7 +461,7 @@ export function DatabaseConnectionInfoPanel({
     try {
       const queryResult = await invoke<QueryResult>("db_execute_query", {
         connection,
-        sql: VARIABLES_SQL,
+        sql: isPostgres ? PG_VARIABLES_SQL : MYSQL_VARIABLES_SQL,
         runId: makeQueryRunId(),
       });
       setVariablesResult(queryResult);
@@ -460,10 +472,11 @@ export function DatabaseConnectionInfoPanel({
         setVariablesLoading(false);
       }
     }
-  }, [capable, connection]);
+  }, [capable, connection, isPostgres]);
 
   const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
-    if (!capable) {
+    // 部署探测目前仅支持 MySQL；PG 跳过，CLI tab 走 direct / SSH 隧道模式
+    if (!isMysql) {
       setDeployment(null);
       setDeploymentLoading(false);
       return;
@@ -491,7 +504,7 @@ export function DatabaseConnectionInfoPanel({
     } finally {
       setDeploymentLoading(false);
     }
-  }, [capable, connection, sshConnections]);
+  }, [isMysql, connection, sshConnections]);
 
   const refreshActiveTab = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -1022,7 +1035,7 @@ export function DatabaseConnectionInfoPanel({
   const renderCliSession = () => (
     <ConnectionCliTabPanel
       connection={connection}
-      client="mysql"
+      client={isPostgres ? "psql" : "mysql"}
       deployment={deployment}
       deploymentLoading={deploymentLoading}
       sshConnections={sshConnections}
@@ -1210,7 +1223,7 @@ export function DatabaseConnectionInfoPanel({
       }
       enabled={capable && subTab !== "cli"}
     >
-      {capable ? (
+      {isMysql ? (
         <div className="db-connection-info-deploy">
           <span className="db-connection-info-deploy-label">
             {t("database.connectionInfo.deployment.label")}

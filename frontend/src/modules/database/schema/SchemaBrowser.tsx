@@ -165,8 +165,10 @@ interface TreeNodeProps {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
-  /** 双击打开右侧面板 */
+  /** 双击打开右侧面板（常驻 Tab） */
   onActivate?: () => void;
+  /** 单击打开右侧面板（预览 Tab，斜体可替换） */
+  onPreviewOpen?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   iconUrl?: string | null;
   onMetaClick?: () => void;
@@ -204,6 +206,7 @@ const TreeNode = memo(
   hasChildren,
   active,
   onActivate,
+  onPreviewOpen,
   onContextMenu,
   iconUrl,
   onMetaClick,
@@ -245,6 +248,7 @@ const TreeNode = memo(
   const handlersRef = useRef({
     onToggle,
     onActivate,
+    onPreviewOpen,
     onContextMenu,
     onMetaClick,
     onPinToggle,
@@ -256,6 +260,7 @@ const TreeNode = memo(
   handlersRef.current = {
     onToggle,
     onActivate,
+    onPreviewOpen,
     onContextMenu,
     onMetaClick,
     onPinToggle,
@@ -493,6 +498,8 @@ const TreeNode = memo(
       onSelect={(event: TreeRowMouseEvent) => {
         selection?.handleSelect(item.id, event);
         handlersRef.current.onPathFocus?.();
+        // 单击打开预览 Tab（斜体可替换）
+        handlersRef.current.onPreviewOpen?.();
       }}
       onActivate={() => {
         handlersRef.current.onPathFocus?.();
@@ -535,6 +542,7 @@ const TreeNode = memo(
     Boolean(prev.onDelete) === Boolean(next.onDelete) &&
     Boolean(prev.onPinToggle) === Boolean(next.onPinToggle) &&
     Boolean(prev.onActivate) === Boolean(next.onActivate) &&
+    Boolean(prev.onPreviewOpen) === Boolean(next.onPreviewOpen) &&
     Boolean(prev.onLayoutPointerDown) === Boolean(next.onLayoutPointerDown),
 );
 
@@ -1871,8 +1879,11 @@ export function SchemaBrowser({
                 })
             : undefined;
 
+      // 单击 → 预览 Tab（斜体可替换）；双击 → 常驻 Tab（固定）
+      let onPreviewOpen: (() => void) | undefined;
       let onActivate: (() => void) | undefined;
       if (row.labelClickKind === "connection" && row.labelClickConnId) {
+        onPreviewOpen = () => onSelectConnection?.(row.labelClickConnId!, "preview");
         onActivate = () => onSelectConnection?.(row.labelClickConnId!, "permanent");
       } else if (
         row.labelClickKind === "database" &&
@@ -1880,6 +1891,16 @@ export function SchemaBrowser({
         row.labelClickDbName &&
         connection
       ) {
+        onPreviewOpen = () => {
+          onSelectDatabase?.(
+            {
+              connId: row.labelClickConnId!,
+              dbName: row.labelClickDbName!,
+              connection,
+            },
+            "preview",
+          );
+        };
         onActivate = () => {
           // 先开右侧库 Tab（同步），再双 rAF 后展开树触发浅加载建连，避免首帧被连接抢占
           onSelectDatabase?.(
@@ -1909,6 +1930,7 @@ export function SchemaBrowser({
           tableName: row.labelClickTableName!,
           connection,
         };
+        onPreviewOpen = () => onSelectTable?.(tableSelection, "preview");
         onActivate = () => onSelectTable?.(tableSelection, "permanent");
       }
 
@@ -1978,6 +2000,7 @@ export function SchemaBrowser({
           pinActive={row.pinActive}
           onPinToggle={onPinToggle}
           onActivate={onActivate}
+          onPreviewOpen={onPreviewOpen}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
           onPathFocus={() => updatePathForNodeId(row.item.id)}
           layoutDraggable={isLayoutDraggable}

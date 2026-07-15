@@ -180,6 +180,24 @@ export function isMysqlConnectionInfoCapable(
   return engine === "mysql" || engine === "mariadb";
 }
 
+/** PostgreSQL 连接（连接信息面板支持：库列表 / pg_stat_activity / pg_settings / psql）。 */
+export function isPostgresConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = connection.db_type.toLowerCase();
+  return engine === "postgresql" || engine === "postgres";
+}
+
+/** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL）。 */
+export function isConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return (
+    isMysqlConnectionInfoCapable(connection) ||
+    isPostgresConnectionInfoCapable(connection)
+  );
+}
+
 /** MongoDB 连接（集合预览）。 */
 export function isMongoConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
@@ -372,6 +390,10 @@ export interface DbColumnMeta {
   comment?: string | null;
   /** 是否为自增列（来自 schema 反射；缺省时由类型串推断） */
   isAutoIncrement?: boolean;
+  /** 字符长度 / 数值精度（来自 information_schema；无长度类型为 null） */
+  length?: number | null;
+  /** 归一化后的默认值字面量（已去外层引号 / 类型标注；NULL 为 null） */
+  defaultValue?: string | null;
 }
 
 export interface DbIndexMeta {

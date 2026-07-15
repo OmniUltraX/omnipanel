@@ -3,13 +3,14 @@ import { useI18n } from "../../../i18n";
 import type { DbConnectionConfig } from "../api";
 import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
 import type { RedisDeploymentInfo } from "../redisDeploymentDetect";
+import type { PostgresDeploymentInfo } from "../postgresDeploymentDetect";
 import { ConnectionCliTerminalWorkspace } from "./ConnectionCliTerminalWorkspace";
 import { useConnectionCliTerminal } from "./useConnectionCliTerminal";
 
 interface ConnectionCliTabPanelProps {
   connection: DbConnectionConfig;
-  client: "mysql" | "redis";
-  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | null;
+  client: "mysql" | "redis" | "psql";
+  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | PostgresDeploymentInfo | null;
   deploymentLoading?: boolean;
   sshConnections: Connection[];
   /** 连接信息面板是否激活；关闭面板时才释放终端会话。 */

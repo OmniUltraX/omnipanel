@@ -7,6 +7,7 @@ import { useI18n } from "../../../i18n";
 import {
   createDatabase,
   isMysqlConnectionInfoCapable,
+  isPostgresConnectionInfoCapable,
   listCharacterSets,
   type DbCharsetMeta,
   type DbConnectionConfig,
@@ -38,6 +39,9 @@ export function CreateDatabaseDialog({
   const [error, setError] = useState<string | null>(null);
 
   const isMysql = connection ? isMysqlConnectionInfoCapable(connection) : false;
+  const isPostgres = connection ? isPostgresConnectionInfoCapable(connection) : false;
+  /** MySQL/PG 均支持选择字符集/编码（MySQL=CHARACTER SET，PG=ENCODING） */
+  const supportsCharsetSelect = isMysql || isPostgres;
 
   useEffect(() => {
     if (!open) {
@@ -52,7 +56,7 @@ export function CreateDatabaseDialog({
   }, [open, connection?.id]);
 
   useEffect(() => {
-    if (!open || !connection || !isMysql) {
+    if (!open || !connection || !supportsCharsetSelect) {
       return;
     }
     let cancelled = false;
@@ -74,7 +78,7 @@ export function CreateDatabaseDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, connection, isMysql]);
+  }, [open, connection, supportsCharsetSelect]);
 
   const validate = (value: string): string | null => {
     const trimmed = value.trim();
@@ -178,11 +182,19 @@ export function CreateDatabaseDialog({
           }}
         />
       </FormField>
-      {isMysql && (
+      {supportsCharsetSelect && (
         <FormField
-          label={t("database.createDatabase.charsetLabel")}
+          label={
+            isPostgres
+              ? t("database.createDatabase.encodingLabel")
+              : t("database.createDatabase.charsetLabel")
+          }
           htmlFor="create-db-charset"
-          description={t("database.createDatabase.charsetDescription")}
+          description={
+            isPostgres
+              ? t("database.createDatabase.encodingDescription")
+              : t("database.createDatabase.charsetDescription")
+          }
         >
           <Select
             value={charset}
@@ -193,7 +205,7 @@ export function CreateDatabaseDialog({
           />
         </FormField>
       )}
-      {selectedCharset && (
+      {isMysql && selectedCharset && (
         <div
           style={{
             fontSize: "11px",

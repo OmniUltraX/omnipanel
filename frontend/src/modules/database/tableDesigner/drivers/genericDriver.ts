@@ -57,12 +57,13 @@ export function fromSchemaGeneric(schema: DbTableSchema): TableDesignerModel {
       id: createDesignerRowId(),
       name: col.name,
       type: col.type,
-      length: "",
-      nullable: true,
+      length: col.length != null ? String(col.length) : "",
+      nullable: col.nullable ?? true,
       isPk: col.isPk,
-      isAutoIncrement: /auto_increment|serial|identity/i.test(col.type),
-      defaultValue: "",
-      comment: "",
+      isAutoIncrement:
+        col.isAutoIncrement ?? /auto_increment|serial|identity/i.test(col.type),
+      defaultValue: col.defaultValue ?? "",
+      comment: col.comment?.trim() ?? "",
     })),
     indexes: (schema.indexes ?? []).map((idx) => ({
       id: createDesignerRowId(),
