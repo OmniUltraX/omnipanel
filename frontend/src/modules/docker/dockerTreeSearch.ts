@@ -14,7 +14,6 @@ import {
   networkRowLabel,
   volumeRowLabel,
 } from "./dockerResourceLabels";
-import type { DockerTreeCategory } from "./dockerSidebarNav";
 
 export function dockerImageMatchesSearch(query: string, image: DockerImageSummary): boolean {
   return sidebarTreeSearchMatches(
@@ -80,7 +79,6 @@ export function dockerConnectionSubtreeMatchesSearch(
     networks: DockerNetworkSummary[];
     volumes: DockerVolumeSummary[];
   },
-  categoryLabels: Record<DockerTreeCategory, string>,
 ): boolean {
   if (!hasSidebarTreeSearch(query)) {
     return true;
@@ -88,11 +86,7 @@ export function dockerConnectionSubtreeMatchesSearch(
   if (sidebarTreeSearchMatches(query, connection.name, dockerSourceLabel(connection.source))) {
     return true;
   }
-  for (const label of Object.values(categoryLabels)) {
-    if (sidebarTreeSearchMatches(query, label)) {
-      return true;
-    }
-  }
+  // 侧栏仅保留 Compose / 容器；镜像/网络/卷在连接详情 Tab，搜索仍可命中缓存数据以便定位连接
   if (resources.images.some((image) => dockerImageMatchesSearch(query, image))) {
     return true;
   }

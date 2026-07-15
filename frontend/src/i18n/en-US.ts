@@ -2658,7 +2658,6 @@ export const enUS: TranslationDict = {
     connectionPanel: {
       tabs: {
         overview: "Overview",
-        logs: "Container logs",
         terminal: "Terminal",
         config: "Config",
       },
@@ -2770,7 +2769,9 @@ export const enUS: TranslationDict = {
         image: "Image",
         ports: "Ports",
         networks: "Networks",
+        logSize: "Log size",
         created: "Created",
+        actions: "Actions",
       },
     },
     imagesPanel: {

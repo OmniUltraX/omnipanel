@@ -7,13 +7,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Button } from "../../components/ui/Button";
 import { IconChevronDown } from "../../components/ui/Icons";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
-import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
+import type {
+  DockerConnectionInfo,
+  DockerContainerLogInfo,
+  DockerContainerSummary,
+} from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { appConfirm } from "../../lib/appConfirm";
 import { sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import type { DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
@@ -25,7 +32,7 @@ import {
 import { formatDockerNetworks, formatDockerPorts } from "./dockerContainerCardFormat";
 import { dockerContainerMatchesSearch } from "./dockerTreeSearch";
 import { containerRowLabel } from "./dockerResourceLabels";
-import { ComposeStackIcon } from "./icons";
+import { ComposeStackIcon, TrashIcon } from "./icons";
 
 export interface DockerContainerPanelProps {
   connection: DockerConnectionInfo;
@@ -33,7 +40,7 @@ export interface DockerContainerPanelProps {
   isActive?: boolean;
 }
 
-type SortColumn = "name" | "status" | "image" | "created" | "ports" | "networks";
+type SortColumn = "name" | "status" | "image" | "created" | "ports" | "networks" | "logSize";
 type SortDirection = "asc" | "desc";
 
 interface SortState {
@@ -45,14 +52,50 @@ async function fetchContainers(connectionId: string): Promise<DockerContainerSum
   return unwrapCommand(commands.dockerListContainers(connectionId, null));
 }
 
+async function fetchLogInfos(connectionId: string): Promise<DockerContainerLogInfo[]> {
+  return unwrapCommand(commands.dockerListContainerLogInfos(connectionId));
+}
+
 function formatCreatedAt(ts: number | null | undefined): string {
   if (ts == null || !Number.isFinite(ts) || ts <= 0) return "—";
   const ms = ts < 1e12 ? ts * 1000 : ts;
   return new Date(ms).toLocaleString();
 }
 
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 function containerStatusLabel(container: DockerContainerSummary): string {
   return container.statusText?.trim() || container.state?.trim() || "—";
+}
+
+function buildLogInfoByContainerId(
+  infos: DockerContainerLogInfo[],
+): Map<string, DockerContainerLogInfo> {
+  const map = new Map<string, DockerContainerLogInfo>();
+  for (const info of infos) {
+    const id = info.containerId?.trim();
+    if (!id) continue;
+    map.set(id, info);
+    map.set(id.slice(0, 12), info);
+  }
+  return map;
+}
+
+function resolveLogInfo(
+  container: DockerContainerSummary,
+  logById: Map<string, DockerContainerLogInfo>,
+): DockerContainerLogInfo | undefined {
+  return (
+    logById.get(container.id) ||
+    (container.shortId ? logById.get(container.shortId) : undefined) ||
+    logById.get(container.id.slice(0, 12))
+  );
 }
 
 function compareContainers(
@@ -60,6 +103,7 @@ function compareContainers(
   b: DockerContainerSummary,
   column: SortColumn,
   direction: SortDirection,
+  logById: Map<string, DockerContainerLogInfo>,
 ): number {
   let cmp = 0;
   switch (column) {
@@ -96,6 +140,11 @@ function compareContainers(
         sensitivity: "base",
       });
       break;
+    case "logSize":
+      cmp =
+        (resolveLogInfo(a, logById)?.sizeBytes ?? -1) -
+        (resolveLogInfo(b, logById)?.sizeBytes ?? -1);
+      break;
   }
   return direction === "asc" ? cmp : -cmp;
 }
@@ -104,9 +153,10 @@ function sortContainers(
   items: DockerContainerSummary[],
   column: SortColumn,
   direction: SortDirection,
+  logById: Map<string, DockerContainerLogInfo>,
 ): DockerContainerSummary[] {
   const sorted = [...items];
-  sorted.sort((a, b) => compareContainers(a, b, column, direction));
+  sorted.sort((a, b) => compareContainers(a, b, column, direction, logById));
   return sorted;
 }
 
@@ -137,6 +187,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
   const [containers, setContainers] = useState<DockerContainerSummary[]>(
     () => peekDockerSidebarCache(connection.connectionId).containers,
   );
+  const [logById, setLogById] = useState<Map<string, DockerContainerLogInfo>>(() => new Map());
   const [loading, setLoading] = useState(
     () => peekDockerSidebarCache(connection.connectionId).containers.length === 0,
   );
@@ -147,6 +198,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
   /** 折叠中的 Compose 项目名；未列出则默认展开 */
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+  const [pendingClearIds, setPendingClearIds] = useState<Record<string, true>>({});
 
   const refreshSidebarContainers = useCallback(() => {
     void useDockerSidebarCacheStore
@@ -158,9 +210,13 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     setLoading(true);
     setError(null);
     try {
-      const next = await fetchContainers(connection.connectionId);
+      const [nextContainers, nextLogs] = await Promise.all([
+        fetchContainers(connection.connectionId),
+        fetchLogInfos(connection.connectionId).catch(() => [] as DockerContainerLogInfo[]),
+      ]);
       startTransition(() => {
-        setContainers(next);
+        setContainers(nextContainers);
+        setLogById(buildLogInfoByContainerId(nextLogs));
       });
       refreshSidebarContainers();
     } catch (err) {
@@ -174,9 +230,11 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     const cached = peekDockerSidebarCache(connection.connectionId);
     startTransition(() => {
       setContainers(cached.containers);
+      setLogById(new Map());
       setError(cached.error);
       setSearch("");
       setCollapsedProjects(new Set());
+      setPendingClearIds({});
     });
   }, [connection.connectionId]);
 
@@ -190,7 +248,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     setSort((prev) =>
       prev.column === column
         ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : { column, direction: "asc" },
+        : { column, direction: column === "logSize" ? "desc" : "asc" },
     );
   }, []);
 
@@ -203,19 +261,56 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     });
   }, []);
 
+  const handleClearLogs = useCallback(
+    (container: DockerContainerSummary, logInfo: DockerContainerLogInfo) => {
+      void (async () => {
+        const name = containerRowLabel(container);
+        const confirmed = await appConfirm(
+          t("docker.dockPanel.logsClearConfirm"),
+          t("docker.dockPanel.logsClear"),
+          { kind: "warning", confirmLabel: t("docker.dockPanel.logsClear") },
+        );
+        if (!confirmed) return;
+        setPendingClearIds((current) => ({ ...current, [container.id]: true }));
+        try {
+          const res = await commands.dockerClearContainerLogs(
+            connection.connectionId,
+            logInfo.containerId || container.id,
+          );
+          if (res.status !== "ok") throw new Error(res.error.message);
+          showToast(t("docker.containerLogsPanel.cleared", { name }));
+          await refresh();
+        } catch (err) {
+          showToast(`${t("docker.containerLogsPanel.clearFailed")}: ${String(err)}`);
+        } finally {
+          setPendingClearIds((current) => {
+            if (!current[container.id]) return current;
+            const next = { ...current };
+            delete next[container.id];
+            return next;
+          });
+        }
+      })();
+    },
+    [connection.connectionId, refresh, t],
+  );
+
   const filteredContainers = useMemo(() => {
     const query = search.trim();
     if (!query) return containers;
+    const lower = query.toLowerCase();
     return containers.filter((container) => {
       const project = resolveComposeProjectName(container);
       if (project && sidebarTreeSearchMatches(query, project)) return true;
+      const logInfo = resolveLogInfo(container, logById);
       return (
         dockerContainerMatchesSearch(query, container) ||
-        (formatDockerPorts(container) || "").toLowerCase().includes(query.toLowerCase()) ||
-        (formatDockerNetworks(container) || "").toLowerCase().includes(query.toLowerCase())
+        (formatDockerPorts(container) || "").toLowerCase().includes(lower) ||
+        (formatDockerNetworks(container) || "").toLowerCase().includes(lower) ||
+        (logInfo?.logPath || "").toLowerCase().includes(lower)
       );
     });
-  }, [containers, search]);
+  }, [containers, logById, search]);
 
   const composeGroups = useMemo(() => {
     const groups = groupContainersByComposeProject(
@@ -223,9 +318,9 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     );
     return groups.map((group) => ({
       project: group.project,
-      containers: sortContainers(group.containers, sort.column, sort.direction),
+      containers: sortContainers(group.containers, sort.column, sort.direction, logById),
     }));
-  }, [filteredContainers, sort.column, sort.direction]);
+  }, [filteredContainers, logById, sort.column, sort.direction]);
 
   const standaloneContainers = useMemo(
     () =>
@@ -233,8 +328,9 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
         filteredContainers.filter((container) => resolveComposeProjectName(container) == null),
         sort.column,
         sort.direction,
+        logById,
       ),
-    [filteredContainers, sort.column, sort.direction],
+    [filteredContainers, logById, sort.column, sort.direction],
   );
 
   const hasComposeGroups = composeGroups.length > 0;
@@ -303,6 +399,25 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
         getCopyValue: (container) => formatDockerNetworks(container) || "",
       },
       {
+        id: "logSize",
+        sortId: "logSize",
+        header: t("docker.containersPanel.column.logSize"),
+        sortable: true,
+        render: (container) => {
+          const logInfo = resolveLogInfo(container, logById);
+          return formatBytes(logInfo?.sizeBytes);
+        },
+        getTitle: (container) => {
+          const logInfo = resolveLogInfo(container, logById);
+          const size = formatBytes(logInfo?.sizeBytes);
+          return logInfo?.logPath ? `${size}\n${logInfo.logPath}` : size;
+        },
+        getCopyValue: (container) => {
+          const logInfo = resolveLogInfo(container, logById);
+          return logInfo?.logPath || formatBytes(logInfo?.sizeBytes);
+        },
+      },
+      {
         id: "created",
         sortId: "created",
         header: t("docker.containersPanel.column.created"),
@@ -310,8 +425,35 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
         render: (container) => formatCreatedAt(container.createdAt),
         getTitle: (container) => formatCreatedAt(container.createdAt),
       },
+      {
+        id: "actions",
+        header: t("docker.containersPanel.column.actions"),
+        copyable: false,
+        render: (container) => {
+          const logInfo = resolveLogInfo(container, logById);
+          const busy = Boolean(pendingClearIds[container.id]);
+          return (
+            <div className="docker-container-panel__actions" onClick={(e) => e.stopPropagation()}>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                title={t("docker.dockPanel.logsClear")}
+                aria-label={t("docker.dockPanel.logsClear")}
+                disabled={busy || !logInfo?.logPath}
+                onClick={() => {
+                  if (!logInfo) return;
+                  handleClearLogs(container, logInfo);
+                }}
+              >
+                <TrashIcon />
+              </Button>
+            </div>
+          );
+        },
+      },
     ];
-  }, [t]);
+  }, [handleClearLogs, logById, pendingClearIds, t]);
 
   const renderContainerRow = (container: DockerContainerSummary, nested: boolean): ReactNode => (
     <tr

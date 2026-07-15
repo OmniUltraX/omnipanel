@@ -9,34 +9,18 @@ import {
 import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo } from "@/ipc/bindings";
 import { isBuiltinLocalDockerConnection } from "./constants";
-import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
 import {
-  containerRowLabel,
-  imageRowLabel,
-  imageRowSizeLabel,
   makeDockerComposeProjectTreeKey,
   makeDockerTreeKey,
-  networkRowLabel,
-  volumeRowLabel,
 } from "./dockerResourceLabels";
-import {
-  DOCKER_TREE_CATEGORIES,
-  type DockerSidebarNavigate,
-  type DockerTreeCategory,
-} from "./dockerSidebarNav";
-import {
-  DockerTreeIcon,
-  dockerCategoryIconKind,
-  dockerItemIconKind,
-  dockerTreeNodeClassName,
-} from "./dockerTreeIcons";
+import type { DockerSidebarNavigate } from "./dockerSidebarNav";
+import { DockerTreeIcon, dockerTreeNodeClassName } from "./dockerTreeIcons";
 import {
   connectionSupportsSidebarResources,
   refreshDockerConnectionSidebarCache,
   useDockerConnectionResources,
 } from "./hooks/useDockerConnectionResources";
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
-import { DockerSidebarExpandableLeaves } from "./DockerSidebarExpandableLeaves";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
 import { usePersistedDockerTreeExpanded } from "./usePersistedDockerTreeExpanded";
@@ -45,7 +29,7 @@ import {
   dockerSidebarCategoryRefreshKey,
   dockerSidebarConnectionRefreshKey,
 } from "./dockerSidebarCache";
-import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import { hasSidebarTreeSearch } from "@/lib/sidebarTreeSearch";
 import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 import {
   dockerConnectionNameMatchesSearch,
@@ -82,91 +66,27 @@ function DockerTreeBranch({
 }: DockerTreeBranchProps) {
   const { t } = useI18n();
   const supportsResources = connectionSupportsSidebarResources(connection);
-  // 始终订阅缓存；展开只展示缓存，拉数仅靠节点刷新按钮
-  const {
-    images,
-    containers,
-    networks,
-    volumes,
-    error,
-    refreshCategory,
-  } = useDockerConnectionResources(supportsResources ? connection : null);
+  // 始终订阅缓存；展开只展示 Compose/容器树，拉数仅靠节点刷新按钮
+  const { containers, error, refreshCategory } = useDockerConnectionResources(
+    supportsResources ? connection : null,
+  );
   const refreshingKeys = useDockerSidebarCacheStore((state) => state.refreshingKeys);
   const connectionRefreshing = Boolean(
     refreshingKeys[dockerSidebarConnectionRefreshKey(connection.connectionId)],
   );
   const connectionNameMatch = dockerConnectionNameMatchesSearch(searchQuery, connection);
 
-  const categoryItems = useMemo(() => {
-    type TreeItem = { id: string; label: string; meta?: string };
-    const itemBuilders: Record<DockerTreeCategory, () => TreeItem[]> = {
-      images: () =>
-        images.map((image) => ({
-          id: image.id,
-          label: imageRowLabel(image),
-          meta: imageRowSizeLabel(image),
-        })),
-      containers: () =>
-        containers.map((container) => ({
-          id: container.id,
-          label: containerRowLabel(container),
-        })),
-      networks: () =>
-        networks.map((network) => ({
-          id: network.name,
-          label: networkRowLabel(network),
-        })),
-      volumes: () =>
-        volumes.map((volume) => ({
-          id: volume.name,
-          label: volumeRowLabel(volume),
-        })),
-    };
-
-    const filterItems = (category: DockerTreeCategory, items: TreeItem[]) => {
-      if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
-        return items;
-      }
-      const categoryLabel = t(`docker.tabs.${category}`);
-      if (sidebarTreeSearchMatches(searchQuery, categoryLabel)) {
-        return items;
-      }
-      return items.filter((item) => sidebarTreeSearchMatches(searchQuery, item.label, item.meta));
-    };
-
-    return DOCKER_TREE_CATEGORIES.map((id) => {
-      const items = filterItems(id, itemBuilders[id]());
-      return {
-        id,
-        label: t(`docker.tabs.${id}`),
-        count: items.length,
-        items,
-      };
-    }).filter((category) => {
-      if (!hasSidebarTreeSearch(searchQuery) || connectionNameMatch) {
-        return true;
-      }
-      if (sidebarTreeSearchMatches(searchQuery, category.label)) {
-        return true;
-      }
-      return category.items.length > 0;
-    });
-  }, [connectionNameMatch, containers, images, networks, searchQuery, t, volumes]);
-
   useEffect(() => {
     if (!hasSidebarTreeSearch(searchQuery)) {
       return;
     }
     ensureExpanded(makeDockerTreeKey(connection.connectionId));
-    for (const category of categoryItems) {
-      ensureExpanded(makeDockerTreeKey(connection.connectionId, category.id));
-    }
     for (const group of groupContainersByComposeProject(containers)) {
       if (dockerComposeProjectMatchesSearch(searchQuery, group.project, group.containers)) {
         ensureExpanded(makeDockerComposeProjectTreeKey(connection.connectionId, group.project));
       }
     }
-  }, [categoryItems, connection.connectionId, containers, ensureExpanded, searchQuery]);
+  }, [connection.connectionId, containers, ensureExpanded, searchQuery]);
 
   if (!connectionExpanded) return null;
 
@@ -179,149 +99,27 @@ function DockerTreeBranch({
   }
 
   return (
-    <>
-      {categoryItems.map((category) => {
-        const categoryKey = makeDockerTreeKey(connection.connectionId, category.id);
-        const categoryExpanded = isExpanded(categoryKey);
-        const openCategory = (mode?: DockerConnectionDockOpenMode) => {
-          ensureExpanded(makeDockerTreeKey(connection.connectionId));
-          ensureExpanded(categoryKey);
-          onNavigate({ connectionId: connection.connectionId, category: category.id }, mode);
-        };
-
-        return (
-          <div key={category.id} className="server-tree-category">
-            <SidebarTreeNode
-              depth={1}
-              module="docker"
-              nodeType={category.id}
-              treeKey={categoryKey}
-              label={category.label}
-              icon={<DockerTreeIcon kind={dockerCategoryIconKind(category.id)} />}
-              className={dockerTreeNodeClassName(dockerCategoryIconKind(category.id))}
-              shouldIgnoreClick={(target) =>
-                Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
-              }
-              hasChildren
-              expanded={categoryExpanded}
-              active={activeNavKey === categoryKey}
-              onToggle={() => toggle(categoryKey)}
-              onActivate={() => openCategory("permanent")}
-              trailing={
-                <>
-                  {category.count > 0 ? (
-                    <span className="server-tree-badge">{category.count}</span>
-                  ) : null}
-                  <div className="tree-node-actions">
-                    <DockerTreeRefreshButton
-                      refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
-                      onRefresh={() => refreshCategory(category.id)}
-                    />
-                  </div>
-                </>
-              }
-            />
-            {categoryExpanded ? (
-              <div className="server-tree-children">
-                {category.id === "containers" ? (
-                  <DockerContainersTreeBranch
-                    connection={connection}
-                    containers={containers}
-                    categoryKey={categoryKey}
-                    activeNavKey={activeNavKey}
-                    searchQuery={searchQuery}
-                    connectionNameMatch={connectionNameMatch}
-                    loading={
-                      (connectionRefreshing ||
-                        Boolean(
-                          refreshingKeys[
-                            dockerSidebarCategoryRefreshKey(connection.connectionId, "containers")
-                          ],
-                        )) &&
-                      containers.length === 0 &&
-                      error == null
-                    }
-                    error={error}
-                    isExpanded={isExpanded}
-                    toggle={toggle}
-                    ensureExpanded={ensureExpanded}
-                    onNavigate={onNavigate}
-                    onRefreshCategory={() => refreshCategory("containers")}
-                  />
-                ) : (connectionRefreshing ||
-                    Boolean(
-                      refreshingKeys[
-                        dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)
-                      ],
-                    )) &&
-                  category.items.length === 0 &&
-                  !error ? (
-                  <SidebarTreeEmpty>{t("docker.sidebar.treeLoading")}</SidebarTreeEmpty>
-                ) : error && category.items.length === 0 ? (
-                  <SidebarTreeEmpty>{error}</SidebarTreeEmpty>
-                ) : category.items.length === 0 ? (
-                  <SidebarTreeEmpty>{t("docker.sidebar.treeEmpty")}</SidebarTreeEmpty>
-                ) : (
-                  <DockerSidebarExpandableLeaves
-                    items={category.items}
-                    getKey={(item) => `${category.id}:${item.id}:${item.label}`}
-                    renderItem={(item) => {
-                    const itemKey = makeDockerTreeKey(connection.connectionId, category.id, item.id);
-                    const openItem = (mode?: DockerConnectionDockOpenMode) => {
-                      ensureExpanded(makeDockerTreeKey(connection.connectionId));
-                      ensureExpanded(categoryKey);
-                      onNavigate(
-                        {
-                          connectionId: connection.connectionId,
-                          category: category.id,
-                          itemId: item.id,
-                        },
-                        mode,
-                      );
-                    };
-                    return (
-                      <SidebarTreeNode
-                        depth={2}
-                        module="docker"
-                        nodeType={category.id}
-                        treeKey={itemKey}
-                        label={item.label}
-                        icon={<DockerTreeIcon kind={dockerItemIconKind(category.id)} />}
-                        className={dockerTreeNodeClassName(dockerItemIconKind(category.id))}
-                        hasChildren={false}
-                        expanded={false}
-                        active={activeNavKey === itemKey}
-                        shouldIgnoreClick={(target) =>
-                          Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
-                        }
-                        onToggle={() => {}}
-                        onActivate={() => openItem("permanent")}
-                        trailing={
-                          <>
-                            {item.meta ? (
-                              <span className="server-tree-badge docker-tree-image-size" title={item.meta}>
-                                {item.meta}
-                              </span>
-                            ) : null}
-                            <div className="tree-node-actions">
-                              <DockerTreeRefreshButton
-                                refreshKey={dockerSidebarCategoryRefreshKey(connection.connectionId, category.id)}
-                                onRefresh={() => refreshCategory(category.id)}
-                              />
-                            </div>
-                          </>
-                        }
-                      />
-                    );
-                    }}
-                  />
-                )}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-    </>
+    <DockerContainersTreeBranch
+      connection={connection}
+      containers={containers}
+      activeNavKey={activeNavKey}
+      searchQuery={searchQuery}
+      connectionNameMatch={connectionNameMatch}
+      loading={
+        (connectionRefreshing ||
+          Boolean(
+            refreshingKeys[dockerSidebarCategoryRefreshKey(connection.connectionId, "containers")],
+          )) &&
+        containers.length === 0 &&
+        error == null
+      }
+      error={error}
+      isExpanded={isExpanded}
+      toggle={toggle}
+      ensureExpanded={ensureExpanded}
+      onNavigate={onNavigate}
+      onRefreshCategory={() => refreshCategory("containers")}
+    />
   );
 }
 
@@ -369,14 +167,6 @@ export function DockerPanelTreeSidebar({
     [connections],
   );
 
-  const categoryLabels = useMemo(
-    () =>
-      Object.fromEntries(
-        DOCKER_TREE_CATEGORIES.map((category) => [category, t(`docker.tabs.${category}`)]),
-      ) as Record<DockerTreeCategory, string>,
-    [t],
-  );
-
   const cacheConnections = useDockerSidebarCacheStore((state) => state.connections);
 
   const filteredConnections = useMemo(() => {
@@ -385,14 +175,9 @@ export function DockerPanelTreeSidebar({
     }
     return sortedConnections.filter((connection) => {
       const entry = useDockerSidebarCacheStore.getState().getEntry(connection.connectionId);
-      return dockerConnectionSubtreeMatchesSearch(
-        searchQuery,
-        connection,
-        entry,
-        categoryLabels,
-      );
+      return dockerConnectionSubtreeMatchesSearch(searchQuery, connection, entry);
     });
-  }, [cacheConnections, categoryLabels, searchQuery, sortedConnections]);
+  }, [cacheConnections, searchQuery, sortedConnections]);
 
   useEffect(() => {
     if (!hasSidebarTreeSearch(searchQuery)) {
