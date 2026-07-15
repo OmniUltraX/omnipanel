@@ -34,6 +34,7 @@ export interface DatabaseWorkspaceContextHandlers {
   handleRowsDelete: DbWorkspaceSharedContextValue["handleRowsDelete"];
   resolveConnection: DbWorkspaceSharedContextValue["resolveConnection"];
   handleSelectTable: DbWorkspaceSharedContextValue["selectTable"];
+  handleSelectDatabase: DbWorkspaceSharedContextValue["selectDatabase"];
   handleDesignTable: DbWorkspaceSharedContextValue["openTableDesigner"];
   openTableQuery: DbWorkspaceSharedContextValue["openTableQuery"];
   commitTabDirty: DbWorkspaceSharedContextValue["commitTabDirty"];
@@ -84,6 +85,7 @@ export function useDatabaseWorkspaceContextValue(
       resolveConnection: (...args) => handlersRef.current.resolveConnection(...args),
       connectionsLoading: data.connectionsLoading,
       selectTable: (...args) => handlersRef.current.handleSelectTable(...args),
+      selectDatabase: (...args) => handlersRef.current.handleSelectDatabase(...args),
       openTableDesigner: (...args) => handlersRef.current.handleDesignTable(...args),
       openTableQuery: (...args) => handlersRef.current.openTableQuery(...args),
       setTabMode: (id, mode) => useDbWorkspaceTabStore.getState().setTabMode(id, mode),

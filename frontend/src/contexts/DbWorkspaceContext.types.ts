@@ -5,11 +5,11 @@ import type {
   SortState,
 } from "../modules/database/workspace/dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
-import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
+import type { DbWorkspaceTab, SchemaDockOpenMode } from "../modules/database/workspace/workspaceTabs";
 import type { DbConnectionConfig } from "../modules/database/api";
 import type { DatabaseSchema } from "../modules/database/types";
 import type { SqlEditorOpenMode } from "../modules/database/sql/SqlEditor";
-import type { SchemaTableSelection } from "../modules/database/schema/SchemaBrowser";
+import type { SchemaTableSelection, SchemaDatabaseSelection } from "../modules/database/schema/SchemaBrowser";
 
 export type DbTabAction = {
   kind: "refresh" | "page" | "close" | "sort" | "filter";
@@ -78,6 +78,7 @@ export interface DbWorkspaceSharedContextValue {
   resolveConnection: (connId: string) => DbConnectionConfig | null;
   connectionsLoading: boolean;
   selectTable: (selection: SchemaTableSelection) => void;
+  selectDatabase: (selection: SchemaDatabaseSelection, mode?: SchemaDockOpenMode) => void;
   openTableDesigner: (selection: SchemaTableSelection) => void;
   openTableQuery: (selection: SchemaTableSelection) => void;
   setTabMode: (id: string, mode: "data" | "sql") => void;

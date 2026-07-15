@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { ScopedSearch } from "../../../components/ui/ScopedSearch";
-import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import { fetchTableDdl, fetchTableDetails, type DbTableDetails } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { formatSqlDdl } from "../sql/formatSqlDdl";
@@ -25,6 +23,9 @@ import {
   readTableDdlCache,
   writeTableDdlCache,
 } from "./tableDdlCache";
+import { DetailPanelShell } from "../../../components/ui/layout/DetailPanelShell";
+import { Button } from "../../../components/ui/primitives/Button";
+import { TextInput } from "../../../components/ui/form/TextInput";
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
@@ -145,12 +146,51 @@ export function DatabaseTablesPanel({
   const [selectedTableName, setSelectedTableName] = useState<string | null>(null);
   const [sort, setSort] = useState<TablesPanelSortState>({ column: "name", direction: "asc" });
   const [detailsRefreshing, setDetailsRefreshing] = useState(false);
+  const [ddlDrawerOpen, setDdlDrawerOpen] = useState(false);
+  const [ddlDrawerTableName, setDdlDrawerTableName] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!cacheHydrated) {
       void hydrateSchemaCache();
     }
   }, [cacheHydrated, hydrateSchemaCache]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") {
+        if (search) {
+          setSearch("");
+          e.preventDefault();
+        }
+        return;
+      }
+      if (e.key.length !== 1) return;
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (!panel.contains(target)) return;
+      e.preventDefault();
+      setSearch((prev) => prev + e.key);
+      searchInputRef.current?.focus();
+      requestAnimationFrame(() => {
+        const input = searchInputRef.current;
+        if (input) {
+          const len = input.value.length;
+          input.setSelectionRange(len, len);
+        }
+      });
+    };
+
+    panel.addEventListener("keydown", handleKeyDown);
+    return () => panel.removeEventListener("keydown", handleKeyDown);
+  }, [search]);
 
   useEffect(() => {
     setSearch("");
@@ -368,17 +408,31 @@ export function DatabaseTablesPanel({
     };
   }, [loadTableDetails, tables]);
 
+  const activeDdlTableName = ddlDrawerOpen ? ddlDrawerTableName : selectedTableName;
+
   useEffect(() => {
-    if (!selectedTableName) {
+    if (!activeDdlTableName) {
       return;
     }
-    void loadTableDdl(selectedTableName);
-  }, [loadTableDdl, selectedTableName]);
+    void loadTableDdl(activeDdlTableName);
+  }, [loadTableDdl, activeDdlTableName]);
 
-  const selectedDdlEntry = selectedTableName ? ddlByTable[selectedTableName] : undefined;
+  const selectedDdlEntry = activeDdlTableName ? ddlByTable[activeDdlTableName] : undefined;
   const ddl = selectedDdlEntry?.status === "loaded" ? selectedDdlEntry.ddl : "";
   const ddlLoading = selectedDdlEntry?.status === "loading";
   const ddlError = selectedDdlEntry?.status === "error" ? selectedDdlEntry.message : null;
+
+  const handleOpenDdlDrawer = useCallback(
+    (tableName: string) => {
+      setDdlDrawerTableName(tableName);
+      setDdlDrawerOpen(true);
+    },
+    [],
+  );
+
+  const handleCloseDdlDrawer = useCallback(() => {
+    setDdlDrawerOpen(false);
+  }, []);
 
   const handleDesignTable = useCallback(
     (tableName: string) => {
@@ -546,131 +600,125 @@ export function DatabaseTablesPanel({
       },
     ];
 
-    if (canDesign || canOpenTableData) {
-      cols.push({
-        id: "actions",
-        variant: "actions",
-        header: null,
-        headerAriaLabel: t("database.tablesPanel.actions"),
-        render: (tableName) => (
-          <div className="db-tables-panel-row-actions">
-            {canOpenTableData ? (
-              <button
-                type="button"
-                className="btn-icon db-tables-panel-data-btn"
-                title={t("database.contextMenu.viewTableData")}
-                aria-label={t("database.contextMenu.viewTableData")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleOpenTableData(tableName);
-                }}
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                  <path d="M2.5 6h11M2.5 9.5h11M6 2.5v11M10 2.5v11" />
-                </svg>
-              </button>
-            ) : null}
-            {canDesign ? (
-              <button
-                type="button"
-                className="btn-icon db-tables-panel-design-btn"
-                title={t("database.contextMenu.designTable")}
-                aria-label={t("database.contextMenu.designTable")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleDesignTable(tableName);
-                }}
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                  <path d="M5 8h6M8 5v6" />
-                </svg>
-              </button>
-            ) : null}
-          </div>
-        ),
-      });
-    }
+    cols.push({
+      id: "actions",
+      variant: "actions",
+      header: null,
+      headerAriaLabel: t("database.tablesPanel.actions"),
+      render: (tableName) => (
+        <div className="db-tables-panel-row-actions">
+          <button
+            type="button"
+            className="btn-icon db-tables-panel-ddl-btn"
+            title={t("database.contextMenu.viewDdl")}
+            aria-label={t("database.contextMenu.viewDdl")}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenDdlDrawer(tableName);
+            }}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+              <path d="M4 3h8M4 8h8M4 13h5" />
+            </svg>
+          </button>
+          {canOpenTableData ? (
+            <button
+              type="button"
+              className="btn-icon db-tables-panel-data-btn"
+              title={t("database.contextMenu.viewTableData")}
+              aria-label={t("database.contextMenu.viewTableData")}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleOpenTableData(tableName);
+              }}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                <path d="M2.5 6h11M2.5 9.5h11M6 2.5v11M10 2.5v11" />
+              </svg>
+            </button>
+          ) : null}
+          {canDesign ? (
+            <button
+              type="button"
+              className="btn-icon db-tables-panel-design-btn"
+              title={t("database.contextMenu.designTable")}
+              aria-label={t("database.contextMenu.designTable")}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleDesignTable(tableName);
+              }}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                <path d="M5 8h6M8 5v6" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
+      ),
+    });
 
     return cols;
-  }, [canDesign, canOpenTableData, detailsByTable, handleDesignTable, handleOpenTableData, loadingLabel, t, tableComments]);
+  }, [canDesign, canOpenTableData, detailsByTable, handleDesignTable, handleOpenDdlDrawer, handleOpenTableData, loadingLabel, t, tableComments]);
 
   return (
-    <ScopedSearch
-      className="db-tables-panel db-tables-panel--dock"
-      value={search}
-      onChange={setSearch}
-      placeholder={t("database.tablesPanel.search")}
-    >
+    <div ref={panelRef} className="db-tables-panel db-tables-panel--dock">
+      <div className="db-tables-panel-toolbar">
+        <div className="db-tables-panel-toolbar-left">
+          <Button variant="primary" size="sm" onClick={() => onDesignTable?.({
+            connId: selection.connId,
+            dbName: selection.dbName,
+            tableName: "",
+            connection: selection.connection,
+          })}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+            <span>{t("database.tablesPanel.newTable")}</span>
+          </Button>
+        </div>
+        <div className="db-tables-panel-toolbar-right">
+          <TextInput
+            ref={searchInputRef}
+            className="db-tables-panel-search-input"
+            value={search}
+            onChange={setSearch}
+            placeholder={t("database.tablesPanel.search")}
+            clearable
+            copyable={false}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+      </div>
+
       <div className="db-tables-panel-body">
-        <DockLayout direction="horizontal" className="db-tables-panel-split">
-          <DockPanel defaultSize="70%" minSize="30%" maxSize="80%" className="db-tables-panel-list-pane">
-            <div className="db-tables-panel-grid-wrap">
-              {!cacheReady && (
-                <div className="db-tables-panel-empty">{t("database.tablesPanel.cacheEmptyHint")}</div>
-              )}
-              {cacheReady && tableCount === 0 && (
-                <div className="db-tables-panel-empty">{t("database.sidebar.noTables")}</div>
-              )}
-              {cacheReady && tableCount > 0 && (
-                <DbTablesPanelGrid
-                  columns={tableColumns}
-                  rows={sortedTables}
-                  rowKey={(tableName) => tableName}
-                  sortColumnId={sort.column}
-                  sortDirection={sort.direction}
-                  onSortColumn={(columnId) => toggleSort(columnId as TablesPanelSortColumn)}
-                  selectedRowKey={selectedTableName}
-                  onRowClick={setSelectedTableName}
-                />
-              )}
-              {cacheReady && tableCount > 0 && filteredTables.length === 0 && (
-                <div className="db-tables-panel-empty">{t("database.tablesPanel.noResults")}</div>
-              )}
-            </div>
-          </DockPanel>
-          <DockHandle direction="horizontal" />
-          <DockPanel defaultSize="30%" minSize="20%" className="db-tables-panel-ddl-pane">
-            <div className="db-tables-panel-ddl">
-              {!selectedTableName ? (
-                <div className="db-tables-panel-ddl-empty">
-                  {t("database.tablesPanel.ddlEmpty")}
-                </div>
-              ) : (
-                <>
-                  <div className="db-tables-panel-ddl-header">
-                    <span className="db-tables-panel-ddl-title">{selectedTableName}</span>
-                    <button
-                      type="button"
-                      className="btn-icon db-tables-panel-ddl-copy"
-                      title={t("database.contextMenu.copyDdl")}
-                      aria-label={t("database.contextMenu.copyDdl")}
-                      disabled={!canCopyDdl}
-                      onClick={() => void handleCopyDdl()}
-                    >
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-                        <rect x="5" y="5" width="9" height="9" rx="1.5" />
-                        <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="db-tables-panel-ddl-content">
-                    {ddlLoading && (
-                      <div className="db-tables-panel-ddl-status">{t("database.tablesPanel.ddlLoading")}</div>
-                    )}
-                    {!ddlLoading && ddlError && (
-                      <div className="db-tables-panel-ddl-status db-tables-panel-ddl-status--error">
-                        {t("database.tablesPanel.ddlFailed", { message: ddlError })}
-                      </div>
-                    )}
-                    {!ddlLoading && !ddlError && ddl && <TableDdlViewer ddl={ddl} />}
-                  </div>
-                </>
-              )}
-            </div>
-          </DockPanel>
-        </DockLayout>
+        <div className="db-tables-panel-list-pane">
+          <div className="db-tables-panel-grid-wrap">
+            {!cacheReady && (
+              <div className="db-tables-panel-empty">{t("database.tablesPanel.cacheEmptyHint")}</div>
+            )}
+            {cacheReady && tableCount === 0 && (
+              <div className="db-tables-panel-empty">{t("database.sidebar.noTables")}</div>
+            )}
+            {cacheReady && tableCount > 0 && (
+              <DbTablesPanelGrid
+                columns={tableColumns}
+                rows={sortedTables}
+                rowKey={(tableName) => tableName}
+                sortColumnId={sort.column}
+                sortDirection={sort.direction}
+                onSortColumn={(columnId) => toggleSort(columnId as TablesPanelSortColumn)}
+                selectedRowKey={selectedTableName}
+                onRowClick={setSelectedTableName}
+              />
+            )}
+            {cacheReady && tableCount > 0 && filteredTables.length === 0 && (
+              <div className="db-tables-panel-empty">{t("database.tablesPanel.noResults")}</div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="db-tables-panel-meta">
@@ -687,6 +735,53 @@ export function DatabaseTablesPanel({
               : t("database.tablesPanel.count", { count: tableCount })}
         </span>
       </div>
-    </ScopedSearch>
+
+      <DetailPanelShell
+        open={ddlDrawerOpen}
+        onClose={handleCloseDdlDrawer}
+        ariaLabel={t("database.tablesPanel.ddl")}
+        floatingTitle={ddlDrawerTableName ?? t("database.tablesPanel.ddl")}
+        variant="docker-drawer"
+        widthRatio={0.5}
+      >
+        <div className="db-tables-panel-ddl">
+          {!ddlDrawerTableName ? (
+            <div className="db-tables-panel-ddl-empty">
+              {t("database.tablesPanel.ddlEmpty")}
+            </div>
+          ) : (
+            <>
+              <div className="db-tables-panel-ddl-header">
+                <span className="db-tables-panel-ddl-title">{ddlDrawerTableName}</span>
+                <button
+                  type="button"
+                  className="btn-icon db-tables-panel-ddl-copy"
+                  title={t("database.contextMenu.copyDdl")}
+                  aria-label={t("database.contextMenu.copyDdl")}
+                  disabled={!canCopyDdl}
+                  onClick={() => void handleCopyDdl()}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                    <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                    <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+                  </svg>
+                </button>
+              </div>
+              <div className="db-tables-panel-ddl-content">
+                {ddlLoading && (
+                  <div className="db-tables-panel-ddl-status">{t("database.tablesPanel.ddlLoading")}</div>
+                )}
+                {!ddlLoading && ddlError && (
+                  <div className="db-tables-panel-ddl-status db-tables-panel-ddl-status--error">
+                    {t("database.tablesPanel.ddlFailed", { message: ddlError })}
+                  </div>
+                )}
+                {!ddlLoading && !ddlError && ddl && <TableDdlViewer ddl={ddl} />}
+              </div>
+            </>
+          )}
+        </div>
+      </DetailPanelShell>
+    </div>
   );
 }

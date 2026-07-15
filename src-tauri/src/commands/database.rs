@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use omnipanel_db::{DbDriver, DbParams, MongoDriver, QueryResult, RedisSearchKeysResult, mongodb_list_databases, mysql_connect_options};
@@ -24,6 +24,9 @@ use crate::state::AppState;
 struct SqlxPoolCache {
     mysql: HashMap<String, (String, MySqlPool)>,
     pg: HashMap<String, (String, PgPool)>,
+    /// Per-key establishment locks to prevent concurrent pool creation race
+    mysql_establishing: HashMap<String, Arc<Mutex<()>>>,
+    pg_establishing: HashMap<String, Arc<Mutex<()>>>,
 }
 
 fn sqlx_pool_cache() -> &'static Mutex<SqlxPoolCache> {
@@ -32,6 +35,8 @@ fn sqlx_pool_cache() -> &'static Mutex<SqlxPoolCache> {
         Mutex::new(SqlxPoolCache {
             mysql: HashMap::new(),
             pg: HashMap::new(),
+            mysql_establishing: HashMap::new(),
+            pg_establishing: HashMap::new(),
         })
     })
 }
@@ -268,8 +273,26 @@ async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserM
     let pool = mysql_pool(connection).await?;
     let rows = sqlx::query("SELECT User, Host FROM mysql.user ORDER BY User, Host")
         .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Query failed: {e}"))?;
+        .await;
+
+    // 当前连接对 mysql.user 无 SELECT 权限时（1142 / access denied），
+    // 静默返回空列表，避免 IPC 错误日志刷屏（schema cache 刷新等也会调用本函数）
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(e) => {
+            let msg = format!("{e}");
+            let lower = msg.to_ascii_lowercase();
+            if lower.contains("1142")
+                || lower.contains("access denied")
+                || lower.contains("command denied")
+                || lower.contains("for table 'user'")
+                || lower.contains("for table \"user\"")
+            {
+                return Ok(Vec::new());
+            }
+            return Err(format!("Query failed: {msg}"));
+        }
+    };
 
     Ok(rows
         .into_iter()
@@ -528,6 +551,31 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let key = connection.id.clone();
     let fingerprint = pool_fingerprint(connection);
+
+    // Fast path: check cache
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.mysql.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
+    // Get or create per-key establishment lock (prevents concurrent pool creation race)
+    let establish_lock = {
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache
+            .mysql_establishing
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+
+    // Hold per-key lock during establishment — other callers for same key will wait here
+    let _guard = establish_lock.lock().await;
+
+    // Double-check: another caller may have established the pool while we waited
     {
         let cache = sqlx_pool_cache().lock().await;
         if let Some((cached_fp, pool)) = cache.mysql.get(&key) {
@@ -567,6 +615,29 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
 async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
     let key = connection.id.clone();
     let fingerprint = pool_fingerprint(connection);
+
+    // Fast path: check cache
+    {
+        let cache = sqlx_pool_cache().lock().await;
+        if let Some((cached_fp, pool)) = cache.pg.get(&key) {
+            if cached_fp == &fingerprint {
+                return Ok(pool.clone());
+            }
+        }
+    }
+
+    // Per-key establishment lock (prevents concurrent pool creation race)
+    let establish_lock = {
+        let mut cache = sqlx_pool_cache().lock().await;
+        cache
+            .pg_establishing
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _guard = establish_lock.lock().await;
+
+    // Double-check
     {
         let cache = sqlx_pool_cache().lock().await;
         if let Some((cached_fp, pool)) = cache.pg.get(&key) {
@@ -698,6 +769,15 @@ pub async fn db_save_schema_cache(snapshot: SchemaCacheSnapshot) -> Result<(), S
 #[specta::specta]
 pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String, String> {
     let db_type = connection.db_type.to_lowercase();
+    // MySQL/MariaDB 复用 mysql_pool 缓存，避免与 listDatabases 等查询建立两个独立连接池
+    if matches!(db_type.as_str(), "mysql" | "mariadb") {
+        let pool = mysql_pool(&connection).await?;
+        let row: (String,) = sqlx::query_as("SELECT VERSION()")
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| format!("Query failed: {e}"))?;
+        return Ok(row.0);
+    }
     let mut params = to_params(&connection);
     if matches!(db_type.as_str(), "mongodb" | "mongo") && params.database.trim().is_empty() {
         params.database = "admin".to_string();
@@ -742,12 +822,116 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
     }
 }
 
+/// 库列表（含统计信息）：库名 / 字符集 / 排序规则 / 表数 / 大小 / 行数
+/// 单条 LEFT JOIN 查询，避免 N+1
+#[tauri::command]
+#[specta::specta]
+pub async fn db_list_databases_with_stats(
+    connection: DbConnectionConfig,
+) -> Result<Vec<DbDatabaseMeta>, String> {
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => {
+            let pool = mysql_pool(&connection).await?;
+            // SCHEMATA LEFT JOIN TABLES 聚合：一条查询拿到全部统计
+            // TABLE_ROWS / DATA_LENGTH 为估算值（InnoDB 不精确），仅作参考
+            // CAST(... AS CHAR) 把 DECIMAL/BIGINT 转成字符串，mysql_row_string 才能解码
+            let rows = sqlx::query(
+                "SELECT \
+                   s.SCHEMA_NAME, \
+                   s.DEFAULT_CHARACTER_SET_NAME, \
+                   s.DEFAULT_COLLATION_NAME, \
+                   CAST(COUNT(t.TABLE_NAME) AS CHAR) AS table_count, \
+                   CAST(COALESCE(SUM(t.DATA_LENGTH + t.INDEX_LENGTH), 0) AS CHAR) AS size_bytes, \
+                   CAST(COALESCE(SUM(t.TABLE_ROWS), 0) AS CHAR) AS rows_estimate \
+                 FROM information_schema.SCHEMATA s \
+                 LEFT JOIN information_schema.TABLES t \
+                   ON t.TABLE_SCHEMA = s.SCHEMA_NAME \
+                 GROUP BY s.SCHEMA_NAME, s.DEFAULT_CHARACTER_SET_NAME, s.DEFAULT_COLLATION_NAME \
+                 ORDER BY s.SCHEMA_NAME",
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Query failed: {e}"))?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let name = mysql_row_string(&row, 0);
+                    let charset = {
+                        let s = mysql_row_string(&row, 1);
+                        if s.is_empty() { None } else { Some(s) }
+                    };
+                    let collation = {
+                        let s = mysql_row_string(&row, 2);
+                        if s.is_empty() { None } else { Some(s) }
+                    };
+                    // MySQL SUM() 返回 DECIMAL 类型，try_get::<i64> 会失败，
+                    // 用字符串解析兼容 DECIMAL / BIGINT / INT 等各种返回类型
+                    let table_count = {
+                        let s = mysql_row_string(&row, 3);
+                        if s.is_empty() { None } else { s.parse::<i32>().ok() }
+                    };
+                    let size_bytes = {
+                        let s = mysql_row_string(&row, 4);
+                        if s.is_empty() { None } else { s.parse::<f64>().ok() }
+                    };
+                    let rows_estimate = {
+                        let s = mysql_row_string(&row, 5);
+                        if s.is_empty() { None } else { s.parse::<f64>().ok() }
+                    };
+                    DbDatabaseMeta {
+                        name,
+                        charset,
+                        collation,
+                        table_count,
+                        size_bytes,
+                        rows_estimate,
+                    }
+                })
+                .collect())
+        }
+        // 非 MySQL 引擎退化为仅库名
+        _ => {
+            let names = db_list_databases(connection).await?;
+            Ok(names
+                .into_iter()
+                .map(|name| DbDatabaseMeta {
+                    name,
+                    charset: None,
+                    collation: None,
+                    table_count: None,
+                    size_bytes: None,
+                    rows_estimate: None,
+                })
+                .collect())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbCharsetMeta {
     pub charset: String,
     pub description: String,
     pub default_collation: String,
+}
+
+/// 数据库元信息（库列表 tab 展示用）
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbDatabaseMeta {
+    /// 库名
+    pub name: String,
+    /// 默认字符集
+    pub charset: Option<String>,
+    /// 默认排序规则
+    pub collation: Option<String>,
+    /// 表数量（含视图）
+    pub table_count: Option<i32>,
+    /// 数据 + 索引总大小（字节）；f64 避免 u64 被 Specta 禁止导出
+    pub size_bytes: Option<f64>,
+    /// 估算总行数
+    pub rows_estimate: Option<f64>,
 }
 
 async fn mysql_list_character_sets(

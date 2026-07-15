@@ -540,6 +540,28 @@ const TreeNode = memo(
 
 export { makeDatabaseNodeId } from "./schemaTreeIds";
 
+function SchemaTreeSelectionSync({ targetId }: { targetId: string | null }) {
+  const selection = useSidebarTreeSelection();
+  const setSelectedIds = selection?.setSelectedIds;
+  const clearSelection = selection?.clearSelection;
+  const selectedIdsRef = useRef<ReadonlySet<string> | null>(null);
+  if (selection) {
+    selectedIdsRef.current = selection.selectedIds;
+  }
+  useEffect(() => {
+    if (!setSelectedIds || !clearSelection) return;
+    const current = selectedIdsRef.current;
+    if (targetId) {
+      if (current?.size === 1 && current.has(targetId)) return;
+      setSelectedIds([targetId]);
+    } else {
+      if (!current || current.size === 0) return;
+      clearSelection();
+    }
+  }, [targetId, setSelectedIds, clearSelection]);
+  return null;
+}
+
 function tableColumnsFolderId(tableId: string) {
   return `${tableId}:cols`;
 }
@@ -2116,6 +2138,7 @@ export function SchemaBrowser({
             onContextMenu={handleContextLayoutRoot}
           >
         <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
+        <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("common.loading")}

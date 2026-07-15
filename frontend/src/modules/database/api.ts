@@ -318,6 +318,12 @@ export async function listDatabases(connection: DbConnectionConfig): Promise<str
   return unwrapCommand(commands.dbListDatabases(ipcConn(connection)));
 }
 
+export async function listDatabasesWithStats(
+  connection: DbConnectionConfig,
+): Promise<DbDatabaseMeta[]> {
+  return unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)));
+}
+
 export interface CreateDatabaseArgs {
   connection: DbConnectionConfig;
   name: string;
@@ -340,6 +346,15 @@ export interface DbCharsetMeta {
   charset: string;
   description: string;
   defaultCollation: string;
+}
+
+export interface DbDatabaseMeta {
+  name: string;
+  charset: string | null;
+  collation: string | null;
+  tableCount: number | null;
+  sizeBytes: number | null;
+  rowsEstimate: number | null;
 }
 
 export async function listCharacterSets(

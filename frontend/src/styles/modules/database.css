@@ -1335,6 +1335,33 @@
         background: var(--accent-soft);
     }
 
+    .db-tables-panel-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--border);
+        gap: var(--sp-3);
+        flex-shrink: 0;
+    }
+
+    .db-tables-panel-toolbar-left,
+    .db-tables-panel-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .db-tables-panel-search-input {
+        width: 280px;
+    }
+
+    .db-tables-panel-list-pane {
+        height: 100%;
+        min-height: 0;
+        min-width: 0;
+    }
+
     .db-tables-panel-body {
         flex: 1;
         min-height: 0;
@@ -1413,6 +1440,12 @@
         max-width: none;
     }
 
+    .db-tables-panel-grid .db-cell-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
     .db-tables-panel-grid__col-resize {
         position: absolute;
         top: 0;
@@ -1477,7 +1510,7 @@
     .db-tables-panel-grid__cell-copyable {
         -webkit-user-select: text;
         user-select: text;
-        cursor: text;
+        cursor: default;
     }
 
     .db-tables-panel-grid__cell--selected {
@@ -7491,4 +7524,93 @@
 .db-import-preview-status--warn {
     color: var(--warning, #d97706);
     background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);
+}
+
+/* 底部 meta 栏操作按钮区域（如「添加用户」「创建库」）—— 与刷新按钮并排在左侧 */
+.db-tables-panel-meta-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+/* 用户操作按钮组（行内） */
+.db-user-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Grants 弹框样式 */
+.db-grants-section {
+    margin-bottom: var(--sp-4);
+}
+
+.db-grants-section:last-child {
+    margin-bottom: 0;
+}
+
+.db-grants-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--meta);
+    margin-bottom: var(--sp-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.db-grants-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm, 6px);
+    background: var(--bg-deeper, var(--bg-1));
+}
+
+.db-grants-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+}
+
+.db-grants-list-item:last-child {
+    border-bottom: none;
+}
+
+.db-grants-list-item:hover {
+    background: var(--hover, color-mix(in srgb, var(--accent) 6%, transparent));
+}
+
+.db-grants-list-code {
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    font-size: 11px;
+    color: var(--fg-2);
+    word-break: break-all;
+    flex: 1;
+    min-width: 0;
+}
+
+.db-grants-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+    flex-wrap: wrap;
+}
+
+.db-grants-preview {
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg-deeper, var(--bg-1));
+    padding: 4px 8px;
+    border-radius: var(--r-sm, 6px);
+    border: 1px solid var(--border);
+    word-break: break-all;
 }
