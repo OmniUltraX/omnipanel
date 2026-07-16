@@ -41,7 +41,8 @@ export function selectTablePreviewTabIdKey(_state: {
 export function buildDatabasePanelContentKeysByTab(params: {
   workspaceTabs: DbWorkspaceTab[];
   sqlTabStates: Record<string, SqlTabState>;
-  tablePreviews: Record<string, TablePreviewState>;
+  /** 翻页态不再进入 content key；参数保留以兼容现有调用方 */
+  tablePreviews?: Record<string, TablePreviewState>;
   tableDesignerStates: Record<string, unknown>;
   connections: DbConnectionConfig[];
 }): Record<string, string> {
@@ -49,15 +50,9 @@ export function buildDatabasePanelContentKeysByTab(params: {
   const keys: Record<string, string> = {};
   for (const tab of params.workspaceTabs) {
     if (tab.kind === "table") {
-      const preview = params.tablePreviews[tab.id];
-      keys[tab.id] = [
-        tab.connId,
-        tab.dbName,
-        tab.tableName,
-        tab.id,
-        preview?.page ?? 0,
-        preview?.pageSize ?? 0,
-      ].join("|");
+      // 翻页 / pageSize 由 DbTablePreviewSurface 内增量刷新；
+      // key 仅含稳定元数据，避免每次翻页 remount 整个表数据面板（含 CellEditor）。
+      keys[tab.id] = [tab.connId, tab.dbName, tab.tableName, tab.id].join("|");
       continue;
     }
     if (tab.kind === "sql") {

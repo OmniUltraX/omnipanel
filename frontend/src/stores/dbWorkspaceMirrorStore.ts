@@ -46,6 +46,45 @@ function bumpMirroredDbTabVersion(tabId: string): void {
   tabListeners.get(tabId)?.forEach((listener) => listener());
 }
 
+/** 结果对象引用 → 稳定 id，避免 revision 里 JSON.stringify 整表行数据。 */
+const previewDataIdentity = new WeakMap<object, number>();
+let nextPreviewDataIdentity = 1;
+
+function previewDataIdentityId(data: object | null | undefined): number {
+  if (!data) return 0;
+  let id = previewDataIdentity.get(data);
+  if (id == null) {
+    id = nextPreviewDataIdentity++;
+    previewDataIdentity.set(data, id);
+  }
+  return id;
+}
+
+/** 表预览 revision：元数据 + data 引用身份，不含行内容。 */
+function tablePreviewMirrorFingerprint(
+  preview: DbWorkspaceMirrorContextValue["tablePreviews"][string] | undefined,
+): unknown {
+  if (!preview) return null;
+  return {
+    loading: preview.loading,
+    error: preview.error,
+    page: preview.page,
+    pageSize: preview.pageSize,
+    totalRows: preview.totalRows,
+    sort: preview.sort,
+    filter: preview.filter,
+    hiddenColumns: preview.hiddenColumns,
+    transposed: preview.transposed,
+    columnRelations: preview.columnRelations,
+    connId: preview.connId,
+    dbName: preview.dbName,
+    tableName: preview.tableName,
+    dataId: previewDataIdentityId(preview.data ?? undefined),
+    colCount: preview.data?.columns.length ?? 0,
+    rowCount: preview.data?.rows.length ?? 0,
+  };
+}
+
 /** 生成 Tab 镜像渲染所需的 revision（忽略 cursorOffset、activeTabId 等易引发循环的字段）。 */
 function buildMirroredTabRevision(ctx: DbWorkspaceMirrorContextValue, tabId: string): string {
   const tab = ctx.tabs.find((item) => item.id === tabId);
@@ -60,7 +99,10 @@ function buildMirroredTabRevision(ctx: DbWorkspaceMirrorContextValue, tabId: str
         running: tabState.running,
         error: tabState.error,
         elapsed: tabState.elapsed,
-        result: tabState.result,
+        // result 行数据同样用引用身份，避免 SQL 结果巨大时卡顿
+        resultId: previewDataIdentityId(tabState.result ?? undefined),
+        resultColCount: tabState.result?.columns.length ?? 0,
+        resultRowCount: tabState.result?.rows.length ?? 0,
       }
     : null;
 
@@ -72,7 +114,7 @@ function buildMirroredTabRevision(ctx: DbWorkspaceMirrorContextValue, tabId: str
   return JSON.stringify({
     tab,
     tabState: tabStateForMirror,
-    preview,
+    preview: tablePreviewMirrorFingerprint(preview),
     colMeta: ctx.tableColumnMeta[tabId],
     mode: ctx.tabModes[tabId],
     dirty: ctx.tabDirtyRows[tabId],

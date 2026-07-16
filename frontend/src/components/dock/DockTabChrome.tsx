@@ -49,6 +49,10 @@ export function DockTabChrome({
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent) => {
+      // 屏蔽浏览器中键自动拖拽滚动，保留 pointerup 关闭标签
+      if (event.button === 1) {
+        event.preventDefault();
+      }
       isMiddleMouseButton.current = event.button === 1;
       onPointerDown?.(event);
     },

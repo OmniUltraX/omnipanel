@@ -1,9 +1,22 @@
 import type { CSSProperties } from "react";
 import { ROW_RESIZE_ZONE_PX } from "./tableDataGridConstants";
 
+/** 行高拖拽热区宽度（对齐行号列默认宽度） */
+export const ROW_RESIZE_HANDLE_WIDTH_PX = 36;
+
 export function isNearRowBottom(target: HTMLElement, clientY: number): boolean {
   const rect = target.getBoundingClientRect();
   return clientY >= rect.bottom - ROW_RESIZE_ZONE_PX;
+}
+
+/** 仅最左侧（行号 / 转置字段列区域）可开始拖行高 */
+export function isInRowResizeHandle(target: HTMLElement, clientX: number, clientY: number): boolean {
+  const rect = target.getBoundingClientRect();
+  return (
+    clientY >= rect.bottom - ROW_RESIZE_ZONE_PX &&
+    clientX >= rect.left &&
+    clientX <= rect.left + ROW_RESIZE_HANDLE_WIDTH_PX
+  );
 }
 
 export function buildColumnCellStyle(

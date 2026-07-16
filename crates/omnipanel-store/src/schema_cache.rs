@@ -69,6 +69,10 @@ pub struct SchemaCacheDatabase {
     /// 是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后再 true）。
     #[serde(default)]
     pub objects_loaded: bool,
+    /// Redis：key 条数；其它引擎忽略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<f64>)]
+    pub key_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
@@ -279,6 +283,7 @@ mod tests {
                             routines: vec![],
                             load_error: None,
                             objects_loaded: true,
+                            key_count: None,
                         }],
                         users: vec![],
                         refreshed_at: Some(1),
@@ -312,6 +317,7 @@ mod tests {
                     routines: vec![],
                     load_error: None,
                     objects_loaded: true,
+                    key_count: Some(1),
                 },
                 SchemaCacheDatabase {
                     name: "11".into(),
@@ -327,6 +333,7 @@ mod tests {
                     routines: vec![],
                     load_error: None,
                     objects_loaded: true,
+                    key_count: None,
                 },
             ],
             users: vec![],

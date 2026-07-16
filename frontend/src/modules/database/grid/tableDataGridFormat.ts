@@ -1,6 +1,7 @@
 import type { DbColumnMeta } from "../api";
 import { PENDING_INSERT_ROW_KEY } from "../workspace/dbWorkspaceState";
 import { isAutoIncrementColumn } from "../shared/columnMetaUtils";
+import { formatOmniBlobDisplayText, parseOmniBlobValue } from "./omniBlobValue";
 
 const OBJECT_DISPLAY_CACHE = new WeakMap<object, string>();
 const MAX_INLINE_CELL_TEXT_LENGTH = 512;
@@ -15,6 +16,10 @@ function truncateDisplayText(text: string): string {
 export function cellToText(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "object") {
+    const blob = parseOmniBlobValue(value);
+    if (blob) {
+      return formatOmniBlobDisplayText(blob);
+    }
     const cached = OBJECT_DISPLAY_CACHE.get(value);
     if (cached !== undefined) {
       return cached;

@@ -8,6 +8,8 @@ export interface SchemaCacheDatabaseEntry {
   loadError?: string;
   /** 已拉取表/视图/例程；连接浅刷新为 false */
   objectsLoaded?: boolean;
+  /** Redis：INFO keyspace 的 keys 数 */
+  keyCount?: number;
 }
 
 export interface SchemaCacheConnectionEntry {
@@ -91,6 +93,7 @@ export function mergeDatabaseSchemaCacheEntry(
     routines: (incoming.routines?.length ?? 0) > 0 ? incoming.routines : previous.routines,
     objectsLoaded: incoming.objectsLoaded ?? true,
     loadError: incoming.loadError,
+    keyCount: incoming.keyCount ?? previous.keyCount,
   };
 }
 
@@ -131,7 +134,11 @@ export function mergeConnectionSchemaCacheEntry(
     }
     const old = prevByName.get(db.name);
     if (old && databaseHasLoadedObjects(old)) {
-      return { ...old, objectsLoaded: true };
+      return {
+        ...old,
+        objectsLoaded: true,
+        keyCount: db.keyCount ?? old.keyCount,
+      };
     }
     return { ...db, objectsLoaded: db.objectsLoaded ?? false };
   });

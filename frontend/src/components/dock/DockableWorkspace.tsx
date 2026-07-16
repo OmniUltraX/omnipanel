@@ -46,6 +46,7 @@ import {
 } from "../../lib/moduleToWorkspaceTransfer";
 import { syncTabGroupsByPanelType, clearTabGroups } from "./dockTabGroups";
 import { DockWorkspaceTabHeader } from "./DockWorkspaceTabHeader";
+import { scheduleScrollDockTabIntoView } from "./dockTabScroll";
 import {
   DockTabHeaderRuntimeContext,
   type DockTabHeaderRuntime,
@@ -1677,7 +1678,35 @@ export function DockableWorkspace({
       });
     }
     syncStatusBarActiveDockRef.current(activeTabId);
+
+    // dockview 仅在 setActivePanel 路径滚动；新建 tab 时常已是 active，需补滚入可视区
+    const root = wrapperRef.current;
+    return scheduleScrollDockTabIntoView(root, activeTabId);
   }, [activeTabId, tabs, runProgrammaticActive]);
+
+  // 屏蔽 tab 栏中键「拖拽滚动」，避免与中键关闭标签冲突
+  useEffect(() => {
+    const root = wrapperRef.current;
+    if (!root || !layoutReady) return;
+
+    const blockMiddleAutoscroll = (event: PointerEvent | MouseEvent) => {
+      if (event.button !== 1) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const tabBar = target.closest(".dv-tabs-and-actions-container");
+      if (!tabBar || !root.contains(tabBar)) return;
+      event.preventDefault();
+    };
+
+    root.addEventListener("pointerdown", blockMiddleAutoscroll, true);
+    root.addEventListener("mousedown", blockMiddleAutoscroll, true);
+    root.addEventListener("auxclick", blockMiddleAutoscroll, true);
+    return () => {
+      root.removeEventListener("pointerdown", blockMiddleAutoscroll, true);
+      root.removeEventListener("mousedown", blockMiddleAutoscroll, true);
+      root.removeEventListener("auxclick", blockMiddleAutoscroll, true);
+    };
+  }, [layoutReady, tabs.length]);
 
   // 接收外部 savedLayout 变化（如 store 重置）
   // 关键：dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，

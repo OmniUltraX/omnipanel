@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
@@ -261,6 +261,8 @@ export function RedisConnectionInfoPanel({
     column: "name",
     direction: "asc",
   });
+  const clientsTabEnteredRef = useRef(false);
+  const configTabEnteredRef = useRef(false);
 
   const connectionLabel = useMemo(() => {
     const name = connection.name?.trim();
@@ -305,7 +307,6 @@ export function RedisConnectionInfoPanel({
     const silent = options?.silent ?? false;
     if (!silent) {
       setClientsLoading(true);
-      setClientsResult(null);
     }
     setClientsError(null);
     try {
@@ -328,7 +329,6 @@ export function RedisConnectionInfoPanel({
     const silent = options?.silent ?? false;
     if (!silent) {
       setConfigLoading(true);
-      setConfigResult(null);
     }
     setConfigError(null);
     try {
@@ -411,31 +411,43 @@ export function RedisConnectionInfoPanel({
     setConfigResult(null);
     setClientsError(null);
     setConfigError(null);
+    clientsTabEnteredRef.current = false;
+    configTabEnteredRef.current = false;
   }, [connection.id, connection.host, connection.port, connection.db_type]);
 
+  // 客户端 tab：首次硬加载；再次进入静默刷新（保留旧数据）
   useEffect(() => {
-    if (!active || !capable) {
+    if (!active || !capable || subTab !== "connections") {
+      clientsTabEnteredRef.current = false;
       return;
     }
-    void refreshClients();
-  }, [active, capable, connection.id, refreshClients]);
+    if (clientsTabEnteredRef.current) {
+      return;
+    }
+    clientsTabEnteredRef.current = true;
+    if (clientsResult == null) {
+      void refreshClients();
+    } else {
+      void refreshClients({ silent: true });
+    }
+  }, [active, capable, subTab, clientsResult, clientsLoading, clientsError, refreshClients]);
 
+  // 配置 tab：首次硬加载；再次进入静默刷新
   useEffect(() => {
     if (!active || !capable || subTab !== "status") {
+      configTabEnteredRef.current = false;
       return;
     }
-    if (configResult == null && !configLoading && configError == null) {
-      void refreshConfig();
+    if (configTabEnteredRef.current) {
+      return;
     }
-  }, [
-    active,
-    capable,
-    subTab,
-    configResult,
-    configLoading,
-    configError,
-    refreshConfig,
-  ]);
+    configTabEnteredRef.current = true;
+    if (configResult == null) {
+      void refreshConfig();
+    } else {
+      void refreshConfig({ silent: true });
+    }
+  }, [active, capable, subTab, configResult, configLoading, configError, refreshConfig]);
 
   useEffect(() => {
     if (!active || !capable) {
@@ -604,10 +616,10 @@ export function RedisConnectionInfoPanel({
   }, [configColumns, parameterColumn, valueColumn]);
 
   const renderClientsTable = () => {
-    if (clientsLoading) {
+    if (clientsLoading && clientsResult == null) {
       return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
     }
-    if (clientsError) {
+    if (clientsError && clientsResult == null) {
       return <div className="db-tables-panel-error">{clientsError}</div>;
     }
     if (clientColumns.length === 0 || clientRows.length === 0) {
@@ -631,10 +643,10 @@ export function RedisConnectionInfoPanel({
   };
 
   const renderConfigTable = () => {
-    if (configLoading) {
+    if (configLoading && configResult == null) {
       return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
     }
-    if (configError) {
+    if (configError && configResult == null) {
       return <div className="db-tables-panel-error">{configError}</div>;
     }
     if (configColumns.length === 0 || configRows.length === 0) {

@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 use serde_json::Value;
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, split_statements};
+use crate::{DbDriver, DbParams, QueryResult, encode_blob_value, is_query, split_statements};
 
 /// SQLite 驱动：每次操作在阻塞线程中打开连接（文件打开成本低，避免持有非 Send 连接跨 await）。
 pub struct SqliteDriver {
@@ -155,7 +155,7 @@ fn run(conn: &Connection, sql: &str) -> OmniResult<QueryResult> {
                         Ok(ValueRef::Text(t)) => {
                             Value::String(String::from_utf8_lossy(t).into_owned())
                         }
-                        Ok(ValueRef::Blob(_)) => Value::String("[BLOB]".to_string()),
+                        Ok(ValueRef::Blob(bytes)) => encode_blob_value(bytes),
                         Err(_) => Value::Null,
                     };
                     record.push(value);

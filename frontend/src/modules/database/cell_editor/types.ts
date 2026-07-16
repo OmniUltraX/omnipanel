@@ -115,7 +115,17 @@ export function detectCellEditorKind(rawType: string): CellEditorKind {
 /** Format a raw cell value for display in the editor */
 export function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return "";
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") {
+    // 避免把内联 base64 整段塞进二进制编辑器
+    const record = value as Record<string, unknown>;
+    if (record.__omni === "blob") {
+      const size = typeof record.size === "number" ? record.size : 0;
+      const kind = typeof record.kind === "string" ? record.kind : "binary";
+      const mime = typeof record.mime === "string" ? record.mime : "";
+      return `[BLOB · ${mime || kind} · ${size} bytes]`;
+    }
+    return JSON.stringify(value);
+  }
   return String(value);
 }
 

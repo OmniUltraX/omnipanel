@@ -583,7 +583,22 @@ function appendConnectionSchemaRows(
         const pagedTables = paginateSchemaChildren(tablesToShow, tblsFolderId, childVisibleLimits);
         const pagedViews = paginateSchemaChildren(viewsToShow, viewsFolderId, childVisibleLimits);
         const pagedRoutines = paginateSchemaChildren(routinesToShow, otherFolderId, childVisibleLimits);
-        const dbItem = buildDatabaseTreeItem(conn.config.id, db.name);
+        const redisDbLabel = isRedis
+          ? /^\d+$/.test(db.name)
+            ? `db${db.name}`
+            : db.name
+          : db.name;
+        const redisKeyCount =
+          isRedis && typeof db.keyCount === "number" ? db.keyCount : undefined;
+        const redisLabelWithCount =
+          isRedis && redisKeyCount != null
+            ? `${redisDbLabel} (${redisKeyCount})`
+            : redisDbLabel;
+        const dbItem = buildDatabaseTreeItem(
+          conn.config.id,
+          db.name,
+          isRedis ? redisLabelWithCount : db.name,
+        );
         const dbNodeRefreshing = Boolean(refreshingNodeIds[dbId]);
         const tblsFolderRefreshing = Boolean(refreshingNodeIds[tblsFolderId]);
         const viewsFolderRefreshing = Boolean(refreshingNodeIds[viewsFolderId]);

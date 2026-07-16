@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use omnipanel_db::{DbDriver, DbParams, MongoDriver, QueryResult, RedisSearchKeysResult, mongodb_list_databases, mysql_connect_options};
+use omnipanel_db::{
+    DbDriver, DbParams, MongoDriver, QueryResult, RedisKeyDetail, RedisSearchKeysResult,
+    RedisSlowLogEntry, mongodb_list_databases, mysql_connect_options,
+};
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
@@ -318,13 +321,19 @@ async fn mysql_fetch_routines(
 
 async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
     let pool = mysql_pool(connection).await?;
-    let rows = sqlx::query("SELECT User, Host FROM mysql.user ORDER BY User, Host")
-        .fetch_all(&pool)
-        .await;
 
-    // 当前连接对 mysql.user 无 SELECT 权限时（1142 / access denied），
-    // 静默返回空列表，避免 IPC 错误日志刷屏（schema cache 刷新等也会调用本函数）
-    let rows = match rows {
+    // 优先带属性查询；旧版本无 account_locked 时回退基础查询。
+    let rich_sql = "SELECT User, Host, \
+         IFNULL(Super_priv, 'N'), \
+         IFNULL(Create_priv, 'N'), \
+         IFNULL(account_locked, 'N') \
+         FROM mysql.user ORDER BY User, Host";
+    let basic_sql = "SELECT User, Host, \
+         IFNULL(Super_priv, 'N'), \
+         IFNULL(Create_priv, 'N') \
+         FROM mysql.user ORDER BY User, Host";
+
+    let rows = match sqlx::query(rich_sql).fetch_all(&pool).await {
         Ok(rows) => rows,
         Err(e) => {
             let msg = format!("{e}");
@@ -337,15 +346,48 @@ async fn mysql_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserM
             {
                 return Ok(Vec::new());
             }
-            return Err(format!("Query failed: {msg}"));
+            // account_locked 等列不存在时回退
+            if lower.contains("unknown column") || lower.contains("1054") {
+                match sqlx::query(basic_sql).fetch_all(&pool).await {
+                    Ok(rows) => rows,
+                    Err(e2) => {
+                        let msg2 = format!("{e2}");
+                        let lower2 = msg2.to_ascii_lowercase();
+                        if lower2.contains("1142")
+                            || lower2.contains("access denied")
+                            || lower2.contains("command denied")
+                        {
+                            return Ok(Vec::new());
+                        }
+                        return Err(format!("Query failed: {msg2}"));
+                    }
+                }
+            } else {
+                return Err(format!("Query failed: {msg}"));
+            }
         }
     };
 
     Ok(rows
         .into_iter()
-        .map(|row| DbUserMeta {
-            name: mysql_row_string(&row, 0),
-            host: Some(mysql_row_string(&row, 1)),
+        .map(|row| {
+            let super_priv = mysql_row_string(&row, 2);
+            let create_priv = mysql_row_string(&row, 3);
+            let locked_raw = mysql_row_string(&row, 4);
+            let account_locked = if locked_raw.is_empty() {
+                None
+            } else {
+                Some(locked_raw.eq_ignore_ascii_case("Y") || locked_raw == "1")
+            };
+            DbUserMeta {
+                name: mysql_row_string(&row, 0),
+                host: Some(mysql_row_string(&row, 1)),
+                can_login: !account_locked.unwrap_or(false),
+                is_superuser: super_priv.eq_ignore_ascii_case("Y"),
+                can_create_db: create_priv.eq_ignore_ascii_case("Y"),
+                is_role: false,
+                account_locked,
+            }
         })
         .collect())
 }
@@ -471,16 +513,30 @@ fn pg_resolve_table_display(schema: &str, table: &str) -> String {
 
 async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
     let pool = pg_pool(connection).await?;
-    let rows = sqlx::query("SELECT usename FROM pg_catalog.pg_user ORDER BY usename")
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("PG users query failed: {e}"))?;
+    let rows = sqlx::query(
+        "SELECT rolname, rolcanlogin, rolsuper, rolcreatedb \
+         FROM pg_catalog.pg_roles \
+         ORDER BY rolname",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("PG users query failed: {e}"))?;
 
     Ok(rows
         .into_iter()
-        .map(|row| DbUserMeta {
-            name: row.try_get(0).unwrap_or_default(),
-            host: None,
+        .map(|row| {
+            let can_login: bool = row.try_get(1).unwrap_or(false);
+            let is_superuser: bool = row.try_get(2).unwrap_or(false);
+            let can_create_db: bool = row.try_get(3).unwrap_or(false);
+            DbUserMeta {
+                name: row.try_get(0).unwrap_or_default(),
+                host: None,
+                can_login,
+                is_superuser,
+                can_create_db,
+                is_role: !can_login,
+                account_locked: None,
+            }
         })
         .collect())
 }
@@ -565,6 +621,21 @@ pub struct DbUserMeta {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// 是否可登录（MySQL 默认 true；PG 对应 rolcanlogin）
+    #[serde(default)]
+    pub can_login: bool,
+    /// 是否超级用户 / SUPER 权限
+    #[serde(default)]
+    pub is_superuser: bool,
+    /// 是否可创建数据库
+    #[serde(default)]
+    pub can_create_db: bool,
+    /// PostgreSQL 中无 LOGIN 的角色；MySQL 恒为 false
+    #[serde(default)]
+    pub is_role: bool,
+    /// MySQL account_locked；PG 无此概念
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_locked: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -598,6 +669,14 @@ pub struct DbTableDetails {
     pub comment: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collation: Option<String>,
+}
+
+/// 库内多表详情（一次查询回填表列表，避免 N 次建连）。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbNamedTableDetails {
+    pub name: String,
+    pub details: DbTableDetails,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1032,12 +1111,10 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
             Ok(databases)
         }
         "redis" => {
-            let preset = connection.database.trim();
-            if !preset.is_empty() {
-                return Ok(vec![preset.to_string()]);
-            }
-            // Redis 逻辑库为数字索引，默认实例通常有 16 个（0-15）。
-            Ok((0..16).map(|n| n.to_string()).collect())
+            let preset = connection.database.clone();
+            omnipanel_db::redis_list_databases(&to_params(&connection), &preset)
+                .await
+                .map_err(err_msg)
         }
         "postgresql" | "postgres" => {
             let pool = pg_pool(&connection).await?;
@@ -1173,7 +1250,27 @@ pub async fn db_list_databases_with_stats(
                 })
                 .collect())
         }
-        // 非 MySQL/PG 引擎退化为仅库名
+        "redis" => {
+            let preset = connection.database.clone();
+            let infos = omnipanel_db::redis_list_databases_with_key_counts(
+                &to_params(&connection),
+                &preset,
+            )
+            .await
+            .map_err(err_msg)?;
+            Ok(infos
+                .into_iter()
+                .map(|info| DbDatabaseMeta {
+                    name: info.name,
+                    charset: None,
+                    collation: None,
+                    table_count: None,
+                    size_bytes: None,
+                    rows_estimate: Some(info.key_count as f64),
+                })
+                .collect())
+        }
+        // 非 MySQL/PG/Redis 引擎退化为仅库名
         _ => {
             let names = db_list_databases(connection).await?;
             Ok(names
@@ -1546,6 +1643,28 @@ pub async fn db_get_table_details(
     }
 }
 
+/// 一次拉取库内全部表详情（表列表首屏用；避免逐表建连）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_list_table_details(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    let db_name = schema
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| connection.database.clone());
+    if db_name.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+
+    match connection.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => mysql_list_table_details(&connection, &db_name).await,
+        "postgresql" | "postgres" => pg_list_table_details(&connection, &db_name).await,
+        "sqlite" | "sqlite3" => sqlite_list_table_details(&connection).await,
+        _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
+    }
+}
+
 fn mysql_row_opt_i64(row: &MySqlRow, index: usize) -> Option<i64> {
     if let Ok(v) = row.try_get::<i64, _>(index) {
         return Some(v);
@@ -1598,16 +1717,47 @@ async fn mysql_table_details(
         return Err(format!("表 {table_name} 不存在"));
     };
 
-    Ok(DbTableDetails {
-        row_count: mysql_row_opt_i64(&row, 0),
-        data_length: mysql_row_opt_i64(&row, 1),
-        row_format: mysql_row_opt_string(&row, 3),
-        engine: mysql_row_opt_string(&row, 2),
-        create_time: mysql_row_timestamp(&row, 4),
-        update_time: mysql_row_timestamp(&row, 5),
-        comment: normalize_table_comment(&mysql_row_string(&row, 6)),
-        collation: mysql_row_opt_string(&row, 7),
-    })
+    Ok(mysql_details_from_info_row(&row, 0))
+}
+
+fn mysql_details_from_info_row(row: &MySqlRow, offset: usize) -> DbTableDetails {
+    DbTableDetails {
+        row_count: mysql_row_opt_i64(row, offset),
+        data_length: mysql_row_opt_i64(row, offset + 1),
+        row_format: mysql_row_opt_string(row, offset + 3),
+        engine: mysql_row_opt_string(row, offset + 2),
+        create_time: mysql_row_timestamp(row, offset + 4),
+        update_time: mysql_row_timestamp(row, offset + 5),
+        comment: normalize_table_comment(&mysql_row_string(row, offset + 6)),
+        collation: mysql_row_opt_string(row, offset + 7),
+    }
+}
+
+async fn mysql_list_table_details(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    let pool = mysql_pool(connection).await?;
+    let rows = sqlx::query(
+        "SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH, ENGINE, ROW_FORMAT, CREATE_TIME, UPDATE_TIME, \
+         TABLE_COMMENT, TABLE_COLLATION \
+         FROM information_schema.TABLES \
+         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' \
+         ORDER BY TABLE_NAME",
+    )
+    .bind(db_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("查询表信息失败: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| DbNamedTableDetails {
+            name: mysql_row_string(&row, 0),
+            details: mysql_details_from_info_row(&row, 1),
+        })
+        .filter(|item| !item.name.is_empty())
+        .collect())
 }
 
 async fn pg_table_details(
@@ -1656,6 +1806,60 @@ async fn pg_table_details(
         comment,
         collation,
     })
+}
+
+async fn pg_list_table_details(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    let pool = pg_pool_for_db(connection, db_name).await?;
+    // PG 库详情页的表列表对应 public schema（与浅加载一致）
+    let schema_name = "public";
+
+    let rows = sqlx::query(
+        "SELECT c.relname, c.reltuples::bigint, pg_relation_size(c.oid)::bigint, \
+         obj_description(c.oid, 'pg_class'), \
+         (SELECT datcollate FROM pg_database WHERE datname = current_database()) \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') \
+         ORDER BY c.relname",
+    )
+    .bind(&schema_name)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("查询表信息失败: {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let name = row.try_get::<String, _>(0).ok()?;
+            if name.trim().is_empty() {
+                return None;
+            }
+            let row_count = row.try_get::<i64, _>(1).ok().filter(|v| *v >= 0);
+            let data_length = row.try_get::<i64, _>(2).ok().filter(|v| *v >= 0);
+            let comment: Option<String> = row
+                .try_get::<Option<String>, _>(3)
+                .ok()
+                .flatten()
+                .and_then(|c| normalize_table_comment(&c));
+            let collation: Option<String> = row.try_get::<Option<String>, _>(4).ok().flatten();
+            Some(DbNamedTableDetails {
+                name,
+                details: DbTableDetails {
+                    row_count,
+                    data_length,
+                    row_format: None,
+                    engine: Some("Heap".to_string()),
+                    create_time: None,
+                    update_time: None,
+                    comment,
+                    collation,
+                },
+            })
+        })
+        .collect())
 }
 
 async fn sqlite_table_details(
@@ -1719,6 +1923,65 @@ fn sqlite_table_details_inner(
         comment: None,
         collation: None,
     })
+}
+
+async fn sqlite_list_table_details(
+    connection: &DbConnectionConfig,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    let conn = connection.clone();
+    tokio::task::spawn_blocking(move || {
+        let path = conn.database.trim();
+        if path.is_empty() {
+            return Err("SQLite database path is empty".into());
+        }
+        let sqlite =
+            rusqlite::Connection::open(path).map_err(|e| format!("SQLite open failed: {e}"))?;
+        let mut stmt = sqlite
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            )
+            .map_err(|e| format!("SQLite list tables failed: {e}"))?;
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("SQLite list tables failed: {e}"))?
+            .filter_map(|item| item.ok())
+            .collect();
+
+        let page_count: i64 = sqlite
+            .query_row("PRAGMA page_count", [], |row| row.get(0))
+            .unwrap_or(0);
+        let page_size: i64 = sqlite
+            .query_row("PRAGMA page_size", [], |row| row.get(0))
+            .unwrap_or(0);
+        let data_length = Some(page_count.saturating_mul(page_size));
+
+        let mut out = Vec::with_capacity(names.len());
+        for table_name in names {
+            let row_count: i64 = sqlite
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {}", sqlite_quote_ident(&table_name)),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            out.push(DbNamedTableDetails {
+                name: table_name,
+                details: DbTableDetails {
+                    row_count: Some(row_count),
+                    data_length,
+                    row_format: None,
+                    engine: Some("SQLite".to_string()),
+                    create_time: None,
+                    update_time: None,
+                    comment: None,
+                    collation: None,
+                },
+            });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("SQLite task failed: {e}"))?
 }
 
 /// MySQL / MariaDB: `SHOW CREATE TABLE` 直接返回原始建表语句。
@@ -2347,6 +2610,84 @@ pub async fn db_redis_search_keys(
     .map_err(err_msg)
 }
 
+/// Redis `DBSIZE`：当前逻辑库 key 总数。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_dbsize(connection: DbConnectionConfig) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 DBSIZE".to_string());
+    }
+    omnipanel_db::redis_dbsize(&to_params(&connection))
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis 单个 key 详情。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_key_detail(
+    connection: DbConnectionConfig,
+    key: String,
+) -> Result<RedisKeyDetail, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 key 详情".to_string());
+    }
+    omnipanel_db::redis_key_detail(&to_params(&connection), &key)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis 新建 string key。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_set_key(
+    connection: DbConnectionConfig,
+    key: String,
+    value: String,
+    key_type: Option<String>,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持新建 key".to_string());
+    }
+    omnipanel_db::redis_set_key(
+        &to_params(&connection),
+        &key,
+        &value,
+        key_type.as_deref().unwrap_or("string"),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis 删除 key。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_delete_key(connection: DbConnectionConfig, key: String) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持删除 key".to_string());
+    }
+    omnipanel_db::redis_delete_key(&to_params(&connection), &key)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis 慢日志。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_slowlog(
+    connection: DbConnectionConfig,
+    count: Option<u32>,
+) -> Result<Vec<RedisSlowLogEntry>, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持慢日志".to_string());
+    }
+    omnipanel_db::redis_slowlog(&to_params(&connection), count.unwrap_or(64) as usize)
+        .await
+        .map_err(err_msg)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaCacheDatabasePayload {
@@ -2361,6 +2702,10 @@ pub struct SchemaCacheDatabasePayload {
     /// 连接浅刷新为 false；库对象名列表已拉取为 true（列/索引仍可按表懒加载）。
     #[serde(default)]
     pub objects_loaded: bool,
+    /// Redis：`INFO keyspace` 的 keys 数；其它引擎忽略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<f64>)]
+    pub key_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -2477,6 +2822,7 @@ async fn list_database_objects_shallow(
                 routines,
                 load_error: None,
                 objects_loaded: true,
+                key_count: None,
             })
         }
         "postgresql" | "postgres" => {
@@ -2518,6 +2864,7 @@ async fn list_database_objects_shallow(
                 routines,
                 load_error: None,
                 objects_loaded: true,
+                key_count: None,
             })
         }
         "sqlite" | "sqlite3" => {
@@ -2538,6 +2885,7 @@ async fn list_database_objects_shallow(
                 routines: Vec::new(),
                 load_error: None,
                 objects_loaded: true,
+                key_count: None,
             })
         }
         "mongodb" | "mongo" => {
@@ -2558,6 +2906,7 @@ async fn list_database_objects_shallow(
                 routines: Vec::new(),
                 load_error: None,
                 objects_loaded: true,
+                key_count: None,
             })
         }
         other => Err(format!("Unsupported database type for shallow list: {other}")),
@@ -2575,6 +2924,31 @@ async fn refresh_database_payload(
 async fn refresh_connection_payload(
     connection: &DbConnectionConfig,
 ) -> Result<SchemaConnectionRefreshPayload, String> {
+    if connection.db_type.to_lowercase() == "redis" {
+        let infos = omnipanel_db::redis_list_databases_with_key_counts(
+            &to_params(connection),
+            &connection.database,
+        )
+        .await
+        .map_err(err_msg)?;
+        let databases = infos
+            .into_iter()
+            .map(|info| SchemaCacheDatabasePayload {
+                name: info.name,
+                tables: Vec::new(),
+                views: Vec::new(),
+                routines: Vec::new(),
+                load_error: None,
+                objects_loaded: true,
+                key_count: Some(info.key_count as i64),
+            })
+            .collect();
+        return Ok(SchemaConnectionRefreshPayload {
+            databases,
+            users: Vec::new(),
+        });
+    }
+
     let db_names = db_list_databases(connection.clone()).await?;
     let databases = db_names
         .into_iter()
@@ -2585,6 +2959,7 @@ async fn refresh_connection_payload(
             routines: Vec::new(),
             load_error: None,
             objects_loaded: false,
+            key_count: None,
         })
         .collect();
     let users = db_list_connection_users(connection.clone())
@@ -2649,6 +3024,7 @@ fn connection_payload_to_cache(
                     .collect(),
                 load_error: db.load_error,
                 objects_loaded: db.objects_loaded,
+                key_count: db.key_count,
             })
             .collect(),
         users: payload

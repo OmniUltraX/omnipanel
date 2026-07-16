@@ -337,9 +337,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const canDesignTable = Boolean(previewConnection && supportsTableDesign(previewConnection));
 
-  const showPreviewGrid = Boolean(
-    preview?.data && canRefresh && !preview.loading && !preview.error,
-  );
+  // 翻页/刷新时 loading=true 但仍保留旧 data：必须继续挂载网格，
+  // 否则会整页卸成 null（全白），回来再挂载等于 remount。
+  const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
   const previewToolbar = useMemo(() => {
     if (!showPreviewGrid || !preview) return null;
@@ -526,7 +526,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             />
           </DockPanel>
         </DockLayout>
-      ) : null}
+      ) : (
+        <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
+          {t("common.loading")}
+        </div>
+      )}
     </div>
   );
 });

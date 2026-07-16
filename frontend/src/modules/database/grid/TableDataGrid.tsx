@@ -271,6 +271,13 @@ export const TableDataGrid = memo(function TableDataGrid({
   const [clipboardFormat, setClipboardFormat] = useState<DelimitedTextFormat>("csv");
   const clipboardFormatRef = useRef<DelimitedTextFormat>("csv");
   clipboardFormatRef.current = clipboardFormat;
+  /** 行号列读 ref，避免翻页时重建全部 columnDefs → tanstack 大更新 */
+  const pageRef = useRef(page);
+  const pageSizeRef = useRef(pageSize);
+  pageRef.current = page;
+  pageSizeRef.current = pageSize;
+  /** 已有数据时的翻页：轻量态，避免整表 loading 闪烁 */
+  const isPaging = loading && rows.length > 0;
   const resolvedInfoPanelId = statusBarInfoPanelId ?? statusBarActionPanelId;
   const effectiveColumns = useMemo(() => {
     if (columns.length > 0) {
@@ -431,7 +438,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (target instanceof Element) {
         if (
           target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow, .db-cell-editor-panel, .db-table-preview-split .dock-panel-bottom, .db-table-preview-split .dock-handle",
+            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow, .db-cell-editor-panel, .db-table-preview-split .dock-panel-bottom, .db-table-preview-split .dock-handle, .redis-key-detail-split .dock-panel-bottom, .redis-key-detail-split .dock-handle",
           )
         ) {
           return;
@@ -997,6 +1004,12 @@ export const TableDataGrid = memo(function TableDataGrid({
         return;
       }
 
+      // 底栏折叠且无法内联编辑时（如 Redis 只读预览）：展开并聚焦底栏
+      if (onCellEditorCollapsedChange && onCellEditorFocusRequest) {
+        onCellEditorFocusRequest();
+        return;
+      }
+
       if (onActiveCellChange) return;
 
       if (!onCellEdit) return;
@@ -1010,6 +1023,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       onCellCommit,
       onCellEdit,
       onActiveCellChange,
+      onCellEditorCollapsedChange,
       onCellEditorFocusRequest,
       usePanelCellEditor,
       useGridInlineCellEditor,
@@ -1045,7 +1059,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             if (transposed && !Number.isNaN(rowHeaderIndex)) {
               return (
                 <span className="db-row-num-header">
-                  {page * pageSize + rowHeaderIndex + 1}
+                  {pageRef.current * pageSizeRef.current + rowHeaderIndex + 1}
                 </span>
               );
             }
@@ -1079,7 +1093,9 @@ export const TableDataGrid = memo(function TableDataGrid({
             const isRowNumCol = column.id === ROW_NUM_COL_ID;
             if (isRowNumCol) {
               return (
-                <span className="db-row-num-cell">{page * pageSize + row.index + 1}</span>
+                <span className="db-row-num-cell">
+                  {pageRef.current * pageSizeRef.current + row.index + 1}
+                </span>
               );
             }
             const colMetaForCell = transposed
@@ -1118,7 +1134,9 @@ export const TableDataGrid = memo(function TableDataGrid({
           accessorFn: () => undefined,
           header: () => <span className="db-row-num-header">#</span>,
           cell: ({ row: r }) => (
-            <span className="db-row-num-cell">{page * pageSize + r.index + 1}</span>
+            <span className="db-row-num-cell">
+              {pageRef.current * pageSizeRef.current + r.index + 1}
+            </span>
           ),
           minSize: 28,
           size: 36,
@@ -1128,7 +1146,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return defs;
     },
-    [displayColumns, transposed, columnMetaMap, columnRelations, relationTables, t, page, pageSize, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
+    [displayColumns, transposed, columnMetaMap, columnRelations, relationTables, t, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
   );
 
   const table = useReactTable({
@@ -2006,7 +2024,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
+      className={`db-data-table-wrap${useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}${isPaging ? " db-data-table-wrap--paging" : ""}`}
     >
       <table
         className="db-data-table"
@@ -2352,12 +2370,13 @@ export const TableDataGrid = memo(function TableDataGrid({
             </svg>
           </Button>
         )}
-        {loading ? (
+        {loading && !isPaging ? (
           <span>{t("common.loading")}</span>
         ) : totalRows > 0 ? (
-          <span>
+          <span className={isPaging ? "db-pagination-info--paging" : undefined}>
             {showingFrom.toLocaleString()}–{showingTo.toLocaleString()} of{" "}
             {totalRows.toLocaleString()} rows
+            {isPaging ? ` · ${t("common.loading")}` : ""}
           </span>
         ) : (
           <span>0 rows</span>

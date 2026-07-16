@@ -9,17 +9,23 @@ use omnipanel_error::{OmniError, OmniResult};
 use serde::Serialize;
 use serde_json::Value;
 
+mod blob_value;
 mod mongodb;
 mod mysql;
 mod postgres;
 mod redis;
 mod sqlite;
 
+pub use blob_value::encode_blob_value;
+
 pub use mongodb::MongoDriver;
 
 pub use mysql::mysql_connect_options;
 pub use postgres::postgres_connect_options;
-pub use redis::{RedisDriver, RedisKeyEntry, RedisSearchKeysResult};
+pub use redis::{
+    RedisDatabaseInfo, RedisDriver, RedisKeyDetail, RedisKeyEntry, RedisSearchKeysResult,
+    RedisSlowLogEntry,
+};
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
@@ -171,6 +177,61 @@ pub async fn redis_search_keys(
     driver
         .search_keys(pattern, types, limit, cursor, include_value_preview)
         .await
+}
+
+/// Redis 逻辑库名列表。
+pub async fn redis_list_databases(
+    params: &DbParams,
+    preset_database: &str,
+) -> OmniResult<Vec<String>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.list_databases(preset_database).await
+}
+
+/// Redis 逻辑库 + key 条数。
+pub async fn redis_list_databases_with_key_counts(
+    params: &DbParams,
+    preset_database: &str,
+) -> OmniResult<Vec<RedisDatabaseInfo>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .list_databases_with_key_counts(preset_database)
+        .await
+}
+
+/// Redis `DBSIZE`。
+pub async fn redis_dbsize(params: &DbParams) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.dbsize().await
+}
+
+/// Redis key 详情。
+pub async fn redis_key_detail(params: &DbParams, key: &str) -> OmniResult<RedisKeyDetail> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.key_detail(key).await
+}
+
+/// Redis 新建 string key。
+pub async fn redis_set_key(
+    params: &DbParams,
+    key: &str,
+    value: &str,
+    key_type: &str,
+) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.set_key(key, value, key_type).await
+}
+
+/// Redis 删除 key。
+pub async fn redis_delete_key(params: &DbParams, key: &str) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.delete_key(key).await
+}
+
+/// Redis 慢日志。
+pub async fn redis_slowlog(params: &DbParams, count: usize) -> OmniResult<Vec<RedisSlowLogEntry>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.slowlog(count).await
 }
 
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。

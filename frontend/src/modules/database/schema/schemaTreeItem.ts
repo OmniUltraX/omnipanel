@@ -37,8 +37,8 @@ export function buildConnectionTreeItem(
   return { type: "connection", id: `conn:${connId}`, label, connId, dbType };
 }
 
-export function buildDatabaseTreeItem(connId: string, dbName: string): SchemaTreeItem {
-  return { type: "database", id: `db:${connId}:${dbName}`, label: dbName, connId, dbName };
+export function buildDatabaseTreeItem(connId: string, dbName: string, label?: string): SchemaTreeItem {
+  return { type: "database", id: `db:${connId}:${dbName}`, label: label ?? dbName, connId, dbName };
 }
 
 export function buildTableTreeItem(connId: string, dbName: string, tableName: string): SchemaTreeItem {

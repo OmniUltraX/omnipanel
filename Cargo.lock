@@ -4218,6 +4218,7 @@ name = "omnipanel-db"
 version = "0.0.5"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "mongodb",
  "omnipanel-error",
  "redis",

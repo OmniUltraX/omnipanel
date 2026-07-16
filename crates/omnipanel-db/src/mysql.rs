@@ -6,7 +6,9 @@ use sqlx::types::Json;
 use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
+use crate::{
+    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, split_statements,
+};
 
 pub struct MySqlDriver {
     pool: MySqlPool,
@@ -34,6 +36,7 @@ pub fn mysql_connect_options(params: &DbParams) -> MySqlConnectOptions {
         .port(port)
         .username(&params.user)
         .password(&params.password)
+        .charset("utf8mb4")
         .ssl_mode(ssl_mode);
 
     if !params.database.trim().is_empty() {
@@ -214,8 +217,16 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     {
         return serde_json::json!(v);
     }
-    if type_name.contains("blob") || type_name.contains("binary") {
-        return Value::String("[BLOB]".to_string());
+    // 仅真正的 BLOB 类型走二进制编码。不可用 contains("binary")：会误伤 VARBINARY，
+    // 以及 Activiti 等历史表里的 VARCHAR BINARY（线上常以 VARBINARY 上报）。
+    if is_mysql_blob_type(&type_name) {
+        return row
+            .try_get::<Vec<u8>, _>(index)
+            .map(|bytes| encode_blob_value(&bytes))
+            .unwrap_or_else(|_| Value::String("[BLOB]".to_string()));
+    }
+    if is_mysql_binary_type(&type_name) {
+        return decode_binary_or_text_column(row, index);
     }
     // sqlx 0.8+：MySQL JSON 列无法直接 decode 为 String，需 Json<Value> 或字节再解析。
     if type_name.contains("json") {
@@ -253,6 +264,40 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
             })
             .unwrap_or(Value::Null),
     }
+}
+
+fn is_mysql_blob_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "blob" | "tinyblob" | "mediumblob" | "longblob"
+    )
+}
+
+fn is_mysql_binary_type(type_name: &str) -> bool {
+    matches!(type_name, "binary" | "varbinary")
+}
+
+/// BINARY / VARBINARY：可 UTF-8 解码的按文本展示，否则按 BLOB 结构化编码。
+fn decode_binary_or_text_column(row: &MySqlRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<String, _>(index) {
+        return Value::String(v);
+    }
+    match row.try_get::<Vec<u8>, _>(index) {
+        Ok(bytes) if looks_like_utf8_text(&bytes) => decode_bytes_as_json_or_text(bytes),
+        Ok(bytes) => encode_blob_value(&bytes),
+        Err(_) => Value::String("[BLOB]".to_string()),
+    }
+}
+
+fn looks_like_utf8_text(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return true;
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    text.chars()
+        .all(|c| !c.is_control() || matches!(c, '\n' | '\r' | '\t'))
 }
 
 /// information_schema 等系统表在部分 MySQL/MariaDB 上会以 VARBINARY 返回标识符列。

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -9,10 +15,7 @@ import {
   FormField,
 } from "../../../components/ui/form/FormDialog";
 import { TextInput, PasswordInput, Select } from "../../../components/ui/form";
-import {
-  DbTablesPanelGrid,
-  type DbTablesPanelGridColumn,
-} from "./DbTablesPanelGrid";
+import { IconSearch, IconShield, IconUser } from "../../../components/ui/icons/Icons";
 import { makeQueryRunId } from "../sql/queryRun";
 import {
   listConnectionUsers,
@@ -20,23 +23,25 @@ import {
   type DbConnectionConfig,
   type DbUserMeta,
 } from "../api";
-import { buildDropUserSql } from "../schema/schemaTreeDropSql";
 import type { QueryResult } from "./dbWorkspaceState";
-
-/* ---------- SQL helpers ---------- */
-
-function quoteUserPart(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function quoteId(name: string): string {
-  return `\`${name.replace(/`/g, "``")}\``;
-}
-
-function formatUserHost(name: string, host?: string | null): string {
-  const h = (host ?? "%").trim() || "%";
-  return `${quoteUserPart(name)}@${quoteUserPart(h)}`;
-}
+import {
+  GrantsSummaryView,
+  buildChangePasswordSql,
+  buildCreateUserSql,
+  buildDropUserSqlForEngine,
+  buildGrantSql,
+  buildRevokeSql,
+  buildSetLoginEnabledSql,
+  defaultScopeKind,
+  loadGrantSummary,
+  privilegeChipsFor,
+  resolveUserEngine,
+  scopeOptionsForEngine,
+  userDisplayLabel,
+  type GrantScopeKind,
+  type GrantSummaryLine,
+  type UserEngine,
+} from "../users";
 
 async function executeSql(
   connection: DbConnectionConfig,
@@ -49,68 +54,63 @@ async function executeSql(
   });
 }
 
-/* ---------- Grant parsing ---------- */
-
-interface ParsedGrant {
-  privilege: string;
-  scope: string;
+function userKey(u: DbUserMeta): string {
+  return u.host ? `${u.name}@${u.host}` : u.name;
 }
 
-/** Parse a `GRANT ... ON ... TO ...` string into privilege + scope. */
-function parseGrantString(grant: string): ParsedGrant | null {
-  const m = grant.match(/^GRANT\s+(.+?)\s+ON\s+(.+?)\s+TO\s+/i);
-  if (!m) return null;
-  return { privilege: m[1].trim(), scope: m[2].trim() };
+function userBadges(u: DbUserMeta): string[] {
+  const badges: string[] = [];
+  if (u.isRole) badges.push("ROLE");
+  if (u.canLogin) badges.push("LOGIN");
+  if (u.isSuperuser) badges.push("SUPERUSER");
+  if (u.canCreateDb) badges.push("CREATEDB");
+  if (u.accountLocked) badges.push("LOCKED");
+  return badges;
 }
-
-/* ---------- Privilege options ---------- */
-
-const PRIVILEGE_OPTIONS = [
-  "ALL PRIVILEGES",
-  "SELECT",
-  "INSERT",
-  "UPDATE",
-  "DELETE",
-  "CREATE",
-  "DROP",
-  "ALTER",
-  "INDEX",
-  "REFERENCES",
-  "GRANT OPTION",
-  "RELOAD",
-  "PROCESS",
-  "REPLICATION CLIENT",
-  "REPLICATION SLAVE",
-  "SHOW DATABASES",
-  "SHUTDOWN",
-  "SUPER",
-  "USAGE",
-];
-
-/* ---------- Component ---------- */
 
 interface ConnectionUsersTabPanelProps {
   connection: DbConnectionConfig;
   active: boolean;
-  search: string;
-  /** 暴露操作按钮给外部（底部 meta 栏），避免顶部工具栏挤占列表空间 */
+  /** 父级搜索（连接信息顶栏）；工作台内另有独立搜索，二者任一命中即可 */
+  search?: string;
+  /** 父级点刷新时递增，触发重新拉取用户列表 */
+  refreshNonce?: number;
   onActionsReady?: (actions: ReactNode | null) => void;
 }
 
 export function ConnectionUsersTabPanel({
   connection,
   active,
-  search,
+  search: externalSearch = "",
+  refreshNonce = 0,
   onActionsReady,
 }: ConnectionUsersTabPanelProps) {
   const { t } = useI18n();
+  const engine = resolveUserEngine(connection.db_type);
+
   const [users, setUsers] = useState<DbUserMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listSearch, setListSearch] = useState("");
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [passwordTarget, setPasswordTarget] = useState<DbUserMeta | null>(null);
-  const [grantsTarget, setGrantsTarget] = useState<DbUserMeta | null>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+
+  const [grantLines, setGrantLines] = useState<GrantSummaryLine[]>([]);
+  const [grantsLoading, setGrantsLoading] = useState(false);
+  const [grantsError, setGrantsError] = useState<string | null>(null);
+
+  // 右栏编辑表单
+  const [scopeKind, setScopeKind] = useState<GrantScopeKind>("database");
+  const [selectedPrivs, setSelectedPrivs] = useState<string[]>(["CONNECT"]);
+  const [dbName, setDbName] = useState("");
+  const [schemaName, setSchemaName] = useState("public");
+  const [tableName, setTableName] = useState("");
+  const [withGrantOption, setWithGrantOption] = useState(false);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const [editorStatus, setEditorStatus] = useState<string | null>(null);
 
   const refreshUsers = useCallback(async () => {
     setLoading(true);
@@ -118,6 +118,10 @@ export function ConnectionUsersTabPanel({
     try {
       const result = await listConnectionUsers(connection);
       setUsers(result);
+      setSelectedKey((prev) => {
+        if (prev && result.some((u) => userKey(u) === prev)) return prev;
+        return result[0] ? userKey(result[0]) : null;
+      });
     } catch (e) {
       setError(typeof e === "string" ? e : JSON.stringify(e));
     } finally {
@@ -130,20 +134,124 @@ export function ConnectionUsersTabPanel({
     void refreshUsers();
   }, [active, refreshUsers]);
 
-  /* ----- Actions ----- */
+  useEffect(() => {
+    if (!active || refreshNonce <= 0) return;
+    void refreshUsers();
+  }, [active, refreshNonce, refreshUsers]);
+
+  useEffect(() => {
+    if (!active || !engine) return;
+    void listDatabases(connection)
+      .then((dbs) => {
+        setDatabases(dbs);
+        setDbName((prev) => prev || dbs[0] || connection.database || "");
+      })
+      .catch(() => setDatabases([]));
+  }, [active, connection, engine]);
+
+  useEffect(() => {
+    if (!engine) return;
+    setScopeKind(defaultScopeKind(engine));
+    setSelectedPrivs(
+      engine === "postgres" ? ["CONNECT"] : ["SELECT"],
+    );
+    setWithGrantOption(false);
+    setEditorStatus(null);
+  }, [engine, selectedKey]);
+
+  const selectedUser = useMemo(
+    () => users.find((u) => userKey(u) === selectedKey) ?? null,
+    [users, selectedKey],
+  );
+
+  const refreshGrants = useCallback(async () => {
+    if (!selectedUser || !engine) {
+      setGrantLines([]);
+      return;
+    }
+    setGrantsLoading(true);
+    setGrantsError(null);
+    try {
+      const { lines } = await loadGrantSummary(connection, selectedUser);
+      setGrantLines(lines);
+    } catch (e) {
+      setGrantsError(typeof e === "string" ? e : JSON.stringify(e));
+      setGrantLines([]);
+    } finally {
+      setGrantsLoading(false);
+    }
+  }, [connection, engine, selectedUser]);
+
+  useEffect(() => {
+    if (!active || !selectedUser) return;
+    void refreshGrants();
+  }, [active, selectedUser, refreshGrants]);
+
+  const filteredUsers = useMemo(() => {
+    const q = (listSearch || externalSearch).trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        (u.host ?? "").toLowerCase().includes(q) ||
+        userBadges(u).some((b) => b.toLowerCase().includes(q)),
+    );
+  }, [users, listSearch, externalSearch]);
+
+  const scopeOptions = useMemo(
+    () => (engine ? scopeOptionsForEngine(engine) : []),
+    [engine],
+  );
+
+  const privilegeChips = useMemo(
+    () => (engine ? privilegeChipsFor(engine, scopeKind) : []),
+    [engine, scopeKind],
+  );
+
+  useEffect(() => {
+    const allowed = new Set(privilegeChips.map((c) => c.id));
+    setSelectedPrivs((prev) => {
+      const next = prev.filter((p) => allowed.has(p));
+      if (next.length > 0) return next;
+      return privilegeChips[0] ? [privilegeChips[0].id] : [];
+    });
+  }, [privilegeChips]);
+
+  const previewSql = useMemo(() => {
+    if (!engine || !selectedUser) return "";
+    return (
+      buildGrantSql(engine, {
+        name: selectedUser.name,
+        host: selectedUser.host,
+        privileges: selectedPrivs,
+        scopeKind,
+        database: dbName,
+        schema: schemaName,
+        table: tableName,
+        withGrantOption,
+      }) ?? ""
+    );
+  }, [
+    engine,
+    selectedUser,
+    selectedPrivs,
+    scopeKind,
+    dbName,
+    schemaName,
+    tableName,
+    withGrantOption,
+  ]);
 
   const handleDrop = useCallback(
     async (user: DbUserMeta) => {
-      const label = user.host
-        ? `${user.name}@${user.host}`
-        : user.name;
+      const label = userDisplayLabel(user.name, user.host);
       const confirmed = await appConfirm(
         t("database.connectionInfo.users.dropConfirm", { user: label }),
         t("database.connectionInfo.users.dropTitle"),
         { confirmLabel: t("database.connectionInfo.users.drop") },
       );
       if (!confirmed) return;
-      const sql = buildDropUserSql(connection.db_type, user.name, user.host);
+      const sql = buildDropUserSqlForEngine(connection.db_type, user.name, user.host);
       if (!sql) return;
       try {
         await executeSql(connection, sql);
@@ -160,127 +268,112 @@ export function ConnectionUsersTabPanel({
 
   const handleCreate = useCallback(
     async (name: string, host: string, password: string) => {
-      const sql = `CREATE USER ${formatUserHost(name, host)} IDENTIFIED BY ${quoteUserPart(password)};`;
+      const sql = buildCreateUserSql(connection.db_type, name, password, host);
+      if (!sql) throw new Error(t("database.connectionInfo.users.unsupportedEngine"));
       await executeSql(connection, sql);
       await refreshUsers();
     },
-    [connection, refreshUsers],
+    [connection, refreshUsers, t],
   );
 
   const handleChangePassword = useCallback(
     async (user: DbUserMeta, newPassword: string) => {
-      const sql = `ALTER USER ${formatUserHost(user.name, user.host)} IDENTIFIED BY ${quoteUserPart(newPassword)};`;
+      const sql = buildChangePasswordSql(
+        connection.db_type,
+        user.name,
+        newPassword,
+        user.host,
+      );
+      if (!sql) throw new Error(t("database.connectionInfo.users.unsupportedEngine"));
       await executeSql(connection, sql);
     },
-    [connection],
+    [connection, t],
   );
 
-  const handleGrant = useCallback(
-    async (user: DbUserMeta, privilege: string, scope: string) => {
-      const sql = `GRANT ${privilege} ON ${scope} TO ${formatUserHost(user.name, user.host)};`;
-      await executeSql(connection, sql);
+  const handleToggleLogin = useCallback(
+    async (user: DbUserMeta, enabled: boolean) => {
+      const sql = buildSetLoginEnabledSql(
+        connection.db_type,
+        user.name,
+        enabled,
+        user.host,
+      );
+      if (!sql) return;
+      try {
+        await executeSql(connection, sql);
+        await refreshUsers();
+        await refreshGrants();
+      } catch (e) {
+        void appAlert(
+          typeof e === "string" ? e : JSON.stringify(e),
+          t("database.connectionInfo.users.loginToggleFailed"),
+        );
+      }
     },
-    [connection],
+    [connection, refreshGrants, refreshUsers, t],
   );
 
-  const handleRevoke = useCallback(
-    async (user: DbUserMeta, privilege: string, scope: string) => {
-      const sql = `REVOKE ${privilege} ON ${scope} FROM ${formatUserHost(user.name, user.host)};`;
-      await executeSql(connection, sql);
+  const handleGrant = useCallback(async () => {
+    if (!previewSql || !selectedUser) return;
+    setEditorBusy(true);
+    setEditorStatus(null);
+    try {
+      await executeSql(connection, previewSql);
+      setEditorStatus(t("database.connectionInfo.users.grantSuccess"));
+      await refreshGrants();
+      await refreshUsers();
+    } catch (e) {
+      setEditorStatus(typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      setEditorBusy(false);
+    }
+  }, [connection, previewSql, refreshGrants, refreshUsers, selectedUser, t]);
+
+  const handleRevokeLine = useCallback(
+    async (line: GrantSummaryLine) => {
+      if (!engine || !selectedUser || !line.revokePrivileges || !line.revokeScope) {
+        return;
+      }
+      const confirmed = await appConfirm(
+        t("database.connectionInfo.users.revokeConfirm", {
+          priv: line.revokePrivileges,
+          scope: line.revokeScope,
+        }),
+        t("database.connectionInfo.users.revokeTitle"),
+        { confirmLabel: t("database.connectionInfo.users.revoke") },
+      );
+      if (!confirmed) return;
+      const sql = buildRevokeSql(engine, {
+        name: selectedUser.name,
+        host: selectedUser.host,
+        privileges: line.revokePrivileges,
+        scopeSql: line.revokeScope,
+      });
+      if (!sql) return;
+      try {
+        await executeSql(connection, sql);
+        await refreshGrants();
+      } catch (e) {
+        void appAlert(
+          typeof e === "string" ? e : JSON.stringify(e),
+          t("database.connectionInfo.users.revokeTitle"),
+        );
+      }
     },
-    [connection],
+    [connection, engine, refreshGrants, selectedUser, t],
   );
 
-  /* ----- Filtered users ----- */
-
-  const filteredUsers = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        (u.host ?? "").toLowerCase().includes(q),
+  const togglePriv = (id: string) => {
+    setSelectedPrivs((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
     );
-  }, [users, search]);
+  };
 
-  /* ----- Grid columns ----- */
-
-  const columns = useMemo<DbTablesPanelGridColumn<DbUserMeta>[]>(
-    () => [
-      {
-        id: "name",
-        header: t("database.connectionInfo.users.colName"),
-        sortable: true,
-        sortId: "name",
-        nameCell: true,
-        render: (u) => u.name,
-        getTitle: (u) => u.name,
-        getCopyValue: (u) => u.name,
-      },
-      {
-        id: "host",
-        header: t("database.connectionInfo.users.colHost"),
-        sortable: true,
-        sortId: "host",
-        render: (u) => u.host ?? "%",
-        getTitle: (u) => u.host ?? "%",
-        getCopyValue: (u) => u.host ?? "%",
-      },
-      {
-        id: "__actions",
-        variant: "actionsSticky" as const,
-        header: t("database.connectionInfo.users.colActions"),
-        headerAriaLabel: t("database.connectionInfo.users.colActions"),
-        render: (u) => (
-          <div className="db-user-actions">
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                setPasswordTarget(u);
-              }}
-            >
-              {t("database.connectionInfo.users.changePassword")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                setGrantsTarget(u);
-              }}
-            >
-              {t("database.connectionInfo.users.privileges")}
-            </Button>
-            <Button
-              variant="danger"
-              size="xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleDrop(u);
-              }}
-            >
-              {t("database.connectionInfo.users.drop")}
-            </Button>
-          </div>
-        ),
-      },
-    ],
-    [handleDrop, t],
-  );
-
-  /* ----- 通过回调暴露「添加用户」按钮给外部底部 meta 栏 ----- */
-  // 必须在所有 early return 之前调用，避免 hooks 顺序不一致
   useEffect(() => {
     if (!onActionsReady) return;
     if (active) {
       onActionsReady(
-        <Button
-          variant="default"
-          size="xs"
-          onClick={() => setCreateOpen(true)}
-        >
+        <Button variant="default" size="xs" onClick={() => setCreateOpen(true)}>
           {t("database.connectionInfo.users.create")}
         </Button>,
       );
@@ -290,94 +383,313 @@ export function ConnectionUsersTabPanel({
     return () => onActionsReady(null);
   }, [active, onActionsReady, t]);
 
-  /* ----- Render ----- */
+  if (!engine) {
+    return (
+      <div className="db-tables-panel-empty">
+        {t("database.connectionInfo.users.unsupportedEngine")}
+      </div>
+    );
+  }
 
   if (loading && users.length === 0) {
     return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
   }
+
   if (error) {
     return <div className="db-tables-panel-error">{error}</div>;
   }
-  if (users.length === 0) {
-    return (
-      <div className="db-tables-panel-empty">
-        {t("database.connectionInfo.users.empty")}
-      </div>
-    );
-  }
-  if (filteredUsers.length === 0) {
-    return (
-      <div className="db-tables-panel-empty">
-        {t("database.connectionInfo.users.noResults")}
-      </div>
-    );
-  }
+
+  const loginEnabled = selectedUser
+    ? selectedUser.accountLocked
+      ? false
+      : selectedUser.canLogin !== false
+    : false;
 
   return (
-    <>
-      <DbTablesPanelGrid
-        variant="processlist"
-        columns={columns}
-        rows={filteredUsers}
-        rowKey={(u, i) => `${u.name}@${u.host ?? "%"}_${i}`}
-        columnResizeStorageKey={`db-conn-info-users-${connection.id}`}
-      />
+    <div className="db-users-workbench">
+      {/* 左：用户列表 */}
+      <aside className="db-users-workbench-left">
+        <div className="db-users-list-search">
+          <IconSearch size={14} className="db-users-list-search-icon" />
+          <input
+            className="db-users-list-search-input"
+            value={listSearch}
+            onChange={(e) => setListSearch(e.target.value)}
+            placeholder={t("database.connectionInfo.users.searchHost")}
+          />
+        </div>
+        <div className="db-users-list" role="listbox">
+          {filteredUsers.length === 0 ? (
+            <div className="db-users-list-empty">
+              {users.length === 0
+                ? t("database.connectionInfo.users.empty")
+                : t("database.connectionInfo.users.noResults")}
+            </div>
+          ) : (
+            filteredUsers.map((u) => {
+              const key = userKey(u);
+              const activeItem = key === selectedKey;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="option"
+                  aria-selected={activeItem}
+                  className={`db-users-list-item${activeItem ? " is-active" : ""}`}
+                  onClick={() => setSelectedKey(key)}
+                >
+                  <IconUser size={14} className="db-users-list-item-icon" />
+                  <div className="db-users-list-item-body">
+                    <div className="db-users-list-item-name">
+                      {u.name}
+                      {u.host ? (
+                        <span className="db-users-list-item-host">@{u.host}</span>
+                      ) : null}
+                    </div>
+                    <div className="db-users-list-item-badges">
+                      {userBadges(u).map((b) => (
+                        <span key={b} className="db-users-badge">
+                          {b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </aside>
+
+      {/* 中：摘要 + 操作 */}
+      <section className="db-users-workbench-center">
+        {selectedUser ? (
+          <>
+            <header className="db-users-center-header">
+              <div className="db-users-center-title">
+                <span className="db-users-center-name">{selectedUser.name}</span>
+                {selectedUser.isRole || !selectedUser.canLogin ? (
+                  <span className="db-users-badge">ROLE</span>
+                ) : (
+                  <span className="db-users-badge">USER</span>
+                )}
+                {selectedUser.host ? (
+                  <span className="db-users-center-host">@{selectedUser.host}</span>
+                ) : null}
+              </div>
+              <div className="db-users-center-actions">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setPasswordOpen(true)}
+                >
+                  {t("database.connectionInfo.users.changePassword")}
+                </Button>
+                {loginEnabled ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => void handleToggleLogin(selectedUser, false)}
+                  >
+                    {t("database.connectionInfo.users.disableLogin")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => void handleToggleLogin(selectedUser, true)}
+                  >
+                    {t("database.connectionInfo.users.enableLogin")}
+                  </Button>
+                )}
+                <Button
+                  variant="danger"
+                  size="xs"
+                  onClick={() => void handleDrop(selectedUser)}
+                >
+                  {t("database.connectionInfo.users.drop")}
+                </Button>
+              </div>
+            </header>
+            <div className="db-users-center-section-label">
+              <IconShield size={14} />
+              {t("database.connectionInfo.users.authorization")}
+            </div>
+            <div className="db-users-center-body">
+              {grantsLoading ? (
+                <div className="db-users-grants-empty">{t("common.loading")}</div>
+              ) : grantsError ? (
+                <div className="db-tables-panel-error">{grantsError}</div>
+              ) : (
+                <GrantsSummaryView
+                  lines={grantLines}
+                  emptyText={t("database.connectionInfo.users.noGrants")}
+                  onRevoke={(line) => void handleRevokeLine(line)}
+                  revokeLabel={t("database.connectionInfo.users.revoke")}
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="db-users-center-empty">
+            {t("database.connectionInfo.users.selectUserHint")}
+          </div>
+        )}
+      </section>
+
+      {/* 右：权限编辑 */}
+      <aside className="db-users-workbench-right">
+        <h3 className="db-users-editor-title">
+          {t("database.connectionInfo.users.editorTitle")}
+        </h3>
+        <p className="db-users-editor-hint">
+          {t("database.connectionInfo.users.editorHint")}
+        </p>
+        {!selectedUser ? (
+          <div className="db-users-editor-disabled">
+            {t("database.connectionInfo.users.selectUserHint")}
+          </div>
+        ) : (
+          <div className="db-users-editor-form">
+            <label className="db-users-editor-field">
+              <span>{t("database.connectionInfo.users.scope")}</span>
+              <Select
+                value={scopeKind}
+                onChange={(v) => setScopeKind(v as GrantScopeKind)}
+                options={scopeOptions.map((o) => ({
+                  value: o.id,
+                  label: t(
+                    `database.connectionInfo.users.${o.labelKey}` as "database.connectionInfo.users.scopeDatabase",
+                  ),
+                }))}
+              />
+            </label>
+
+            {(scopeKind === "database" ||
+              scopeKind === "table" ||
+              (engine === "mysql" && scopeKind !== "global")) && (
+              <label className="db-users-editor-field">
+                <span>{t("database.connectionInfo.users.database")}</span>
+                <Select
+                  value={dbName}
+                  onChange={setDbName}
+                  options={[
+                    { value: "", label: t("database.connectionInfo.users.pickDatabase") },
+                    ...databases.map((d) => ({ value: d, label: d })),
+                  ]}
+                />
+              </label>
+            )}
+
+            {engine === "postgres" &&
+              (scopeKind === "schema" || scopeKind === "table") && (
+                <label className="db-users-editor-field">
+                  <span>{t("database.connectionInfo.users.schema")}</span>
+                  <TextInput
+                    value={schemaName}
+                    onChange={setSchemaName}
+                    placeholder="public"
+                  />
+                </label>
+              )}
+
+            {scopeKind === "table" && (
+              <label className="db-users-editor-field">
+                <span>{t("database.connectionInfo.users.table")}</span>
+                <TextInput
+                  value={tableName}
+                  onChange={setTableName}
+                  placeholder={t("database.connectionInfo.users.table")}
+                />
+              </label>
+            )}
+
+            <div className="db-users-editor-field">
+              <span>{t("database.connectionInfo.users.privilege")}</span>
+              <div className="db-users-priv-chips">
+                {privilegeChips.map((chip) => {
+                  const on = selectedPrivs.includes(chip.id);
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className={`db-users-priv-chip${on ? " is-active" : ""}`}
+                      onClick={() => togglePriv(chip.id)}
+                    >
+                      {chip.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <label className="db-users-editor-grant-opt">
+              <input
+                type="checkbox"
+                checked={withGrantOption}
+                onChange={(e) => setWithGrantOption(e.target.checked)}
+              />
+              {t("database.connectionInfo.users.withGrantOption")}
+            </label>
+
+            <div className="db-users-editor-preview">
+              <div className="db-users-editor-preview-label">
+                {t("database.connectionInfo.users.sqlPreview")}
+              </div>
+              <code className="db-users-editor-preview-sql">
+                {previewSql || t("database.connectionInfo.users.sqlPreviewEmpty")}
+              </code>
+            </div>
+
+            {editorStatus ? (
+              <div className="db-users-editor-status">{editorStatus}</div>
+            ) : null}
+
+            <Button
+              variant="default"
+              size="sm"
+              disabled={!previewSql || editorBusy}
+              onClick={() => void handleGrant()}
+            >
+              {editorBusy
+                ? t("common.saving")
+                : t("database.connectionInfo.users.grant")}
+            </Button>
+          </div>
+        )}
+      </aside>
+
       {createOpen ? (
         <CreateUserDialog
+          engine={engine}
           open={createOpen}
           onClose={() => setCreateOpen(false)}
-          onSubmit={async (name, host, password) => {
-            try {
-              await handleCreate(name, host, password);
-              setCreateOpen(false);
-            } catch (e) {
-              void appAlert(
-                typeof e === "string" ? e : JSON.stringify(e),
-                t("database.connectionInfo.users.createFailed"),
-              );
-            }
-          }}
+          onSubmit={handleCreate}
         />
       ) : null}
-      {passwordTarget ? (
+
+      {passwordOpen && selectedUser ? (
         <ChangePasswordDialog
-          user={passwordTarget}
-          open={!!passwordTarget}
-          onClose={() => setPasswordTarget(null)}
-          onSubmit={async (newPassword) => {
-            try {
-              await handleChangePassword(passwordTarget, newPassword);
-              setPasswordTarget(null);
-            } catch (e) {
-              void appAlert(
-                typeof e === "string" ? e : JSON.stringify(e),
-                t("database.connectionInfo.users.passwordChangeFailed"),
-              );
-            }
+          user={selectedUser}
+          open={passwordOpen}
+          onClose={() => setPasswordOpen(false)}
+          onSubmit={async (pwd) => {
+            await handleChangePassword(selectedUser, pwd);
+            setPasswordOpen(false);
           }}
         />
       ) : null}
-      {grantsTarget ? (
-        <GrantsDialog
-          user={grantsTarget}
-          connection={connection}
-          open={!!grantsTarget}
-          onClose={() => setGrantsTarget(null)}
-          onGrant={handleGrant}
-          onRevoke={handleRevoke}
-        />
-      ) : null}
-    </>
+    </div>
   );
 }
 
-/* ---------- Create User Dialog ---------- */
-
 function CreateUserDialog({
+  engine,
   open,
   onClose,
   onSubmit,
 }: {
+  engine: UserEngine;
   open: boolean;
   onClose: () => void;
   onSubmit: (name: string, host: string, password: string) => Promise<void>;
@@ -400,6 +712,7 @@ function CreateUserDialog({
     setStatus(null);
     try {
       await onSubmit(name.trim(), host.trim() || "%", password);
+      onClose();
     } catch (e) {
       setStatus({
         kind: "error",
@@ -421,29 +734,19 @@ function CreateUserDialog({
       cancelLabel={t("common.cancel")}
       onCancel={onClose}
       primaryAction={{
-        label: busy
-          ? t("common.saving")
-          : t("database.connectionInfo.users.create"),
+        label: busy ? t("common.saving") : t("database.connectionInfo.users.create"),
         disabled: !canSubmit,
         onClick: () => void handleSubmit(),
       }}
     >
       <FormField label={t("database.connectionInfo.users.userName")} htmlFor="cu-name">
-        <TextInput
-          id="cu-name"
-          value={name}
-          onChange={setName}
-          placeholder="root"
-        />
+        <TextInput id="cu-name" value={name} onChange={setName} autoFocus />
       </FormField>
-      <FormField label={t("database.connectionInfo.users.host")} htmlFor="cu-host">
-        <TextInput
-          id="cu-host"
-          value={host}
-          onChange={setHost}
-          placeholder="%"
-        />
-      </FormField>
+      {engine === "mysql" ? (
+        <FormField label={t("database.connectionInfo.users.host")} htmlFor="cu-host">
+          <TextInput id="cu-host" value={host} onChange={setHost} placeholder="%" />
+        </FormField>
+      ) : null}
       <FormField label={t("database.connectionInfo.users.password")} htmlFor="cu-pwd">
         <PasswordInput
           id="cu-pwd"
@@ -455,8 +758,6 @@ function CreateUserDialog({
     </FormDialog>
   );
 }
-
-/* ---------- Change Password Dialog ---------- */
 
 function ChangePasswordDialog({
   user,
@@ -500,7 +801,7 @@ function ChangePasswordDialog({
       open={open}
       onClose={onClose}
       title={t("database.connectionInfo.users.changePasswordTitle", {
-        user: user.host ? `${user.name}@${user.host}` : user.name,
+        user: userDisplayLabel(user.name, user.host),
       })}
       size="sm"
       status={status}
@@ -515,10 +816,7 @@ function ChangePasswordDialog({
         onClick: () => void handleSubmit(),
       }}
     >
-      <FormField
-        label={t("database.connectionInfo.users.newPassword")}
-        htmlFor="cp-pwd"
-      >
+      <FormField label={t("database.connectionInfo.users.newPassword")} htmlFor="cp-pwd">
         <PasswordInput
           id="cp-pwd"
           value={password}
@@ -526,270 +824,6 @@ function ChangePasswordDialog({
           placeholder="••••••••"
         />
       </FormField>
-    </FormDialog>
-  );
-}
-
-/* ---------- Grants Dialog ---------- */
-
-function GrantsDialog({
-  user,
-  connection,
-  open,
-  onClose,
-  onGrant,
-  onRevoke,
-}: {
-  user: DbUserMeta;
-  connection: DbConnectionConfig;
-  open: boolean;
-  onClose: () => void;
-  onGrant: (user: DbUserMeta, privilege: string, scope: string) => Promise<void>;
-  onRevoke: (user: DbUserMeta, privilege: string, scope: string) => Promise<void>;
-}) {
-  const { t } = useI18n();
-  const [grants, setGrants] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Grant form state
-  const [privilege, setPrivilege] = useState("SELECT");
-  const [scopeType, setScopeType] = useState<"global" | "database" | "table">(
-    "global",
-  );
-  const [dbName, setDbName] = useState("");
-  const [tableName, setTableName] = useState("");
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{
-    kind: "info" | "success" | "error";
-    message: string;
-  } | null>(null);
-
-  const userLabel = user.host ? `${user.name}@${user.host}` : user.name;
-
-  const refreshGrants = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await executeSql(
-        connection,
-        `SHOW GRANTS FOR ${formatUserHost(user.name, user.host)};`,
-      );
-      const rows = result.rows.map((row) => String(row[0] ?? ""));
-      setGrants(rows);
-    } catch (e) {
-      setError(typeof e === "string" ? e : JSON.stringify(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [connection, user.name, user.host]);
-
-  useEffect(() => {
-    if (!open) return;
-    void refreshGrants();
-  }, [open, refreshGrants]);
-
-  useEffect(() => {
-    if (scopeType !== "global") {
-      void listDatabases(connection)
-        .then(setDatabases)
-        .catch(() => setDatabases([]));
-    }
-  }, [connection, scopeType]);
-
-  const currentScope = useMemo(() => {
-    if (scopeType === "global") return "*.*";
-    if (scopeType === "database") {
-      if (!dbName) return null;
-      return `${quoteId(dbName)}.*`;
-    }
-    if (!dbName || !tableName.trim()) return null;
-    return `${quoteId(dbName)}.${quoteId(tableName.trim())}`;
-  }, [scopeType, dbName, tableName]);
-
-  const canGrant = !!currentScope && !busy;
-
-  const handleGrant = async () => {
-    if (!canGrant || !currentScope) return;
-    setBusy(true);
-    setStatus(null);
-    try {
-      await onGrant(user, privilege, currentScope);
-      setStatus({ kind: "success", message: t("database.connectionInfo.users.grantSuccess") });
-      await refreshGrants();
-    } catch (e) {
-      setStatus({
-        kind: "error",
-        message: typeof e === "string" ? e : JSON.stringify(e),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleRevoke = async (grantStr: string) => {
-    const parsed = parseGrantString(grantStr);
-    if (!parsed) return;
-    const confirmed = await appConfirm(
-      t("database.connectionInfo.users.revokeConfirm", {
-        priv: parsed.privilege,
-        scope: parsed.scope,
-      }),
-      t("database.connectionInfo.users.revokeTitle"),
-      { confirmLabel: t("database.connectionInfo.users.revoke") },
-    );
-    if (!confirmed) return;
-    setBusy(true);
-    setStatus(null);
-    try {
-      await onRevoke(user, parsed.privilege, parsed.scope);
-      setStatus({ kind: "success", message: t("database.connectionInfo.users.revokeSuccess") });
-      await refreshGrants();
-    } catch (e) {
-      setStatus({
-        kind: "error",
-        message: typeof e === "string" ? e : JSON.stringify(e),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <FormDialog
-      open={open}
-      onClose={onClose}
-      title={t("database.connectionInfo.users.privilegesTitle", { user: userLabel })}
-      size="md"
-      status={status}
-      cancelDisabled={busy}
-      cancelLabel={t("common.close")}
-      onCancel={onClose}
-    >
-      {/* Current grants */}
-      <div className="db-grants-section">
-        <div className="db-grants-section-title">
-          {t("database.connectionInfo.users.currentGrants")}
-        </div>
-        {loading ? (
-          <div className="db-tables-panel-empty">{t("common.loading")}</div>
-        ) : error ? (
-          <div className="db-tables-panel-error">{error}</div>
-        ) : grants.length === 0 ? (
-          <div className="db-tables-panel-empty">
-            {t("database.connectionInfo.users.noGrants")}
-          </div>
-        ) : (
-          <ul className="db-grants-list">
-            {grants.map((g, i) => {
-              const parsed = parseGrantString(g);
-              return (
-                <li key={i} className="db-grants-list-item">
-                  <code className="db-grants-list-code">{g}</code>
-                  {parsed ? (
-                    <Button
-                      variant="danger"
-                      size="xs"
-                      disabled={busy}
-                      onClick={() => void handleRevoke(g)}
-                    >
-                      {t("database.connectionInfo.users.revoke")}
-                    </Button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      {/* Grant form */}
-      <div className="db-grants-section">
-        <div className="db-grants-section-title">
-          {t("database.connectionInfo.users.grantNew")}
-        </div>
-        <FormField
-          label={t("database.connectionInfo.users.privilege")}
-          htmlFor="gr-priv"
-        >
-          <Select
-            value={privilege}
-            onChange={setPrivilege}
-            options={PRIVILEGE_OPTIONS}
-            size="sm"
-          />
-        </FormField>
-        <FormField
-          label={t("database.connectionInfo.users.scope")}
-          htmlFor="gr-scope"
-        >
-          <Select
-            value={scopeType}
-            onChange={(v) => setScopeType(v as typeof scopeType)}
-            options={[
-              {
-                value: "global",
-                label: t("database.connectionInfo.users.scopeGlobal"),
-              },
-              {
-                value: "database",
-                label: t("database.connectionInfo.users.scopeDatabase"),
-              },
-              {
-                value: "table",
-                label: t("database.connectionInfo.users.scopeTable"),
-              },
-            ]}
-            size="sm"
-          />
-        </FormField>
-        {scopeType !== "global" ? (
-          <FormField
-            label={t("database.connectionInfo.users.database")}
-            htmlFor="gr-db"
-          >
-            <Select
-              value={dbName}
-              onChange={setDbName}
-              options={databases}
-              searchable
-              size="sm"
-            />
-          </FormField>
-        ) : null}
-        {scopeType === "table" ? (
-          <FormField
-            label={t("database.connectionInfo.users.table")}
-            htmlFor="gr-tbl"
-          >
-            <TextInput
-              id="gr-tbl"
-              value={tableName}
-              onChange={setTableName}
-              placeholder="table_name"
-              size="sm"
-            />
-          </FormField>
-        ) : null}
-        <div className="db-grants-actions">
-          <Button
-            variant="default"
-            size="sm"
-            disabled={!canGrant}
-            onClick={() => void handleGrant()}
-          >
-            {busy
-              ? t("common.saving")
-              : t("database.connectionInfo.users.grant")}
-          </Button>
-          {currentScope ? (
-            <code className="db-grants-preview">
-              GRANT {privilege} ON {currentScope} TO {formatUserHost(user.name, user.host)}
-            </code>
-          ) : null}
-        </div>
-      </div>
     </FormDialog>
   );
 }

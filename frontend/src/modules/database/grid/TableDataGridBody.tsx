@@ -22,7 +22,7 @@ import {
 } from "./tableDataGridConstants";
 import { isRelationDisplayColumn } from "./tableColumnRelation";
 import type { ColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
-import { buildColumnCellStyle, isNearRowBottom } from "./tableDataGridLayout";
+import { buildColumnCellStyle, isInRowResizeHandle, isNearRowBottom } from "./tableDataGridLayout";
 import {
   isCellSelected,
   rowSelectionStateEqual,
@@ -389,7 +389,7 @@ export function TableDataGridBody({
       if (!resolved) {
         const tr = event.target instanceof Element ? event.target.closest("tr") : null;
         if (tr instanceof HTMLTableRowElement && tr.dataset.rowIndex != null) {
-          if (isNearRowBottom(tr, event.clientY)) {
+          if (isInRowResizeHandle(tr, event.clientX, event.clientY)) {
             event.preventDefault();
             actions.beginRowResize(Number(tr.dataset.rowIndex), event.clientY);
           }
@@ -418,13 +418,6 @@ export function TableDataGridBody({
       }
 
       if (event.detail >= 2) return;
-
-      if (isNearRowBottom(tr, event.clientY)) {
-        event.preventDefault();
-        event.stopPropagation();
-        actions.beginRowResize(rowIndex, event.clientY);
-        return;
-      }
 
       actions.handleDataCellMouseDown(ctx, event);
     },
@@ -553,7 +546,7 @@ export const TableDataGridVirtualBody = forwardRef<
       if (!resolved) {
         const tr = event.target instanceof Element ? event.target.closest("tr") : null;
         if (tr instanceof HTMLTableRowElement && tr.dataset.rowIndex != null) {
-          if (isNearRowBottom(tr, event.clientY)) {
+          if (isInRowResizeHandle(tr, event.clientX, event.clientY)) {
             event.preventDefault();
             actions.beginRowResize(Number(tr.dataset.rowIndex), event.clientY);
           }
@@ -582,13 +575,6 @@ export const TableDataGridVirtualBody = forwardRef<
       }
 
       if (event.detail >= 2) return;
-
-      if (isNearRowBottom(tr, event.clientY)) {
-        event.preventDefault();
-        event.stopPropagation();
-        actions.beginRowResize(rowIndex, event.clientY);
-        return;
-      }
 
       actions.handleDataCellMouseDown(ctx, event);
     },

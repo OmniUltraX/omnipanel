@@ -64,11 +64,28 @@ a {
     user-select: none;
 }
 
-/* 鍙鍖哄煙椤绘斁鍦?unlayered 瑙勫垯涓紝鍚﹀垯鏃犳硶瑕嗙洊涓婃柟 * 閫夋嫨鍣紙@layer components 浼樺厛绾ф洿浣庯級 */
+/* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body * {
     -webkit-user-select: text !important;
     user-select: text !important;
+}
+
+/* 单元格 / 文件内容预览：支持选中复制 */
+.content-preview-view,
+.content-preview-view *,
+.db-cell-editor-blob-preview,
+.db-cell-editor-blob-preview * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
+.content-preview-text-toolbar,
+.content-preview-text-toolbar *,
+.db-cell-editor-blob-preview-toolbar,
+.db-cell-editor-blob-preview-toolbar * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
 
 /* 鈹€鈹€鈹€ Workspace Framework 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */

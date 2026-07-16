@@ -90,6 +90,9 @@ import type { SchemaCacheSnapshot } from "./schemaCache";
 import { databaseObjectsNeedLoad, tableDetailsNeedLoad } from "./schemaCache";
 import {
   connectionUsersFolderId,
+  databaseOtherFolderId,
+  databaseTablesFolderId,
+  databaseViewsFolderId,
   makeDatabaseNodeId,
   parseDatabaseNodeId,
   parseTableNodeId,
@@ -134,6 +137,35 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { useShallow } from "zustand/react/shallow";
 
 type LoadedConnection = CachedConnection;
+
+/** 库下对象文件夹（表/视图/其它）若只有一个，返回其节点 id，供双击库名时再展开一层。 */
+function resolveSoleDatabaseObjectFolderId(
+  connId: string,
+  dbName: string,
+  db:
+    | {
+        tables?: { length: number }[];
+        views?: { length: number }[];
+        routines?: { length: number }[];
+      }
+    | null
+    | undefined,
+): string | null {
+  if (!db) {
+    return null;
+  }
+  const folders: string[] = [];
+  if ((db.tables?.length ?? 0) > 0) {
+    folders.push(databaseTablesFolderId(connId, dbName));
+  }
+  if ((db.views?.length ?? 0) > 0) {
+    folders.push(databaseViewsFolderId(connId, dbName));
+  }
+  if ((db.routines?.length ?? 0) > 0) {
+    folders.push(databaseOtherFolderId(connId, dbName));
+  }
+  return folders.length === 1 ? folders[0]! : null;
+}
 
 function resolveLayoutFolderIdFromItem(item: SchemaTreeItem): string | null {
   if (item.type !== "connection-folder") {
@@ -1535,6 +1567,68 @@ export function SchemaBrowser({
     }
   }, [schemaCacheReporter, schemaRefreshHooks, updateExpanded]);
 
+  /** 双击库名：展开库节点；若二层只有一个对象文件夹则继续展开。 */
+  const expandDatabaseOnActivate = useCallback(
+    (connId: string, dbName: string, dbNodeId: string) => {
+      void (async () => {
+        const expanded = useDbSchemaTreeExpandedStore.getState().expandedNodeIds;
+        if (!expanded.has(dbNodeId)) {
+          updateExpanded((prev) => {
+            const next = new Set(prev);
+            next.add(dbNodeId);
+            return next;
+          });
+        }
+
+        const conn = connectionsRef.current.find((item) => item.config.id === connId);
+        if (!conn || !isConnectionEnabled(conn.config)) {
+          return;
+        }
+
+        let db =
+          conn.databases?.find((item) => item.name === dbName) ??
+          useDbSchemaCacheStore.getState().snapshot.connections?.[connId]?.databases?.find(
+            (item) => item.name === dbName,
+          );
+
+        if (databaseObjectsNeedLoad(db ?? {})) {
+          const nodeRefreshing = Boolean(
+            useDbSchemaCacheStore.getState().refreshingNodeIds[dbNodeId],
+          );
+          if (!nodeRefreshing) {
+            try {
+              await refreshAndApplySchemaTreeNode(
+                conn.config,
+                buildDatabaseTreeItem(connId, dbName),
+                schemaRefreshHooks,
+              );
+            } catch (err) {
+              schemaCacheReporter.onError?.(String(err));
+              return;
+            }
+          }
+          db = useDbSchemaCacheStore
+            .getState()
+            .snapshot.connections?.[connId]?.databases?.find((item) => item.name === dbName);
+        }
+
+        const soleFolderId = resolveSoleDatabaseObjectFolderId(connId, dbName, db);
+        if (!soleFolderId) {
+          return;
+        }
+        updateExpanded((prev) => {
+          if (prev.has(soleFolderId)) {
+            return prev;
+          }
+          const next = new Set(prev);
+          next.add(soleFolderId);
+          return next;
+        });
+      })();
+    },
+    [schemaCacheReporter, schemaRefreshHooks, updateExpanded],
+  );
+
   const handleTreeKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
@@ -1902,7 +1996,7 @@ export function SchemaBrowser({
           );
         };
         onActivate = () => {
-          // 先开右侧库 Tab（同步），再双 rAF 后展开树触发浅加载建连，避免首帧被连接抢占
+          // 先开右侧库 Tab（同步），再双 rAF 后展开库；二层仅一个文件夹时再展开一层
           onSelectDatabase?.(
             {
               connId: row.labelClickConnId!,
@@ -1911,11 +2005,15 @@ export function SchemaBrowser({
             },
             "permanent",
           );
-          if (!useDbSchemaTreeExpandedStore.getState().expandedNodeIds.has(row.item.id)) {
+          requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              requestAnimationFrame(() => toggle(row.item.id));
+              expandDatabaseOnActivate(
+                row.labelClickConnId!,
+                row.labelClickDbName!,
+                row.item.id,
+              );
             });
-          }
+          });
         };
       } else if (
         row.labelClickKind === "table" &&
@@ -2018,6 +2116,7 @@ export function SchemaBrowser({
     [
       t,
       toggle,
+      expandDatabaseOnActivate,
       onSelectConnection,
       onSelectDatabase,
       onSelectTable,

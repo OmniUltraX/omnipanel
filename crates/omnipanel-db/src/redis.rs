@@ -29,13 +29,60 @@ pub struct RedisSearchKeysResult {
     pub scan_limit_hit: bool,
 }
 
+/// 逻辑库名 + key 条数（`INFO keyspace`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDatabaseInfo {
+    pub name: String,
+    #[specta(type = f64)]
+    pub key_count: u64,
+}
+
+/// 单个 key 的详情（类型 / TTL / 大小 / 值预览）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyDetail {
+    pub key: String,
+    pub key_type: String,
+    /// TTL 秒；-1 永不过期；-2 key 不存在。
+    #[specta(type = f64)]
+    pub ttl: i64,
+    /// 字节大小（MEMORY USAGE）；不可用时为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<f64>)]
+    pub size_bytes: Option<u64>,
+    /// JSON 字符串：string 为引号字符串；hash/list/set/zset 为对象数组。
+    pub value_json: String,
+    pub value_truncated: bool,
+}
+
+/// 慢日志条目。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSlowLogEntry {
+    #[specta(type = f64)]
+    pub id: u64,
+    #[specta(type = f64)]
+    pub timestamp: u64,
+    #[specta(type = f64)]
+    pub duration_us: u64,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_addr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_name: Option<String>,
+}
+
 const DEFAULT_REDIS_PORT: u16 = 6379;
+const DEFAULT_DATABASE_COUNT: u64 = 16;
+const MAX_DATABASE_COUNT: u64 = 256;
 const SCAN_BATCH_COUNT: u64 = 500;
 const TYPE_BATCH_SIZE: usize = 64;
 /// 单次请求最多从 SCAN 见到的 key 数（含被类型过滤掉的）。
 const MAX_SCAN_VISITS_PER_REQUEST: usize = 8_000;
 /// 单次请求最多执行的 SCAN 轮次，避免无匹配时在整库上长时间阻塞。
 const MAX_SCAN_ROUNDS_PER_REQUEST: usize = 64;
+const KEY_DETAIL_PREVIEW_LIMIT: usize = 200;
 
 pub struct RedisDriver {
     conn: MultiplexedConnection,
@@ -53,7 +100,13 @@ impl RedisDriver {
             .trim()
             .parse::<i64>()
             .ok()
-            .and_then(|n| if (0..=15).contains(&n) { Some(n) } else { None })
+            .and_then(|n| {
+                if (0..=MAX_DATABASE_COUNT as i64).contains(&n) {
+                    Some(n)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(0);
 
         let url = if params.password.is_empty() {
@@ -223,6 +276,367 @@ impl RedisDriver {
                 });
             }
         }
+    }
+
+    /// 逻辑库名列表：`CONFIG GET databases`，失败回退 16；连接已指定 database 时只返回该库。
+    pub async fn list_databases(&self, preset_database: &str) -> OmniResult<Vec<String>> {
+        let preset = preset_database.trim();
+        if !preset.is_empty() {
+            return Ok(vec![preset.to_string()]);
+        }
+        let count = self.database_count().await.unwrap_or(DEFAULT_DATABASE_COUNT);
+        Ok((0..count).map(|n| n.to_string()).collect())
+    }
+
+    /// 库列表 + key 条数（`INFO keyspace`）。
+    pub async fn list_databases_with_key_counts(
+        &self,
+        preset_database: &str,
+    ) -> OmniResult<Vec<RedisDatabaseInfo>> {
+        let names = self.list_databases(preset_database).await?;
+        let counts = self.keyspace_counts().await.unwrap_or_default();
+        Ok(names
+            .into_iter()
+            .map(|name| {
+                let key_count = name
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|idx| counts.get(&idx).copied())
+                    .unwrap_or(0);
+                RedisDatabaseInfo { name, key_count }
+            })
+            .collect())
+    }
+
+    async fn database_count(&self) -> OmniResult<u64> {
+        let pairs = self.config_get("databases").await?;
+        let raw = pairs
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("databases"))
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        let count = raw
+            .trim()
+            .parse::<u64>()
+            .unwrap_or(DEFAULT_DATABASE_COUNT)
+            .clamp(1, MAX_DATABASE_COUNT);
+        Ok(count)
+    }
+
+    async fn keyspace_counts(&self) -> OmniResult<std::collections::HashMap<u64, u64>> {
+        let mut conn = self.conn.clone();
+        let info: String = redis::cmd("INFO")
+            .arg("keyspace")
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        Ok(parse_keyspace_counts(&info))
+    }
+
+    /// 当前连接所选逻辑库的 `DBSIZE`。
+    pub async fn dbsize(&self) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        let size: u64 = redis::cmd("DBSIZE")
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        Ok(size)
+    }
+
+    /// 读取单个 key 的详情。
+    pub async fn key_detail(&self, key: &str) -> OmniResult<RedisKeyDetail> {
+        let key = key.trim();
+        if key.is_empty() {
+            return Err(OmniError::invalid_input("Redis key 为空"));
+        }
+        let mut conn = self.conn.clone();
+        let key_type: String = redis::cmd("TYPE")
+            .arg(key)
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        if key_type == "none" {
+            return Err(OmniError::not_found(format!("Key 不存在：{key}")));
+        }
+        let ttl: i64 = redis::cmd("TTL")
+            .arg(key)
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        let size_bytes = memory_usage_bytes(&mut conn, key).await.ok();
+        let (value, value_truncated) = read_key_value(&mut conn, key, &key_type).await?;
+        Ok(RedisKeyDetail {
+            key: key.to_string(),
+            key_type,
+            ttl,
+            size_bytes,
+            value_json: value.to_string(),
+            value_truncated,
+        })
+    }
+
+    /// 新建 string key（`SET`）；其它类型用命令行。
+    pub async fn set_key(&self, key: &str, value: &str, key_type: &str) -> OmniResult<()> {
+        let key = key.trim();
+        if key.is_empty() {
+            return Err(OmniError::invalid_input("Redis key 为空"));
+        }
+        let mut conn = self.conn.clone();
+        match key_type.trim().to_lowercase().as_str() {
+            "" | "string" => {
+                let _: () = conn.set(key, value).await.map_err(map_redis_err)?;
+            }
+            other => {
+                return Err(OmniError::invalid_input(format!(
+                    "新建仅支持 string，当前类型：{other}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// 删除 key。
+    pub async fn delete_key(&self, key: &str) -> OmniResult<u64> {
+        let key = key.trim();
+        if key.is_empty() {
+            return Err(OmniError::invalid_input("Redis key 为空"));
+        }
+        let mut conn = self.conn.clone();
+        let deleted: u64 = conn.del(key).await.map_err(map_redis_err)?;
+        Ok(deleted)
+    }
+
+    /// `SLOWLOG GET`。
+    pub async fn slowlog(&self, count: usize) -> OmniResult<Vec<RedisSlowLogEntry>> {
+        let count = count.clamp(1, 200);
+        let mut conn = self.conn.clone();
+        let value: redis::Value = redis::cmd("SLOWLOG")
+            .arg("GET")
+            .arg(count)
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        parse_slowlog_response(value)
+    }
+}
+
+async fn memory_usage_bytes(conn: &mut MultiplexedConnection, key: &str) -> OmniResult<u64> {
+    let size: u64 = redis::cmd("MEMORY")
+        .arg("USAGE")
+        .arg(key)
+        .query_async(conn)
+        .await
+        .map_err(map_redis_err)?;
+    Ok(size)
+}
+
+async fn read_key_value(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    key_type: &str,
+) -> OmniResult<(Value, bool)> {
+    let limit = KEY_DETAIL_PREVIEW_LIMIT as isize;
+    match key_type {
+        "string" => {
+            let value: Option<Vec<u8>> = conn.get(key).await.map_err(map_redis_err)?;
+            let text = match value {
+                Some(bytes) => escape_bytes_preview(&bytes),
+                None => String::new(),
+            };
+            Ok((Value::String(text), false))
+        }
+        "list" => {
+            let len: i64 = conn.llen(key).await.map_err(map_redis_err)?;
+            let stop = (limit - 1).min(isize::try_from((len - 1).max(0)).unwrap_or(0));
+            let values: Vec<Vec<u8>> = conn.lrange(key, 0, stop).await.map_err(map_redis_err)?;
+            let rows: Vec<Value> = values
+                .into_iter()
+                .enumerate()
+                .map(|(i, bytes)| {
+                    serde_json::json!({
+                        "index": i,
+                        "value": escape_bytes_preview(&bytes),
+                    })
+                })
+                .collect();
+            Ok((Value::Array(rows), len as usize > KEY_DETAIL_PREVIEW_LIMIT))
+        }
+        "set" => {
+            let members: Vec<Vec<u8>> = conn.smembers(key).await.map_err(map_redis_err)?;
+            let truncated = members.len() > KEY_DETAIL_PREVIEW_LIMIT;
+            let rows: Vec<Value> = members
+                .into_iter()
+                .take(KEY_DETAIL_PREVIEW_LIMIT)
+                .map(|bytes| {
+                    serde_json::json!({
+                        "member": escape_bytes_preview(&bytes),
+                    })
+                })
+                .collect();
+            Ok((Value::Array(rows), truncated))
+        }
+        "zset" => {
+            let stop = (KEY_DETAIL_PREVIEW_LIMIT as isize) - 1;
+            let values: Vec<(Vec<u8>, f64)> = conn
+                .zrange_withscores(key, 0isize, stop)
+                .await
+                .map_err(map_redis_err)?;
+            let card: i64 = conn.zcard(key).await.map_err(map_redis_err)?;
+            let rows: Vec<Value> = values
+                .into_iter()
+                .map(|(member, score)| {
+                    serde_json::json!({
+                        "member": escape_bytes_preview(&member),
+                        "score": score,
+                    })
+                })
+                .collect();
+            Ok((
+                Value::Array(rows),
+                card as usize > KEY_DETAIL_PREVIEW_LIMIT,
+            ))
+        }
+        "hash" => {
+            let map: std::collections::HashMap<Vec<u8>, Vec<u8>> =
+                conn.hgetall(key).await.map_err(map_redis_err)?;
+            let truncated = map.len() > KEY_DETAIL_PREVIEW_LIMIT;
+            let rows: Vec<Value> = map
+                .into_iter()
+                .take(KEY_DETAIL_PREVIEW_LIMIT)
+                .map(|(field, value)| {
+                    serde_json::json!({
+                        "field": escape_bytes_preview(&field),
+                        "value": escape_bytes_preview(&value),
+                    })
+                })
+                .collect();
+            Ok((Value::Array(rows), truncated))
+        }
+        "stream" => {
+            let len: i64 = redis::cmd("XLEN")
+                .arg(key)
+                .query_async(conn)
+                .await
+                .map_err(map_redis_err)?;
+            Ok((
+                serde_json::json!({ "length": len }),
+                false,
+            ))
+        }
+        other => Ok((
+            serde_json::json!({ "unsupportedType": other }),
+            false,
+        )),
+    }
+}
+
+fn escape_bytes_preview(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => {
+            let mut out = String::with_capacity(bytes.len() * 4);
+            for b in bytes.iter().take(512) {
+                out.push_str(&format!("\\x{b:02x}"));
+            }
+            if bytes.len() > 512 {
+                out.push('…');
+            }
+            out
+        }
+    }
+}
+
+fn parse_keyspace_counts(info: &str) -> std::collections::HashMap<u64, u64> {
+    let mut map = std::collections::HashMap::new();
+    for line in info.lines() {
+        let line = line.trim();
+        // db0:keys=3461,expires=12,avg_ttl=...
+        let Some(rest) = line.strip_prefix("db") else {
+            continue;
+        };
+        let Some((idx_str, stats)) = rest.split_once(':') else {
+            continue;
+        };
+        let Ok(idx) = idx_str.parse::<u64>() else {
+            continue;
+        };
+        let mut keys = 0u64;
+        for part in stats.split(',') {
+            if let Some(value) = part.strip_prefix("keys=") {
+                keys = value.parse().unwrap_or(0);
+                break;
+            }
+        }
+        map.insert(idx, keys);
+    }
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_keyspace_counts;
+
+    #[test]
+    fn parses_keyspace_lines() {
+        let info = "# Keyspace\ndb0:keys=3461,expires=12,avg_ttl=100\ndb1:keys=861,expires=0,avg_ttl=0\n";
+        let map = parse_keyspace_counts(info);
+        assert_eq!(map.get(&0), Some(&3461));
+        assert_eq!(map.get(&1), Some(&861));
+        assert_eq!(map.get(&2), None);
+    }
+}
+
+fn parse_slowlog_response(value: redis::Value) -> OmniResult<Vec<RedisSlowLogEntry>> {
+    let items = match value {
+        redis::Value::Array(items) => items,
+        redis::Value::Nil => return Ok(Vec::new()),
+        other => {
+            return Err(OmniError::database("SLOWLOG 响应格式无效")
+                .with_cause(format!("{other:?}")));
+        }
+    };
+    let mut entries = Vec::with_capacity(items.len());
+    for item in items {
+        let redis::Value::Array(parts) = item else {
+            continue;
+        };
+        if parts.len() < 4 {
+            continue;
+        }
+        let id = redis_value_to_u64(&parts[0]);
+        let timestamp = redis_value_to_u64(&parts[1]);
+        let duration_us = redis_value_to_u64(&parts[2]);
+        let command = match &parts[3] {
+            redis::Value::Array(args) => args
+                .iter()
+                .map(|a| redis_value_to_string(a.clone()))
+                .collect::<Vec<_>>()
+                .join(" "),
+            other => redis_value_to_string(other.clone()),
+        };
+        let client_addr = parts.get(4).map(|v| redis_value_to_string(v.clone()));
+        let client_name = parts.get(5).map(|v| redis_value_to_string(v.clone()));
+        entries.push(RedisSlowLogEntry {
+            id,
+            timestamp,
+            duration_us,
+            command,
+            client_addr,
+            client_name,
+        });
+    }
+    Ok(entries)
+}
+
+fn redis_value_to_u64(value: &redis::Value) -> u64 {
+    match value {
+        redis::Value::Int(n) => *n as u64,
+        redis::Value::BulkString(bytes) => String::from_utf8_lossy(bytes)
+            .parse()
+            .unwrap_or(0),
+        redis::Value::SimpleString(s) => s.parse().unwrap_or(0),
+        redis::Value::BigNumber(n) => n.to_string().parse().unwrap_or(0),
+        _ => 0,
     }
 }
 

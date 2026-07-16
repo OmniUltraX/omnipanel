@@ -32,13 +32,30 @@ function nowTime(): string {
   return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
 }
 
-export function RedisPubSubPanel() {
+interface RedisPubSubPanelProps {
+  initialHost?: string;
+  initialPort?: string;
+  initialDatabase?: string;
+  initialUsername?: string;
+  initialPassword?: string;
+  /** 嵌入 DB 详情时隐藏部分冗余边距 */
+  compact?: boolean;
+}
+
+export function RedisPubSubPanel({
+  initialHost = "127.0.0.1",
+  initialPort = "6379",
+  initialDatabase = "0",
+  initialUsername = "",
+  initialPassword = "",
+  compact = false,
+}: RedisPubSubPanelProps = {}) {
   const { t } = useI18n();
-  const [host, setHost] = useState("127.0.0.1");
-  const [port, setPort] = useState("6379");
-  const [database, setDatabase] = useState("0");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [host, setHost] = useState(initialHost);
+  const [port, setPort] = useState(initialPort);
+  const [database, setDatabase] = useState(initialDatabase);
+  const [username, setUsername] = useState(initialUsername);
+  const [password, setPassword] = useState(initialPassword);
   const [status, setStatus] = useState<PubSubStatus>("disconnected");
   const [connectError, setConnectError] = useState<string | null>(null);
 
@@ -119,7 +136,7 @@ export function RedisPubSubPanel() {
       const config = {
         host,
         port: Number(port) || 6379,
-        database: Math.min(15, Math.max(0, Number(database) || 0)),
+        database: Math.min(255, Math.max(0, Number(database) || 0)),
         username: username.trim() || null,
         password: password || null,
       };
@@ -199,7 +216,7 @@ export function RedisPubSubPanel() {
   const locked = connected || status === "connecting";
 
   return (
-    <div className="pubsub-panel proto-pub-panel">
+    <div className={`pubsub-panel proto-pub-panel${compact ? " redis-db-pubsub" : ""}`}>
       <div className="proto-pub-toolbar">
         <TextInput
           className="input"

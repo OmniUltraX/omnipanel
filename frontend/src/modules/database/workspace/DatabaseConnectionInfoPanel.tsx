@@ -342,6 +342,7 @@ export function DatabaseConnectionInfoPanel({
   const [connectionsResult, setConnectionsResult] = useState<QueryResult | null>(null);
   const [variablesResult, setVariablesResult] = useState<QueryResult | null>(null);
   const [usersActions, setUsersActions] = useState<ReactNode | null>(null);
+  const [usersRefreshNonce, setUsersRefreshNonce] = useState(0);
   const [createDbOpen, setCreateDbOpen] = useState(false);
   const [processSort, setProcessSort] = useState<ProcessSortState>({
     column: "time",
@@ -510,6 +511,8 @@ export function DatabaseConnectionInfoPanel({
     async (options?: { silent?: boolean }) => {
       if (subTab === "databases") {
         await refreshDatabases();
+      } else if (subTab === "users") {
+        setUsersRefreshNonce((n) => n + 1);
       } else if (subTab === "connections") {
         await refreshConnections(options);
       } else if (subTab === "status") {
@@ -1186,6 +1189,7 @@ export function DatabaseConnectionInfoPanel({
       connection={connection}
       active={active && subTab === "users"}
       search={search}
+      refreshNonce={usersRefreshNonce}
       onActionsReady={setUsersActions}
     />
   );
@@ -1221,7 +1225,7 @@ export function DatabaseConnectionInfoPanel({
                 ? t("database.connectionInfo.variablesSearch")
                 : ""
       }
-      enabled={capable && subTab !== "cli"}
+      enabled={capable && subTab !== "cli" && subTab !== "users"}
     >
       {isMysql ? (
         <div className="db-connection-info-deploy">
@@ -1331,7 +1335,7 @@ export function DatabaseConnectionInfoPanel({
         }
       >
         <div
-          className={`db-tables-panel-grid-wrap${subTab === "cli" ? " db-tables-panel-grid-wrap--cli" : ""}`}
+          className={`db-tables-panel-grid-wrap${subTab === "cli" ? " db-tables-panel-grid-wrap--cli" : ""}${subTab === "users" ? " db-tables-panel-grid-wrap--users" : ""}`}
         >
           {content}
         </div>

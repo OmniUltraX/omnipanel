@@ -290,6 +290,75 @@ export async function redisGetClientList(connection: DbConnectionConfig): Promis
   return mapQueryResult(await unwrapCommand(commands.dbRedisClientList(ipcConn(connection))));
 }
 
+export interface RedisKeyDetail {
+  key: string;
+  keyType: string;
+  ttl: number;
+  sizeBytes: number | null;
+  valueJson: string;
+  valueTruncated: boolean;
+}
+
+export interface RedisSlowLogEntry {
+  id: number;
+  timestamp: number;
+  durationUs: number;
+  command: string;
+  clientAddr: string | null;
+  clientName: string | null;
+}
+
+export async function redisDbsize(connection: DbConnectionConfig): Promise<number> {
+  const size = await unwrapCommand(commands.dbRedisDbsize(ipcConn(connection)));
+  return size ?? 0;
+}
+
+export async function redisKeyDetail(
+  connection: DbConnectionConfig,
+  key: string,
+): Promise<RedisKeyDetail> {
+  const result = await unwrapCommand(commands.dbRedisKeyDetail(ipcConn(connection), key));
+  return {
+    key: result.key,
+    keyType: result.keyType,
+    ttl: result.ttl ?? -1,
+    sizeBytes: result.sizeBytes ?? null,
+    valueJson: result.valueJson,
+    valueTruncated: result.valueTruncated,
+  };
+}
+
+export async function redisSetKey(
+  connection: DbConnectionConfig,
+  key: string,
+  value: string,
+  keyType = "string",
+): Promise<void> {
+  await unwrapCommand(commands.dbRedisSetKey(ipcConn(connection), key, value, keyType));
+}
+
+export async function redisDeleteKey(
+  connection: DbConnectionConfig,
+  key: string,
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisDeleteKey(ipcConn(connection), key))) ?? 0;
+}
+
+export async function redisSlowlog(
+  connection: DbConnectionConfig,
+  count = 64,
+): Promise<RedisSlowLogEntry[]> {
+  const rows = await unwrapCommand(commands.dbRedisSlowlog(ipcConn(connection), count));
+  return rows.map((row) => ({
+    id: row.id ?? 0,
+    timestamp: row.timestamp ?? 0,
+    durationUs: row.durationUs ?? 0,
+    command: row.command,
+    clientAddr: row.clientAddr ?? null,
+    clientName: row.clientName ?? null,
+  }));
+}
+
 export async function listConnections(): Promise<DbConnectionConfig[]> {
   return (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
 }
@@ -410,6 +479,11 @@ export interface DbRoutineMeta {
 export interface DbUserMeta {
   name: string;
   host?: string | null;
+  canLogin?: boolean;
+  isSuperuser?: boolean;
+  canCreateDb?: boolean;
+  isRole?: boolean;
+  accountLocked?: boolean | null;
 }
 
 export interface DbTableSchema {
@@ -486,6 +560,24 @@ export async function fetchTableDetails(
       ipcConn(connection),
       database.trim() ? database.trim() : null,
       table,
+    ),
+  );
+}
+
+export interface DbNamedTableDetails {
+  name: string;
+  details: DbTableDetails;
+}
+
+/** 一次拉取库内全部表详情（表列表首屏）。 */
+export async function fetchDatabaseTableDetails(
+  connection: DbConnectionConfig,
+  database: string,
+): Promise<DbNamedTableDetails[]> {
+  return unwrapCommand(
+    commands.dbListTableDetails(
+      ipcConn(connection),
+      database.trim() ? database.trim() : null,
     ),
   );
 }

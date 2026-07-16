@@ -5,7 +5,9 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode};
 use sqlx::types::Json;
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, map_sqlx_err, split_statements};
+use crate::{
+    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, split_statements,
+};
 
 const DEFAULT_PG_PORT: u16 = 5432;
 
@@ -195,7 +197,10 @@ fn extract(row: &PgRow, index: usize) -> Value {
                     .map(Value::String)
                     .unwrap_or(Value::Null)
             }),
-        "bytea" => Value::String("[BYTEA]".to_string()),
+        "bytea" => row
+            .try_get::<Vec<u8>, _>(index)
+            .map(|bytes| encode_blob_value(&bytes))
+            .unwrap_or_else(|_| Value::String("[BYTEA]".to_string())),
         "json" | "jsonb" => row
             .try_get::<Json<Value>, _>(index)
             .map(|Json(v)| v)

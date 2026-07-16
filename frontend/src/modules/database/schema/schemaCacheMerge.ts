@@ -42,6 +42,8 @@ export interface CachedDatabase {
   routines?: CachedRoutine[];
   loadError?: string;
   objectsLoaded?: boolean;
+  /** Redis：key 条数 */
+  keyCount?: number;
 }
 
 export interface CachedConnection {
@@ -142,6 +144,7 @@ function mapCachedDatabaseWithReuse(
     name: string;
     loadError?: string;
     objectsLoaded?: boolean;
+    keyCount?: number;
     tables: Parameters<typeof mapCachedTable>[0][];
     views?: Parameters<typeof mapCachedTable>[0][];
     routines?: { name: string; routineType: string }[];
@@ -171,6 +174,7 @@ function mapCachedDatabaseWithReuse(
     name: db.name,
     loadError: db.loadError,
     objectsLoaded: db.objectsLoaded,
+    keyCount: db.keyCount,
     tables,
     views,
     routines,
@@ -180,6 +184,7 @@ function mapCachedDatabaseWithReuse(
     prev.name === next.name &&
     prev.loadError === next.loadError &&
     prev.objectsLoaded === next.objectsLoaded &&
+    prev.keyCount === next.keyCount &&
     prev.tables === next.tables &&
     prev.views === next.views &&
     prev.routines === next.routines

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { fetchTableDdl, fetchTableDetails, type DbTableDetails } from "../api";
+import { fetchTableDdl, fetchDatabaseTableDetails, type DbTableDetails } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { formatSqlDdl } from "../sql/formatSqlDdl";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "../schema/SchemaBrowser";
@@ -94,39 +94,18 @@ function compareTableData(
   return compareTableNames(a, b, "asc");
 }
 
-const DETAILS_FETCH_CONCURRENCY = 4;
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) {
-    return [];
-  }
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index]!);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
+const PLACEHOLDER_CELL = "—";
 
 function resolveDetailCell(
   entry: TableDetailEntry | undefined,
   render: (details: DbTableDetails) => string,
-  loadingLabel: string,
+  _loadingLabel: string,
 ): string {
   if (!entry || entry.status === "error") {
-    return "—";
+    return PLACEHOLDER_CELL;
   }
   if (entry.status === "loading") {
-    return loadingLabel;
+    return PLACEHOLDER_CELL;
   }
   return render(entry.details);
 }
@@ -284,31 +263,41 @@ export function DatabaseTablesPanel({
         return;
       }
 
-      await mapWithConcurrency(toFetch, DETAILS_FETCH_CONCURRENCY, async (tableName) => {
-        try {
-          const details = await fetchTableDetails(
-            selection.connection,
-            selection.dbName,
-            tableName,
-          );
+      try {
+        const listed = await fetchDatabaseTableDetails(
+          selection.connection,
+          selection.dbName,
+        );
+        const wanted = new Set(toFetch);
+        const nextPatch: Record<string, TableDetailEntry> = {};
+        for (const item of listed) {
+          if (!wanted.has(item.name)) {
+            continue;
+          }
           writeTableDetailsCache(
             selection.connId,
             selection.dbName,
-            tableName,
+            item.name,
             selection.connection,
-            details,
+            item.details,
           );
-          setDetailsByTable((prev) => ({
-            ...prev,
-            [tableName]: { status: "loaded", details },
-          }));
-        } catch {
-          setDetailsByTable((prev) => ({
-            ...prev,
-            [tableName]: { status: "error" },
-          }));
+          nextPatch[item.name] = { status: "loaded", details: item.details };
         }
-      });
+        for (const tableName of toFetch) {
+          if (!nextPatch[tableName]) {
+            nextPatch[tableName] = { status: "error" };
+          }
+        }
+        setDetailsByTable((prev) => ({ ...prev, ...nextPatch }));
+      } catch {
+        setDetailsByTable((prev) => {
+          const next = { ...prev };
+          for (const tableName of toFetch) {
+            next[tableName] = { status: "error" };
+          }
+          return next;
+        });
+      }
     },
     [selection.connId, selection.connection, selection.dbName],
   );
@@ -378,22 +367,47 @@ export function DatabaseTablesPanel({
     }
   }, [loadTableDetails, loadTableDdl, selectedTableName, selection.connId, selection.dbName, tables]);
 
-  // 先进去再拉详情：表名来自本地缓存即可立刻渲染；行数/引擎等后台空闲再填，避免重启后首进卡在建连风暴
+  // 先进去再拉详情：先同步灌本地缓存稳住列内容，缺失项后台一次批量拉取
   useEffect(() => {
     if (tables.length === 0) {
       setDetailsByTable({});
       return;
     }
+
+    const cachedMap = readTableDetailsCacheMap(
+      selection.connId,
+      selection.dbName,
+      tables,
+      selection.connection,
+    );
+    setDetailsByTable((prev) => {
+      const next = { ...prev };
+      for (const tableName of tables) {
+        const cached = cachedMap[tableName];
+        if (cached) {
+          next[tableName] = { status: "loaded", details: cached };
+        } else if (!next[tableName] || next[tableName].status !== "loaded") {
+          next[tableName] = { status: "loading" };
+        }
+      }
+      return next;
+    });
+
+    const missing = tables.filter((tableName) => !cachedMap[tableName]);
+    if (missing.length === 0) {
+      return;
+    }
+
     let cancelled = false;
     const run = () => {
       if (!cancelled) {
-        void loadTableDetails(tables);
+        void loadTableDetails(missing);
       }
     };
     let idleId: number | null = null;
     let timerId: number | null = null;
     if (typeof requestIdleCallback === "function") {
-      idleId = requestIdleCallback(run, { timeout: 500 });
+      idleId = requestIdleCallback(run, { timeout: 300 });
     } else {
       timerId = window.setTimeout(run, 0);
     }
@@ -406,7 +420,7 @@ export function DatabaseTablesPanel({
         window.clearTimeout(timerId);
       }
     };
-  }, [loadTableDetails, tables]);
+  }, [loadTableDetails, selection.connId, selection.connection, selection.dbName, tables]);
 
   const activeDdlTableName = ddlDrawerOpen ? ddlDrawerTableName : selectedTableName;
 
@@ -494,6 +508,7 @@ export function DatabaseTablesPanel({
   const cacheReady = cacheHydrated && Boolean(schemaSnapshot.connections[selection.connId]);
   const tableCount = tables.length;
   const loadingLabel = t("database.tablesPanel.detailsLoading");
+  const columnResizeStorageKey = `db-tables-panel-${selection.connId}-${selection.dbName}`;
 
   const tableColumns = useMemo((): DbTablesPanelGridColumn<string>[] => {
     const cols: DbTablesPanelGridColumn<string>[] = [
@@ -502,22 +517,26 @@ export function DatabaseTablesPanel({
         header: t("database.tablesPanel.columns.name"),
         sortable: true,
         nameCell: true,
+        defaultWidth: 220,
+        minWidth: 120,
         render: (tableName) => tableName,
         getTitle: (tableName) => tableName,
       },
       {
         id: "comment",
         header: t("database.tablesPanel.details.comment"),
+        defaultWidth: 200,
+        minWidth: 96,
         render: (tableName) => {
           const entry = detailsByTable[tableName];
           const fallbackComment = tableComments.get(tableName);
           if (entry?.status === "loaded") {
             return displayDetailValue(entry.details.comment ?? fallbackComment ?? null);
           }
-          if (entry?.status === "loading") {
-            return loadingLabel;
+          if (fallbackComment) {
+            return displayDetailValue(fallbackComment);
           }
-          return displayDetailValue(fallbackComment);
+          return PLACEHOLDER_CELL;
         },
         getTitle: (tableName) => {
           const entry = detailsByTable[tableName];
@@ -534,6 +553,8 @@ export function DatabaseTablesPanel({
       {
         id: "engine",
         header: t("database.tablesPanel.details.engine"),
+        defaultWidth: 100,
+        minWidth: 72,
         render: (tableName) =>
           resolveDetailCell(
             detailsByTable[tableName],
@@ -551,6 +572,8 @@ export function DatabaseTablesPanel({
         id: "data",
         header: t("database.tablesPanel.details.data"),
         sortable: true,
+        defaultWidth: 120,
+        minWidth: 80,
         render: (tableName) =>
           resolveDetailCell(
             detailsByTable[tableName],
@@ -569,6 +592,8 @@ export function DatabaseTablesPanel({
       {
         id: "rowFormat",
         header: t("database.tablesPanel.details.rowFormat"),
+        defaultWidth: 100,
+        minWidth: 72,
         render: (tableName) =>
           resolveDetailCell(
             detailsByTable[tableName],
@@ -585,6 +610,8 @@ export function DatabaseTablesPanel({
       {
         id: "collation",
         header: t("database.tablesPanel.details.collation"),
+        defaultWidth: 160,
+        minWidth: 96,
         render: (tableName) =>
           resolveDetailCell(
             detailsByTable[tableName],
@@ -605,6 +632,8 @@ export function DatabaseTablesPanel({
       variant: "actions",
       header: null,
       headerAriaLabel: t("database.tablesPanel.actions"),
+      defaultWidth: canOpenTableData && canDesign ? 108 : canOpenTableData || canDesign ? 84 : 48,
+      minWidth: 48,
       render: (tableName) => (
         <div className="db-tables-panel-row-actions">
           <button
@@ -712,6 +741,7 @@ export function DatabaseTablesPanel({
                 onSortColumn={(columnId) => toggleSort(columnId as TablesPanelSortColumn)}
                 selectedRowKey={selectedTableName}
                 onRowClick={setSelectedTableName}
+                columnResizeStorageKey={columnResizeStorageKey}
               />
             )}
             {cacheReady && tableCount > 0 && filteredTables.length === 0 && (

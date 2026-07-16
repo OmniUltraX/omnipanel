@@ -2,9 +2,11 @@ import {
   type DbConnectionConfig,
   introspectSchema,
   isConnectionEnabled,
+  isRedisConnection,
   listConnectionUsers,
   listConnections,
   listDatabases,
+  listDatabasesWithStats,
 } from "../api";
 import type {
   SchemaCacheConnectionEntry,
@@ -73,6 +75,20 @@ export async function fetchConnectionSchemaCache(
     const dbDisplayName = isSqlite && presetDb
       ? (presetDb.split(/[/\\]/).pop() ?? presetDb)
       : presetDb;
+
+    if (isRedisConnection(connection)) {
+      const stats = await listDatabasesWithStats(connection);
+      const databases: SchemaCacheDatabaseEntry[] = stats.map((db) => ({
+        name: db.name,
+        tables: [],
+        views: [],
+        routines: [],
+        objectsLoaded: true,
+        keyCount: db.rowsEstimate != null ? Math.round(db.rowsEstimate) : 0,
+      }));
+      return { databases, users: [], refreshedAt };
+    }
+
     const dbNames = dbDisplayName ? [dbDisplayName] : await listDatabases(connection);
     const databases: SchemaCacheDatabaseEntry[] = [];
 

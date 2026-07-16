@@ -8,6 +8,7 @@ import {
 } from "../../../components/ui/content/ContentPreviewView";
 import { SubWindow } from "../../../components/ui/window/SubWindow";
 import { useI18n } from "../../../i18n";
+import { resolvePreferredPreviewTextMode } from "../../../lib/contentPreview";
 import {
   resolveCellPreviewCodeLanguage,
   resolveCellPreviewContent,
@@ -29,9 +30,14 @@ export function TableCellPreviewSubWindow({
   const [textMode, setTextMode] = useState<ContentPreviewTextMode>("plain");
 
   const content = useMemo(
-    () => (preview ? resolveCellPreviewContent(preview.value, preview.columnType) : null),
+    () =>
+      preview
+        ? resolveCellPreviewContent(preview.value, preview.columnType, { sniffContent: true })
+        : null,
     [preview],
   );
+
+  const isMediaPreview = content?.kind === "image" || content?.kind === "audio";
 
   const codeLanguage = useMemo(
     (): CodeEditorLanguage | undefined =>
@@ -43,16 +49,11 @@ export function TableCellPreviewSubWindow({
   const modeOptions = useContentPreviewTextModes(sourceText, codeLanguage, content?.kind);
 
   useEffect(() => {
-    if (content?.kind === "json") {
-      setTextMode("json");
+    if (!content || isMediaPreview) {
       return;
     }
-    if (modeOptions.showJsonMode) {
-      setTextMode("json");
-      return;
-    }
-    setTextMode(codeLanguage === "json" ? "json" : "plain");
-  }, [preview?.column, preview?.rowIndex, content, codeLanguage, modeOptions.showJsonMode]);
+    setTextMode(resolvePreferredPreviewTextMode(content));
+  }, [preview?.column, preview?.rowIndex, content, isMediaPreview]);
 
   const title = preview ? (
     <h2 id="subwindow-title" className="subwindow-title file-preview-subwindow-title">
@@ -66,18 +67,19 @@ export function TableCellPreviewSubWindow({
     t("database.results.cellPreviewTitle")
   );
 
-  const headerExtra = content ? (
-    <div className="file-preview-subwindow-header-actions">
-      <ContentPreviewTextModeToolbar
-        mode={textMode}
-        onModeChange={setTextMode}
-        showCodeMode={modeOptions.showCodeMode}
-        showJsonMode={modeOptions.showJsonMode}
-        showMarkdownMode={modeOptions.showMarkdownMode}
-        showWebMode={modeOptions.showWebMode}
-      />
-    </div>
-  ) : null;
+  const headerExtra =
+    content && !isMediaPreview ? (
+      <div className="file-preview-subwindow-header-actions">
+        <ContentPreviewTextModeToolbar
+          mode={textMode}
+          onModeChange={setTextMode}
+          showCodeMode={modeOptions.showCodeMode}
+          showJsonMode={modeOptions.showJsonMode}
+          showMarkdownMode={modeOptions.showMarkdownMode}
+          showWebMode={modeOptions.showWebMode}
+        />
+      </div>
+    ) : null;
 
   return (
     <SubWindow

@@ -7,14 +7,23 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  ContentPreviewView,
+  ContentPreviewTextModeToolbar,
+  useContentPreviewTextModes,
+  type ContentPreviewTextMode,
+} from "../../../components/ui/content/ContentPreviewView";
+import { resolvePreferredPreviewTextMode } from "../../../lib/contentPreview";
 import { useI18n } from "../../../i18n";
+import {
+  resolveCellPreviewCodeLanguage,
+  resolveCellPreviewContent,
+} from "../grid/tableCellPreview";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateEditor } from "./DateEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
-import { JsonEditor } from "./JsonEditor";
 import { NullEditor } from "./NullEditor";
 import { NumberEditor } from "./NumberEditor";
-import { TextEditor } from "./TextEditor";
 import { TimeEditor } from "./TimeEditor";
 import {
   detectCellEditorKind,
@@ -42,6 +51,8 @@ export interface CellEditorPanelProps {
   selectionCount?: number;
   /** 底栏编辑器是否展开（多选批量赋值仅在展开时生效） */
   editorOpen?: boolean;
+  /** 只读预览（如 Redis）：走结构化渲染，不落库编辑 */
+  readOnly?: boolean;
   onApply: (payload: { rawText: string; parsed: unknown }) => void;
   onSetNull?: () => void;
 }
@@ -59,9 +70,22 @@ function normalizeForKind(kind: CellEditorKind, rawText: string): string {
   }
 }
 
+function usesRichContentPreview(kind: CellEditorKind): boolean {
+  return kind === "text" || kind === "json" || kind === "binary";
+}
+
 export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanelProps>(
   function CellEditorPanel(
-    { columnName, columnType, currentValue, cellKey, selectionCount = 0, editorOpen = true, onApply },
+    {
+      columnName,
+      columnType,
+      currentValue,
+      cellKey,
+      selectionCount = 0,
+      editorOpen = true,
+      readOnly = false,
+      onApply,
+    },
     ref,
   ) {
     const { t } = useI18n();
@@ -70,14 +94,58 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     const baselineTextRef = useRef("");
     const cellKeyRef = useRef(cellKey);
     const editorKind = useMemo(() => detectCellEditorKind(columnType), [columnType]);
+    const richPreview = usesRichContentPreview(editorKind);
     const rawText = useMemo(() => formatCellValue(currentValue), [currentValue]);
     const normalized = useMemo(
       () => normalizeForKind(editorKind, rawText),
       [editorKind, rawText],
     );
     const [editText, setEditText] = useState(normalized);
+    const [textMode, setTextMode] = useState<ContentPreviewTextMode>("plain");
     editTextRef.current = editText;
     const isNull = currentValue === null || currentValue === undefined;
+
+    const previewContent = useMemo(() => {
+      if (!richPreview) {
+        return null;
+      }
+      if (isNull && editText === "") {
+        return { kind: "text" as const, text: "NULL" };
+      }
+      // 编辑中以当前文本为准，便于实时切换 JSON / Markdown / 图片识别
+      return resolveCellPreviewContent(editText, columnType, { sniffContent: true });
+    }, [richPreview, isNull, editText, columnType]);
+
+    const isMediaPreview =
+      previewContent?.kind === "image" || previewContent?.kind === "audio";
+
+    const codeLanguage = useMemo(
+      () =>
+        previewContent
+          ? resolveCellPreviewCodeLanguage(columnType, previewContent)
+          : undefined,
+      [columnType, previewContent],
+    );
+
+    const sourceTextForModes =
+      previewContent?.kind === "text"
+        ? previewContent.text
+        : previewContent?.kind === "json"
+          ? JSON.stringify(previewContent.value, null, 2)
+          : undefined;
+
+    const modeOptions = useContentPreviewTextModes(
+      sourceTextForModes,
+      codeLanguage,
+      previewContent?.kind,
+    );
+
+    useEffect(() => {
+      if (!previewContent || isMediaPreview) {
+        return;
+      }
+      setTextMode(resolvePreferredPreviewTextMode(previewContent));
+    }, [cellKey, previewContent, isMediaPreview]);
 
     useEffect(() => {
       if (cellKeyRef.current === cellKey) return;
@@ -107,7 +175,7 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
         },
         focusEditor: () => {
           const control = bodyRef.current?.querySelector<HTMLElement>(
-            "input, textarea, select, button",
+            "input, textarea, select, button, .cm-content, [contenteditable='true']",
           );
           control?.focus();
         },
@@ -128,6 +196,41 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     );
 
     const renderEditor = () => {
+      if (richPreview && isNull && editText === "") {
+        return <NullEditor value={editText} onChange={handleChange} autoFocus={false} />;
+      }
+
+      if (richPreview && previewContent) {
+        return (
+          <div className="db-cell-editor-blob-preview">
+            {!isMediaPreview ? (
+              <div className="db-cell-editor-blob-preview-toolbar">
+                <ContentPreviewTextModeToolbar
+                  mode={textMode}
+                  onModeChange={setTextMode}
+                  showCodeMode={modeOptions.showCodeMode}
+                  showJsonMode={modeOptions.showJsonMode}
+                  showMarkdownMode={modeOptions.showMarkdownMode}
+                  showWebMode={modeOptions.showWebMode}
+                />
+              </div>
+            ) : null}
+            <ContentPreviewView
+              status="ready"
+              content={previewContent}
+              textMode={textMode}
+              onTextModeChange={setTextMode}
+              codeLanguage={codeLanguage ?? (previewContent.kind === "json" ? "json" : "text")}
+              showTextModeToolbar={false}
+              className="db-cell-editor-blob-preview-view"
+              contentResetKey={cellKey ?? "cell"}
+              editable={!readOnly && !isMediaPreview}
+              onTextChange={readOnly ? undefined : handleChange}
+            />
+          </div>
+        );
+      }
+
       const props = { value: editText, onChange: handleChange, autoFocus: false };
       switch (editorKind) {
         case "number":
@@ -140,12 +243,8 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
           return <DateTimeEditor {...props} />;
         case "time":
           return <TimeEditor {...props} />;
-        case "json":
-          return <JsonEditor {...props} />;
-        case "binary":
-          return <TextEditor {...props} />;
         default:
-          return isNull ? <NullEditor {...props} /> : <TextEditor {...props} />;
+          return isNull ? <NullEditor {...props} /> : null;
       }
     };
 

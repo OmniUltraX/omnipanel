@@ -98,6 +98,7 @@ export async function applySchemaNodeRefreshResult(
       databases: result.databases.map((db) => ({
         ...db,
         objectsLoaded: db.objectsLoaded ?? false,
+        keyCount: db.keyCount ?? undefined,
       })),
       users: result.users ?? [],
       refreshedAt,
