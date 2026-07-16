@@ -44,10 +44,19 @@ async function collectTerminalState(
 ): Promise<Pick<TabStatePayload, "terminalHistory" | "shellHistory" | "blocks">> {
   const result: Pick<TabStatePayload, "terminalHistory" | "shellHistory" | "blocks"> = {};
 
-  // 终端历史（已持久化的 blocks）
+  // 终端历史（内存缓存；若空则从 SQLite 拉取）
   try {
     const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
-    const history = useTerminalHistoryStore.getState().bySession[sessionId];
+    let history = useTerminalHistoryStore.getState().bySession[sessionId];
+    if (!history?.length) {
+      const { terminalHistoryRepo } = await import("../modules/terminal/terminalHistoryRepo");
+      history = await terminalHistoryRepo.loadSession(sessionId);
+      if (history.length > 0) {
+        useTerminalHistoryStore.setState((state) => ({
+          bySession: { ...state.bySession, [sessionId]: history! },
+        }));
+      }
+    }
     if (history && history.length > 0) {
       result.terminalHistory = history;
     }
@@ -190,12 +199,18 @@ async function applyTerminalState(
   if (payload.terminalHistory) {
     try {
       const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
+      const history = payload.terminalHistory as import("../stores/terminalHistoryStore").PersistedTerminalBlock[];
       useTerminalHistoryStore.setState((state) => ({
         bySession: {
           ...state.bySession,
-          [sessionId]: payload.terminalHistory as never,
+          [sessionId]: history,
         },
       }));
+      const { persistedBlockToRecord, terminalHistoryRepo } = await import(
+        "../modules/terminal/terminalHistoryRepo"
+      );
+      const records = history.map((b) => persistedBlockToRecord(sessionId, b));
+      await terminalHistoryRepo.upsertRecords(sessionId, records).catch(() => undefined);
     } catch {
       /* ignore */
     }

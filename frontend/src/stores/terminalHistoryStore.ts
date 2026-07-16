@@ -1,183 +1,201 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import type { AiThreadItem, TerminalBlock } from "./blocksStore";
+import type { TerminalBlock } from "./blocksStore";
 import { useBlocksStore } from "./blocksStore";
-import { useSettingsStore } from "./settingsStore";
-import { renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
+import {
+  fromHistoryRecord,
+  persistedBlockToRecord,
+  terminalHistoryRepo,
+  toHistoryRecord,
+} from "../modules/terminal/terminalHistoryRepo";
 import { normalizeRestoredTerminalBlock } from "../modules/terminal/terminalBlockRestore";
 
+/** 旧版 localStorage key；仅用于一次性迁移 */
 export const TERMINAL_HISTORY_STORAGE_KEY = "omnipanel-terminal-history.v1";
-export const DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS = 200;
-const MAX_PERSISTED_OUTPUT_CHARS = 16_000;
+export { DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS } from "../modules/terminal/terminalHistoryRepo";
 
 export type PersistedTerminalBlock = Omit<TerminalBlock, "marker"> & {
   marker: null;
 };
 
 interface TerminalHistoryState {
+  /** 内存缓存：已加载/已同步的会话块（非持久化真相源） */
   bySession: Record<string, PersistedTerminalBlock[]>;
-  syncSession: (sessionId: string, blocks: TerminalBlock[]) => void;
-  restoreSession: (sessionId: string) => void;
-  restoreAllKnownSessions: (sessionIds: string[]) => void;
-  removeBlock: (sessionId: string, blockId: string) => void;
-  clearSession: (sessionId: string) => void;
-  clearAll: () => void;
+  sessionCount: number;
+  blockCount: number;
+  hydrated: boolean;
+  refreshCounts: () => Promise<void>;
+  /** 将 live blocks 写入缓存（sync flush 后调用） */
+  cacheSessionBlocks: (sessionId: string, blocks: TerminalBlock[]) => void;
+  restoreSession: (sessionId: string) => Promise<void>;
+  restoreAllKnownSessions: (sessionIds: string[]) => Promise<void>;
+  removeBlock: (sessionId: string, blockId: string) => Promise<void>;
+  clearSession: (sessionId: string) => Promise<void>;
+  clearAll: () => Promise<void>;
   getSessionBlocks: (sessionId: string) => PersistedTerminalBlock[];
   countBlocks: () => number;
   countSessions: () => number;
-}
-
-function trimOutput(text: string): string {
-  if (text.length <= MAX_PERSISTED_OUTPUT_CHARS) return text;
-  return `…[输出已截断]\n${text.slice(-MAX_PERSISTED_OUTPUT_CHARS)}`;
-}
-
-function trimAiThread(thread: AiThreadItem[] | undefined): AiThreadItem[] | undefined {
-  if (!thread?.length) return thread;
-  return thread.map((item) => {
-    if (item.kind !== "message") {
-      const result =
-        item.result && item.result.length > MAX_PERSISTED_OUTPUT_CHARS
-          ? `${item.result.slice(0, 2000)}…[结果已截断]`
-          : item.result;
-      return { ...item, result };
-    }
-    const content =
-      item.content.length > MAX_PERSISTED_OUTPUT_CHARS
-        ? `${item.content.slice(0, 2000)}…[内容已截断]`
-        : item.content;
-    const reasoning =
-      item.reasoning && item.reasoning.length > MAX_PERSISTED_OUTPUT_CHARS
-        ? `${item.reasoning.slice(0, 2000)}…[推理已截断]`
-        : item.reasoning;
-    return { ...item, content, reasoning };
-  });
-}
-
-export function toPersistedTerminalBlock(block: TerminalBlock): PersistedTerminalBlock {
-  // 同步时保持 live 状态原样；勿在此 normalize，否则会把进行中的 AI 误标为 failed。
-  // 冷启动恢复走 fromPersistedTerminalBlock → normalizeRestoredTerminalBlock。
-  const { liveOutput, ...rest } = block;
-  return {
-    ...rest,
-    marker: null,
-    output: trimOutput(renderLiveOutputText(liveOutput, block.output)),
-    reasoning: block.reasoning ? trimOutput(block.reasoning) : block.reasoning,
-    aiThread: trimAiThread(block.aiThread),
-  };
+  /** 一次性：localStorage → SQLite */
+  migrateFromLocalStorageIfNeeded: () => Promise<void>;
 }
 
 function fromPersistedTerminalBlock(block: PersistedTerminalBlock): TerminalBlock {
   return normalizeRestoredTerminalBlock(block);
 }
 
-function resolveMaxBlocks(): number {
-  const configured = useSettingsStore.getState().terminalHistoryMaxBlocks;
-  if (!Number.isFinite(configured) || configured < 1) {
-    return DEFAULT_TERMINAL_HISTORY_MAX_BLOCKS;
-  }
-  return Math.min(500, Math.max(20, Math.round(configured)));
-}
+export const useTerminalHistoryStore = create<TerminalHistoryState>((set, get) => ({
+  bySession: {},
+  sessionCount: 0,
+  blockCount: 0,
+  hydrated: false,
 
-function shouldPersistHistory(): boolean {
-  return useSettingsStore.getState().terminalHistoryPersist;
-}
+  refreshCounts: async () => {
+    try {
+      const { sessions, blocks } = await terminalHistoryRepo.counts();
+      set({ sessionCount: sessions, blockCount: blocks, hydrated: true });
+    } catch {
+      set({ hydrated: true });
+    }
+  },
 
-export const useTerminalHistoryStore = create<TerminalHistoryState>()(
-  persist(
-    (set, get) => ({
-      bySession: {},
-
-      syncSession: (sessionId, blocks) => {
-        if (!shouldPersistHistory() || !sessionId) return;
-        const maxBlocks = resolveMaxBlocks();
-        const persisted = blocks
-          .filter((block) => block.command.trim().length > 0 || block.kind === "ai")
-          .slice(-maxBlocks)
-          .map(toPersistedTerminalBlock);
-        set((state) => ({
-          bySession: {
-            ...state.bySession,
-            [sessionId]: persisted,
-          },
-        }));
+  cacheSessionBlocks: (sessionId, blocks) => {
+    if (!sessionId) return;
+    const persisted = blocks
+      .filter((block) => block.command.trim().length > 0 || block.kind === "ai")
+      .map((block) => {
+        const record = toHistoryRecord(block);
+        return fromHistoryRecord(record);
+      });
+    set((state) => ({
+      bySession: {
+        ...state.bySession,
+        [sessionId]: persisted,
       },
+    }));
+  },
 
-      restoreSession: (sessionId) => {
-        if (!sessionId) return;
-        const persisted = get().bySession[sessionId];
-        const store = useBlocksStore.getState();
-        const current = store.getBlocks(sessionId);
-        // 仅冷灌入：已有 live blocks 时不得 reconcile，否则会把进行中的 AI/shell 收尾成 failed。
-        if (current.length > 0) return;
-        if (!persisted?.length) return;
-        store.replaceSessionBlocks(
-          sessionId,
-          persisted.map(fromPersistedTerminalBlock),
-        );
-      },
+  restoreSession: async (sessionId) => {
+    if (!sessionId) return;
+    const store = useBlocksStore.getState();
+    const current = store.getBlocks(sessionId);
+    // 仅冷灌入：已有 live blocks 时不得 reconcile
+    if (current.length > 0) return;
 
-      restoreAllKnownSessions: (sessionIds) => {
-        for (const sessionId of sessionIds) {
-          get().restoreSession(sessionId);
-        }
-      },
+    let persisted = get().bySession[sessionId];
+    if (!persisted?.length) {
+      try {
+        persisted = await terminalHistoryRepo.loadSession(sessionId);
+      } catch {
+        return;
+      }
+      if (!persisted.length) return;
+      set((state) => ({
+        bySession: { ...state.bySession, [sessionId]: persisted! },
+      }));
+    }
 
-      removeBlock: (sessionId, blockId) => {
-        set((state) => {
-          const current = state.bySession[sessionId] ?? [];
-          return {
-            bySession: {
-              ...state.bySession,
-              [sessionId]: current.filter((block) => block.id !== blockId),
-            },
-          };
-        });
-        useBlocksStore.getState().removeBlock(blockId);
-      },
+    const terminalBlocks = persisted.map(fromPersistedTerminalBlock);
+    const { noteRestoredSessionBlocks } = await import("../modules/terminal/terminalHistorySync");
+    noteRestoredSessionBlocks(sessionId, terminalBlocks);
+    store.replaceSessionBlocks(sessionId, terminalBlocks);
+  },
 
-      clearSession: (sessionId) => {
-        set((state) => {
-          const next = { ...state.bySession };
-          delete next[sessionId];
-          return { bySession: next };
-        });
-        useBlocksStore.getState().clearBlocks(sessionId);
-      },
+  restoreAllKnownSessions: async (sessionIds) => {
+    for (const sessionId of sessionIds) {
+      await get().restoreSession(sessionId);
+    }
+  },
 
-      clearAll: () => {
-        const sessionIds = Object.keys(get().bySession);
-        set({ bySession: {} });
-        for (const sessionId of sessionIds) {
-          useBlocksStore.getState().clearBlocks(sessionId);
-        }
-      },
+  removeBlock: async (sessionId, blockId) => {
+    set((state) => {
+      const current = state.bySession[sessionId] ?? [];
+      return {
+        bySession: {
+          ...state.bySession,
+          [sessionId]: current.filter((block) => block.id !== blockId),
+        },
+      };
+    });
+    useBlocksStore.getState().removeBlock(blockId);
+    try {
+      await terminalHistoryRepo.removeBlock(sessionId, blockId);
+      await get().refreshCounts();
+    } catch {
+      // ignore
+    }
+  },
 
-      getSessionBlocks: (sessionId) => get().bySession[sessionId] ?? [],
+  clearSession: async (sessionId) => {
+    set((state) => {
+      const next = { ...state.bySession };
+      delete next[sessionId];
+      return { bySession: next };
+    });
+    useBlocksStore.getState().clearBlocks(sessionId);
+    try {
+      await terminalHistoryRepo.clearSession(sessionId);
+      await get().refreshCounts();
+    } catch {
+      // ignore
+    }
+  },
 
-      countBlocks: () =>
-        Object.values(get().bySession).reduce((sum, blocks) => sum + blocks.length, 0),
+  clearAll: async () => {
+    const sessionIds = Object.keys(get().bySession);
+    set({ bySession: {}, sessionCount: 0, blockCount: 0 });
+    for (const sessionId of sessionIds) {
+      useBlocksStore.getState().clearBlocks(sessionId);
+    }
+    try {
+      await terminalHistoryRepo.clearAll();
+    } catch {
+      // ignore
+    }
+  },
 
-      countSessions: () => Object.keys(get().bySession).length,
-    }),
-    {
-      name: TERMINAL_HISTORY_STORAGE_KEY,
-      version: 2,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ bySession: state.bySession }),
-      migrate: (persistedState, version) => {
-        const persisted = persistedState as { bySession?: Record<string, PersistedTerminalBlock[]> };
-        if (!persisted?.bySession || version >= 2) {
-          return persistedState as TerminalHistoryState;
-        }
-        // v1 历史键即为 tab/session id，v2 起统一按 sessionId 存储，结构不变
-        return { bySession: persisted.bySession } as TerminalHistoryState;
-      },
-    },
-  ),
-);
+  getSessionBlocks: (sessionId) => get().bySession[sessionId] ?? [],
+
+  countBlocks: () => get().blockCount,
+
+  countSessions: () => get().sessionCount,
+
+  migrateFromLocalStorageIfNeeded: async () => {
+    if (typeof localStorage === "undefined") return;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(TERMINAL_HISTORY_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        state?: { bySession?: Record<string, PersistedTerminalBlock[]> };
+        bySession?: Record<string, PersistedTerminalBlock[]>;
+      };
+      const bySession = parsed.state?.bySession ?? parsed.bySession ?? {};
+      for (const [sessionId, blocks] of Object.entries(bySession)) {
+        if (!sessionId || !blocks?.length) continue;
+        const records = blocks.map((b) => persistedBlockToRecord(sessionId, b));
+        await terminalHistoryRepo.upsertRecords(sessionId, records);
+      }
+      try {
+        localStorage.removeItem(TERMINAL_HISTORY_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      await get().refreshCounts();
+    } catch (err) {
+      console.warn("[terminal-history] localStorage 迁移失败，下次启动将重试", err);
+    }
+  },
+}));
 
 export function clearTerminalHistoryData(): void {
-  useTerminalHistoryStore.getState().clearAll();
-  useTerminalHistoryStore.persist.clearStorage();
+  void useTerminalHistoryStore.getState().clearAll();
+}
+
+/** @deprecated 截断已下沉到 Rust；保留导出以免外部引用断裂 */
+export function toPersistedTerminalBlock(block: TerminalBlock): PersistedTerminalBlock {
+  return fromHistoryRecord(toHistoryRecord(block));
 }

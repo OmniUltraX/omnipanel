@@ -20,6 +20,7 @@ mod schema_filters;
 mod schema_tree_expanded;
 mod storage;
 mod task;
+mod terminal_history;
 mod third_party_account;
 mod vault;
 mod http_proxy;
@@ -87,6 +88,9 @@ pub use schema_tree_expanded::{
 };
 pub use storage::{AuditEntry, Storage};
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
+pub use terminal_history::{
+    TerminalHistoryBlockRecord, TerminalHistoryRetainPolicy, sanitize_payload_json,
+};
 pub use third_party_account::{
     ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
 };
