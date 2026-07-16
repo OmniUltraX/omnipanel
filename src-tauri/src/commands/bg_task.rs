@@ -3,9 +3,10 @@ use omnipanel_store::DbConnectionConfig;
 use tauri::State;
 
 use crate::background::db_sync_jobs::{
-    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncTableSpec, generate_data_sync_sql_script,
-    read_sync_sql_file, run_db_data_sync_analysis, run_db_data_sync_execute,
-    run_db_data_sync_sql_file_execute, run_db_schema_sync_analysis, run_db_schema_sync_execute,
+    batch_table_ddl, preview_schema_sync_sql, DbDataSyncSqlGenerateResult, DbSyncExecTableSpec,
+    DbSyncSqlPreviewTable, DbSyncTableSpec, generate_data_sync_sql_script, read_sync_sql_file,
+    run_db_data_sync_analysis, run_db_data_sync_execute, run_db_data_sync_sql_file_execute,
+    run_db_schema_sync_analysis, run_db_schema_sync_execute,
 };
 use crate::background::knowledge_vector_jobs::run_knowledge_vectorize_background;
 use crate::background::schema_cache_jobs::run_db_schema_cache_refresh;
@@ -225,6 +226,39 @@ pub async fn db_data_sync_generate_sql(
     tables: Vec<DbSyncExecTableSpec>,
 ) -> Result<DbDataSyncSqlGenerateResult, OmniError> {
     Ok(generate_data_sync_sql_script(&app, source, target, tables).await?)
+}
+
+/// 结构同步：一次返回「表 → SQL 预览」（不执行）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_schema_sync_preview_sql(
+    source: DbConnectionConfig,
+    target: DbConnectionConfig,
+    source_db: String,
+    target_db: String,
+    tables: Vec<DbSyncTableSpec>,
+    create_missing_tables: Option<bool>,
+) -> Result<Vec<DbSyncSqlPreviewTable>, OmniError> {
+    Ok(preview_schema_sync_sql(
+        source,
+        target,
+        source_db,
+        target_db,
+        tables,
+        create_missing_tables.unwrap_or(true),
+    )
+    .await?)
+}
+
+/// 批量拉取建表 DDL（数据同步预览等）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_batch_table_ddl(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+    tables: Vec<String>,
+) -> Result<Vec<DbSyncSqlPreviewTable>, OmniError> {
+    Ok(batch_table_ddl(connection, schema, tables).await?)
 }
 
 /// 读取数据同步 SQL 缓存文件（仅限 app_cache/data-sync-sql 目录）。

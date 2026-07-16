@@ -3,6 +3,7 @@
 //! 设计原则：本文件只做参数解析、连接解析与事件桥接，所有 Docker 业务逻辑都在
 //! `omnipanel-docker` crate。命令统一返回 `Result<T, OmniError>`，流式数据通过
 //! `docker-log` / `docker-log-end` 事件回传前端。
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -234,6 +235,25 @@ pub(crate) async fn ensure_docker_ssh(
         }
     }
 
+    // 与 ssh_pool.ensure_session 类似：串行化同一 Docker 连接的建连
+    let connect_lock = {
+        static LOCKS: std::sync::OnceLock<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+            std::sync::OnceLock::new();
+        let locks = LOCKS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()));
+        let mut map = locks.lock().await;
+        map.entry(connection_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    };
+    let _connect_guard = connect_lock.lock().await;
+
+    {
+        let pool = state.docker_ssh_sessions.lock().await;
+        if let Some(existing) = pool.get(connection_id) {
+            return Ok(existing.clone());
+        }
+    }
+
     let bound_id = bound_id.filter(|id| !id.trim().is_empty());
 
     let session = if let Some(ref ssh_id) = bound_id {
@@ -249,7 +269,13 @@ pub(crate) async fn ensure_docker_ssh(
     let mut pool = state.docker_ssh_sessions.lock().await;
     // 并发建连时后完成的一方复用已写入的会话，避免覆盖并泄漏 TCP。
     if let Some(existing) = pool.get(connection_id) {
-        return Ok(existing.clone());
+        let existing = existing.clone();
+        drop(pool);
+        // 仅断开「独立建连」的多余会话；绑定池会话由 ssh_pool 统一管理，不可 disconnect。
+        if bound_id.is_none() {
+            session.disconnect().await;
+        }
+        return Ok(existing);
     }
     pool.insert(connection_id.to_string(), session.clone());
     Ok(session)
@@ -283,6 +309,7 @@ pub(crate) fn is_ssh_session_recoverable(err: &OmniError) -> bool {
             let recoverable_patterns = [
                 "too many open sessions",
                 "channel open failure",
+                "channel send",
                 "connection reset",
                 "connection closed",
                 "connection is closed",
@@ -364,6 +391,7 @@ mod networks;
 mod volumes;
 mod ssh_detect;
 mod swarm;
+mod sidebar_cache;
 
 pub use connection::*;
 pub use containers::*;
@@ -375,6 +403,7 @@ pub use networks::*;
 pub use volumes::*;
 pub use ssh_detect::*;
 pub use swarm::*;
+pub use sidebar_cache::*;
 
 #[cfg(test)]
 mod tests {
@@ -431,6 +460,10 @@ mod tests {
         assert!(is_ssh_session_recoverable(&err));
 
         let err = OmniError::new(ErrorCode::Internal, "channel open failure");
+        assert!(is_ssh_session_recoverable(&err));
+
+        let err = OmniError::new(ErrorCode::Internal, "打开 SSH exec 通道失败")
+            .with_cause("Channel send error");
         assert!(is_ssh_session_recoverable(&err));
 
         let err = OmniError::new(ErrorCode::Internal, "Connection reset by peer");

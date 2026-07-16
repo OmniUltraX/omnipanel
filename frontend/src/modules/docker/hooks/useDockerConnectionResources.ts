@@ -25,7 +25,7 @@ export function connectionSupportsSidebarResources(connection: DockerConnectionI
 }
 
 /**
- * 读取单个 Docker 连接的侧栏资源缓存（localStorage 持久化，启动自动 rehydrate）。
+ * 读取单个 Docker 连接的侧栏资源缓存（后端持久化，前端仅内存 + UI 态）。
  * 只读缓存，不在展开/挂载时自动请求；仅点击刷新按钮时 refresh / refreshCategory 写缓存并更新 UI。
  */
 export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
@@ -79,7 +79,7 @@ export function useDockerConnectionResources(connection: DockerConnectionInfo | 
       containers: [],
       networks: [],
       volumes: [],
-      loadedCategories: {},
+      loadedCategories: EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.loadedCategories,
       loading: false,
       error: null,
       refresh,

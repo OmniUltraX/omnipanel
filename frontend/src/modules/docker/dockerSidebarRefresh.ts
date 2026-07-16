@@ -1,5 +1,5 @@
 import { commands } from "@/ipc/bindings";
-import { unwrapCommand } from "@/ipc/result";
+import { unwrapCommand, type CommandResult } from "@/ipc/result";
 import type {
   DockerSidebarCacheEntry,
   DockerSidebarCategory,
@@ -7,7 +7,10 @@ import type {
 } from "./dockerSidebarCache";
 import { EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY } from "./dockerSidebarCache";
 
-const unwrap = unwrapCommand;
+/** 侧栏刷新失败会落到 entry.error，避免刷屏 console */
+function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
+  return unwrapCommand(promise, { quiet: true });
+}
 
 const ALL_CATEGORIES: DockerSidebarCategory[] = ["images", "containers", "networks", "volumes"];
 

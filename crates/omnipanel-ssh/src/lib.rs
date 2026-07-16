@@ -537,6 +537,18 @@ async fn wait_stop(stop: &AtomicBool) {
     }
 }
 
+/// 会话已死时重试 `channel_open_session` 无意义，应立刻失败并让上层重建连接。
+/// 注意：单纯的 `Eof` / `ChannelOpenFailure` 仍可能是瞬时抖动，留给退避重试。
+fn is_ssh_session_dead_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("channel send")
+        || lower.contains("connection reset")
+        || lower.contains("connection closed")
+        || lower.contains("connection is closed")
+        || lower.contains("broken pipe")
+        || lower.contains("not connected")
+}
+
 /// 打开一个新 exec/SFTP channel，并对 `channel_open_session` 短暂失败做有限重试。
 ///
 /// `russh` 的 `channel_open_session` 在底层 TCP/SSH 出现瞬时抖动时会偶发返回
@@ -552,7 +564,12 @@ async fn open_session_channel_retry(
         match session.channel_open_session().await {
             Ok(channel) => return Ok(channel),
             Err(e) => {
-                last_err = Some(e.to_string());
+                let err_str = e.to_string();
+                last_err = Some(err_str.clone());
+                // 连接已断：继续退避只会拖慢 Docker/侧栏恢复
+                if is_ssh_session_dead_error(&err_str) {
+                    break;
+                }
                 if attempt + 1 < attempts {
                     let delay = Duration::from_millis(100u64 << attempt);
                     tokio::time::sleep(delay).await;
@@ -788,9 +805,10 @@ impl SshSession {
             .await
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "打开 SSH exec 通道失败").with_cause(e.to_string())
-        })?;
+        // 与 exec_stream / exec_pty 一致：走带退避的 open，避免瞬时抖动直接打到前端
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+            .await
+            .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
 
         let result: OmniResult<ExecOutput> = async {
             channel.exec(true, command).await.map_err(|e| {
@@ -948,9 +966,9 @@ impl SshSession {
     }
 
     async fn open_sftp_inner(&self) -> OmniResult<SftpSession> {
-        let channel = self.session.channel_open_session().await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "打开 SFTP 通道失败").with_cause(e.to_string())
-        })?;
+        let channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+            .await
+            .map_err(|e| e.or_ssh_context("打开 SFTP 通道失败"))?;
         channel.request_subsystem(true, "sftp").await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "请求 SFTP 子系统失败").with_cause(e.to_string())
         })?;

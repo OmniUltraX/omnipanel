@@ -167,6 +167,10 @@ export function buildSchemaAlignedTableNames(
   return collectAlignedDisplayNames(sourceSnapshot, targetSnapshot, caseSensitive);
 }
 
+/**
+ * 本地全量 diff（已降级）：结构同步分析走后台任务 `bg_task_submit_db_schema_sync`。
+ * 仅保留给测试 / 离线兜底；热路径勿再调用。
+ */
 export function buildSchemaDiffsFromSnapshots(
   sourceSnapshot: SyncSideSnapshot,
   targetSnapshot: SyncSideSnapshot,

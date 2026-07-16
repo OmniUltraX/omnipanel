@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { loadSchemaCache, saveSchemaCache } from "../modules/database/api";
+import { loadSchemaCache, patchSchemaCache, saveSchemaCache } from "../modules/database/api";
 import type { SchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 import { emptySchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 
@@ -25,11 +25,42 @@ interface DbSchemaCacheState {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** 防抖窗口内待增量写入的连接 */
+const pendingConnectionPatches = new Map<
+  string,
+  SchemaCacheSnapshot["connections"][string]
+>();
 
-function schedulePersist(getState: () => DbSchemaCacheState) {
+function schedulePersistConnection(
+  connId: string,
+  entry: SchemaCacheSnapshot["connections"][string],
+  getState: () => DbSchemaCacheState,
+) {
+  pendingConnectionPatches.set(connId, entry);
   if (saveTimer) {
     clearTimeout(saveTimer);
   }
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    if (!getState().hydrated) {
+      pendingConnectionPatches.clear();
+      return;
+    }
+    const patches = [...pendingConnectionPatches.entries()];
+    pendingConnectionPatches.clear();
+    for (const [id, patchEntry] of patches) {
+      void patchSchemaCache(id, patchEntry as Parameters<typeof patchSchemaCache>[1]).catch(
+        () => {},
+      );
+    }
+  }, 400);
+}
+
+function schedulePersistFullSnapshot(getState: () => DbSchemaCacheState) {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  pendingConnectionPatches.clear();
   saveTimer = setTimeout(() => {
     saveTimer = null;
     const { snapshot, hydrated } = getState();
@@ -64,7 +95,7 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
     if (options?.persist === false) {
       return;
     }
-    schedulePersist(get);
+    schedulePersistFullSnapshot(get);
   },
 
   patchConnection: async (connId, entry, options) => {
@@ -78,7 +109,7 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
     if (options?.persist === false) {
       return;
     }
-    schedulePersist(get);
+    schedulePersistConnection(connId, entry, get);
   },
 
   setConnectionRefreshing: (connId, refreshing) => {

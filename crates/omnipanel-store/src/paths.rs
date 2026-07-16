@@ -77,6 +77,11 @@ pub fn database_schema_cache_path() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::DATABASE)?.join("schema-cache.json"))
 }
 
+/// Docker 侧栏资源缓存：`~/.omnipd/docker/sidebar-cache.json`。
+pub fn docker_sidebar_cache_path() -> OmniResult<PathBuf> {
+    Ok(module_dir(modules::DOCKER)?.join("sidebar-cache.json"))
+}
+
 /// MCP 服务配置：`~/.omnipd/mcp/services.json`。
 pub fn mcp_services_path() -> OmniResult<PathBuf> {
     Ok(module_dir(modules::MCP)?.join("services.json"))

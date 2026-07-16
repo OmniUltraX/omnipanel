@@ -11,8 +11,9 @@ pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
     SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_cache, load_schema_filters,
-    load_schema_tree_expanded, prune_connection_cache, prune_connection_expanded,
-    prune_connection_filters, save_schema_cache, save_schema_filters, save_schema_tree_expanded,
+    load_schema_tree_expanded, patch_schema_cache_connection, prune_connection_cache,
+    prune_connection_expanded, prune_connection_filters, save_schema_cache, save_schema_filters,
+    save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -1067,6 +1068,16 @@ pub async fn db_load_schema_cache() -> Result<SchemaCacheSnapshot, String> {
 #[specta::specta]
 pub async fn db_save_schema_cache(snapshot: SchemaCacheSnapshot) -> Result<(), String> {
     save_schema_cache(&snapshot).map_err(|e| e.to_string())
+}
+
+/// 增量写入单连接 Schema 缓存，避免前端每次传完整快照。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_patch_schema_cache(
+    connection_id: String,
+    entry: SchemaCacheConnection,
+) -> Result<SchemaCacheConnection, String> {
+    patch_schema_cache_connection(&connection_id, entry).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

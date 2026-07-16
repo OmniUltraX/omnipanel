@@ -140,6 +140,23 @@ pub fn save_schema_cache(snapshot: &SchemaCacheSnapshot) -> OmniResult<()> {
     save_schema_cache_to(&path, snapshot)
 }
 
+/// 增量写入单连接 Schema 缓存（读-合并-写），避免前端每次传整包快照。
+pub fn patch_schema_cache_connection(
+    conn_id: &str,
+    entry: SchemaCacheConnection,
+) -> OmniResult<SchemaCacheConnection> {
+    let path = paths::database_schema_cache_path()?;
+    let mut snapshot = load_schema_cache_from(&path)?;
+    let previous = snapshot.connections.get(conn_id).cloned();
+    let mut merged = merge_schema_cache_connection(previous.as_ref(), entry);
+    let _ = sanitize_bloated_schema_cache_entry(&mut merged);
+    snapshot
+        .connections
+        .insert(conn_id.to_string(), merged.clone());
+    save_schema_cache_to(&path, &snapshot)?;
+    Ok(merged)
+}
+
 pub fn save_schema_cache_to(path: &Path, snapshot: &SchemaCacheSnapshot) -> OmniResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(map_io)?;

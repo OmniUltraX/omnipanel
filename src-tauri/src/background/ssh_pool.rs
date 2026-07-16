@@ -247,6 +247,8 @@ struct CachedOverview {
 pub struct SshPool {
     entries: Arc<Mutex<HashMap<String, PoolEntry>>>,
     pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+    /// 同一 host 并发 ensure_session 时串行建连，避免双开 TCP / MaxStartups。
+    session_connect_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     overview_cache: Arc<Mutex<HashMap<String, CachedOverview>>>,
     ports_fill_inflight: Arc<Mutex<HashSet<String>>>,
     monitoring_subs: Arc<Mutex<HashMap<String, u32>>>,
@@ -262,6 +264,7 @@ impl SshPool {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
+            session_connect_locks: Arc::new(Mutex::new(HashMap::new())),
             overview_cache: Arc::new(Mutex::new(HashMap::new())),
             ports_fill_inflight: Arc::new(Mutex::new(HashSet::new())),
             monitoring_subs: Arc::new(Mutex::new(HashMap::new())),
@@ -778,6 +781,23 @@ impl SshPool {
             }
         }
 
+        let connect_lock = {
+            let mut locks = self.session_connect_locks.lock().await;
+            locks
+                .entry(resource_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _connect_guard = connect_lock.lock().await;
+
+        // 持锁后再检一次，合并并发建连
+        {
+            let pool = self.pool_sessions.lock().await;
+            if let Some(session) = pool.get(resource_id) {
+                return Ok(Arc::clone(session));
+            }
+        }
+
         let (name, mut config) = self.resolve_connect_config(resource_id).await?;
         self.log
             .log("ssh-pool", "info", &format!("正在建立 SSH 会话: {name}…"))
@@ -805,7 +825,11 @@ impl SshPool {
 
         let mut pool = self.pool_sessions.lock().await;
         if let Some(existing) = pool.get(resource_id) {
-            return Ok(Arc::clone(existing));
+            let existing = Arc::clone(existing);
+            drop(pool);
+            // 竞态下后完成的连接主动断开，避免泄漏空闲 TCP
+            session.disconnect().await;
+            return Ok(existing);
         }
         pool.insert(resource_id.to_string(), Arc::clone(&session));
         self.log

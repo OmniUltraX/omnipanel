@@ -69,14 +69,15 @@ pub use web_search::{
 pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
     database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
+    docker_sidebar_cache_path,
     database_schema_tree_expanded_path, http_proxy_config_path, mcp_services_path, meta_db_path,
     module_dir, omnipd_root, skills_root, web_search_config_path,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
     SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser, load_schema_cache,
-    merge_schema_cache_connection, prune_connection_cache, sanitize_bloated_schema_cache_entry,
-    sanitize_redis_schema_cache_entry, save_schema_cache,
+    merge_schema_cache_connection, patch_schema_cache_connection, prune_connection_cache,
+    sanitize_bloated_schema_cache_entry, sanitize_redis_schema_cache_entry, save_schema_cache,
 };
 pub use schema_filters::{
     SchemaFilterRecord, SchemaFiltersSnapshot, load_schema_filters, prune_connection_filters,
