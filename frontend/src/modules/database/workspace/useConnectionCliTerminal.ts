@@ -12,6 +12,7 @@ import type { WorkspaceResource } from "../../../lib/resourceRegistry";
 import type { DbConnectionConfig } from "../api";
 import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
 import type { RedisDeploymentInfo } from "../redisDeploymentDetect";
+import type { PostgresDeploymentInfo } from "../postgresDeploymentDetect";
 import { dbCliEmbeddedPaneId } from "../databaseCliTerminal";
 import {
   listCliTerminalModes,
@@ -24,8 +25,8 @@ type TranslateFn = (key: string, params?: Record<string, string | number>) => st
 
 interface UseConnectionCliTerminalOptions {
   connection: DbConnectionConfig;
-  client: "mysql" | "redis";
-  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | null;
+  client: "mysql" | "redis" | "psql";
+  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | PostgresDeploymentInfo | null;
   deploymentLoading?: boolean;
   sshConnections: Connection[];
   /** 连接信息面板是否处于激活态；关闭面板时才断开 SSH。 */
@@ -152,12 +153,12 @@ export function useConnectionCliTerminal({
     setInputMode(paneId, "interactive");
     upsertEmbeddedPane({
       id: paneId,
-      title: client === "mysql" ? "mysql" : "redis-cli",
+      title: client === "mysql" ? "mysql" : client === "psql" ? "psql" : "redis-cli",
       type: activeMode.paneType,
       resourceId: activeMode.resourceId,
       shellLabel: activeMode.paneType === "remote" ? "SSH" : "Shell",
       cwd: "~/",
-      purpose: client === "mysql" ? "MySQL CLI" : "Redis CLI",
+      purpose: client === "mysql" ? "MySQL CLI" : client === "psql" ? "PostgreSQL CLI" : "Redis CLI",
       commandPack: activeMode.launchSteps,
     });
   }, [activeMode, client, panelActive, paneId, setInputMode, upsertEmbeddedPane]);

@@ -52,6 +52,17 @@ export function buildTableTreeItem(connId: string, dbName: string, tableName: st
   };
 }
 
+export function buildViewTreeItem(connId: string, dbName: string, viewName: string): SchemaTreeItem {
+  return {
+    type: "view",
+    id: `view:${connId}:${dbName}:${viewName}`,
+    label: viewName,
+    connId,
+    dbName,
+    tableName: viewName,
+  };
+}
+
 export function buildFolderTreeItem(id: string, label: string, connId?: string, dbName?: string, tableName?: string): SchemaTreeItem {
   return { type: "folder", id, label, connId, dbName, tableName };
 }

@@ -108,6 +108,9 @@ export function Bootstrap() {
           initDbTreeChartFilesStore(),
           initAcpServicesStore(),
           initCliProvidersStore(),
+          import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
+            m.initDbSchemaUiStores(),
+          ),
         ]);
         await Promise.all([toolsChain, parallelInits]);
 

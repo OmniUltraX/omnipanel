@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
@@ -9,19 +9,29 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
+import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
+import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { Connection } from "../../../ipc/bindings";
-import { isMysqlConnectionInfoCapable, type DbConnectionConfig } from "../api";
+import {
+  isMysqlConnectionInfoCapable,
+  isPostgresConnectionInfoCapable,
+  listDatabasesWithStats,
+  type DbConnectionConfig,
+  type DbDatabaseMeta,
+} from "../api";
 import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
 } from "../mysqlDeploymentDetect";
 import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
+  isMysqlDeploymentCacheUsable,
   readMysqlDeploymentCache,
   writeMysqlDeploymentCache,
 } from "../mysqlDeploymentCache";
 import { makeQueryRunId } from "../sql/queryRun";
 import { displayDetailValue } from "./databaseTablesPanelFormat";
+import { formatBytes } from "../../../stores/sshStatsStore";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "./DbTablesPanelGrid";
 import { rowsToRecord, type QueryResult } from "./dbWorkspaceState";
 import { DbDeploymentNavTag } from "./DbDeploymentNavTag";
@@ -31,16 +41,56 @@ import { DeploymentServiceLogSubWindow } from "./DeploymentServiceLogSubWindow";
 import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
+import { CreateDatabaseDialog } from "./CreateDatabaseDialog";
 
 import { buildMysqlCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
-import { ConnectionExportTabPanel } from "./ConnectionExportTabPanel";
+import { ConnectionUsersTabPanel } from "./ConnectionUsersTabPanel";
 import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
 
-const PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
-const VARIABLES_SQL = "SHOW VARIABLES;";
+const MYSQL_PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
+const MYSQL_VARIABLES_SQL = "SHOW VARIABLES;";
+// PostgreSQL：进程列表来自 pg_stat_activity，变量来自 pg_settings
+// 列别名与 MySQL 的 User/Host/Time 对齐，复用 SORTABLE_COLUMN_CANDIDATES 排序逻辑
+const PG_PROCESSLIST_SQL =
+  "SELECT pid AS Id, usename AS User, client_addr AS Host, datname AS db, state AS State, query AS Query, " +
+  "EXTRACT(EPOCH FROM now() - query_start)::bigint AS Time " +
+  "FROM pg_stat_activity WHERE datname IS NOT NULL ORDER BY Time DESC";
+const PG_VARIABLES_SQL =
+  "SELECT name, setting, source, context FROM pg_settings ORDER BY name";
 
-type ConnectionInfoSubTab = "connections" | "status" | "cli" | "exports";
+/** localStorage 缓存 key：按 connection.id 持久化 databasesList，重开 tab 先用缓存 */
+const DATABASES_CACHE_PREFIX = "db-conn-info-databases-cache:";
+
+function readDatabasesCache(connectionId: string): DbDatabaseMeta[] | null {
+  try {
+    const raw = localStorage.getItem(DATABASES_CACHE_PREFIX + connectionId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as DbDatabaseMeta[];
+  } catch {
+    return null;
+  }
+}
+
+function writeDatabasesCache(connectionId: string, list: DbDatabaseMeta[]): void {
+  try {
+    localStorage.setItem(DATABASES_CACHE_PREFIX + connectionId, JSON.stringify(list));
+  } catch {
+    // localStorage 满或不可用时静默忽略
+  }
+}
+
+type DatabaseSortColumn = "name" | "charset" | "collation" | "tableCount" | "sizeBytes" | "rowsEstimate";
+type DatabaseSortDirection = "asc" | "desc";
+
+interface DatabaseSortState {
+  column: DatabaseSortColumn;
+  direction: DatabaseSortDirection;
+}
+
+type ConnectionInfoSubTab = "databases" | "users" | "connections" | "status" | "cli";
 
 type ProcessSortColumn = "user" | "host" | "db" | "time";
 type ProcessSortDirection = "asc" | "desc";
@@ -65,8 +115,8 @@ const SORTABLE_COLUMN_CANDIDATES: Record<ProcessSortColumn, string[]> = {
 
 const ID_COLUMN_CANDIDATES = ["Id", "ID", "id"];
 
-const VARIABLE_NAME_COLUMNS = ["Variable_name", "variable_name"];
-const VARIABLE_VALUE_COLUMNS = ["Value", "value"];
+const VARIABLE_NAME_COLUMNS = ["Variable_name", "variable_name", "name"];
+const VARIABLE_VALUE_COLUMNS = ["Value", "value", "setting"];
 
 interface DatabaseConnectionInfoPanelProps {
   connection: DbConnectionConfig;
@@ -253,14 +303,35 @@ export function DatabaseConnectionInfoPanel({
   active = true,
 }: DatabaseConnectionInfoPanelProps) {
   const { t } = useI18n();
-  const capable = isMysqlConnectionInfoCapable(connection);
+  const isMysql = isMysqlConnectionInfoCapable(connection);
+  const isPostgres = isPostgresConnectionInfoCapable(connection);
+  /** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL） */
+  const capable = isMysql || isPostgres;
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
   const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
-  const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("connections");
+  const { selectDatabase, databasesByConnId } = useDbWorkspace();
+  const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("databases");
   const [search, setSearch] = useState("");
-  const [connectionsLoading, setConnectionsLoading] = useState(capable);
+  const [databasesLoading, setDatabasesLoading] = useState(false);
+  const [databasesError, setDatabasesError] = useState<string | null>(null);
+  const [databasesList, setDatabasesList] = useState<DbDatabaseMeta[]>(() => {
+    // 优先用 localStorage 缓存（重开 tab 时立即可用），其次用 schema cache 库名
+    const cached = readDatabasesCache(connection.id);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+    return (databasesByConnId[connection.id] ?? []).map((name) => ({
+      name,
+      charset: null,
+      collation: null,
+      tableCount: null,
+      sizeBytes: null,
+      rowsEstimate: null,
+    }));
+  });
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [variablesLoading, setVariablesLoading] = useState(false);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(() =>
@@ -270,6 +341,8 @@ export function DatabaseConnectionInfoPanel({
   const [variablesError, setVariablesError] = useState<string | null>(null);
   const [connectionsResult, setConnectionsResult] = useState<QueryResult | null>(null);
   const [variablesResult, setVariablesResult] = useState<QueryResult | null>(null);
+  const [usersActions, setUsersActions] = useState<ReactNode | null>(null);
+  const [createDbOpen, setCreateDbOpen] = useState(false);
   const [processSort, setProcessSort] = useState<ProcessSortState>({
     column: "time",
     direction: "desc",
@@ -278,10 +351,22 @@ export function DatabaseConnectionInfoPanel({
     column: "name",
     direction: "asc",
   });
+  const [databaseSort, setDatabaseSort] = useState<DatabaseSortState>({
+    column: "name",
+    direction: "asc",
+  });
   const [killingId, setKillingId] = useState<number | null>(null);
-  const [exportsCount, setExportsCount] = useState(0);
-  const [exportsRefreshToken, setExportsRefreshToken] = useState(0);
   const consumeSubTab = useDbConnectionInfoNavStore((state) => state.consumeSubTab);
+  // 标记是否已进入过 connections tab，用于切换回来时静默刷新（保留旧数据可见）
+  const connectionsTabEnteredRef = useRef(false);
+
+  // 从 schema cache 派生 users 可用性（schema cache 刷新时已拉取 users 列表，
+  // 后端遇到 1142 会返回空数组；MySQL 的 mysql.user 不可能为空，空即无权限）
+  // schema cache 尚未加载时（undefined）默认显示 tab
+  const cachedUsers = useDbSchemaCacheStore(
+    (s) => s.snapshot.connections?.[connection.id]?.users,
+  );
+  const usersAvailable = cachedUsers === undefined || cachedUsers.length > 0;
 
   const connectionLabel = useMemo(() => {
     const name = connection.name?.trim();
@@ -318,6 +403,24 @@ export function DatabaseConnectionInfoPanel({
     void viewServiceLog(connection, deployment, "mysql");
   }, [connection, deployment, viewServiceLog]);
 
+  const refreshDatabases = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setDatabasesLoading(true);
+    }
+    setDatabasesError(null);
+    try {
+      const result = await listDatabasesWithStats(connection);
+      setDatabasesList(result);
+    } catch (e) {
+      setDatabasesError(typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      if (!silent) {
+        setDatabasesLoading(false);
+      }
+    }
+  }, [connection]);
+
   const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
       return;
@@ -326,13 +429,12 @@ export function DatabaseConnectionInfoPanel({
     const silent = options?.silent ?? false;
     if (!silent) {
       setConnectionsLoading(true);
-      setConnectionsResult(null);
     }
     setConnectionsError(null);
     try {
       const queryResult = await invoke<QueryResult>("db_execute_query", {
         connection,
-        sql: PROCESSLIST_SQL,
+        sql: isPostgres ? PG_PROCESSLIST_SQL : MYSQL_PROCESSLIST_SQL,
         runId: makeQueryRunId(),
       });
       setConnectionsResult(queryResult);
@@ -343,7 +445,7 @@ export function DatabaseConnectionInfoPanel({
         setConnectionsLoading(false);
       }
     }
-  }, [capable, connection]);
+  }, [capable, connection, isPostgres]);
 
   const refreshVariables = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
@@ -359,7 +461,7 @@ export function DatabaseConnectionInfoPanel({
     try {
       const queryResult = await invoke<QueryResult>("db_execute_query", {
         connection,
-        sql: VARIABLES_SQL,
+        sql: isPostgres ? PG_VARIABLES_SQL : MYSQL_VARIABLES_SQL,
         runId: makeQueryRunId(),
       });
       setVariablesResult(queryResult);
@@ -370,16 +472,27 @@ export function DatabaseConnectionInfoPanel({
         setVariablesLoading(false);
       }
     }
-  }, [capable, connection]);
+  }, [capable, connection, isPostgres]);
 
-  const refreshDeployment = useCallback(async () => {
-    if (!capable) {
+  const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
+    // 部署探测目前仅支持 MySQL；PG 跳过，CLI tab 走 direct / SSH 隧道模式
+    if (!isMysql) {
       setDeployment(null);
       setDeploymentLoading(false);
       return;
     }
 
-    setDeploymentLoading(true);
+    const cached = readMysqlDeploymentCache(connection);
+    if (!options?.force && isMysqlDeploymentCacheUsable(cached)) {
+      setDeployment(cached);
+      setDeploymentLoading(false);
+      return;
+    }
+
+    // 已有可展示缓存时静默刷新，避免顶部「部署方式」反复转圈
+    if (!isMysqlDeploymentCacheUsable(cached)) {
+      setDeploymentLoading(true);
+    }
     try {
       const info = await probeMysqlDeployment(connection, sshConnections);
       writeMysqlDeploymentCache(connection, info);
@@ -391,32 +504,33 @@ export function DatabaseConnectionInfoPanel({
     } finally {
       setDeploymentLoading(false);
     }
-  }, [capable, connection, sshConnections]);
+  }, [isMysql, connection, sshConnections]);
 
   const refreshActiveTab = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (subTab === "connections") {
+      if (subTab === "databases") {
+        await refreshDatabases();
+      } else if (subTab === "connections") {
         await refreshConnections(options);
       } else if (subTab === "status") {
         await refreshVariables(options);
-      } else if (subTab === "exports") {
-        setExportsRefreshToken((value) => value + 1);
-      } else {
-        await refreshDeployment();
+      } else if (subTab === "cli") {
+        await refreshDeployment({ force: true });
       }
     },
-    [refreshConnections, refreshDeployment, refreshVariables, subTab],
+    [refreshConnections, refreshDatabases, refreshDeployment, refreshVariables, subTab],
   );
 
   const handleRestartService = useCallback(() => {
     void restartService(deployment, "mysql", async () => {
-      await refreshDeployment();
+      await refreshDeployment({ force: true });
       await refreshActiveTab();
     });
   }, [deployment, refreshActiveTab, refreshDeployment, restartService]);
 
+  // 连接切换时重置所有状态（不含 databasesByConnId，避免 schema cache 刷新时误清 connections/variables）
   useEffect(() => {
-    setSubTab("connections");
+    setSubTab("databases");
     setSearch("");
     setProcessSort({ column: "time", direction: "desc" });
     setVariablesSort({ column: "name", direction: "asc" });
@@ -426,8 +540,39 @@ export function DatabaseConnectionInfoPanel({
     setVariablesResult(null);
     setConnectionsError(null);
     setVariablesError(null);
-    setExportsCount(0);
+    setDatabasesError(null);
+    // 重置 connectionsTabEnteredRef，让新连接首次进入 connections tab 时正常加载
+    connectionsTabEnteredRef.current = false;
   }, [connection.id, connection.host, connection.port, connection.db_type]);
+
+  // databasesByConnId 变化时 merge：保留已有统计字段，只更新库名列表
+  useEffect(() => {
+    const names = databasesByConnId[connection.id] ?? [];
+    setDatabasesList((prev) => {
+      const prevMap = new Map(prev.map((db) => [db.name, db]));
+      return names.map((name) => {
+        const existing = prevMap.get(name);
+        if (existing) {
+          return existing;
+        }
+        return {
+          name,
+          charset: null,
+          collation: null,
+          tableCount: null,
+          sizeBytes: null,
+          rowsEstimate: null,
+        };
+      });
+    });
+  }, [connection.id, databasesByConnId]);
+
+  // databasesList 变化时持久化到 localStorage（重开 tab 可先用缓存）
+  useEffect(() => {
+    if (databasesList.length > 0) {
+      writeDatabasesCache(connection.id, databasesList);
+    }
+  }, [connection.id, databasesList]);
 
   useEffect(() => {
     const requested = consumeSubTab(connection.id);
@@ -437,17 +582,75 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [connection.id, consumeSubTab, active]);
 
+  // 权限丢失后若停在「用户」tab，回退到「库列表」
   useEffect(() => {
-    if (!active || !capable) {
+    if (!usersAvailable && subTab === "users") {
+      setSubTab("databases");
+      setSearch("");
+    }
+  }, [usersAvailable, subTab]);
+
+  // 默认 tab（库列表）加载数据：优先用 context 缓存，无缓存则拉取
+  // schema cache 正在刷新该连接时，不重复调 listDatabases（刷新完成后 databasesByConnId 会自动更新）
+  const schemaRefreshing = useDbSchemaCacheStore(
+    (s) => Boolean(s.refreshingConnectionIds[connection.id]),
+  );
+
+  useEffect(() => {
+    if (!active) {
       return;
     }
-    void refreshConnections();
-    void refreshDeployment();
-  }, [active, capable, connection.id, sshConnections.length, refreshConnections, refreshDeployment]);
+    const cached = databasesByConnId[connection.id];
+    if (cached && cached.length > 0) {
+      // schema cache 只有库名，merge 到已有 databasesList（保留已加载的统计字段）
+      // 实际 merge 逻辑由上面的 databasesByConnId useEffect 处理，这里只负责触发静默刷新
+      void refreshDatabases({ silent: true });
+      return;
+    }
+    // schema cache 正在刷新，等它完成后通过 databasesByConnId 自动更新，不重复调
+    if (schemaRefreshing) {
+      return;
+    }
+    void refreshDatabases();
+  }, [active, connection.id, databasesByConnId, schemaRefreshing, refreshDatabases]);
 
-  /** SSH 列表或会话就绪后重试（避免面板打开瞬间探测时 SSH 尚未连接） */
+  // 连接 tab：首次切到时拉取 processlist；后续重新进入时静默刷新（保留旧数据可见）
   useEffect(() => {
-    if (!active || !capable || deploymentLoading) {
+    if (!active || !capable || subTab !== "connections") {
+      connectionsTabEnteredRef.current = false;
+      return;
+    }
+    // 已进入过则不重复触发（避免 connectionsResult 更新后无限循环）
+    if (connectionsTabEnteredRef.current) {
+      return;
+    }
+    connectionsTabEnteredRef.current = true;
+    if (connectionsResult == null) {
+      // 首次加载：无数据，正常显示 loading
+      void refreshConnections();
+    } else {
+      // 重新进入：有旧数据，静默刷新
+      void refreshConnections({ silent: true });
+    }
+  }, [active, capable, subTab, connectionsResult, connectionsLoading, connectionsError, refreshConnections]);
+
+  /** CLI tab 激活时才探测部署（懒加载，避免默认 tab 卡顿） */
+  useEffect(() => {
+    if (!active || !capable || subTab !== "cli") {
+      return;
+    }
+    if (isMysqlDeploymentCacheUsable(deployment)) {
+      return;
+    }
+    void refreshDeployment();
+  }, [active, capable, subTab, deployment, refreshDeployment]);
+
+  /** SSH 列表或会话就绪后重试（仅 CLI tab 且 unknown / 缺 SSH 时） */
+  useEffect(() => {
+    if (!active || !capable || subTab !== "cli" || deploymentLoading) {
+      return;
+    }
+    if (isMysqlDeploymentCacheUsable(deployment)) {
       return;
     }
     if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
@@ -460,12 +663,13 @@ export function DatabaseConnectionInfoPanel({
     if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
       return;
     }
-    void refreshDeployment();
+    void refreshDeployment({ force: true });
   }, [
     active,
     capable,
+    subTab,
     deploymentLoading,
-    deployment?.reason,
+    deployment,
     connection.host,
     sshConnections,
     sshSessionActiveMap,
@@ -533,6 +737,41 @@ export function DatabaseConnectionInfoPanel({
     [variablesColumns],
   );
 
+  const filteredDatabases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return databasesList;
+    return databasesList.filter((db) => db.name.toLowerCase().includes(q));
+  }, [databasesList, search]);
+
+  const toggleDatabaseSort = useCallback((column: DatabaseSortColumn) => {
+    setDatabaseSort((prev) => {
+      if (prev.column === column) {
+        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      return { column, direction: "asc" };
+    });
+  }, []);
+
+  const sortedDatabases = useMemo(() => {
+    const { column, direction } = databaseSort;
+    const sorted = [...filteredDatabases];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      if (column === "name" || column === "charset" || column === "collation") {
+        const av = (a[column] ?? "").toLowerCase();
+        const bv = (b[column] ?? "").toLowerCase();
+        cmp = av.localeCompare(bv, undefined, { numeric: true });
+      } else {
+        // 数值列：null 视为 -∞ 排在最前（asc 时）
+        const av = a[column] ?? -Infinity;
+        const bv = b[column] ?? -Infinity;
+        cmp = av - bv;
+      }
+      return direction === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [filteredDatabases, databaseSort]);
+
   const filteredProcessRows = useMemo(() => {
     const q = search.trim();
     if (!q) {
@@ -591,21 +830,23 @@ export function DatabaseConnectionInfoPanel({
   );
 
   const tabLoading =
-    subTab === "connections"
-      ? connectionsLoading
-      : subTab === "status"
-        ? variablesLoading
-        : subTab === "exports"
-          ? false
-          : deploymentLoading;
+    subTab === "databases"
+      ? databasesLoading
+      : subTab === "connections"
+        ? connectionsLoading
+        : subTab === "status"
+          ? variablesLoading
+          : subTab === "cli"
+            ? deploymentLoading
+            : false;
 
   const tabCount =
-    subTab === "connections"
-      ? sortedProcessRows.length
-      : subTab === "status"
-        ? sortedVariableRows.length
-        : subTab === "exports"
-          ? exportsCount
+    subTab === "databases"
+      ? filteredDatabases.length
+      : subTab === "connections"
+        ? sortedProcessRows.length
+        : subTab === "status"
+          ? sortedVariableRows.length
           : cliSections.length;
 
   const toggleProcessSort = useCallback((column: ProcessSortColumn) => {
@@ -737,10 +978,11 @@ export function DatabaseConnectionInfoPanel({
   }, [variableNameColumn, variableValueColumn, variablesColumns]);
 
   const renderConnectionsTable = () => {
-    if (connectionsLoading) {
+    // 有旧数据时保留显示，仅首次加载（无数据时）显示 loading
+    if (connectionsLoading && !connectionsResult) {
       return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
     }
-    if (connectionsError) {
+    if (connectionsError && !connectionsResult) {
       return <div className="db-tables-panel-error">{connectionsError}</div>;
     }
     if (processColumns.length === 0 || processRows.length === 0) {
@@ -793,7 +1035,7 @@ export function DatabaseConnectionInfoPanel({
   const renderCliSession = () => (
     <ConnectionCliTabPanel
       connection={connection}
-      client="mysql"
+      client={isPostgres ? "psql" : "mysql"}
       deployment={deployment}
       deploymentLoading={deploymentLoading}
       sshConnections={sshConnections}
@@ -802,25 +1044,164 @@ export function DatabaseConnectionInfoPanel({
     />
   );
 
-  const renderExportsTable = () => (
-    <ConnectionExportTabPanel
+  const databaseGridColumns = useMemo<DbTablesPanelGridColumn<DbDatabaseMeta>[]>(
+    () => [
+      {
+        id: "name",
+        header: t("database.connectionInfo.databases.colName"),
+        sortable: true,
+        sortId: "name",
+        nameCell: true,
+        defaultWidth: 200,
+        minWidth: 120,
+        render: (db) => db.name,
+        getTitle: (db) => db.name,
+        getCopyValue: (db) => db.name,
+      },
+      {
+        id: "charset",
+        header: t("database.connectionInfo.databases.colCharset"),
+        sortable: true,
+        sortId: "charset",
+        defaultWidth: 120,
+        minWidth: 80,
+        render: (db) => db.charset ?? "—",
+        getTitle: (db) => db.charset ?? "",
+        getCopyValue: (db) => db.charset ?? "",
+      },
+      {
+        id: "collation",
+        header: t("database.connectionInfo.databases.colCollation"),
+        sortable: true,
+        sortId: "collation",
+        defaultWidth: 140,
+        minWidth: 80,
+        render: (db) => db.collation ?? "—",
+        getTitle: (db) => db.collation ?? "",
+        getCopyValue: (db) => db.collation ?? "",
+      },
+      {
+        id: "tableCount",
+        header: t("database.connectionInfo.databases.colTables"),
+        sortable: true,
+        sortId: "tableCount",
+        headerClassName: "db-cell-num",
+        cellClassName: "db-cell-num",
+        defaultWidth: 90,
+        minWidth: 64,
+        render: (db) =>
+          db.tableCount != null ? db.tableCount.toLocaleString() : "—",
+        getTitle: (db) =>
+          db.tableCount != null ? String(db.tableCount) : "",
+        getCopyValue: (db) =>
+          db.tableCount != null ? String(db.tableCount) : "",
+      },
+      {
+        id: "sizeBytes",
+        header: t("database.connectionInfo.databases.colSize"),
+        sortable: true,
+        sortId: "sizeBytes",
+        headerClassName: "db-cell-num",
+        cellClassName: "db-cell-num",
+        defaultWidth: 100,
+        minWidth: 72,
+        render: (db) =>
+          db.sizeBytes != null ? formatBytes(db.sizeBytes) : "—",
+        getTitle: (db) =>
+          db.sizeBytes != null ? formatBytes(db.sizeBytes) : "",
+        getCopyValue: (db) =>
+          db.sizeBytes != null ? String(db.sizeBytes) : "",
+      },
+      {
+        id: "rowsEstimate",
+        header: t("database.connectionInfo.databases.colRows"),
+        sortable: true,
+        sortId: "rowsEstimate",
+        headerClassName: "db-cell-num",
+        cellClassName: "db-cell-num",
+        defaultWidth: 100,
+        minWidth: 72,
+        render: (db) =>
+          db.rowsEstimate != null ? db.rowsEstimate.toLocaleString() : "—",
+        getTitle: (db) =>
+          db.rowsEstimate != null ? String(db.rowsEstimate) : "",
+        getCopyValue: (db) =>
+          db.rowsEstimate != null ? String(db.rowsEstimate) : "",
+      },
+      {
+        id: "__actions",
+        variant: "actionsSticky" as const,
+        header: t("database.connectionInfo.users.colActions"),
+        headerAriaLabel: t("database.connectionInfo.users.colActions"),
+        render: (db) => (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={(e: MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation();
+              selectDatabase(
+                { connId: connection.id, dbName: db.name, connection },
+                "permanent",
+              );
+            }}
+          >
+            {t("database.connectionInfo.databases.open")}
+          </Button>
+        ),
+      },
+    ],
+    [connection, selectDatabase, t],
+  );
+
+  const renderDatabasesList = () => {
+    // 有旧数据时保留显示，仅首次加载（无数据时）显示 loading
+    if (databasesLoading && databasesList.length === 0) {
+      return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
+    }
+    if (databasesError && databasesList.length === 0) {
+      return <div className="db-tables-panel-error">{databasesError}</div>;
+    }
+    if (databasesList.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.empty")}</div>;
+    }
+    if (sortedDatabases.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.noResults")}</div>;
+    }
+    return (
+      <DbTablesPanelGrid
+        variant="processlist"
+        columns={databaseGridColumns}
+        rows={sortedDatabases}
+        rowKey={(db) => db.name}
+        sortColumnId={databaseSort.column}
+        sortDirection={databaseSort.direction}
+        onSortColumn={(columnId) => toggleDatabaseSort(columnId as DatabaseSortColumn)}
+        columnResizeStorageKey={`db-conn-info-databases-${connection.id}`}
+      />
+    );
+  };
+
+  const renderUsersPanel = () => (
+    <ConnectionUsersTabPanel
       connection={connection}
-      active={active && subTab === "exports"}
-      refreshToken={exportsRefreshToken}
-      onRecordsChange={setExportsCount}
+      active={active && subTab === "users"}
+      search={search}
+      onActionsReady={setUsersActions}
     />
   );
 
   const renderPanelMainContent = () => (
     <>
       {capable && active ? renderCliSession() : null}
-      {subTab === "connections"
-        ? renderConnectionsTable()
-        : subTab === "status"
-          ? renderVariablesTable()
-          : subTab === "exports"
-            ? renderExportsTable()
-            : null}
+      {subTab === "databases"
+        ? renderDatabasesList()
+        : subTab === "users"
+          ? renderUsersPanel()
+          : subTab === "connections"
+            ? renderConnectionsTable()
+            : subTab === "status"
+              ? renderVariablesTable()
+              : null}
     </>
   );
 
@@ -830,15 +1211,19 @@ export function DatabaseConnectionInfoPanel({
       value={search}
       onChange={setSearch}
       placeholder={
-        subTab === "connections"
-          ? t("database.connectionInfo.search")
-          : subTab === "status"
-            ? t("database.connectionInfo.variablesSearch")
-            : ""
+        subTab === "databases"
+          ? t("database.connectionInfo.databases.search")
+          : subTab === "users"
+            ? t("database.connectionInfo.users.search")
+            : subTab === "connections"
+              ? t("database.connectionInfo.search")
+              : subTab === "status"
+                ? t("database.connectionInfo.variablesSearch")
+                : ""
       }
-      enabled={capable && subTab !== "cli" && subTab !== "exports"}
+      enabled={capable && subTab !== "cli"}
     >
-      {capable ? (
+      {isMysql ? (
         <div className="db-connection-info-deploy">
           <span className="db-connection-info-deploy-label">
             {t("database.connectionInfo.deployment.label")}
@@ -866,6 +1251,32 @@ export function DatabaseConnectionInfoPanel({
       ) : null}
       {capable ? (
         <div className="db-connection-info-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            className={`db-toolbox-tab${subTab === "databases" ? " active" : ""}`}
+            aria-selected={subTab === "databases"}
+            onClick={() => {
+              setSubTab("databases");
+              setSearch("");
+            }}
+          >
+            {t("database.connectionInfo.tabs.databases")}
+          </button>
+          {usersAvailable ? (
+            <button
+              type="button"
+              role="tab"
+              className={`db-toolbox-tab${subTab === "users" ? " active" : ""}`}
+              aria-selected={subTab === "users"}
+              onClick={() => {
+                setSubTab("users");
+                setSearch("");
+              }}
+            >
+              {t("database.connectionInfo.tabs.users")}
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
@@ -902,31 +1313,21 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.cli")}
           </button>
-          <button
-            type="button"
-            role="tab"
-            className={`db-toolbox-tab${subTab === "exports" ? " active" : ""}`}
-            aria-selected={subTab === "exports"}
-            onClick={() => {
-              setSubTab("exports");
-              setSearch("");
-            }}
-          >
-            {t("database.connectionInfo.tabs.exports")}
-          </button>
         </div>
       ) : null}
       <div
         className="db-tables-panel-body"
         role="tabpanel"
         aria-label={
-          subTab === "connections"
-            ? t("database.connectionInfo.tabs.connections")
-            : subTab === "status"
-              ? t("database.connectionInfo.tabs.status")
-              : subTab === "exports"
-                ? t("database.connectionInfo.tabs.exports")
-                : t("database.connectionInfo.tabs.cli")
+          subTab === "databases"
+            ? t("database.connectionInfo.tabs.databases")
+            : subTab === "users"
+              ? t("database.connectionInfo.tabs.users")
+              : subTab === "connections"
+                ? t("database.connectionInfo.tabs.connections")
+                : subTab === "status"
+                  ? t("database.connectionInfo.tabs.status")
+                  : t("database.connectionInfo.tabs.cli")
         }
       >
         <div
@@ -939,18 +1340,29 @@ export function DatabaseConnectionInfoPanel({
         <DbPanelMetaRefreshButton
           onClick={() => {
             void refreshActiveTab();
-            void refreshDeployment();
           }}
-          disabled={tabLoading || deploymentLoading || !capable}
+          disabled={tabLoading || !capable}
         />
+        {subTab === "databases" && capable ? (
+          <div className="db-tables-panel-meta-actions">
+            <Button
+              variant="default"
+              size="xs"
+              onClick={() => setCreateDbOpen(true)}
+            >
+              {t("database.connectionInfo.databases.create")}
+            </Button>
+          </div>
+        ) : null}
+        {usersActions ? (
+          <div className="db-tables-panel-meta-actions">{usersActions}</div>
+        ) : null}
         <span className="db-tables-panel-meta-text">
           {tabLoading
             ? t("common.loading")
             : subTab === "cli"
               ? t("database.connectionInfo.cli.sectionCount", { count: tabCount })
-              : subTab === "exports"
-                ? t("database.connectionInfo.exports.count", { count: tabCount })
-                : t("database.connectionInfo.count", { count: tabCount })}
+              : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>
     </ScopedSearch>
@@ -998,6 +1410,15 @@ export function DatabaseConnectionInfoPanel({
         logSubtitle={serviceLogSubtitle}
         connectionLabel={connectionLabel}
         onClose={closeServiceLog}
+      />
+      <CreateDatabaseDialog
+        open={createDbOpen}
+        connection={connection}
+        onCancel={() => setCreateDbOpen(false)}
+        onCreated={() => {
+          setCreateDbOpen(false);
+          void refreshDatabases({ silent: false });
+        }}
       />
     </>
   );

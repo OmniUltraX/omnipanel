@@ -322,6 +322,10 @@ impl SshPool {
             .await;
 
         let (specs, parse_errors) = Self::specs_from_connections(&connections);
+        let parse_error_ids: Vec<String> = parse_errors
+            .iter()
+            .map(|(resource_id, _, _)| resource_id.clone())
+            .collect();
         for (resource_id, name, err) in parse_errors {
             warn!("SSH 池：连接 {name} 配置解析失败: {err}");
             self.log
@@ -350,17 +354,24 @@ impl SshPool {
             let mut pool = self.entries.lock().await;
             let ids: Vec<String> = pool.keys().cloned().collect();
             for id in ids {
-                if !specs.iter().any(|s| s.resource_id == id) {
+                let keep = specs.iter().any(|s| s.resource_id == id)
+                    || parse_error_ids.iter().any(|err_id| err_id == &id);
+                if !keep {
                     pool.remove(&id);
                 }
             }
         }
 
-        if specs.is_empty() {
+        if specs.is_empty() && parse_error_ids.is_empty() {
             info!("SSH 池：无已保存的 SSH 主机");
             self.log
                 .log("ssh-pool", "info", "无已保存的 SSH 主机")
                 .await;
+            return;
+        }
+
+        if specs.is_empty() {
+            self.emit_all_status(&app_handle).await;
             return;
         }
 

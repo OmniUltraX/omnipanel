@@ -59,6 +59,11 @@ export function readMysqlDeploymentCache(
   return entry.info;
 }
 
+/** 缓存是否可直接展示（无需再次探测）。 */
+export function isMysqlDeploymentCacheUsable(info: MysqlDeploymentInfo | null | undefined): boolean {
+  return info?.kind === "host" || info?.kind === "docker";
+}
+
 /** 写入本地部署信息缓存。 */
 export function writeMysqlDeploymentCache(
   connection: DbConnectionConfig,

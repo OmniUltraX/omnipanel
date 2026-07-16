@@ -1,9 +1,14 @@
 import {
+  forwardRef,
   memo,
   useCallback,
+  useImperativeHandle,
+  useLayoutEffect,
   type MutableRefObject,
+  type RefObject,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { flexRender, type Cell, type Row } from "@tanstack/react-table";
 import type { DbColumnMeta } from "../api";
 import {
@@ -12,9 +17,11 @@ import {
 } from "./tableCellPreview";
 import {
   ROW_NUM_COL_ID,
+  ROW_VIRTUALIZE_OVERSCAN,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
 import { isRelationDisplayColumn } from "./tableColumnRelation";
+import type { ColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnCellStyle, isNearRowBottom } from "./tableDataGridLayout";
 import {
   isCellSelected,
@@ -123,6 +130,16 @@ const GridBodyCell = memo(
     prev.cell === next.cell,
 );
 
+function ColumnSpacerCell({ width }: { width: number }) {
+  return (
+    <td
+      className="db-data-table-spacer-col"
+      aria-hidden
+      style={{ width, minWidth: width, maxWidth: width, padding: 0, border: "none" }}
+    />
+  );
+}
+
 export type GridBodyStaticConfig = {
   transposed: boolean;
   columnMetaMap: Record<string, DbColumnMeta> | null;
@@ -136,6 +153,7 @@ export type GridBodyStaticConfig = {
   fillDelta: number;
   leafColumnCount: number;
   columnSizedIds: ReadonlySet<string>;
+  columnLayout: ColumnVirtualizationLayout;
   relationHighlightColumnIds: ReadonlySet<string>;
 };
 
@@ -248,6 +266,7 @@ const GridBodyRow = memo(
     selectedRows,
     staticConfig,
   }: GridBodyRowProps) {
+    const { columnLayout } = staticConfig;
     const isCustomHeight = rowHeight !== undefined;
     const transposedFieldName = staticConfig.transposed
       ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
@@ -260,19 +279,58 @@ const GridBodyRow = memo(
         className={`db-data-table-row${Math.floor(row.index / 2) % 2 === 1 ? " db-data-table-row--striped" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
         style={isCustomHeight ? { height: rowHeight } : undefined}
       >
-        {cells.map((_, cellIdx) =>
-          renderBodyCell(
-            cellIdx,
-            cells,
-            row,
-            staticConfig,
-            overrideForRow,
-            rowDirty,
-            cellRange,
-            selectedRows,
-            transposedFieldName,
-            isCustomHeight,
-          ),
+        {columnLayout.enabled ? (
+          <>
+            {columnLayout.pinnedIndices.map((cellIdx) =>
+              renderBodyCell(
+                cellIdx,
+                cells,
+                row,
+                staticConfig,
+                overrideForRow,
+                rowDirty,
+                cellRange,
+                selectedRows,
+                transposedFieldName,
+                isCustomHeight,
+              ),
+            )}
+            {columnLayout.paddingLeft > 0 ? (
+              <ColumnSpacerCell width={columnLayout.paddingLeft} />
+            ) : null}
+            {columnLayout.virtualIndices.map((cellIdx) =>
+              renderBodyCell(
+                cellIdx,
+                cells,
+                row,
+                staticConfig,
+                overrideForRow,
+                rowDirty,
+                cellRange,
+                selectedRows,
+                transposedFieldName,
+                isCustomHeight,
+              ),
+            )}
+            {columnLayout.paddingRight > 0 ? (
+              <ColumnSpacerCell width={columnLayout.paddingRight} />
+            ) : null}
+          </>
+        ) : (
+          cells.map((_, cellIdx) =>
+            renderBodyCell(
+              cellIdx,
+              cells,
+              row,
+              staticConfig,
+              overrideForRow,
+              rowDirty,
+              cellRange,
+              selectedRows,
+              transposedFieldName,
+              isCustomHeight,
+            ),
+          )
         )}
       </tr>
     );
@@ -417,3 +475,178 @@ export function TableDataGridBody({
     </tbody>
   );
 }
+
+export type TableDataGridVirtualBodyProps = {
+  scrollElementRef: RefObject<HTMLElement | null>;
+  tableRows: Row<Record<string, unknown>>[];
+  getRowHeight: (index: number) => number;
+  /** 行高变化时触发 measure（传入 rowHeights 引用即可） */
+  rowHeights: Record<number, number>;
+  visibleCellCount: number;
+  buildRowProps: (rowIndex: number) => Omit<GridBodyRowProps, "row"> | null;
+  bodyActionsRef: MutableRefObject<TableDataGridBodyActions | null>;
+  resolveCellContext: (
+    rowIndex: number,
+    colIndex: number,
+  ) => GridBodyCellInteractionContext | null;
+};
+
+export type TableDataGridVirtualBodyHandle = {
+  scrollToIndex: (
+    index: number,
+    options?: { align?: "start" | "center" | "end" | "auto"; behavior?: "auto" | "smooth" },
+  ) => void;
+};
+
+/** 行虚拟化挂在 tbody 内，避免滚动时整表（表头/分页）跟着重渲 */
+export const TableDataGridVirtualBody = forwardRef<
+  TableDataGridVirtualBodyHandle,
+  TableDataGridVirtualBodyProps
+>(function TableDataGridVirtualBody(
+  {
+    scrollElementRef,
+    tableRows,
+    getRowHeight,
+    rowHeights,
+    visibleCellCount,
+    buildRowProps,
+    bodyActionsRef,
+    resolveCellContext,
+  },
+  ref,
+) {
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => scrollElementRef.current,
+    estimateSize: getRowHeight,
+    overscan: ROW_VIRTUALIZE_OVERSCAN,
+    getItemKey: (index) => tableRows[index]?.id ?? String(index),
+  });
+
+  useLayoutEffect(() => {
+    rowVirtualizer.measure();
+  }, [rowHeights, tableRows.length, rowVirtualizer]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToIndex: (index, options) => {
+        rowVirtualizer.scrollToIndex(index, options);
+      },
+    }),
+    [rowVirtualizer],
+  );
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const virtualPaddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+      : 0;
+
+  const handleMouseDown = useCallback(
+    (event: ReactMouseEvent<HTMLTableSectionElement>) => {
+      const actions = bodyActionsRef.current;
+      if (!actions || event.button !== 0) return;
+
+      const resolved = resolveCellFromTarget(event.target);
+      if (!resolved) {
+        const tr = event.target instanceof Element ? event.target.closest("tr") : null;
+        if (tr instanceof HTMLTableRowElement && tr.dataset.rowIndex != null) {
+          if (isNearRowBottom(tr, event.clientY)) {
+            event.preventDefault();
+            actions.beginRowResize(Number(tr.dataset.rowIndex), event.clientY);
+          }
+        }
+        return;
+      }
+
+      const { tr, rowIndex, colIndex } = resolved;
+      const ctx = resolveCellContext(rowIndex, colIndex);
+      if (!ctx) return;
+
+      const isRowSelector =
+        ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL;
+
+      if (isRowSelector) {
+        if (isNearRowBottom(tr, event.clientY)) {
+          event.preventDefault();
+          event.stopPropagation();
+          actions.beginRowResize(rowIndex, event.clientY);
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        actions.handleRowBandSelect(rowIndex, event);
+        return;
+      }
+
+      if (event.detail >= 2) return;
+
+      if (isNearRowBottom(tr, event.clientY)) {
+        event.preventDefault();
+        event.stopPropagation();
+        actions.beginRowResize(rowIndex, event.clientY);
+        return;
+      }
+
+      actions.handleDataCellMouseDown(ctx, event);
+    },
+    [bodyActionsRef, resolveCellContext],
+  );
+
+  const handleDoubleClick = useCallback(
+    (event: ReactMouseEvent<HTMLTableSectionElement>) => {
+      const actions = bodyActionsRef.current;
+      if (!actions) return;
+      const resolved = resolveCellFromTarget(event.target);
+      if (!resolved) return;
+      const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
+      if (!ctx || !ctx.canEdit) return;
+      event.preventDefault();
+      event.stopPropagation();
+      actions.handleDataCellDoubleClick(ctx, getCellOverlayAnchor(resolved.td));
+    },
+    [bodyActionsRef, resolveCellContext],
+  );
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLTableSectionElement>) => {
+      const actions = bodyActionsRef.current;
+      if (!actions) return;
+      const resolved = resolveCellFromTarget(event.target);
+      if (!resolved) return;
+      const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
+      if (!ctx || ctx.columnId === ROW_NUM_COL_ID) return;
+      event.preventDefault();
+      event.stopPropagation();
+      actions.handleDataCellContextMenu(ctx, event);
+    },
+    [bodyActionsRef, resolveCellContext],
+  );
+
+  return (
+    <tbody
+      onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
+    >
+      {virtualPaddingTop > 0 ? (
+        <tr className="db-data-table-spacer-row" aria-hidden>
+          <td colSpan={visibleCellCount} style={{ height: virtualPaddingTop }} />
+        </tr>
+      ) : null}
+      {virtualRows.map((virtualRow) => {
+        const tableRow = tableRows[virtualRow.index];
+        const rowProps = buildRowProps(virtualRow.index);
+        if (!tableRow || !rowProps) return null;
+        return <GridBodyRow key={tableRow.id} row={tableRow} {...rowProps} />;
+      })}
+      {virtualPaddingBottom > 0 ? (
+        <tr className="db-data-table-spacer-row" aria-hidden>
+          <td colSpan={visibleCellCount} style={{ height: virtualPaddingBottom }} />
+        </tr>
+      ) : null}
+    </tbody>
+  );
+});

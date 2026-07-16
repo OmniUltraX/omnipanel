@@ -7,6 +7,7 @@ import {
   hostsMatch,
 } from "../mysqlSlowQueryLog";
 import type { RedisDeploymentInfo } from "../redisDeploymentDetect";
+import type { PostgresDeploymentInfo } from "../postgresDeploymentDetect";
 import { parseSshConfig } from "../../server/panel/serverConnection";
 
 export interface CliCommandSection {
@@ -98,8 +99,32 @@ function formatRedisCli(connection: DbConnectionConfig, host: string, port?: num
   return tokens.join(" ");
 }
 
+function formatPsqlCli(connection: DbConnectionConfig, host: string, port?: number): string {
+  // psql 用 URI 或分开参数；这里用分开参数更易读，与 mysql/redis 一致
+  const tokens = ["psql"];
+  tokens.push("-h", formatCliArg(host));
+  tokens.push("-p", String(port ?? connection.port));
+  if (connection.user?.trim()) {
+    tokens.push("-U", formatCliArg(connection.user.trim()));
+  }
+  const database = connection.database?.trim();
+  if (database) {
+    tokens.push("-d", formatCliArg(database));
+  }
+  // psql 没有 -p<password> 这种形式，密码通过 PGPASSWORD 环境变量传递
+  // 这里在命令前加 PGPASSWORD 前缀（仅 local shell 模式可用）
+  if (connection.password) {
+    return `PGPASSWORD=${formatCliArg(connection.password)} ${tokens.join(" ")}`;
+  }
+  return tokens.join(" ");
+}
+
 function resolveDockerContainerName(
-  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | null,
+  deployment:
+    | MysqlDeploymentInfo
+    | RedisDeploymentInfo
+    | PostgresDeploymentInfo
+    | null,
 ): string | null {
   return resolveDockerExecTarget({
     containerId: deployment?.containerId,
@@ -188,6 +213,36 @@ function maybeAddSshTunnelRedisSection(
   });
 }
 
+function maybeAddSshTunnelPostgresSection(
+  t: TranslateFn,
+  sections: CliCommandSection[],
+  connection: DbConnectionConfig,
+  ssh: Connection | undefined,
+  kind: string,
+): void {
+  if (!ssh || hostsMatch(connection.host, "127.0.0.1")) {
+    return;
+  }
+  const cfg = parseSshConfig(ssh);
+  if (!cfg?.host) {
+    return;
+  }
+  const localPort = connection.port === 5432 ? 5433 : connection.port + 10000;
+  const portPart = cfg.port && cfg.port !== 22 ? ` -p ${cfg.port}` : "";
+  const user = cfg.user?.trim() || "root";
+  const tunnel = `ssh -L ${localPort}:127.0.0.1:${connection.port}${portPart} ${user}@${cfg.host}`;
+  const client = formatPsqlCli(connection, "127.0.0.1", localPort);
+  sections.push({
+    id: "ssh-tunnel",
+    title: t("database.connectionInfo.cli.sshTunnel"),
+    command: `${tunnel}\n${client}`,
+    description:
+      kind === "docker"
+        ? t("database.connectionInfo.cli.sshTunnelPostgresDockerHint")
+        : t("database.connectionInfo.cli.sshTunnelPostgresHint"),
+  });
+}
+
 export type CliTerminalModeId = "direct" | "on-server" | "docker-exec";
 
 export interface CliTerminalModeOption {
@@ -232,6 +287,22 @@ function formatRedisCliInContainer(connection: DbConnectionConfig): string {
   return tokens.join(" ");
 }
 
+function formatPsqlCliInContainer(connection: DbConnectionConfig): string {
+  // 容器内执行：host 为本地 socket，省略 -h；密码通过 PGPASSWORD 前缀传递
+  const tokens = ["psql"];
+  if (connection.user?.trim()) {
+    tokens.push("-U", formatCliArg(connection.user.trim()));
+  }
+  const database = connection.database?.trim();
+  if (database) {
+    tokens.push("-d", formatCliArg(database));
+  }
+  if (connection.password) {
+    return `PGPASSWORD=${formatCliArg(connection.password)} ${tokens.join(" ")}`;
+  }
+  return tokens.join(" ");
+}
+
 function buildDockerShellEnterCommand(container: string): string {
   return `docker exec -it ${formatCliArg(container)} sh`;
 }
@@ -248,6 +319,13 @@ function buildRedisDockerFlowSteps(
   container: string,
 ): string[] {
   return [buildDockerShellEnterCommand(container), formatRedisCliInContainer(connection)];
+}
+
+function buildPostgresDockerFlowSteps(
+  connection: DbConnectionConfig,
+  container: string,
+): string[] {
+  return [buildDockerShellEnterCommand(container), formatPsqlCliInContainer(connection)];
 }
 
 function listMysqlTerminalModes(
@@ -346,6 +424,54 @@ function listRedisTerminalModes(
   ];
 }
 
+function listPostgresTerminalModes(
+  t: TranslateFn,
+  connection: DbConnectionConfig,
+  deployment: PostgresDeploymentInfo | null,
+  sshConnections: Connection[],
+): CliTerminalModeOption[] {
+  const kind = deployment?.kind ?? "unknown";
+  const ssh = resolveSshConnection(deployment, sshConnections, connection.host);
+
+  if (kind === "docker") {
+    const container = resolveDockerContainerName(deployment);
+    if (container && ssh) {
+      return [
+        {
+          id: "docker-exec",
+          title: t("database.connectionInfo.cli.dockerFlow"),
+          paneType: "remote",
+          resourceId: ssh.id,
+          launchSteps: buildPostgresDockerFlowSteps(connection, container),
+        },
+      ];
+    }
+    return [];
+  }
+
+  if (kind === "host" && ssh) {
+    return [
+      {
+        id: "on-server",
+        title: t("database.connectionInfo.cli.hostFlow"),
+        paneType: "remote",
+        resourceId: ssh.id,
+        launchSteps: [formatPsqlCli(connection, "127.0.0.1")],
+      },
+    ];
+  }
+
+  return [
+    {
+      id: "direct",
+      title: t("database.connectionInfo.cli.direct"),
+      paneType: "local",
+      resourceId: "local-terminal",
+      launchSteps: [formatPsqlCli(connection, connection.host)],
+    },
+  ];
+}
+
 export function resolveDefaultCliTerminalModeId(
   _deployment: { kind?: string } | null,
   modes: CliTerminalModeOption[],
@@ -391,15 +517,34 @@ export function formatCliTerminalStepsText(steps: string[]): string {
 }
 
 export function listCliTerminalModes(
-  client: "mysql" | "redis",
+  client: "mysql" | "redis" | "psql",
   t: TranslateFn,
   connection: DbConnectionConfig,
-  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | null,
+  deployment: MysqlDeploymentInfo | RedisDeploymentInfo | PostgresDeploymentInfo | null,
   sshConnections: Connection[],
 ): CliTerminalModeOption[] {
-  return client === "mysql"
-    ? listMysqlTerminalModes(t, connection, deployment as MysqlDeploymentInfo | null, sshConnections)
-    : listRedisTerminalModes(t, connection, deployment as RedisDeploymentInfo | null, sshConnections);
+  if (client === "mysql") {
+    return listMysqlTerminalModes(
+      t,
+      connection,
+      deployment as MysqlDeploymentInfo | null,
+      sshConnections,
+    );
+  }
+  if (client === "psql") {
+    return listPostgresTerminalModes(
+      t,
+      connection,
+      deployment as PostgresDeploymentInfo | null,
+      sshConnections,
+    );
+  }
+  return listRedisTerminalModes(
+    t,
+    connection,
+    deployment as RedisDeploymentInfo | null,
+    sshConnections,
+  );
 }
 
 export function buildMysqlCliSections(
@@ -502,6 +647,59 @@ export function buildRedisCliSections(
       description: t("database.connectionInfo.cli.directRedisHint"),
     });
     maybeAddSshTunnelRedisSection(t, sections, connection, ssh, kind);
+  }
+
+  return dedupeSections(sections);
+}
+
+/** 根据 PostgreSQL 部署方式生成 psql 连接命令。 */
+export function buildPostgresCliSections(
+  t: TranslateFn,
+  connection: DbConnectionConfig,
+  deployment: PostgresDeploymentInfo | null,
+  sshConnections: Connection[],
+): CliCommandSection[] {
+  const sections: CliCommandSection[] = [];
+  const kind = deployment?.kind ?? "unknown";
+  const ssh = resolveSshConnection(deployment, sshConnections, connection.host);
+
+  maybeAddSshSection(t, sections, ssh);
+
+  if (kind === "docker") {
+    const container = resolveDockerContainerName(deployment);
+    if (container) {
+      sections.push({
+        id: "docker-enter",
+        title: t("database.connectionInfo.cli.stepEnterContainer"),
+        command: buildDockerShellEnterCommand(container),
+        description: t("database.connectionInfo.cli.dockerEnterHint"),
+      });
+      sections.push({
+        id: "docker-client",
+        title: t("database.connectionInfo.cli.stepClient"),
+        command: formatPsqlCliInContainer(connection),
+        description: t("database.connectionInfo.cli.dockerClientPostgresHint"),
+      });
+    }
+  }
+
+  if (kind === "host") {
+    sections.push({
+      id: "on-server",
+      title: t("database.connectionInfo.cli.stepClient"),
+      command: formatPsqlCli(connection, "127.0.0.1"),
+      description: t("database.connectionInfo.cli.onServerPostgresHint"),
+    });
+  }
+
+  if (kind === "unknown") {
+    sections.push({
+      id: "direct",
+      title: t("database.connectionInfo.cli.direct"),
+      command: formatPsqlCli(connection, connection.host),
+      description: t("database.connectionInfo.cli.directPostgresHint"),
+    });
+    maybeAddSshTunnelPostgresSection(t, sections, connection, ssh, kind);
   }
 
   return dedupeSections(sections);

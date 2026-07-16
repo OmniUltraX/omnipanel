@@ -15,6 +15,7 @@ type SidebarTreeSelectionContextValue = {
   handleSelect: (key: string, event: TreeRowMouseEvent) => void;
   isSelected: (key: string) => boolean;
   selectedIds: ReadonlySet<string>;
+  setSelectedIds: (ids: Iterable<string>) => void;
   clearSelection: () => void;
 };
 
@@ -31,12 +32,7 @@ export function SidebarTreeSelectionProvider({
   /** 供 Provider 外的右键菜单等读取当前多选 */
   onSelectedIdsChange?: (ids: ReadonlySet<string>) => void;
 }) {
-  const {
-    handleSelect: applySelect,
-    isSelected,
-    selectedIds,
-    clearSelection,
-  } = useSidebarTreeMultiSelect();
+  const { handleSelect: applySelect, isSelected, selectedIds, setSelectedIds, clearSelection } = useSidebarTreeMultiSelect();
   const flatKeysRef = useRef<string[]>([]);
   flatKeysRef.current = [];
 
@@ -56,8 +52,8 @@ export function SidebarTreeSelectionProvider({
   );
 
   const contextValue = useMemo(
-    () => ({ registerKey, handleSelect, isSelected, selectedIds, clearSelection }),
-    [registerKey, handleSelect, isSelected, selectedIds, clearSelection],
+    () => ({ registerKey, handleSelect, isSelected, selectedIds, setSelectedIds, clearSelection }),
+    [registerKey, handleSelect, isSelected, selectedIds, setSelectedIds, clearSelection],
   );
 
   return (

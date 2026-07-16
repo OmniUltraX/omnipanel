@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -28,6 +29,11 @@ import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import {
+  useDbConnectionRuntimeStore,
+  dbConnectionStatusDotClass,
+  resolveDbConnectionRuntimeStatus,
+} from "../../../stores/dbConnectionRuntimeStore";
+import {
   useDbSchemaConnectionLayoutStore,
   schemaConnectionFolderNodeId,
 } from "../../../stores/dbSchemaConnectionLayoutStore";
@@ -44,6 +50,7 @@ import {
   buildConnectionTreeItem,
   buildFolderTreeItem,
   buildTableTreeItem,
+  buildViewTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
 import {
@@ -67,7 +74,12 @@ import {
   resolveSchemaTreeScrollTarget,
 } from "./schemaTreeSidebarLinkage";
 import { mergeConnectionsWithCache, type CachedConnection } from "./schemaCacheMerge";
-import { submitSchemaCacheRefresh, SCHEMA_CACHE_REFRESH_COMPLETE_EVENT } from "./schemaCacheBackgroundTasks";
+import {
+  submitSchemaCacheRefresh,
+  SCHEMA_CACHE_REFRESH_COMPLETE_EVENT,
+  syncConnectionRuntimeFromSchemaCache,
+} from "./schemaCacheBackgroundTasks";
+import { nextSchemaChildLimit } from "./schemaTreePagination";
 import {
   createSchemaCacheRefreshReporter,
   publishSchemaNodeRefreshDone,
@@ -75,8 +87,10 @@ import {
   publishSchemaNodeRefreshStart,
 } from "./schemaCacheStatusLog";
 import type { SchemaCacheSnapshot } from "./schemaCache";
+import { databaseObjectsNeedLoad, tableDetailsNeedLoad } from "./schemaCache";
 import {
   connectionUsersFolderId,
+  makeDatabaseNodeId,
   parseDatabaseNodeId,
   parseTableNodeId,
   parseUserNodeId,
@@ -85,9 +99,12 @@ import {
 import {
   buildSchemaFlatRows,
   collectSchemaPathCrumbsForNodeId,
+  estimateSchemaFlatRowSize,
   findSchemaFlatRowIndexByNodeId,
-  isSchemaFlatRowIndexCenteredInViewport,
-  scrollSchemaFlatRowToCenter,
+  isSchemaFlatRowIndexInViewport,
+  scrollSchemaFlatRowIntoView,
+  SCHEMA_TREE_MESSAGE_ROW_HEIGHT,
+  SCHEMA_TREE_VIRTUALIZE_THRESHOLD,
   type SchemaFlatRow,
   type StickySchemaAncestor,
 } from "./schemaTreeFlatRows";
@@ -153,8 +170,10 @@ interface TreeNodeProps {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
-  /** 双击打开右侧面板 */
+  /** 双击打开右侧面板（常驻 Tab） */
   onActivate?: () => void;
+  /** 单击打开右侧面板（预览 Tab，斜体可替换） */
+  onPreviewOpen?: () => void;
   onContextMenu?: (e: ReactMouseEvent) => void;
   iconUrl?: string | null;
   onMetaClick?: () => void;
@@ -180,7 +199,8 @@ interface TreeNodeProps {
   onLayoutPointerDown?: (e: React.PointerEvent<HTMLElement>) => void;
 }
 
-const TreeNode = memo(function TreeNode({
+const TreeNode = memo(
+  function TreeNode({
   item,
   depth,
   expanded,
@@ -191,6 +211,7 @@ const TreeNode = memo(function TreeNode({
   hasChildren,
   active,
   onActivate,
+  onPreviewOpen,
   onContextMenu,
   iconUrl,
   onMetaClick,
@@ -215,11 +236,44 @@ const TreeNode = memo(function TreeNode({
   const selection = useSidebarTreeSelection();
   const { type, label } = item;
   const isConnection = type === "connection";
+  const connId = item.connId;
+  // 按连接订阅状态点，探测 online/offline 时不整树重渲
+  const runtimeStatus = useDbConnectionRuntimeStore((s) =>
+    isConnection && connId
+      ? resolveDbConnectionRuntimeStatus(connId, connectionEnabled, s.statusByConnId)
+      : "idle",
+  );
   const connectionStateClass = isConnection
     ? connectionEnabled
       ? " tree-node--connection-enabled"
       : " tree-node--connection-disabled"
     : "";
+
+  // 滚动帧里父组件会换新回调；用 ref 保住最新闭包，配合下方 memo 跳过重渲
+  const handlersRef = useRef({
+    onToggle,
+    onActivate,
+    onPreviewOpen,
+    onContextMenu,
+    onMetaClick,
+    onPinToggle,
+    onRefresh,
+    onDelete,
+    onPathFocus,
+    onLayoutPointerDown,
+  });
+  handlersRef.current = {
+    onToggle,
+    onActivate,
+    onPreviewOpen,
+    onContextMenu,
+    onMetaClick,
+    onPinToggle,
+    onRefresh,
+    onDelete,
+    onPathFocus,
+    onLayoutPointerDown,
+  };
 
   const ignoreClick = (target: EventTarget | null) => isLayoutPointerDragExcludedTarget(target);
 
@@ -303,7 +357,7 @@ const TreeNode = memo(function TreeNode({
               onMetaClick
                 ? (event) => {
                     event.stopPropagation();
-                    onMetaClick();
+                    handlersRef.current.onMetaClick?.();
                   }
                 : undefined
             }
@@ -322,7 +376,7 @@ const TreeNode = memo(function TreeNode({
                 disabled={refreshDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onRefresh();
+                  handlersRef.current.onRefresh?.();
                 }}
               >
                 <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
@@ -342,7 +396,7 @@ const TreeNode = memo(function TreeNode({
                 disabled={deleteDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDelete();
+                  handlersRef.current.onDelete?.();
                 }}
               >
                 <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
@@ -366,7 +420,7 @@ const TreeNode = memo(function TreeNode({
                 aria-pressed={pinActive}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onPinToggle();
+                  handlersRef.current.onPinToggle?.();
                 }}
               >
                 <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden>
@@ -394,11 +448,17 @@ const TreeNode = memo(function TreeNode({
       prefix={
         isConnection ? (
           <span
-            className={`tree-conn-status${connectionEnabled ? " tree-conn-status--enabled" : " tree-conn-status--disabled"}`}
+            className={`topbar-tab-dot ${dbConnectionStatusDotClass(runtimeStatus)}`}
             title={
-              connectionEnabled
-                ? t("database.sidebar.connectionEnabled")
-                : t("database.sidebar.connectionDisabled")
+              !connectionEnabled
+                ? t("database.sidebar.connectionDisabled")
+                : runtimeStatus === "connecting"
+                  ? t("common.loading")
+                  : runtimeStatus === "online"
+                    ? t("database.sidebar.connectionEnabled")
+                    : runtimeStatus === "offline"
+                      ? t("database.sidebar.connectionDisabled")
+                      : t("database.sidebar.connectionDisconnected")
             }
             aria-hidden
           />
@@ -439,27 +499,81 @@ const TreeNode = memo(function TreeNode({
         "data-schema-item-type": type,
         "data-schema-node-id": item.id,
       }}
-      onToggle={onToggle}
+      onToggle={() => handlersRef.current.onToggle()}
       onSelect={(event: TreeRowMouseEvent) => {
         selection?.handleSelect(item.id, event);
-        onPathFocus?.();
+        handlersRef.current.onPathFocus?.();
+        // 单击打开预览 Tab（斜体可替换）
+        handlersRef.current.onPreviewOpen?.();
       }}
       onActivate={() => {
-        onPathFocus?.();
-        onActivate?.();
+        handlersRef.current.onPathFocus?.();
+        handlersRef.current.onActivate?.();
       }}
       shouldIgnoreClick={ignoreClick}
       onPointerDown={(event) => {
         if (layoutDraggable) {
-          onLayoutPointerDown?.(event);
+          handlersRef.current.onLayoutPointerDown?.(event);
         }
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(event) => handlersRef.current.onContextMenu?.(event)}
     />
   );
-});
+},
+  (prev, next) =>
+    prev.item.id === next.item.id &&
+    prev.item.label === next.item.label &&
+    prev.depth === next.depth &&
+    prev.expanded === next.expanded &&
+    prev.hasChildren === next.hasChildren &&
+    prev.active === next.active &&
+    prev.meta === next.meta &&
+    prev.metaTitle === next.metaTitle &&
+    prev.isPk === next.isPk &&
+    prev.isFk === next.isFk &&
+    prev.labelComment === next.labelComment &&
+    prev.connectionEnabled === next.connectionEnabled &&
+    prev.deploymentServerTag === next.deploymentServerTag &&
+    prev.iconUrl === next.iconUrl &&
+    prev.pinActive === next.pinActive &&
+    prev.refreshing === next.refreshing &&
+    prev.refreshDisabled === next.refreshDisabled &&
+    prev.deleteDisabled === next.deleteDisabled &&
+    prev.layoutDraggable === next.layoutDraggable &&
+    prev.layoutDraggingSource === next.layoutDraggingSource &&
+    prev.dragOver === next.dragOver &&
+    Boolean(prev.onMetaClick) === Boolean(next.onMetaClick) &&
+    Boolean(prev.onRefresh) === Boolean(next.onRefresh) &&
+    Boolean(prev.onDelete) === Boolean(next.onDelete) &&
+    Boolean(prev.onPinToggle) === Boolean(next.onPinToggle) &&
+    Boolean(prev.onActivate) === Boolean(next.onActivate) &&
+    Boolean(prev.onPreviewOpen) === Boolean(next.onPreviewOpen) &&
+    Boolean(prev.onLayoutPointerDown) === Boolean(next.onLayoutPointerDown),
+);
 
 export { makeDatabaseNodeId } from "./schemaTreeIds";
+
+function SchemaTreeSelectionSync({ targetId }: { targetId: string | null }) {
+  const selection = useSidebarTreeSelection();
+  const setSelectedIds = selection?.setSelectedIds;
+  const clearSelection = selection?.clearSelection;
+  const selectedIdsRef = useRef<ReadonlySet<string> | null>(null);
+  if (selection) {
+    selectedIdsRef.current = selection.selectedIds;
+  }
+  useEffect(() => {
+    if (!setSelectedIds || !clearSelection) return;
+    const current = selectedIdsRef.current;
+    if (targetId) {
+      if (current?.size === 1 && current.has(targetId)) return;
+      setSelectedIds([targetId]);
+    } else {
+      if (!current || current.size === 0) return;
+      clearSelection();
+    }
+  }, [targetId, setSelectedIds, clearSelection]);
+  return null;
+}
 
 function tableColumnsFolderId(tableId: string) {
   return `${tableId}:cols`;
@@ -548,6 +662,7 @@ export function SchemaBrowser({
   const useExternalConnections =
     connectionConfigs !== undefined && connectionsReady !== undefined;
   const [search, setSearch] = useState("");
+  const [childVisibleLimits, setChildVisibleLimits] = useState<Record<string, number>>({});
   const expandedNodeIds = useDbSchemaTreeExpandedStore((s) => s.expandedNodeIds);
   const expandedHydrated = useDbSchemaTreeExpandedStore((s) => s.hydrated);
   const hydrateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.hydrate);
@@ -601,6 +716,7 @@ export function SchemaBrowser({
   const pathFocusNodeIdRef = useRef<string | null>(null);
   const flatRowsRef = useRef<SchemaFlatRow[]>([]);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
+  const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
   const refreshingConnectionIds = useDbSchemaCacheStore((s) => s.refreshingConnectionIds);
   const refreshingNodeIds = useDbSchemaCacheStore((s) => s.refreshingNodeIds);
   const anyConnectionRefreshing = Object.keys(refreshingConnectionIds).length > 0;
@@ -611,14 +727,18 @@ export function SchemaBrowser({
     if (!useExternalConnections) {
       return null;
     }
-    if (!connectionsReady) {
+    // 有连接配置就立刻与本地缓存合并渲染，不因 connectionsReady / 探测而空白等待
+    if (!connectionConfigs) {
       return null;
     }
     return mergeConnectionsWithCache(connectionConfigs, schemaSnapshot, connectionsRef.current);
-  }, [useExternalConnections, connectionConfigs, connectionsReady, schemaSnapshot]);
+  }, [useExternalConnections, connectionConfigs, schemaSnapshot]);
 
   const connections = useExternalConnections ? (externalConnections ?? []) : internalConnections;
-  const loading = useExternalConnections ? externalConnections === null : internalLoading;
+  // 仅在「尚无任何连接配置可展示」且仍在拉取列表时显示 loading
+  const loading = useExternalConnections
+    ? !connectionsReady && connectionConfigs.length === 0 && !cacheHydrated
+    : internalLoading;
 
   const syncDatabaseFilter = useCallback((connId: string, names: string[]) => {
     setDatabaseFilters((prev) => ({
@@ -1406,13 +1526,28 @@ export function SchemaBrowser({
     }
   }, [filtersHydrated, hydrateSchemaFilters]);
 
+
+  useEffect(() => {
+    const runtime = useDbConnectionRuntimeStore.getState();
+    for (const conn of connections) {
+      runtime.syncEnabled(conn.config.id, isConnectionEnabled(conn.config));
+    }
+  }, [connections]);
+
   useEffect(() => {
     if (!expandedHydrated) {
       void hydrateSchemaExpanded();
     }
   }, [expandedHydrated, hydrateSchemaExpanded]);
 
-  const toggle = (id: string) => {
+  const loadMoreChildren = useCallback((parentNodeId: string) => {
+    setChildVisibleLimits((prev) => ({
+      ...prev,
+      [parentNodeId]: nextSchemaChildLimit(prev, parentNodeId),
+    }));
+  }, []);
+
+  const toggle = useCallback((id: string) => {
     if (id.startsWith("conn:")) {
       const connId = id.slice(5);
       const conn = connectionsRef.current.find((item) => item.config.id === connId);
@@ -1421,6 +1556,7 @@ export function SchemaBrowser({
       }
     }
 
+    const expandedNodeIds = useDbSchemaTreeExpandedStore.getState().expandedNodeIds;
     const willExpand = !expandedNodeIds.has(id);
     updateExpanded((prev) => {
       const next = new Set(prev);
@@ -1434,6 +1570,40 @@ export function SchemaBrowser({
 
     if (!willExpand) {
       return;
+    }
+
+    if (id.startsWith("conn:")) {
+      const connId = id.slice(5);
+      const conn = connectionsRef.current.find((item) => item.config.id === connId);
+      if (conn && isConnectionEnabled(conn.config)) {
+        // 只同步本地缓存状态点；连通探测不挡展开，由打开连接 / 预热后台处理
+        syncConnectionRuntimeFromSchemaCache(connId);
+      }
+    }
+
+    const dbParsed = parseDatabaseNodeId(id);
+    const dbFolderMatch = /^(?:tbls|views|other):([^:]+):(.+)$/.exec(id);
+    const lazyConnId = dbParsed?.connId ?? dbFolderMatch?.[1] ?? null;
+    const lazyDbName = dbParsed?.dbName ?? dbFolderMatch?.[2] ?? null;
+    if (lazyConnId && lazyDbName) {
+      const conn = connectionsRef.current.find((item) => item.config.id === lazyConnId);
+      const db = conn?.databases?.find((item) => item.name === lazyDbName);
+      const dbNodeId = makeDatabaseNodeId(lazyConnId, lazyDbName);
+      const nodeRefreshing = Boolean(useDbSchemaCacheStore.getState().refreshingNodeIds[dbNodeId]);
+      if (
+        conn &&
+        isConnectionEnabled(conn.config) &&
+        databaseObjectsNeedLoad(db ?? {}) &&
+        !nodeRefreshing
+      ) {
+        void refreshAndApplySchemaTreeNode(
+          conn.config,
+          buildDatabaseTreeItem(lazyConnId, lazyDbName),
+          schemaRefreshHooks,
+        ).catch((err) => {
+          schemaCacheReporter.onError?.(String(err));
+        });
+      }
     }
 
     const tableParsed = parseTableNodeId(id);
@@ -1450,9 +1620,27 @@ export function SchemaBrowser({
           }
           return next;
         });
+
+        const db = conn.databases?.find((item) => item.name === parsed.dbName);
+        const object =
+          (tableParsed
+            ? db?.tables?.find((item) => item.name === parsed.tableName)
+            : db?.views?.find((item) => item.name === parsed.tableName)) ?? undefined;
+        const nodeRefreshing = Boolean(useDbSchemaCacheStore.getState().refreshingNodeIds[id]);
+        if (tableDetailsNeedLoad(object ?? {}) && !nodeRefreshing) {
+          void refreshAndApplySchemaTreeNode(
+            conn.config,
+            tableParsed
+              ? buildTableTreeItem(parsed.connId, parsed.dbName, parsed.tableName)
+              : buildViewTreeItem(parsed.connId, parsed.dbName, parsed.tableName),
+            schemaRefreshHooks,
+          ).catch((err) => {
+            schemaCacheReporter.onError?.(String(err));
+          });
+        }
       }
     }
-  };
+  }, [schemaCacheReporter, schemaRefreshHooks, updateExpanded]);
 
   const handleTreeKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
@@ -1475,6 +1663,7 @@ export function SchemaBrowser({
         t,
         connections,
         expandedNodeIds,
+        childVisibleLimits,
         databaseFilters,
         tableFilters,
         refreshingConnectionIds,
@@ -1489,6 +1678,7 @@ export function SchemaBrowser({
       t,
       connections,
       expandedNodeIds,
+      childVisibleLimits,
       databaseFilters,
       tableFilters,
       refreshingConnectionIds,
@@ -1515,6 +1705,24 @@ export function SchemaBrowser({
     [flatRows],
   );
 
+
+  flatRowsRef.current = flatRows;
+
+  const useTreeVirtualization = flatRows.length > SCHEMA_TREE_VIRTUALIZE_THRESHOLD;
+
+  const rowVirtualizer = useVirtualizer({
+    count: useTreeVirtualization ? flatRows.length : 0,
+    getScrollElement: () => (useTreeVirtualization ? schemaTreeRef.current : null),
+    estimateSize: (index) => estimateSchemaFlatRowSize(flatRowsRef.current[index]),
+    getItemKey: (index) => flatRowsRef.current[index]?.key ?? index,
+    // 行高固定，禁止 measureElement，否则滚动时 ResizeObserver 改尺寸 → 滚动条与内容脱节
+    overscan: 12,
+  });
+  const rowVirtualizerRef = useRef(rowVirtualizer);
+  rowVirtualizerRef.current = rowVirtualizer;
+
+  const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
+
   const hasAnyConnection = connections.length > 0;
 
   const sidebarScrollTargetId = useMemo(
@@ -1530,13 +1738,12 @@ export function SchemaBrowser({
   const sidebarLinkageRafRef = useRef<number | null>(null);
   const lastLinkageScrollRef = useRef<{ targetId: string; rowIndex: number } | null>(null);
 
+  // 先展开祖先（普通 setState，禁止在 effect 里 flushSync）
   useEffect(() => {
     if (!sidebarScrollTargetId || loading || search.trim()) {
       return;
     }
-
     const expandIds = collectExpandedIdsForScrollTarget(sidebarScrollTargetId);
-
     updateExpanded((prev) => {
       let changed = false;
       const next = new Set(prev);
@@ -1548,13 +1755,9 @@ export function SchemaBrowser({
       }
       return changed ? next : prev;
     });
-  }, [
-    sidebarScrollTargetId,
-    loading,
-    search,
-    updateExpanded,
-  ]);
+  }, [sidebarScrollTargetId, loading, search, updateExpanded]);
 
+  // flatRows 就绪后再滚动定位：仅在「切换目标」且目标不在视口内时最小位移滚入，绝不强制居中
   useEffect(() => {
     if (!sidebarScrollTargetId || loading || search.trim()) {
       lastLinkageScrollRef.current = null;
@@ -1570,16 +1773,27 @@ export function SchemaBrowser({
     }
 
     const last = lastLinkageScrollRef.current;
-    if (
-      last?.targetId === sidebarScrollTargetId &&
-      last.rowIndex === rowIndex &&
-      isSchemaFlatRowIndexCenteredInViewport(container, flatRows, rowIndex)
-    ) {
+    // 同一目标已处理过：用户可能已手动滚动，禁止再拽回去
+    if (last?.targetId === sidebarScrollTargetId) {
+      lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
       return;
     }
 
-    const scrollToCenter = () => {
-      scrollSchemaFlatRowToCenter(container, flatRows, rowIndex);
+    if (isSchemaFlatRowIndexInViewport(container, flatRows, rowIndex)) {
+      lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
+      return;
+    }
+
+    const scrollIntoView = () => {
+      scrollSchemaFlatRowIntoView(
+        container,
+        flatRowsRef.current,
+        rowIndex,
+        useTreeVirtualization
+          ? (index) =>
+              rowVirtualizerRef.current.scrollToIndex(index, { align: "auto", behavior: "auto" })
+          : undefined,
+      );
     };
 
     if (sidebarLinkageRafRef.current != null) {
@@ -1587,26 +1801,18 @@ export function SchemaBrowser({
     }
 
     sidebarLinkageRafRef.current = requestAnimationFrame(() => {
-      sidebarLinkageRafRef.current = requestAnimationFrame(() => {
-        sidebarLinkageRafRef.current = null;
-        scrollToCenter();
-        requestAnimationFrame(() => {
-          if (!isSchemaFlatRowIndexCenteredInViewport(container, flatRows, rowIndex)) {
-            scrollToCenter();
-          }
-          lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
-        });
-      });
+      sidebarLinkageRafRef.current = null;
+      scrollIntoView();
+      lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
     });
 
     return () => {
       if (sidebarLinkageRafRef.current != null) {
         cancelAnimationFrame(sidebarLinkageRafRef.current);
+        sidebarLinkageRafRef.current = null;
       }
     };
-  }, [sidebarScrollTargetId, loading, search, flatRows]);
-
-  flatRowsRef.current = flatRows;
+  }, [sidebarScrollTargetId, loading, search, flatRows, useTreeVirtualization]);
 
   const updatePathForNodeId = useCallback((nodeId: string) => {
     pathFocusNodeIdRef.current = nodeId;
@@ -1622,12 +1828,22 @@ export function SchemaBrowser({
     });
   }, []);
 
+  // 切 Tab：crumb 跟随激活目标
   useEffect(() => {
+    if (!sidebarScrollTargetId || search.trim() || loading) {
+      return;
+    }
+    updatePathForNodeId(sidebarScrollTargetId);
+  }, [sidebarScrollTargetId, search, loading, updatePathForNodeId]);
+
+  // 树展开 / 数据变化后，按当前 focus 补全 crumb（可能是 Tab 目标，也可能是树上点过的节点）
+  useEffect(() => {
+    if (search.trim()) {
+      setPathCrumbs((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
     const focusId = pathFocusNodeIdRef.current;
-    if (!focusId || search.trim()) {
-      if (search.trim()) {
-        setPathCrumbs((prev) => (prev.length === 0 ? prev : []));
-      }
+    if (!focusId) {
       return;
     }
     const next = collectSchemaPathCrumbsForNodeId(flatRows, focusId);
@@ -1649,15 +1865,66 @@ export function SchemaBrowser({
     (rowIndex: number) => {
       const container = schemaTreeRef.current;
       const row = flatRowsRef.current[rowIndex];
-      if (row?.kind === "node") {
-        updatePathForNodeId(row.item.id);
+      if (row?.kind !== "node") {
+        return;
       }
+
+      updatePathForNodeId(row.item.id);
+
+      const connection = row.item.connId
+        ? connectionsRef.current.find((entry) => entry.config.id === row.item.connId)?.config
+        : undefined;
+
+      if (row.labelClickKind === "connection" && row.labelClickConnId) {
+        onSelectConnection?.(row.labelClickConnId, "permanent");
+      } else if (
+        row.labelClickKind === "database" &&
+        row.labelClickConnId &&
+        row.labelClickDbName &&
+        connection
+      ) {
+        onSelectDatabase?.(
+          {
+            connId: row.labelClickConnId,
+            dbName: row.labelClickDbName,
+            connection,
+          },
+          "permanent",
+        );
+      } else if (
+        row.labelClickKind === "table" &&
+        row.labelClickConnId &&
+        row.labelClickDbName &&
+        row.labelClickTableName &&
+        connection
+      ) {
+        onSelectTable?.(
+          {
+            connId: row.labelClickConnId,
+            dbName: row.labelClickDbName,
+            tableName: row.labelClickTableName,
+            connection,
+          },
+          "permanent",
+        );
+      }
+
       if (!container) {
         return;
       }
-      scrollSchemaFlatRowToCenter(container, flatRowsRef.current, rowIndex);
+      // crumb 主动导航：滚入视野即可，不强制居中
+      lastLinkageScrollRef.current = { targetId: row.item.id, rowIndex };
+      scrollSchemaFlatRowIntoView(
+        container,
+        flatRowsRef.current,
+        rowIndex,
+        useTreeVirtualization
+          ? (index) =>
+              rowVirtualizerRef.current.scrollToIndex(index, { align: "auto", behavior: "auto" })
+          : undefined,
+      );
     },
-    [updatePathForNodeId],
+    [onSelectConnection, onSelectDatabase, onSelectTable, updatePathForNodeId, useTreeVirtualization],
   );
 
   const filterDialogConn = filterDialogConnId
@@ -1674,13 +1941,13 @@ export function SchemaBrowser({
     (row: SchemaFlatRow) => {
       if (row.kind === "message") {
         const paddingLeft = row.depth * 16 + 24;
-        const color =
-          row.variant === "error"
-            ? "var(--color-danger, #ff3b30)"
-            : "var(--text-secondary, #8e8e93)";
         return (
-          <div style={{ padding: "4px 0", paddingLeft, fontSize: "11px", color }}>
-            {row.text}
+          <div
+            className={`schema-tree-message schema-tree-message--${row.variant}`}
+            style={{ paddingLeft, height: SCHEMA_TREE_MESSAGE_ROW_HEIGHT }}
+            title={row.text}
+          >
+            <span className="schema-tree-message__text">{row.text}</span>
           </div>
         );
       }
@@ -1688,9 +1955,15 @@ export function SchemaBrowser({
       if (row.kind === "load-more") {
         const paddingLeft = row.depth * 16 + 24;
         return (
-          <div style={{ padding: "4px 0", paddingLeft, fontSize: "11px", color: "var(--text-secondary, #8e8e93)" }}>
+          <button
+            type="button"
+            className="schema-load-more-btn"
+            style={{ paddingLeft }}
+            onClick={() => loadMoreChildren(row.parentNodeId)}
+          >
             {t("database.sidebar.loadMore")}
-          </div>
+            {row.remaining > 0 ? ` (${row.remaining})` : ""}
+          </button>
         );
       }
 
@@ -1713,8 +1986,11 @@ export function SchemaBrowser({
                 })
             : undefined;
 
+      // 单击 → 预览 Tab（斜体可替换）；双击 → 常驻 Tab（固定）
+      let onPreviewOpen: (() => void) | undefined;
       let onActivate: (() => void) | undefined;
       if (row.labelClickKind === "connection" && row.labelClickConnId) {
+        onPreviewOpen = () => onSelectConnection?.(row.labelClickConnId!, "preview");
         onActivate = () => onSelectConnection?.(row.labelClickConnId!, "permanent");
       } else if (
         row.labelClickKind === "database" &&
@@ -1722,7 +1998,18 @@ export function SchemaBrowser({
         row.labelClickDbName &&
         connection
       ) {
+        onPreviewOpen = () => {
+          onSelectDatabase?.(
+            {
+              connId: row.labelClickConnId!,
+              dbName: row.labelClickDbName!,
+              connection,
+            },
+            "preview",
+          );
+        };
         onActivate = () => {
+          // 先开右侧库 Tab（同步），再双 rAF 后展开树触发浅加载建连，避免首帧被连接抢占
           onSelectDatabase?.(
             {
               connId: row.labelClickConnId!,
@@ -1731,8 +2018,10 @@ export function SchemaBrowser({
             },
             "permanent",
           );
-          if (!expandedNodeIds.has(row.item.id)) {
-            requestAnimationFrame(() => toggle(row.item.id));
+          if (!useDbSchemaTreeExpandedStore.getState().expandedNodeIds.has(row.item.id)) {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => toggle(row.item.id));
+            });
           }
         };
       } else if (
@@ -1748,6 +2037,7 @@ export function SchemaBrowser({
           tableName: row.labelClickTableName!,
           connection,
         };
+        onPreviewOpen = () => onSelectTable?.(tableSelection, "preview");
         onActivate = () => onSelectTable?.(tableSelection, "permanent");
       }
 
@@ -1817,6 +2107,7 @@ export function SchemaBrowser({
           pinActive={row.pinActive}
           onPinToggle={onPinToggle}
           onActivate={onActivate}
+          onPreviewOpen={onPreviewOpen}
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
           onPathFocus={() => updatePathForNodeId(row.item.id)}
           layoutDraggable={isLayoutDraggable}
@@ -1833,7 +2124,7 @@ export function SchemaBrowser({
     },
     [
       t,
-      expandedNodeIds,
+      toggle,
       onSelectConnection,
       onSelectDatabase,
       onSelectTable,
@@ -1848,6 +2139,7 @@ export function SchemaBrowser({
       activeTableKey,
       activeDatabaseKey,
       updatePathForNodeId,
+      loadMoreChildren,
     ],
   );
 
@@ -1969,16 +2261,14 @@ export function SchemaBrowser({
             </nav>
           ) : null}
           <div
-            className="schema-tree"
+            className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}`}
             ref={schemaTreeRef}
             tabIndex={-1}
             onKeyDown={handleTreeKeyDown}
             onContextMenu={handleContextLayoutRoot}
           >
-        <SidebarTreeSelectionProvider
-          orderedKeys={selectableNodeIds}
-          onSelectedIdsChange={handleSelectedIdsChange}
-        >
+        <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
+        <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("common.loading")}
@@ -1994,12 +2284,46 @@ export function SchemaBrowser({
             {t("database.sidebar.empty")}
           </div>
         )}
-        {!loading && !loadError && hasAnyConnection && (
-          <>
+        {!loading && !loadError && hasAnyConnection && useTreeVirtualization && (
+          <div
+            className="schema-tree-virtual-inner"
+            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+          >
+            {virtualRows.map((virtualRow) => {
+              const row = flatRows[virtualRow.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={row.key}
+                  data-index={virtualRow.index}
+                  className="schema-tree-virtual-row"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: virtualRow.size,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {renderFlatRow(row)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!loading && !loadError && hasAnyConnection && !useTreeVirtualization && (
+          <div className="schema-tree-native-inner">
             {flatRows.map((row) => (
-              <div key={row.key}>{renderFlatRow(row)}</div>
+              <div
+                key={row.key}
+                className="schema-tree-native-row"
+                style={{ height: estimateSchemaFlatRowSize(row) }}
+              >
+                {renderFlatRow(row)}
+              </div>
             ))}
-          </>
+          </div>
         )}
         </SidebarTreeSelectionProvider>
       </div>

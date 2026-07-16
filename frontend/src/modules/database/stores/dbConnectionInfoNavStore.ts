@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type ConnectionInfoNavSubTab = "connections" | "status" | "cli" | "exports";
+export type ConnectionInfoNavSubTab = "databases" | "users" | "connections" | "status" | "cli";
 
 interface DbConnectionInfoNavState {
   requestedSubTabByConnId: Record<string, ConnectionInfoNavSubTab>;

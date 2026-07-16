@@ -133,6 +133,50 @@ export function scheduleIdleTerminalWarm(options?: {
   };
 }
 
+/** 空闲预热数据库：仅拉 chunk + 可选挂壳，不探测远端连接 */
+export function scheduleIdleDatabaseWarm(options?: {
+  chunkDelayMs?: number;
+  shellDelayMs?: number;
+}): () => void {
+  const chunkDelayMs = options?.chunkDelayMs ?? 4000;
+  const shellDelayMs = options?.shellDelayMs ?? 12000;
+  let cancelled = false;
+  const timers: number[] = [];
+  let idleChunkId: number | null = null;
+  let idleShellId: number | null = null;
+
+  const warmChunk = () => {
+    if (cancelled) return;
+    void preloadOverlayModuleChunk("database");
+  };
+
+  const warmShell = () => {
+    if (cancelled) return;
+    void preloadOverlayModuleChunk("database").finally(() => {
+      if (!cancelled) requestModuleShellWarm("database");
+    });
+  };
+
+  if (typeof requestIdleCallback === "function") {
+    idleChunkId = requestIdleCallback(warmChunk, { timeout: chunkDelayMs });
+    idleShellId = requestIdleCallback(warmShell, { timeout: shellDelayMs });
+  } else {
+    timers.push(window.setTimeout(warmChunk, chunkDelayMs));
+    timers.push(window.setTimeout(warmShell, shellDelayMs));
+  }
+
+  return () => {
+    cancelled = true;
+    if (idleChunkId != null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(idleChunkId);
+    }
+    if (idleShellId != null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(idleShellId);
+    }
+    for (const id of timers) window.clearTimeout(id);
+  };
+}
+
 export const PRIORITY_OVERLAY_WARM_KEY = "terminal" as const satisfies OverlayModuleKey;
 
 /** 供文档/调试：默认导航路径 */

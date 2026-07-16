@@ -6,8 +6,8 @@ import {
   type DbUserMeta,
 } from "../api";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
-import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";
-import type { SchemaTreeItem } from "./schemaTreeItem";
+import { mergeConnectionSchemaCacheEntry, mergeDatabaseSchemaCacheEntry } from "./schemaCache";
+import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";import type { SchemaTreeItem } from "./schemaTreeItem";
 import {
   parseDatabaseNodeId,
   parseTableNodeId,
@@ -28,6 +28,7 @@ export type SchemaNodeRefreshResult =
       views?: DbTableSchema[];
       routines?: SchemaCacheDatabaseEntry["routines"];
       loadError?: string;
+      objectsLoaded?: boolean;
     }
   | {
       scope: "table";
@@ -73,13 +74,13 @@ function patchTableInDatabase(
     } else {
       views.push(table);
     }
-    return { ...db, views, loadError: undefined };
+    return { ...db, views, loadError: undefined, objectsLoaded: true };
   }
   const tables = db.tables.map((item) => (item.name === table.name ? table : item));
   if (!tables.some((item) => item.name === table.name)) {
     tables.push(table);
   }
-  return { ...db, tables, loadError: undefined };
+  return { ...db, tables, loadError: undefined, objectsLoaded: true };
 }
 
 export async function applySchemaNodeRefreshResult(
@@ -93,11 +94,15 @@ export async function applySchemaNodeRefreshResult(
   let next: SchemaCacheConnectionEntry;
 
   if (result.scope === "connection") {
-    next = {
-      databases: result.databases,
+    const incoming: SchemaCacheConnectionEntry = {
+      databases: result.databases.map((db) => ({
+        ...db,
+        objectsLoaded: db.objectsLoaded ?? false,
+      })),
       users: result.users ?? [],
       refreshedAt,
     };
+    next = mergeConnectionSchemaCacheEntry(current, incoming);
   } else if (result.scope === "users") {
     next = {
       ...current,
@@ -105,13 +110,17 @@ export async function applySchemaNodeRefreshResult(
       refreshedAt,
     };
   } else if (result.scope === "database") {
-    const nextDb: SchemaCacheDatabaseEntry = {
-      name: result.name,
-      tables: result.tables,
-      views: result.views ?? [],
-      routines: result.routines ?? [],
-      loadError: result.loadError,
-    };
+    const nextDb: SchemaCacheDatabaseEntry = mergeDatabaseSchemaCacheEntry(
+      current.databases.find((db) => db.name === result.name),
+      {
+        name: result.name,
+        tables: result.tables,
+        views: result.views ?? [],
+        routines: result.routines ?? [],
+        loadError: result.loadError,
+        objectsLoaded: result.objectsLoaded ?? true,
+      },
+    );
     const databases = current.databases.some((db) => db.name === result.name)
       ? current.databases.map((db) => (db.name === result.name ? nextDb : db))
       : [...current.databases, nextDb];

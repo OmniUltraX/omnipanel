@@ -3,13 +3,13 @@ import type {
   DbConnectionConfig as BindingsDbConnectionConfig,
   DbQueryResult,
   RedisSearchKeysResult_Serialize,
+  SchemaCacheSnapshot as BindingsSchemaCacheSnapshot,
   SchemaCacheSnapshot_Deserialize,
   TableInfo,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
-import type { SchemaCacheSnapshot } from "./schema/schemaCache";
 
 /** 业务 IPC：走 commands.* + unwrapCommand，勿再写裸 invoke。 */
 function ipcConn(connection: DbConnectionConfig): BindingsDbConnectionConfig {
@@ -180,6 +180,24 @@ export function isMysqlConnectionInfoCapable(
   return engine === "mysql" || engine === "mariadb";
 }
 
+/** PostgreSQL 连接（连接信息面板支持：库列表 / pg_stat_activity / pg_settings / psql）。 */
+export function isPostgresConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = connection.db_type.toLowerCase();
+  return engine === "postgresql" || engine === "postgres";
+}
+
+/** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL）。 */
+export function isConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return (
+    isMysqlConnectionInfoCapable(connection) ||
+    isPostgresConnectionInfoCapable(connection)
+  );
+}
+
 /** MongoDB 连接（集合预览）。 */
 export function isMongoConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
@@ -292,13 +310,13 @@ export async function saveSchemaTreeExpanded(snapshot: SchemaTreeExpandedSnapsho
   await unwrapCommand(commands.dbSaveSchemaTreeExpanded(snapshot));
 }
 
-export async function loadSchemaCache(): Promise<SchemaCacheSnapshot> {
-  return (await unwrapCommand(commands.dbLoadSchemaCache())) as SchemaCacheSnapshot;
+export async function loadSchemaCache(): Promise<BindingsSchemaCacheSnapshot> {
+  return unwrapCommand(commands.dbLoadSchemaCache());
 }
 
-export async function saveSchemaCache(snapshot: SchemaCacheSnapshot): Promise<void> {
+export async function saveSchemaCache(snapshot: BindingsSchemaCacheSnapshot): Promise<void> {
   await unwrapCommand(
-    commands.dbSaveSchemaCache(snapshot as unknown as SchemaCacheSnapshot_Deserialize),
+    commands.dbSaveSchemaCache(snapshot as SchemaCacheSnapshot_Deserialize),
   );
 }
 
@@ -316,6 +334,12 @@ export async function testConnection(connection: DbConnectionConfig): Promise<st
 
 export async function listDatabases(connection: DbConnectionConfig): Promise<string[]> {
   return unwrapCommand(commands.dbListDatabases(ipcConn(connection)));
+}
+
+export async function listDatabasesWithStats(
+  connection: DbConnectionConfig,
+): Promise<DbDatabaseMeta[]> {
+  return unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)));
 }
 
 export interface CreateDatabaseArgs {
@@ -342,6 +366,15 @@ export interface DbCharsetMeta {
   defaultCollation: string;
 }
 
+export interface DbDatabaseMeta {
+  name: string;
+  charset: string | null;
+  collation: string | null;
+  tableCount: number | null;
+  sizeBytes: number | null;
+  rowsEstimate: number | null;
+}
+
 export async function listCharacterSets(
   connection: DbConnectionConfig,
 ): Promise<DbCharsetMeta[]> {
@@ -357,6 +390,10 @@ export interface DbColumnMeta {
   comment?: string | null;
   /** 是否为自增列（来自 schema 反射；缺省时由类型串推断） */
   isAutoIncrement?: boolean;
+  /** 字符长度 / 数值精度（来自 information_schema；无长度类型为 null） */
+  length?: number | null;
+  /** 归一化后的默认值字面量（已去外层引号 / 类型标注；NULL 为 null） */
+  defaultValue?: string | null;
 }
 
 export interface DbIndexMeta {

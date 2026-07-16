@@ -32,9 +32,6 @@ import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPrev
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
-import { FormDialog, FormField } from "../../components/ui/FormDialog";
-import { Select } from "../../components/ui/Select";
-import { TextInput } from "../../components/ui/TextInput";
 import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useActionStore } from "../../stores/actionStore";
@@ -65,10 +62,8 @@ import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
   countTable,
-  createDatabase,
   fetchTableDdl,
   introspectTable,
-  listCharacterSets,
   listConnections,
   listDatabases,
   deleteConnection,
@@ -82,7 +77,6 @@ import {
   isSqlCapableConnection,
   isRedisConnection,
   isToolboxCapableConnection,
-  type DbCharsetMeta,
   type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
@@ -96,8 +90,12 @@ import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redis/redisTab
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schema/schemaCacheMerge";
 import { snapshotToFilterStates } from "./schema/schemaFilters";
 import type { SchemaCacheConnectionEntry } from "./schema/schemaCache";
-import { submitSchemaCacheRefresh } from "./schema/schemaCacheBackgroundTasks";
+import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
+import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
+import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
+import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
+import { CreateDatabaseDialog } from "./workspace/CreateDatabaseDialog";
 import {
   probeMysqlDeployment,
 } from "./mysqlDeploymentDetect";
@@ -113,7 +111,6 @@ import {
   type MysqlImportSource,
 } from "./mysqlImport";
 import { MysqlImportDialog } from "./workspace/MysqlImportDialog";
-import { useDbConnectionInfoNavStore } from "./stores/dbConnectionInfoNavStore";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
@@ -309,203 +306,6 @@ function readRowKeyValue(rowKey: string, colName: string): string {
   return "";
 }
 
-interface CreateDatabaseDialogProps {
-  open: boolean;
-  connection: DbConnectionConfig | null;
-  onCancel: () => void;
-  onCreated: (name: string) => void;
-}
-
-const RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
-const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
-
-function CreateDatabaseDialog({
-  open,
-  connection,
-  onCancel,
-  onCreated,
-}: CreateDatabaseDialogProps) {
-  const { t } = useI18n();
-  const [name, setName] = useState("");
-  const [charset, setCharset] = useState<string>("");
-  const [charsets, setCharsets] = useState<DbCharsetMeta[]>([]);
-  const [charsetsLoading, setCharsetsLoading] = useState(false);
-  const [charsetsError, setCharsetsError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const isMysql = connection ? isMysqlConnectionInfoCapable(connection) : false;
-
-  useEffect(() => {
-    if (!open) {
-      setName("");
-      setCharset("");
-      setCharsets([]);
-      setCharsetsLoading(false);
-      setCharsetsError(null);
-      setBusy(false);
-      setError(null);
-    }
-  }, [open, connection?.id]);
-
-  useEffect(() => {
-    if (!open || !connection || !isMysql) {
-      return;
-    }
-    let cancelled = false;
-    setCharsetsLoading(true);
-    setCharsetsError(null);
-    void listCharacterSets(connection)
-      .then((list) => {
-        if (!cancelled) setCharsets(list);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setCharsets([]);
-          setCharsetsError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setCharsetsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, connection, isMysql]);
-
-  const validate = (value: string): string | null => {
-    const trimmed = value.trim();
-    if (!trimmed) return t("database.createDatabase.nameRequired");
-    if (trimmed.length > 64) return t("database.createDatabase.nameTooLong");
-    if (!DB_NAME_RE.test(trimmed)) return t("database.createDatabase.nameInvalid");
-    if (RESERVED_DB_NAMES.some((r) => r.toLowerCase() === trimmed.toLowerCase())) {
-      return t("database.createDatabase.nameReserved", { name: trimmed });
-    }
-    return null;
-  };
-
-  const handleSubmit = async () => {
-    if (!connection) return;
-    const trimmed = name.trim();
-    const validationError = validate(trimmed);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const selectedCharset = charsets.find((c) => c.charset === charset) ?? null;
-      const created = await createDatabase({
-        connection,
-        name: trimmed,
-        charset: charset || null,
-        collation: selectedCharset?.defaultCollation ?? null,
-      });
-      onCreated(created);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(t("database.createDatabase.failed", { message }));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const charsetOptions = useMemo(
-    () => [
-      { value: "", label: t("database.createDatabase.charsetServerDefault") },
-      ...charsets.map((c) => ({
-        value: c.charset,
-        label: c.description ? `${c.charset} (${c.description})` : c.charset,
-      })),
-    ],
-    [charsets, t],
-  );
-  const selectedCharset = charsets.find((c) => c.charset === charset) ?? null;
-  const statusMessage =
-    error ??
-    charsetsError ??
-    (charsetsLoading ? t("database.createDatabase.charsetLoading") : null);
-
-  return (
-    <FormDialog
-      open={open}
-      onClose={busy ? () => undefined : onCancel}
-      closeDisabled={busy}
-      title={t("database.createDatabase.title")}
-      subtitle={connection ? t("database.createDatabase.subtitle", { name: connection.name }) : undefined}
-      size="sm"
-      onCancel={onCancel}
-      cancelDisabled={busy}
-      status={
-        statusMessage
-          ? {
-              kind: error || charsetsError ? "error" : "info",
-              message: statusMessage,
-            }
-          : null
-      }
-      primaryAction={{
-        label: busy ? t("database.createDatabase.creating") : t("database.createDatabase.create"),
-        disabled: busy,
-        onClick: () => void handleSubmit(),
-      }}
-    >
-      <FormField
-        label={t("database.createDatabase.nameLabel")}
-        htmlFor="create-db-name"
-        description={t("database.createDatabase.nameDescription")}
-      >
-        <TextInput
-          id="create-db-name"
-          className="input"
-          autoFocus
-          placeholder={t("database.createDatabase.namePlaceholder")}
-          value={name}
-          disabled={busy}
-          onChange={(value) => {
-            setName(value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void handleSubmit();
-            }
-          }}
-        />
-      </FormField>
-      {isMysql && (
-        <FormField
-          label={t("database.createDatabase.charsetLabel")}
-          htmlFor="create-db-charset"
-          description={t("database.createDatabase.charsetDescription")}
-        >
-          <Select
-            value={charset}
-            onChange={setCharset}
-            options={charsetOptions}
-            size="sm"
-            disabled={busy || charsetsLoading}
-          />
-        </FormField>
-      )}
-      {selectedCharset && (
-        <div
-          style={{
-            fontSize: "11px",
-            color: "var(--muted, #8e8e93)",
-            marginTop: "-2px",
-          }}
-        >
-          {t("database.createDatabase.collationLabel")}:{" "}
-          <code>{selectedCharset.defaultCollation}</code>
-        </div>
-      )}
-    </FormDialog>
-  );
-}
-
 export function DatabasePanel() {
   const { t } = useI18n();
   const schemaCacheReporter = useMemo(() => createSchemaCacheRefreshReporter(t), [t]);
@@ -550,8 +350,12 @@ export function DatabasePanel() {
   const [dictDialogOpen, setDictDialogOpen] = useState(false);
   const [editingDictEntry, setEditingDictEntry] = useState<DataDictionaryEntry | null>(null);
 
-  const [connections, setConnections] = useState<DbConnectionConfig[]>([]);
-  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const [connections, setConnections] = useState<DbConnectionConfig[]>(() => {
+    return takeBootstrappedDbConnections() ?? [];
+  });
+  const [connectionsLoading, setConnectionsLoading] = useState(() => {
+    return takeBootstrappedDbConnections() === null;
+  });
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
@@ -693,11 +497,9 @@ export function DatabasePanel() {
 
   const activateWorkspaceTab = useCallback(
     (tabId: string) => {
-      // 开/切 Tab 降为 transition，优先保住侧栏点击反馈帧
-      startTransition(() => {
-        setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
-        syncConnForTabId(tabId);
-      });
+      // 同步更新：侧栏联动依赖 activeWorkspaceTab / activeConnId，不能丢进 transition
+      setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
+      syncConnForTabId(tabId);
     },
     [syncConnForTabId],
   );
@@ -1067,7 +869,10 @@ export function DatabasePanel() {
   );
 
   const refreshConnections = useCallback(async () => {
-    setConnectionsLoading(true);
+    // 已有列表时不进入全屏 loading，避免刷新时把侧栏树卸掉
+    if (connections.length === 0) {
+      setConnectionsLoading(true);
+    }
     try {
       const list = await listConnections();
       setConnections(list);
@@ -1090,7 +895,7 @@ export function DatabasePanel() {
     } finally {
       setConnectionsLoading(false);
     }
-  }, [activeGroupName]);
+  }, [activeGroupName, connections.length]);
 
   const handleImportConnections = useCallback(async () => {
     try {
@@ -1231,6 +1036,20 @@ export function DatabasePanel() {
 
     return useDbWorkspaceSessionStore.persist.onFinishHydration(bootstrapWorkspace);
   }, []);
+
+  // 工作区就绪后：仅对 Tab 引用的连接做真实连通探测（本地缓存不标绿点）
+  useEffect(() => {
+    if (!workspaceInitialized || connectionsLoading) {
+      return;
+    }
+    void warmPrioritySchemaConnections(schemaCacheReporter, {
+      workspaceTabs: workspaceTabsRef.current,
+    }).catch((err) => {
+      schemaCacheReporter.onError?.(String(err));
+    });
+    // 只在会话初始化后跑一次；之后靠打开连接/库/表时 probe
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional once after workspace init
+  }, [workspaceInitialized, connectionsLoading, schemaCacheReporter]);
 
   useEffect(() => {
     if (!workspaceInitialized) {
@@ -1553,7 +1372,7 @@ export function DatabasePanel() {
   const filtersHydrated = useDbSchemaFilterStore((s) => s.hydrated);
   const hydrateSchemaCache = useDbSchemaCacheStore((s) => s.hydrate);
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
-  const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
+  const schemaRevision = useDbSchemaCacheStore((s) => s.revision);
 
   const getSqlTabDatabases = useCallback(
     (tabId: string): string[] => {
@@ -1630,6 +1449,7 @@ export function DatabasePanel() {
     if (!cacheHydrated) {
       return;
     }
+    const schemaSnapshot = useDbSchemaCacheStore.getState().snapshot;
     for (const connId of referencedSqlConnIds) {
       const names = getCachedDatabaseNames(schemaSnapshot, connId);
       if (names.length === 0) {
@@ -1647,13 +1467,14 @@ export function DatabasePanel() {
         [connId]: mergeFilter(prev[connId], names),
       }));
     }
-  }, [referencedSqlConnIds, cacheHydrated, schemaSnapshot, setDatabaseFilters]);
+  }, [referencedSqlConnIds, cacheHydrated, schemaRevision, setDatabaseFilters]);
 
   useEffect(() => {
     if (!cacheHydrated) {
       return;
     }
     let cancelled = false;
+    const schemaSnapshot = useDbSchemaCacheStore.getState().snapshot;
     for (const connId of referencedSqlConnIds) {
       const connection = connections.find((item) => item.id === connId);
       if (!connection || !isConnectionEnabled(connection)) {
@@ -1686,12 +1507,13 @@ export function DatabasePanel() {
     return () => {
       cancelled = true;
     };
-  }, [referencedSqlConnIds, cacheHydrated, schemaSnapshot, connections, setDatabaseFilters]);
+  }, [referencedSqlConnIds, cacheHydrated, schemaRevision, connections, setDatabaseFilters]);
 
   useEffect(() => {
     if (!cacheHydrated) {
       return;
     }
+    const schemaSnapshot = useDbSchemaCacheStore.getState().snapshot;
     for (const tab of workspaceTabs) {
       if (tab.kind !== "sql") {
         continue;
@@ -1729,7 +1551,7 @@ export function DatabasePanel() {
     resolveSqlTabConnection,
     schemaByKey,
     cacheHydrated,
-    schemaSnapshot,
+    schemaRevision,
   ]);
 
   const loadTablePreview = useCallback(
@@ -2874,6 +2696,7 @@ export function DatabasePanel() {
       if (!connection) return;
       try {
         await saveConnection({ ...connection, enabled });
+        useDbConnectionRuntimeStore.getState().syncEnabled(connId, enabled);
         if (!enabled) {
           updateSchemaExpanded((prev) => {
             const next = new Set(prev);
@@ -3255,7 +3078,6 @@ export function DatabasePanel() {
         const taskId = await submitDbMysqlExport(connection, databaseName, exportDeployment);
         watch.bindTaskId(taskId);
         showToast(t("database.export.started", { database: databaseName }));
-        useDbConnectionInfoNavStore.getState().requestSubTab(connection.id, "exports");
         openConnectionInfoTabRef.current(connection.id, "permanent");
       } catch (error) {
         watch.cancel();
@@ -3582,9 +3404,10 @@ export function DatabasePanel() {
 
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "permanent") => {
-      startTransition(() => {
       setActiveConnIdIfChanged(selection.connId);
+      void probeDbConnectionRuntime(selection.connection);
 
+      startTransition(() => {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, tableName, connection } = selection;
 
@@ -3760,6 +3583,7 @@ export function DatabasePanel() {
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
+      void probeDbConnectionRuntime(selection.connection);
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, connection } = selection;
       const isRedis = isRedisConnection(connection);
@@ -4151,10 +3975,33 @@ export function DatabasePanel() {
 
   const handleSelectConnection = useCallback(
     (connId: string, mode: SchemaDockOpenMode = "permanent") => {
-      startTransition(() => {
+      // 联动定位必须同步更新，不能包在 startTransition 里（否则侧栏会等低优先级任务）
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
+
+      updateSchemaExpanded((prev) => {
+        const next = new Set(prev);
+        next.add(connectionNodeId(connId));
+        return next;
+      });
+
+      if (isConnectionEnabled(conn)) {
+        void probeDbConnectionRuntime(conn);
+        // 无 Schema 缓存时后台异步浅刷库名，不堵 UI
+        const entry = useDbSchemaCacheStore.getState().snapshot.connections?.[connId];
+        const refreshing = Boolean(
+          useDbSchemaCacheStore.getState().refreshingConnectionIds[connId],
+        );
+        if (!isSchemaCacheEntryOk(entry) && !refreshing) {
+          void submitSchemaCacheRefresh([connId], schemaCacheReporter).catch((err) => {
+            schemaCacheReporter.onError?.(String(err));
+          });
+        }
+      } else {
+        useDbConnectionRuntimeStore.getState().syncEnabled(connId, false);
+      }
+
       const normalized = normalizeConnectionGroup(conn.group);
       const group = groups.find((item) => item.name === normalized);
       if (group) {
@@ -4253,9 +4100,20 @@ export function DatabasePanel() {
       patchDockTabPreviewMeta(tabId, true);
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
-      });
     },
-    [connections, groups, setActiveGroupId, activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged, setWorkspaceTabs],
+    [
+      connections,
+      groups,
+      setActiveGroupId,
+      activateExistingDockTab,
+      activateWorkspaceTab,
+      promotePreviewTab,
+      replacePreviewDockTab,
+      setActiveConnIdIfChanged,
+      setWorkspaceTabs,
+      updateSchemaExpanded,
+      schemaCacheReporter,
+    ],
   );
   openConnectionInfoTabRef.current = handleSelectConnection;
 
@@ -4596,6 +4454,7 @@ export function DatabasePanel() {
         resolveConnection,
         connectionsLoading,
         selectTable: handleSelectTable,
+        selectDatabase: handleSelectDatabase,
         openTableDesigner: handleDesignTable,
         openTableQuery,
         setTabMode: (id: string, mode: "data" | "sql") =>
@@ -4639,6 +4498,7 @@ export function DatabasePanel() {
     resolveConnection,
     connectionsLoading,
     handleSelectTable,
+    handleSelectDatabase,
     handleDesignTable,
     openTableQuery,
     commitTabDirty,

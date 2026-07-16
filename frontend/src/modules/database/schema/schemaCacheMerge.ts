@@ -41,6 +41,7 @@ export interface CachedDatabase {
   views?: CachedTable[];
   routines?: CachedRoutine[];
   loadError?: string;
+  objectsLoaded?: boolean;
 }
 
 export interface CachedConnection {
@@ -140,6 +141,7 @@ function mapCachedDatabaseWithReuse(
   db: {
     name: string;
     loadError?: string;
+    objectsLoaded?: boolean;
     tables: Parameters<typeof mapCachedTable>[0][];
     views?: Parameters<typeof mapCachedTable>[0][];
     routines?: { name: string; routineType: string }[];
@@ -168,6 +170,7 @@ function mapCachedDatabaseWithReuse(
   const next: CachedDatabase = {
     name: db.name,
     loadError: db.loadError,
+    objectsLoaded: db.objectsLoaded,
     tables,
     views,
     routines,
@@ -176,6 +179,7 @@ function mapCachedDatabaseWithReuse(
     prev &&
     prev.name === next.name &&
     prev.loadError === next.loadError &&
+    prev.objectsLoaded === next.objectsLoaded &&
     prev.tables === next.tables &&
     prev.views === next.views &&
     prev.routines === next.routines

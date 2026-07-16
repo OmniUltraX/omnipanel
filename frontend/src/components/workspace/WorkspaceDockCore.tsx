@@ -276,7 +276,7 @@ export function WorkspaceDockCore({
       savedLayout={effectiveSavedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
       renderPanel={renderPanel}
-      defaultRenderer="onlyWhenVisible"
+      defaultRenderer="always"
       tabStyle={tabStyle}
       preActions={preActions}
       windowControl={windowControl}

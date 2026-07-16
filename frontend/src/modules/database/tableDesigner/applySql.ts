@@ -239,11 +239,29 @@ function pgQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function pgColumnDef(field: TableDesignerFieldRow): string {
-  let def = field.type.trim();
-  if (field.length.trim() && /varchar|char|numeric/i.test(def)) {
-    def += `(${field.length.trim()})`;
+/** 解析 PG 可能带 schema 前缀的表名（如 `myschema.mytable`），默认 schema 为 `public`。 */
+function pgParseSchemaTable(name: string): { schema: string; table: string } {
+  const trimmed = name.trim();
+  const dot = trimmed.indexOf(".");
+  if (dot > 0) {
+    const schema = trimmed.slice(0, dot).replace(/^"|"$/g, "");
+    const table = trimmed.slice(dot + 1).replace(/^"|"$/g, "");
+    if (schema && table) return { schema, table };
   }
+  return { schema: "public", table: trimmed.replace(/^"|"$/g, "") };
+}
+
+/** PG 列类型串（含长度），不含 NULL/DEFAULT 约束。 */
+function pgColumnType(field: TableDesignerFieldRow): string {
+  let type = field.type.trim();
+  if (field.length.trim() && /varchar|char|numeric|decimal/i.test(type)) {
+    type += `(${field.length.trim()})`;
+  }
+  return type;
+}
+
+function pgColumnDef(field: TableDesignerFieldRow): string {
+  let def = pgColumnType(field);
   if (!field.nullable) def += " NOT NULL";
   if (field.defaultValue.trim()) def += ` DEFAULT ${field.defaultValue.trim()}`;
   return def;
@@ -255,14 +273,16 @@ export function buildApplySqlPostgres(
   _dbName: string,
 ): string[] {
   const stmts: string[] = [];
-  const schema = "public";
-  const tableName = model.tableName.trim();
-  const baseTableName = baseline.tableName.trim();
-  const tableRef = `${pgQuoteId(schema)}.${pgQuoteId(tableName || baseTableName)}`;
+  const { schema: modelSchema, table: modelTable } = pgParseSchemaTable(model.tableName);
+  const { schema: baseSchema, table: baseTable } = pgParseSchemaTable(baseline.tableName);
+  const schema = modelSchema || baseSchema;
+  const tableName = modelTable || baseTable;
+  const tableRef = `${pgQuoteId(schema)}.${pgQuoteId(tableName)}`;
 
-  if (baseTableName && tableName && baseTableName !== tableName) {
+  // 表重命名（仅当表名变化、schema 未变时）
+  if (baseTable && tableName && baseTable !== tableName && baseSchema === modelSchema) {
     stmts.push(
-      `ALTER TABLE ${pgQuoteId(schema)}.${pgQuoteId(baseTableName)} RENAME TO ${pgQuoteId(tableName)}`,
+      `ALTER TABLE ${pgQuoteId(baseSchema)}.${pgQuoteId(baseTable)} RENAME TO ${pgQuoteId(tableName)}`,
     );
   }
 
@@ -272,7 +292,7 @@ export function buildApplySqlPostgres(
   for (const field of baseFields.values()) {
     if (!curFields.has(field.id)) {
       stmts.push(
-        `ALTER TABLE ${tableRef} DROP COLUMN ${pgQuoteId(field.name.trim())}`,
+        `ALTER TABLE ${tableRef} DROP COLUMN IF EXISTS ${pgQuoteId(field.name.trim())} CASCADE`,
       );
     }
   }
@@ -288,26 +308,28 @@ export function buildApplySqlPostgres(
   for (const field of curFields.values()) {
     const base = baseFields.get(field.id);
     if (!base || fieldSignature(base) === fieldSignature(field)) continue;
+    // 列重命名（必须先于 TYPE/NOT NULL/DEFAULT，否则引用旧名失败）
     if (base.name.trim() !== field.name.trim()) {
       stmts.push(
         `ALTER TABLE ${tableRef} RENAME COLUMN ${pgQuoteId(base.name.trim())} TO ${pgQuoteId(field.name.trim())}`,
       );
     }
+    // 类型 / 长度变更
     if (
       base.type.trim() !== field.type.trim() ||
-      base.length.trim() !== field.length.trim() ||
-      base.nullable !== field.nullable ||
-      base.defaultValue.trim() !== field.defaultValue.trim()
+      base.length.trim() !== field.length.trim()
     ) {
       stmts.push(
-        `ALTER TABLE ${tableRef} ALTER COLUMN ${pgQuoteId(field.name.trim())} TYPE ${pgColumnDef(field).split(" ").slice(1).join(" ") || field.type.trim()}`,
+        `ALTER TABLE ${tableRef} ALTER COLUMN ${pgQuoteId(field.name.trim())} TYPE ${pgColumnType(field)} USING ${pgQuoteId(field.name.trim())}::${pgColumnType(field)}`,
       );
     }
+    // NULL 约束变更
     if (base.nullable !== field.nullable) {
       stmts.push(
         `ALTER TABLE ${tableRef} ALTER COLUMN ${pgQuoteId(field.name.trim())} ${field.nullable ? "DROP NOT NULL" : "SET NOT NULL"}`,
       );
     }
+    // 默认值变更
     if (base.defaultValue.trim() !== field.defaultValue.trim()) {
       if (field.defaultValue.trim()) {
         stmts.push(
@@ -319,8 +341,15 @@ export function buildApplySqlPostgres(
         );
       }
     }
+    // 列注释变更
+    if (base.comment.trim() !== field.comment.trim()) {
+      stmts.push(
+        `COMMENT ON COLUMN ${tableRef}.${pgQuoteId(field.name.trim())} IS '${escapeSqlString(field.comment.trim())}'`,
+      );
+    }
   }
 
+  // 表注释变更
   if (baseline.comment.trim() !== model.comment.trim()) {
     stmts.push(
       `COMMENT ON TABLE ${tableRef} IS '${escapeSqlString(model.comment.trim())}'`,

@@ -66,6 +66,9 @@ pub struct SchemaCacheDatabase {
     pub routines: Vec<SchemaCacheRoutine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// 是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后再 true）。
+    #[serde(default)]
+    pub objects_loaded: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
@@ -190,6 +193,67 @@ pub fn sanitize_bloated_schema_cache_entry(entry: &mut SchemaCacheConnection) ->
     changed
 }
 
+fn database_has_loaded_objects(db: &SchemaCacheDatabase) -> bool {
+    db.objects_loaded || !db.tables.is_empty() || !db.views.is_empty() || !db.routines.is_empty()
+}
+
+/// 连接级浅刷新合并：保留本地已加载的库对象，仅更新库名列表 / 用户 / 错误。
+pub fn merge_schema_cache_connection(
+    previous: Option<&SchemaCacheConnection>,
+    incoming: SchemaCacheConnection,
+) -> SchemaCacheConnection {
+    if let Some(err) = incoming.error.clone() {
+        // 刷新失败：保留旧库表缓存，只挂上错误，避免整棵树被清空
+        if let Some(prev) = previous {
+            return SchemaCacheConnection {
+                databases: prev.databases.clone(),
+                users: prev.users.clone(),
+                refreshed_at: incoming.refreshed_at.or(prev.refreshed_at),
+                error: Some(err),
+            };
+        }
+        return incoming;
+    }
+    let Some(prev) = previous else {
+        return incoming;
+    };
+
+    let prev_by_name: HashMap<&str, &SchemaCacheDatabase> = prev
+        .databases
+        .iter()
+        .map(|db| (db.name.as_str(), db))
+        .collect();
+
+    let databases = incoming
+        .databases
+        .into_iter()
+        .map(|db| {
+            if db.objects_loaded || database_has_loaded_objects(&db) {
+                return db;
+            }
+            if let Some(old) = prev_by_name.get(db.name.as_str()) {
+                if database_has_loaded_objects(old) {
+                    let mut kept = (*old).clone();
+                    kept.objects_loaded = true;
+                    return kept;
+                }
+            }
+            db
+        })
+        .collect();
+
+    SchemaCacheConnection {
+        databases,
+        users: if incoming.users.is_empty() {
+            prev.users.clone()
+        } else {
+            incoming.users
+        },
+        refreshed_at: incoming.refreshed_at.or(prev.refreshed_at),
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +278,7 @@ mod tests {
                             views: vec![],
                             routines: vec![],
                             load_error: None,
+                            objects_loaded: true,
                         }],
                         users: vec![],
                         refreshed_at: Some(1),
@@ -246,6 +311,7 @@ mod tests {
                     views: vec![],
                     routines: vec![],
                     load_error: None,
+                    objects_loaded: true,
                 },
                 SchemaCacheDatabase {
                     name: "11".into(),
@@ -260,6 +326,7 @@ mod tests {
                     views: vec![],
                     routines: vec![],
                     load_error: None,
+                    objects_loaded: true,
                 },
             ],
             users: vec![],

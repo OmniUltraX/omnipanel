@@ -73,9 +73,11 @@ import {
 } from "./TableDataGridCellContent";
 import {
   TableDataGridBody,
+  TableDataGridVirtualBody,
   type GridBodyCellInteractionContext,
   type GridBodyStaticConfig,
   type TableDataGridBodyActions,
+  type TableDataGridVirtualBodyHandle,
 } from "./TableDataGridBody";
 import {
   buildCellRangeClipboardText,
@@ -87,8 +89,10 @@ import {
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   ROW_NUM_COL_ID,
+  ROW_VIRTUALIZE_THRESHOLD,
   TRANSPOSE_FIELD_COL,
 } from "./tableDataGridConstants";
+import { buildColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
   applyColumnWidthDom,
@@ -362,6 +366,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     lastHeight: number;
   } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const virtualBodyRef = useRef<TableDataGridVirtualBodyHandle | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const savedScrollRef = useRef({ left: 0, top: 0 });
   const restoreScrollAfterPageChangeRef = useRef(false);
@@ -1557,6 +1562,17 @@ export const TableDataGrid = memo(function TableDataGrid({
     t,
   ]);
 
+  const getRowHeight = useCallback(
+    (index: number) => {
+      const row = tableRows[index];
+      if (!row) return DEFAULT_ROW_HEIGHT;
+      return rowHeights[row.index] ?? DEFAULT_ROW_HEIGHT;
+    },
+    [tableRows, rowHeights],
+  );
+
+  const useRowVirtualization = tableRows.length > ROW_VIRTUALIZE_THRESHOLD;
+
   const scrollAndHighlightColumn = useCallback(
     (columnName: string) => {
       const wrap = wrapRef.current;
@@ -1571,9 +1587,13 @@ export const TableDataGrid = memo(function TableDataGrid({
         if (rowIdx < 0) {
           return;
         }
-        const tr = wrap.querySelector<HTMLElement>(`tr[data-row-index="${rowIdx}"]`);
-        if (tr) {
-          scrollElementToCenter(wrap, tr);
+        if (useRowVirtualization) {
+          virtualBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
+        } else {
+          const tr = wrap.querySelector<HTMLElement>(`tr[data-row-index="${rowIdx}"]`);
+          if (tr) {
+            scrollElementToCenter(wrap, tr);
+          }
         }
         const maxCol = leafColumnCount - 1;
         if (maxCol >= 0) {
@@ -1615,6 +1635,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       leafColumns,
       leafColumnCount,
       tableRows.length,
+      useRowVirtualization,
     ],
   );
 
@@ -1733,6 +1754,12 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
+  // 列向虚拟化器尚未接入；传入空 virtualItems，layout 会安全回退为全列渲染
+  const columnLayout = useMemo(
+    () => buildColumnVirtualizationLayout(leafColumns, transposed, [], [], 0),
+    [leafColumns, transposed],
+  );
+
   const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
     return {
       transposed,
@@ -1747,6 +1774,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta,
       leafColumnCount,
       columnSizedIds,
+      columnLayout,
       relationHighlightColumnIds,
     };
   }, [
@@ -1762,6 +1790,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     fillDelta,
     leafColumnCount,
     columnSizedIds,
+    columnLayout,
     relationHighlightColumnIds,
   ]);
 
@@ -1977,7 +2006,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
+      className={`db-data-table-wrap${useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}`}
     >
       <table
         className="db-data-table"
@@ -2162,12 +2191,26 @@ export const TableDataGrid = memo(function TableDataGrid({
             </tr>
           ))}
         </thead>
-        <TableDataGridBody
-          tableRows={tableRows}
-          buildRowProps={buildGridBodyRowProps}
-          bodyActionsRef={bodyActionsRef}
-          resolveCellContext={resolveBodyCellContext}
-        />
+        {useRowVirtualization ? (
+          <TableDataGridVirtualBody
+            ref={virtualBodyRef}
+            scrollElementRef={wrapRef}
+            tableRows={tableRows}
+            getRowHeight={getRowHeight}
+            rowHeights={rowHeights}
+            visibleCellCount={columnLayout.visibleCellCount}
+            buildRowProps={buildGridBodyRowProps}
+            bodyActionsRef={bodyActionsRef}
+            resolveCellContext={resolveBodyCellContext}
+          />
+        ) : (
+          <TableDataGridBody
+            tableRows={tableRows}
+            buildRowProps={buildGridBodyRowProps}
+            bodyActionsRef={bodyActionsRef}
+            resolveCellContext={resolveBodyCellContext}
+          />
+        )}
       </table>
       <TableDataGridCellOverlay
         overlay={cellOverlay}
