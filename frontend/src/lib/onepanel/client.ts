@@ -6,6 +6,7 @@ import {
   type OnePanelDashboardBase,
   type OnePanelDashboardCurrent,
   type OnePanelDeviceBase,
+  type OnePanelFileEntry,
   type OnePanelHostInfo,
   type OnePanelInstalledApp,
   type OnePanelInstalledSearchParams,
@@ -294,7 +295,34 @@ export class OnePanelClient {
     };
   }
 
-  /** POST /websites/search — 网站列表。 */
+  /** POST /websites — 创建网站（静态站等）。 */
+  async createWebsite(body: Record<string, unknown>): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites",
+      body,
+    });
+  }
+
+  /** POST /websites/ssl/upload — 上传/粘贴 SSL 证书。 */
+  async uploadWebsiteSsl(body: Record<string, unknown>): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites/ssl/upload",
+      body,
+    });
+  }
+
+  /** POST /cronjobs — 创建计划任务。 */
+  async createCronjob(body: Record<string, unknown>): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/cronjobs",
+      body,
+    });
+  }
+
+  /** POST /websites/search — 网站列表（完整路径 `/api/v2/websites/search`）。 */
   async searchWebsites(body: Record<string, unknown> = {}): Promise<unknown[]> {
     const data = await this.request<unknown>({
       method: "POST",
@@ -310,6 +338,137 @@ export class OnePanelClient {
       },
     });
     return unwrapList(data);
+  }
+
+  /** POST /websites/operate — 启停网站（完整路径 `/api/v2/websites/operate`）。 */
+  async operateWebsite(id: number | string, operate: "start" | "stop"): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites/operate",
+      body: { id: Number(id), operate },
+    });
+  }
+
+  /** GET /websites/:id — 网站详情。 */
+  async getWebsite(id: number | string): Promise<Record<string, unknown>> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "GET",
+      path: `/websites/${id}`,
+    });
+    return data && typeof data === "object" ? data : {};
+  }
+
+  /** GET /websites/:id/config/:type — 网站 Nginx/OpenResty 配置文件。 */
+  async getWebsiteConfig(
+    id: number | string,
+    type: string = "openresty",
+  ): Promise<{ path?: string; content?: string; name?: string } & Record<string, unknown>> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "GET",
+      path: `/websites/${id}/config/${type}`,
+    });
+    return data && typeof data === "object" ? data : {};
+  }
+
+  /** POST /websites/nginx/update — 保存网站 Nginx 配置。 */
+  async updateWebsiteNginx(id: number | string, content: string): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites/nginx/update",
+      body: { id: Number(id), content },
+    });
+  }
+
+  /**
+   * POST /files/read/website?operateNode=local — 按行读取网站日志。
+   * name 通常为 access.log / error.log。
+   */
+  async readWebsiteLog(params: {
+    id: number | string;
+    name?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ content: string; end?: boolean; path?: string }> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "POST",
+      path: "/files/read/website",
+      query: { operateNode: "local" },
+      body: {
+        id: Number(params.id),
+        type: "website",
+        name: params.name ?? "access.log",
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 500,
+      },
+    });
+    const content =
+      typeof data?.content === "string"
+        ? data.content
+        : Array.isArray(data?.lines)
+          ? (data.lines as unknown[]).map(String).join("\n")
+          : "";
+    return {
+      content,
+      end: Boolean(data?.end),
+      path: typeof data?.path === "string" ? data.path : undefined,
+    };
+  }
+
+  /** POST /files/search — 列目录。 */
+  async searchFiles(path: string): Promise<OnePanelFileEntry[]> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "POST",
+      path: "/files/search",
+      query: { operateNode: "local" },
+      body: {
+        path,
+        expand: true,
+        page: 1,
+        pageSize: 500,
+        showHidden: true,
+      },
+    });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    return items
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => ({
+        name: String(item.name ?? ""),
+        path: String(item.path ?? ""),
+        isDir: Boolean(item.isDir),
+        isSymlink: Boolean(item.isSymlink),
+        linkTarget: item.linkPath != null ? String(item.linkPath) : null,
+        size: Number(item.size ?? 0),
+      }))
+      .filter((item) => item.name && item.name !== "." && item.name !== "..");
+  }
+
+  /** POST /files/content — 读取文件内容。 */
+  async getFileContent(path: string): Promise<string> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "POST",
+      path: "/files/content",
+      query: { operateNode: "local" },
+      body: { path, expand: true },
+    });
+    return typeof data?.content === "string" ? data.content : "";
+  }
+
+  /** GET /websites/ssl/website/:websiteId — 网站绑定的 SSL 证书。 */
+  async getWebsiteSsl(websiteId: number | string): Promise<Record<string, unknown>> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "GET",
+      path: `/websites/ssl/website/${websiteId}`,
+    });
+    return data && typeof data === "object" ? data : {};
+  }
+
+  /** GET /websites/ssl/:id — SSL 证书详情。 */
+  async getSslById(id: number | string): Promise<Record<string, unknown>> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "GET",
+      path: `/websites/ssl/${id}`,
+    });
+    return data && typeof data === "object" ? data : {};
   }
 
   /** POST /databases/db/search — 数据库连接列表。 */

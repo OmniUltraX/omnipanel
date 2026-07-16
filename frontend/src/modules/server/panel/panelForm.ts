@@ -4,31 +4,21 @@ import { parsePanelConfig, type PanelConfigJson } from "./serverConnection";
 
 export interface PanelFormData {
   name: string;
-  group: string;
-  envTag: string;
   panelAddress: string;
   panelKey: string;
   serviceType: "bt" | "1panel";
   remark: string;
-  sshConnectionId: string;
 }
 
 export const EMPTY_PANEL_FORM: PanelFormData = {
   name: "",
-  group: "默认",
-  envTag: "dev",
   panelAddress: "",
   panelKey: "",
   serviceType: "bt",
   remark: "",
-  sshConnectionId: "",
 };
 
-const ENV_OPTIONS = ["local", "dev", "staging", "prod", "unknown"] as const;
-
-export function normalizePanelEnvTag(tag: string | undefined): string {
-  return ENV_OPTIONS.includes(tag as (typeof ENV_OPTIONS)[number]) ? (tag as string) : "dev";
-}
+const DEFAULT_ENV_TAG = "dev";
 
 export function panelConnectionToForm(connection: Connection): PanelFormData {
   const panel = parsePanelConfig(connection);
@@ -41,13 +31,10 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
   }
   return {
     name: connection.name,
-    group: connection.group || "默认",
-    envTag: normalizePanelEnvTag(connection.envTag),
     panelAddress: panel.address,
     panelKey: panel.key,
     serviceType: panel.serviceType,
     remark,
-    sshConnectionId: panel.sshConnectionId ?? "",
   };
 }
 
@@ -61,12 +48,11 @@ export function buildPanelOnlyConnection(
     serviceType: form.serviceType,
     remark: form.remark.trim() || undefined,
   };
-  if (form.sshConnectionId.trim()) {
-    config.sshConnectionId = form.sshConnectionId.trim();
-  } else if (existing) {
+  // 表单不再管理 SSH 关联，编辑时保留已有绑定
+  if (existing) {
     const prev = parsePanelConfig(existing);
     if (prev.sshConnectionId) {
-      delete config.sshConnectionId;
+      config.sshConnectionId = prev.sshConnectionId;
     }
   }
   const now = Date.now();
@@ -74,8 +60,8 @@ export function buildPanelOnlyConnection(
     id: existing?.id ?? "",
     kind: "panel",
     name: form.name.trim(),
-    group: normalizeServerGroup(form.group),
-    envTag: normalizePanelEnvTag(form.envTag),
+    group: normalizeServerGroup(existing?.group),
+    envTag: existing?.envTag?.trim() || DEFAULT_ENV_TAG,
     config: JSON.stringify(config),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

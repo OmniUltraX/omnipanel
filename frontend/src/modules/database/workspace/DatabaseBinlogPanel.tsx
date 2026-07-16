@@ -26,7 +26,6 @@ import {
   isSparseDeleteForward,
   SPARSE_DELETE_FLASHBACK_HINT,
   INCOMPLETE_UPDATE_FLASHBACK_HINT,
-  type BinlogDmlKind,
   type BinlogFileInfo,
   type BinlogTimelineEvent,
   type FlashbackToolResolution,
@@ -35,7 +34,6 @@ import {
 /** 时间线行高（含分隔），配合虚拟滚动固定估算。 */
 const BINLOG_TIMELINE_ROW_HEIGHT = 44;
 const BINLOG_TIMELINE_VIRTUALIZE_THRESHOLD = 40;
-const DML_KIND_OPTIONS: BinlogDmlKind[] = ["INSERT", "UPDATE", "DELETE"];
 const SYSTEM_DB_SKIP = new Set(["information_schema", "performance_schema", "mysql", "sys"]);
 
 type BinlogSortKey = "kind" | "time" | "table" | "pos" | "summary";

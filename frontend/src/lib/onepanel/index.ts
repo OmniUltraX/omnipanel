@@ -11,6 +11,7 @@ export {
   type OnePanelDashboardBase,
   type OnePanelDashboardCurrent,
   type OnePanelDiskInfo,
+  type OnePanelFileEntry,
   type OnePanelHostInfo,
   type OnePanelInstalledApp,
   type OnePanelInstalledAppMeta,

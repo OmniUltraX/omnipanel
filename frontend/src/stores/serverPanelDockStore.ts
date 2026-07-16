@@ -4,9 +4,13 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   findPreviewDockTab,
   findTabIdForServer,
+  findTabIdForServerResource,
+  makeServerResourceTab,
+  makeServerResourceTabId,
   makeServerTabId,
   sanitizeServerPanelDockTabs,
   type ServerPanelDockOpenMode,
+  type ServerPanelResourceKind,
   type ServerPanelWorkspaceTab,
 } from "../modules/server/panel/serverPanelWorkspaceTabs";
 
@@ -15,6 +19,11 @@ interface ServerPanelDockState {
   activeTabId: string | null;
   dockLayout: SerializedDockview | null;
   selectServer: (serverId: string, mode?: ServerPanelDockOpenMode) => void;
+  selectServerResource: (
+    serverId: string,
+    kind: ServerPanelResourceKind,
+    mode?: ServerPanelDockOpenMode,
+  ) => void;
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string | null) => void;
   setDockLayout: (layout: SerializedDockview | null) => void;
@@ -26,6 +35,65 @@ function getActiveServerId(tabs: ServerPanelWorkspaceTab[], activeTabId: string 
   return tabs.find((tab) => tab.id === activeTabId)?.serverId ?? null;
 }
 
+function openOrFocusTab(
+  state: Pick<ServerPanelDockState, "tabs" | "activeTabId">,
+  mode: ServerPanelDockOpenMode,
+  existingTabId: string | undefined,
+  createTab: (id: string, preview: boolean) => ServerPanelWorkspaceTab,
+): Partial<ServerPanelDockState> {
+  const previewTab = findPreviewDockTab(state.tabs);
+
+  if (mode === "permanent") {
+    if (existingTabId) {
+      return {
+        tabs: state.tabs.map((tab) =>
+          tab.id === existingTabId ? { ...tab, preview: false } : tab,
+        ),
+        activeTabId: existingTabId,
+      };
+    }
+    if (previewTab) {
+      return {
+        tabs: state.tabs.map((tab) =>
+          tab.id === previewTab.id ? createTab(previewTab.id, false) : tab,
+        ),
+        activeTabId: previewTab.id,
+      };
+    }
+    const tab = createTab("", false);
+    return {
+      tabs: [...state.tabs, tab],
+      activeTabId: tab.id,
+    };
+  }
+
+  if (existingTabId) {
+    const existing = state.tabs.find((tab) => tab.id === existingTabId);
+    if (existing && !existing.preview) {
+      return { activeTabId: existingTabId };
+    }
+  }
+
+  if (previewTab) {
+    return {
+      tabs: state.tabs.map((tab) =>
+        tab.id === previewTab.id ? createTab(previewTab.id, true) : tab,
+      ),
+      activeTabId: previewTab.id,
+    };
+  }
+
+  if (existingTabId) {
+    return { activeTabId: existingTabId };
+  }
+
+  const tab = createTab("", true);
+  return {
+    tabs: [...state.tabs, tab],
+    activeTabId: tab.id,
+  };
+}
+
 export const useServerPanelDockStore = create<ServerPanelDockState>()(
   persist(
     (set) => ({
@@ -34,62 +102,32 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
       dockLayout: null,
 
       selectServer: (serverId, mode = "permanent") => {
-        set((state) => {
-          const existingTabId = findTabIdForServer(state.tabs, serverId);
-          const previewTab = findPreviewDockTab(state.tabs);
+        set((state) =>
+          openOrFocusTab(state, mode, findTabIdForServer(state.tabs, serverId), (id, preview) => ({
+            id: id || makeServerTabId(),
+            kind: "server",
+            serverId,
+            preview,
+            label: "",
+          })),
+        );
+      },
 
-          if (mode === "permanent") {
-            if (existingTabId) {
-              return {
-                tabs: state.tabs.map((tab) =>
-                  tab.id === existingTabId ? { ...tab, preview: false } : tab,
-                ),
-                activeTabId: existingTabId,
-              };
-            }
-            if (previewTab) {
-              return {
-                tabs: state.tabs.map((tab) =>
-                  tab.id === previewTab.id
-                    ? { ...tab, serverId, preview: false, label: tab.label }
-                    : tab,
-                ),
-                activeTabId: previewTab.id,
-              };
-            }
-            const id = makeServerTabId();
-            return {
-              tabs: [...state.tabs, { id, kind: "server", serverId, preview: false, label: "" }],
-              activeTabId: id,
-            };
-          }
-
-          if (existingTabId) {
-            const existing = state.tabs.find((tab) => tab.id === existingTabId);
-            if (existing && !existing.preview) {
-              return { activeTabId: existingTabId };
-            }
-          }
-
-          if (previewTab) {
-            return {
-              tabs: state.tabs.map((tab) =>
-                tab.id === previewTab.id ? { ...tab, serverId, preview: true } : tab,
+      selectServerResource: (serverId, kind, mode = "permanent") => {
+        set((state) =>
+          openOrFocusTab(
+            state,
+            mode,
+            findTabIdForServerResource(state.tabs, serverId, kind),
+            (id, preview) =>
+              makeServerResourceTab(
+                id || makeServerResourceTabId(kind),
+                serverId,
+                kind,
+                preview,
               ),
-              activeTabId: previewTab.id,
-            };
-          }
-
-          if (existingTabId) {
-            return { activeTabId: existingTabId };
-          }
-
-          const id = makeServerTabId();
-          return {
-            tabs: [...state.tabs, { id, kind: "server", serverId, preview: true, label: "" }],
-            activeTabId: id,
-          };
-        });
+          ),
+        );
       },
 
       closeTab: (tabId) => {
@@ -123,7 +161,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
     }),
     {
       name: "omnipanel-server-panel-dock.v1",
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {

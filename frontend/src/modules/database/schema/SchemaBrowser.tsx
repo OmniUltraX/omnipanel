@@ -149,9 +149,9 @@ function resolveSoleDatabaseObjectFolderId(
   dbName: string,
   db:
     | {
-        tables?: { length: number }[];
-        views?: { length: number }[];
-        routines?: { length: number }[];
+        tables?: { length: number } | null;
+        views?: { length: number } | null;
+        routines?: { length: number } | null;
       }
     | null
     | undefined,
@@ -985,9 +985,12 @@ export function SchemaBrowser({
 
       const targetIds = resolveSidebarTreeDeleteTargets(item.id, selectedIdsRef.current, {
         filter: (id) => {
-          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
+          const row = flatRowsRef.current.find(
+            (entry) => entry.kind === "node" && entry.item.id === id,
+          );
           return (
-            row?.item.type === item.type &&
+            row?.kind === "node" &&
+            row.item.type === item.type &&
             row.item.connId === item.connId &&
             isSchemaNodeDeletable(row.item.type)
           );
@@ -995,8 +998,10 @@ export function SchemaBrowser({
       });
       const targets = targetIds
         .map((id) => {
-          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
-          return row?.item;
+          const row = flatRowsRef.current.find(
+            (entry) => entry.kind === "node" && entry.item.id === id,
+          );
+          return row?.kind === "node" ? row.item : undefined;
         })
         .filter((entry): entry is SchemaTreeItem => Boolean(entry));
 
@@ -2390,7 +2395,10 @@ export function SchemaBrowser({
             onKeyDown={handleTreeKeyDown}
             onContextMenu={handleContextLayoutRoot}
           >
-        <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
+        <SidebarTreeSelectionProvider
+          orderedKeys={selectableNodeIds}
+          onSelectedIdsChange={handleSelectedIdsChange}
+        >
         <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>

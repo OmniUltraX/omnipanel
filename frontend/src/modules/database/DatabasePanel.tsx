@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  startTransition,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -91,7 +90,7 @@ import { isSameCellValue, shouldUseInlineCellEdit } from "./cell_editor";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redis/redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schema/schemaCacheMerge";
 import { snapshotToFilterStates } from "./schema/schemaFilters";
-import type { SchemaCacheConnectionEntry } from "./schema/schemaCache";
+import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/schemaCache";
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
@@ -2838,7 +2837,8 @@ export function DatabasePanel() {
       hydrated: true,
     });
     useDbSchemaCacheStore.setState({
-      snapshot: cacheSnap,
+      // IPC Deserialize 与前端 SchemaCacheSnapshot 结构对齐，hydrate 同路用断言
+      snapshot: cacheSnap as SchemaCacheSnapshot,
       hydrated: true,
     });
   }, []);

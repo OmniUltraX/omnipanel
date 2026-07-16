@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ModuleSegmentDock } from "../../../components/dock";
-import { usePersistedModuleTab } from "../../../hooks/usePersistedModuleTab";
-import type { ServerEntry } from "./serverConnection";
+import { useEffect } from "react";
+import { useI18n } from "@/i18n";
+import { usePersistedModuleTab } from "@/hooks/usePersistedModuleTab";
 import { ServerMonitorTab } from "@/components/server";
-import {
-  ServerDetailTabContent,
-  useServerDetailTabs,
-  type ServerDetailTab,
-} from "./ServerWorkspace";
-import type { ServerSidebarNavTarget } from "./serverSidebarNav";
+import type { ServerEntry } from "./serverConnection";
+import type { ServerDetailTab, ServerSidebarNavTarget } from "./serverSidebarNav";
+import { ServerWebsitesTab } from "./tabs/ServerWebsitesTab";
+import { ServerCertificatesTab } from "./tabs/ServerCertificatesTab";
+import { ServerCronjobsTab } from "./tabs/ServerCronjobsTab";
+
+const DETAIL_TABS = ["websites", "certificates", "cronjobs"] as const satisfies readonly ServerDetailTab[];
 
 interface ServerDockPanelProps {
   server: ServerEntry;
@@ -19,80 +19,60 @@ interface ServerDockPanelProps {
   navTarget?: ServerSidebarNavTarget | null;
 }
 
-const DETAIL_TABS: ServerDetailTab[] = [
-  "processes",
-  "apps",
-  "websites",
-  "certificates",
-];
-
 export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null }: ServerDockPanelProps) {
-  const [detailTab, setDetailTab] = usePersistedModuleTab(
-    `server-panel-${server.id}`,
-    "processes",
-    DETAIL_TABS,
-  );
-  const segmentTabs = useServerDetailTabs(detailTab);
-  const navAppliedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!navTarget || !isActive || !navTarget.detailTab) return;
-    const signature = `${navTarget.serverId}:${navTarget.detailTab}:${navTarget.itemId ?? ""}`;
-    if (navAppliedRef.current === signature) return;
-    navAppliedRef.current = signature;
-    setDetailTab(navTarget.detailTab);
-  }, [isActive, navTarget, setDetailTab]);
-
-  const selectedItemId =
-    navTarget?.detailTab === detailTab ? (navTarget.itemId ?? null) : null;
-
+  const { t } = useI18n();
   const monitorActive = moduleLive && isActive;
   const detailActive = moduleLive && isActive;
+  const selectedItemId =
+    navTarget?.serverId === server.id ? (navTarget.itemId ?? null) : null;
 
-  const renderDetailPanel = useCallback(
-    (tabId: string) => {
-      if (!detailActive) {
-        return <div className="server-panel-tab-pane" aria-hidden />;
-      }
-      return (
-        <ServerDetailTabContent
-          server={server}
-          tab={tabId as ServerDetailTab}
-          selectedItemId={selectedItemId}
-        />
-      );
-    },
-    [detailActive, selectedItemId, server],
+  const [detailTab, setDetailTab] = usePersistedModuleTab(
+    `server-panel-detail-${server.id}`,
+    "websites",
+    DETAIL_TABS,
   );
 
-  const dockTabs = useMemo(
-    () =>
-      segmentTabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        icon: tab.icon,
-        panelType: `server-${tab.id}`,
-      })),
-    [segmentTabs],
-  );
+  useEffect(() => {
+    if (navTarget?.serverId !== server.id || !navTarget.detailTab) return;
+    if ((DETAIL_TABS as readonly string[]).includes(navTarget.detailTab)) {
+      setDetailTab(navTarget.detailTab);
+    }
+  }, [navTarget, server.id, setDetailTab]);
 
   return (
     <div className="server-dock-panel">
       <div className="server-dock-panel__monitor">
         <ServerMonitorTab server={server} active={monitorActive} />
       </div>
-      <ModuleSegmentDock
-        className="server-workspace-dock"
-        variant="function"
-        windowControl={false}
-        enabled={detailActive}
-        tabs={dockTabs}
-        activeTabId={detailTab}
-        onActiveTabChange={(id) => setDetailTab(id as ServerDetailTab)}
-        renderPanel={renderDetailPanel}
-        dockScope={`server-detail-${server.id}`}
-        panelContentKey={detailActive ? server.id : `${server.id}-idle`}
-      />
+      <div className="server-dock-panel__detail">
+        <div className="server-dock-panel__tabs" role="tablist" aria-label={t("routes.server")}>
+          {DETAIL_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={detailTab === tab}
+              className={`server-dock-panel__tab${detailTab === tab ? " is-active" : ""}`}
+              onClick={() => setDetailTab(tab)}
+            >
+              {t(`server.tabs.${tab}`)}
+            </button>
+          ))}
+        </div>
+        <div className="server-dock-panel__tab-body">
+          {detailActive ? (
+            <div className="server-content">
+              {detailTab === "websites" ? (
+                <ServerWebsitesTab server={server} selectedItemId={selectedItemId} />
+              ) : null}
+              {detailTab === "certificates" ? <ServerCertificatesTab server={server} /> : null}
+              {detailTab === "cronjobs" ? <ServerCronjobsTab server={server} /> : null}
+            </div>
+          ) : (
+            <div className="server-panel-tab-pane" aria-hidden />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
