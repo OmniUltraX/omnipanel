@@ -29,6 +29,12 @@ export const EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY: DockerSidebarCacheEntry = {
   error: null,
 };
 
+/** 侧栏 selector 回退用的稳定空列表（禁止在 selector 内写 `?? []`）。 */
+export const EMPTY_DOCKER_SIDEBAR_IMAGES = EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.images;
+export const EMPTY_DOCKER_SIDEBAR_CONTAINERS = EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.containers;
+export const EMPTY_DOCKER_SIDEBAR_NETWORKS = EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.networks;
+export const EMPTY_DOCKER_SIDEBAR_VOLUMES = EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY.volumes;
+
 export function emptyDockerSidebarCacheEntry(): DockerSidebarCacheEntry {
   return {
     images: [],

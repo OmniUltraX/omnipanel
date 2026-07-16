@@ -164,9 +164,15 @@ export function useDbSyncBackgroundTaskEvents({
           sourceTableColumns[table] ?? [],
           sourceTableIndexes[table] ?? [],
         );
+        const status =
+          schema.status === "match"
+            ? "match"
+            : schema.status === "new"
+              ? "new"
+              : "diff";
         onSchemaDiff(table, {
           tableName: table,
-          status: schema.status === "match" ? "match" : "diff",
+          status,
           columns: schema.columns.map((c) => ({
             name: c.name,
             kind: c.kind as "added" | "removed" | "changed",
@@ -239,12 +245,24 @@ export async function startDbSchemaSyncBackgroundTask(
   tables: string[],
   sourceTableColumns: Record<string, DbColumnMeta[]>,
   sourceTableIndexes: Record<string, DbIndexMeta[]>,
+  targetTables: SyncTableInfo[] = [],
+  caseSensitive = true,
+  tableNameCase: SchemaTableNameCase = "lower",
 ): Promise<string> {
-  const specs = tables.map((name) => ({
-    name,
-    columns: sourceTableColumns[name] ?? [],
-    indexes: sourceTableIndexes[name] ?? [],
-  }));
+  const specs = tables.map((name) => {
+    const targetName = resolveSchemaSyncTargetTableName(
+      name,
+      targetTables,
+      caseSensitive,
+      tableNameCase,
+    );
+    return {
+      name,
+      ...(targetName !== name ? { targetName } : {}),
+      columns: sourceTableColumns[name] ?? [],
+      indexes: sourceTableIndexes[name] ?? [],
+    };
+  });
   return submitDbSchemaSyncAnalysis({ ...targetConn, database: targetDb }, targetDb, specs);
 }
 

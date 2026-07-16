@@ -61,13 +61,15 @@ export function DockerResourceOverviewCards({
     const connectionId = connection.connectionId;
     setLoading(true);
     try {
-      const [containers, compose, images, networks, volumes] = await Promise.all([
-        unwrapOk(commands.dockerListContainers(connectionId, null)),
-        unwrapOk(commands.dockerListComposeProjects(connectionId)).catch(() => []),
-        unwrapOk(commands.dockerListImages(connectionId)),
-        unwrapOk(commands.dockerListNetworks(connectionId)),
-        unwrapOk(commands.dockerListVolumes(connectionId)),
-      ]);
+      // 顺序拉取：SSH 宿主机上并发 list 会抢同一 exec 通道，易触发 Channel send error
+      const quiet = { quiet: true as const };
+      const containers = await unwrapOk(commands.dockerListContainers(connectionId, null), quiet);
+      const compose = await unwrapOk(commands.dockerListComposeProjects(connectionId), quiet).catch(
+        () => [],
+      );
+      const images = await unwrapOk(commands.dockerListImages(connectionId), quiet);
+      const networks = await unwrapOk(commands.dockerListNetworks(connectionId), quiet);
+      const volumes = await unwrapOk(commands.dockerListVolumes(connectionId), quiet);
       setCounts({
         containers: containers.length,
         compose: compose.length,

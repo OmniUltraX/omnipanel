@@ -25,6 +25,7 @@ import {
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+import { EMPTY_DOCKER_SIDEBAR_CONTAINERS } from "./dockerSidebarCache";
 import {
   connectionSupportsSidebarResources,
   refreshAllDockerSidebarCaches,
@@ -75,6 +76,16 @@ export function DockerPanel() {
   const removeStoredConnection = useConnectionStore((s) => s.remove);
 
   const { connections, loading: connectionsLoading, reloadConnections } = useDockerConnections();
+  const hydrateSidebarCache = useDockerSidebarCacheStore((s) => s.hydrate);
+  const sidebarCacheHydrated = useDockerSidebarCacheStore((s) => s.hydrated);
+
+  useEffect(() => {
+    if (!moduleLive || sidebarCacheHydrated) {
+      return;
+    }
+    void hydrateSidebarCache();
+  }, [moduleLive, sidebarCacheHydrated, hydrateSidebarCache]);
+
   const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
@@ -131,7 +142,8 @@ export function DockerPanel() {
     useShallow((state) => {
       const out: Record<string, DockerContainerSummary[]> = {};
       for (const connectionId of containerTabConnectionIds) {
-        out[connectionId] = state.connections[connectionId]?.containers ?? [];
+        out[connectionId] =
+          state.connections[connectionId]?.containers ?? EMPTY_DOCKER_SIDEBAR_CONTAINERS;
       }
       return out;
     }),
@@ -175,7 +187,7 @@ export function DockerPanel() {
 
       for (const tab of tabs) {
         if (!isDockerContainerTab(tab) || !validIds.has(tab.connectionId)) continue;
-        const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
+        const containers = sidebarContainersForTabs[tab.connectionId] ?? EMPTY_DOCKER_SIDEBAR_CONTAINERS;
         const normalized = tab.containerId.trim().toLowerCase();
         const exists = containers.some(
           (container) =>
@@ -327,7 +339,7 @@ export function DockerPanel() {
           if (!connection) return null;
 
           if (isDockerContainerTab(tab)) {
-            const containers = sidebarContainersForTabs[tab.connectionId] ?? [];
+            const containers = sidebarContainersForTabs[tab.connectionId] ?? EMPTY_DOCKER_SIDEBAR_CONTAINERS;
             const normalized = tab.containerId.trim().toLowerCase();
             const container = containers.find(
               (item) =>

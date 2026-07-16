@@ -1,15 +1,7 @@
-import { fetchTableDdl } from "../api";
+import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
-import {
-  isSchemaSyncSourceTableMissingInTarget,
-  findTableByName,
-  resolveSchemaSyncTargetTableName,
-} from "./schemaSyncAlignedTables";
-import {
-  formatMysqlAddColumnPositionClause,
-  resolveMysqlAddColumnPosition,
-  type MysqlAddColumnPosition,
-} from "./schemaSyncAddColumnPosition";
+import { resolveSchemaSyncTargetTableName } from "./schemaSyncAlignedTables";
 import type { SchemaTableDiff } from "./schemaDiff";
 import {
   type DataAnalysisResult,
@@ -88,43 +80,12 @@ function normalizeCreateTableDdl(ddl: string, dbType: string): string {
   return sql;
 }
 
-function rewriteCreateTableDdlName(
-  ddl: string,
-  sourceTable: string,
-  targetTable: string,
-  dbType: string,
-): string {
-  if (sourceTable === targetTable) {
-    return ddl;
-  }
-  const sourceQuoted = quoteIdent(dbType, sourceTable);
-  const targetQuoted = quoteIdent(dbType, targetTable);
-  if (ddl.includes(sourceQuoted)) {
-    return ddl.replace(sourceQuoted, targetQuoted);
-  }
-  const sourcePattern = new RegExp(
-    `(\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)(${escapeRegExp(sourceTable)})\\b`,
-    "i",
-  );
-  if (sourcePattern.test(ddl)) {
-    return ddl.replace(sourcePattern, `$1${targetTable}`);
-  }
-  return ddl;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function formatSyncModesLabel(modes: DataSyncModes): string {
-  if (!hasAnyDataSyncMode(modes)) {
-    return "未启用";
-  }
   const parts: string[] = [];
   if (modes.insert) parts.push("新增");
   if (modes.merge) parts.push("合并");
   if (modes.delete) parts.push("删除");
-  return parts.join(" + ");
+  return parts.length > 0 ? parts.join(" / ") : "无";
 }
 
 function buildInsertPreviewSql(
@@ -133,192 +94,10 @@ function buildInsertPreviewSql(
   columns: DbColumnMeta[],
   rowCount: number | null,
 ): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const colNames = columns.map((c) => quoteIdent(dbType, c.name)).join(", ");
-  const rowsHint =
-    rowCount != null && rowCount >= 0
-      ? `-- 预计同步 ${rowCount.toLocaleString()} 行（分批 INSERT，每批约 150 行）`
-      : "-- 预计从源库分批读取并 INSERT";
-  const valuesHint = `-- INSERT INTO ${tableIdent} (${colNames}) VALUES (...), (...);`;
-  return `${rowsHint}\n${valuesHint}`;
-}
-
-function buildAddColumnSql(
-  dbType: string,
-  table: string,
-  col: DbColumnMeta,
-  position: MysqlAddColumnPosition = { kind: "none" },
-): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const colIdent = quoteIdent(dbType, col.name);
-  const nullSql = col.nullable !== false ? "NULL" : "NOT NULL";
-  const positionSql = isMysqlEngine(dbType)
-    ? formatMysqlAddColumnPositionClause(position, (name) => quoteIdent(dbType, name))
-    : "";
-  return `ALTER TABLE ${tableIdent} ADD COLUMN ${colIdent} ${col.type} ${nullSql}${positionSql}`;
-}
-
-function buildModifyColumnSql(dbType: string, table: string, col: DbColumnMeta): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const colIdent = quoteIdent(dbType, col.name);
-  const nullSql = col.nullable !== false ? "NULL" : "NOT NULL";
-  if (isMysqlEngine(dbType)) {
-    return `ALTER TABLE ${tableIdent} MODIFY COLUMN ${colIdent} ${col.type} ${nullSql}`;
-  }
-  if (isPostgresEngine(dbType)) {
-    return `ALTER TABLE ${tableIdent} ALTER COLUMN ${colIdent} TYPE ${col.type}`;
-  }
-  return "";
-}
-
-function buildCreateIndexSql(dbType: string, table: string, idx: DbIndexMeta): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const idxIdent = quoteIdent(dbType, idx.name);
-  const cols = idx.columns.map((c) => quoteIdent(dbType, c)).join(", ");
-  const kind = idx.unique ? "CREATE UNIQUE INDEX" : "CREATE INDEX";
-  return `${kind} ${idxIdent} ON ${tableIdent} (${cols})`;
-}
-
-function buildDropIndexSql(dbType: string, table: string, idx: DbIndexMeta): string {
-  const tableIdent = quoteIdent(dbType, table);
-  const idxIdent = quoteIdent(dbType, idx.name);
-  if (isMysqlEngine(dbType)) {
-    return `DROP INDEX ${idxIdent} ON ${tableIdent}`;
-  }
-  if (isPostgresEngine(dbType)) {
-    return `DROP INDEX IF EXISTS ${idxIdent}`;
-  }
-  return "";
-}
-
-async function buildSchemaTablePreview(
-  input: SyncTaskSqlPreviewInput,
-  tableName: string,
-): Promise<string[]> {
-  const lines: string[] = [];
-  const dbType = input.targetConn.db_type;
-  const targetName = resolveSchemaSyncTargetTableName(
-    tableName,
-    input.targetTables,
-    input.schemaCaseSensitive,
-    input.schemaTableNameCase,
-  );
-  const diff = input.schemaAnalysisDiffs[tableName];
-  const columns = input.sourceTableColumns[tableName] ?? [];
-  const indexes = input.sourceTableIndexes[tableName] ?? [];
-  const missingInTarget = isSchemaSyncSourceTableMissingInTarget(
-    tableName,
-    input.targetTables,
-    input.schemaCaseSensitive,
-  );
-
-  if (missingInTarget) {
-    if (!input.schemaCreateMissingTables) {
-      lines.push(`-- 已关闭「新增表」，跳过: ${tableName}`);
-      return lines;
-    }
-    try {
-      const ddl = await fetchTableDdl(input.sourceConn, input.sourceDb, tableName);
-      const normalized = normalizeCreateTableDdl(ddl, dbType);
-      lines.push(
-        `${rewriteCreateTableDdlName(normalized, tableName, targetName, dbType)};`,
-      );
-    } catch (e) {
-      lines.push(`-- 无法获取建表语句: ${String(e)}`);
-    }
-    return lines;
-  }
-
-  if (diff?.status === "new") {
-    try {
-      const ddl = await fetchTableDdl(input.sourceConn, input.sourceDb, tableName);
-      const normalized = normalizeCreateTableDdl(ddl, dbType);
-      lines.push(
-        `${rewriteCreateTableDdlName(normalized, tableName, targetName, dbType)};`,
-      );
-    } catch (e) {
-      lines.push(`-- 无法获取建表语句: ${String(e)}`);
-    }
-    return lines;
-  }
-
-  if (!diff || diff.status === "match") {
-    lines.push("-- 结构已一致，无需变更");
-    return lines;
-  }
-
-  if (diff.status === "error") {
-    lines.push(`-- 分析失败: ${diff.error ?? "unknown"}`);
-    return lines;
-  }
-
-  const targetTable = findTableByName(
-    input.targetTables,
-    targetName,
-    input.schemaCaseSensitive,
-  );
-  const existingColumnNames = new Set(
-    (targetTable?.columns ?? []).map((column) => column.name),
-  );
-  const addedColumnNames = new Set(
-    diff.columns.filter((colDiff) => colDiff.kind === "added").map((colDiff) => colDiff.name),
-  );
-
-  // 按源表列顺序生成 ADD，以便 MySQL AFTER / FIRST 与源顺序对齐
-  for (const col of columns) {
-    if (!addedColumnNames.has(col.name)) {
-      continue;
-    }
-    const position = isMysqlEngine(dbType)
-      ? resolveMysqlAddColumnPosition(columns, col.name, existingColumnNames)
-      : ({ kind: "none" } as const);
-    lines.push(`${buildAddColumnSql(dbType, targetName, col, position)};`);
-    existingColumnNames.add(col.name);
-  }
-
-  for (const colDiff of diff.columns) {
-    if (colDiff.kind === "added") {
-      continue;
-    }
-    const col = columns.find((c) => c.name === colDiff.name);
-    if (!col) {
-      if (colDiff.kind === "removed") {
-        lines.push(`-- 目标端多余列 ${colDiff.name}（执行时不会自动删除）`);
-      }
-      continue;
-    }
-    if (colDiff.kind === "changed") {
-      const sql = buildModifyColumnSql(dbType, targetName, col);
-      if (sql) {
-        lines.push(`${sql};`);
-      }
-    }
-  }
-
-  for (const idxDiff of diff.indexes) {
-    const idx = indexes.find((i) => i.name === idxDiff.name);
-    if (!idx) {
-      if (idxDiff.kind === "removed") {
-        lines.push(`-- 目标端多余索引 ${idxDiff.name}（执行时不会自动删除）`);
-      }
-      continue;
-    }
-    if (idxDiff.kind === "added") {
-      lines.push(`${buildCreateIndexSql(dbType, targetName, idx)};`);
-    } else if (idxDiff.kind === "changed") {
-      const dropSql = buildDropIndexSql(dbType, targetName, idx);
-      if (dropSql) {
-        lines.push(`${dropSql};`);
-      }
-      lines.push(`${buildCreateIndexSql(dbType, targetName, idx)};`);
-    }
-  }
-
-  if (lines.length === 0) {
-    lines.push("-- 无待执行结构变更");
-  }
-
-  return lines;
+  const colList = columns.map((c) => quoteIdent(dbType, c.name)).join(", ");
+  const hint =
+    typeof rowCount === "number" ? ` /* 源表约 ${rowCount.toLocaleString()} 行 */` : "";
+  return `INSERT INTO ${quoteIdent(dbType, table)} (${colList}) VALUES (...)${hint}`;
 }
 
 function appendDataAnalysisSummary(
@@ -360,10 +139,11 @@ function appendDataAnalysisSummary(
   }
 }
 
-async function buildDataTablePreview(
+function buildDataTablePreviewLines(
   input: SyncTaskSqlPreviewInput,
   tableName: string,
-): Promise<string[]> {
+  ddlByTable: Record<string, string>,
+): string[] {
   const lines: string[] = [];
   const dbType = input.targetConn.db_type;
   const status = input.tableTargetStatus[tableName];
@@ -376,11 +156,11 @@ async function buildDataTablePreview(
   const pkCols = columns.filter((c) => c.isPk).map((c) => c.name);
 
   if (status === "new") {
-    try {
-      const ddl = await fetchTableDdl(input.sourceConn, input.sourceDb, tableName);
+    const ddl = ddlByTable[tableName];
+    if (ddl && !ddl.startsWith("--")) {
       lines.push(`${normalizeCreateTableDdl(ddl, dbType)};`);
-    } catch (e) {
-      lines.push(`-- 无法获取建表语句: ${String(e)}`);
+    } else {
+      lines.push(ddl?.startsWith("--") ? ddl : `-- 无法获取建表语句: ${tableName}`);
     }
   }
 
@@ -423,6 +203,64 @@ async function buildDataTablePreview(
   return lines;
 }
 
+async function fetchSchemaPreviewByTable(
+  input: SyncTaskSqlPreviewInput,
+): Promise<Record<string, string>> {
+  const specs = input.tableNames.map((name) => {
+    const targetName = resolveSchemaSyncTargetTableName(
+      name,
+      input.targetTables,
+      input.schemaCaseSensitive,
+      input.schemaTableNameCase,
+    );
+    return {
+      name,
+      ...(targetName !== name ? { targetName } : {}),
+      columns: input.sourceTableColumns[name] ?? [],
+      indexes: input.sourceTableIndexes[name] ?? [],
+    };
+  });
+  const rows = await unwrapCommand(
+    commands.dbSchemaSyncPreviewSql(
+      input.sourceConn as Parameters<typeof commands.dbSchemaSyncPreviewSql>[0],
+      { ...input.targetConn, database: input.targetDb } as Parameters<
+        typeof commands.dbSchemaSyncPreviewSql
+      >[1],
+      input.sourceDb,
+      input.targetDb,
+      specs as Parameters<typeof commands.dbSchemaSyncPreviewSql>[4],
+      input.schemaCreateMissingTables,
+    ),
+  );
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    map[row.table] = row.sql;
+  }
+  return map;
+}
+
+async function fetchBatchTableDdl(
+  conn: DbConnectionConfig,
+  schema: string,
+  tables: string[],
+): Promise<Record<string, string>> {
+  if (tables.length === 0) {
+    return {};
+  }
+  const rows = await unwrapCommand(
+    commands.dbBatchTableDdl(
+      { ...conn, database: schema } as Parameters<typeof commands.dbBatchTableDdl>[0],
+      schema,
+      tables,
+    ),
+  );
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    map[row.table] = row.sql;
+  }
+  return map;
+}
+
 /** 根据当前任务配置生成预计执行的 SQL 脚本（预览，不含真实行数据）。 */
 export async function buildSyncTaskSqlPreview(input: SyncTaskSqlPreviewInput): Promise<string> {
   syncExecuteConfirmLog("buildPreview:start", {
@@ -455,19 +293,46 @@ export async function buildSyncTaskSqlPreview(input: SyncTaskSqlPreviewInput): P
 
   const sections: string[] = [...header];
 
-  for (const name of input.tableNames) {
-    sections.push(`-- ── ${name} ──`);
-    const body =
-      input.tab === "schemaSync"
-        ? await buildSchemaTablePreview(input, name)
-        : await buildDataTablePreview(input, name);
-    syncExecuteConfirmLog("buildPreview:table", {
-      table: name,
-      lineCount: body.length,
-      previewHead: body.slice(0, 3).join(" | "),
-    });
-    sections.push(...body);
-    sections.push("");
+  if (input.tab === "schemaSync") {
+    try {
+      const byTable = await fetchSchemaPreviewByTable(input);
+      for (const name of input.tableNames) {
+        sections.push(`-- ── ${name} ──`);
+        const sql = byTable[name] ?? "-- 无预览";
+        sections.push(sql);
+        sections.push("");
+        syncExecuteConfirmLog("buildPreview:table", {
+          table: name,
+          lineCount: sql.split("\n").length,
+          previewHead: sql.split("\n").slice(0, 3).join(" | "),
+        });
+      }
+    } catch (e) {
+      sections.push(`-- 预览生成失败: ${String(e)}`);
+    }
+  } else {
+    const newTables = input.tableNames.filter(
+      (name) => input.tableTargetStatus[name] === "new",
+    );
+    let ddlByTable: Record<string, string> = {};
+    try {
+      ddlByTable = await fetchBatchTableDdl(input.sourceConn, input.sourceDb, newTables);
+    } catch (e) {
+      for (const name of newTables) {
+        ddlByTable[name] = `-- 无法获取建表语句: ${String(e)}`;
+      }
+    }
+    for (const name of input.tableNames) {
+      sections.push(`-- ── ${name} ──`);
+      const body = buildDataTablePreviewLines(input, name, ddlByTable);
+      syncExecuteConfirmLog("buildPreview:table", {
+        table: name,
+        lineCount: body.length,
+        previewHead: body.slice(0, 3).join(" | "),
+      });
+      sections.push(...body);
+      sections.push("");
+    }
   }
 
   const result = `${sections.join("\n").trimEnd()}\n`;

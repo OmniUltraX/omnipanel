@@ -596,13 +596,52 @@ fn compare_table_indexes(
     diffs
 }
 
+fn looks_like_missing_table(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("doesn't exist")
+        || e.contains("does not exist")
+        || e.contains("unknown table")
+        || e.contains("no such table")
+        || e.contains("not found")
+        || e.contains("不存在")
+}
+
+fn schema_compare_event_for_new_table(spec: &DbSyncTableSpec) -> SchemaCompareEvent {
+    SchemaCompareEvent {
+        table: spec.name.clone(),
+        status: "new".to_string(),
+        columns: spec
+            .columns
+            .iter()
+            .map(|c| SchemaColumnDiffPayload {
+                name: c.name.clone(),
+                kind: "added".to_string(),
+                source_type: Some(c.column_type.clone()),
+                target_type: None,
+            })
+            .collect(),
+        indexes: spec
+            .indexes
+            .iter()
+            .map(|idx| SchemaIndexDiffPayload {
+                name: idx.name.clone(),
+                kind: "added".to_string(),
+                source_detail: Some(format_index_detail(idx)),
+                target_detail: None,
+            })
+            .collect(),
+        error: None,
+    }
+}
+
 async fn compare_schema_for_table(
     target: DbConnectionConfig,
     target_schema: String,
     spec: DbSyncTableSpec,
 ) -> SchemaCompareEvent {
     let table = spec.name.clone();
-    match database::db_introspect_table(target, Some(target_schema), table.clone()).await {
+    let target_table_name = spec_target_table_name(&spec).to_string();
+    match database::db_introspect_table(target, Some(target_schema), target_table_name).await {
         Ok(target_table) => {
             let columns = compare_table_columns(&spec.columns, &target_table.columns);
             let indexes = compare_table_indexes(&spec.indexes, &target_table.indexes);
@@ -619,6 +658,7 @@ async fn compare_schema_for_table(
                 error: None,
             }
         }
+        Err(e) if looks_like_missing_table(&e) => schema_compare_event_for_new_table(&spec),
         Err(e) => SchemaCompareEvent {
             table,
             status: "error".to_string(),
@@ -2598,6 +2638,203 @@ fn build_drop_index_sql(db_type: &str, table: &str, idx: &DbIndexMeta) -> String
     } else {
         String::new()
     }
+}
+
+/// 单表结构同步 SQL 预览（不落库）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbSyncSqlPreviewTable {
+    pub table: String,
+    pub sql: String,
+}
+
+async fn collect_schema_diff_sql(
+    source: &DbConnectionConfig,
+    source_db: &str,
+    target: &DbConnectionConfig,
+    target_db: &str,
+    spec: &DbSyncTableSpec,
+    create_missing_tables: bool,
+) -> Result<String, String> {
+    let target_table_name = spec_target_table_name(spec);
+    let mut lines: Vec<String> = Vec::new();
+
+    if !target_table_exists(target, target_db, target_table_name).await {
+        if !create_missing_tables {
+            return Ok(format!("-- 已关闭「新增表」，跳过: {}", spec.name));
+        }
+        let ddl = database::db_table_ddl(
+            source.clone(),
+            Some(source_db.to_string()),
+            spec.name.clone(),
+        )
+        .await?;
+        let sql = normalize_create_table_ddl(&ddl, &target.db_type);
+        let sql = rewrite_create_table_ddl_name(
+            &sql,
+            &spec.name,
+            target_table_name,
+            &target.db_type,
+        );
+        return Ok(format!("{sql};"));
+    }
+
+    let target_table = database::db_introspect_table(
+        target.clone(),
+        Some(target_db.to_string()),
+        target_table_name.to_string(),
+    )
+    .await?;
+    let col_diffs = compare_table_columns(&spec.columns, &target_table.columns);
+    let idx_diffs = compare_table_indexes(&spec.indexes, &target_table.indexes);
+    if col_diffs.is_empty() && idx_diffs.is_empty() {
+        return Ok("-- 结构已一致，无需变更".to_string());
+    }
+
+    let added_names: HashSet<&str> = col_diffs
+        .iter()
+        .filter(|d| d.kind == "added")
+        .map(|d| d.name.as_str())
+        .collect();
+    let mut existing_names: HashSet<&str> = target_table
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+
+    for col in &spec.columns {
+        if !added_names.contains(col.name.as_str()) {
+            continue;
+        }
+        let position = if is_mysql_engine(&target.db_type) {
+            resolve_mysql_add_column_position(&spec.columns, &col.name, &existing_names)
+        } else {
+            MysqlAddColumnPosition::None
+        };
+        let sql = build_add_column_sql(&target.db_type, target_table_name, col, position);
+        if !sql.is_empty() {
+            lines.push(format!("{sql};"));
+            existing_names.insert(col.name.as_str());
+        }
+    }
+
+    for diff in &col_diffs {
+        if diff.kind == "added" {
+            continue;
+        }
+        if diff.kind == "removed" {
+            lines.push(format!(
+                "-- 目标端多余列 {}（执行时不会自动删除）",
+                diff.name
+            ));
+            continue;
+        }
+        if diff.kind != "changed" {
+            continue;
+        }
+        let Some(col) = spec.columns.iter().find(|c| c.name == diff.name) else {
+            continue;
+        };
+        let sql = build_modify_column_sql(&target.db_type, target_table_name, col);
+        if !sql.is_empty() {
+            lines.push(format!("{sql};"));
+        }
+    }
+
+    for diff in &idx_diffs {
+        match diff.kind.as_str() {
+            "added" => {
+                if let Some(idx) = spec.indexes.iter().find(|i| i.name == diff.name) {
+                    let sql = build_create_index_sql(&target.db_type, target_table_name, idx);
+                    lines.push(format!("{sql};"));
+                }
+            }
+            "changed" => {
+                if let Some(idx) = spec.indexes.iter().find(|i| i.name == diff.name) {
+                    let drop_sql = build_drop_index_sql(&target.db_type, target_table_name, idx);
+                    if !drop_sql.is_empty() {
+                        lines.push(format!("{drop_sql};"));
+                    }
+                    let create_sql =
+                        build_create_index_sql(&target.db_type, target_table_name, idx);
+                    lines.push(format!("{create_sql};"));
+                }
+            }
+            "removed" => {
+                lines.push(format!(
+                    "-- 目标端多余索引 {}（执行时不会自动删除）",
+                    diff.name
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    if lines.is_empty() {
+        return Ok("-- 无待执行结构变更".to_string());
+    }
+    Ok(lines.join("\n"))
+}
+
+/// 批量生成结构同步「表 → SQL 预览」（dry-run，不执行）。
+pub async fn preview_schema_sync_sql(
+    source: DbConnectionConfig,
+    target: DbConnectionConfig,
+    source_db: String,
+    target_db: String,
+    tables: Vec<DbSyncTableSpec>,
+    create_missing_tables: bool,
+) -> Result<Vec<DbSyncSqlPreviewTable>, String> {
+    if !is_mysql_engine(&target.db_type)
+        && !is_postgres_engine(&target.db_type)
+        && target.db_type.to_lowercase() != "sqlite"
+    {
+        return Err(format!("暂不支持 {} 的脚本预览", target.db_type));
+    }
+
+    let mut out = Vec::with_capacity(tables.len());
+    for spec in tables {
+        let table = spec.name.clone();
+        match collect_schema_diff_sql(
+            &source,
+            &source_db,
+            &target,
+            &target_db,
+            &spec,
+            create_missing_tables,
+        )
+        .await
+        {
+            Ok(sql) => out.push(DbSyncSqlPreviewTable { table, sql }),
+            Err(err) => out.push(DbSyncSqlPreviewTable {
+                table,
+                sql: format!("-- 无法生成预览: {err}"),
+            }),
+        }
+    }
+    Ok(out)
+}
+
+/// 批量拉取建表 DDL（供数据同步预览等一次取齐）。
+pub async fn batch_table_ddl(
+    connection: DbConnectionConfig,
+    schema: Option<String>,
+    tables: Vec<String>,
+) -> Result<Vec<DbSyncSqlPreviewTable>, String> {
+    let mut out = Vec::with_capacity(tables.len());
+    for table in tables {
+        match database::db_table_ddl(connection.clone(), schema.clone(), table.clone()).await {
+            Ok(ddl) => out.push(DbSyncSqlPreviewTable {
+                table,
+                sql: ddl,
+            }),
+            Err(err) => out.push(DbSyncSqlPreviewTable {
+                table,
+                sql: format!("-- 无法获取建表语句: {err}"),
+            }),
+        }
+    }
+    Ok(out)
 }
 
 async fn apply_schema_diff(

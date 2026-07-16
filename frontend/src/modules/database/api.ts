@@ -389,6 +389,14 @@ export async function saveSchemaCache(snapshot: BindingsSchemaCacheSnapshot): Pr
   );
 }
 
+/** 增量写入单连接 Schema 缓存（后端 merge + 写盘）。 */
+export async function patchSchemaCache(
+  connectionId: string,
+  entry: NonNullable<SchemaCacheSnapshot_Deserialize["connections"]>[string],
+): Promise<void> {
+  await unwrapCommand(commands.dbPatchSchemaCache(connectionId, entry));
+}
+
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {
   return (await unwrapCommand(commands.dbSaveConnection(ipcConn(connection)))) as DbConnectionConfig;
 }
