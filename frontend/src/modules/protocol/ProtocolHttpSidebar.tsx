@@ -38,7 +38,10 @@ import {
   type ProtocolTreeEntry,
 } from "./protocolLayoutTree";
 import { ProtocolTreeNode } from "./ProtocolTreeNode";
-import { SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
+} from "@/components/ui/sidebar-tree";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
 import {
   formatHistoryEntryDate,
@@ -118,6 +121,10 @@ export function ProtocolHttpSidebar() {
   );
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [draggingKey, setDraggingKey] = useState<ProtocolTreeNodeKey | null>(null);
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
   const treeRootRef = useRef<HTMLDivElement>(null);
   const pointerDragRef = useRef<{
@@ -507,11 +514,20 @@ export function ProtocolHttpSidebar() {
         label: t("protocol.sidebar.deleteFolder"),
         danger: true,
         onClick: () => {
+          const clickedKey = `folder:${target.folderId}`;
+          const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+            filter: (id) => id.startsWith("folder:"),
+          });
           void appConfirm(
-            t("protocol.sidebar.deleteFolderConfirm"),
+            keys.length === 1
+              ? t("protocol.sidebar.deleteFolderConfirm")
+              : t("sidebarTree.confirmDeleteSelected", { count: String(keys.length) }),
             t("protocol.sidebar.deleteFolderTitle"),
           ).then((ok) => {
-            if (ok) deleteFolder(target.folderId);
+            if (!ok) return;
+            for (const key of keys) {
+              deleteFolder(key.slice("folder:".length));
+            }
           });
         },
       });
@@ -539,11 +555,20 @@ export function ProtocolHttpSidebar() {
         label: t("protocol.sidebar.deleteRequest"),
         danger: true,
         onClick: () => {
+          const clickedKey = `request:${target.requestId}`;
+          const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+            filter: (id) => id.startsWith("request:"),
+          });
           void appConfirm(
-            t("protocol.sidebar.deleteRequestConfirm"),
+            keys.length === 1
+              ? t("protocol.sidebar.deleteRequestConfirm")
+              : t("sidebarTree.confirmDeleteSelected", { count: String(keys.length) }),
             t("protocol.sidebar.deleteRequestTitle"),
           ).then((ok) => {
-            if (ok) void http.deleteSavedRequest(target.requestId);
+            if (!ok) return;
+            for (const key of keys) {
+              void http.deleteSavedRequest(key.slice("request:".length));
+            }
           });
         },
       });
@@ -577,15 +602,24 @@ export function ProtocolHttpSidebar() {
         label: t("protocol.sidebar.deleteRequest"),
         danger: true,
         onClick: () => {
+          const clickedKey = `entry:${target.entryId}`;
+          const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+            filter: (id) => id.startsWith("entry:"),
+          });
           void appConfirm(
-            t("protocol.sidebar.deleteRequestConfirm"),
+            keys.length === 1
+              ? t("protocol.sidebar.deleteRequestConfirm")
+              : t("sidebarTree.confirmDeleteSelected", { count: String(keys.length) }),
             t("protocol.sidebar.deleteRequestTitle"),
           ).then((ok) => {
             if (!ok) return;
-            deleteLabEntry(target.entryId);
-            for (const tab of workspaceTabsForClose) {
-              if (tab.resourceId === target.entryId) {
-                closeWorkspaceTab(tab.id);
+            for (const key of keys) {
+              const entryId = key.slice("entry:".length);
+              deleteLabEntry(entryId);
+              for (const tab of workspaceTabsForClose) {
+                if (tab.resourceId === entryId) {
+                  closeWorkspaceTab(tab.id);
+                }
               }
             }
           });
@@ -789,7 +823,7 @@ export function ProtocolHttpSidebar() {
           onToggle={() => toggleSection("apis")}
           actions={<ProtocolSidebarNewButton />}
         >
-          <SidebarTreeSelectionProvider>
+          <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
           <div
             ref={treeRootRef}
             className={`proto-tree-root${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}

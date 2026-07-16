@@ -394,6 +394,7 @@ export const enUS: TranslationDict = {
   sidebarTree: {
     rename: "Rename",
     delete: "Delete",
+    confirmDeleteSelected: "Delete {count} selected items? This cannot be undone.",
   },
   resourceTags: {
     section: "Resource Tags",
@@ -2631,7 +2632,7 @@ export const enUS: TranslationDict = {
       connections: "Connections",
       selectConnection: "Select a Docker connection, or double-click one in the sidebar to open a tab",
       addConnection: "Add Docker connection",
-      scanSsh: "Scan SSH Docker hosts",
+      refreshAll: "Refresh all connection caches",
       loading: "Loading connections…",
       empty: "No connections",
       edit: "Edit",

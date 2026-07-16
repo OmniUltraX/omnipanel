@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
@@ -6,7 +6,13 @@ import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/VerticalSplitSidebar";
-import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeEmpty,
+  SidebarTreeNode,
+  SidebarTreeRoot,
+  SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
+} from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo } from "@/ipc/bindings";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import {
@@ -129,12 +135,13 @@ export interface DockerPanelTreeSidebarProps {
   activeNavKey: string | null;
   searchQuery?: string;
   loading?: boolean;
-  scanning?: boolean;
+  refreshingAll?: boolean;
   onNavigate: DockerSidebarNavigate;
   onCreate?: () => void;
-  onScan?: () => void;
+  /** 刷新列表中全部连接的侧栏资源缓存 */
+  onRefreshAll?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
-  onDeleteConnection?: (connectionId: string) => void;
+  onDeleteConnection?: (connectionIds: string | string[]) => void;
   section?: VerticalSplitSidebarSectionConfig;
 }
 
@@ -144,10 +151,10 @@ export function DockerPanelTreeSidebar({
   activeNavKey,
   searchQuery = "",
   loading,
-  scanning,
+  refreshingAll,
   onNavigate,
   onCreate,
-  onScan,
+  onRefreshAll,
   onEditConnection,
   onDeleteConnection,
   section,
@@ -156,6 +163,10 @@ export function DockerPanelTreeSidebar({
   const { isExpanded, toggle, ensureExpanded } = usePersistedDockerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxConnection, setCtxConnection] = useState<DockerConnectionInfo | null>(null);
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
 
   useEffect(() => {
     if (!activeConnectionId) return;
@@ -195,6 +206,14 @@ export function DockerPanelTreeSidebar({
     setCtxConnection(connection);
   };
 
+  const connectionKeyById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const connection of connections) {
+      map.set(makeDockerTreeKey(connection.connectionId), connection.connectionId);
+    }
+    return map;
+  }, [connections]);
+
   const ctxItems: ContextMenuItem[] = [
     {
       id: "edit",
@@ -205,24 +224,37 @@ export function DockerPanelTreeSidebar({
       id: "delete",
       label: t("docker.sidebar.delete"),
       danger: true,
-      onClick: () => ctxConnection && onDeleteConnection?.(ctxConnection.connectionId),
+      onClick: () => {
+        if (!ctxConnection || !onDeleteConnection) return;
+        const clickedKey = makeDockerTreeKey(ctxConnection.connectionId);
+        const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+          filter: (id) => connectionKeyById.has(id) && !isBuiltinLocalDockerConnection(connectionKeyById.get(id)!),
+        });
+        const ids = keys
+          .map((key) => connectionKeyById.get(key))
+          .filter((id): id is string => Boolean(id));
+        if (ids.length === 0) return;
+        onDeleteConnection(ids.length === 1 ? ids[0]! : ids);
+      },
     },
   ];
 
   const addConnectionButton = (
     <div className="schema-toolbar schema-toolbar--inline">
-      {onScan && (
+      {onRefreshAll && (
         <Button
           type="button"
           variant="icon"
-          className="server-sidebar-group-add"
-          title={t("docker.sidebar.scanSsh")}
-          disabled={scanning}
-          onClick={onScan}
+          className={`server-sidebar-group-add${refreshingAll ? " tree-action-btn--busy" : ""}`}
+          title={t("docker.sidebar.refreshAll")}
+          disabled={refreshingAll || connections.length === 0}
+          onClick={onRefreshAll}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M23 4v6h-6" />
-            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="M2 8a6 6 0 0 1 10.5-3.9" />
+            <path d="M14 2v3h-3" />
+            <path d="M14 8a6 6 0 0 1-10.5 3.9" />
+            <path d="M2 14v-3h3" />
           </svg>
         </Button>
       )}
@@ -242,7 +274,7 @@ export function DockerPanelTreeSidebar({
 
   const panelBody = (
     <>
-      <SidebarTreeSelectionProvider>
+      <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
       <SidebarTreeRoot className="server-sidebar-body docker-sidebar-tree">
         {loading && filteredConnections.length === 0 ? (
           <SidebarTreeEmpty>{t("docker.sidebar.loading")}</SidebarTreeEmpty>

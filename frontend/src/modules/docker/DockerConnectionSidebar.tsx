@@ -18,22 +18,22 @@ type SectionKey = "connections";
 export interface DockerConnectionSidebarProps {
   connections: DockerConnectionInfo[];
   loading?: boolean;
-  scanning?: boolean;
+  refreshingAll?: boolean;
   onNavigate: DockerSidebarNavigate;
   onCreate: () => void;
-  onScan?: () => void;
+  onRefreshAll?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
-  onDeleteConnection?: (connectionId: string) => void;
+  onDeleteConnection?: (connectionIds: string | string[]) => void;
 }
 
 /** memo：Dock tabs/layout 变化时父组件重渲，侧栏 props 不变则跳过树 reconcile */
 export const DockerConnectionSidebar = memo(function DockerConnectionSidebar({
   connections,
   loading,
-  scanning,
+  refreshingAll,
   onNavigate,
   onCreate,
-  onScan,
+  onRefreshAll,
   onEditConnection,
   onDeleteConnection,
 }: DockerConnectionSidebarProps) {
@@ -65,11 +65,11 @@ export const DockerConnectionSidebar = memo(function DockerConnectionSidebar({
           activeConnectionId={activeConnectionId}
           activeNavKey={activeNavKey}
           loading={loading}
-          scanning={scanning}
+          refreshingAll={refreshingAll}
           searchQuery={searchQuery}
           onNavigate={onNavigate}
           onCreate={onCreate}
-          onScan={onScan}
+          onRefreshAll={onRefreshAll}
           onEditConnection={onEditConnection}
           onDeleteConnection={onDeleteConnection}
           section={{

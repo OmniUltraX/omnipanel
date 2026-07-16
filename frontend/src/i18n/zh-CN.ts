@@ -390,6 +390,7 @@ export const zhCN = {
   sidebarTree: {
     rename: "重命名",
     delete: "删除",
+    confirmDeleteSelected: "确定删除选中的 {count} 项？此操作不可撤销。",
   },
   resourceTags: {
     section: "资源标签",
@@ -2583,7 +2584,7 @@ export const zhCN = {
       connections: "连接",
       selectConnection: "请选择一个 Docker 连接，或从左侧双击打开标签页",
       addConnection: "添加 Docker 连接",
-      scanSsh: "扫描 SSH Docker",
+      refreshAll: "刷新全部连接缓存",
       loading: "加载连接…",
       empty: "暂无连接",
       edit: "编辑",

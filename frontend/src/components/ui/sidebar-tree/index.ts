@@ -13,4 +13,5 @@ export {
   createSidebarTreeSelectionState,
   type SidebarTreeSelectionState,
 } from "./sidebarTreeSelection";
+export { resolveSidebarTreeDeleteTargets } from "./resolveSidebarTreeDeleteTargets";
 export type { TreeRowMouseEvent } from "./useTreeClickDelay";

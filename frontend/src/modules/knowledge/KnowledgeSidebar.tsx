@@ -38,7 +38,12 @@ import {
 } from "./knowledgeTree";
 import { loadKnowledgeVectorStatus, submitKnowledgeVectorize, isKnowledgeEntryVectorizing, subscribeKnowledgeVectorizeState, KNOWLEDGE_VECTORIZED_EVENT, KNOWLEDGE_CHUNKS_CHANGED_EVENT } from "./knowledgeVectorize";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
-import { SidebarTreeNode, SidebarTreeSelectionProvider, useSidebarTreeSelection } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeNode,
+  SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
+  useSidebarTreeSelection,
+} from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
@@ -255,7 +260,31 @@ export function KnowledgeSidebar() {
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const newMenuRef = useRef<HTMLDivElement>(null);
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [, setVectorizeTick] = useState(0);
+
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
+
+  const deleteEntries = useCallback(
+    async (clickedId: string) => {
+      const ids = resolveSidebarTreeDeleteTargets(clickedId, selectedIdsRef.current, {
+        filter: (id) => entries.some((entry) => entry.id === id),
+      });
+      if (ids.length === 0) return;
+      const confirmed = await appConfirm(
+        ids.length === 1
+          ? t("knowledge.confirmDelete")
+          : t("sidebarTree.confirmDeleteSelected", { count: String(ids.length) }),
+      );
+      if (!confirmed) return;
+      for (const id of ids) {
+        await deleteEntryRecursive(id);
+      }
+    },
+    [deleteEntryRecursive, entries, t],
+  );
 
   useEffect(() => subscribeKnowledgeVectorizeState(() => setVectorizeTick((n) => n + 1)), []);
 
@@ -478,10 +507,7 @@ export function KnowledgeSidebar() {
         shortcut: "Del",
         danger: true,
         onClick: () => {
-          void (async () => {
-            if (!(await appConfirm(t("knowledge.confirmDelete")))) return;
-            await deleteEntryRecursive(ctxEntry.id);
-          })();
+          void deleteEntries(ctxEntry.id);
         },
       },
     ];
@@ -489,7 +515,7 @@ export function KnowledgeSidebar() {
     ctxEntry,
     handleCreateDocument,
     createFolder,
-    deleteEntryRecursive,
+    deleteEntries,
     duplicateEntry,
     handleImportPdf,
     handleRename,
@@ -570,10 +596,7 @@ export function KnowledgeSidebar() {
         void handleRename(entry);
       } else if (e.key === "Delete") {
         e.preventDefault();
-        void (async () => {
-          if (!(await appConfirm(t("knowledge.confirmDelete")))) return;
-          await deleteEntryRecursive(entry.id);
-        })();
+        void deleteEntries(entry.id);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         e.preventDefault();
         void duplicateEntry(entry.id);
@@ -581,7 +604,7 @@ export function KnowledgeSidebar() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [deleteEntryRecursive, duplicateEntry, entries, handleRename, selectedEntryId, t]);
+  }, [deleteEntries, duplicateEntry, entries, handleRename, selectedEntryId]);
 
   useEffect(() => {
     if (!showNewMenuSection) return;
@@ -702,7 +725,7 @@ export function KnowledgeSidebar() {
         onChange={setSearchQuery}
         placeholder={t("knowledge.searchPlaceholder")}
       >
-        <SidebarTreeSelectionProvider>
+        <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
         <VerticalSplitSidebar className="knowledge-sidebar-sections">
           <VerticalSplitSidebarSection
             title={t("knowledge.sidebar.selfBuilt")}

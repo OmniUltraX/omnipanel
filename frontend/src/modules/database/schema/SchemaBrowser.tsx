@@ -106,7 +106,12 @@ import {
   refreshAndApplySchemaTreeNode,
   type SchemaTreeRefreshHooks,
 } from "./schemaTreeRefresh";
-import { SidebarTreeNode, SidebarTreeSelectionProvider, useSidebarTreeSelection } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeNode,
+  SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
+  useSidebarTreeSelection,
+} from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 import {
@@ -497,6 +502,8 @@ function syncFiltersFromSnapshot(
 export type SchemaContextMenuContext = {
   connection?: DbConnectionConfig;
   tableSelection?: SchemaTableSelection;
+  /** 多选删除连接时传入（含当前右键连接） */
+  selectedConnections?: DbConnectionConfig[];
 };
 
 export interface SchemaBrowserProps {
@@ -639,6 +646,10 @@ export function SchemaBrowser({
 
   const enqueueAction = useActionStore((s) => s.enqueueAction);
   const [deletingNodeIds, setDeletingNodeIds] = useState<Record<string, true>>({});
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
   const [deploymentCacheTick, setDeploymentCacheTick] = useState(0);
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
@@ -672,35 +683,31 @@ export function SchemaBrowser({
     [schemaRefreshHooks, t],
   );
 
-  const handleDeleteSchemaNode = useCallback(
-    async (connection: DbConnectionConfig, item: SchemaTreeItem) => {
+  const deleteOneSchemaNode = useCallback(
+    async (connection: DbConnectionConfig, item: SchemaTreeItem): Promise<boolean> => {
       if (!isSchemaNodeDeletable(item.type)) {
-        return;
+        return false;
       }
       if (!isSchemaNodeDropSupported(connection.db_type, item.type)) {
         void appAlert(t("database.schemaTree.dropUnsupported"));
-        return;
+        return false;
       }
 
       const dbName = item.dbName?.trim();
       const tableName = item.tableName?.trim();
       let objectName = item.label.trim();
-      let confirmParams: Record<string, string> = { name: objectName };
 
       if (item.type === "column") {
-        if (!dbName || !tableName) return;
+        if (!dbName || !tableName) return false;
         objectName = (item.columnName ?? item.label).trim();
-        confirmParams = { name: objectName, table: tableName };
       } else if (item.type === "index") {
-        if (!dbName || !tableName) return;
+        if (!dbName || !tableName) return false;
         objectName = (item.indexName ?? item.label).trim();
-        confirmParams = { name: objectName, table: tableName };
       } else if (item.type === "database") {
         const parsed = parseDatabaseNodeId(item.id);
         const resolvedDbName = parsed?.dbName ?? dbName;
-        if (!resolvedDbName) return;
+        if (!resolvedDbName) return false;
         objectName = resolvedDbName;
-        confirmParams = { name: objectName };
       } else if (item.type === "table" || item.type === "view") {
         const parsed =
           item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
@@ -709,22 +716,12 @@ export function SchemaBrowser({
           item.type === "view"
             ? (parsed?.tableName ?? item.tableName ?? item.label).trim()
             : (parsed?.tableName ?? tableName ?? item.label).trim();
-        if (!resolvedDbName || !resolvedObjectName) return;
+        if (!resolvedDbName || !resolvedObjectName) return false;
         objectName = resolvedObjectName;
-        confirmParams = { name: objectName, database: resolvedDbName };
       } else if (item.type === "user") {
         const parsed = parseUserNodeId(item.id);
-        if (!parsed) return;
+        if (!parsed) return false;
         objectName = parsed.host ? `${parsed.name}@${parsed.host}` : parsed.name;
-        confirmParams = { name: objectName };
-      }
-
-      const confirmed = await appConfirm(
-        t(schemaNodeDeleteConfirmKey(item.type), confirmParams),
-        t("database.schemaTree.confirmDeleteTitle"),
-      );
-      if (!confirmed) {
-        return;
       }
 
       let sql: string | null = null;
@@ -760,7 +757,7 @@ export function SchemaBrowser({
 
       if (!sql) {
         void appAlert(t("database.schemaTree.dropUnsupported"));
-        return;
+        return false;
       }
 
       setDeletingNodeIds((prev) => ({ ...prev, [item.id]: true }));
@@ -798,18 +795,20 @@ export function SchemaBrowser({
           const parsed =
             item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
           const resolvedDbName = parsed?.dbName ?? dbName;
-          if (!resolvedDbName) return;
+          if (!resolvedDbName) return false;
           refreshItem = buildDatabaseTreeItem(connection.id, resolvedDbName);
         } else {
           const resolvedDbName = dbName;
           const resolvedTableName = tableName;
-          if (!resolvedDbName || !resolvedTableName) return;
+          if (!resolvedDbName || !resolvedTableName) return false;
           refreshItem = buildTableTreeItem(connection.id, resolvedDbName, resolvedTableName);
         }
 
         await refreshAndApplySchemaTreeNode(connection, refreshItem, schemaRefreshHooks);
+        return true;
       } catch (err) {
         void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
+        return false;
       } finally {
         setDeletingNodeIds((prev) => {
           const next = { ...prev };
@@ -819,6 +818,91 @@ export function SchemaBrowser({
       }
     },
     [enqueueAction, schemaRefreshHooks, t],
+  );
+
+  const handleDeleteSchemaNode = useCallback(
+    async (connection: DbConnectionConfig, item: SchemaTreeItem) => {
+      if (!isSchemaNodeDeletable(item.type)) {
+        return;
+      }
+      if (!isSchemaNodeDropSupported(connection.db_type, item.type)) {
+        void appAlert(t("database.schemaTree.dropUnsupported"));
+        return;
+      }
+
+      const targetIds = resolveSidebarTreeDeleteTargets(item.id, selectedIdsRef.current, {
+        filter: (id) => {
+          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
+          return (
+            row?.item.type === item.type &&
+            row.item.connId === item.connId &&
+            isSchemaNodeDeletable(row.item.type)
+          );
+        },
+      });
+      const targets = targetIds
+        .map((id) => {
+          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
+          return row?.item;
+        })
+        .filter((entry): entry is SchemaTreeItem => Boolean(entry));
+
+      if (targets.length === 0) {
+        return;
+      }
+
+      if (targets.length === 1) {
+        const only = targets[0]!;
+        const dbName = only.dbName?.trim();
+        const tableName = only.tableName?.trim();
+        let objectName = only.label.trim();
+        let confirmParams: Record<string, string> = { name: objectName };
+        if (only.type === "column") {
+          objectName = (only.columnName ?? only.label).trim();
+          confirmParams = { name: objectName, table: tableName ?? "" };
+        } else if (only.type === "index") {
+          objectName = (only.indexName ?? only.label).trim();
+          confirmParams = { name: objectName, table: tableName ?? "" };
+        } else if (only.type === "database") {
+          objectName = parseDatabaseNodeId(only.id)?.dbName ?? dbName ?? objectName;
+          confirmParams = { name: objectName };
+        } else if (only.type === "table" || only.type === "view") {
+          const parsed =
+            only.type === "view" ? parseViewNodeId(only.id) : parseTableNodeId(only.id);
+          objectName =
+            only.type === "view"
+              ? (parsed?.tableName ?? only.tableName ?? only.label).trim()
+              : (parsed?.tableName ?? tableName ?? only.label).trim();
+          confirmParams = {
+            name: objectName,
+            database: parsed?.dbName ?? dbName ?? "",
+          };
+        } else if (only.type === "user") {
+          const parsed = parseUserNodeId(only.id);
+          if (parsed) {
+            objectName = parsed.host ? `${parsed.name}@${parsed.host}` : parsed.name;
+          }
+          confirmParams = { name: objectName };
+        }
+        const confirmed = await appConfirm(
+          t(schemaNodeDeleteConfirmKey(only.type), confirmParams),
+          t("database.schemaTree.confirmDeleteTitle"),
+        );
+        if (!confirmed) return;
+        await deleteOneSchemaNode(connection, only);
+        return;
+      }
+
+      const confirmed = await appConfirm(
+        t("sidebarTree.confirmDeleteSelected", { count: String(targets.length) }),
+        t("database.schemaTree.confirmDeleteTitle"),
+      );
+      if (!confirmed) return;
+      for (const target of targets) {
+        await deleteOneSchemaNode(connection, target);
+      }
+    },
+    [deleteOneSchemaNode, t],
   );
 
   const resolveSchemaNodeActions = useCallback(
@@ -1126,10 +1210,33 @@ export function SchemaBrowser({
       return [];
     }
 
+    const selectedConnectionIds = resolveSidebarTreeDeleteTargets(
+      item.id,
+      selectedIdsRef.current,
+      {
+        filter: (id) =>
+          connectionsRef.current.some(
+            (entry) => entry.config.id === id || `conn:${entry.config.id}` === id,
+          ),
+      },
+    );
+    const selectedConnections = selectedConnectionIds
+      .map((id) => {
+        const connId = id.startsWith("conn:") ? id.slice("conn:".length) : id;
+        return connectionsRef.current.find((entry) => entry.config.id === connId)?.config;
+      })
+      .filter((entry): entry is DbConnectionConfig => Boolean(entry));
+
     const extra =
       buildSchemaContextMenuItems?.(item, {
         connection,
         tableSelection: schemaCtxMenu.tableSelection,
+        selectedConnections:
+          item.type === "connection" && selectedConnections.length > 0
+            ? selectedConnections
+            : connection
+              ? [connection]
+              : undefined,
       }) ?? [];
     const refreshIcon = (
       <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
@@ -1868,7 +1975,10 @@ export function SchemaBrowser({
             onKeyDown={handleTreeKeyDown}
             onContextMenu={handleContextLayoutRoot}
           >
-        <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
+        <SidebarTreeSelectionProvider
+          orderedKeys={selectableNodeIds}
+          onSelectedIdsChange={handleSelectedIdsChange}
+        >
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>
             {t("common.loading")}

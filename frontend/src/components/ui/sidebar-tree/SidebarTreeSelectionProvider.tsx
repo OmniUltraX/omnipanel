@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -14,6 +15,7 @@ type SidebarTreeSelectionContextValue = {
   handleSelect: (key: string, event: TreeRowMouseEvent) => void;
   isSelected: (key: string) => boolean;
   selectedIds: ReadonlySet<string>;
+  clearSelection: () => void;
 };
 
 const SidebarTreeSelectionContext = createContext<SidebarTreeSelectionContextValue | null>(null);
@@ -21,14 +23,26 @@ const SidebarTreeSelectionContext = createContext<SidebarTreeSelectionContextVal
 export function SidebarTreeSelectionProvider({
   children,
   orderedKeys,
+  onSelectedIdsChange,
 }: {
   children: ReactNode;
   /** 虚拟树等场景：显式传入扁平顺序，供 Shift 范围多选使用 */
   orderedKeys?: readonly string[];
+  /** 供 Provider 外的右键菜单等读取当前多选 */
+  onSelectedIdsChange?: (ids: ReadonlySet<string>) => void;
 }) {
-  const { handleSelect: applySelect, isSelected, selectedIds } = useSidebarTreeMultiSelect();
+  const {
+    handleSelect: applySelect,
+    isSelected,
+    selectedIds,
+    clearSelection,
+  } = useSidebarTreeMultiSelect();
   const flatKeysRef = useRef<string[]>([]);
   flatKeysRef.current = [];
+
+  useEffect(() => {
+    onSelectedIdsChange?.(selectedIds);
+  }, [onSelectedIdsChange, selectedIds]);
 
   const registerKey = useCallback((key: string) => {
     flatKeysRef.current.push(key);
@@ -42,8 +56,8 @@ export function SidebarTreeSelectionProvider({
   );
 
   const contextValue = useMemo(
-    () => ({ registerKey, handleSelect, isSelected, selectedIds }),
-    [registerKey, handleSelect, isSelected, selectedIds],
+    () => ({ registerKey, handleSelect, isSelected, selectedIds, clearSelection }),
+    [registerKey, handleSelect, isSelected, selectedIds, clearSelection],
   );
 
   return (

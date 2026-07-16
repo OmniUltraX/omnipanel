@@ -118,10 +118,19 @@ export function ServerPanel() {
   );
 
   const handleDeleteServer = useCallback(
-    async (serverId: string) => {
-      if (!(await appConfirm(t("server.sidebar.delete")))) return;
-      removeServerTabs(serverId);
-      await removeConn(serverId);
+    async (serverId: string | string[]) => {
+      const ids = Array.isArray(serverId) ? serverId : [serverId];
+      if (ids.length === 0) return;
+      const confirmed = await appConfirm(
+        ids.length === 1
+          ? t("server.sidebar.delete")
+          : t("sidebarTree.confirmDeleteSelected", { count: String(ids.length) }),
+      );
+      if (!confirmed) return;
+      for (const id of ids) {
+        removeServerTabs(id);
+        await removeConn(id);
+      }
     },
     [removeConn, removeServerTabs, t],
   );

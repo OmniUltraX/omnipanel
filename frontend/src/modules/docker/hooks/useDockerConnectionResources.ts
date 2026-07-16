@@ -105,6 +105,16 @@ export function refreshDockerConnectionSidebarCache(connectionId: string): void 
   void useDockerSidebarCacheStore.getState().refreshScope({ kind: "connection", connectionId });
 }
 
+/** 刷新当前列表中全部 Docker 连接的侧栏资源缓存。 */
+export function refreshAllDockerSidebarCaches(connectionIds: readonly string[]): Promise<void> {
+  const store = useDockerSidebarCacheStore.getState();
+  return Promise.all(
+    connectionIds.map((connectionId) =>
+      store.refreshScope({ kind: "connection", connectionId }),
+    ),
+  ).then(() => undefined);
+}
+
 /** 判断某刷新 key 是否处于进行中。 */
 export function useDockerSidebarRefreshing(refreshKey: string | null): boolean {
   return useDockerSidebarCacheStore((state) =>
