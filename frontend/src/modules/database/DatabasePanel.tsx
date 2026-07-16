@@ -2736,50 +2736,56 @@ export function DatabasePanel() {
   }, []);
 
   const handleDeleteConnection = useCallback(
-    async (connection: DbConnectionConfig) => {
-      if (
-        !(await appConfirm(
-          t("database.contextMenu.deleteConnectionConfirm", { name: connection.name }),
-          t("database.contextMenu.deleteConnectionTitle"),
-          {
-            confirmLabel: t("database.contextMenu.deleteConnection"),
-            cancelLabel: t("common.cancel"),
-            kind: "warning",
-          },
-        ))
-      ) {
+    async (connection: DbConnectionConfig | DbConnectionConfig[]) => {
+      const targets = Array.isArray(connection) ? connection : [connection];
+      if (targets.length === 0) return;
+
+      const confirmed = await appConfirm(
+        targets.length === 1
+          ? t("database.contextMenu.deleteConnectionConfirm", { name: targets[0]!.name })
+          : t("sidebarTree.confirmDeleteSelected", { count: String(targets.length) }),
+        t("database.contextMenu.deleteConnectionTitle"),
+        {
+          confirmLabel: t("database.contextMenu.deleteConnection"),
+          cancelLabel: t("common.cancel"),
+          kind: "warning",
+        },
+      );
+      if (!confirmed) {
         return;
       }
 
-      const connId = connection.id;
-      const tabStore = useDbWorkspaceTabStore.getState();
-      const tabIdsToClose = workspaceTabsRef.current
-        .filter((tab) => resolveConnIdForWorkspaceTab(tab, tabStore) === connId)
-        .map((tab) => tab.id);
-      if (tabIdsToClose.length > 0) {
-        closeWorkspaceTabs(tabIdsToClose);
-      }
-
-      try {
-        await deleteConnection(connId);
-      } catch (err) {
-        console.error("[DatabasePanel] deleteConnection failed", err);
-        return;
-      }
-
-      setDatabasesByConnId((prev) => {
-        if (!(connId in prev)) {
-          return prev;
+      for (const target of targets) {
+        const connId = target.id;
+        const tabStore = useDbWorkspaceTabStore.getState();
+        const tabIdsToClose = workspaceTabsRef.current
+          .filter((tab) => resolveConnIdForWorkspaceTab(tab, tabStore) === connId)
+          .map((tab) => tab.id);
+        if (tabIdsToClose.length > 0) {
+          closeWorkspaceTabs(tabIdsToClose);
         }
-        const next = { ...prev };
-        delete next[connId];
-        return next;
-      });
-      setActiveConnId((prev) => (prev === connId ? null : prev));
-      setCreateDbDialog((prev) => (prev?.connId === connId ? null : prev));
-      if (editingConnection?.id === connId) {
-        setEditingConnection(null);
-        setDialogOpen(false);
+
+        try {
+          await deleteConnection(connId);
+        } catch (err) {
+          console.error("[DatabasePanel] deleteConnection failed", err);
+          continue;
+        }
+
+        setDatabasesByConnId((prev) => {
+          if (!(connId in prev)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[connId];
+          return next;
+        });
+        setActiveConnId((prev) => (prev === connId ? null : prev));
+        setCreateDbDialog((prev) => (prev?.connId === connId ? null : prev));
+        if (editingConnection?.id === connId) {
+          setEditingConnection(null);
+          setDialogOpen(false);
+        }
       }
 
       await reloadSchemaSidecarAfterConnectionDelete();
@@ -3343,7 +3349,11 @@ export function DatabasePanel() {
             icon: deleteIcon,
             danger: true,
             onClick: () => {
-              void handleDeleteConnection(connection);
+              const targets =
+                context.selectedConnections && context.selectedConnections.length > 0
+                  ? context.selectedConnections
+                  : [connection];
+              void handleDeleteConnection(targets.length === 1 ? targets[0]! : targets);
             },
           },
         ];

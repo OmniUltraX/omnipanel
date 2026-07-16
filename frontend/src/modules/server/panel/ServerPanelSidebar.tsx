@@ -17,7 +17,7 @@ export interface ServerPanelSidebarProps {
   servers: ServerEntry[];
   onCreateServer?: () => void;
   onEditServer?: (server: ServerEntry) => void;
-  onDeleteServer?: (serverId: string) => void;
+  onDeleteServer?: (serverIds: string | string[]) => void;
 }
 
 export function ServerPanelSidebar({

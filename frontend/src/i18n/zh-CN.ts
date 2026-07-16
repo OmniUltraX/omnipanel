@@ -390,6 +390,7 @@ export const zhCN = {
   sidebarTree: {
     rename: "重命名",
     delete: "删除",
+    confirmDeleteSelected: "确定删除选中的 {count} 项？此操作不可撤销。",
   },
   resourceTags: {
     section: "资源标签",
@@ -636,6 +637,15 @@ export const zhCN = {
       medium: "中风险",
       high: "高风险",
       critical: "极高风险",
+    },
+    closeBehavior: {
+      title: "关闭窗口",
+      message: "要将窗口放到系统托盘，还是退出应用？",
+      remember: "记住我的选择",
+      toTray: "放到系统托盘",
+      quit: "退出应用",
+      trayShowAll: "显示全部窗口",
+      trayQuit: "退出",
     },
     commandPalette: {
       placeholder: "搜索命令…",
@@ -1651,6 +1661,7 @@ export const zhCN = {
         selectTableToAdd: "选择数据表",
         noAddableTables: "暂无可添加的表",
         selectAll: "全选",
+        deselectAll: "全不选",
         addTables: "添加",
         addTablesHint: "将所选表加入源表列表",
         addTablesSelectFirst: "请先选择要添加的表",
@@ -1773,6 +1784,7 @@ export const zhCN = {
       settingsSchemaCreateMissingTables: "新增表",
       settingsSchemaCreateMissingTablesHint: "目标库不存在所选表时，是否自动创建",
       submitHintSchemaNoExecutable: "所选表在目标库均不存在，且已关闭「新增表」，无法执行同步",
+      submitHintSchemaNoChanges: "所选表结构已一致或暂无可执行变更，无需同步",
       settingsSource: "源连接 / 数据库",
       settingsTarget: "目标连接 / 数据库",
       settingsSourceRequired: "请选择源连接和数据库",
@@ -2700,7 +2712,7 @@ export const zhCN = {
       connections: "连接",
       selectConnection: "请选择一个 Docker 连接，或从左侧双击打开标签页",
       addConnection: "添加 Docker 连接",
-      scanSsh: "扫描 SSH Docker",
+      refreshAll: "刷新全部连接缓存",
       loading: "加载连接…",
       empty: "暂无连接",
       edit: "编辑",
@@ -3288,6 +3300,15 @@ export const zhCN = {
       desc: "控制 OmniPanel 的显示语言",
       zhCN: "中文（简体）",
       enUS: "English",
+    },
+    closeBehavior: {
+      label: "关闭行为",
+      desc: "点击窗口关闭按钮时：询问、最小化到托盘，或退出应用",
+      options: {
+        ask: "每次询问",
+        tray: "最小化到托盘",
+        quit: "直接退出",
+      },
     },
     uiScale: {
       label: "界面缩放",

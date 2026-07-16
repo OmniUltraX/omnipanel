@@ -54,6 +54,8 @@ import {
   isSchemaCaseSensitive,
   tableNameExistsInSet,
   isSchemaSyncSourceTableMissingInTarget,
+  filterSchemaSyncExecutableTableNames,
+  isSchemaSyncTableExecutable,
   resolveSchemaTableNameCase,
 } from "./schemaSyncAlignedTables";
 import {
@@ -95,6 +97,9 @@ const EMPTY_SNAPSHOT: SyncSideSnapshot = { tables: [], loading: false, error: nu
 
 /** 逐条比对的行数门槛 */
 const LARGE_TABLE_ROW_THRESHOLD = 10_000;
+
+/** 稳定空对象，避免 schemaDiffsForView 每次返回新 `{}` 触发对齐列表重算 */
+const EMPTY_SCHEMA_TABLE_DIFFS: Record<string, SchemaTableDiff> = {};
 
 const EXECUTE_TASK_KINDS = new Set(["dbDataSyncExecute", "dbSchemaSyncExecute"]);
 const TERMINAL_EXECUTE_STATUSES = new Set(["completed", "failed"]);
@@ -155,7 +160,8 @@ export function DatabaseToolbox({
   const [sourceCatalogLoading, setSourceCatalogLoading] = useState(false);
   const [sourceCatalogError, setSourceCatalogError] = useState<string | null>(null);
   const [sourceAddingTables, setSourceAddingTables] = useState(false);
-  const sourceSideBusy = sourceCatalogLoading || sourceAddingTables;
+  const sourceSideBusy =
+    sourceSnapshot.loading || sourceCatalogLoading || sourceAddingTables;
   const [targetSnapshot, setTargetSnapshot] = useState<SyncSideSnapshot>(EMPTY_SNAPSHOT);
 
   const [targetTableNames, setTargetTableNames] = useState<Set<string>>(() => new Set());
@@ -678,6 +684,55 @@ export function DatabaseToolbox({
     [connections, resetLoadProgress, advanceLoadProgress, t],
   );
 
+  /** 结构同步：源侧加载库内全部表结构（与目标侧 introspectSchema 对称） */
+  const loadSourceSnapshot = useCallback(async () => {
+    if (tab !== "schemaSync") {
+      return;
+    }
+    const conn = connections.find((c) => c.id === sourceConnId);
+    const db = sourceDb.trim();
+    if (!conn || !db) {
+      setSourceSnapshot(EMPTY_SNAPSHOT);
+      setSourceCatalogNames([]);
+      setSourceCatalogError(null);
+      return;
+    }
+    resetLoadProgress(1, t("database.toolbox.loading.schema"));
+    setSourceCatalogError(null);
+    setSourceSnapshot({ tables: [], loading: true, error: null });
+    try {
+      const scoped = connectionWithDatabase(conn, db);
+      const result = await introspectSchema(scoped, db);
+      const tables: SyncTableInfo[] = result.tables.map((tbl) => ({
+        name: tbl.name,
+        columns: tbl.columns,
+        indexes: tbl.indexes ?? [],
+        rowCount: 0,
+      }));
+      tables.sort((a, b) => a.name.localeCompare(b.name));
+      setSourceSnapshot({ tables, loading: false, error: null });
+      setSourceCatalogNames(tables.map((table) => table.name));
+      advanceLoadProgress(1, t("database.toolbox.loading.schemaDone", { count: tables.length }));
+    } catch (e) {
+      const message = typeof e === "string" ? e : String(e);
+      setSourceSnapshot({
+        tables: [],
+        loading: false,
+        error: message,
+      });
+      setSourceCatalogNames([]);
+      setSourceCatalogError(message);
+    }
+  }, [
+    connections,
+    tab,
+    sourceConnId,
+    sourceDb,
+    resetLoadProgress,
+    advanceLoadProgress,
+    t,
+  ]);
+
   const addSourceTables = useCallback(
     async (tableNames: string[]) => {
       const conn = connections.find((c) => c.id === sourceConnId);
@@ -769,7 +824,11 @@ export function DatabaseToolbox({
       }
       cachedAnalysisLoadedKeyRef.current = loadKey;
       if (config.sourceConnId && config.sourceDb.trim()) {
-        void loadSourceCatalog(config.sourceConnId, config.sourceDb);
+        if (tab === "schemaSync") {
+          void loadSourceSnapshot();
+        } else {
+          void loadSourceCatalog(config.sourceConnId, config.sourceDb);
+        }
       }
       if (tab === "schemaSync") {
         void loadTargetSnapshot();
@@ -777,7 +836,7 @@ export function DatabaseToolbox({
         void loadTargetTableNames();
       }
     },
-    [tab, syncTaskId, loadSourceCatalog, loadTargetSnapshot, loadTargetTableNames],
+    [tab, syncTaskId, loadSourceCatalog, loadSourceSnapshot, loadTargetSnapshot, loadTargetTableNames],
   );
 
   useEffect(() => {
@@ -808,17 +867,28 @@ export function DatabaseToolbox({
       lastAnalyzedSelectionRef.current = new Set();
       pendingAddedTablesRef.current = null;
     }
-    void loadSourceCatalog(sourceConnId, sourceDb);
+    // 数据同步：只拉表名目录，由表头下拉按需添加
+    if (tab === "dataSync") {
+      void loadSourceCatalog(sourceConnId, sourceDb);
+    }
   }, [active, sourceConnId, sourceDb, tab, loadSourceCatalog]);
 
+  // 结构同步：选完库后直接加载并展示源库全部表（不走「添加」）
   useEffect(() => {
-    if (sourceCatalogLoading || !pendingAddedTablesRef.current?.length) {
+    if (!active || tab !== "schemaSync") {
+      return;
+    }
+    void loadSourceSnapshot();
+  }, [active, tab, loadSourceSnapshot]);
+
+  useEffect(() => {
+    if (tab !== "dataSync" || sourceCatalogLoading || !pendingAddedTablesRef.current?.length) {
       return;
     }
     const names = pendingAddedTablesRef.current;
     pendingAddedTablesRef.current = null;
     void addSourceTables(names);
-  }, [sourceCatalogLoading, addSourceTables]);
+  }, [tab, sourceCatalogLoading, addSourceTables]);
 
   /** 数据同步：勾选源表后统计行数 */
   useEffect(() => {
@@ -1071,19 +1141,19 @@ export function DatabaseToolbox({
   /** 结构同步：勾选源表后对比目标表字段差异 */
   useEffect(() => {
     if (!active || !targetConfigured || tab !== "schemaSync") {
-      setSchemaTableDiffs({});
+      setSchemaTableDiffs((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
 
     const selected = Array.from(sourceSelected);
 
     if (targetTablesLoading) {
-      setSchemaTableDiffs(() => {
+      setSchemaTableDiffs((prev) => {
         const next: Record<string, SchemaTableDiff> = {};
         for (const name of selected) {
           next[name] = { tableName: name, status: "checking", columns: [], indexes: [] };
         }
-        return next;
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
       });
       return;
     }
@@ -1124,7 +1194,7 @@ export function DatabaseToolbox({
           }
         }
       }
-      return next;
+      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
   }, [
     active,
@@ -1171,6 +1241,31 @@ export function DatabaseToolbox({
       if (next.has(name)) next.delete(name);
       else next.add(name);
       return next;
+    });
+  }, []);
+
+  const handleSourceSelectAll = useCallback((select: boolean, visibleNames: string[]) => {
+    if (visibleNames.length === 0) {
+      return;
+    }
+    setSourceSelected((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      if (select) {
+        for (const name of visibleNames) {
+          if (!next.has(name)) {
+            next.add(name);
+            changed = true;
+          }
+        }
+      } else {
+        for (const name of visibleNames) {
+          if (next.delete(name)) {
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
     });
   }, []);
 
@@ -1289,7 +1384,7 @@ export function DatabaseToolbox({
     if (hasCachedDiffs) {
       return schemaAnalysisDiffs;
     }
-    return {};
+    return EMPTY_SCHEMA_TABLE_DIFFS;
   }, [
     tab,
     targetConfigured,
@@ -1316,7 +1411,6 @@ export function DatabaseToolbox({
     targetConfigured,
     sourceSnapshot,
     targetSnapshot,
-    schemaDiffsForView,
     schemaCompareCaseSensitive,
   ]);
 
@@ -1969,7 +2063,16 @@ export function DatabaseToolbox({
       return true;
     }
     if (schemaSyncBusy) return false;
-    return true;
+    const selected = Array.from(sourceSelected);
+    return selected.some((name) =>
+      isSchemaSyncTableExecutable(
+        name,
+        schemaDiffsForView,
+        targetSnapshot.tables,
+        schemaCompareCaseSensitive,
+        schemaCreateMissingTables,
+      ),
+    );
   }, [
     sourceSelected.size,
     targetConfigured,
@@ -1984,6 +2087,10 @@ export function DatabaseToolbox({
     sourceSelected,
     sourceTableColumns,
     syncLockedTables.size,
+    schemaDiffsForView,
+    targetSnapshot.tables,
+    schemaCompareCaseSensitive,
+    schemaCreateMissingTables,
   ]);
 
   const submitDisabledReason = useMemo(() => {
@@ -2003,6 +2110,19 @@ export function DatabaseToolbox({
       if (missingColumns) return t("database.toolbox.submitHintMissingColumns");
     }
     if (tab === "schemaSync" && schemaSyncBusy) return t("database.toolbox.submitHintBusy");
+    if (tab === "schemaSync") {
+      const selected = Array.from(sourceSelected);
+      const executable = filterSchemaSyncExecutableTableNames(
+        selected,
+        schemaDiffsForView,
+        targetSnapshot.tables,
+        schemaCompareCaseSensitive,
+        schemaCreateMissingTables,
+      );
+      if (executable.length === 0) {
+        return t("database.toolbox.submitHintSchemaNoChanges");
+      }
+    }
     return null;
   }, [
     sourceSelected,
@@ -2017,6 +2137,10 @@ export function DatabaseToolbox({
     targetTablesLoading,
     sourceTableColumns,
     syncLockedTables.size,
+    schemaDiffsForView,
+    targetSnapshot.tables,
+    schemaCompareCaseSensitive,
+    schemaCreateMissingTables,
     t,
   ]);
 
@@ -2184,7 +2308,9 @@ export function DatabaseToolbox({
       config.addedTables && config.addedTables.length > 0
         ? config.addedTables
         : config.selectedTables;
-    pendingAddedTablesRef.current = addedNames.length > 0 ? addedNames : null;
+    // 数据同步：按已保存表名逐个加载结构；结构同步源侧直接全库加载，仅恢复勾选
+    pendingAddedTablesRef.current =
+      tab === "dataSync" && addedNames.length > 0 ? addedNames : null;
     setSourceSelected(new Set(config.selectedTables));
     setSourceExpanded(new Set(config.expandedTables ?? []));
     setTableSyncModes(
@@ -2260,7 +2386,8 @@ export function DatabaseToolbox({
       targetConnId,
       targetDb,
       selectedTables: Array.from(sourceSelected),
-      addedTables: sourceSnapshot.tables.map((table) => table.name),
+      addedTables:
+        tab === "dataSync" ? sourceSnapshot.tables.map((table) => table.name) : undefined,
       expandedTables: Array.from(sourceExpanded),
       tableSyncModes: { ...tableSyncModes },
       ...(tab === "dataSync" ? { ignoredFields: parseIgnoredFieldsInput(ignoredFields) } : {}),
@@ -2710,16 +2837,19 @@ export function DatabaseToolbox({
           });
         }
       }
-      if (tablesToReanalyze.length === 0) {
+      if (tablesToReanalyze.length === 0 && tab !== "schemaSync") {
         return;
       }
       if (activeRef.current) {
         queueMicrotask(() => {
-          handlePostExecuteAnalyzeRef.current(tablesToReanalyze);
+          handlePostExecuteAnalyzeRef.current(
+            tab === "schemaSync" ? undefined : tablesToReanalyze,
+          );
         });
       } else {
         pendingPostExecuteAnalysisRef.current = true;
-        pendingPostExecuteTablesRef.current = tablesToReanalyze;
+        pendingPostExecuteTablesRef.current =
+          tab === "schemaSync" ? [] : tablesToReanalyze;
       }
     })
       .then((fn) => {
@@ -3020,8 +3150,27 @@ export function DatabaseToolbox({
   );
 
   const scriptPreviewInput = useMemo((): SyncTaskSqlPreviewInput | null => {
-    return buildSqlPreviewInput(Array.from(sourceSelected));
-  }, [buildSqlPreviewInput, sourceSelected]);
+    const selected = Array.from(sourceSelected);
+    const names =
+      tab === "schemaSync"
+        ? filterSchemaSyncExecutableTableNames(
+            selected,
+            schemaDiffsForView,
+            targetSnapshot.tables,
+            schemaCompareCaseSensitive,
+            schemaCreateMissingTables,
+          )
+        : selected;
+    return buildSqlPreviewInput(names);
+  }, [
+    buildSqlPreviewInput,
+    sourceSelected,
+    tab,
+    schemaDiffsForView,
+    targetSnapshot.tables,
+    schemaCompareCaseSensitive,
+    schemaCreateMissingTables,
+  ]);
 
   const executeConfirmTitle = useMemo(() => {
     if (!executeConfirmSnapshot) {
@@ -3193,6 +3342,19 @@ export function DatabaseToolbox({
           return false;
         }
       }
+      if (tab === "schemaSync") {
+        if (
+          !isSchemaSyncTableExecutable(
+            tableName,
+            schemaDiffsForView,
+            targetSnapshot.tables,
+            schemaCompareCaseSensitive,
+            schemaCreateMissingTables,
+          )
+        ) {
+          return false;
+        }
+      }
       if (targetCountingTables.has(tableName)) {
         return false;
       }
@@ -3211,6 +3373,10 @@ export function DatabaseToolbox({
       tableAnalysis,
       targetCountingTables,
       tab,
+      schemaDiffsForView,
+      targetSnapshot.tables,
+      schemaCompareCaseSensitive,
+      schemaCreateMissingTables,
     ],
   );
 
@@ -3262,7 +3428,7 @@ export function DatabaseToolbox({
             resolvedSchemaTableNameCase,
             schemaCreateMissingTables,
           );
-          executeTaskTablesRef.current.set(bgTaskId, []);
+          executeTaskTablesRef.current.set(bgTaskId, tableNames);
         }
         recordSyncTaskRun(tableNames, bgTaskId);
         void useBackgroundTaskStore.getState().refreshRunning();
@@ -3371,17 +3537,15 @@ export function DatabaseToolbox({
     let namesToRun = tableNames;
 
     if (tab === "schemaSync") {
-      namesToRun = tableNames.filter(
-        (name) =>
-          schemaCreateMissingTables ||
-          !isSchemaSyncSourceTableMissingInTarget(
-            name,
-            targetSnapshot.tables,
-            schemaCompareCaseSensitive,
-          ),
+      namesToRun = filterSchemaSyncExecutableTableNames(
+        tableNames,
+        schemaDiffsForView,
+        targetSnapshot.tables,
+        schemaCompareCaseSensitive,
+        schemaCreateMissingTables,
       );
       if (namesToRun.length === 0) {
-        setSubmitNotice(t("database.toolbox.submitHintSchemaNoExecutable"));
+        setSubmitNotice(t("database.toolbox.submitHintSchemaNoChanges"));
         return false;
       }
     }
@@ -3399,6 +3563,7 @@ export function DatabaseToolbox({
     tab,
     schemaCreateMissingTables,
     schemaCompareCaseSensitive,
+    schemaDiffsForView,
     targetSnapshot.tables,
     canSaveTask,
     persistTask,
@@ -3459,11 +3624,11 @@ export function DatabaseToolbox({
               databases={sourceDbs}
               databasesLoading={sourceDbsLoading}
               snapshot={sourceSnapshot}
-              catalogLoading={sourceCatalogLoading}
+              catalogLoading={tab === "schemaSync" ? sourceSnapshot.loading : sourceCatalogLoading}
               catalogError={sourceCatalogError}
               catalogTableNames={sourceCatalogNames}
               loadingProgress={
-                sourceCatalogLoading
+                sourceCatalogLoading || sourceSnapshot.loading
                   ? { total: loadTotal, current: loadCurrent, message: loadMessage }
                   : undefined
               }
@@ -3472,7 +3637,8 @@ export function DatabaseToolbox({
               onToggleTable={toggleSourceTable}
               selectedTables={sourceSelected}
               onToggleSelect={toggleSourceSelected}
-              onAddTables={(names) => void addSourceTables(names)}
+              onSelectAllChange={handleSourceSelectAll}
+              onAddTables={tab === "dataSync" ? (names) => void addSourceTables(names) : undefined}
               addingTables={sourceAddingTables}
               countingTables={countingTables}
               alignedTableNames={visibleSchemaAlignedTableNames}

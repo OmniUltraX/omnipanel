@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
@@ -57,8 +57,6 @@ interface HostListPanelProps {
   selectedIds?: string[];
   onToggleSelect?: (hostId: string) => void;
 }
-
-const HOST_LABEL_CLICK_DELAY_MS = 200;
 
 function HostPanelBadge({ sshId }: { sshId: string }) {
   const { t } = useI18n();
@@ -156,16 +154,6 @@ export function HostListPanel({
   const moveSshConnectionsToGroup = useConnectionStore((s) => s.moveSshConnectionsToGroup);
   const removeConn = useConnectionStore((s) => s.remove);
   const activeHostId = activeHostIdProp ?? selectedResourceByPath[SSH_PATH];
-  const labelClickTimerRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (labelClickTimerRef.current !== null) {
-        window.clearTimeout(labelClickTimerRef.current);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     void loadSshPoolStatuses();
@@ -247,23 +235,13 @@ export function HostListPanel({
       return;
     }
     if (onSelectHost) {
-      if (labelClickTimerRef.current !== null) {
-        window.clearTimeout(labelClickTimerRef.current);
-      }
-      labelClickTimerRef.current = window.setTimeout(() => {
-        labelClickTimerRef.current = null;
-        onSelectHost(host.id, "preview");
-      }, HOST_LABEL_CLICK_DELAY_MS);
+      onSelectHost(host.id, "preview");
       return;
     }
     selectHost(host);
   };
 
   const handleHostDoubleClick = (host: WorkspaceResource) => {
-    if (labelClickTimerRef.current !== null) {
-      window.clearTimeout(labelClickTimerRef.current);
-      labelClickTimerRef.current = null;
-    }
     if (onSelectHost) {
       onSelectHost(host.id, "permanent");
       return;
@@ -313,12 +291,24 @@ export function HostListPanel({
     if (listCtxMenu?.kind !== "host" || deleting) return;
     const host = listCtxMenu.host;
     setListCtxMenu(null);
-    if (!(await appConfirm(t("ssh.dialog.confirmDelete", { name: host.name })))) return;
+    const selectedSet = new Set(selectedIds);
+    const hostIds =
+      selectedSet.size > 1 && selectedSet.has(host.id)
+        ? Array.from(selectedSet)
+        : [host.id];
+    const confirmed = await appConfirm(
+      hostIds.length === 1
+        ? t("ssh.dialog.confirmDelete", { name: host.name })
+        : t("sidebarTree.confirmDeleteSelected", { count: String(hostIds.length) }),
+    );
+    if (!confirmed) return;
     setDeleting(true);
     try {
-      const ids = getLinkedConnectionIds(connections, host.id);
-      for (const id of ids) {
-        await removeConn(id);
+      for (const hostId of hostIds) {
+        const ids = getLinkedConnectionIds(connections, hostId);
+        for (const id of ids) {
+          await removeConn(id);
+        }
       }
     } catch { /* ignore */ }
     setDeleting(false);

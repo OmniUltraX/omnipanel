@@ -7,12 +7,14 @@ import {
   lazy,
   Suspense,
   startTransition,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useI18n } from "../../i18n";
@@ -23,7 +25,11 @@ import {
   useDockerPanelDockStore,
 } from "../../stores/dockerPanelDockStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
-import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
+import {
+  connectionSupportsSidebarResources,
+  refreshAllDockerSidebarCaches,
+  refreshDockerConnectionSidebarCache,
+} from "./hooks/useDockerConnectionResources";
 import { DockerConnectionInfoPanel } from "./DockerConnectionInfoPanel";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
@@ -68,8 +74,14 @@ export function DockerPanel() {
   const storedConnections = useConnectionStore((s) => s.connections);
   const removeStoredConnection = useConnectionStore((s) => s.remove);
 
-  const { connections, loading: connectionsLoading, scanning, reloadConnections, scanSshDockerHosts } =
-    useDockerConnections();
+  const { connections, loading: connectionsLoading, reloadConnections } = useDockerConnections();
+  const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+    index: number;
+  } | null>(null);
 
   const dockTabs = useDockerPanelDockStore((s) => s.tabs);
   const activeTabId = useDockerPanelDockStore((s) => s.activeTabId);
@@ -86,6 +98,20 @@ export function DockerPanel() {
     },
     [closeTab],
   );
+
+  const handleDockTabContextMenu = useCallback(
+    (event: ReactMouseEvent, tabId: string, index: number) => {
+      event.preventDefault();
+      setTabCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isActiveRoute) {
+      setTabCtxMenu(null);
+    }
+  }, [isActiveRoute]);
   const setActiveTabId = useDockerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useDockerPanelDockStore((s) => s.setDockLayout);
   const removeConnectionTabs = useDockerPanelDockStore((s) => s.removeConnectionTabs);
@@ -248,26 +274,39 @@ export function DockerPanel() {
     setShowAddConn(true);
   };
 
-  const handleDeleteDockerConnection = async (connectionId: string) => {
-    if (isBuiltinLocalDockerConnection(connectionId)) return;
-    if (!(await appConfirm(t("docker.sidebar.deleteConfirm")))) return;
-    removeConnectionTabs(connectionId);
-    useDockerSidebarCacheStore.getState().removeConnection(connectionId);
-    await removeStoredConnection(connectionId);
+  const handleDeleteDockerConnection = async (connectionId: string | string[]) => {
+    const ids = (Array.isArray(connectionId) ? connectionId : [connectionId]).filter(
+      (id) => !isBuiltinLocalDockerConnection(id),
+    );
+    if (ids.length === 0) return;
+    const confirmed = await appConfirm(
+      ids.length === 1
+        ? t("docker.sidebar.deleteConfirm")
+        : t("sidebarTree.confirmDeleteSelected", { count: String(ids.length) }),
+    );
+    if (!confirmed) return;
+    for (const id of ids) {
+      removeConnectionTabs(id);
+      useDockerSidebarCacheStore.getState().removeConnection(id);
+      await removeStoredConnection(id);
+    }
     void reloadConnections();
     showToast(t("docker.sidebar.deleted"));
   };
 
-  const handleScanSshDocker = async () => {
-    const result = await scanSshDockerHosts(true);
-    if (!result) {
-      showToast("扫描失败");
-      return;
+  const handleRefreshAllCaches = useCallback(async () => {
+    if (refreshingAllCaches) return;
+    const ids = connections
+      .filter(connectionSupportsSidebarResources)
+      .map((connection) => connection.connectionId);
+    if (ids.length === 0) return;
+    setRefreshingAllCaches(true);
+    try {
+      await refreshAllDockerSidebarCaches(ids);
+    } finally {
+      setRefreshingAllCaches(false);
     }
-    showToast(
-      `扫描完成：新增 ${result.created}，更新 ${result.updated}，无 Docker ${result.noDocker}，失败 ${result.failed}`,
-    );
-  };
+  }, [connections, refreshingAllCaches]);
 
   const dockerDeepLinkHandledRef = useRef(false);
   useEffect(() => {
@@ -333,6 +372,43 @@ export function DockerPanel() {
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
     [connectionById, dockTabs, sidebarContainersForTabs],
+  );
+
+  const handleTabContextAction = useCallback(
+    (action: TabContextMenuAction) => {
+      if (!tabCtxMenu) return;
+      const { tabId } = tabCtxMenu;
+      const visibleTabs = moduleDockTabs;
+      const idx = visibleTabs.findIndex((tab) => tab.id === tabId);
+
+      if (action === "close") {
+        handleCloseTab(tabId);
+      } else if (action === "closeLeft") {
+        if (idx > 0) {
+          for (const tab of visibleTabs.slice(0, idx)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeRight") {
+        if (idx >= 0 && idx < visibleTabs.length - 1) {
+          for (const tab of visibleTabs.slice(idx + 1)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeOthers") {
+        if (idx >= 0) {
+          for (const tab of visibleTabs.filter((item) => item.id !== tabId)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeAll") {
+        for (const tab of visibleTabs) {
+          handleCloseTab(tab.id);
+        }
+      }
+      setTabCtxMenu(null);
+    },
+    [handleCloseTab, moduleDockTabs, tabCtxMenu],
   );
 
   // renderPanel 经 DockableWorkspace 的 ref 注入；稳定回调 + 最新 refs，避免 dockTabs 变更触发整树 soft-refresh
@@ -404,13 +480,13 @@ export function DockerPanel() {
             <DockerConnectionSidebar
               connections={connections}
               loading={connectionsLoading}
-              scanning={scanning}
+              refreshingAll={refreshingAllCaches}
               onNavigate={handleNavigate}
               onCreate={() => {
                 setEditDockerConnection(undefined);
                 setShowAddConn(true);
               }}
-              onScan={() => void handleScanSshDocker()}
+              onRefreshAll={() => void handleRefreshAllCaches()}
               onEditConnection={handleEditDockerConnection}
               onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
             />
@@ -424,6 +500,7 @@ export function DockerPanel() {
             activeTabId={activeTabId ?? ""}
             onActiveTabChange={setActiveTabId}
             onCloseTab={handleCloseTab}
+            onTabContextMenu={handleDockTabContextMenu}
             enabled={isActiveRoute}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
@@ -438,6 +515,24 @@ export function DockerPanel() {
           />
         </ModuleWorkspaceLayout>
       </DockerSidebarLinkageProvider>
+
+      {isActiveRoute && tabCtxMenu
+        ? (() => {
+            const menuTabIndex = moduleDockTabs.findIndex((tab) => tab.id === tabCtxMenu.tabId);
+            return (
+              <ContextMenu
+                items={buildTabCloseMenuItems(
+                  t,
+                  moduleDockTabs.length,
+                  menuTabIndex >= 0 ? menuTabIndex : tabCtxMenu.index,
+                  handleTabContextAction,
+                )}
+                position={{ x: tabCtxMenu.x, y: tabCtxMenu.y }}
+                onClose={() => setTabCtxMenu(null)}
+              />
+            );
+          })()
+        : null}
 
       {showAddConn ? (
         <Suspense fallback={null}>

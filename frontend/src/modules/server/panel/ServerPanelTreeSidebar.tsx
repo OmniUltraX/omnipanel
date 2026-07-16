@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
@@ -11,6 +11,7 @@ import {
   SidebarTreeNode,
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
 } from "@/components/ui/sidebar-tree";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerPanelDockOpenMode } from "./serverPanelWorkspaceTabs";
@@ -255,7 +256,7 @@ export interface ServerPanelTreeSidebarProps {
   onNavigate: ServerSidebarNavigate;
   onCreateServer?: () => void;
   onEditServer?: (server: ServerEntry) => void;
-  onDeleteServer?: (serverId: string) => void;
+  onDeleteServer?: (serverIds: string | string[]) => void;
   section?: VerticalSplitSidebarSectionConfig;
 }
 
@@ -274,6 +275,10 @@ export function ServerPanelTreeSidebar({
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
 
   useEffect(() => {
     if (!activeServerId) return;
@@ -300,6 +305,14 @@ export function ServerPanelTreeSidebar({
     setCtxServer(server);
   };
 
+  const serverKeyById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const server of servers) {
+      map.set(makeServerTreeKey(server.id), server.id);
+    }
+    return map;
+  }, [servers]);
+
   const ctxItems: ContextMenuItem[] = [
     {
       id: "edit",
@@ -310,7 +323,18 @@ export function ServerPanelTreeSidebar({
       id: "delete",
       label: t("server.sidebar.delete"),
       danger: true,
-      onClick: () => ctxServer && onDeleteServer?.(ctxServer.id),
+      onClick: () => {
+        if (!ctxServer || !onDeleteServer) return;
+        const clickedKey = makeServerTreeKey(ctxServer.id);
+        const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+          filter: (id) => serverKeyById.has(id),
+        });
+        const ids = keys
+          .map((key) => serverKeyById.get(key))
+          .filter((id): id is string => Boolean(id));
+        if (ids.length === 0) return;
+        onDeleteServer(ids.length === 1 ? ids[0]! : ids);
+      },
     },
   ];
 
@@ -332,7 +356,7 @@ export function ServerPanelTreeSidebar({
 
   const panelBody = (
     <>
-      <SidebarTreeSelectionProvider>
+      <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
       <SidebarTreeRoot className="server-sidebar-body">
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>

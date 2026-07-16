@@ -2161,7 +2161,7 @@ async fn introspect_mysql_schema(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
+        "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
          COLUMN_DEFAULT, \
          COALESCE(CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION) \
          FROM information_schema.COLUMNS \
@@ -2254,7 +2254,7 @@ async fn introspect_mysql_table(
     let pool = mysql_pool(connection).await?;
 
     let col_rows = sqlx::query(
-        "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
+        "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_COMMENT, EXTRA, \
          COLUMN_DEFAULT, \
          COALESCE(CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION) \
          FROM information_schema.COLUMNS \

@@ -26,6 +26,7 @@ import {
   SidebarTreeNode,
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
+  resolveSidebarTreeDeleteTargets,
 } from "@/components/ui/sidebar-tree";
 import {
   mergeConnectionOrder,
@@ -146,6 +147,30 @@ export function TerminalSessionSidebar({
 }: TerminalSessionSidebarProps) {
   const { t } = useI18n();
   const sessions = useTerminalStore((s) => s.sessions);
+  const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    selectedIdsRef.current = ids;
+  }, []);
+
+  const endSessionsForTarget = useCallback(
+    (clickedSessionId: string) => {
+      const clickedKey = makeSessionTreeKey(clickedSessionId);
+      const sessionKeyToId = new Map(
+        sessions
+          .filter((session) => session.lifecycle !== "ended")
+          .map((session) => [makeSessionTreeKey(session.id), session.id] as const),
+      );
+      const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+        filter: (id) => sessionKeyToId.has(id),
+      });
+      for (const key of keys) {
+        const sessionId = sessionKeyToId.get(key);
+        if (sessionId) onEndSession(sessionId);
+      }
+    },
+    [onEndSession, sessions],
+  );
+
   const activeSessionId = useTerminalStore((s) => s.activeSessionId);
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const tabs = useTerminalStore((s) => s.tabs);
@@ -464,7 +489,7 @@ export function TerminalSessionSidebar({
       {isPointerDragging
         ? createPortal(<div className="term-session-tree__drag-cursor-layer" aria-hidden />, document.body)
         : null}
-      <SidebarTreeSelectionProvider>
+      <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
         <div ref={treeBodyRef} className="term-session-tree__body">
           <SidebarTreeRoot className="sidebar-tree-root">
           {connectionGroups.length === 0 ? (
@@ -560,7 +585,7 @@ export function TerminalSessionSidebar({
                                     aria-label={t("terminal.sessions.end")}
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      onEndSession(session.id);
+                                      endSessionsForTarget(session.id);
                                     }}
                                   >
                                     ×
@@ -614,7 +639,7 @@ export function TerminalSessionSidebar({
             label: t("terminal.sessions.end"),
             danger: true,
             onClick: () => {
-              onEndSession(sessionCtxMenu.session.id);
+              endSessionsForTarget(sessionCtxMenu.session.id);
               setSessionCtxMenu(null);
             },
           },

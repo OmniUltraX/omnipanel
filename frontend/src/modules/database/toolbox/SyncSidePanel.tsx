@@ -4,6 +4,7 @@ import { MultiSelect } from "../../../components/ui/form/MultiSelect";
 import { useI18n } from "../../../i18n";
 import { DataLoading, type DataLoadingProps } from "../../../components/ui/feedback/DataLoading";
 import { Select } from "../../../components/ui/form/Select";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import type { DbColumnMeta, DbConnectionConfig, DbIndexMeta } from "../api";
 import type {
   DataAnalysisResult,
@@ -54,6 +55,8 @@ interface SyncSidePanelProps {
   onToggleTable: (tableName: string) => void;
   selectedTables: Set<string>;
   onToggleSelect: (tableName: string) => void;
+  /** 源侧：全选 / 取消全选当前可见表 */
+  onSelectAllChange?: (select: boolean, visibleNames: string[]) => void;
   /** 源侧：库内全部表名（用于下拉添加） */
   catalogTableNames?: string[];
   /** 源侧：将所选表加入列表 */
@@ -154,7 +157,12 @@ function ConnectionDatabaseFilters({
   catalogTablesLoading,
   addingTables,
   onAddTable,
+  schemaSearchValue,
+  onSchemaSearchChange,
   toolbarLayout = "default",
+  selectAllChecked,
+  selectAllDisabled,
+  onSelectAllChange,
   schemaStatusFilters,
   onSchemaStatusFiltersChange,
   onAnalyze,
@@ -175,7 +183,12 @@ function ConnectionDatabaseFilters({
   catalogTablesLoading?: boolean;
   addingTables: boolean;
   onAddTable?: () => void;
+  schemaSearchValue?: string;
+  onSchemaSearchChange?: (value: string) => void;
   toolbarLayout?: "default" | "sourceRow" | "targetRow";
+  selectAllChecked?: boolean;
+  selectAllDisabled?: boolean;
+  onSelectAllChange?: (select: boolean) => void;
   schemaStatusFilters?: SchemaTargetRowStatus[];
   onSchemaStatusFiltersChange?: (value: SchemaTargetRowStatus[]) => void;
   onAnalyze?: () => void;
@@ -224,6 +237,39 @@ function ConnectionDatabaseFilters({
             : databases.map((dbName) => ({ value: dbName, label: dbName }))
         }
       />
+      {schemaSearchValue !== undefined && onSchemaSearchChange && (
+        <TextInput
+          className="db-toolbox-search"
+          value={schemaSearchValue}
+          onChange={onSchemaSearchChange}
+          placeholder={t("database.toolbox.side.searchTables")}
+          aria-label={t("database.toolbox.side.searchTables")}
+        />
+      )}
+      {onSelectAllChange && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="db-toolbox-select-all-btn"
+          disabled={selectAllDisabled}
+          title={
+            selectAllChecked
+              ? t("database.toolbox.side.deselectAll")
+              : t("database.toolbox.side.selectAll")
+          }
+          aria-label={
+            selectAllChecked
+              ? t("database.toolbox.side.deselectAll")
+              : t("database.toolbox.side.selectAll")
+          }
+          onClick={() => onSelectAllChange(!selectAllChecked)}
+        >
+          {selectAllChecked
+            ? t("database.toolbox.side.deselectAll")
+            : t("database.toolbox.side.selectAll")}
+        </Button>
+      )}
       {showAddTables && onTablePickChange && (
         <Select
           className="db-select db-toolbox-table-picker"
@@ -1102,6 +1148,7 @@ export function SyncSidePanel({
   onToggleTable,
   selectedTables,
   onToggleSelect,
+  onSelectAllChange,
   catalogTableNames = [],
   onAddTables,
   addingTables = false,
@@ -1125,8 +1172,8 @@ export function SyncSidePanel({
   sourceTableIndexes = {},
   alignedTableNames,
   targetSnapshot,
-  schemaTableSearch: _schemaTableSearch,
-  onSchemaTableSearchChange: _onSchemaTableSearchChange,
+  schemaTableSearch,
+  onSchemaTableSearchChange,
   sourceTableNames,
   schemaCaseSensitive = true,
   scrollListRef,
@@ -1216,8 +1263,14 @@ export function SyncSidePanel({
   }, [connectionId, database, tab]);
 
   const filteredTables = useMemo(() => {
-    return [...snapshot.tables].sort((a, b) => a.name.localeCompare(b.name));
-  }, [snapshot.tables]);
+    const tables = [...snapshot.tables].sort((a, b) => a.name.localeCompare(b.name));
+    if (tab !== "schemaSync") {
+      return tables;
+    }
+    const query = (schemaTableSearch ?? "").trim().toLowerCase();
+    if (!query) return tables;
+    return tables.filter((table) => table.name.toLowerCase().includes(query));
+  }, [snapshot.tables, tab, schemaTableSearch]);
 
   const tablePickOptions = useMemo(() => {
     if (isTargetSync) {
@@ -1298,6 +1351,35 @@ export function SyncSidePanel({
   const showTargetAnalyze = isTargetSync && tab === "schemaSync" && onAnalyze !== undefined;
   const showPerTableAnalyze = isTargetSync && tab === "dataSync" && onAnalyzeTable !== undefined;
 
+  const selectableTableNames = useMemo(() => {
+    if (isTargetSync || !onSelectAllChange) {
+      return [] as string[];
+    }
+    if (tab === "schemaSync" && isSchemaAligned) {
+      return schemaTargetTableNames.filter((name) => Boolean(resolveSourceTable(name)));
+    }
+    return filteredTables.map((table) => table.name);
+  }, [
+    isTargetSync,
+    onSelectAllChange,
+    tab,
+    isSchemaAligned,
+    schemaTargetTableNames,
+    resolveSourceTable,
+    filteredTables,
+  ]);
+
+  const selectAllChecked =
+    selectableTableNames.length > 0 &&
+    selectableTableNames.every((name) => selectedTables.has(name));
+
+  const handleSelectAllClick = useCallback(
+    (select: boolean) => {
+      onSelectAllChange?.(select, selectableTableNames);
+    },
+    [onSelectAllChange, selectableTableNames],
+  );
+
   return (
     <section className={`db-toolbox-side${isTargetSync ? " db-toolbox-side--target-sync" : ""}`}>
       <header className="db-toolbox-side__header">
@@ -1310,13 +1392,24 @@ export function SyncSidePanel({
           onDatabaseChange={onDatabaseChange}
           databases={databases}
           databasesLoading={databasesLoading}
-          showAddTables={!isTargetSync}
+          showAddTables={!isTargetSync && tab === "dataSync"}
           tablePickValue={tablePickValue}
           tablePickOptions={tablePickOptions}
-          onTablePickChange={!isTargetSync ? setTablePickValue : undefined}
+          onTablePickChange={!isTargetSync && tab === "dataSync" ? setTablePickValue : undefined}
           catalogTablesLoading={catalogLoading}
           addingTables={addingTables}
           onAddTable={handleAddTable}
+          schemaSearchValue={
+            tab === "schemaSync" && !isTargetSync ? (schemaTableSearch ?? "") : undefined
+          }
+          onSchemaSearchChange={
+            tab === "schemaSync" && !isTargetSync ? onSchemaTableSearchChange : undefined
+          }
+          selectAllChecked={selectAllChecked}
+          selectAllDisabled={selectableTableNames.length === 0}
+          onSelectAllChange={
+            !isTargetSync && onSelectAllChange ? handleSelectAllClick : undefined
+          }
           toolbarLayout={
             showSchemaStatusFilter || showTargetAnalyze
               ? "targetRow"
@@ -1447,8 +1540,10 @@ export function SyncSidePanel({
           <div className="db-toolbox-side__empty db-toolbox-side__empty--error">{snapshot.error}</div>
         ) : filteredTables.length === 0 && !isSchemaAligned ? (
           <div className="db-toolbox-side__empty">
-            {catalogTableNames.length === 0
-              ? t("database.toolbox.side.emptyTables")
+            {catalogTableNames.length === 0 || tab === "schemaSync"
+              ? snapshot.tables.length === 0
+                ? t("database.toolbox.side.emptyTables")
+                : t("database.toolbox.side.noSearchMatch")
               : t("database.toolbox.side.emptyAddedTables")}
           </div>
         ) : tab === "schemaSync" && isSchemaAligned ? (

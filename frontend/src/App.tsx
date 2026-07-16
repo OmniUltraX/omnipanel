@@ -24,6 +24,7 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
+import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { Button } from "./components/ui/primitives/Button";
@@ -54,9 +55,10 @@ import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
 import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "./lib/isTauriRuntime";
+import { ensureSystemTray } from "./lib/systemTray";
+import { handleWindowCloseRequested } from "./lib/windowCloseBehavior";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
 import { initTabStateTransferListener } from "./lib/tabStateTransfer";
@@ -184,6 +186,7 @@ function AppShell() {
   useAiDrawerShortcut();
   useBottomWorkspaceShortcut();
   useSettingsShortcut();
+  const { t } = useI18n();
 
   useEffect(() => {
     const stopHistorySync = startTerminalHistorySync();
@@ -203,22 +206,27 @@ function AppShell() {
     return () => cleanup?.();
   }, []);
 
-  // 主窗口关闭时：同步关闭所有工作区子窗口，避免子窗口被强杀丢失状态。
+  // 主窗口：关闭行为（托盘 / 退出）+ 系统托盘
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let unlisten: (() => void) | undefined;
+    void ensureSystemTray({
+      tooltip: "OmniPanel",
+      showAll: t("shell.closeBehavior.trayShowAll"),
+      quit: t("shell.closeBehavior.trayQuit"),
+    });
     getCurrentWindow()
-      .onCloseRequested(async () => {
-        try {
-          await invoke("close_all_workspace_windows");
-        } catch {
-          // ignore
-        }
+      .onCloseRequested(async (event) => {
+        await handleWindowCloseRequested(event, "main");
       })
       .then((fn) => {
         unlisten = fn;
       });
     return () => unlisten?.();
+  }, [t]);
+
+  useEffect(() => {
+    return subscribePersistStoreCrossWindow("omnipanel-settings", useSettingsStore);
   }, []);
 
   useCrossWindowDragInit();
@@ -664,6 +672,7 @@ function AppShell() {
       <QuickInputHost />
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
+      <CloseBehaviorDialogHost />
       <ToastHost />
       <CrossWindowDragVisualLayer />
       <SettingsWindow />

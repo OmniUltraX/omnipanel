@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Button } from "../ui/Button";
@@ -8,8 +8,6 @@ import {
 } from "../ui/VerticalSplitSidebar";
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
-
-const SERVER_LABEL_CLICK_DELAY_MS = 200;
 
 interface ServerSidebarProps {
   servers: ServerEntry[];
@@ -34,16 +32,6 @@ export function ServerSidebar({
 
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
-  const labelClickTimerRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (labelClickTimerRef.current !== null) {
-        window.clearTimeout(labelClickTimerRef.current);
-      }
-    },
-    [],
-  );
 
   const sortedServers = useMemo(
     () => [...servers].sort((a, b) => a.name.localeCompare(b.name)),
@@ -54,24 +42,6 @@ export function ServerSidebar({
     e.preventDefault();
     setCtxPos({ x: e.clientX, y: e.clientY });
     setCtxServer(server);
-  };
-
-  const handleServerClick = (serverId: string) => {
-    if (labelClickTimerRef.current !== null) {
-      window.clearTimeout(labelClickTimerRef.current);
-    }
-    labelClickTimerRef.current = window.setTimeout(() => {
-      labelClickTimerRef.current = null;
-      onSelectServer(serverId, "preview");
-    }, SERVER_LABEL_CLICK_DELAY_MS);
-  };
-
-  const handleServerDoubleClick = (serverId: string) => {
-    if (labelClickTimerRef.current !== null) {
-      window.clearTimeout(labelClickTimerRef.current);
-      labelClickTimerRef.current = null;
-    }
-    onSelectServer(serverId, "permanent");
   };
 
   const ctxItems: ContextMenuItem[] = [
@@ -115,8 +85,8 @@ export function ServerSidebar({
               key={server.id}
               type="button"
               className={`server-item${activeServerId === server.id ? " active" : ""}`}
-              onClick={() => handleServerClick(server.id)}
-              onDoubleClick={() => handleServerDoubleClick(server.id)}
+              onClick={() => onSelectServer(server.id, "preview")}
+              onDoubleClick={() => onSelectServer(server.id, "permanent")}
               onContextMenu={(e) => handleContextMenu(e, server)}
             >
               <div className="server-item__main">

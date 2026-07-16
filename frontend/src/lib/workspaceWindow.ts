@@ -345,7 +345,7 @@ export async function initWorkspaceWindowLifecycle(
   try {
     unlistenClose = await getCurrentWindow().onCloseRequested(
       async (event: CloseRequestedEvent) => {
-        // 检查是否有未保存数据
+        // 检查是否有未保存数据（退出前确认；托盘隐藏也会先询问）
         const hasUnsavedData = await checkUnsavedData(workspaceId);
         if (hasUnsavedData) {
           const confirmed = await confirmClose(workspaceId);
@@ -354,22 +354,12 @@ export async function initWorkspaceWindowLifecycle(
             return;
           }
         }
-        // 采集窗口几何信息（物理像素），便于下次恢复位置和大小
-        try {
-          const win = getCurrentWindow();
-          const pos = await win.outerPosition();
-          const size = await win.outerSize();
-          useWorkspaceStore.getState().setWorkspaceBounds(workspaceId, {
-            x: pos.x,
-            y: pos.y,
-            width: size.width,
-            height: size.height,
-          });
-        } catch {
-          /* ignore */
-        }
-        await writeWorkspaceWindowCloseHandoff(workspaceId);
-        await emit(WORKSPACE_WINDOW_CLOSED_EVENT, payload).catch(() => {});
+
+        const { handleWindowCloseRequested } = await import("./windowCloseBehavior");
+        const handled = await handleWindowCloseRequested(event, "workspace");
+        if (handled) return;
+
+        // 用户取消关闭：保持窗口
       },
     );
   } catch {

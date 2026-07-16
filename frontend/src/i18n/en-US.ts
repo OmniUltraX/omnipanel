@@ -394,6 +394,7 @@ export const enUS: TranslationDict = {
   sidebarTree: {
     rename: "Rename",
     delete: "Delete",
+    confirmDeleteSelected: "Delete {count} selected items? This cannot be undone.",
   },
   resourceTags: {
     section: "Resource Tags",
@@ -640,6 +641,15 @@ export const enUS: TranslationDict = {
       medium: "Medium risk",
       high: "High risk",
       critical: "Critical risk",
+    },
+    closeBehavior: {
+      title: "Close window",
+      message: "Minimize to the system tray, or quit the application?",
+      remember: "Remember my choice",
+      toTray: "Minimize to tray",
+      quit: "Quit application",
+      trayShowAll: "Show all windows",
+      trayQuit: "Quit",
     },
     commandPalette: {
       placeholder: "Search commands…",
@@ -1657,6 +1667,7 @@ export const enUS: TranslationDict = {
         selectTableToAdd: "Select table",
         noAddableTables: "No tables available to add",
         selectAll: "Select all",
+        deselectAll: "Deselect all",
         addTables: "Add",
         addTablesHint: "Add the selected table to the source list",
         addTablesSelectFirst: "Select a table to add first",
@@ -1779,6 +1790,7 @@ export const enUS: TranslationDict = {
       settingsSchemaCreateMissingTables: "Create missing tables",
       settingsSchemaCreateMissingTablesHint: "Create tables on the target when they do not exist",
       submitHintSchemaNoExecutable: "All selected tables are missing on the target and creating tables is disabled",
+      submitHintSchemaNoChanges: "Selected tables already match or have no executable changes",
       settingsSource: "Source connection / database",
       settingsTarget: "Target connection / database",
       settingsSourceRequired: "Select source connection and database",
@@ -2748,7 +2760,7 @@ export const enUS: TranslationDict = {
       connections: "Connections",
       selectConnection: "Select a Docker connection, or double-click one in the sidebar to open a tab",
       addConnection: "Add Docker connection",
-      scanSsh: "Scan SSH Docker hosts",
+      refreshAll: "Refresh all connection caches",
       loading: "Loading connections…",
       empty: "No connections",
       edit: "Edit",
@@ -3338,6 +3350,15 @@ export const enUS: TranslationDict = {
       desc: "Display language for OmniPanel",
       zhCN: "中文（简体）",
       enUS: "English",
+    },
+    closeBehavior: {
+      label: "Close behavior",
+      desc: "When clicking the window close button: ask, minimize to tray, or quit",
+      options: {
+        ask: "Ask every time",
+        tray: "Minimize to tray",
+        quit: "Quit immediately",
+      },
     },
     uiScale: {
       label: "UI scale",

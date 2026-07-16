@@ -190,6 +190,13 @@ pub async fn close_all_workspace_windows(app: AppHandle) -> Result<usize, String
     Ok(closed)
 }
 
+/// 退出整个应用进程（托盘常驻 / 多窗口隐藏后也需要此路径）。
+#[tauri::command]
+pub fn app_exit(app: AppHandle) {
+    append_log(&app, "app_exit");
+    app.exit(0);
+}
+
 /// 根据屏幕坐标（物理像素）命中 Webview 窗口 label，用于跨窗口 tab 拖拽落点判定。
 ///
 /// `exclude_label` 为源窗 label，跳过它：跨窗拖拽中源窗永远不可能是 drop 目标。
