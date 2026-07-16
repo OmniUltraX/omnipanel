@@ -14,6 +14,14 @@ use crate::commands::db_sync_diff_cache::{build_row_diff_cache_id, load_row_diff
 
 const PAGE_SIZE: i64 = 2000;
 const MAX_DIFF_DETAIL_ROWS: usize = 100;
+/// 多值 INSERT 每批行数（单条 SQL 内 VALUES 个数）
+const INSERT_BATCH_SIZE: usize = 500;
+/// SQL 文件执行时，合并连续语句的条数（同连接多语句一次往返）
+const SQL_FILE_STMT_BATCH: usize = 20;
+/// 多表直连数据同步并行度上限（SQL 文件执行仍按文件顺序，保证外键安全）
+fn data_sync_table_concurrency() -> usize {
+    default_worker_count().max(1).min(4) as usize
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -933,8 +941,6 @@ pub async fn run_db_schema_sync_analysis(
     );
     Ok(())
 }
-
-const INSERT_BATCH_SIZE: usize = 150;
 
 fn is_mysql_engine(db_type: &str) -> bool {
     matches!(db_type.to_lowercase().as_str(), "mysql" | "mariadb")
@@ -1920,94 +1926,102 @@ pub async fn run_db_data_sync_sql_file_execute(
         return Err("SQL 文件中没有可执行的语句".to_string());
     }
 
-    let total = statements.len().max(1) as u32;
-    let mut table_stats: HashMap<String, (u32, Option<String>)> = HashMap::new();
-    let mut current_table = table_names.first().cloned();
+    let total_stmts = statements.len() as u32;
+    let display_tables = if table_names.is_empty() {
+        "全部表".to_string()
+    } else {
+        table_names.join(", ")
+    };
+    progress(
+        format!("开始执行 SQL 文件（{display_tables}，共 {total_stmts} 条语句）"),
+        0,
+        total_stmts,
+        Some(0),
+        None,
+    );
+
+    let mut target_conn = target.clone();
+    target_conn.database = target_db.clone();
+
+    // 复用同一连接，避免每条语句重建连接池；按文件顺序批量执行，保证外键依赖安全
+    let driver = database::open_db_driver(&target_conn).await?;
+
+    let mut table_rows: HashMap<String, u32> = HashMap::new();
     for name in &table_names {
-        table_stats.insert(name.clone(), (0, None));
+        table_rows.insert(name.clone(), 0);
     }
+
+    let mut current = 0u32;
     let mut rows_written_total = 0u32;
+    let mut batch_sql: Vec<String> = Vec::with_capacity(SQL_FILE_STMT_BATCH);
+    let mut batch_table: Option<String> = None;
+    let mut last_progress_table: Option<String> = None;
 
-    for (idx, (marker_table, sql)) in statements.iter().enumerate() {
+    for (marker_table, sql) in statements {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(());
+            return Err("任务已取消".to_string());
         }
-        if let Some(name) = marker_table {
-            current_table = Some(name.clone());
-        }
-        let index = (idx + 1) as u32;
-        let table_label = current_table.as_deref().unwrap_or("SQL");
-        progress(
-            format!("正在执行 ({index}/{total})：{table_label}"),
-            index,
-            total,
-            Some(rows_written_total),
-            None,
-        );
 
-        match database::db_run_sql(target.clone(), Some(target_db.clone()), sql.clone()).await {
-            Ok(affected) => {
-                rows_written_total = rows_written_total.saturating_add(affected.min(u32::MAX as u64) as u32);
-                if let Some(table) = current_table.as_ref() {
-                    let entry = table_stats.entry(table.clone()).or_insert((0, None));
-                    entry.0 = entry.0.saturating_add(affected.min(u32::MAX as u64) as u32);
-                }
-            }
-            Err(err) => {
-                let formatted = if let Some(table) = current_table.as_ref() {
-                    format_sync_foreign_key_error(table, &err)
-                } else {
-                    err
-                };
-                if let Some(table) = current_table.as_ref() {
-                    if let Some(entry) = table_stats.get_mut(table) {
-                        entry.1 = Some(formatted.clone());
-                    }
-                }
-                progress(
-                    format!("执行失败 ({index}/{total})：{formatted}"),
-                    index,
-                    total,
-                    Some(rows_written_total),
-                    None,
-                );
-                if let Some(table) = current_table.clone() {
-                    emit_exec_event(
-                        &app,
-                        &task_id,
-                        SyncExecResultEvent {
-                            table,
-                            status: "error".to_string(),
-                            rows_written: None,
-                            message: None,
-                            error: Some(formatted.clone()),
-                        },
-                    )
-                    .await;
-                }
-                return Err(formatted);
-            }
+        // 表切换时先刷掉上一批，便于按表统计进度
+        if marker_table.is_some() && marker_table != batch_table && !batch_sql.is_empty() {
+            flush_sql_file_batch(
+                driver.as_ref(),
+                &mut batch_sql,
+                &batch_table,
+                &mut table_rows,
+                &mut current,
+                &mut rows_written_total,
+                &mut last_progress_table,
+                total_stmts,
+                &progress,
+            )
+            .await?;
+        }
+        if let Some(name) = marker_table.clone() {
+            batch_table = Some(name);
+        }
+
+        batch_sql.push(sql);
+        if batch_sql.len() >= SQL_FILE_STMT_BATCH {
+            flush_sql_file_batch(
+                driver.as_ref(),
+                &mut batch_sql,
+                &batch_table,
+                &mut table_rows,
+                &mut current,
+                &mut rows_written_total,
+                &mut last_progress_table,
+                total_stmts,
+                &progress,
+            )
+            .await?;
         }
     }
 
+    flush_sql_file_batch(
+        driver.as_ref(),
+        &mut batch_sql,
+        &batch_table,
+        &mut table_rows,
+        &mut current,
+        &mut rows_written_total,
+        &mut last_progress_table,
+        total_stmts,
+        &progress,
+    )
+    .await?;
+
     for name in &table_names {
-        let (rows, error) = table_stats.get(name).cloned().unwrap_or((0, None));
+        let rows = table_rows.get(name).copied().unwrap_or(0);
         emit_exec_event(
             &app,
             &task_id,
             SyncExecResultEvent {
                 table: name.clone(),
-                status: if error.is_some() {
-                    "error".to_string()
-                } else {
-                    "success".to_string()
-                },
+                status: "success".to_string(),
                 rows_written: Some(u64::from(rows)),
-                message: error
-                    .clone()
-                    .is_none()
-                    .then(|| format!("已从 SQL 文件执行，影响 {rows} 行")),
-                error,
+                message: Some(format!("已从 SQL 文件执行，影响 {rows} 行")),
+                error: None,
             },
         )
         .await;
@@ -2015,13 +2029,72 @@ pub async fn run_db_data_sync_sql_file_execute(
 
     progress(
         format!("SQL 文件执行完成，共影响 {rows_written_total} 行"),
-        total,
-        total,
+        total_stmts,
+        total_stmts,
         Some(rows_written_total),
         None,
     );
     Ok(())
 }
+
+async fn flush_sql_file_batch(
+    driver: &dyn omnipanel_db::DbDriver,
+    batch_sql: &mut Vec<String>,
+    batch_table: &Option<String>,
+    table_rows: &mut HashMap<String, u32>,
+    current: &mut u32,
+    rows_written_total: &mut u32,
+    last_progress_table: &mut Option<String>,
+    total_stmts: u32,
+    progress: &Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
+) -> Result<(), String> {
+    if batch_sql.is_empty() {
+        return Ok(());
+    }
+    let batch_len = batch_sql.len() as u32;
+    let combined = batch_sql
+        .iter()
+        .map(|s| {
+            let t = s.trim().trim_end_matches(';').trim();
+            format!("{t};")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    batch_sql.clear();
+
+    let result = driver.execute(&combined).await.map_err(|e| {
+        let msg = e.user_message();
+        if let Some(table) = batch_table {
+            format_sync_foreign_key_error(table, &msg)
+        } else {
+            msg
+        }
+    })?;
+
+    let affected = result.rows_affected.min(u64::from(u32::MAX)) as u32;
+    *rows_written_total = rows_written_total.saturating_add(affected);
+    *current = current.saturating_add(batch_len);
+
+    if let Some(table) = batch_table {
+        let entry = table_rows.entry(table.clone()).or_insert(0);
+        *entry = entry.saturating_add(affected);
+        *last_progress_table = Some(table.clone());
+    }
+
+    let progress_table = batch_table
+        .clone()
+        .or_else(|| last_progress_table.clone())
+        .unwrap_or_else(|| "SQL".to_string());
+    progress(
+        format!("正在执行 ({current}/{total_stmts})：{progress_table}"),
+        (*current).min(total_stmts),
+        total_stmts,
+        Some(*rows_written_total),
+        None,
+    );
+    Ok(())
+}
+
 
 fn format_sync_modes_message(modes: &DataSyncModes, stats: &SyncWriteStats) -> String {
     if !modes.any_enabled() {
@@ -2104,6 +2177,7 @@ fn insert_field_expr(
     None
 }
 
+/// 按「参与插入的列集合」分组，生成多值 `INSERT ... VALUES (...), (...)`，大幅减少往返。
 fn build_insert_statement(
     db_type: &str,
     table: &str,
@@ -2114,24 +2188,53 @@ fn build_insert_statement(
         return Ok(Vec::new());
     }
     let table_ident = quote_ident(db_type, table);
-    let mut statements = Vec::with_capacity(rows.len());
+
+    // 列签名 → 该组行
+    let mut groups: Vec<(Vec<usize>, Vec<&HashMap<String, serde_json::Value>>)> = Vec::new();
     for row in rows {
-        let mut col_names: Vec<String> = Vec::new();
-        let mut value_exprs: Vec<String> = Vec::new();
-        for col in columns {
-            if let Some(expr) = insert_field_expr(row, col, db_type) {
-                col_names.push(quote_ident(db_type, &col.name));
-                value_exprs.push(expr);
-            }
-        }
-        if col_names.is_empty() {
+        let col_indexes: Vec<usize> = columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, col)| insert_field_expr(row, col, db_type).map(|_| idx))
+            .collect();
+        if col_indexes.is_empty() {
             continue;
         }
-        statements.push(format!(
-            "INSERT INTO {table_ident} ({}) VALUES ({})",
-            col_names.join(", "),
-            value_exprs.join(", ")
-        ));
+        if let Some(group) = groups.iter_mut().find(|(sig, _)| *sig == col_indexes) {
+            group.1.push(row);
+        } else {
+            groups.push((col_indexes, vec![row]));
+        }
+    }
+
+    let mut statements = Vec::new();
+    for (col_indexes, group_rows) in groups {
+        let col_names: Vec<String> = col_indexes
+            .iter()
+            .map(|&idx| quote_ident(db_type, &columns[idx].name))
+            .collect();
+        let cols_sql = col_names.join(", ");
+        for chunk in group_rows.chunks(INSERT_BATCH_SIZE) {
+            let mut values_parts = Vec::with_capacity(chunk.len());
+            for row in chunk {
+                let exprs: Vec<String> = col_indexes
+                    .iter()
+                    .filter_map(|&idx| insert_field_expr(row, &columns[idx], db_type))
+                    .collect();
+                if exprs.len() != col_indexes.len() {
+                    // 同组签名下应一致；兜底跳过异常行
+                    continue;
+                }
+                values_parts.push(format!("({})", exprs.join(", ")));
+            }
+            if values_parts.is_empty() {
+                continue;
+            }
+            statements.push(format!(
+                "INSERT INTO {table_ident} ({cols_sql}) VALUES {}",
+                values_parts.join(", ")
+            ));
+        }
     }
     Ok(statements)
 }
@@ -2353,25 +2456,62 @@ fn format_sync_foreign_key_error(syncing_table: &str, error: &str) -> String {
     )
 }
 
+async fn execute_sql_statements_on_driver(
+    driver: &dyn omnipanel_db::DbDriver,
+    statements: &[String],
+    cancel: &AtomicBool,
+    syncing_table: &str,
+) -> Result<u64, String> {
+    if statements.is_empty() {
+        return Ok(0);
+    }
+    let mut written = 0u64;
+    let mut i = 0usize;
+    while i < statements.len() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let mut batch: Vec<&str> = Vec::with_capacity(SQL_FILE_STMT_BATCH);
+        while i < statements.len() && batch.len() < SQL_FILE_STMT_BATCH {
+            let raw = &statements[i];
+            i += 1;
+            if raw.trim().is_empty() {
+                continue;
+            }
+            batch.push(raw.as_str());
+        }
+        if batch.is_empty() {
+            continue;
+        }
+        let combined = batch
+            .iter()
+            .map(|s| {
+                let t = s.trim().trim_end_matches(';').trim();
+                format!("{t};")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = driver
+            .execute(&combined)
+            .await
+            .map_err(|e| format_sync_foreign_key_error(syncing_table, &e.user_message()))?;
+        written = written.saturating_add(result.rows_affected);
+    }
+    Ok(written)
+}
+
 async fn execute_insert_statements(
     target_conn: &DbConnectionConfig,
     statements: Vec<String>,
     cancel: &AtomicBool,
     syncing_table: &str,
 ) -> Result<u64, String> {
-    let mut written = 0u64;
-    for sql in statements {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        if sql.is_empty() {
-            continue;
-        }
-        written += database::db_run_sql(target_conn.clone(), None, sql)
-            .await
-            .map_err(|err| format_sync_foreign_key_error(syncing_table, &err))?;
+    if statements.is_empty() {
+        return Ok(0);
     }
-    Ok(written)
+    // 复用同一驱动，避免每条 SQL 重新建池
+    let driver = database::open_db_driver(target_conn).await?;
+    execute_sql_statements_on_driver(driver.as_ref(), &statements, cancel, syncing_table).await
 }
 
 #[cfg(test)]
@@ -3042,61 +3182,91 @@ pub async fn run_db_data_sync_execute(
     let source_db = source.database.clone();
     let target_db = target.database.clone();
     let total = tables.len().max(1) as u32;
-    let mut failed_tables: Vec<String> = Vec::new();
-    let mut rows_written_total = 0u32;
+    let rows_written_total = Arc::new(AtomicU32::new(0));
+    let completed = Arc::new(AtomicU32::new(0));
+    let failed: Arc<tokio::sync::Mutex<Vec<String>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let concurrency = data_sync_table_concurrency().max(1);
 
-    for (idx, spec) in tables.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        let index = (idx + 1) as u32;
-        let table = spec.name.clone();
-        progress(
-            format!("正在同步数据 ({index}/{total})：{table}"),
-            index,
-            total,
-            Some(rows_written_total),
-            None,
-        );
-
-        let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> = {
+    // 多表并行同步（有限并发）；表间外键依赖时建议按父→子顺序生成任务，或改走 SQL 文件保序执行
+    stream::iter(tables.into_iter().enumerate())
+        .map(|(idx, spec)| {
+            let app = app.clone();
+            let task_id = task_id.clone();
+            let source = source.clone();
+            let target = target.clone();
+            let source_db = source_db.clone();
+            let target_db = target_db.clone();
+            let cancel = cancel.clone();
             let progress = progress.clone();
-            let table_for_rows = table.clone();
-            let rows_before = rows_written_total;
-            Arc::new(move |rows_written, _estimated_total| {
+            let rows_written_total = rows_written_total.clone();
+            let completed = completed.clone();
+            let failed = failed.clone();
+            async move {
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+                let index = (idx + 1) as u32;
+                let table = spec.name.clone();
                 progress(
-                    format!("正在同步 {table_for_rows}（已写入 {rows_written} 行）"),
-                    index,
+                    format!("正在同步数据 ({index}/{total})：{table}"),
+                    completed.load(Ordering::Relaxed).min(total),
                     total,
-                    Some(rows_before.saturating_add(rows_written)),
+                    Some(rows_written_total.load(Ordering::Relaxed)),
                     None,
                 );
-            })
-        };
 
-        let result = execute_data_sync_table(
-            &source,
-            &source_db,
-            &target,
-            &target_db,
-            spec,
-            &cancel,
-            report_rows,
-        )
+                let report_rows: Arc<dyn Fn(u32, u32) + Send + Sync> = {
+                    let progress = progress.clone();
+                    let table_for_rows = table.clone();
+                    let rows_written_total = rows_written_total.clone();
+                    let completed = completed.clone();
+                    Arc::new(move |rows_written, _estimated_total| {
+                        progress(
+                            format!("正在同步 {table_for_rows}（已写入 {rows_written} 行）"),
+                            completed.load(Ordering::Relaxed).min(total),
+                            total,
+                            Some(
+                                rows_written_total
+                                    .load(Ordering::Relaxed)
+                                    .saturating_add(rows_written),
+                            ),
+                            None,
+                        );
+                    })
+                };
+
+                let result = execute_data_sync_table(
+                    &source,
+                    &source_db,
+                    &target,
+                    &target_db,
+                    &spec,
+                    &cancel,
+                    report_rows,
+                )
+                .await;
+                if result.status == "error" {
+                    let detail = result
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "未知错误".to_string());
+                    failed.lock().await.push(format!("{table}: {detail}"));
+                } else {
+                    let written =
+                        result.rows_written.unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+                    rows_written_total.fetch_add(written, Ordering::Relaxed);
+                }
+                completed.fetch_add(1, Ordering::Relaxed);
+                emit_exec_event(&app, &task_id, result).await;
+            }
+        })
+        .buffer_unordered(concurrency)
+        .collect::<Vec<_>>()
         .await;
-        if result.status == "error" {
-            let detail = result
-                .error
-                .clone()
-                .unwrap_or_else(|| "未知错误".to_string());
-            failed_tables.push(format!("{table}: {detail}"));
-        } else {
-            rows_written_total = rows_written_total.saturating_add(
-                result.rows_written.unwrap_or(0).min(u64::from(u32::MAX)) as u32,
-            );
-        }
-        emit_exec_event(&app, &task_id, result).await;
-    }
+
+    let failed_tables = failed.lock().await.clone();
+    let rows_written_total = rows_written_total.load(Ordering::Relaxed);
 
     if !failed_tables.is_empty() {
         progress(
@@ -3118,6 +3288,7 @@ pub async fn run_db_data_sync_execute(
     );
     Ok(())
 }
+
 
 pub async fn run_db_schema_sync_execute(
     app: AppHandle,

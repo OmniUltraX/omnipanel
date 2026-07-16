@@ -1869,6 +1869,63 @@
         height: 100%;
     }
 
+    .table-ddl-viewer--virtual {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .virtual-sql-preview {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        background: var(--bg-1, #0f1115);
+        border: 1px solid var(--border-1, rgba(255, 255, 255, 0.08));
+        border-radius: var(--r-sm);
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12px;
+        line-height: 20px;
+    }
+
+    .virtual-sql-preview__inner {
+        position: relative;
+        width: 100%;
+    }
+
+    .virtual-sql-preview__row {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: stretch;
+        white-space: pre;
+        box-sizing: border-box;
+    }
+
+    .virtual-sql-preview__row.is-match {
+        background: color-mix(in srgb, var(--color-warning, #f5a623) 18%, transparent);
+    }
+
+    .virtual-sql-preview__gutter {
+        flex: 0 0 56px;
+        padding: 0 8px;
+        text-align: right;
+        color: var(--fg-3, #6b7280);
+        user-select: none;
+        border-right: 1px solid var(--border-1, rgba(255, 255, 255, 0.06));
+    }
+
+    .virtual-sql-preview__code {
+        flex: 1;
+        min-width: 0;
+        padding: 0 12px;
+        color: var(--fg-1, #e5e7eb);
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     .db-tables-panel-item {
         display: flex;
         align-items: center;

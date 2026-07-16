@@ -565,6 +565,7 @@ export function DatabaseToolbox({
         error: typeof e === "string" ? e : String(e),
       });
       setTargetTableNames(new Set());
+      console.error("[DatabaseToolbox] introspectSchema (target) failed:", e);
     }
   }, [connections, tab, targetConnId, targetDb, targetDbs]);
 
@@ -2630,7 +2631,7 @@ export function DatabaseToolbox({
     [targetRowCounts],
   );
 
-  const handleSchemaAnalyze = useCallback(() => {
+  const handleSchemaAnalyze = useCallback((options?: { keepPreviousResults?: boolean }) => {
     const targetConn = connections.find((c) => c.id === targetConnId);
     if (!targetConn || !targetDb.trim()) {
       return;
@@ -2645,15 +2646,25 @@ export function DatabaseToolbox({
     syncRunIdRef.current += 1;
     schemaAnalysisStartedAtRef.current = Date.now();
     setSchemaAnalyzing(true);
-    setSchemaAnalysisDiffs({});
-    setAnalysisAnalyzedAt(null);
+    // 执行后重分析：保留上一轮结果直到新结果写入，避免同步完成瞬间整表变空白
+    if (!options?.keepPreviousResults) {
+      setSchemaAnalysisDiffs({});
+      setAnalysisAnalyzedAt(null);
+    }
 
     const checking: Record<string, SchemaTableDiff> = {};
     for (const name of tableNames) {
       checking[name] = { tableName: name, status: "checking", columns: [], indexes: [] };
       schemaFetchingRef.current.add(name);
     }
-    setSchemaAnalysisDiffs(checking);
+    setSchemaAnalysisDiffs((prev) =>
+      options?.keepPreviousResults
+        ? {
+            ...prev,
+            ...checking,
+          }
+        : checking,
+    );
 
     void loadTargetSnapshot();
 
@@ -2685,7 +2696,9 @@ export function DatabaseToolbox({
         schemaAnalysisPendingBatchRef.current = null;
         schemaFetchingRef.current.clear();
         setSchemaAnalyzing(false);
-        setSchemaAnalysisDiffs({});
+        if (!options?.keepPreviousResults) {
+          setSchemaAnalysisDiffs({});
+        }
         schemaAnalysisStartedAtRef.current = null;
       }
     })();
@@ -2872,7 +2885,8 @@ export function DatabaseToolbox({
   const handlePostExecuteAnalyze = useCallback(
     (tableNames?: string[]) => {
       if (tab === "schemaSync") {
-        handleSchemaAnalyze();
+        // 同步刚写完目标结构：重分析时保留上一轮结果，避免失败时整页空白
+        handleSchemaAnalyze({ keepPreviousResults: true });
         return;
       }
       if (tableNames && tableNames.length > 0) {
