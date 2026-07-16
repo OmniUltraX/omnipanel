@@ -10,7 +10,8 @@ export {
   formatInlineEditText,
   isSameCellValue,
   parseCellValue,
+  resolveCellDoubleClickEditStrategy,
   shouldUseInlineCellEdit,
   isShortTextColumn,
 } from "./types";
-export type { CellEditorKind } from "./types";
+export type { CellDoubleClickEditStrategy, CellEditorKind } from "./types";

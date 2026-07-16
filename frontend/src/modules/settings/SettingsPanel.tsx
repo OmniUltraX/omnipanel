@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appConfirm } from "../../lib/appConfirm";
-import { clearTerminalHistoryData, useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
+import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { FontFamilySelect } from "../../components/settings/FontFamilySelect";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TextInput } from "../../components/ui/form/TextInput";
@@ -840,8 +840,9 @@ export function SettingsPanel() {
   const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
   const terminalAutoReconnectSsh = useSettingsStore((s) => s.terminalAutoReconnectSsh);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
-  const terminalHistorySessions = useTerminalHistoryStore((s) => s.countSessions());
-  const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.countBlocks());
+  const terminalHistorySessions = useTerminalHistoryStore((s) => s.sessionCount);
+  const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.blockCount);
+  const refreshTerminalHistoryCounts = useTerminalHistoryStore((s) => s.refreshCounts);
 
   const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
   const knowledgeChunkOverlap = useSettingsStore((s) => s.knowledgeChunkOverlap);
@@ -849,6 +850,9 @@ export function SettingsPanel() {
   const setKnowledgeSettings = useSettingsStore((s) => s.setKnowledgeSettings);
 
   const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
+  const databaseSchemaTreeShowTableChildren = useSettingsStore(
+    (s) => s.databaseSchemaTreeShowTableChildren,
+  );
   const sqlEditorFontFamily = useSettingsStore((s) => s.sqlEditorFontFamily);
   const sqlEditorFontSize = useSettingsStore((s) => s.sqlEditorFontSize);
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
@@ -1000,6 +1004,11 @@ export function SettingsPanel() {
       }
     });
   }, [activeSection, fileIndexStorageDir]);
+
+  useEffect(() => {
+    if (activeSection !== "terminal") return;
+    void refreshTerminalHistoryCounts();
+  }, [activeSection, refreshTerminalHistoryCounts]);
 
   const applyFileIndexStorageDir = useCallback(
     async (dir: string) => {
@@ -1656,9 +1665,10 @@ export function SettingsPanel() {
                     void appConfirm(
                       t("settings.terminal.historyClearConfirm"),
                       t("settings.terminal.historyClearTitle"),
-                    ).then((ok) => {
+                    ).then(async (ok) => {
                       if (!ok) return;
-                      clearTerminalHistoryData();
+                      await useTerminalHistoryStore.getState().clearAll();
+                      await refreshTerminalHistoryCounts();
                     });
                   }}
                 >
@@ -1687,6 +1697,19 @@ export function SettingsPanel() {
                     setDatabaseSettings({ databaseQueryPageSize: clampDatabaseQueryPageSize(Number(v)) })
                   }
                   options={databaseQueryPageSizeOptions}
+                />
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.schemaTreeShowTableChildren")}</h4>
+                  <p>{t("settings.database.schemaTreeShowTableChildrenDesc")}</p>
+                </div>
+                <Toggle
+                  value={databaseSchemaTreeShowTableChildren}
+                  onChange={(v) =>
+                    setDatabaseSettings({ databaseSchemaTreeShowTableChildren: v })
+                  }
                 />
               </div>
 

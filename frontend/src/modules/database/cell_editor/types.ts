@@ -45,7 +45,50 @@ export function shouldUseInlineCellEdit(rawType: string): boolean {
   return isShortTextColumn(rawType);
 }
 
-/** 内联编辑器初始文本（日期类需规范化以匹配 input 控件） */
+export type CellDoubleClickEditStrategy = "inline" | "preview" | "panel";
+
+/**
+ * 双击单元格时的编辑策略：
+ * - inline：单元格浮层编辑器（短字段 / 文本弹窗）
+ * - preview：预览子窗（图片 / 音频等只读媒体）
+ * - panel：展开右侧/底部值编辑器
+ */
+export function resolveCellDoubleClickEditStrategy(
+  rawType: string,
+  value: unknown,
+): CellDoubleClickEditStrategy {
+  const kind = detectCellEditorKind(rawType);
+  if (kind === "binary") {
+    if (value !== null && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (record.__omni === "blob") {
+        const blobKind = record.kind;
+        if (blobKind === "image" || blobKind === "audio") {
+          return "preview";
+        }
+      }
+    }
+    return "panel";
+  }
+  if (
+    kind === "boolean" ||
+    kind === "number" ||
+    kind === "date" ||
+    kind === "datetime" ||
+    kind === "time"
+  ) {
+    return "inline";
+  }
+  if (kind === "json") {
+    return "inline";
+  }
+  if (kind === "text") {
+    return "inline";
+  }
+  return "panel";
+}
+
+/** 内联编辑器初始文本（日期类规范化为原生 input 值） */
 export function formatInlineEditText(kind: CellEditorKind, value: unknown): string {
   const raw = formatCellValue(value);
   switch (kind) {
@@ -145,6 +188,25 @@ export function parseCellValue(kind: CellEditorKind, raw: string): unknown {
   if (kind === "boolean") {
     return raw === "true" || raw === "1";
   }
+  if (kind === "json") {
+    const trimmed = raw.trim();
+    if (trimmed === "") return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+  if (kind === "datetime") {
+    // datetime-local → DB 常用空格格式
+    return formatDatetimeDisplay(raw);
+  }
+  if (kind === "date") {
+    return normalizeDate(raw);
+  }
+  if (kind === "time") {
+    return formatTimeDisplay(raw);
+  }
   return raw;
 }
 
@@ -191,19 +253,40 @@ export function normalizeDate(raw: string): string {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : raw.slice(0, 10);
 }
 
-/** Normalize a raw DB datetime value to YYYY-MM-DDTHH:MM for <input type="datetime-local"> */
+/** Normalize a raw DB datetime value to YYYY-MM-DDTHH:MM[:SS] for <input type="datetime-local"> */
 export function normalizeDatetime(raw: string): string {
   const m = raw.match(
-    /(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/,
+    /(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/,
   );
-  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}`;
-  // date-only fallback
+  if (m) {
+    return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}`;
+  }
   const d = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
-  return d ? `${d[1]}-${d[2]}-${d[3]}T00:00` : raw;
+  return d ? `${d[1]}-${d[2]}-${d[3]}T00:00:00` : raw;
 }
 
-/** Normalize a raw DB time value to HH:MM for <input type="time"> */
+/** 网格/文本编辑显示：YYYY-MM-DD HH:MM:SS */
+export function formatDatetimeDisplay(raw: string): string {
+  const m = raw.match(
+    /(\d{4})[-/](\d{2})[-/](\d{2})[T\s]+(\d{2}):(\d{2})(?::(\d{2}))?/,
+  );
+  if (m) {
+    return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6] ?? "00"}`;
+  }
+  const d = raw.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
+  return d ? `${d[1]}-${d[2]}-${d[3]} 00:00:00` : raw;
+}
+
+/** Normalize a raw DB time value to HH:MM[:SS] for <input type="time"> */
 export function normalizeTime(raw: string): string {
-  const m = raw.match(/(\d{2}):(\d{2})/);
-  return m ? `${m[1]}:${m[2]}` : raw.slice(0, 5);
+  const m = raw.match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return raw.slice(0, 8);
+  return m[3] ? `${m[1]}:${m[2]}:${m[3]}` : `${m[1]}:${m[2]}`;
+}
+
+/** 网格/文本编辑显示：HH:MM:SS（有秒则保留） */
+export function formatTimeDisplay(raw: string): string {
+  const m = raw.match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return raw;
+  return `${m[1]}:${m[2]}:${m[3] ?? "00"}`;
 }

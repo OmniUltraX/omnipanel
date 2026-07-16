@@ -38,9 +38,18 @@ export function TableDesignerDockPane({
 }: TableDesignerDockPaneProps) {
   const { t } = useI18n();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
-  const driver = useMemo(() => resolveTableDesignerDriver(connection), [connection]);
+  const connectionId = connection.id;
+  const dbType = connection.db_type;
+  const driver = useMemo(
+    () => resolveTableDesignerDriver({ db_type: dbType }),
+    [dbType],
+  );
   const initialPersisted = isValidDesignerTabState(persistedState) ? persistedState : null;
   const skipInitialLoadRef = useRef(Boolean(initialPersisted));
+  const onPersistStateRef = useRef(onPersistState);
+  onPersistStateRef.current = onPersistState;
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
 
   const [model, setModel] = useState<TableDesignerModel | null>(initialPersisted?.model ?? null);
   const [baseline, setBaseline] = useState<TableDesignerModel | null>(initialPersisted?.baseline ?? null);
@@ -54,9 +63,9 @@ export function TableDesignerDockPane({
 
   const persistState = useCallback(
     (nextModel: TableDesignerModel, nextBaseline: TableDesignerModel) => {
-      onPersistState?.({ model: nextModel, baseline: nextBaseline });
+      onPersistStateRef.current?.({ model: nextModel, baseline: nextBaseline });
     },
-    [onPersistState],
+    [],
   );
 
   const loadSchema = useCallback(() => {
@@ -72,8 +81,9 @@ export function TableDesignerDockPane({
     setLoading(true);
     setError(null);
     setSaveNotice(null);
+    const conn = connectionRef.current;
 
-    void introspectTable(connection, dbName, tableName)
+    void introspectTable(conn, dbName, tableName)
       .then((schema) => {
         if (cancelled) return;
         const next = driver.fromSchema(schema);
@@ -97,7 +107,7 @@ export function TableDesignerDockPane({
     return () => {
       cancelled = true;
     };
-  }, [connection, dbName, driver, persistState, tableName, t]);
+  }, [dbName, driver, persistState, tableName, t]);
 
   useEffect(() => {
     if (skipInitialLoadRef.current) {
@@ -105,7 +115,7 @@ export function TableDesignerDockPane({
       return;
     }
     return loadSchema();
-  }, [loadSchema, reloadToken]);
+  }, [connectionId, dbName, tableName, reloadToken, loadSchema]);
 
   useEffect(() => {
     if (!isValidDesignerTabState(persistedState) || model) {
@@ -142,16 +152,17 @@ export function TableDesignerDockPane({
 
     setSaving(true);
     setSaveNotice(null);
-    const connForSchema = { ...connection, database: dbName };
+    const conn = connectionRef.current;
+    const connForSchema = { ...conn, database: dbName };
 
     try {
       for (const sql of statements) {
         enqueueAction({
           type: "sql",
           title: t("database.tableDesigner.saveAction"),
-          description: `${connection.name} · ${model.tableName}`,
+          description: `${conn.name} · ${model.tableName}`,
           command: sql,
-          resourceId: connection.id,
+          resourceId: conn.id,
           source: "用户",
         });
         await invoke("db_execute_query", {
@@ -173,7 +184,7 @@ export function TableDesignerDockPane({
     } finally {
       setSaving(false);
     }
-  }, [baseline, connection, dbName, driver, enqueueAction, model, onSaved, persistState, t]);
+  }, [baseline, dbName, driver, enqueueAction, model, onSaved, persistState, t]);
 
   if (loading) {
     return <div className="db-table-designer-state">{t("common.loading")}</div>;

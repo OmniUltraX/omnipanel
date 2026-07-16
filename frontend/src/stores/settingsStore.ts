@@ -26,6 +26,16 @@ export function normalizeCloseBehavior(value: unknown): CloseBehavior {
   return "ask";
 }
 
+/** 表数据详情面板位置：右侧（默认）或底部 */
+export type DatabaseTableDetailPosition = "right" | "bottom";
+
+export function normalizeDatabaseTableDetailPosition(
+  value: unknown,
+): DatabaseTableDetailPosition {
+  if (value === "right" || value === "bottom") return value;
+  return "right";
+}
+
 /** 强调色预设：影响全局 --accent / --accent-hover / --accent-active / --accent-soft 变量 */
 export type AccentColor = "blue" | "green" | "orange" | "red" | "purple";
 
@@ -238,6 +248,10 @@ interface SettingsState {
   /** 终端命令审批档位：严格 / 查看 / 宽松 */
   terminalApprovalMode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode;
   databaseQueryPageSize: DatabaseQueryPageSize;
+  /** 表数据「记录/值」详情面板位置 */
+  databaseTableDetailPosition: DatabaseTableDetailPosition;
+  /** 连接树是否允许表/视图节点展开显示字段、索引等详情 */
+  databaseSchemaTreeShowTableChildren: boolean;
   sqlEditorFontFamily: string;
   sqlEditorFontSize: SqlEditorFontSize;
   sqlEditorLineHeight: SqlEditorLineHeight;
@@ -282,7 +296,14 @@ interface SettingsState {
     mode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode,
   ) => void;
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,
-    "databaseQueryPageSize" | "sqlEditorFontFamily" | "sqlEditorFontSize" | "sqlEditorLineHeight" | "sqlKeywordCase" | "formatSqlOnSave"
+    | "databaseQueryPageSize"
+    | "databaseTableDetailPosition"
+    | "databaseSchemaTreeShowTableChildren"
+    | "sqlEditorFontFamily"
+    | "sqlEditorFontSize"
+    | "sqlEditorLineHeight"
+    | "sqlKeywordCase"
+    | "formatSqlOnSave"
   >>) => void;
   setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir">>) => void;
   setProtocolLabSettings: (
@@ -381,6 +402,8 @@ export const useSettingsStore = create<SettingsState>()(
       mcpExternalRequireApproval: true,
       terminalApprovalMode: "view",
       databaseQueryPageSize: DEFAULT_DATABASE_QUERY_PAGE_SIZE,
+      databaseTableDetailPosition: "right",
+      databaseSchemaTreeShowTableChildren: false,
       sqlEditorFontFamily: DEFAULT_SQL_EDITOR_FONT_FAMILY,
       sqlEditorFontSize: DEFAULT_SQL_EDITOR_FONT_SIZE,
       sqlEditorLineHeight: DEFAULT_SQL_EDITOR_LINE_HEIGHT,
@@ -442,6 +465,14 @@ export const useSettingsStore = create<SettingsState>()(
             patch.databaseQueryPageSize !== undefined
               ? clampDatabaseQueryPageSize(patch.databaseQueryPageSize)
               : state.databaseQueryPageSize,
+          databaseTableDetailPosition:
+            patch.databaseTableDetailPosition !== undefined
+              ? normalizeDatabaseTableDetailPosition(patch.databaseTableDetailPosition)
+              : state.databaseTableDetailPosition,
+          databaseSchemaTreeShowTableChildren:
+            patch.databaseSchemaTreeShowTableChildren !== undefined
+              ? Boolean(patch.databaseSchemaTreeShowTableChildren)
+              : state.databaseSchemaTreeShowTableChildren,
           sqlEditorFontFamily:
             patch.sqlEditorFontFamily !== undefined
               ? patch.sqlEditorFontFamily.trim() || DEFAULT_SQL_EDITOR_FONT_FAMILY
@@ -539,6 +570,8 @@ export const useSettingsStore = create<SettingsState>()(
         mcpExternalRequireApproval: state.mcpExternalRequireApproval,
         terminalApprovalMode: state.terminalApprovalMode,
         databaseQueryPageSize: state.databaseQueryPageSize,
+        databaseTableDetailPosition: state.databaseTableDetailPosition,
+        databaseSchemaTreeShowTableChildren: state.databaseSchemaTreeShowTableChildren,
         sqlEditorFontFamily: state.sqlEditorFontFamily,
         sqlEditorFontSize: state.sqlEditorFontSize,
         sqlEditorLineHeight: state.sqlEditorLineHeight,
@@ -558,6 +591,11 @@ export const useSettingsStore = create<SettingsState>()(
           resolved,
           databaseQueryPageSize:
             state?.databaseQueryPageSize ?? DEFAULT_DATABASE_QUERY_PAGE_SIZE,
+          databaseTableDetailPosition: normalizeDatabaseTableDetailPosition(
+            state?.databaseTableDetailPosition,
+          ),
+          databaseSchemaTreeShowTableChildren:
+            state?.databaseSchemaTreeShowTableChildren ?? false,
           sqlKeywordCase:
             normalizeSqlKeywordCase(state?.sqlKeywordCase),
           formatSqlOnSave: state?.formatSqlOnSave ?? true,

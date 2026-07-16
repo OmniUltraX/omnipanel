@@ -52,6 +52,32 @@ body,
     touch-action: manipulation;
 }
 
+/* 原生日期/时间控件：图标随 data-theme 的 color-scheme 自动切换（暗=浅色图标，亮=深色图标） */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+    color-scheme: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.78;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
 img,
 svg,
 a {
@@ -5915,6 +5941,34 @@ a {
 
     .omni-select-search-input::placeholder {
         color: var(--meta);
+    }
+
+    .omni-select-actions {
+        display: flex;
+        gap: 4px;
+        padding: 4px 6px;
+        border-bottom: 1px solid var(--border-soft);
+        flex-shrink: 0;
+    }
+
+    .omni-select-action {
+        flex: 1;
+        height: 24px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--accent);
+        font-size: 11px;
+        cursor: pointer;
+    }
+
+    .omni-select-action:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    .omni-select-action:disabled {
+        opacity: 0.4;
+        cursor: default;
     }
 
     .omni-select-options {

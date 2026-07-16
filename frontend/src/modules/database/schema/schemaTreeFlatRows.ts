@@ -82,7 +82,7 @@ export interface SchemaNodeFlatRow {
   connectionEnabled?: boolean;
   iconUrl?: string | null;
   pinActive?: boolean;
-  labelClickKind?: "connection" | "database" | "table";
+  labelClickKind?: "connection" | "database" | "table" | "object-folder";
   labelClickConnId?: string;
   labelClickDbName?: string;
   labelClickTableName?: string;
@@ -120,6 +120,8 @@ export interface SchemaFlatRowsParams {
   layoutFolders?: SchemaConnectionFolder[];
   connectionParents?: Record<string, string | null>;
   deploymentServerByConnId?: Record<string, string>;
+  /** 是否允许表/视图节点展开显示字段、索引 */
+  showTableSchemaChildren?: boolean;
 }
 
 function routineTypeLabel(t: SchemaFlatRowsParams["t"], routineType: string): string {
@@ -243,7 +245,9 @@ function appendTableObjectRows(
       : buildTableTreeItem(conn.config.id, dbName, tbl.name);
   const metaFor = (nodeId: string, meta?: string) =>
     schemaNodeMeta(refreshingNodeIds, nodeId, meta, t("common.loading"));
-  const showTableSchemaChildren = connectionHasTableSchemaChildren(conn.config);
+  const showTableSchemaChildren =
+    Boolean(params.showTableSchemaChildren) &&
+    connectionHasTableSchemaChildren(conn.config);
   const showColumnsSection = !isSearchMode
     ? allColumns.length > 0
     : fieldsFolderMatches || (colsExpanded && columnsToShow.length > 0);
@@ -424,6 +428,7 @@ function appendConnectionSchemaRows(
         makeTableFilterKey,
         searchLabels,
         routineLabel,
+        Boolean(params.showTableSchemaChildren),
       )
     ) {
       return;
@@ -513,6 +518,7 @@ function appendConnectionSchemaRows(
             tableFilter,
             searchLabels,
             routineLabel,
+            Boolean(params.showTableSchemaChildren),
           )
         ) {
           continue;
@@ -550,6 +556,7 @@ function appendConnectionSchemaRows(
                     expandedNodeIds,
                     conn.config,
                     searchLabels,
+                    Boolean(params.showTableSchemaChildren),
                   ),
                 )
             : []
@@ -567,6 +574,7 @@ function appendConnectionSchemaRows(
                     expandedNodeIds,
                     conn.config,
                     searchLabels,
+                    Boolean(params.showTableSchemaChildren),
                   ),
                 )
             : []
@@ -682,6 +690,7 @@ function appendConnectionSchemaRows(
             depth: baseDepth + 2,
             expanded: tblsExpanded,
             hasChildren: true,
+            labelClickKind: "object-folder",
             meta: tblsFolderRefreshing
               ? t("common.loading")
               : db.tables
@@ -734,6 +743,7 @@ function appendConnectionSchemaRows(
             depth: baseDepth + 2,
             expanded: viewsExpanded,
             hasChildren: true,
+            labelClickKind: "object-folder",
             meta: viewsFolderRefreshing
               ? t("common.loading")
               : viewTotalCount > 0
@@ -765,6 +775,7 @@ function appendConnectionSchemaRows(
             depth: baseDepth + 2,
             expanded: otherExpanded,
             hasChildren: true,
+            labelClickKind: "object-folder",
             meta: otherFolderRefreshing
               ? t("common.loading")
               : routineTotalCount > 0

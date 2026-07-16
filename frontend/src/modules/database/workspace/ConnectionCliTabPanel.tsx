@@ -5,6 +5,7 @@ import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
 import type { RedisDeploymentInfo } from "../redisDeploymentDetect";
 import type { PostgresDeploymentInfo } from "../postgresDeploymentDetect";
 import { ConnectionCliTerminalWorkspace } from "./ConnectionCliTerminalWorkspace";
+import { ConnectionSqlConsolePanel } from "./ConnectionSqlConsolePanel";
 import { useConnectionCliTerminal } from "./useConnectionCliTerminal";
 
 interface ConnectionCliTabPanelProps {
@@ -19,21 +20,21 @@ interface ConnectionCliTabPanelProps {
   visible: boolean;
 }
 
-export function ConnectionCliTabPanel({
+/** Redis 仍走系统 redis-cli；MySQL/PostgreSQL 走应用内 mysql>/postgres=# 命令行。 */
+function RedisCliShellPanel({
   connection,
-  client,
   deployment,
   deploymentLoading = false,
   sshConnections,
   panelActive,
   visible,
-}: ConnectionCliTabPanelProps) {
+}: Omit<ConnectionCliTabPanelProps, "client">) {
   const { t } = useI18n();
 
   const { pane, resource, paneId, terminalModes, reconnectKey, handleSenderChange } =
     useConnectionCliTerminal({
       connection,
-      client,
+      client: "redis",
       deployment,
       deploymentLoading,
       sshConnections,
@@ -54,14 +55,9 @@ export function ConnectionCliTabPanel({
   }
 
   if (terminalModes.length === 0) {
-    const kind = deployment?.kind;
-    const emptyKey =
-      kind === "docker" || kind === "host"
-        ? "database.connectionInfo.cli.emptySshRequired"
-        : "database.connectionInfo.cli.empty";
     return (
       <div className={`db-connection-cli${visible ? "" : " db-connection-cli--hidden"}`}>
-        <div className="db-tables-panel-empty">{t(emptyKey)}</div>
+        <div className="db-tables-panel-empty">{t("database.connectionInfo.cli.empty")}</div>
       </div>
     );
   }
@@ -81,5 +77,36 @@ export function ConnectionCliTabPanel({
         onSenderChange={handleSenderChange}
       />
     </div>
+  );
+}
+
+export function ConnectionCliTabPanel({
+  connection,
+  client,
+  deployment,
+  deploymentLoading = false,
+  sshConnections,
+  panelActive,
+  visible,
+}: ConnectionCliTabPanelProps) {
+  if (client === "mysql" || client === "psql") {
+    return (
+      <ConnectionSqlConsolePanel
+        connection={connection}
+        panelActive={panelActive}
+        visible={visible}
+      />
+    );
+  }
+
+  return (
+    <RedisCliShellPanel
+      connection={connection}
+      deployment={deployment}
+      deploymentLoading={deploymentLoading}
+      sshConnections={sshConnections}
+      panelActive={panelActive}
+      visible={visible}
+    />
   );
 }

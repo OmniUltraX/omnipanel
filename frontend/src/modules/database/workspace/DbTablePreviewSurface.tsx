@@ -1,16 +1,18 @@
-import { useMemo, memo, useCallback, useRef, useState } from "react";
+import { useMemo, memo, useCallback, useRef, useState, useEffect, useLayoutEffect } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import {
   useDbWorkspace,
   useDbTabWorkspaceSliceOrMirror,
 } from "../../../contexts/DbWorkspaceContext";
 import type { TablePreviewWorkspaceTab } from "./workspaceTabs";
-import { Button } from "../../../components/ui/Button";
-import { IconPlus } from "../../../components/ui/Icons";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
-import { TableDataGrid, type TableDataGridActiveCell } from "../grid/TableDataGrid";
+import {
+  TableDataGrid,
+  type TableDataGridActions,
+  type TableDataGridActiveCell,
+} from "../grid/TableDataGrid";
 import { selectionTargetKey, selectionTargetsKey } from "../grid/tableDataGridSelection";
-import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";
+import { type CellEditorPanelHandle } from "../cell_editor";
 import { detectCellEditorKind, parseCellValue } from "../cell_editor/types";
 import { useI18n } from "../../../i18n";
 import {
@@ -26,6 +28,25 @@ import type { RuleGroupType } from "react-querybuilder";
 import { connectionHasTableSchemaChildren } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { useTreeChartDatabaseSchema } from "../treeChart/useTreeChartDatabaseSchema";
+import {
+  useSettingsStore,
+  type DatabaseTableDetailPosition,
+} from "../../../stores/settingsStore";
+import {
+  TableDetailPanel,
+  type TableDetailTab,
+} from "../tableDetail/TableDetailPanel";
+import { TablePreviewTopBar } from "../tableDetail/TablePreviewTopBar";
+import { TablePreviewQueryBar } from "../tableDetail/TablePreviewQueryBar";
+import {
+  buildTablePreviewSql,
+  buildTablePreviewSqlWithRelations,
+} from "../grid/tablePreviewFilter";
+import {
+  isRelationDisplayColumn,
+  relationSourceColumn,
+} from "../grid/tableColumnRelation";
+import { showToast } from "../../../stores/toastStore";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
@@ -42,10 +63,20 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const { t } = useI18n();
   const ws = useDbWorkspace();
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
-  const cellEditorPanelRef = useRef<PanelImperativeHandle | null>(null);
-  const [cellEditorCollapsed, setCellEditorCollapsed] = useState(false);
+  const detailPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const gridActionsRef = useRef<TableDataGridActions | null>(null);
+  const [detailCollapsed, setDetailCollapsed] = useState(true);
+  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
+  const [selectedRowCount, setSelectedRowCount] = useState(0);
+  const [detailTab, setDetailTab] = useState<TableDetailTab>("record");
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
   const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
+  const [copySqlHint, setCopySqlHint] = useState(false);
+  const copySqlHintTimerRef = useRef<number | null>(null);
+
+  const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
+  const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
+
   const {
     tablePreview: preview,
     tableColumnMeta: colMeta,
@@ -87,10 +118,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     connectionHasTableSchemaChildren(previewConnection)
   );
 
-  const canDeleteRow = !!(
-    canInsertRow &&
-    previewConnection.db_type !== "redis"
-  );
+  const canDeleteRow = !!(canInsertRow && previewConnection.db_type !== "redis");
 
   const pkCols = useMemo(() => colMeta?.filter((col) => col.isPk) ?? [], [colMeta]);
 
@@ -165,6 +193,17 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     return override !== undefined ? override : activeCell.row[activeCell.column];
   }, [activeCell, pkCols, previewCellOverrides]);
 
+  const activeRow = useMemo(() => {
+    const cell = activeCell ?? selectedCells[0] ?? null;
+    return cell?.row ?? null;
+  }, [activeCell, selectedCells]);
+
+  const activeRowOverrides = useMemo(() => {
+    if (!activeRow) return undefined;
+    const rowKey = resolvePreviewRowKey(activeRow, pkCols);
+    return rowKey ? previewCellOverrides[rowKey] : undefined;
+  }, [activeRow, pkCols, previewCellOverrides]);
+
   const activeCellRef = useRef<TableDataGridActiveCell | null>(null);
   const selectedCellsKeyRef = useRef<string | undefined>(undefined);
 
@@ -172,7 +211,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     const prevKey = selectionTargetKey(activeCellRef.current);
     const nextKey = selectionTargetKey(cell);
     if (prevKey === nextKey) return;
-    // 仅在两个不同的单格之间切换时提交；扩展到多选（next 为 null）不提交
     if (prevKey != null && nextKey != null) {
       cellEditorRef.current?.commitIfDirty();
     }
@@ -187,7 +225,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     const prevCount = selectionTargetCount(prevKey);
     const nextCount = selectionTargetCount(nextKey);
 
-    // 拖选扩大选区时不提交；离开多选（缩小/清空）时若有编辑则提交
     if (nextKey === "") {
       cellEditorRef.current?.commitIfDirty();
     } else if (prevCount > 1 && nextCount < prevCount) {
@@ -216,7 +253,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const handlePreviewCellApply = useCallback(
     ({ rawText, parsed }: { rawText: string; parsed: unknown }) => {
       const multi = selectedCells.length > 1;
-      if (multi && cellEditorCollapsed) return;
+      if (multi && detailCollapsed) return;
 
       const targets = multi
         ? selectedCells
@@ -234,12 +271,33 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         ws.handleCellCommit(tab.id, cell, value);
       }
     },
-    [activeCell, cellEditorCollapsed, colMeta, selectedCells, ws.handleCellCommit, tab.id],
+    [activeCell, detailCollapsed, colMeta, selectedCells, ws.handleCellCommit, tab.id],
   );
   const handlePreviewCellSetNullActive = useCallback(() => {
     if (!activeCell) return;
     ws.handleCellSetNull(tab.id, activeCell);
   }, [activeCell, ws.handleCellSetNull, tab.id]);
+
+  const handleRecordFieldApply = useCallback(
+    (column: string, payload: { rawText: string; parsed: unknown }) => {
+      if (!activeRow) return;
+      ws.handleCellCommit(
+        tab.id,
+        { rowIndex: 0, column, row: activeRow },
+        payload.parsed,
+      );
+    },
+    [activeRow, ws.handleCellCommit, tab.id],
+  );
+
+  const handleRecordFieldSetNull = useCallback(
+    (column: string) => {
+      if (!activeRow) return;
+      ws.handleCellSetNull(tab.id, { rowIndex: 0, column, row: activeRow });
+    },
+    [activeRow, ws.handleCellSetNull, tab.id],
+  );
+
   const handlePreviewRowPaste = useCallback(
     (payload: { values: Record<string, unknown> }) => {
       ws.handleRowPaste(tab.id, payload);
@@ -289,27 +347,79 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     [ws.setTableGridView, tab.id],
   );
 
-  const handleCellEditorCollapsedChange = useCallback(() => {
-    const handle = cellEditorPanelRef.current;
-    if (!handle) return;
+  const handleDetailCollapsedChange = useCallback(() => {
+    const handle = detailPanelRef.current;
+    if (!handle) {
+      setDetailCollapsed((prev) => !prev);
+      return;
+    }
     if (handle.isCollapsed()) {
       handle.expand();
-      setCellEditorCollapsed(false);
+      setDetailCollapsed(false);
     } else {
       cellEditorRef.current?.commitIfDirty();
       handle.collapse();
-      setCellEditorCollapsed(true);
+      setDetailCollapsed(true);
     }
   }, []);
 
   const handleCellEditorFocusRequest = useCallback(() => {
+    setDetailTab("value");
+    if (detailCollapsed) {
+      detailPanelRef.current?.expand();
+      setDetailCollapsed(false);
+    }
     cellEditorRef.current?.focusEditor();
+  }, [detailCollapsed]);
+
+  const handleDetailPanelResize = useCallback(() => {
+    const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
+    setDetailCollapsed(collapsed);
   }, []);
 
-  const handleCellEditorPanelResize = useCallback(() => {
-    const collapsed = cellEditorPanelRef.current?.isCollapsed() ?? false;
-    setCellEditorCollapsed(collapsed);
-  }, []);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector(".db-cell-preview-subwindow.subwindow-panel")) {
+        return;
+      }
+
+      const grid = gridActionsRef.current;
+      if (grid?.hasInlineEdit()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        grid.cancelInlineEdit();
+        return;
+      }
+
+      if (!detailCollapsed) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        cellEditorRef.current?.commitIfDirty();
+        const handle = detailPanelRef.current;
+        if (handle && !handle.isCollapsed()) {
+          handle.collapse();
+        }
+        setDetailCollapsed(true);
+        return;
+      }
+
+      if (grid?.hasSelection()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        grid.clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [detailCollapsed, gridActionsRef]);
+
+  const handlePositionChange = useCallback(
+    (position: DatabaseTableDetailPosition) => {
+      setDatabaseSettings({ databaseTableDetailPosition: position });
+    },
+    [setDatabaseSettings],
+  );
 
   const handleCreateTableQuery = useCallback(() => {
     if (!previewConnection || !canRefresh) {
@@ -337,102 +447,108 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const canDesignTable = Boolean(previewConnection && supportsTableDesign(previewConnection));
 
-  // 翻页/刷新时 loading=true 但仍保留旧 data：必须继续挂载网格，
-  // 否则会整页卸成 null（全白），回来再挂载等于 remount。
   const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
-  const previewToolbar = useMemo(() => {
-    if (!showPreviewGrid || !preview) return null;
-    const dirtyCount = Object.keys(tabDirtyRowsForTab).length;
-    const isCommittingTab = isCommitting;
-    return (
-      <>
-        <Button
-          variant="icon"
-          title={t("common.refresh")}
-          aria-label={t("common.refresh")}
-          disabled={preview.loading}
-          onClick={() => ws.requestTabAction({ kind: "refresh", tabId: tab.id })}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <path d="M23 4v6h-6M1 20v-6h6" />
-            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-          </svg>
-        </Button>
-        {!preview.loading && canInsertRow && (
-          <Button
-            variant="icon"
-            title={t("database.rowEditor.newRow")}
-            aria-label={t("database.rowEditor.newRow")}
-            onClick={() => ws.handleRowNew(tab.id)}
-          >
-            <IconPlus size={14} />
-          </Button>
-        )}
-        {canExport && (
-          <Button
-            variant="icon"
-            title={t("database.results.exportCsv")}
-            aria-label={t("database.results.exportCsv")}
-            onClick={(e) => {
-              ws.openExportMenu(e.clientX, e.clientY, tab.id);
-            }}
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              width="14"
-              height="14"
-              aria-hidden
-            >
-              <path d="M8 1.5v9" strokeLinecap="round" />
-              <path d="M4.5 7L8 10.5 11.5 7" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M2.5 13h11" strokeLinecap="round" />
-            </svg>
-          </Button>
-        )}
-        <span className="db-toolbar-icon-button-wrap">
-          <Button
-            variant={dirtyCount > 0 ? "primary" : "icon"}
-            style={{ position: "relative" }}
-            disabled={dirtyCount === 0 || isCommittingTab}
-            onClick={() => {
-              ws.commitTabDirty(tab.id).catch(() => {});
-            }}
-            title={t("database.results.commitDirty", { count: dirtyCount })}
-            aria-label={t("database.results.commitDirty", { count: dirtyCount })}
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              width="14"
-              height="14"
-              aria-hidden
-            >
-              <path d="M3 8.5l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </Button>
-          {dirtyCount > 0 && !isCommittingTab && (
-            <span className="db-toolbar-badge" aria-hidden>{dirtyCount}</span>
-          )}
-        </span>
-      </>
+  // 详情面板默认收起（切换右/底布局 remount 后同样收起）
+  useLayoutEffect(() => {
+    if (!showPreviewGrid) return;
+    detailPanelRef.current?.collapse();
+    setDetailCollapsed(true);
+  }, [detailPosition, showPreviewGrid]);
+
+  const previewSql = useMemo(() => {
+    if (!previewConnection || !tab.tableName || !preview) return "";
+    const dbType = previewConnection.db_type;
+    const visible = previewColumns.filter(
+      (column) => !isRelationDisplayColumn(column) || preview.columnRelations[relationSourceColumn(column) ?? ""],
     );
-  }, [
-    showPreviewGrid,
-    preview,
-    canInsertRow,
-    canExport,
-    tabDirtyRowsForTab,
-    isCommitting,
-    tab.id,
-    t,
-    ws,
-  ]);
+    const hasRelation = visible.some((column) => isRelationDisplayColumn(column));
+    if (hasRelation) {
+      return buildTablePreviewSqlWithRelations({
+        dbType,
+        tableName: tab.tableName,
+        filter: preview.filter,
+        sort: preview.sort,
+        page: preview.page,
+        pageSize: preview.pageSize,
+        columnRelations: preview.columnRelations,
+        relationTables,
+        visibleGridColumns: visible,
+        columnMeta: colMeta ?? undefined,
+      });
+    }
+    return buildTablePreviewSql({
+      dbType,
+      tableName: tab.tableName,
+      filter: preview.filter,
+      sort: preview.sort,
+      page: preview.page,
+      pageSize: preview.pageSize,
+      columnMeta: colMeta ?? undefined,
+    });
+  }, [previewConnection, tab.tableName, preview, previewColumns, relationTables, colMeta]);
+
+  const handleCopyPreviewSql = useCallback(async () => {
+    if (gridActionsRef.current) {
+      gridActionsRef.current.copyPreviewSql();
+      return;
+    }
+    if (!previewSql) return;
+    try {
+      await navigator.clipboard.writeText(previewSql);
+      setCopySqlHint(true);
+      if (copySqlHintTimerRef.current != null) {
+        window.clearTimeout(copySqlHintTimerRef.current);
+      }
+      copySqlHintTimerRef.current = window.setTimeout(() => {
+        setCopySqlHint(false);
+        copySqlHintTimerRef.current = null;
+      }, 2000);
+    } catch {
+      showToast("复制失败");
+    }
+  }, [previewSql, t]);
+
+  useEffect(() => {
+    return () => {
+      if (copySqlHintTimerRef.current != null) {
+        window.clearTimeout(copySqlHintTimerRef.current);
+      }
+    };
+  }, []);
+
+  const dirtyCount = Object.keys(tabDirtyRowsForTab).length;
+  const totalPages = preview
+    ? Math.max(1, Math.ceil(preview.totalRows / preview.pageSize))
+    : 1;
+
+  const enableFilter = Boolean(previewConnection && previewConnection.db_type !== "redis");
+
+  const detailPanel = (
+    <TableDetailPanel
+      activeTab={detailTab}
+      onActiveTabChange={setDetailTab}
+      position={detailPosition}
+      onPositionChange={handlePositionChange}
+      collapsed={detailCollapsed}
+      onToggleCollapsed={handleDetailCollapsedChange}
+      columns={previewColumns}
+      columnMeta={colMeta}
+      activeRow={activeRow}
+      cellOverrides={activeRowOverrides}
+      onRecordFieldApply={handleRecordFieldApply}
+      onRecordFieldSetNull={canInsertRow ? handleRecordFieldSetNull : undefined}
+      cellEditorRef={cellEditorRef}
+      cellKey={activeCellKey}
+      columnName={editorColumnName}
+      columnType={editorSelectionCount > 1 ? "text" : (activeColumnMeta?.type ?? "text")}
+      currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
+      selectionCount={editorSelectionCount}
+      editorOpen={!detailCollapsed}
+      onValueApply={handlePreviewCellApply}
+      onValueSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
+    />
+  );
 
   const previewGrid = preview?.data && canRefresh && showPreviewGrid ? (
     <TableDataGrid
@@ -443,14 +559,16 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       pageSize={preview.pageSize}
       loading={preview.loading}
       columnMeta={colMeta}
+      chromePlacement="none"
+      gridActionsRef={gridActionsRef}
+      onSelectedRowCountChange={setSelectedRowCount}
       enableTranspose
       enableSort
       sort={preview.sort ?? null}
       onSortChange={handlePreviewSortChange}
-      enableFilter={Boolean(previewConnection && previewConnection.db_type !== "redis")}
+      enableFilter={enableFilter}
       filter={preview.filter ?? null}
       onFilterChange={handlePreviewFilterChange}
-      toolbar={previewToolbar}
       onCellCommit={handlePreviewCellCommit}
       onActiveCellChange={handleActiveCellChange}
       onSelectedCellsChange={handleSelectedCellsChange}
@@ -466,13 +584,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onHiddenColumnsChange={handleHiddenColumnsChange}
       transposed={preview.transposed}
       onTransposedChange={handleTransposedChange}
-      cellEditorCollapsed={cellEditorCollapsed}
-      onCellEditorCollapsedChange={handleCellEditorCollapsedChange}
+      cellEditorCollapsed={detailCollapsed}
+      reserveSelectionOnEscape
       onCellEditorFocusRequest={handleCellEditorFocusRequest}
-      onOpenTableDesign={handleOpenTableDesign}
-      canOpenTableDesign={canDesignTable}
-      onCreateTableQuery={handleCreateTableQuery}
-      canCreateTableQuery={Boolean(canRefresh && previewConnection)}
       relationTables={relationTables}
       relationConnection={previewConnection ?? undefined}
       relationDatabase={tab.dbName ?? undefined}
@@ -482,6 +596,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       statusBarInfo={statusBarInfo}
     />
   ) : null;
+
+  const splitDirection = detailPosition === "right" ? "horizontal" : "vertical";
+  const detailDefaultSize =
+    detailPosition === "right" ? "250px" : "260px";
+  const detailMinSize = detailPosition === "right" ? 200 : 160;
 
   return (
     <div className="db-workspace-pane db-workspace-pane--data">
@@ -496,36 +615,81 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
           {t("common.loading")}
         </div>
-      ) : previewGrid ? (
-        <DockLayout direction="vertical" className="db-table-preview-split">
-          <DockPanel defaultSize={68} minSize={160}>
-            <div className="results-area db-sql-results">{previewGrid}</div>
-          </DockPanel>
-          <DockHandle direction="vertical" />
-          <DockPanel
-            defaultSize={32}
-            minSize={120}
-            collapsible
-            collapsedSize={0}
-            panelRef={cellEditorPanelRef}
-            onResize={handleCellEditorPanelResize}
-            className="dock-panel-bottom"
+      ) : previewGrid && preview ? (
+        <div className="db-table-preview-shell">
+          <TablePreviewTopBar
+            loading={preview.loading}
+            page={preview.page}
+            pageSize={preview.pageSize}
+            totalRows={preview.totalRows + (previewDisplayRows.length - preview.data!.rows.length)}
+            totalPages={totalPages}
+            dirtyCount={dirtyCount}
+            isCommitting={isCommitting}
+            canInsertRow={canInsertRow}
+            canDeleteRow={canDeleteRow}
+            hasSelectedRows={selectedRowCount > 0}
+            selectedRowCount={selectedRowCount}
+            canExport={canExport}
+            canDesignTable={canDesignTable}
+            canCreateTableQuery={Boolean(canRefresh && previewConnection)}
+            transposed={preview.transposed}
+            detailCollapsed={detailCollapsed}
+            colSidebarCollapsed={colSidebarCollapsed}
+            onPageChange={handlePreviewPageChange}
+            onRefresh={() => ws.requestTabAction({ kind: "refresh", tabId: tab.id })}
+            onInsertRow={() => ws.handleRowNew(tab.id)}
+            onDeleteSelectedRows={() => gridActionsRef.current?.deleteSelectedRows()}
+            onCommit={() => {
+              ws.commitTabDirty(tab.id).catch(() => {});
+            }}
+            onExport={(x, y) => ws.openExportMenu(x, y, tab.id)}
+            onTransposeToggle={() => handleTransposedChange(!preview.transposed)}
+            onToggleColSidebar={() => {
+              gridActionsRef.current?.toggleColSidebar();
+              setColSidebarCollapsed((prev) => !prev);
+            }}
+            onToggleDetail={handleDetailCollapsedChange}
+            onOpenTableDesign={handleOpenTableDesign}
+            onCreateTableQuery={handleCreateTableQuery}
+            onCopyPreviewSql={() => void handleCopyPreviewSql()}
+            copySqlHint={copySqlHint}
+            previewSqlTitle={previewSql}
+          />
+          <TablePreviewQueryBar
+            dbType={previewConnection?.db_type ?? "mysql"}
+            columnMeta={colMeta}
+            filter={preview.filter}
+            sort={preview.sort}
+            onFilterChange={handlePreviewFilterChange}
+            onSortChange={handlePreviewSortChange}
+            activeDetailTab={detailTab}
+            onDetailTabChange={setDetailTab}
+            enableFilter={enableFilter}
+          />
+          <DockLayout
+            key={detailPosition}
+            direction={splitDirection}
+            className={`db-table-preview-split db-table-preview-split--${detailPosition}`}
           >
-            <CellEditorPanel
-              ref={cellEditorRef}
-              cellKey={activeCellKey}
-              columnName={editorColumnName}
-              columnType={
-                editorSelectionCount > 1 ? "text" : (activeColumnMeta?.type ?? "text")
+            <DockPanel minSize={160}>
+              <div className="results-area db-sql-results">{previewGrid}</div>
+            </DockPanel>
+            <DockHandle direction={splitDirection} />
+            <DockPanel
+              defaultSize={detailDefaultSize}
+              minSize={detailMinSize}
+              collapsible
+              collapsedSize={0}
+              panelRef={detailPanelRef}
+              onResize={handleDetailPanelResize}
+              className={
+                detailPosition === "right" ? "dock-panel-right" : "dock-panel-bottom"
               }
-              currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
-              selectionCount={editorSelectionCount}
-              editorOpen={!cellEditorCollapsed}
-              onApply={handlePreviewCellApply}
-              onSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
-            />
-          </DockPanel>
-        </DockLayout>
+            >
+              {detailPanel}
+            </DockPanel>
+          </DockLayout>
+        </div>
       ) : (
         <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
           {t("common.loading")}

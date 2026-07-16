@@ -78,6 +78,22 @@ export type SlowQueryLogWorkspaceTab = {
   preview?: boolean;
 };
 
+export type BinlogWorkspaceTab = {
+  id: string;
+  kind: "binlog";
+  label: string;
+  connId: string;
+  sshConnectionId: string;
+  deploymentKind?: "host" | "docker";
+  containerId?: string;
+  logBinBasename?: string;
+  binlogFormat?: string;
+  binlogRowImage?: string;
+  flashbackCapable?: boolean;
+  workspaceOnly?: boolean;
+  preview?: boolean;
+};
+
 export type ToolboxWorkspaceTab = {
   id: string;
   kind: "toolbox";
@@ -106,6 +122,7 @@ export type DbWorkspaceTab =
   | TableDesignerWorkspaceTab
   | ConnectionInfoWorkspaceTab
   | SlowQueryLogWorkspaceTab
+  | BinlogWorkspaceTab
   | RedisQueryWorkspaceTab
   | ToolboxWorkspaceTab
   | TreeChartWorkspaceTab;
@@ -134,6 +151,10 @@ export function isSlowQueryLogTab(tab: DbWorkspaceTab): tab is SlowQueryLogWorks
   return tab.kind === "slow-query";
 }
 
+export function isBinlogTab(tab: DbWorkspaceTab): tab is BinlogWorkspaceTab {
+  return tab.kind === "binlog";
+}
+
 export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspaceTab {
   return tab.kind === "redis-query";
 }
@@ -150,17 +171,25 @@ export function syncTaskDockTabId(taskId: string): string {
   return `synctask:${taskId}`;
 }
 
-export function makeSyncTaskWorkspaceTab(task: {
-  id: string;
-  name: string;
-  kind: ToolboxWorkspaceTab["toolboxTab"];
-}): ToolboxWorkspaceTab {
+export function makeSyncTaskWorkspaceTab(
+  task: {
+    id: string;
+    name: string;
+    kind: ToolboxWorkspaceTab["toolboxTab"];
+  },
+  actionLabel?: string,
+): ToolboxWorkspaceTab {
+  const action =
+    actionLabel ?? (task.kind === "schemaSync" ? "结构同步" : "数据同步");
   return {
     id: syncTaskDockTabId(task.id),
     kind: "toolbox",
     toolboxTab: task.kind,
     syncTaskId: task.id,
-    label: task.name,
+    label: formatDbWorkspaceTabLabel({
+      action,
+      table: task.name,
+    }),
   };
 }
 
@@ -213,6 +242,10 @@ export function makeSlowQueryLogTabId(): string {
   return `slowlog:${Date.now()}`;
 }
 
+export function makeBinlogTabId(): string {
+  return `binlog:${Date.now()}`;
+}
+
 export function makeRedisQueryTabId(): string {
   return `redisq:${Date.now()}`;
 }
@@ -221,20 +254,117 @@ export function makeTreeChartTabId(): string {
   return `treechart:${Date.now()}`;
 }
 
-export function makeTreeChartTabLabel(count: number): string {
-  return count <= 1 ? "树图" : `树图 ${count}`;
+/**
+ * 统一 Tab 标题：段之间用 @ 连接（由细到粗，缺省段省略）
+ * 例：users@mydb@本地MySQL、慢查询@本地MySQL、mydb@本地MySQL
+ */
+export function formatDbWorkspaceTabLabel(parts: {
+  action?: string | null;
+  table?: string | null;
+  database?: string | null;
+  connection?: string | null;
+}): string {
+  const segments: string[] = [];
+  const action = parts.action?.trim();
+  if (action) {
+    segments.push(action);
+  }
+  const table = parts.table?.trim();
+  if (table) {
+    segments.push(table);
+  }
+  const database = parts.database?.trim();
+  if (database) {
+    segments.push(database);
+  }
+  const connection = parts.connection?.trim();
+  if (connection) {
+    segments.push(connection);
+  }
+  return segments.join("@");
 }
 
-export function makeTableDesignerTabLabel(dbName: string, tableName: string): string {
-  return `${dbName}.${tableName}`;
+export function makeTreeChartTabLabel(action: string, fileLabel?: string | null): string {
+  return formatDbWorkspaceTabLabel({
+    action,
+    table: fileLabel?.trim() || null,
+  });
 }
 
-export function makeSqlTabLabel(sqlTabCount: number): string {
-  return sqlTabCount <= 1 ? "SQL" : `SQL ${sqlTabCount}`;
+/** 表设计：users@mydb@连接 */
+export function makeTableDesignerTabLabel(
+  tableName: string,
+  dbName: string,
+  connectionName: string,
+): string {
+  return formatDbWorkspaceTabLabel({
+    table: tableName,
+    database: dbName,
+    connection: connectionName,
+  });
 }
 
-export function makeTableTabLabel(dbName: string, tableName: string) {
-  return `${dbName}.${tableName}`;
+/**
+ * SQL Tab：
+ * - 从表打开 → users@mydb@连接
+ * - 文件 → query1@mydb@连接
+ */
+export function makeSqlTabLabel(opts: {
+  action?: string | null;
+  table?: string | null;
+  database?: string | null;
+  connection?: string | null;
+}): string {
+  return formatDbWorkspaceTabLabel({
+    action: opts.action,
+    table: opts.table,
+    database: opts.database,
+    connection: opts.connection,
+  });
+}
+
+/** 表数据：users@mydb@连接 */
+export function makeTableTabLabel(
+  tableName: string,
+  dbName: string,
+  connectionName: string,
+): string {
+  return formatDbWorkspaceTabLabel({
+    table: tableName,
+    database: dbName,
+    connection: connectionName,
+  });
+}
+
+/** 库列表 / Redis 库：mydb@连接 */
+export function makeDatabaseListTabLabel(
+  dbName: string,
+  connectionName: string,
+): string {
+  return formatDbWorkspaceTabLabel({
+    database: dbName,
+    connection: connectionName,
+  });
+}
+
+/** 连接信息：仅连接名 */
+export function makeConnectionTabLabel(connectionName: string): string {
+  return formatDbWorkspaceTabLabel({
+    connection: connectionName,
+  });
+}
+
+/** 慢查询 / 二进制等：操作@连接 */
+export function makeConnectionScopedTabLabel(
+  action: string,
+  connectionName: string,
+  database?: string | null,
+): string {
+  return formatDbWorkspaceTabLabel({
+    action,
+    database,
+    connection: connectionName,
+  });
 }
 
 /** 连接信息 Tab 唯一键 */
@@ -245,6 +375,11 @@ export function makeConnectionTabKey(connId: string): string {
 /** 慢查询日志 Tab 唯一键 */
 export function makeSlowQueryLogTabKey(connId: string): string {
   return `slowlog:${connId}`;
+}
+
+/** Binlog Tab 唯一键 */
+export function makeBinlogTabKey(connId: string): string {
+  return `binlog:${connId}`;
 }
 
 /** 数据库列表 Tab 唯一键：连接 + 库名 */
@@ -331,6 +466,16 @@ export function findTabIdForSlowQueryLog(
 ): string | undefined {
   return tabs.find(
     (tab) => isModuleDockTab(tab) && tab.kind === "slow-query" && tab.connId === connId,
+  )?.id;
+}
+
+/** 查找已打开指定连接的 Binlog Tab */
+export function findTabIdForBinlog(
+  tabs: DbWorkspaceTab[],
+  connId: string,
+): string | undefined {
+  return tabs.find(
+    (tab) => isModuleDockTab(tab) && tab.kind === "binlog" && tab.connId === connId,
   )?.id;
 }
 

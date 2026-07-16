@@ -7,6 +7,8 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import type { CellEditorKind } from "../cell_editor/types";
+import { TemporalInput, type TemporalInputType } from "../cell_editor/TemporalInput";
 import {
   clampCellOverlayPosition,
   CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
@@ -17,6 +19,13 @@ import {
 } from "./tableCellPreview";
 
 const INLINE_EDITOR_MIN_HEIGHT = 32;
+/** 原生分段控件太窄会截断；文本 + 按钮需要固定最小宽度 */
+/** 与二进制日志 datetime-local 控件同宽量级，避免分段 UI 被挤扁 */
+const TEMPORAL_OVERLAY_MIN_WIDTH: Record<"date" | "datetime" | "time", number> = {
+  date: 168,
+  datetime: 236,
+  time: 128,
+};
 
 function syncTextareaHeight(
   textarea: HTMLTextAreaElement,
@@ -38,6 +47,25 @@ function syncTextareaHeight(
   textarea.style.overflowY = naturalHeight > cappedMaxHeight ? "auto" : "hidden";
 }
 
+function inputTypeForKind(kind: CellEditorKind): TemporalInputType | "number" | "text" {
+  switch (kind) {
+    case "number":
+      return "number";
+    case "date":
+      return "date";
+    case "datetime":
+      return "datetime-local";
+    case "time":
+      return "time";
+    default:
+      return "text";
+  }
+}
+
+function isTemporalKind(kind: CellEditorKind): boolean {
+  return kind === "date" || kind === "datetime" || kind === "time";
+}
+
 export function TableDataGridCellOverlay({
   overlay,
   onEditChange,
@@ -52,6 +80,11 @@ export function TableDataGridCellOverlay({
   const hostRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const editKind = overlay?.mode === "edit" ? overlay.editKind ?? "text" : "text";
+  const usesTextarea =
+    editKind === "text" || editKind === "json" || editKind === "binary";
 
   const layoutOverlay = useCallback(() => {
     const host = hostRef.current;
@@ -60,7 +93,12 @@ export function TableDataGridCellOverlay({
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
     const maxWidth = computeCellOverlayMaxWidth(viewportW);
-    const displayWidth = computeCellOverlayDisplayWidth(
+    const kind = overlay.editKind ?? "text";
+    const temporalMin =
+      kind === "date" || kind === "datetime" || kind === "time"
+        ? TEMPORAL_OVERLAY_MIN_WIDTH[kind]
+        : 0;
+    const measuredWidth = computeCellOverlayDisplayWidth(
       overlay,
       {
         value: overlay.value,
@@ -70,11 +108,15 @@ export function TableDataGridCellOverlay({
       },
       viewportW,
     );
+    const displayWidth = Math.min(
+      maxWidth,
+      Math.max(measuredWidth, overlay.width, temporalMin),
+    );
 
     host.style.position = "fixed";
     host.style.width = `${displayWidth}px`;
     host.style.maxWidth = `${maxWidth}px`;
-    host.style.minWidth = `${overlay.width}px`;
+    host.style.minWidth = `${Math.max(overlay.width, temporalMin)}px`;
     host.style.left = `${overlay.left}px`;
     host.style.top = `${overlay.top}px`;
     host.style.minHeight = `${Math.max(overlay.height, INLINE_EDITOR_MIN_HEIGHT)}px`;
@@ -116,7 +158,7 @@ export function TableDataGridCellOverlay({
 
   useLayoutEffect(() => {
     layoutOverlay();
-  }, [layoutOverlay, overlay?.editText]);
+  }, [layoutOverlay, overlay?.editText, editKind]);
 
   useEffect(() => {
     if (!overlay || overlay.mode !== "edit") return;
@@ -125,17 +167,23 @@ export function TableDataGridCellOverlay({
     scrollEl?.addEventListener("scroll", relayout, { passive: true });
     window.addEventListener("resize", relayout);
 
-    const control = overlay.editKind === "boolean" ? selectRef.current : textareaRef.current;
+    const control = usesTextarea
+      ? textareaRef.current
+      : editKind === "boolean"
+        ? selectRef.current
+        : inputRef.current;
     control?.focus();
-    if (control instanceof HTMLTextAreaElement) {
-      control.select();
+    if (control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement) {
+      if (control.type === "text" || control.type === "number" || usesTextarea) {
+        control.select();
+      }
     }
 
     return () => {
       scrollEl?.removeEventListener("scroll", relayout);
       window.removeEventListener("resize", relayout);
     };
-  }, [overlay, layoutOverlay]);
+  }, [overlay, layoutOverlay, editKind, usesTextarea]);
 
   const handleTextareaKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -146,6 +194,22 @@ export function TableDataGridCellOverlay({
         return;
       }
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        onEditCommit();
+      }
+    },
+    [onEditCommit, onEditCancel],
+  );
+
+  const handleInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onEditCancel();
+        return;
+      }
+      if (event.key === "Enter") {
         event.preventDefault();
         onEditCommit();
       }
@@ -182,12 +246,12 @@ export function TableDataGridCellOverlay({
   return createPortal(
     <div
       ref={hostRef}
-      className="db-data-table-cell-overlay db-data-table-cell-overlay--edit"
+      className={`db-data-table-cell-overlay db-data-table-cell-overlay--edit db-data-table-cell-overlay--${editKind}`}
       style={{ maxWidth }}
       role="dialog"
       aria-label={overlay.column}
     >
-      {overlay.editKind === "boolean" ? (
+      {editKind === "boolean" ? (
         <select
           ref={selectRef}
           className="db-data-table-inline-editor db-data-table-inline-editor--select"
@@ -206,11 +270,11 @@ export function TableDataGridCellOverlay({
           <option value="true">true</option>
           <option value="false">false</option>
         </select>
-      ) : (
+      ) : usesTextarea ? (
         <textarea
           ref={textareaRef}
           className="db-data-table-inline-editor db-data-table-inline-editor--textarea"
-          rows={2}
+          rows={editKind === "json" ? 4 : 2}
           spellCheck={false}
           value={overlay.editText ?? ""}
           onChange={(event) => {
@@ -218,6 +282,28 @@ export function TableDataGridCellOverlay({
             layoutOverlay();
           }}
           onKeyDown={handleTextareaKeyDown}
+          onBlur={onEditCommit}
+          {...stopMouse}
+        />
+      ) : isTemporalKind(editKind) ? (
+        <TemporalInput
+          type={inputTypeForKind(editKind) as TemporalInputType}
+          inputRef={inputRef}
+          className="db-data-table-inline-editor db-data-table-inline-editor--input db-data-table-inline-editor--temporal"
+          value={overlay.editText ?? ""}
+          onChange={(value) => onEditChange(value)}
+          onKeyDown={handleInputKeyDown}
+          onBlur={onEditCommit}
+          {...stopMouse}
+        />
+      ) : (
+        <input
+          ref={inputRef}
+          type={inputTypeForKind(editKind) === "number" ? "number" : "text"}
+          className="db-data-table-inline-editor db-data-table-inline-editor--input"
+          value={overlay.editText ?? ""}
+          onChange={(event) => onEditChange(event.target.value)}
+          onKeyDown={handleInputKeyDown}
           onBlur={onEditCommit}
           {...stopMouse}
         />
