@@ -77,7 +77,9 @@ import {
   isConnectionEnabled,
   isSqlCapableConnection,
   isRedisConnection,
+  isQdrantConnection,
   isToolboxCapableConnection,
+  qdrantDeletePoints,
   type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
@@ -317,6 +319,16 @@ function readRowKeyValue(rowKey: string, colName: string): string {
     }
   }
   return "";
+}
+
+/** Qdrant point id：数字保持 number，其余按字符串（UUID）。 */
+function parseQdrantPointId(raw: string): string | number | null {
+  if (raw === "") return null;
+  if (/^-?\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n)) return n;
+  }
+  return raw;
 }
 
 export function DatabasePanel() {
@@ -2018,7 +2030,48 @@ export function DatabasePanel() {
       const connForSchema = { ...connection, database: preview.dbName };
       const tableName = preview.tableName;
       const isRedis = connection.db_type === "redis";
+      const isQdrant = isQdrantConnection(connection);
       const sqls: string[] = [];
+
+      if (isQdrant) {
+        const pointIds: Array<string | number> = [];
+        for (const rowKey of Object.keys(dirty)) {
+          if (!rowKey.startsWith(DELETED_ROW_KEY_PREFIX)) {
+            console.error("[db.commit] Qdrant MVP 仅支持删除 Points");
+            return;
+          }
+          const originalKey = rowKey.slice(DELETED_ROW_KEY_PREFIX.length);
+          const rawId = readRowKeyValue(originalKey, "id");
+          const pointId = parseQdrantPointId(rawId);
+          if (pointId === null) {
+            console.error("[db.commit] Qdrant point id 无效", originalKey);
+            return;
+          }
+          pointIds.push(pointId);
+        }
+        if (pointIds.length === 0) {
+          console.error("[db.commit] no qdrant point ids");
+          return;
+        }
+        setCommittingTabs((prev) => new Set(prev).add(tabId));
+        try {
+          await qdrantDeletePoints(connForSchema, tableName, pointIds);
+          clearTabDirty(tabId);
+          if (useDbWorkspaceTabStore.getState().tablePreviews[tabId]) {
+            refreshTabPreviewNow(tabId);
+          }
+        } catch (err) {
+          console.error("[db.commit] failed", err);
+          throw err;
+        } finally {
+          setCommittingTabs((prev) => {
+            const next = new Set(prev);
+            next.delete(tabId);
+            return next;
+          });
+        }
+        return;
+      }
 
       if (isRedis) {
         for (const [rowKey, changes] of Object.entries(dirty)) {

@@ -14,5 +14,6 @@ tokio = { workspace = true }
 sqlx = { workspace = true }
 redis = { workspace = true }
 mongodb = { workspace = true }
+reqwest = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tracing = { workspace = true }

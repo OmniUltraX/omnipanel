@@ -4280,6 +4280,7 @@ dependencies = [
  "mongodb",
  "omnipanel-error",
  "redis",
+ "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",

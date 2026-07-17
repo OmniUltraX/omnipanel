@@ -44,6 +44,7 @@ const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
   sqlserver: 1433,
   redis: 6379,
   mongodb: 27017,
+  qdrant: 6333,
 };
 
 export function normalizeConnectionGroup(group: string | null | undefined): string {
@@ -58,7 +59,7 @@ export function connectionMatchesGroup(connection: DbConnectionConfig, groupName
 }
 
 export interface ConnectionFormData {
-  engine: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb";
+  engine: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb" | "qdrant";
   name: string;
   host: string;
   port: string;
@@ -78,7 +79,10 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
   const parsed = Number.parseInt(form.port, 10);
   const port =
     Number.isFinite(parsed) && parsed > 0 ? parsed : ENGINE_DEFAULT_PORTS[form.engine];
-  const database = formText(form.database).trim();
+  let database = formText(form.database).trim();
+  if (form.engine === "qdrant" && !database) {
+    database = "default";
+  }
   const host = formText(form.host).trim();
   const nameFromPath =
     form.engine === "sqlite" && database
@@ -138,24 +142,35 @@ export function isSupportedEngine(engine: ConnectionFormData["engine"]): boolean
     engine === "postgresql" ||
     engine === "sqlite" ||
     engine === "redis" ||
-    engine === "mongodb"
+    engine === "mongodb" ||
+    engine === "qdrant"
   );
 }
 
-/** Redis / MongoDB 等文档或 KV 引擎的「表」节点无传统字段/索引子树。 */
+/** Redis / MongoDB / Qdrant 等文档或 KV 引擎的「表」节点无传统字段/索引子树。 */
 export function connectionHasTableSchemaChildren(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
   const engine = connection.db_type.toLowerCase();
-  return engine !== "redis" && engine !== "mongodb" && engine !== "mongo";
+  return (
+    engine !== "redis" &&
+    engine !== "mongodb" &&
+    engine !== "mongo" &&
+    engine !== "qdrant"
+  );
 }
 
-/** 可在 SQL 编辑器中执行查询的连接（排除 Redis / MongoDB 等非 SQL 引擎）。 */
+/** 可在 SQL 编辑器中执行查询的连接（排除 Redis / MongoDB / Qdrant 等非 SQL 引擎）。 */
 export function isSqlCapableConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
   const engine = connection.db_type.toLowerCase();
-  return engine !== "redis" && engine !== "mongodb" && engine !== "mongo";
+  return (
+    engine !== "redis" &&
+    engine !== "mongodb" &&
+    engine !== "mongo" &&
+    engine !== "qdrant"
+  );
 }
 
 /** 数据传输工具箱支持的连接（关系型库；排除 Redis / MongoDB 等）。 */
@@ -204,6 +219,13 @@ export function isMongoConnection(
 ): boolean {
   const engine = connection.db_type.toLowerCase();
   return engine === "mongodb" || engine === "mongo";
+}
+
+/** Qdrant 连接（Collection / Points 预览）。 */
+export function isQdrantConnection(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return connection.db_type.toLowerCase() === "qdrant";
 }
 
 /** Redis 连接（键值查询面板）。 */
@@ -357,6 +379,23 @@ export async function redisSlowlog(
     clientAddr: row.clientAddr ?? null,
     clientName: row.clientName ?? null,
   }));
+}
+
+/** Qdrant 按 point id 批量删除。 */
+export async function qdrantDeletePoints(
+  connection: DbConnectionConfig,
+  collection: string,
+  pointIds: unknown[],
+): Promise<number> {
+  return (
+    (await unwrapCommand(
+      commands.dbQdrantDeletePoints({
+        connection: ipcConn(connection),
+        collection,
+        pointIds,
+      }),
+    )) ?? 0
+  );
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {

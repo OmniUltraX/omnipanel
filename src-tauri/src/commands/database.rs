@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use omnipanel_db::{
     DbDriver, DbParams, MongoDriver, QueryResult, RedisKeyDetail, RedisSearchKeysResult,
-    RedisSlowLogEntry, mongodb_list_databases, mysql_connect_options,
+    RedisSlowLogEntry, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
 };
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
@@ -1122,6 +1122,9 @@ pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String
     if matches!(db_type.as_str(), "mongodb" | "mongo") && params.database.trim().is_empty() {
         params.database = "admin".to_string();
     }
+    if db_type == "qdrant" && params.database.trim().is_empty() {
+        params.database = "default".to_string();
+    }
     let driver = omnipanel_db::connect(&params)
         .await
         .map_err(err_msg)?;
@@ -1166,6 +1169,9 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
                 .collect())
         }
         "mongodb" | "mongo" => mongodb_list_databases(&to_params(&connection))
+            .await
+            .map_err(err_msg),
+        "qdrant" => qdrant_list_databases(&to_params(&connection))
             .await
             .map_err(err_msg),
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
@@ -1306,7 +1312,22 @@ pub async fn db_list_databases_with_stats(
                 })
                 .collect())
         }
-        // 非 MySQL/PG/Redis 引擎退化为仅库名
+        "qdrant" => {
+            let infos = omnipanel_db::qdrant_list_collection_infos(&to_params(&connection))
+                .await
+                .map_err(err_msg)?;
+            let collection_count = infos.len() as i32;
+            let points_estimate: f64 = infos.iter().map(|i| i.points_count as f64).sum();
+            Ok(vec![DbDatabaseMeta {
+                name: "default".to_string(),
+                charset: None,
+                collation: None,
+                table_count: Some(collection_count),
+                size_bytes: None,
+                rows_estimate: Some(points_estimate),
+            }])
+        }
+        // 非 MySQL/PG/Redis/Qdrant 引擎退化为仅库名
         _ => {
             let names = db_list_databases(connection).await?;
             Ok(names
@@ -1620,6 +1641,7 @@ pub async fn db_introspect_table(
         "postgresql" | "postgres" => introspect_pg_table(&connection, &db_name, table.trim()).await,
         "sqlite" | "sqlite3" => introspect_sqlite_table(&connection, table.trim()).await,
         "mongodb" | "mongo" => introspect_mongo_table(&connection, &db_name, table.trim()).await,
+        "qdrant" => introspect_qdrant_collection(&connection, table.trim()).await,
         _ => Ok(DbTableSchema {
             name: table,
             columns: Vec::new(),
@@ -2724,6 +2746,36 @@ pub async fn db_redis_slowlog(
         .map_err(err_msg)
 }
 
+/// Qdrant 按 point id 批量删除参数。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QdrantDeletePointsArgs {
+    pub connection: DbConnectionConfig,
+    pub collection: String,
+    #[specta(type = Vec<specta_typescript::Any>)]
+    pub point_ids: Vec<serde_json::Value>,
+}
+
+/// Qdrant 按 point id 批量删除。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_qdrant_delete_points(args: QdrantDeletePointsArgs) -> Result<f64, String> {
+    if args.connection.db_type.to_lowercase() != "qdrant" {
+        return Err("仅 Qdrant 连接支持删除 Points".to_string());
+    }
+    if args.collection.trim().is_empty() {
+        return Err("未指定 collection".to_string());
+    }
+    omnipanel_db::qdrant_delete_points(
+        &to_params(&args.connection),
+        args.collection.trim(),
+        &args.point_ids,
+    )
+    .await
+    .map(|n| n as f64)
+    .map_err(err_msg)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaCacheDatabasePayload {
@@ -2924,7 +2976,7 @@ async fn list_database_objects_shallow(
                 key_count: None,
             })
         }
-        "mongodb" | "mongo" => {
+        "mongodb" | "mongo" | "qdrant" => {
             let names = db_list_tables(connection.clone(), Some(db_name.to_string())).await?;
             let tables = names
                 .into_iter()
@@ -3739,6 +3791,43 @@ async fn introspect_mongo_table(
                 is_pk: name == "_id",
                 is_fk: false,
                 nullable: true,
+                is_auto_increment: false,
+                comment: None,
+                length: None,
+                default_value: None,
+            })
+            .collect(),
+        indexes: Vec::new(),
+        comment: None,
+    })
+}
+
+async fn introspect_qdrant_collection(
+    connection: &DbConnectionConfig,
+    collection_name: &str,
+) -> Result<DbTableSchema, String> {
+    let driver = omnipanel_db::connect(&to_params(connection))
+        .await
+        .map_err(err_msg)?;
+    let result = driver
+        .preview(collection_name, 100, 0, None, None)
+        .await
+        .map_err(err_msg)?;
+    Ok(DbTableSchema {
+        name: collection_name.to_string(),
+        columns: result
+            .columns
+            .into_iter()
+            .map(|name| DbColumnMeta {
+                name: name.clone(),
+                column_type: if name == "vector_dim" {
+                    "integer".to_string()
+                } else {
+                    "mixed".to_string()
+                },
+                is_pk: name == "id",
+                is_fk: false,
+                nullable: name != "id",
                 is_auto_increment: false,
                 comment: None,
                 length: None,
