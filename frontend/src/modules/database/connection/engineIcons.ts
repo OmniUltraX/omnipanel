@@ -3,6 +3,8 @@ import mongoLight from "../../../assets/icons/mongo-light.svg";
 import mysqlDark from "../../../assets/icons/mysql-dark.svg";
 import mysqlLight from "../../../assets/icons/mysql-light.svg";
 import postgresql from "../../../assets/icons/postgresql.svg";
+import qdrantDark from "../../../assets/icons/qdrant-dark.svg";
+import qdrantLight from "../../../assets/icons/qdrant-light.svg";
 import redis from "../../../assets/icons/redis.svg";
 import sqlite from "../../../assets/icons/sqlite.svg";
 
@@ -12,12 +14,13 @@ export type DbEngine =
   | "sqlite"
   | "sqlserver"
   | "redis"
-  | "mongodb";
+  | "mongodb"
+  | "qdrant";
 
 /**
  * 每种数据源在 light / dark 主题下的 logo。
  *
- * - mysql / mongodb：分别提供 light / dark 两套配色
+ * - mysql / mongodb / qdrant：分别提供 light / dark 两套配色
  * - redis：只有一份 svg，light / dark 主题共用
  * - postgresql：单份 svg，light / dark 共用
  * - sqlserver：暂无 logo，调用方需自行回退
@@ -26,6 +29,7 @@ export type DbEngine =
 const ENGINE_ICONS: Record<DbEngine, { light: string; dark: string } | null> = {
   mysql: { light: mysqlLight, dark: mysqlDark },
   mongodb: { light: mongoLight, dark: mongoDark },
+  qdrant: { light: qdrantLight, dark: qdrantDark },
   redis: { light: redis, dark: redis },
   postgresql: { light: postgresql, dark: postgresql },
   sqlite: { light: sqlite, dark: sqlite },
@@ -48,6 +52,7 @@ const ENGINE_ALIASES: Record<string, DbEngine> = {
   pg: "postgresql",
   mongodb: "mongodb",
   mongo: "mongodb",
+  qdrant: "qdrant",
 };
 
 export function resolveDbEngineType(dbType: string): DbEngine | null {

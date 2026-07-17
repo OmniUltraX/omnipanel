@@ -788,20 +788,24 @@ async fn fetch_onepanel_container_stats(
     client: &OnePanelClient,
 ) -> OmniResult<Vec<DockerContainerStats>> {
     let api_path = "/api/v2/containers/list/stats";
-    tracing::debug!(
+    let started = std::time::Instant::now();
+    tracing::warn!(
         target: "docker_stats",
         source = "onepanel",
         api = %api_path,
         "请求 1Panel 容器 stats API"
     );
+    eprintln!("[docker_stats] onepanel start api={api_path}");
     let raw: Vec<serde_json::Value> = client
         .get_json(api_path)
         .await
         .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
-    tracing::debug!(
+    let fetch_ms = started.elapsed().as_millis();
+    tracing::warn!(
         target: "docker_stats",
         source = "onepanel",
         api = %api_path,
+        fetch_ms,
         raw_count = raw.len(),
         "1Panel 容器 stats 原始响应"
     );
@@ -809,12 +813,19 @@ async fn fetch_onepanel_container_stats(
         .into_iter()
         .filter_map(|v| parse_container_list_stats(&v))
         .collect();
-    tracing::debug!(
+    let elapsed_ms = started.elapsed().as_millis();
+    tracing::warn!(
         target: "docker_stats",
         source = "onepanel",
+        fetch_ms,
+        elapsed_ms,
         parsed_count = stats.len(),
         sample = ?stats.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
         "1Panel 容器 stats 解析完成"
+    );
+    eprintln!(
+        "[docker_stats] onepanel done fetch_ms={fetch_ms} elapsed_ms={elapsed_ms} parsed={}",
+        stats.len()
     );
     Ok(stats)
 }
@@ -1698,11 +1709,25 @@ impl DockerAdapter for OnePanelAdapter {
 
     async fn search_images(
         &self,
-        _term: &str,
-        _limit: u32,
+        term: &str,
+        limit: u32,
     ) -> OmniResult<Vec<DockerImageSearchResult>> {
-        // 1Panel 无稳定的 Hub search API，返回空列表供前端降级
-        Ok(Vec::new())
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = limit.max(1).min(100);
+        // 1Panel：优先读面板上的 daemon.json registry-mirrors，再由本机访问镜像站搜索
+        let daemon = self.read_daemon_config().await.ok();
+        let daemon_json = daemon.as_ref().map(|d| d.content.as_str()).unwrap_or("{}");
+        let mirrors = crate::image_search::parse_registry_mirrors(daemon_json);
+        if mirrors.is_empty() {
+            return Err(OmniError::new(
+                ErrorCode::NotFound,
+                "1Panel 未配置 registry-mirrors，无法搜索镜像",
+            ));
+        }
+        crate::image_search::search_via_registry_mirrors(&mirrors, term, limit).await
     }
 
     async fn inspect_image(&self, _id: &str) -> OmniResult<DockerImageDetail> {

@@ -10,7 +10,7 @@ const ENGINE_MAP: Record<string, string> = {
   MONGODB: "mongodb",
 };
 
-const SUPPORTED_ENGINES = new Set(["mysql", "postgresql", "redis", "mongodb"]);
+const SUPPORTED_ENGINES = new Set(["mysql", "postgresql", "redis", "mongodb", "qdrant"]);
 
 function mapEngine(connType: string): string | null {
   return ENGINE_MAP[connType.toUpperCase()] ?? null;

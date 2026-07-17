@@ -57,13 +57,72 @@ fn parse_response_text(text: &str) -> Result<Value, OmniError> {
     })
 }
 
+/// 从 Content-Disposition 解析附件文件名。
+fn parse_content_disposition_filename(header: &str) -> Option<String> {
+    let header = header.trim();
+    if header.is_empty() {
+        return None;
+    }
+
+    // filename*=utf-8''example.com.zip
+    if let Some(idx) = header.to_ascii_lowercase().find("filename*=") {
+        let mut value = header[idx + "filename*=".len()..].trim();
+        if let Some(end) = value.find(';') {
+            value = &value[..end];
+        }
+        value = value.trim().trim_matches('"');
+        if let Some(encoded) = value.split("''").nth(1) {
+            let decoded = percent_decode(encoded);
+            if !decoded.is_empty() {
+                return Some(decoded);
+            }
+        }
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    // filename="example.com.zip" / filename=example.com.zip
+    if let Some(idx) = header.to_ascii_lowercase().find("filename=") {
+        let mut value = header[idx + "filename=".len()..].trim();
+        if let Some(end) = value.find(';') {
+            value = &value[..end];
+        }
+        value = value.trim().trim_matches('"');
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = &input[i + 1..i + 3];
+            if let Ok(v) = u8::from_str_radix(hex, 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 async fn send_request(
     host: &str,
     api_key: &str,
     method: &str,
     path: &str,
     body: Option<Value>,
-) -> Result<(reqwest::StatusCode, String, Vec<u8>), OmniError> {
+) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
     let base = normalize_base_url(host)?;
     let timestamp = current_timestamp();
     let token = build_token(api_key, timestamp);
@@ -111,6 +170,11 @@ async fn send_request(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
+    let filename = resp
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_content_disposition_filename);
     let bytes = resp.bytes().await.unwrap_or_default().to_vec();
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -128,7 +192,7 @@ async fn send_request(
         );
     }
 
-    Ok((status, content_type, bytes))
+    Ok((status, content_type, bytes, filename))
 }
 
 /// 向 1Panel 发起 API 请求。`path` 不含 `/api/v2` 前缀，可含 query string。
@@ -139,7 +203,7 @@ pub async fn request(
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, OmniError> {
-    let (_, _, bytes) = send_request(host, api_key, method, path, body).await?;
+    let (_, _, bytes, _) = send_request(host, api_key, method, path, body).await?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
     parse_response_text(&text)
 }
@@ -152,7 +216,7 @@ pub async fn request_text(
     path: &str,
     body: Option<Value>,
 ) -> Result<String, OmniError> {
-    let (_, content_type, bytes) = send_request(host, api_key, method, path, body).await?;
+    let (_, content_type, bytes, _) = send_request(host, api_key, method, path, body).await?;
     if bytes.is_empty() {
         return Ok(String::new());
     }
@@ -180,6 +244,57 @@ pub async fn request_text(
     }
 
     Ok(text)
+}
+
+/// 二进制响应（证书 zip 下载等）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OnePanelBinaryPayload {
+    pub content_base64: String,
+    pub content_type: String,
+    pub filename: Option<String>,
+}
+
+/// 原始二进制响应（Base64 编码，避免跨 IPC 损坏）。
+pub async fn request_bytes(
+    host: &str,
+    api_key: &str,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<OnePanelBinaryPayload, OmniError> {
+    let (_, content_type, bytes, filename) =
+        send_request(host, api_key, method, path, body).await?;
+    if bytes.is_empty() {
+        return Err(OmniError::not_found("1Panel 返回空文件"));
+    }
+
+    // 错误时 1Panel 仍可能返回 JSON envelope
+    if content_type.contains("json") {
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            let trimmed = text.trim();
+            if trimmed.starts_with('{') {
+                let value: Value = serde_json::from_str(trimmed).map_err(|e| {
+                    OmniError::internal("1Panel 响应不是合法 JSON").with_cause(e.to_string())
+                })?;
+                if let Some(code) = value.get("code").and_then(|v| v.as_i64())
+                    && code != 200
+                {
+                    let message = value
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1Panel API 错误");
+                    return Err(OmniError::new(ErrorCode::Connection, message));
+                }
+            }
+        }
+    }
+
+    Ok(OnePanelBinaryPayload {
+        content_base64: STANDARD.encode(&bytes),
+        content_type,
+        filename,
+    })
 }
 
 /// 连通性测试（官方文档示例接口 POST /toolbox/device/base）。

@@ -10,15 +10,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptionsBuilder, StatsOptionsBuilder};
-use futures::StreamExt;
+use futures::stream::{self, StreamExt};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
 
 use crate::model::DockerContainerStats;
 
-const BOLLARD_CPU_DELTA_MS: u64 = 900;
-
 // ── SSH：docker stats CLI ────────────────────────────────────────────────────
+
+/// SSH 宿主机批量拉取容器 stats 的最长等待（含排队拿 exec 闸门）。
+const SSH_STATS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
 /// SSH 宿主机批量拉取容器 stats。
 pub async fn list_via_ssh_cli(
@@ -26,12 +27,52 @@ pub async fn list_via_ssh_cli(
     container_ids: Option<&[String]>,
 ) -> OmniResult<Vec<DockerContainerStats>> {
     let filter_targets = container_ids.filter(|ids| !ids.is_empty());
+    let started = std::time::Instant::now();
 
     // 始终全量拉取；scoped ID 只用于事后过滤（过滤失败则保留全量供前端匹配）。
     let cmd = docker_stats_shell_cmd();
-    let out = session.exec_capture(&cmd).await?;
+    tracing::warn!(
+        target: "docker_stats",
+        source = "ssh",
+        cmd = %cmd,
+        "SSH docker stats 开始"
+    );
+    eprintln!("[docker_stats] ssh exec start");
+
+    let out = match tokio::time::timeout(SSH_STATS_TIMEOUT, session.exec_capture(&cmd)).await {
+        Ok(result) => result?,
+        Err(_) => {
+            eprintln!(
+                "[docker_stats] ssh exec timeout after {}ms",
+                started.elapsed().as_millis()
+            );
+            return Err(OmniError::new(
+                ErrorCode::Timeout,
+                format!(
+                    "SSH docker stats 超时 ({}s)，请检查远端 Docker 或关闭占用会话的长命令后重试",
+                    SSH_STATS_TIMEOUT.as_secs()
+                ),
+            ));
+        }
+    };
     let out = out.ok_or_err("docker stats 失败")?;
+    let exec_ms = started.elapsed().as_millis();
     let mut stats = parse_cli_output(&out.stdout);
+
+    tracing::warn!(
+        target: "docker_stats",
+        source = "ssh",
+        exec_ms,
+        stdout_len = out.stdout.len(),
+        parsed_count = stats.len(),
+        stderr_len = out.stderr.len(),
+        "SSH docker stats 完成"
+    );
+    eprintln!(
+        "[docker_stats] ssh exec done exec_ms={exec_ms} parsed={} stdout_len={}",
+        stats.len(),
+        out.stdout.len()
+    );
 
     if stats.is_empty() && !out.stdout.trim().is_empty() {
         tracing::warn!(
@@ -53,13 +94,12 @@ pub async fn list_via_ssh_cli(
     Ok(stats)
 }
 
-/// 构造远端 `docker stats --no-stream` 命令（经 `bash -lc` 执行，保证 Go template 引号正确）。
+/// 构造远端 `docker stats --no-stream` 命令（直接 exec，避免 login shell 读 .bashrc 挂起）。
 pub fn docker_stats_shell_cmd() -> String {
-    wrap_remote_shell("docker stats --no-stream --format '{{json .}}'")
-}
-
-fn wrap_remote_shell(command: &str) -> String {
-    format!("bash -lc {}", shell_quote(command))
+    format!(
+        "docker stats --no-stream --format {}",
+        shell_quote("{{json .}}")
+    )
 }
 
 fn preview_text(text: &str, max_chars: usize) -> String {
@@ -139,22 +179,85 @@ pub fn parse_cli_line(text: &str) -> Result<DockerContainerStats, serde_json::Er
 
 // ── 本地 Engine：bollard ─────────────────────────────────────────────────────
 
+/// 并发拉取上限，避免对 Docker Engine 瞬时打满连接。
+const BOLLARD_STATS_CONCURRENCY: usize = 8;
+
 /// 本地 / TCP Engine 批量拉取容器 stats。
+///
+/// 使用 one-shot 单次采样并行拉取：Docker 守护进程会在响应中带上上一次采集的
+/// `precpu_stats`，足以计算 CPU%；旧实现「每容器串行双采样 + 900ms sleep」在容器稍多时必超时。
 pub async fn list_via_bollard(
     docker: &Docker,
     container_ids: Option<&[String]>,
 ) -> OmniResult<Vec<DockerContainerStats>> {
+    let started = std::time::Instant::now();
     let ids = resolve_running_container_ids(docker, container_ids).await?;
+    let total = ids.len();
+    tracing::warn!(
+        target: "docker_stats",
+        source = "bollard",
+        container_count = total,
+        concurrency = BOLLARD_STATS_CONCURRENCY,
+        "bollard 并行 one-shot 采样开始"
+    );
+    eprintln!(
+        "[docker_stats] bollard start count={total} concurrency={BOLLARD_STATS_CONCURRENCY}"
+    );
 
-    let mut out = Vec::with_capacity(ids.len());
-    for id in ids {
-        match fetch_bollard_stats(docker, &id).await {
-            Ok(stats) => out.push(stats),
-            Err(_) => {
-                // 单容器失败不影响其余容器
-            }
+    if total == 0 {
+        return Ok(Vec::new());
+    }
+
+    let docker = docker.clone();
+    let results: Vec<(usize, Result<DockerContainerStats, OmniError>)> =
+        stream::iter(ids.into_iter().enumerate())
+            .map(|(index, id)| {
+                let docker = docker.clone();
+                async move {
+                    let one_started = std::time::Instant::now();
+                    let result = sample_bollard_once(&docker, &id).await;
+                    if let Err(ref err) = result {
+                        tracing::warn!(
+                            target: "docker_stats",
+                            source = "bollard",
+                            index,
+                            container = %id,
+                            elapsed_ms = one_started.elapsed().as_millis(),
+                            error = %err,
+                            "单容器 stats 失败，已跳过"
+                        );
+                    }
+                    (index, result)
+                }
+            })
+            .buffer_unordered(BOLLARD_STATS_CONCURRENCY)
+            .collect()
+            .await;
+
+    let mut indexed: Vec<(usize, DockerContainerStats)> = Vec::with_capacity(total);
+    let mut fail = 0usize;
+    for (index, result) in results {
+        match result {
+            Ok(stats) => indexed.push((index, stats)),
+            Err(_) => fail += 1,
         }
     }
+    indexed.sort_by_key(|(index, _)| *index);
+    let out: Vec<DockerContainerStats> = indexed.into_iter().map(|(_, s)| s).collect();
+    let ok = out.len();
+    let elapsed_ms = started.elapsed().as_millis();
+    tracing::warn!(
+        target: "docker_stats",
+        source = "bollard",
+        container_count = total,
+        ok,
+        fail,
+        elapsed_ms,
+        "bollard 并行 one-shot 采样完成"
+    );
+    eprintln!(
+        "[docker_stats] bollard done count={total} ok={ok} fail={fail} elapsed_ms={elapsed_ms}"
+    );
     Ok(out)
 }
 
@@ -178,12 +281,6 @@ async fn resolve_running_container_ids(
                 .collect())
         }
     }
-}
-
-async fn fetch_bollard_stats(docker: &Docker, id: &str) -> OmniResult<DockerContainerStats> {
-    let _ = sample_bollard_once(docker, id).await?;
-    tokio::time::sleep(std::time::Duration::from_millis(BOLLARD_CPU_DELTA_MS)).await;
-    sample_bollard_once(docker, id).await
 }
 
 async fn sample_bollard_once(docker: &Docker, id: &str) -> OmniResult<DockerContainerStats> {
@@ -491,11 +588,19 @@ mod tests {
     }
 
     #[test]
-    fn docker_stats_shell_cmd_uses_bash_lc() {
+    fn docker_stats_shell_cmd_quotes_go_template() {
         let cmd = docker_stats_shell_cmd();
-        assert!(cmd.starts_with("bash -lc "));
-        assert!(cmd.contains("docker stats --no-stream"));
+        assert!(cmd.starts_with("docker stats --no-stream --format "));
         assert!(cmd.contains("{{json .}}"));
+        // 单引号包裹 Go template，避免远端 shell 展开
+        assert!(cmd.contains("'{{json .}}'"));
+    }
+
+    #[test]
+    fn docker_stats_shell_cmd_avoids_login_shell() {
+        let cmd = docker_stats_shell_cmd();
+        assert!(!cmd.contains("bash -lc"));
+        assert!(!cmd.contains("--login"));
     }
 
     #[test]
@@ -505,14 +610,6 @@ mod tests {
         assert_eq!(stats.container_id, "42c94e2ccda4");
         assert_eq!(stats.name, "caishi-web");
         assert!(stats.memory_usage_bytes > 0);
-    }
-
-    #[test]
-    fn docker_stats_shell_cmd_quotes_go_template() {
-        assert_eq!(
-            docker_stats_shell_cmd(),
-            wrap_remote_shell("docker stats --no-stream --format '{{json .}}'")
-        );
     }
 
     #[test]

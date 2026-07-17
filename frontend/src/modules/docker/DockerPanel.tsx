@@ -31,6 +31,10 @@ import {
   refreshAllDockerSidebarCaches,
   refreshDockerConnectionSidebarCache,
 } from "./hooks/useDockerConnectionResources";
+import {
+  createDockerSidebarCacheRefreshReporter,
+  publishDockerSidebarCacheRefreshFailed,
+} from "./dockerSidebarCacheStatusLog";
 import { DockerConnectionInfoPanel } from "./DockerConnectionInfoPanel";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
@@ -314,11 +318,22 @@ export function DockerPanel() {
     if (ids.length === 0) return;
     setRefreshingAllCaches(true);
     try {
-      await refreshAllDockerSidebarCaches(ids);
+      await refreshAllDockerSidebarCaches(
+        ids,
+        createDockerSidebarCacheRefreshReporter(
+          t,
+          (connectionId) => connectionById.get(connectionId)?.name ?? connectionId,
+        ),
+      );
+    } catch (error) {
+      publishDockerSidebarCacheRefreshFailed(
+        t,
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       setRefreshingAllCaches(false);
     }
-  }, [connections, refreshingAllCaches]);
+  }, [connectionById, connections, refreshingAllCaches, t]);
 
   const dockerDeepLinkHandledRef = useRef(false);
   useEffect(() => {

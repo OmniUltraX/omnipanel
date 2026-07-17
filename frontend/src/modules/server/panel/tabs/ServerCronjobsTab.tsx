@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
-import { IconPlus, IconRefresh } from "../../../../components/ui/Icons";
+import { IconPencil, IconPlus, IconRefresh, IconTrash } from "../../../../components/ui/Icons";
 import {
   DbTablesPanelGrid,
   type DbTablesPanelGridColumn,
@@ -9,8 +9,11 @@ import {
 } from "../../../database/workspace/DbTablesPanelGrid";
 import { createOnePanelClient } from "../../../../lib/onepanel";
 import { createBtPanelClient } from "../../../../lib/btpanel";
+import { appConfirm } from "../../../../lib/appConfirm";
+import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
 import {
+  cronjobNumericId,
   cronjobRowId,
   cronjobRowName,
   cronjobRowSchedule,
@@ -28,6 +31,7 @@ type CronSortColumn = "name" | "schedule" | "status" | "type";
 
 type CronGridRow = {
   id: string;
+  jobId: number | null;
   name: string;
   schedule: string;
   status: string;
@@ -39,6 +43,11 @@ function compareText(a: string, b: string, direction: DbTablesPanelGridSortDirec
   return direction === "asc" ? cmp : -cmp;
 }
 
+function formatCronError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 export function ServerCronjobsTab({ server }: Props) {
   const { t } = useI18n();
   const [loading, setLoading] = useState(true);
@@ -47,6 +56,8 @@ export function ServerCronjobsTab({ server }: Props) {
   const [sortColumn, setSortColumn] = useState<CronSortColumn>("name");
   const [sortDirection, setSortDirection] = useState<DbTablesPanelGridSortDirection>("asc");
   const [createOpen, setCreateOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const isOnePanel = server.serviceType === "1panel";
 
   const load = useCallback(async () => {
@@ -78,6 +89,7 @@ export function ServerCronjobsTab({ server }: Props) {
     () =>
       rows.map((row, index) => ({
         id: cronjobRowId(row, index),
+        jobId: cronjobNumericId(row),
         name: cronjobRowName(row),
         schedule: cronjobRowSchedule(row),
         status: cronjobRowStatus(row),
@@ -101,6 +113,34 @@ export function ServerCronjobsTab({ server }: Props) {
     setSortColumn(next);
     setSortDirection("asc");
   };
+
+  const handleEdit = useCallback((row: CronGridRow) => {
+    if (row.jobId == null) return;
+    setEditId(row.jobId);
+  }, []);
+
+  const handleDelete = useCallback(
+    async (row: CronGridRow) => {
+      if (!isOnePanel || row.jobId == null || actionBusyId != null) return;
+      const confirmed = await appConfirm(
+        t("server.cronjobs.deleteConfirm", { name: row.name }),
+      );
+      if (!confirmed) return;
+      setActionBusyId(row.jobId);
+      setError(null);
+      try {
+        const client = createOnePanelClient(server.address, server.key);
+        await client.deleteCronjobs([row.jobId]);
+        showToast(t("server.cronjobs.deleteSuccess"));
+        await load();
+      } catch (err) {
+        setError(formatCronError(err));
+      } finally {
+        setActionBusyId(null);
+      }
+    },
+    [actionBusyId, isOnePanel, load, server.address, server.key, t],
+  );
 
   const columns = useMemo((): DbTablesPanelGridColumn<CronGridRow>[] => {
     return [
@@ -151,8 +191,51 @@ export function ServerCronjobsTab({ server }: Props) {
         getTitle: (row) => row.status,
         getCopyValue: (row) => row.status,
       },
+      {
+        id: "actions",
+        header: t("server.cronjobs.columns.actions"),
+        variant: "actionsSticky",
+        copyable: false,
+        resizable: false,
+        defaultWidth: 72,
+        minWidth: 72,
+        render: (row) => {
+          const canAct = isOnePanel && row.jobId != null;
+          const busy = actionBusyId === row.jobId;
+          return (
+            <div
+              className="db-tables-panel-grid__row-actions"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="db-connection-info-deploy-action-btn"
+                disabled={!canAct || busy}
+                title={canAct ? t("server.cronjobs.edit") : t("server.create.onePanelOnly")}
+                aria-label={canAct ? t("server.cronjobs.edit") : t("server.create.onePanelOnly")}
+                onClick={() => handleEdit(row)}
+              >
+                <IconPencil size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="icon-xs"
+                disabled={!canAct || busy || actionBusyId != null}
+                title={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}
+                aria-label={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}
+                onClick={() => void handleDelete(row)}
+              >
+                <IconTrash size={14} />
+              </Button>
+            </div>
+          );
+        },
+      },
     ];
-  }, [t]);
+  }, [actionBusyId, handleDelete, handleEdit, isOnePanel, t]);
 
   const renderTable = () => {
     if (loading && gridRows.length === 0) {
@@ -174,7 +257,7 @@ export function ServerCronjobsTab({ server }: Props) {
         sortColumnId={sortColumn}
         sortDirection={sortDirection}
         onSortColumn={toggleSort}
-        columnResizeStorageKey={`omnipanel.server.cronjobs.column-widths.${server.id}.v1`}
+        columnResizeStorageKey={`omnipanel.server.cronjobs.column-widths.${server.id}.v2`}
       />
     );
   };
@@ -215,9 +298,13 @@ export function ServerCronjobsTab({ server }: Props) {
       {error && gridRows.length > 0 ? <div className="db-tables-panel-error">{error}</div> : null}
       <div className="db-tables-panel-grid-wrap server-websites-grid-wrap">{renderTable()}</div>
       <CreateCronjobDialog
-        open={createOpen}
+        open={createOpen || editId != null}
         server={server}
-        onClose={() => setCreateOpen(false)}
+        editId={editId}
+        onClose={() => {
+          setCreateOpen(false);
+          setEditId(null);
+        }}
         onCreated={() => void load()}
       />
     </div>

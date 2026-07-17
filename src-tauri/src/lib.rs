@@ -84,6 +84,7 @@ fn export_ipc_bindings() {
         commands::database::db_redis_set_key,
         commands::database::db_redis_delete_key,
         commands::database::db_redis_slowlog,
+        commands::database::db_qdrant_delete_points,
         commands::database::db_refresh_schema_node,
         commands::connection::conn_list,
         commands::connection::conn_save,
@@ -113,6 +114,7 @@ fn export_ipc_bindings() {
         commands::panel::panel_1panel_test_connection,
         commands::panel::panel_1panel_app_icon,
         commands::panel::panel_1panel_request_text,
+        commands::panel::panel_1panel_request_bytes,
         commands::panel::panel_bt_request,
         commands::panel::panel_bt_test_connection,
         commands::docker::docker_list_connections,
@@ -680,6 +682,7 @@ pub fn run() {
             commands::database::db_redis_set_key,
             commands::database::db_redis_delete_key,
             commands::database::db_redis_slowlog,
+            commands::database::db_qdrant_delete_points,
             commands::database::db_refresh_schema_node,
             // Connections（统一连接模型）
             commands::connection::conn_list,
@@ -711,6 +714,7 @@ pub fn run() {
             commands::panel::panel_1panel_test_connection,
             commands::panel::panel_1panel_app_icon,
             commands::panel::panel_1panel_request_text,
+            commands::panel::panel_1panel_request_bytes,
             commands::panel::panel_bt_request,
             commands::panel::panel_bt_test_connection,
             // Docker（容器工作区）

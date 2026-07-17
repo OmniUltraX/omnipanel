@@ -360,6 +360,10 @@ pub struct DockerImageSearchResult {
     pub description: String,
     #[specta(type = f64)]
     pub star_count: i64,
+    /// 拉取次数（Hub v2 / 部分镜像站才有；未知为 0）。
+    #[serde(default)]
+    #[specta(type = f64)]
+    pub pull_count: i64,
     pub is_official: bool,
     pub is_automated: bool,
 }

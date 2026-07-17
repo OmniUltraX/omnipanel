@@ -570,7 +570,8 @@ done
     Ok(infos)
 }
 
-/// 远端 `docker search --format '{{json .}}'`。
+/// 远端镜像搜索：优先用 daemon.json 的 registry-mirrors（本机 HTTP 访问镜像站），
+/// 避免 SSH 宿主机直连 Docker Hub 超时。
 pub async fn search_images(
     session: &SshSession,
     term: &str,
@@ -581,18 +582,34 @@ pub async fn search_images(
         return Ok(Vec::new());
     }
     let limit = limit.max(1).min(100);
-    let cmd = format!(
-        "docker search --limit {} --format '{{{{json .}}}}' {}",
-        limit,
-        shell_quote(term)
-    );
-    let out = session.exec_capture(&cmd).await?;
-    if out.exit_code != 0 {
-        return Err(docker_cli_error("远端搜索镜像失败", &out.stderr));
-    }
-    Ok(crate::local::parse_docker_search_json_lines(
-        &out.stdout, limit,
-    ))
+    let daemon = crate::daemon_config::read_ssh_daemon_config(session)
+        .await
+        .ok();
+    let daemon_json = daemon.as_ref().map(|d| d.content.as_str()).unwrap_or("{}");
+
+    crate::image_search::search_images_prefer_mirrors(daemon_json, term, limit, || async {
+        let cmd = format!(
+            "docker search --limit {} --format '{{{{json .}}}}' {}",
+            limit,
+            shell_quote(term)
+        );
+        let out =
+            tokio::time::timeout(std::time::Duration::from_secs(20), session.exec_capture(&cmd))
+                .await
+                .map_err(|_| {
+                    OmniError::new(
+                        ErrorCode::Timeout,
+                        "远端搜索镜像超时，请在 daemon.json 配置可用的 registry-mirrors",
+                    )
+                })??;
+        if out.exit_code != 0 {
+            return Err(docker_cli_error("远端搜索镜像失败", &out.stderr));
+        }
+        Ok(crate::local::parse_docker_search_json_lines(
+            &out.stdout, limit,
+        ))
+    })
+    .await
 }
 
 /// 远端宿主机交互 shell（用于直接执行 `docker` CLI，而不是 `docker exec` 进容器）。

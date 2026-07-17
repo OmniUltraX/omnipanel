@@ -11,6 +11,7 @@ mod compose;
 mod compose_files;
 mod container_dir_ls;
 mod daemon_config;
+mod image_search;
 mod log_util;
 mod stats;
 mod volume_files;

@@ -1,20 +1,24 @@
 /** 模块分段 Tab / 顶栏 segment 模式图标（与 server 侧栏 ServerTreeIcon 视觉一致） */
 export type SegmentTabIconKind =
+  | "server"
   | "monitor"
   | "processes"
   | "apps"
   | "websites"
   | "certificates"
+  | "cronjobs"
   /** @deprecated 使用 apps */
   | "services"
   | "logs";
 
 const SEGMENT_TAB_ICON_KINDS = new Set<string>([
+  "server",
   "monitor",
   "processes",
   "apps",
   "websites",
   "certificates",
+  "cronjobs",
   "services",
   "logs",
 ]);
@@ -41,6 +45,15 @@ export function SegmentTabIcon({
   };
 
   switch (icon) {
+    case "server":
+      return (
+        <svg {...props}>
+          <rect x="2" y="2" width="20" height="8" rx="2" />
+          <rect x="2" y="14" width="20" height="8" rx="2" />
+          <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
+          <circle cx="6" cy="18" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
     case "monitor":
       return (
         <svg {...props}>
@@ -79,8 +92,17 @@ export function SegmentTabIcon({
     case "certificates":
       return (
         <svg {...props}>
-          <path d="M12 3 4 6v6c0 4.4 3.6 8 8 9 4.4-1 8-4.6 8-9V6l-8-3z" />
-          <path d="M9.5 12.5 11 14l3.5-3.5" />
+          <rect x="5" y="3" width="14" height="18" rx="2" />
+          <path d="M9 8h6" />
+          <path d="M9 12h6" />
+          <path d="M9 16h3" />
+        </svg>
+      );
+    case "cronjobs":
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
         </svg>
       );
     case "logs":

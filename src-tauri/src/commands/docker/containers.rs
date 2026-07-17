@@ -24,12 +24,73 @@ pub async fn docker_list_container_stats(
     connection_id: String,
     container_ids: Option<Vec<String>>,
 ) -> Result<Vec<DockerContainerStats>, OmniError> {
+    let started = std::time::Instant::now();
+    let scope = container_ids
+        .as_ref()
+        .map(|ids| ids.len())
+        .unwrap_or(usize::MAX);
+    let source = match resolve_target(&state, &connection_id).await {
+        Ok(DockerTarget::Local) => "local",
+        Ok(DockerTarget::Remote(_)) => "remote",
+        Ok(DockerTarget::Ssh(_)) => "ssh",
+        Ok(DockerTarget::OnePanel(_)) => "onepanel",
+        Err(_) => "unknown",
+    };
+    tracing::warn!(
+        target: "docker_stats",
+        connection = %connection_id,
+        source,
+        scope = if scope == usize::MAX { -1 } else { scope as i64 },
+        "docker_list_container_stats 开始"
+    );
+    // 同步打到 stderr，避免未设 RUST_LOG 时看不到
+    eprintln!(
+        "[docker_stats] start connection={connection_id} source={source} scope={}",
+        if scope == usize::MAX {
+            "all".to_string()
+        } else {
+            scope.to_string()
+        }
+    );
+
     let ids = container_ids.clone();
-    with_adapter(&state, &connection_id, move |a| {
+    let result = with_adapter(&state, &connection_id, move |a| {
         let ids = ids.clone();
         async move { a.list_container_stats(ids.as_deref()).await }
     })
-    .await
+    .await;
+
+    let elapsed_ms = started.elapsed().as_millis();
+    match &result {
+        Ok(stats) => {
+            tracing::warn!(
+                target: "docker_stats",
+                connection = %connection_id,
+                source,
+                elapsed_ms,
+                result_count = stats.len(),
+                "docker_list_container_stats 完成"
+            );
+            eprintln!(
+                "[docker_stats] done connection={connection_id} source={source} elapsed_ms={elapsed_ms} count={}",
+                stats.len()
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "docker_stats",
+                connection = %connection_id,
+                source,
+                elapsed_ms,
+                error = %err,
+                "docker_list_container_stats 失败"
+            );
+            eprintln!(
+                "[docker_stats] fail connection={connection_id} source={source} elapsed_ms={elapsed_ms} error={err}"
+            );
+        }
+    }
+    result
 }
 
 /// 卷详情（`docker volume inspect`）。

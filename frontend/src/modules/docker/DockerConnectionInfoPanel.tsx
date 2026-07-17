@@ -3,20 +3,17 @@ import { Button } from "../../components/ui/Button";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import type { DockerConnectionInfo } from "../../ipc/bindings";
+import { commands, type DockerConnectionInfo, type DockerProbe } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
 import { DockerDaemonConfigTabPanel } from "./DockerDaemonConfigTabPanel";
 import { DockerDockPanel } from "./DockerDockPanel";
 import { DockerHostTerminalPanel } from "./DockerHostTerminalPanel";
-import { DockerResourceOverviewCards } from "./DockerResourceOverviewCards";
 import { restartDockerDaemon } from "./dockerDaemonConfigApi";
 import { normalizeDockerSource } from "./dockerConnectionSource";
 import { makeDockerTreeKey } from "./dockerResourceLabels";
 import { useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
 
-const DockerContainerPanel = lazy(() =>
-  import("./DockerContainerPanel").then((mod) => ({ default: mod.DockerContainerPanel })),
-);
 const DockerImagePanel = lazy(() =>
   import("./DockerImagePanel").then((mod) => ({ default: mod.DockerImagePanel })),
 );
@@ -28,22 +25,20 @@ const DockerVolumePanel = lazy(() =>
 );
 
 export type ConnectionInfoSubTab =
-  | "overview"
+  | "containers"
   | "terminal"
   | "config"
   | "images"
-  | "containers"
   | "networks"
   | "volumes";
 
 const DETAIL_TABS: readonly ConnectionInfoSubTab[] = [
-  "overview",
-  "terminal",
-  "config",
-  "images",
   "containers",
+  "images",
   "networks",
   "volumes",
+  "terminal",
+  "config",
 ];
 
 function detailTabFromNavKey(
@@ -62,7 +57,7 @@ function tabLabel(
   tab: ConnectionInfoSubTab,
   t: (key: string) => string,
 ): string {
-  if (tab === "overview" || tab === "terminal" || tab === "config") {
+  if (tab === "terminal" || tab === "config") {
     return t(`docker.connectionPanel.tabs.${tab}`);
   }
   return t(`docker.tabs.${tab}`);
@@ -89,16 +84,30 @@ export function DockerConnectionInfoPanel({
   const { activeNavKey } = useDockerSidebarLinkage();
   const [subTab, setSubTab] = usePersistedModuleTab(
     `docker-connection-${connection.connectionId}`,
-    "overview",
+    "containers",
     DETAIL_TABS,
   );
   const [terminalStarted, setTerminalStarted] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
+  const [probe, setProbe] = useState<DockerProbe | null>(null);
   const canRestart = canManageDockerDaemon(connection);
   const navAppliedRef = useRef<string | null>(null);
 
+  const engineVersion = probe?.engineVersion ?? connection.engineVersion;
+  const apiVersion = probe?.apiVersion ?? connection.apiVersion;
+
+  const refreshProbe = useCallback(async () => {
+    try {
+      const next = await unwrapCommand(commands.dockerProbeConnection(connection.connectionId));
+      setProbe(next);
+    } catch {
+      // 探测失败时保留已有版本信息，避免闪烁清空
+    }
+  }, [connection.connectionId]);
+
   useEffect(() => {
     setTerminalStarted(false);
+    setProbe(null);
   }, [connection.connectionId]);
 
   useEffect(() => {
@@ -106,6 +115,11 @@ export function DockerConnectionInfoPanel({
       setTerminalStarted(true);
     }
   }, [subTab]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    void refreshProbe();
+  }, [isActive, refreshProbe]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -131,6 +145,7 @@ export function DockerConnectionInfoPanel({
       try {
         await restartDockerDaemon(connection.connectionId);
         showToast(t("docker.connectionPanel.restartSuccess"));
+        await refreshProbe();
       } catch (e) {
         showToast(
           `${t("docker.connectionPanel.restartFailed")}: ${e instanceof Error ? e.message : String(e)}`,
@@ -139,7 +154,7 @@ export function DockerConnectionInfoPanel({
         setRestartBusy(false);
       }
     })();
-  }, [canRestart, connection.connectionId, restartBusy, t]);
+  }, [canRestart, connection.connectionId, refreshProbe, restartBusy, t]);
 
   return (
     <div className="docker-connection-info-panel">
@@ -147,6 +162,26 @@ export function DockerConnectionInfoPanel({
         <div className="docker-connection-info-header__text">
           <h2 className="docker-connection-info-header__title">{connection.name}</h2>
           <p className="docker-connection-info-header__subtitle">{connection.hostLabel}</p>
+          {engineVersion || apiVersion ? (
+            <div className="docker-connection-info-header__tags">
+              {engineVersion ? (
+                <span
+                  className="tag"
+                  title={t("docker.connectionPanel.engineVersion", { version: engineVersion })}
+                >
+                  {t("docker.connectionPanel.engineVersion", { version: engineVersion })}
+                </span>
+              ) : null}
+              {apiVersion ? (
+                <span
+                  className="tag"
+                  title={t("docker.connectionPanel.apiVersion", { version: apiVersion })}
+                >
+                  {t("docker.connectionPanel.apiVersion", { version: apiVersion })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -181,40 +216,13 @@ export function DockerConnectionInfoPanel({
         <div
           className="docker-connection-info-pane"
           role="tabpanel"
-          aria-label={tabLabel("overview", t)}
-          hidden={subTab !== "overview"}
+          aria-label={tabLabel("containers", t)}
+          hidden={subTab !== "containers"}
         >
-          <DockerResourceOverviewCards
-            connection={connection}
-            isActive={isActive && subTab === "overview"}
-          />
           <DockerDockPanel
             connection={connection}
-            isActive={isActive && subTab === "overview"}
+            isActive={isActive && subTab === "containers"}
             embedded
-          />
-        </div>
-        <div
-          className="docker-connection-info-pane"
-          role="tabpanel"
-          aria-label={tabLabel("terminal", t)}
-          hidden={subTab !== "terminal"}
-        >
-          <DockerHostTerminalPanel
-            connection={connection}
-            isActive={isActive && terminalStarted}
-            visible={subTab === "terminal"}
-          />
-        </div>
-        <div
-          className="docker-connection-info-pane"
-          role="tabpanel"
-          aria-label={tabLabel("config", t)}
-          hidden={subTab !== "config"}
-        >
-          <DockerDaemonConfigTabPanel
-            connection={connection}
-            isActive={isActive && subTab === "config"}
           />
         </div>
         <div
@@ -225,19 +233,6 @@ export function DockerConnectionInfoPanel({
         >
           <Suspense fallback={<PanelFallback />}>
             <DockerImagePanel connection={connection} isActive={isActive && subTab === "images"} />
-          </Suspense>
-        </div>
-        <div
-          className="docker-connection-info-pane docker-connection-info-pane--resource"
-          role="tabpanel"
-          aria-label={tabLabel("containers", t)}
-          hidden={subTab !== "containers"}
-        >
-          <Suspense fallback={<PanelFallback />}>
-            <DockerContainerPanel
-              connection={connection}
-              isActive={isActive && subTab === "containers"}
-            />
           </Suspense>
         </div>
         <div
@@ -265,6 +260,29 @@ export function DockerConnectionInfoPanel({
               isActive={isActive && subTab === "volumes"}
             />
           </Suspense>
+        </div>
+        <div
+          className="docker-connection-info-pane"
+          role="tabpanel"
+          aria-label={tabLabel("terminal", t)}
+          hidden={subTab !== "terminal"}
+        >
+          <DockerHostTerminalPanel
+            connection={connection}
+            isActive={isActive && terminalStarted}
+            visible={subTab === "terminal"}
+          />
+        </div>
+        <div
+          className="docker-connection-info-pane"
+          role="tabpanel"
+          aria-label={tabLabel("config", t)}
+          hidden={subTab !== "config"}
+        >
+          <DockerDaemonConfigTabPanel
+            connection={connection}
+            isActive={isActive && subTab === "config"}
+          />
         </div>
       </div>
     </div>

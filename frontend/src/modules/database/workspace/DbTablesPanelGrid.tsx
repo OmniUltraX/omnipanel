@@ -252,11 +252,12 @@ export function DbTablesPanelGrid<T>({
     if (!resizeEnabled || resizeColumnDefs.length === 0) {
       return undefined;
     }
-    // 列宽之和；CSS 另有 min-width:100%，二者取较大者，窄于父级时仍撑满
-    return resizeColumnDefs.reduce(
-      (sum, column) => sum + (columnWidths[column.id] ?? column.defaultWidth),
+    // 列宽之和；用 max(100%, sum) 保证宽于父级时仍可横滑，窄于父级时撑满（勿用纯 px，会盖掉 CSS min-width:100%）
+    const sum = resizeColumnDefs.reduce(
+      (total, column) => total + (columnWidths[column.id] ?? column.defaultWidth),
       0,
     );
+    return `max(100%, ${sum}px)`;
   }, [columnWidths, resizeColumnDefs, resizeEnabled]);
 
   const resolveCopyText = useCallback(

@@ -26,6 +26,7 @@ const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   sqlserver: { port: "1433", icon: "MS" },
   redis: { port: "6379", icon: "RE" },
   mongodb: { port: "27017", icon: "MG" },
+  qdrant: { port: "6333", icon: "QD" },
 };
 
 const ENGINE_ALIASES: Record<string, DbEngine> = {
@@ -41,6 +42,7 @@ const ENGINE_ALIASES: Record<string, DbEngine> = {
   redis: "redis",
   mongodb: "mongodb",
   mongo: "mongodb",
+  qdrant: "qdrant",
 };
 
 function resolveEngineFromAi(raw: FormFillValue): DbEngine | null {
@@ -224,7 +226,7 @@ export function ConnectionDialog({
       {
         key: "engine",
         label: t("database.dialog.engine"),
-        description: "mysql, postgresql, sqlite, sqlserver, redis, mongodb",
+        description: "mysql, postgresql, sqlite, sqlserver, redis, mongodb, qdrant",
       },
       { key: "host", label: t("database.dialog.host") },
       { key: "port", label: t("database.dialog.port"), type: "number" },
@@ -376,6 +378,7 @@ export function ConnectionDialog({
             </div>
           )}
 
+          {form.engine !== "qdrant" ? (
           <FormField
             label={
               <>
@@ -416,29 +419,40 @@ export function ConnectionDialog({
               ) : null}
             </div>
           </FormField>
+          ) : null}
 
           {!isFileBased && (
             <div className="form-row">
+              {form.engine !== "qdrant" ? (
+                <div style={{ flex: 1 }}>
+                  <FormField
+                    label={t("database.dialog.username")}
+                    htmlFor="db-conn-username"
+                    description={t("database.dialog.usernameDescription")}
+                  >
+                    <TextInput
+                      id="db-conn-username"
+                      className="input"
+                      placeholder={form.engine === "redis" ? "default" : "postgres"}
+                      value={form.username}
+                      onChange={(value) => update("username", value)}
+                    />
+                  </FormField>
+                </div>
+              ) : null}
               <div style={{ flex: 1 }}>
                 <FormField
-                  label={t("database.dialog.username")}
-                  htmlFor="db-conn-username"
-                  description={t("database.dialog.usernameDescription")}
-                >
-                  <TextInput
-                    id="db-conn-username"
-                    className="input"
-                    placeholder={form.engine === "redis" ? "default" : "postgres"}
-                    value={form.username}
-                    onChange={(value) => update("username", value)}
-                  />
-                </FormField>
-              </div>
-              <div style={{ flex: 1 }}>
-                <FormField
-                  label={t("database.dialog.password")}
+                  label={
+                    form.engine === "qdrant"
+                      ? t("database.dialog.apiKey")
+                      : t("database.dialog.password")
+                  }
                   htmlFor="db-conn-password"
-                  description={t("database.dialog.passwordDescription")}
+                  description={
+                    form.engine === "qdrant"
+                      ? t("database.dialog.apiKeyDescription")
+                      : t("database.dialog.passwordDescription")
+                  }
                 >
                   <PasswordInput
                     copyable

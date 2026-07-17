@@ -38,6 +38,21 @@ export function websiteRowType(row: Record<string, unknown>): string {
   return text || "—";
 }
 
+/** 网站分组名称（1Panel WebsiteDTO.group） */
+export function websiteRowGroup(row: Record<string, unknown>): string {
+  const direct = row.group ?? row.groupName ?? row.websiteGroup;
+  if (typeof direct === "string" && direct.trim()) {
+    return direct.trim();
+  }
+  if (direct && typeof direct === "object") {
+    const name = (direct as Record<string, unknown>).name;
+    if (typeof name === "string" && name.trim()) {
+      return name.trim();
+    }
+  }
+  return "—";
+}
+
 /** 是否为运行中状态（用于启停按钮） */
 export function isWebsiteRunning(status: string): boolean {
   const lower = status.trim().toLowerCase();
@@ -74,6 +89,14 @@ export function websiteNumericId(row: Record<string, unknown>): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string" && /^\d+$/.test(raw.trim())) return Number(raw.trim());
   return null;
+}
+
+export function certificateNumericId(row: Record<string, unknown>): number | null {
+  return websiteNumericId(row);
+}
+
+export function cronjobNumericId(row: Record<string, unknown>): number | null {
+  return websiteNumericId(row);
 }
 
 export function websiteSslId(row: Record<string, unknown>): number | null {
@@ -158,11 +181,12 @@ export function websiteStatusBadgeClass(status: string): string {
 }
 
 export function certificateRowId(row: Record<string, unknown>, index: number): string {
-  return String(row.id ?? row.domain ?? row.primaryDomain ?? row.dns ?? index);
+  return String(row.id ?? row.primaryDomain ?? row.domain ?? row.dns ?? index);
 }
 
 export function certificateRowLabel(row: Record<string, unknown>): string {
-  return String(row.domain ?? row.primaryDomain ?? row.dns ?? row.name ?? "—");
+  // 1Panel SSLDTO 主字段为 primaryDomain；domains 是「其他域名」逗号串，勿优先
+  return String(row.primaryDomain ?? row.domain ?? row.dns ?? row.name ?? "—");
 }
 
 function certificateExpire(row: Record<string, unknown>): string {
@@ -191,11 +215,78 @@ export function certificateRowProvider(row: Record<string, unknown>): string {
   return text || "—";
 }
 
+/** 证书申请方式原始值（dnsAccount / http / manual 等）。 */
+export function certificateRowProviderKey(row: Record<string, unknown>): string {
+  const text = String(row.provider ?? "").trim();
+  return text || "—";
+}
+
+export function certificateRowStatus(row: Record<string, unknown>): string {
+  const raw = row.status;
+  if (raw == null || raw === "") return "—";
+  return String(raw).trim() || "—";
+}
+
+export function certificateRowRemark(row: Record<string, unknown>): string {
+  const raw = row.description ?? row.remark ?? row.desc;
+  if (raw == null) return "";
+  return String(raw).trim();
+}
+
 export function certificateRowAutoRenew(row: Record<string, unknown>): string {
   const raw = row.autoRenew ?? row.auto_renew;
   if (typeof raw === "boolean") return raw ? "true" : "false";
   if (raw == null || raw === "") return "—";
   return String(raw);
+}
+
+/** 自动续签开关状态；无法识别时返回 null。 */
+export function certificateRowAutoRenewEnabled(row: Record<string, unknown>): boolean | null {
+  const raw = row.autoRenew ?? row.auto_renew;
+  if (typeof raw === "boolean") return raw;
+  if (raw === 1 || raw === "1" || String(raw).toLowerCase() === "true" || String(raw).toLowerCase() === "yes") {
+    return true;
+  }
+  if (raw === 0 || raw === "0" || String(raw).toLowerCase() === "false" || String(raw).toLowerCase() === "no") {
+    return false;
+  }
+  return null;
+}
+
+/** 证书状态 → badge 色调 */
+export function certificateStatusBadgeClass(status: string): string {
+  const lower = status.trim().toLowerCase();
+  if (!lower || lower === "—" || lower === "-" || lower === "unknown" || lower === "n/a") {
+    return "badge badge-muted";
+  }
+  if (lower === "ready" || lower === "success" || lower === "ok" || lower.includes("正常") || lower.includes("成功")) {
+    return "badge badge-success";
+  }
+  if (
+    lower === "applying" ||
+    lower === "pending" ||
+    lower === "systemrestart" ||
+    lower === "system_restart" ||
+    lower.includes("申请中") ||
+    lower.includes("进行中")
+  ) {
+    return "badge badge-warn";
+  }
+  if (lower === "init" || lower === "new" || lower.includes("待") || lower.includes("初始化")) {
+    return "badge badge-accent";
+  }
+  if (
+    lower === "error" ||
+    lower === "applyerror" ||
+    lower === "apply_error" ||
+    lower === "failed" ||
+    lower.includes("失败") ||
+    lower.includes("错误") ||
+    lower.includes("异常")
+  ) {
+    return "badge badge-danger";
+  }
+  return "badge badge-muted";
 }
 
 export function cronjobRowId(row: Record<string, unknown>, index: number): string {
