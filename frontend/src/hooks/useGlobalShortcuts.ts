@@ -19,6 +19,8 @@ import { useStatusBarActionBarStore } from "../stores/statusBarActionBarStore";
 import { getDockviewInstanceByScope } from "../lib/dockviewRegistry";
 import { openLocalTerminalSession } from "../lib/terminalSession";
 import { useCommandRegistry } from "../stores/commandRegistry";
+import { useTerminalStore } from "../stores/terminalStore";
+import { clearAllSessionBlocks } from "../modules/terminal/terminalBlockActions";
 
 /** dockScope 前缀 → 模块标识，用于 tab 操作智能分发 */
 const SCOPE_PREFIX_TO_MODULE: Record<string, string> = {
@@ -152,10 +154,18 @@ export function useGlobalShortcuts() {
         }
       }
 
-      // switch-tab：Mod+Tab / Mod+Shift+Tab
+      // switch-tab：Mod+Tab / Mod+PageDown
       if (matchesShortcut(e, getShortcutKeys("switch-tab"))) {
-        const dir = e.shiftKey ? "prev" : "next";
-        if (actOnFocusedDock(dir as "next" | "prev")) {
+        if (actOnFocusedDock("next")) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
+
+      // switch-tab-prev：Mod+Shift+Tab / Mod+PageUp
+      if (matchesShortcut(e, getShortcutKeys("switch-tab-prev"))) {
+        if (actOnFocusedDock("prev")) {
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -166,7 +176,7 @@ export function useGlobalShortcuts() {
       const switchNthKeys = getShortcutKeys("switch-nth-tab");
       if (switchNthKeys.length > 0) {
         // switch-nth-tab 定义为 ["Mod", "1-9"]，匹配 Mod+数字
-        if (e.code?.startsWith("Digit") && matchesShortcut(e, ["Mod", e.code])) {
+        if (e.code?.startsWith("Digit") && matchesShortcut(e, [["Mod", e.code]])) {
           const n = parseInt(e.code.slice(5), 10);
           if (n >= 1 && n <= 9) {
             if (actOnFocusedDock("nth", n)) {
@@ -213,6 +223,71 @@ export function useGlobalShortcuts() {
       // 这里不做处理，避免与 scopedSearchRegistry 的捕获阶段监听冲突。
       // scopedSearchRegistry 在焦点/hover 在注册 scope 时已处理 Ctrl+F。
       // 若未来需要"无焦点时 Mod+F 弹全局搜索"，在此扩展。
+
+      // ─── 终端专属快捷键（仅在焦点 dock 为终端时生效） ───────────────
+      const focusedModule = resolveModuleFromScope(
+        useStatusBarActionBarStore.getState().activeDock?.dockScope,
+      );
+      if (focusedModule === "terminal") {
+        const termStore = useTerminalStore.getState();
+        const activeTabId = termStore.activeTabId;
+        const activeTab = activeTabId
+          ? termStore.tabs.find((t) => t.id === activeTabId)
+          : null;
+        const sessionId = activeTab?.sessionId;
+
+        // clear-terminal：Ctrl+L / Ctrl+Shift+K
+        if (matchesShortcut(e, getShortcutKeys("clear-terminal"))) {
+          if (sessionId) {
+            clearAllSessionBlocks(sessionId);
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // rename-tab：F2
+        if (matchesShortcut(e, getShortcutKeys("rename-tab"))) {
+          if (activeTabId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-rename-tab", {
+                detail: { tabId: activeTabId },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // scroll-terminal-top：Ctrl+Home
+        if (matchesShortcut(e, getShortcutKeys("scroll-terminal-top"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-scroll", {
+                detail: { sessionId, to: "top" },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // scroll-terminal-bottom：Ctrl+End
+        if (matchesShortcut(e, getShortcutKeys("scroll-terminal-bottom"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-scroll", {
+                detail: { sessionId, to: "bottom" },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+      }
 
       // split-vertical / split-horizontal：终端分屏（预留，暂未实现 dockview split）
       // 此处占位，等终端 split 功能实现后接入

@@ -33,6 +33,8 @@ interface DbPanelSqlEditorProps {
   onChange: (value: string) => void;
   onCursorOffsetChange: (cursorOffset: number) => void;
   onRun: (sql: string) => void;
+  onRunSelected: (selectedSql: string) => void;
+  onRunAll: () => void;
   onSave: () => void;
 }
 
@@ -47,6 +49,8 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
   onChange,
   onCursorOffsetChange,
   onRun,
+  onRunSelected,
+  onRunAll,
   onSave,
 }: DbPanelSqlEditorProps) {
   const activeTabId = useDbWorkspaceActiveTabId();
@@ -64,6 +68,8 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       onChange={onChange}
       onCursorOffsetChange={onCursorOffsetChange}
       onRun={onRun}
+      onRunSelected={onRunSelected}
+      onRunAll={onRunAll}
       onSave={onSave}
       schemas={scopedSchemas}
     />
@@ -286,6 +292,8 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
         onChange={handleSqlChange}
         onCursorOffsetChange={handleSqlCursorChange}
         onRun={handleSqlRun}
+        onRunSelected={runSelectedSql}
+        onRunAll={runAllSql}
         onSave={handleSqlSave}
       />
     </div>

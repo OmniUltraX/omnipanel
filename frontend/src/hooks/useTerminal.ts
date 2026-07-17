@@ -1542,7 +1542,7 @@ export function useTerminal(
   }, [active, sendRef, sessionId, suspended]);
 
   // 终端输出中的文件路径点击预览（xterm ILinkProvider）
-  // 注意：xterm ILinkProvider 是懒加载（仅在 hover 时触发），Command Bar 模式不响应
+  // 注意：xterm ILinkProvider 是懒加载（仅在 hover 时触发），Command bar 模式不响应
   // 待确认方案后启用
   useTerminalFileLinkProvider({
     termRef,
@@ -1553,6 +1553,23 @@ export function useTerminal(
     cwd: fileLink?.cwd ?? "/",
     enabled: false, // 暂时禁用
   });
+
+  // 监听 omnipanel-terminal-scroll 事件，执行 scrollToTop / scrollToBottom
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ sessionId: string; to: "top" | "bottom" }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      const term = termRef.current;
+      if (!term) return;
+      if (detail.to === "top") {
+        term.scrollToTop();
+      } else {
+        term.scrollToBottom();
+      }
+    };
+    window.addEventListener("omnipanel-terminal-scroll", handler);
+    return () => window.removeEventListener("omnipanel-terminal-scroll", handler);
+  }, [sessionId]);
 
   return { termRef, searchAddonRef };
 }

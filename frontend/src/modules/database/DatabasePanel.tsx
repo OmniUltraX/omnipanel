@@ -38,6 +38,7 @@ import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../compone
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
+import { getShortcutKeys, matchesShortcut } from "../../stores/shortcutsStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
@@ -4673,13 +4674,11 @@ export function DatabasePanel() {
     [runQuery],
   );
 
-  // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 Ctrl+Enter 快捷键
+  // 表预览（data）模式：编辑器常折叠且无焦点，在此统一处理 run-current-sql 快捷键
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing) return;
-      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey || e.altKey) {
-        return;
-      }
+      if (!matchesShortcut(e, getShortcutKeys("run-current-sql"))) return;
       if (isSqlEditorFocused()) return;
 
       const tabId = activeWorkspaceTabId;

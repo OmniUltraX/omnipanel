@@ -9,7 +9,7 @@
  */
 
 import { create } from "zustand";
-import { formatShortcut, getShortcutKeys } from "./shortcutsStore";
+import { formatShortcutList, getShortcutKeys } from "./shortcutsStore";
 
 /** 命令分组标识，用于面板分类展示 */
 export type CommandCategory =
@@ -89,7 +89,7 @@ export const useCommandRegistry = create<CommandRegistryState>()((set) => ({
 export function getCommandShortcutLabel(cmd: CommandItem): string | undefined {
   if (cmd.shortcutId) {
     const keys = getShortcutKeys(cmd.shortcutId);
-    if (keys.length > 0) return formatShortcut(keys);
+    if (keys.length > 0) return formatShortcutList(keys);
   }
   return cmd.shortcutLabel;
 }

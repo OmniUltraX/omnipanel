@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
-import { matchesShortcut, getShortcutKeys } from "../../stores/shortcutsStore";
+import { matchesShortcut, getShortcutKeys, type KeyBinding } from "../../stores/shortcutsStore";
 import {
   useRecentCommands,
   useCommandRegistry,
@@ -29,7 +29,7 @@ import { navigateToFeature } from "../../lib/workspaceNavigation";
 import { MODULE_PATHS, DASHBOARD_PATH } from "../../lib/paths";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
 
-const DEFAULT_RECENT_ITEMS_KEYS = ["Mod", "KeyE"];
+const DEFAULT_RECENT_ITEMS_KEYS: KeyBinding[] = [["Mod", "KeyE"]];
 
 /** 统一的项目条目（混合多源数据） */
 interface UnifiedItem {

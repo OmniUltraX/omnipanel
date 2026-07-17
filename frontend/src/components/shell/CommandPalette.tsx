@@ -8,9 +8,10 @@ import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
 import {
   formatShortcut,
+  getShortcutKeys,
   matchesShortcut,
   useShortcutsStore,
-  type KeyToken,
+  type KeyBinding,
 } from "../../stores/shortcutsStore";
 import {
   useCommandRegistry,
@@ -19,9 +20,6 @@ import {
   type CommandItem,
 } from "../../stores/commandRegistry";
 import { useDoubleShiftTrigger } from "../../hooks/useGlobalShortcuts";
-
-/** 默认组合的稳定引用，避免在 selector 中返回新数组导致无限渲染 */
-const DEFAULT_COMMAND_PALETTE_KEYS: KeyToken[] = ["Mod", "K"];
 
 /**
  * 把硬编码的命令定义转成 CommandItem 注册到 registry。
@@ -107,8 +105,8 @@ export function CommandPalette() {
 
   const blockedCount = useActionStore((s) => s.actions.filter((a) => a.status === "blocked").length);
   const shortcutsOverrides = useShortcutsStore((s) => s.overrides);
-  const commandPaletteKeys = useMemo<KeyToken[]>(
-    () => shortcutsOverrides["command-palette"] ?? DEFAULT_COMMAND_PALETTE_KEYS,
+  const commandPaletteKeys = useMemo<KeyBinding[]>(
+    () => getShortcutKeys("command-palette"),
     [shortcutsOverrides],
   );
 
