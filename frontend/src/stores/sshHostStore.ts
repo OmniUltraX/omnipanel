@@ -61,6 +61,8 @@ type SshHostStoreState = {
   setOverview: (resourceId: string, patch: Partial<HostOverviewState>) => void;
   setMonitoring: (resourceId: string, patch: Partial<HostMonitoringState>) => void;
   setMonitoringEnabled: (resourceId: string, enabled: boolean) => void;
+  /** 批量设置监控开关（启动恢复用，避免逐台触发多次渲染） */
+  setMonitoringEnabledBulk: (resourceIds: string[], enabled: boolean) => void;
   appendMonitorPoints: (
     resourceId: string,
     points: Partial<Pick<HostMonitoringState, "cpuSeries" | "memSeries" | "netSeries">>,
@@ -121,6 +123,26 @@ export const useSshHostStore = create<SshHostStoreState>((set, get) => ({
           },
         },
       };
+    }),
+
+  setMonitoringEnabledBulk: (resourceIds, enabled) =>
+    set((state) => {
+      if (resourceIds.length === 0) return state;
+      const hosts = { ...state.hosts };
+      for (const resourceId of resourceIds) {
+        const prev = hosts[resourceId] ?? EMPTY_SNAPSHOT;
+        hosts[resourceId] = {
+          ...prev,
+          monitoring: {
+            ...prev.monitoring,
+            enabled,
+            ...(enabled
+              ? {}
+              : { cpuSeries: [], memSeries: [], netSeries: [] }),
+          },
+        };
+      }
+      return { hosts };
     }),
 
   appendMonitorPoints: (resourceId, points) =>

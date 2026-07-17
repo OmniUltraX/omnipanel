@@ -123,7 +123,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
               );
             })()
           ) : isTablePreviewTab(tab) ? (
-            <DbTablePreviewSurface tab={tab} />
+            <DbTablePreviewSurface tab={tab} active={_isActive} />
           ) : isSlowQueryLogTab(tab) ? (
             (() => {
               const connection = resolveConn(tab.connId);

@@ -49,15 +49,16 @@ import {
   schemaUserMatchesSearch,
 } from "./schemaTreeSearch";
 
-export const SCHEMA_TREE_NODE_ROW_HEIGHT = 22;
-/** Schema 树消息行高度 */
-export const SCHEMA_TREE_MESSAGE_ROW_HEIGHT = 24;
-export const SCHEMA_TREE_LOAD_MORE_ROW_HEIGHT = 22;
+export const SCHEMA_TREE_NODE_ROW_HEIGHT = 28;
+/** Schema 树消息行高度（与节点行统一，避免虚拟滚动区间错位） */
+export const SCHEMA_TREE_MESSAGE_ROW_HEIGHT = 28;
+export const SCHEMA_TREE_LOAD_MORE_ROW_HEIGHT = 28;
 /**
  * 超过该扁平行数才启用虚拟滚动。
- * 小树原生滚动更跟手；大树（多库展开 / 搜索全量）仍需虚拟化控 DOM。
+ * 小树原生更跟手；大树靠虚拟列表控 DOM。
+ * 露白靠滚动容器约束 + overscan 处理，滚动中始终渲染完整行以保持样式一致。
  */
-export const SCHEMA_TREE_VIRTUALIZE_THRESHOLD = 500;
+export const SCHEMA_TREE_VIRTUALIZE_THRESHOLD = 200;
 
 export type SchemaNodeMetaClick = "database-filter" | "table-filter";
 

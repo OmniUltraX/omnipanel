@@ -44,6 +44,36 @@ export function normalizeRelationLookupKey(value: unknown): string {
   return String(value);
 }
 
+/**
+ * 关联 lookup 依赖指纹：只序列化各关联源列的去重取值。
+ * 普通单元格编辑（非 FK 源列）不会改变指纹，从而避免误触发 IPC。
+ */
+export function buildRelationLookupFingerprint(
+  relations: Record<string, TableColumnRelation>,
+  rows: Record<string, unknown>[],
+  resolveSourceValue?: (row: Record<string, unknown>, sourceColumn: string) => unknown,
+): string {
+  const sourceColumns = Object.keys(relations).sort();
+  if (sourceColumns.length === 0) {
+    return "";
+  }
+  const parts: string[] = [];
+  for (const sourceColumn of sourceColumns) {
+    const keys = new Set<string>();
+    for (const row of rows) {
+      const value = resolveSourceValue
+        ? resolveSourceValue(row, sourceColumn)
+        : row[sourceColumn];
+      const key = normalizeRelationLookupKey(value);
+      if (key) {
+        keys.add(key);
+      }
+    }
+    parts.push(`${sourceColumn}:${[...keys].sort().join(",")}`);
+  }
+  return parts.join("|");
+}
+
 function resolveColumnIndex(columns: string[], name: string, fallback: number): number {
   const lower = name.toLowerCase();
   const index = columns.findIndex((column) => column.toLowerCase() === lower);

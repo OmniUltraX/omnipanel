@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { TextEditorIO } from "../../../components/textEditor/types";
 import { useI18n } from "../../../i18n";
 import { appConfirm } from "../../../lib/appConfirm";
+import { appPrompt } from "../../../lib/appPrompt";
 import { showToast } from "../../../stores/toastStore";
 import type { DbConnectionConfig } from "../api";
 import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
@@ -16,6 +17,9 @@ import {
   resolveRedisServiceLogSource,
   toRemoteDeployment,
 } from "./deploymentServiceActions";
+
+/** 二次确认后仍须在输入框原样输入该词，才真正执行重启 */
+const RESTART_CONFIRM_TOKEN = "RESTART";
 
 export function useDeploymentServiceActions() {
   const { t } = useI18n();
@@ -76,15 +80,49 @@ export function useDeploymentServiceActions() {
           ? t("database.connectionInfo.deployment.serviceMysql")
           : t("database.connectionInfo.deployment.serviceRedis");
       const target = describeRestartTarget(deployment);
-      const confirmed = await appConfirm(
+
+      const firstOk = await appConfirm(
         t("database.connectionInfo.deployment.restartConfirmMessage", {
           service: serviceLabel,
           target,
         }),
         t("database.connectionInfo.deployment.restartConfirmTitle"),
-        { kind: "warning", confirmLabel: t("database.connectionInfo.deployment.restartService") },
+        {
+          confirmLabel: t("database.connectionInfo.deployment.restartConfirmContinue"),
+        },
       );
-      if (!confirmed) {
+      if (!firstOk) {
+        return;
+      }
+
+      const secondOk = await appConfirm(
+        t("database.connectionInfo.deployment.restartConfirmMessage2", {
+          service: serviceLabel,
+          target,
+        }),
+        t("database.connectionInfo.deployment.restartConfirmTitle2"),
+        {
+          confirmLabel: t("database.connectionInfo.deployment.restartConfirmContinue2"),
+        },
+      );
+      if (!secondOk) {
+        return;
+      }
+
+      const typed = await appPrompt(
+        t("database.connectionInfo.deployment.restartTypePrompt", {
+          token: RESTART_CONFIRM_TOKEN,
+          service: serviceLabel,
+          target,
+        }),
+        "",
+        t("database.connectionInfo.deployment.restartTypeTitle"),
+      );
+      if (typed == null) {
+        return;
+      }
+      if (typed.trim() !== RESTART_CONFIRM_TOKEN) {
+        showToast(t("database.connectionInfo.deployment.restartTypeMismatch"));
         return;
       }
 

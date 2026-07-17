@@ -1,5 +1,5 @@
 import { useMemo, memo, useCallback, useRef, useState, useEffect, useLayoutEffect } from "react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
   useDbWorkspace,
   useDbTabWorkspaceSliceOrMirror,
@@ -53,6 +53,8 @@ import { showToast } from "../../../stores/toastStore";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
+  /** 非活动 Tab 不挂载重型网格，避免 keep-alive 拖垮侧栏滚动 */
+  active?: boolean;
 }
 
 function selectionTargetCount(key: string | undefined): number {
@@ -60,13 +62,32 @@ function selectionTargetCount(key: string | undefined): number {
   return key.split("|").filter(Boolean).length;
 }
 
+/** 详情面板默认尺寸（固定 px）。RRP v4：裸 number / "Npx" = 像素，"N%" = 百分比 */
+const DETAIL_DEFAULT_SIZE_PX: Record<DatabaseTableDetailPosition, number> = {
+  right: 360,
+  bottom: 280,
+};
+const DETAIL_MIN_SIZE_PX: Record<DatabaseTableDetailPosition, number> = {
+  right: 240,
+  bottom: 180,
+};
+
+function toPanelPx(px: number): string {
+  return `${Math.max(0, Math.round(px))}px`;
+}
+
 export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   tab,
+  active = true,
 }: DbTablePreviewSurfaceProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
   const detailPanelRef = useRef<PanelImperativeHandle | null>(null);
+  /** 用户拖拽后的尺寸（按右/底分别记 px），避免 expand() 回落到 minSize */
+  const detailSizePxByPositionRef = useRef<Record<DatabaseTableDetailPosition, number>>({
+    ...DETAIL_DEFAULT_SIZE_PX,
+  });
   const gridActionsRef = useRef<TableDataGridActions | null>(null);
   const [detailCollapsed, setDetailCollapsed] = useState(true);
   const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
@@ -111,7 +132,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   }, [preview?.totalRows, tab.dbName, tab.tableName, t]);
 
   const previewConnection = tab.connId ? ws.resolveConnection(tab.connId) : null;
-  const databaseSchema = useTreeChartDatabaseSchema(previewConnection, tab.dbName ?? "");
+  const databaseSchema = useTreeChartDatabaseSchema(
+    active ? previewConnection : null,
+    active ? (tab.dbName ?? "") : "",
+  );
   const relationTables = useMemo(
     () => databaseSchema?.tables.filter((table) => table.kind !== "view") ?? [],
     [databaseSchema],
@@ -169,6 +193,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         }
         return row;
       });
+    // 无待插入行且不过滤时复用原 rows 引用，避免每次 dirty 换引用拖垮关联 lookup / 网格
+    if (pendingRows.length === 0 && changeRowFilter === "all") {
+      return preview.data.rows;
+    }
     // 待删除行保留展示，用红色高亮；不再从列表中隐藏
     const merged = [...preview.data.rows, ...pendingRows];
     if (changeRowFilter === "all") return merged;
@@ -384,23 +412,37 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       return;
     }
     if (handle.isCollapsed()) {
+      // expand() 无记忆尺寸时会落到 minSize，必须再 resize 到已存 px
       handle.expand();
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
       setDetailCollapsed(false);
     } else {
       cellEditorRef.current?.commitIfDirty();
       handle.collapse();
       setDetailCollapsed(true);
     }
-  }, []);
+  }, [detailPosition]);
+
+  const expandDetailPanel = useCallback(() => {
+    const handle = detailPanelRef.current;
+    if (!handle) {
+      setDetailCollapsed(false);
+      return;
+    }
+    if (handle.isCollapsed()) {
+      handle.expand();
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
+    }
+    setDetailCollapsed(false);
+  }, [detailPosition]);
 
   const handleCellEditorFocusRequest = useCallback(() => {
     setDetailTab("value");
     if (detailCollapsed) {
-      detailPanelRef.current?.expand();
-      setDetailCollapsed(false);
+      expandDetailPanel();
     }
     cellEditorRef.current?.focusEditor();
-  }, [detailCollapsed]);
+  }, [detailCollapsed, expandDetailPanel]);
 
   const handleRowBandSelect = useCallback(() => {
     if (!detailCollapsed) {
@@ -408,12 +450,21 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     }
   }, [detailCollapsed]);
 
-  const handleDetailPanelResize = useCallback(() => {
-    const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
-    setDetailCollapsed(collapsed);
-  }, []);
+  const handleDetailPanelResize = useCallback(
+    (panelSize: PanelSize) => {
+      const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
+      setDetailCollapsed(collapsed);
+      const minPx = DETAIL_MIN_SIZE_PX[detailPosition];
+      // 折叠过程中 inPixels≈0，勿覆盖用户尺寸
+      if (!collapsed && panelSize.inPixels >= minPx) {
+        detailSizePxByPositionRef.current[detailPosition] = Math.round(panelSize.inPixels);
+      }
+    },
+    [detailPosition],
+  );
 
   useEffect(() => {
+    if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (document.querySelector(".db-cell-preview-subwindow.subwindow-panel")) {
@@ -448,7 +499,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [detailCollapsed, gridActionsRef]);
+  }, [active, detailCollapsed, gridActionsRef]);
 
   const handlePositionChange = useCallback(
     (position: DatabaseTableDetailPosition) => {
@@ -487,22 +538,22 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
   const splitDirection = detailPosition === "right" ? "horizontal" : "vertical";
-  const detailDefaultSize = "32%";
-  const detailMinSize = detailPosition === "right" ? 240 : 180;
+  const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[detailPosition]);
+  const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[detailPosition]);
 
-  // 切换右/底时不要 remount 网格（否则会丢单元格选中）；只同步详情面板展开态与默认尺寸
+  // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px
   useLayoutEffect(() => {
-    if (!showPreviewGrid) return;
+    if (!showPreviewGrid || !active) return;
     const handle = detailPanelRef.current;
     if (!handle) return;
     if (detailCollapsed) {
       handle.collapse();
     } else {
       handle.expand();
-      handle.resize(detailDefaultSize);
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/出网格时同步，保留当前 collapsed
-  }, [detailPosition, showPreviewGrid, detailDefaultSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
+  }, [detailPosition, showPreviewGrid, active]);
 
   const previewSql = useMemo(() => {
     if (!previewConnection || !tab.tableName || !preview) return "";
@@ -572,7 +623,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const enableFilter = Boolean(previewConnection && previewConnection.db_type !== "redis");
 
-  const detailPanel = (
+  const detailPanel = active ? (
     <TableDetailPanel
       activeTab={detailTab}
       onActiveTabChange={setDetailTab}
@@ -599,9 +650,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onValueApply={handlePreviewCellApply}
       onValueSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
     />
-  );
+  ) : null;
 
-  const previewGrid = preview?.data && canRefresh && showPreviewGrid ? (
+  const previewGrid =
+    active && preview?.data && canRefresh && showPreviewGrid ? (
     <TableDataGrid
       columns={previewColumns}
       rows={previewDisplayRows}
@@ -652,10 +704,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       }
       onOpenRowDetail={() => {
         setDetailTab("record");
-        if (detailCollapsed) {
-          detailPanelRef.current?.expand();
-          setDetailCollapsed(false);
-        }
+        expandDetailPanel();
       }}
     />
   ) : null;
@@ -673,7 +722,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
           {t("common.loading")}
         </div>
-      ) : previewGrid && preview ? (
+      ) : preview?.data && canRefresh && !preview.error && preview ? (
         <div className="db-table-preview-shell">
           <TablePreviewTopBar
             loading={preview.loading}
@@ -733,7 +782,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             direction={splitDirection}
             className={`db-table-preview-split db-table-preview-split--${detailPosition}`}
           >
-            <DockPanel minSize={160}>
+            <DockPanel minSize="160px">
               <div className="results-area db-sql-results">{previewGrid}</div>
             </DockPanel>
             <DockHandle direction={splitDirection} />
@@ -742,6 +791,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
               minSize={detailMinSize}
               collapsible
               collapsedSize={0}
+              groupResizeBehavior="preserve-pixel-size"
               panelRef={detailPanelRef}
               onResize={handleDetailPanelResize}
               className={

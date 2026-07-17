@@ -444,9 +444,21 @@ export function TableDesignerPanel({
       <div className="db-table-designer-toolbar">
         <div className="db-table-designer-toolbar-main">
           <span className="db-table-designer-engine">{driver.displayName}</span>
-          <span className="db-table-designer-title">
-            {dbName}.{model.tableName}
-          </span>
+          <div className="db-table-designer-name-wrap">
+            <span className="db-table-designer-db-prefix" title={dbName}>
+              {dbName}.
+            </span>
+            <TextInput
+              size="sm"
+              className="db-table-designer-name-input"
+              value={model.tableName}
+              onChange={(tableName) => updateModel({ tableName })}
+              placeholder={t("database.tableDesigner.tableNamePlaceholder")}
+              spellCheck={false}
+              autoComplete="off"
+              copyable={false}
+            />
+          </div>
           <div className="db-table-designer-comment-wrap">
             <TextInput
               size="sm"

@@ -46,6 +46,7 @@ import {
   type TableColumnRelation,
 } from "./tableColumnRelation";
 import {
+  buildRelationLookupFingerprint,
   fetchColumnRelationLookups,
   normalizeRelationLookupKey,
 } from "./columnRelationLookup";
@@ -95,8 +96,10 @@ import {
   resolveCopyColumns,
 } from "./tableDataGridCopySql";
 import { buildTableDataGridContextMenuItems } from "./tableDataGridContextMenu";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   COLUMN_MIN_WIDTH,
+  DEFAULT_DATA_COLUMN_WIDTH,
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   ROW_NUM_COL_ID,
@@ -105,7 +108,12 @@ import {
   defaultDataColumnWidth,
   GRID_EXTERNAL_INTERACTION_SELECTOR,
 } from "./tableDataGridConstants";
-import { buildColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
+import {
+  buildColumnVirtualizationLayout,
+  buildVirtualizableColumnIndices,
+  COLUMN_VIRTUALIZE_OVERSCAN,
+  shouldVirtualizeGridColumns,
+} from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
   applyColumnWidthDom,
@@ -763,6 +771,23 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnRelations],
   );
 
+  const resolveRelationSourceValue = useCallback(
+    (row: Record<string, unknown>, sourceColumn: string) => {
+      const rowKey = resolvePreviewRowKey(row, pkCols);
+      const override = rowKey ? cellOverrides?.[rowKey]?.[sourceColumn] : undefined;
+      return override !== undefined ? override : row[sourceColumn];
+    },
+    [pkCols, cellOverrides],
+  );
+
+  const relationLookupFingerprint = useMemo(
+    () =>
+      buildRelationLookupFingerprint(columnRelations, rows, (row, sourceColumn) =>
+        resolveRelationSourceValue(row, sourceColumn),
+      ),
+    [columnRelations, rows, resolveRelationSourceValue],
+  );
+
   const rowsWithRelationDisplay = useMemo(() => {
     if (transposed || Object.keys(columnRelations).length === 0) return rows;
     return rows.map((row) => {
@@ -774,7 +799,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           continue;
         }
         const lookupMap = relationLookupMaps[displayColumnId];
-        const sourceValue = row[sourceColumn];
+        const sourceValue = resolveRelationSourceValue(row, sourceColumn);
         if (sourceValue == null || sourceValue === "") {
           extra[displayColumnId] = null;
           continue;
@@ -784,7 +809,12 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return { ...row, ...extra };
     });
-  }, [rows, columnRelations, relationLookupMaps, transposed]);
+  }, [rows, columnRelations, relationLookupMaps, transposed, resolveRelationSourceValue]);
+
+  const rowsForRelationLookupRef = useRef(rows);
+  rowsForRelationLookupRef.current = rows;
+  const resolveRelationSourceValueRef = useRef(resolveRelationSourceValue);
+  resolveRelationSourceValueRef.current = resolveRelationSourceValue;
 
   useEffect(() => {
     if (
@@ -799,13 +829,22 @@ export const TableDataGrid = memo(function TableDataGrid({
     }
 
     let cancelled = false;
+    const currentRows = rowsForRelationLookupRef.current;
+    const resolveSource = resolveRelationSourceValueRef.current;
+    const lookupRows = currentRows.map((row) => {
+      const next: Record<string, unknown> = { ...row };
+      for (const sourceColumn of Object.keys(columnRelations)) {
+        next[sourceColumn] = resolveSource(row, sourceColumn);
+      }
+      return next;
+    });
     void fetchColumnRelationLookups(
       relationConnection,
       relationDatabase,
       dbType,
       columnRelations,
       relationTables,
-      rows,
+      lookupRows,
     ).then((maps) => {
       if (!cancelled) {
         setRelationLookupMaps(maps);
@@ -822,7 +861,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     dbType,
     columnRelations,
     relationTables,
-    rows,
+    relationLookupFingerprint,
   ]);
 
   const previewGridColumns = useMemo(
@@ -940,6 +979,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   const displayRowsBase = transposed ? transposedData!.rows : rowsWithRelationDisplay;
   const displayDirtyRowKeys = transposed ? transposedDirty!.dirtyRowKeys : dirtyRowKeys;
   const displayCellOverrides = transposed ? transposedDirty!.cellOverrides : cellOverrides;
+  const displayCellOverridesRef = useRef(displayCellOverrides);
+  displayCellOverridesRef.current = displayCellOverrides;
   const [pageSort, setPageSort] = useState<{ column: string; desc: boolean } | null>(null);
 
   const displayRows = useMemo(() => {
@@ -1202,7 +1243,9 @@ export const TableDataGrid = memo(function TableDataGrid({
             const rowKey = transposed
               ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
               : resolvePreviewRowKey(row.original, pkCols);
-            const overrideForRow = rowKey ? displayCellOverrides?.[rowKey] : undefined;
+            const overrideForRow = rowKey
+              ? displayCellOverridesRef.current?.[rowKey]
+              : undefined;
             const resolvedValue =
               overrideForRow?.[column.id] !== undefined
                 ? overrideForRow[column.id]
@@ -1242,7 +1285,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       return defs;
     },
-    [displayColumns, transposed, columnMetaMap, columnRelations, relationTables, t, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, displayCellOverrides, autoIncrementPlaceholder],
+    [displayColumns, transposed, columnMetaMap, columnRelations, relationTables, t, canFilter, filterColumnNames, openFilterPopover, enableSort, sort, handleColumnSortClick, pkCols, pkCount, autoIncrementPlaceholder],
   );
 
   const table = useReactTable({
@@ -2003,10 +2046,55 @@ export const TableDataGrid = memo(function TableDataGrid({
     [columnSizing],
   );
 
-  // 列向虚拟化器尚未接入；传入空 virtualItems，layout 会安全回退为全列渲染
-  const columnLayout = useMemo(
-    () => buildColumnVirtualizationLayout(leafColumns, transposed, [], [], 0),
+  const virtualizableColumnIndices = useMemo(
+    () => buildVirtualizableColumnIndices(leafColumns, transposed),
     [leafColumns, transposed],
+  );
+  const useColumnVirtualization = shouldVirtualizeGridColumns(leafColumns.length);
+
+  const columnVirtualizer = useVirtualizer({
+    count: useColumnVirtualization ? virtualizableColumnIndices.length : 0,
+    getScrollElement: () => (useColumnVirtualization ? wrapRef.current : null),
+    estimateSize: (index) => {
+      const colIndex = virtualizableColumnIndices[index] ?? 0;
+      const column = leafColumns[colIndex];
+      if (!column) {
+        return DEFAULT_DATA_COLUMN_WIDTH;
+      }
+      return resolveColumnWidth(column.id, column.getSize());
+    },
+    horizontal: true,
+    overscan: COLUMN_VIRTUALIZE_OVERSCAN,
+  });
+
+  const columnVirtualItems = useColumnVirtualization
+    ? columnVirtualizer.getVirtualItems()
+    : [];
+
+  useLayoutEffect(() => {
+    if (!useColumnVirtualization) {
+      return;
+    }
+    columnVirtualizer.measure();
+  }, [useColumnVirtualization, columnSizing, totalTableWidth, fillDelta, columnVirtualizer]);
+
+  const columnLayout = useMemo(
+    () =>
+      buildColumnVirtualizationLayout(
+        leafColumns,
+        transposed,
+        columnVirtualItems,
+        virtualizableColumnIndices,
+        useColumnVirtualization ? columnVirtualizer.getTotalSize() : 0,
+      ),
+    [
+      leafColumns,
+      transposed,
+      columnVirtualItems,
+      virtualizableColumnIndices,
+      useColumnVirtualization,
+      columnVirtualizer,
+    ],
   );
 
   const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
@@ -2656,18 +2744,80 @@ export const TableDataGrid = memo(function TableDataGrid({
         style={{ width: fillDelta > 0 ? "100%" : totalTableWidth, minWidth: "100%" }}
       >
         <colgroup>
-          {leafColumns.map((column) => (
-            <col
-              key={column.id}
-              data-col-id={column.id}
-              style={{ width: resolveColumnWidth(column.id, column.getSize()) }}
-            />
-          ))}
+          {columnLayout.enabled ? (
+            <>
+              {columnLayout.pinnedIndices.map((colIndex) => {
+                const column = leafColumns[colIndex];
+                if (!column) return null;
+                return (
+                  <col
+                    key={column.id}
+                    data-col-id={column.id}
+                    style={{ width: resolveColumnWidth(column.id, column.getSize()) }}
+                  />
+                );
+              })}
+              {columnLayout.paddingLeft > 0 ? (
+                <col key="__col_pad_l" style={{ width: columnLayout.paddingLeft }} />
+              ) : null}
+              {columnLayout.virtualIndices.map((colIndex) => {
+                const column = leafColumns[colIndex];
+                if (!column) return null;
+                return (
+                  <col
+                    key={column.id}
+                    data-col-id={column.id}
+                    style={{ width: resolveColumnWidth(column.id, column.getSize()) }}
+                  />
+                );
+              })}
+              {columnLayout.paddingRight > 0 ? (
+                <col key="__col_pad_r" style={{ width: columnLayout.paddingRight }} />
+              ) : null}
+            </>
+          ) : (
+            leafColumns.map((column) => (
+              <col
+                key={column.id}
+                data-col-id={column.id}
+                style={{ width: resolveColumnWidth(column.id, column.getSize()) }}
+              />
+            ))
+          )}
         </colgroup>
         <thead>
                 {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header, headerColIdx) => {
+              {(columnLayout.enabled
+                ? [
+                    ...columnLayout.pinnedIndices.map((i) => ({ kind: "col" as const, i })),
+                    ...(columnLayout.paddingLeft > 0
+                      ? [{ kind: "pad" as const, key: "l", width: columnLayout.paddingLeft }]
+                      : []),
+                    ...columnLayout.virtualIndices.map((i) => ({ kind: "col" as const, i })),
+                    ...(columnLayout.paddingRight > 0
+                      ? [{ kind: "pad" as const, key: "r", width: columnLayout.paddingRight }]
+                      : []),
+                  ]
+                : headerGroup.headers.map((_, i) => ({ kind: "col" as const, i }))
+              ).map((item) => {
+                if (item.kind === "pad") {
+                  return (
+                    <th
+                      key={`__th_pad_${item.key}`}
+                      aria-hidden
+                      style={{
+                        width: item.width,
+                        minWidth: item.width,
+                        padding: 0,
+                        border: "none",
+                      }}
+                    />
+                  );
+                }
+                const headerColIdx = item.i;
+                const header = headerGroup.headers[headerColIdx];
+                if (!header) return null;
                 const baseSize = header.getSize();
                 const colId = header.column.id;
                 const isFieldCol = transposed && colId === TRANSPOSE_FIELD_COL;

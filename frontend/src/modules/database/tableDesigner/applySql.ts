@@ -123,6 +123,11 @@ export function hasModelChanges(
   return false;
 }
 
+/** baseline 表名为空时视为「新建表」模式。 */
+export function isNewTableBaseline(baseline: TableDesignerModel): boolean {
+  return !baseline.tableName.trim();
+}
+
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -145,11 +150,48 @@ function mysqlColumnDef(field: TableDesignerFieldRow): string {
   return def;
 }
 
+export function buildCreateSqlMySQL(model: TableDesignerModel, dbName: string): string[] {
+  const db = dbName.trim();
+  const tableName = model.tableName.trim();
+  if (!db || !tableName) return [];
+
+  const tableRef = `${mysqlQuoteId(db)}.${mysqlQuoteId(tableName)}`;
+  const lines: string[] = model.fields.map((field) => mysqlColumnDef(field));
+  const pkCols = model.fields
+    .filter((field) => field.isPk && field.name.trim())
+    .map((field) => mysqlQuoteId(field.name.trim()));
+  if (pkCols.length > 0) {
+    lines.push(`PRIMARY KEY (${pkCols.join(", ")})`);
+  }
+
+  let createSql = `CREATE TABLE ${tableRef} (\n  ${lines.join(",\n  ")}\n)`;
+  if (model.comment.trim()) {
+    createSql += ` COMMENT='${escapeSqlString(model.comment.trim())}'`;
+  }
+
+  const stmts: string[] = [createSql];
+  for (const index of model.indexes) {
+    if (index.primary || index.columns.length === 0) continue;
+    const cols = index.columns.map((c) => mysqlQuoteId(c.trim())).join(", ");
+    const name = mysqlQuoteId(index.name.trim() || `idx_${index.columns.join("_")}`);
+    if (index.unique) {
+      stmts.push(`CREATE UNIQUE INDEX ${name} ON ${tableRef} (${cols})`);
+    } else {
+      stmts.push(`CREATE INDEX ${name} ON ${tableRef} (${cols})`);
+    }
+  }
+  return stmts;
+}
+
 export function buildApplySqlMySQL(
   baseline: TableDesignerModel,
   model: TableDesignerModel,
   dbName: string,
 ): string[] {
+  if (isNewTableBaseline(baseline)) {
+    return buildCreateSqlMySQL(model, dbName);
+  }
+
   const stmts: string[] = [];
   const db = dbName.trim();
   const tableName = model.tableName.trim();
@@ -267,11 +309,55 @@ function pgColumnDef(field: TableDesignerFieldRow): string {
   return def;
 }
 
+export function buildCreateSqlPostgres(model: TableDesignerModel, _dbName: string): string[] {
+  const { schema, table } = pgParseSchemaTable(model.tableName);
+  if (!table) return [];
+  const tableRef = `${pgQuoteId(schema)}.${pgQuoteId(table)}`;
+
+  const lines: string[] = model.fields.map(
+    (field) => `${pgQuoteId(field.name.trim())} ${pgColumnDef(field)}`,
+  );
+  const pkCols = model.fields
+    .filter((field) => field.isPk && field.name.trim())
+    .map((field) => pgQuoteId(field.name.trim()));
+  if (pkCols.length > 0) {
+    lines.push(`PRIMARY KEY (${pkCols.join(", ")})`);
+  }
+
+  const stmts: string[] = [`CREATE TABLE ${tableRef} (\n  ${lines.join(",\n  ")}\n)`];
+
+  if (model.comment.trim()) {
+    stmts.push(
+      `COMMENT ON TABLE ${tableRef} IS '${escapeSqlString(model.comment.trim())}'`,
+    );
+  }
+  for (const field of model.fields) {
+    if (!field.comment.trim()) continue;
+    stmts.push(
+      `COMMENT ON COLUMN ${tableRef}.${pgQuoteId(field.name.trim())} IS '${escapeSqlString(field.comment.trim())}'`,
+    );
+  }
+
+  for (const index of model.indexes) {
+    if (index.primary || index.columns.length === 0) continue;
+    const cols = index.columns.map((c) => pgQuoteId(c.trim())).join(", ");
+    const name = pgQuoteId(index.name.trim() || `idx_${index.columns.join("_")}`);
+    const unique = index.unique ? "UNIQUE " : "";
+    stmts.push(`CREATE ${unique}INDEX ${name} ON ${tableRef} (${cols})`);
+  }
+
+  return stmts;
+}
+
 export function buildApplySqlPostgres(
   baseline: TableDesignerModel,
   model: TableDesignerModel,
   _dbName: string,
 ): string[] {
+  if (isNewTableBaseline(baseline)) {
+    return buildCreateSqlPostgres(model, _dbName);
+  }
+
   const stmts: string[] = [];
   const { schema: modelSchema, table: modelTable } = pgParseSchemaTable(model.tableName);
   const { schema: baseSchema, table: baseTable } = pgParseSchemaTable(baseline.tableName);
@@ -398,11 +484,34 @@ function sqliteColumnDef(field: TableDesignerFieldRow): string {
   return def;
 }
 
+export function buildCreateSqlSQLite(model: TableDesignerModel, _dbName: string): string[] {
+  const tableName = model.tableName.trim();
+  if (!tableName) return [];
+  const tableRef = sqliteQuoteId(tableName);
+
+  const lines = model.fields.map((field) => sqliteColumnDef(field));
+  const stmts: string[] = [`CREATE TABLE ${tableRef} (\n  ${lines.join(",\n  ")}\n)`];
+
+  for (const index of model.indexes) {
+    if (index.primary || index.columns.length === 0) continue;
+    const cols = index.columns.map((c) => sqliteQuoteId(c.trim())).join(", ");
+    const name = sqliteQuoteId(index.name.trim() || `idx_${index.columns.join("_")}`);
+    const unique = index.unique ? "UNIQUE " : "";
+    stmts.push(`CREATE ${unique}INDEX ${name} ON ${tableRef} (${cols})`);
+  }
+
+  return stmts;
+}
+
 export function buildApplySqlSQLite(
   baseline: TableDesignerModel,
   model: TableDesignerModel,
   _dbName: string,
 ): string[] {
+  if (isNewTableBaseline(baseline)) {
+    return buildCreateSqlSQLite(model, _dbName);
+  }
+
   const stmts: string[] = [];
   const tableName = model.tableName.trim();
   const baseTableName = baseline.tableName.trim();

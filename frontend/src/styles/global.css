@@ -4067,6 +4067,9 @@ a {
     min-width: var(--shell-win-controls-width);
     height: 100%;
     align-items: stretch;
+    position: relative;
+    z-index: 5;
+    -webkit-app-region: no-drag;
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
@@ -4081,6 +4084,7 @@ a {
     margin-left: 0;
     height: 100%;
     align-items: stretch;
+    -webkit-app-region: no-drag;
 }
 
 .dockable-workspace.dock-window-control .dock-window-chrome-left-actions {
@@ -4113,6 +4117,7 @@ a {
     height: 100%;
     min-height: 0;
     width: 46px;
+    -webkit-app-region: no-drag;
 }
 
 .dockable-workspace.dock-window-control .dock-window-title-actions--controls-only {
@@ -6625,6 +6630,7 @@ a {
         display: flex;
         align-items: center;
         margin-left: var(--sp-2);
+        -webkit-app-region: no-drag;
     }
 
     .win-btn {
@@ -6638,6 +6644,7 @@ a {
         background: transparent;
         color: var(--muted);
         transition: background 0.1s, color 0.1s;
+        -webkit-app-region: no-drag;
     }
 
     .win-btn:hover {

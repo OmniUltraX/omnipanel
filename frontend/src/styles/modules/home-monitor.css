@@ -1,0 +1,401 @@
+/* ─── Home Resource Monitor（对齐 Open Design home-monitor.css） ─── */
+
+.dashboard-page--resource-monitor {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--sp-4) var(--sp-6);
+}
+
+.hm-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Toolbar ─────────────────────────────────────────────────────────── */
+.hm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--sp-3);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.hm-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--meta);
+}
+.hm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.hm-chip strong {
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+.hm-chip .hm-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.hm-toolbar-spacer {
+  flex: 1;
+}
+.hm-updated {
+  font-size: 10px;
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+.hm-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.hm-refresh:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.hm-refresh svg {
+  width: 12px;
+  height: 12px;
+}
+.hm-refresh.spinning svg {
+  animation: hm-spin 0.8s linear infinite;
+}
+@keyframes hm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Card grid ───────────────────────────────────────────────────────── */
+.hm-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.hm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--sp-3);
+  align-content: start;
+  padding-bottom: var(--sp-4);
+}
+@media (max-width: 900px) {
+  .hm-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Host card ───────────────────────────────────────────────────────── */
+.hm-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+.hm-card:hover {
+  border-color: var(--muted);
+}
+.hm-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--hm-status, var(--success));
+}
+.hm-card[data-status="ok"] {
+  --hm-status: var(--success);
+}
+.hm-card[data-status="warn"] {
+  --hm-status: var(--warn);
+}
+.hm-card[data-status="danger"] {
+  --hm-status: var(--danger);
+}
+
+.hm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.hm-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hm-status);
+  flex-shrink: 0;
+  animation: hm-pulse 2.4s ease infinite;
+}
+@keyframes hm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.hm-title {
+  flex: 1;
+  min-width: 0;
+}
+.hm-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hm-sub {
+  font-size: 9px;
+  color: var(--meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.hm-env-tag {
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+  background: var(--bg-deeper, var(--bg));
+  border: 1px solid var(--border-soft, var(--border));
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.hm-badge {
+  padding: 1px 7px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 600;
+  flex-shrink: 0;
+  color: var(--hm-status);
+  background: color-mix(in oklch, var(--hm-status) 14%, transparent);
+}
+
+.hm-gauges {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+}
+.hm-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.hm-donut {
+  position: relative;
+  width: 48px;
+  height: 48px;
+}
+.hm-donut svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.hm-donut-track {
+  fill: none;
+  stroke: var(--bg-deeper, var(--border));
+  stroke-width: 4;
+}
+.hm-donut-fill {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease;
+}
+.hm-donut-val {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hm-gauge-label {
+  font-size: 9px;
+  color: var(--meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hm-spark {
+  height: 26px;
+  margin: 0 calc(var(--sp-1) * -1);
+}
+.hm-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hm-spark .spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.85;
+}
+.hm-spark .spark-area {
+  fill: color-mix(in oklch, var(--accent) 12%, transparent);
+  stroke: none;
+}
+
+.hm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  padding-top: var(--sp-2);
+}
+.hm-row {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 9px;
+}
+.hm-row-label {
+  color: var(--meta);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.hm-row-val {
+  color: var(--fg-2, var(--fg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hm-bar {
+  height: 5px;
+  background: var(--bg-deeper, var(--border));
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+}
+.hm-bar span {
+  height: 100%;
+  transition: width 0.3s;
+}
+.hm-bar .seg-used {
+  background: var(--success);
+}
+.hm-bar .seg-cache {
+  background: color-mix(in oklch, var(--success) 50%, var(--bg-deeper, var(--border)));
+}
+.hm-bar .seg-disk {
+  background: var(--warn);
+  border-radius: 2px;
+}
+.hm-bar .seg-disk.crit {
+  background: var(--danger);
+}
+.hm-bar .seg-gpu {
+  background: #64d2ff;
+  border-radius: 2px;
+}
+.hm-net-pair {
+  display: flex;
+  gap: var(--sp-3);
+  color: var(--fg-2, var(--fg));
+  font-variant-numeric: tabular-nums;
+}
+.hm-net-pair .up {
+  color: var(--accent);
+}
+.hm-net-pair .down {
+  color: var(--success);
+}
+
+.hm-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  border-top: 1px solid var(--border-soft, var(--border));
+  padding-top: var(--sp-2);
+  font-size: 9px;
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+.hm-foot .hm-foot-spacer {
+  flex: 1;
+}
+.hm-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.hm-open-btn:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.hm-open-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.hm-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+}
+.hm-empty h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.hm-empty p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--meta);
+}

@@ -726,30 +726,49 @@ export function RedisConnectionInfoPanel({
       enabled={capable && subTab !== "cli"}
     >
       {capable ? (
-        <div className="db-connection-info-deploy">
-          <span className="db-connection-info-deploy-label">
-            {t("database.connectionInfo.deployment.label")}
+        <div className="db-tables-panel-header db-connection-info-header">
+          <span className="db-tables-panel-header-label">
+            {t("database.connectionInfo.headerLabel")}
           </span>
-          <div className="db-connection-info-deploy-tags">
-            <RedisDeploymentTags
-              loading={deploymentLoading}
-              deployment={deployment}
-              connection={connection}
-              sshConnections={sshConnections}
-            />
+          <div className="db-tables-panel-header-tags">
+            <span
+              className="db-tables-panel-header-tag db-tables-panel-header-tag--name"
+              title={connectionLabel}
+            >
+              {connectionLabel}
+            </span>
+            <span className="db-tables-panel-header-tag" title={connection.db_type}>
+              {connection.db_type}
+            </span>
+            <span
+              className="db-tables-panel-header-tag"
+              title={t("database.tablesPanel.headerHost")}
+            >
+              {`${connection.host?.trim() || "—"}:${connection.port}`}
+            </span>
+            <div className="db-connection-info-deploy-tags">
+              <RedisDeploymentTags
+                loading={deploymentLoading}
+                deployment={deployment}
+                connection={connection}
+                sshConnections={sshConnections}
+              />
+            </div>
           </div>
-          {deployment?.kind === "host" || deployment?.kind === "docker" ? (
-            <DeploymentServiceActionButtons
-              canManage={canManageDeployedService(deployment)}
-              logBusy={serviceLogBusy}
-              restartBusy={serviceRestartBusy}
-              configBusy={configOpening}
-              onViewLog={handleViewServiceLog}
-              onRestart={handleRestartService}
-              onOpenConfig={handleOpenRedisConfig}
-              configPath={redisConfigPathHint}
-            />
-          ) : null}
+          <div className="db-tables-panel-header-actions">
+            {deployment?.kind === "host" || deployment?.kind === "docker" ? (
+              <DeploymentServiceActionButtons
+                canManage={canManageDeployedService(deployment)}
+                logBusy={serviceLogBusy}
+                restartBusy={serviceRestartBusy}
+                configBusy={configOpening}
+                onViewLog={handleViewServiceLog}
+                onRestart={handleRestartService}
+                onOpenConfig={handleOpenRedisConfig}
+                configPath={redisConfigPathHint}
+              />
+            ) : null}
+          </div>
         </div>
       ) : null}
       {capable ? (

@@ -1,12 +1,11 @@
 import { useCallback } from "react";
-import { commands } from "../../../../ipc/bindings";
 import type { HostSystemStats } from "../../../../stores/sshStatsStore";
 import { safePercent } from "../../../../stores/sshStatsStore";
-import {
-  acquireSshPoolSession,
-  releaseSshPoolSession,
-} from "../../../../stores/sshPoolSessionStore";
 import { useHostMonitoring, useSshHostStore } from "../../../../stores/sshHostStore";
+import {
+  disableSshMonitoring,
+  enableSshMonitoring,
+} from "../../../../stores/sshMonitoringLifecycle";
 
 export type MonitoringPhase = "idle" | "loading" | "ready" | "error";
 
@@ -35,34 +34,12 @@ function appendPoint(
   return [...history.slice(-(MAX_POINTS - 1)), { ts, value: v }];
 }
 
-/** 开启 SSH 系统监控订阅（幂等；可从看板卡片等非 hook 场景调用） */
-export async function enableSshMonitoring(resourceId: string): Promise<void> {
-  if (useSshHostStore.getState().isMonitoring(resourceId)) return;
-  useSshHostStore.getState().setMonitoringEnabled(resourceId, true);
-  acquireSshPoolSession(resourceId);
-  try {
-    const res = await commands.sshPoolSubscribeMonitoring(resourceId);
-    if (res.status !== "ok") {
-      useSshHostStore.getState().setMonitoringEnabled(resourceId, false);
-      releaseSshPoolSession(resourceId);
-    }
-  } catch {
-    useSshHostStore.getState().setMonitoringEnabled(resourceId, false);
-    releaseSshPoolSession(resourceId);
-  }
-}
-
-/** 关闭 SSH 系统监控订阅（幂等） */
-export async function disableSshMonitoring(resourceId: string): Promise<void> {
-  if (!useSshHostStore.getState().isMonitoring(resourceId)) return;
-  useSshHostStore.getState().setMonitoringEnabled(resourceId, false);
-  releaseSshPoolSession(resourceId);
-  try {
-    await commands.sshPoolUnsubscribeMonitoring(resourceId);
-  } catch {
-    // ignore
-  }
-}
+export {
+  enableSshMonitoring,
+  disableSshMonitoring,
+  restoreSshMonitoringSubscriptions,
+  forgetSshMonitoring,
+} from "../../../../stores/sshMonitoringLifecycle";
 
 export function useSshMonitoring(resourceId: string | null) {
   const monitoring = useHostMonitoring(resourceId);
@@ -108,9 +85,6 @@ export function useSshMonitoring(resourceId: string | null) {
       resourceId,
     ],
   );
-
-  // 订阅生命周期只跟 enable/disable 绑定，不在组件 unmount 时取消，
-  // 以便离开 SSH 详情后首页「资源监控」tab 仍能持续收数。
 
   const phase: MonitoringPhase = !resourceId
     ? "idle"

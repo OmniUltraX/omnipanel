@@ -3137,26 +3137,35 @@ export function DatabasePanel() {
         return;
       }
 
-      const existingTabId = findTabIdForDesigner(
-        workspaceTabs,
-        selection.connId,
-        selection.dbName,
-        selection.tableName,
-      );
-      if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
-        return;
+      const isNewTable = !selection.tableName.trim();
+      if (!isNewTable) {
+        const existingTabId = findTabIdForDesigner(
+          workspaceTabs,
+          selection.connId,
+          selection.dbName,
+          selection.tableName,
+        );
+        if (existingTabId) {
+          activateWorkspaceTab(existingTabId);
+          return;
+        }
       }
 
       const tabId = makeDesignerTabId();
       const tab: TableDesignerWorkspaceTab = {
         id: tabId,
         kind: "designer",
-        label: makeTableDesignerTabLabel(
-          selection.tableName,
-          selection.dbName,
-          selection.connection.name,
-        ),
+        label: isNewTable
+          ? makeTableDesignerTabLabel(
+              t("database.tablesPanel.newTable"),
+              selection.dbName,
+              selection.connection.name,
+            )
+          : makeTableDesignerTabLabel(
+              selection.tableName,
+              selection.dbName,
+              selection.connection.name,
+            ),
         connId: selection.connId,
         dbName: selection.dbName,
         tableName: selection.tableName,
@@ -3164,7 +3173,7 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
     },
-    [workspaceTabs],
+    [activateWorkspaceTab, t, workspaceTabs],
   );
 
   const openTableQuery = useCallback(
@@ -5089,6 +5098,26 @@ export function DatabasePanel() {
                     onOpenTableData={(tableSelection) =>
                       handleSelectTable(tableSelection, "permanent")
                     }
+                    onExportDatabase={
+                      isMysqlConnectionInfoCapable(connection)
+                        ? (dbSelection) => {
+                            void handleExportDatabase(
+                              dbSelection.connection,
+                              dbSelection.dbName,
+                            );
+                          }
+                        : undefined
+                    }
+                    onImportDatabase={
+                      isMysqlConnectionInfoCapable(connection)
+                        ? (dbSelection) => {
+                            handleOpenImportDatabase(
+                              dbSelection.connection,
+                              dbSelection.dbName,
+                            );
+                          }
+                        : undefined
+                    }
                   />
                 </div>
               );
@@ -5194,6 +5223,24 @@ export function DatabasePanel() {
                   persistedState={tableDesignerStates[tab.id] ?? null}
                   onPersistState={(state) => updateTableDesignerState(tab.id, state)}
                   onSaved={() => setSchemaRefreshToken((token) => token + 1)}
+                  onTableCreated={(createdTableName) => {
+                    setWorkspaceTabs((prev) =>
+                      prev.map((item) => {
+                        if (item.id !== tab.id || item.kind !== "designer") {
+                          return item;
+                        }
+                        return {
+                          ...item,
+                          tableName: createdTableName,
+                          label: makeTableDesignerTabLabel(
+                            createdTableName,
+                            item.dbName,
+                            connection.name,
+                          ),
+                        };
+                      }),
+                    );
+                  }}
                 />
               </div>
             )}
@@ -5204,7 +5251,7 @@ export function DatabasePanel() {
       if (tab.kind === "table") {
         return (
           <div className="db-workspace-pane db-dock-pane">
-            <DbTablePreviewSurface tab={tab} />
+            <DbTablePreviewSurface tab={tab} active={tab.id === activeWorkspaceTabId} />
           </div>
         );
       }

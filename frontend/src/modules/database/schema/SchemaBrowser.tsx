@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -107,6 +108,7 @@ import {
   isSchemaFlatRowIndexInViewport,
   scrollSchemaFlatRowIntoView,
   SCHEMA_TREE_MESSAGE_ROW_HEIGHT,
+  SCHEMA_TREE_NODE_ROW_HEIGHT,
   SCHEMA_TREE_VIRTUALIZE_THRESHOLD,
   type SchemaFlatRow,
   type StickySchemaAncestor,
@@ -1848,15 +1850,24 @@ export function SchemaBrowser({
   const rowVirtualizer = useVirtualizer({
     count: useTreeVirtualization ? flatRows.length : 0,
     getScrollElement: () => (useTreeVirtualization ? schemaTreeRef.current : null),
-    estimateSize: (index) => estimateSchemaFlatRowSize(flatRowsRef.current[index]),
+    // 固定行高：勿用 measureElement；所有行统一高度避免区间漂移露白
+    estimateSize: () => SCHEMA_TREE_NODE_ROW_HEIGHT,
     getItemKey: (index) => flatRowsRef.current[index]?.key ?? index,
-    // 行高固定，禁止 measureElement，否则滚动时 ResizeObserver 改尺寸 → 滚动条与内容脱节
-    overscan: 12,
+    // 视口外多渲缓冲行，快滚时仍用完整 TreeNode（与静止态同样式）
+    overscan: 48,
   });
   const rowVirtualizerRef = useRef(rowVirtualizer);
   rowVirtualizerRef.current = rowVirtualizer;
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
+
+  // 滚动元素挂载 / 行数变化后强制同步一次测量，避免 WebView 下首屏区间错位
+  useLayoutEffect(() => {
+    if (!useTreeVirtualization) {
+      return;
+    }
+    rowVirtualizerRef.current.measure();
+  }, [useTreeVirtualization, flatRows.length]);
 
   const hasAnyConnection = connections.length > 0;
 
@@ -2460,9 +2471,9 @@ export function SchemaBrowser({
               if (!row) return null;
               return (
                 <div
-                  key={row.key}
+                  key={virtualRow.key}
                   data-index={virtualRow.index}
-                  className="schema-tree-virtual-row"
+                  className="schema-tree-virtual-row schema-tree-virtual-row--absolute"
                   style={{
                     position: "absolute",
                     top: 0,

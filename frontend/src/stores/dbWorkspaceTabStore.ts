@@ -20,15 +20,39 @@ function applyUpdater<T>(prev: T, updater: RecordUpdater<T>): T {
 }
 
 function cloneDirtyRows(rows: DirtyRows | undefined): DirtyRows {
-  if (!rows || Object.keys(rows).length === 0) return {};
-  return structuredClone(rows);
+  if (!rows) return {};
+  const keys = Object.keys(rows);
+  if (keys.length === 0) return {};
+  const next: DirtyRows = {};
+  for (const rowKey of keys) {
+    const changes = rows[rowKey];
+    if (!changes) continue;
+    next[rowKey] = { ...changes };
+  }
+  return next;
 }
 
 function dirtyRowsEqual(a: DirtyRows | undefined, b: DirtyRows | undefined): boolean {
   const left = a ?? EMPTY_TAB_DIRTY_ROWS;
   const right = b ?? EMPTY_TAB_DIRTY_ROWS;
   if (left === right) return true;
-  return JSON.stringify(left) === JSON.stringify(right);
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const rowKey of leftKeys) {
+    const leftChanges = left[rowKey];
+    const rightChanges = right[rowKey];
+    if (leftChanges === rightChanges) continue;
+    if (!leftChanges || !rightChanges) return false;
+    const leftCols = Object.keys(leftChanges);
+    const rightCols = Object.keys(rightChanges);
+    if (leftCols.length !== rightCols.length) return false;
+    for (const col of leftCols) {
+      if (!Object.prototype.hasOwnProperty.call(rightChanges, col)) return false;
+      if (!Object.is(leftChanges[col], rightChanges[col])) return false;
+    }
+  }
+  return true;
 }
 
 export interface DbTabWorkspaceSlice {

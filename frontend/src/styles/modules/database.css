@@ -811,7 +811,7 @@
     }
 
     .schema-tree-scoped-search {
-        flex: 1;
+        flex: 1 1 0;
         min-height: 0;
         display: flex;
         flex-direction: column;
@@ -823,8 +823,15 @@
         z-index: 50;
     }
 
+    /* 只有 .schema-tree 滚，祖先链禁止抢滚动 */
+    .schema-tree-scoped-search .scoped-search-content {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+    }
+
     .schema-tree-stack {
-        flex: 1;
+        flex: 1 1 0;
         min-height: 0;
         display: flex;
         flex-direction: column;
@@ -886,16 +893,27 @@
     }
 
     .schema-tree {
-        flex: 1;
+        flex: 1 1 0;
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
         overflow-anchor: none;
-        --schema-tree-row-height: 22px;
+        --schema-tree-row-height: 28px;
     }
 
     .schema-tree--virtual {
         position: relative;
+    }
+
+    /*
+     * 全局 .tree-node 的 content-visibility:auto 在快滚时会跳过绘制露白。
+     * 连接树必须强制可见（!important 压过 global.css 后加载顺序）。
+     */
+    .schema-tree .tree-node,
+    .schema-tree .sidebar-tree-node {
+        content-visibility: visible !important;
+        contain-intrinsic-size: none !important;
+        contain: none !important;
     }
 
     .schema-tree-virtual-inner {
@@ -903,15 +921,28 @@
         position: relative;
     }
 
-    .schema-tree-native-inner {
-        width: 100%;
-    }
-
     .schema-tree-virtual-row,
     .schema-tree-native-row {
         box-sizing: border-box;
         overflow: hidden;
-        contain: layout style;
+        height: var(--schema-tree-row-height);
+    }
+
+    .schema-tree-virtual-row--absolute {
+        will-change: transform;
+    }
+
+    .schema-tree-native-inner {
+        width: 100%;
+    }
+
+    .schema-tree-virtual-row .tree-node,
+    .schema-tree-native-row .tree-node {
+        height: 100%;
+        min-height: 0;
+        box-sizing: border-box;
+        padding-top: 0;
+        padding-bottom: 0;
     }
 
     .schema-tree-message {
@@ -1058,6 +1089,86 @@
         border-left: none;
     }
 
+    .db-tables-panel-header {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px 8px;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border-soft);
+        background: var(--surface);
+        flex-shrink: 0;
+    }
+
+    .db-tables-panel-header-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--meta);
+        white-space: nowrap;
+    }
+
+    .db-tables-panel-header-tags {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .db-tables-panel-header-tag {
+        flex-shrink: 0;
+        max-width: min(100%, 280px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.2;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        letter-spacing: 0.02em;
+        color: var(--fg-2);
+        background: var(--bg-deeper);
+        border: 1px solid var(--border-soft);
+    }
+
+    .db-tables-panel-header-tag--name {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+
+    .db-tables-panel-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .db-tables-panel-header-action-btn {
+        color: var(--meta);
+    }
+
+    .db-tables-panel-header-action-btn:not(:disabled):hover {
+        color: var(--accent);
+    }
+
+    .db-tables-panel-header-action-btn--danger:not(:disabled):hover {
+        color: var(--danger, #e03131);
+    }
+
+    .db-tables-panel-header-action-btn .is-spinning {
+        animation: db-tables-panel-spin 0.8s linear infinite;
+    }
+
+    @keyframes db-tables-panel-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
     .db-tables-panel-meta {
         display: flex;
         align-items: center;
@@ -1142,6 +1253,19 @@
     .db-connection-info-deploy-action-btn:not(:disabled):hover,
     .db-connection-info-deploy-config-btn:not(:disabled):hover {
         color: var(--accent);
+    }
+
+    .db-connection-info-deploy-action-btn--danger {
+        color: color-mix(in srgb, var(--danger, #ff3b30) 78%, var(--meta));
+    }
+
+    .db-connection-info-deploy-action-btn--danger:not(:disabled):hover {
+        color: var(--danger, #ff3b30);
+        background: color-mix(in srgb, var(--danger, #ff3b30) 12%, transparent);
+    }
+
+    .db-connection-info-header .db-connection-info-deploy-tags {
+        flex: 0 1 auto;
     }
 
     .db-connection-info-deploy-hint {
@@ -1447,6 +1571,20 @@
         width: 280px;
     }
 
+    .db-tables-panel-search-input--meta {
+        width: 168px;
+        min-width: 120px;
+    }
+
+    .db-tables-panel-meta .db-tables-panel-search-input--meta .input,
+    .db-tables-panel-meta .db-tables-panel-search-input--meta input {
+        min-height: 22px;
+        height: 22px;
+        font-size: 11px;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+
     .db-tables-panel-list-pane {
         height: 100%;
         min-height: 0;
@@ -1482,6 +1620,10 @@
         height: 100%;
         min-height: 0;
         overflow: auto;
+    }
+
+    .db-tables-panel-grid-wrap:has(.db-tables-panel-grid-host--virtual) {
+        overflow: hidden;
     }
 
     .db-tables-panel-grid {
@@ -1627,8 +1769,18 @@
         outline: none;
     }
 
+    .db-tables-panel-grid-host--virtual {
+        overflow: auto;
+    }
+
+    .db-tables-panel-grid__spacer td {
+        line-height: 0;
+        font-size: 0;
+    }
+
     .db-tables-panel-grid tbody tr {
         cursor: pointer;
+        user-select: none;
     }
 
     .db-tables-panel-grid tbody tr:hover {
@@ -5165,6 +5317,13 @@
         overflow: hidden;
     }
 
+    .db-table-preview-shell--inactive,
+    .db-table-preview-inactive {
+        flex: 1;
+        min-height: 0;
+        background: var(--bg);
+    }
+
     .db-table-topbar {
         display: flex;
         align-items: center;
@@ -5883,25 +6042,34 @@
     .db-cell-editor-footer-actions {
         flex-shrink: 0;
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
         gap: 2px;
-        padding: 8px 10px 10px;
+        padding: 1px 6px;
         border-top: 1px solid var(--border);
+        min-height: 0;
+        line-height: 1.2;
     }
 
     .db-cell-editor-action-btn {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 6px 8px;
+        gap: 3px;
+        width: auto;
+        height: 22px;
+        padding: 0 5px;
         border: none;
-        border-radius: 4px;
+        border-radius: 3px;
         background: transparent;
         color: var(--text-muted);
-        font-size: 12px;
+        font-size: 11px;
+        line-height: 1;
         text-align: left;
         cursor: pointer;
+        white-space: nowrap;
+        box-sizing: border-box;
     }
 
     .db-cell-editor-action-btn:hover {
@@ -5911,7 +6079,7 @@
 
     .db-cell-editor-action-icon {
         display: inline-flex;
-        width: 14px;
+        width: 12px;
         justify-content: center;
         flex-shrink: 0;
         opacity: 0.85;
@@ -5924,29 +6092,51 @@
     }
 
     .db-table-detail-panel--bottom .db-cell-editor-panel {
-        flex-direction: row;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto;
         align-content: stretch;
+        flex-direction: unset;
+        flex-wrap: unset;
     }
 
     .db-table-detail-panel--bottom .db-cell-editor-meta {
-        flex: 0 0 220px;
-        width: 220px;
+        grid-column: 1;
+        grid-row: 1;
+        flex: unset;
+        width: auto;
         border-bottom: none;
         border-right: 1px solid var(--border);
         overflow: auto;
+        min-height: 0;
+    }
+
+    .db-table-detail-panel--bottom .db-cell-editor-multi-hint {
+        grid-column: 1;
+        grid-row: 1;
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+        overflow: auto;
+        min-height: 0;
     }
 
     .db-table-detail-panel--bottom .db-cell-editor-value-section {
-        flex: 1 1 240px;
-        min-width: 200px;
+        grid-column: 2;
+        grid-row: 1;
+        flex: unset;
+        min-width: 0;
+        min-height: 0;
     }
 
     .db-table-detail-panel--bottom .db-cell-editor-footer-actions {
-        flex: 0 0 100%;
+        grid-column: 1 / -1;
+        grid-row: 2;
+        flex: unset;
         flex-direction: row;
         flex-wrap: wrap;
+        justify-content: flex-end;
         border-top: 1px solid var(--border);
+        align-self: stretch;
     }
 
     .db-table-detail-panel--bottom .db-cell-editor-action-btn {
@@ -8537,6 +8727,39 @@
         flex-shrink: 0;
     }
 
+    .db-table-designer-name-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        min-width: 140px;
+        max-width: 280px;
+        flex: 0 1 220px;
+    }
+
+    .db-table-designer-db-prefix {
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--meta);
+        white-space: nowrap;
+        max-width: 96px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .db-table-designer-name-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .db-table-designer-name-input .input,
+    .db-table-designer-name-input input {
+        font-size: 12px;
+        font-weight: 600;
+        height: 26px;
+        min-height: 26px;
+    }
+
     .db-table-designer-comment-wrap {
         flex: 1;
         min-width: 160px;
@@ -9771,6 +9994,30 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
+}
+
+.db-tables-panel-meta-btn {
+    height: 22px !important;
+    min-height: 22px;
+    padding: 0 8px !important;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--fg-2);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    box-shadow: none;
+}
+
+.db-tables-panel-meta-btn:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.db-tables-panel-meta-btn:active:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* 用户操作按钮组（行内） */

@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "../../i18n";
 import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
+import { isTauriRuntime } from "../../lib/isTauriRuntime";
 
 interface WinControlsProps {
   className?: string;
@@ -10,18 +11,25 @@ export function WinControls({ className }: WinControlsProps) {
   const { t } = useI18n();
   const isMaximized = useTauriWindowMaximized();
 
-  const handleMinimize = async () => {
-    await getCurrentWindow().minimize();
+  const handleMinimize = () => {
+    if (!isTauriRuntime()) return;
+    void getCurrentWindow()
+      .minimize()
+      .catch((e) => console.error("[WinControls] minimize failed", e));
   };
 
-  const handleMaximize = async () => {
-    await getCurrentWindow().toggleMaximize();
+  const handleMaximize = () => {
+    if (!isTauriRuntime()) return;
+    void getCurrentWindow()
+      .toggleMaximize()
+      .catch((e) => console.error("[WinControls] toggleMaximize failed", e));
   };
 
   const handleClose = () => {
-    void getCurrentWindow().close().catch((e) => {
-      console.error("[WinControls] close failed", e);
-    });
+    if (!isTauriRuntime()) return;
+    void getCurrentWindow()
+      .close()
+      .catch((e) => console.error("[WinControls] close failed", e));
   };
 
   return (

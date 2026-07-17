@@ -1,41 +1,36 @@
-export const SCHEMA_CHILD_PAGE_SIZE = 100;
+/**
+ * Schema 连接树已用虚拟滚动渲染扁平行，子节点无需再截断分页。
+ * 保留本模块 API，避免调用方大面积改动；始终返回全量。
+ */
+
+/** @deprecated 虚拟滚动下不再使用分页；保留常量以免外部引用报错 */
+export const SCHEMA_CHILD_PAGE_SIZE = Number.MAX_SAFE_INTEGER;
 
 export function getSchemaChildVisibleLimit(
-  limits: Record<string, number>,
-  parentNodeId: string,
+  _limits: Record<string, number>,
+  _parentNodeId: string,
 ): number {
-  return limits[parentNodeId] ?? SCHEMA_CHILD_PAGE_SIZE;
+  return SCHEMA_CHILD_PAGE_SIZE;
 }
 
 export function paginateSchemaChildren<T>(
   items: readonly T[],
-  parentNodeId: string,
-  limits: Record<string, number>,
-  options?: { unpaginated?: boolean },
+  _parentNodeId: string,
+  _limits: Record<string, number>,
+  _options?: { unpaginated?: boolean },
 ): { visible: T[]; hasMore: boolean; total: number; remaining: number } {
   const total = items.length;
-  if (options?.unpaginated) {
-    return {
-      visible: [...items],
-      hasMore: false,
-      total,
-      remaining: 0,
-    };
-  }
-  const limit = getSchemaChildVisibleLimit(limits, parentNodeId);
-  const visible = items.slice(0, limit);
-  const remaining = Math.max(0, total - visible.length);
   return {
-    visible,
-    hasMore: remaining > 0,
+    visible: [...items],
+    hasMore: false,
     total,
-    remaining,
+    remaining: 0,
   };
 }
 
 export function nextSchemaChildLimit(
-  limits: Record<string, number>,
-  parentNodeId: string,
+  _limits: Record<string, number>,
+  _parentNodeId: string,
 ): number {
-  return getSchemaChildVisibleLimit(limits, parentNodeId) + SCHEMA_CHILD_PAGE_SIZE;
+  return SCHEMA_CHILD_PAGE_SIZE;
 }

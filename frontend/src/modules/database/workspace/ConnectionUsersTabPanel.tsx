@@ -373,7 +373,12 @@ export function ConnectionUsersTabPanel({
     if (!onActionsReady) return;
     if (active) {
       onActionsReady(
-        <Button variant="default" size="xs" onClick={() => setCreateOpen(true)}>
+        <Button
+          variant="ghost"
+          size="xs"
+          className="db-tables-panel-meta-btn"
+          onClick={() => setCreateOpen(true)}
+        >
           {t("database.connectionInfo.users.create")}
         </Button>,
       );

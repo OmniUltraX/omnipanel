@@ -35,6 +35,18 @@ export function DeploymentServiceActionButtons({
 
   return (
     <div className="db-connection-info-deploy-actions">
+      <Button
+        type="button"
+        variant="icon"
+        size="icon-xs"
+        className="db-connection-info-deploy-action-btn db-connection-info-deploy-action-btn--danger"
+        title={restartLabel}
+        aria-label={restartLabel}
+        disabled={!canManage || restartBusy || !onRestart}
+        onClick={onRestart}
+      >
+        <IconRefresh size={14} />
+      </Button>
       {leading}
       <Button
         type="button"
@@ -47,18 +59,6 @@ export function DeploymentServiceActionButtons({
         onClick={onViewLog}
       >
         <IconTerminal2 size={14} />
-      </Button>
-      <Button
-        type="button"
-        variant="icon"
-        size="icon-xs"
-        className="db-connection-info-deploy-action-btn"
-        title={restartLabel}
-        aria-label={restartLabel}
-        disabled={!canManage || restartBusy || !onRestart}
-        onClick={onRestart}
-      >
-        <IconRefresh size={14} />
       </Button>
       <Button
         type="button"

@@ -7,10 +7,12 @@ import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
+import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
 import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
+import { showToast } from "../../../stores/toastStore";
 import type { Connection } from "../../../ipc/bindings";
 import {
   isMysqlConnectionInfoCapable,
@@ -363,6 +365,12 @@ export function DatabaseConnectionInfoPanel({
     direction: "asc",
   });
   const [killingId, setKillingId] = useState<number | null>(null);
+  const [dbContextMenu, setDbContextMenu] = useState<{
+    x: number;
+    y: number;
+    dbName: string;
+  } | null>(null);
+  const [selectedDbName, setSelectedDbName] = useState<string | null>(null);
   const consumeSubTab = useDbConnectionInfoNavStore((state) => state.consumeSubTab);
   // 标记是否已进入过 connections tab，用于切换回来时静默刷新（保留旧数据可见）
   const connectionsTabEnteredRef = useRef(false);
@@ -380,6 +388,19 @@ export function DatabaseConnectionInfoPanel({
     if (name) return name;
     return `${connection.host}:${connection.port}`;
   }, [connection.host, connection.name, connection.port]);
+
+  const headerHostLabel = useMemo(() => {
+    const host = connection.host?.trim() || "—";
+    const port = Number(connection.port);
+    return Number.isFinite(port) && port > 0 ? `${host}:${port}` : host;
+  }, [connection.host, connection.port]);
+
+  const openDatabase = useCallback(
+    (dbName: string) => {
+      selectDatabase({ connId: connection.id, dbName, connection }, "permanent");
+    },
+    [connection, selectDatabase],
+  );
 
   const {
     open: configEditorOpen,
@@ -550,6 +571,8 @@ export function DatabaseConnectionInfoPanel({
     setConnectionsError(null);
     setVariablesError(null);
     setDatabasesError(null);
+    setSelectedDbName(null);
+    setDbContextMenu(null);
     // 重置 connectionsTabEnteredRef，让新连接首次进入 connections tab 时正常加载
     connectionsTabEnteredRef.current = false;
   }, [connection.id, connection.host, connection.port, connection.db_type]);
@@ -1137,30 +1160,33 @@ export function DatabaseConnectionInfoPanel({
         getCopyValue: (db) =>
           db.rowsEstimate != null ? String(db.rowsEstimate) : "",
       },
-      {
-        id: "__actions",
-        variant: "actionsSticky" as const,
-        header: t("database.connectionInfo.users.colActions"),
-        headerAriaLabel: t("database.connectionInfo.users.colActions"),
-        render: (db) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={(e: MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation();
-              selectDatabase(
-                { connId: connection.id, dbName: db.name, connection },
-                "permanent",
-              );
-            }}
-          >
-            {t("database.connectionInfo.databases.open")}
-          </Button>
-        ),
-      },
     ],
-    [connection, selectDatabase, t],
+    [t],
   );
+
+  const dbContextMenuItems = useMemo((): ContextMenuItem[] => {
+    if (!dbContextMenu) {
+      return [];
+    }
+    const dbName = dbContextMenu.dbName;
+    return [
+      {
+        id: "open",
+        label: t("database.connectionInfo.databases.open"),
+        onClick: () => openDatabase(dbName),
+      },
+      {
+        id: "copy-name",
+        label: t("database.connectionInfo.databases.copyName"),
+        onClick: () => {
+          void navigator.clipboard.writeText(dbName).then(
+            () => showToast(t("database.connectionInfo.databases.copiedName")),
+            () => showToast(t("database.connectionInfo.databases.copyFailed")),
+          );
+        },
+      },
+    ];
+  }, [dbContextMenu, openDatabase, t]);
 
   const renderDatabasesList = () => {
     // 有旧数据时保留显示，仅首次加载（无数据时）显示 loading
@@ -1186,6 +1212,18 @@ export function DatabaseConnectionInfoPanel({
         sortDirection={databaseSort.direction}
         onSortColumn={(columnId) => toggleDatabaseSort(columnId as DatabaseSortColumn)}
         columnResizeStorageKey={`db-conn-info-databases-${connection.id}`}
+        selectedRowKey={selectedDbName}
+        onRowClick={(db) => setSelectedDbName(db.name)}
+        onRowDoubleClick={(db) => openDatabase(db.name)}
+        onRowContextMenu={(db, event) => {
+          setSelectedDbName(db.name);
+          setDbContextMenu({ x: event.clientX, y: event.clientY, dbName: db.name });
+        }}
+        onActivateSelectedRows={() => {
+          if (selectedDbName) {
+            openDatabase(selectedDbName);
+          }
+        }}
       />
     );
   };
@@ -1234,76 +1272,109 @@ export function DatabaseConnectionInfoPanel({
       }
       enabled={capable && subTab !== "cli" && subTab !== "users"}
     >
-      {isMysql ? (
-        <div className="db-connection-info-deploy">
-          <span className="db-connection-info-deploy-label">
-            {t("database.connectionInfo.deployment.label")}
+      {capable ? (
+        <div className="db-tables-panel-header db-connection-info-header">
+          <span className="db-tables-panel-header-label">
+            {t("database.connectionInfo.headerLabel")}
           </span>
-          <div className="db-connection-info-deploy-tags">
-            <MysqlDeploymentTags
-              loading={deploymentLoading}
-              deployment={deployment}
-              connection={connection}
-              sshConnections={sshConnections}
-            />
-          </div>
-          {(() => {
-            const mysqlLogButtons = (
-              <>
-                <Button
-                  type="button"
-                  variant="icon"
-                  size="icon-xs"
-                  className="db-connection-info-deploy-action-btn"
-                  title={t("database.contextMenu.slowQueryLog")}
-                  aria-label={t("database.contextMenu.slowQueryLog")}
-                  onClick={() =>
-                    useDbMysqlLogNavStore.getState().requestOpen(connection.id, "slow-query")
-                  }
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-                    <path d="M3 2.5h10v11H3z" />
-                    <path d="M5 6h6M5 8.5h4M5 11h5" />
-                    <path d="M11 2.5V1.5H5v1" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  variant="icon"
-                  size="icon-xs"
-                  className="db-connection-info-deploy-action-btn"
-                  title={t("database.contextMenu.binlog")}
-                  aria-label={t("database.contextMenu.binlog")}
-                  onClick={() =>
-                    useDbMysqlLogNavStore.getState().requestOpen(connection.id, "binlog")
-                  }
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-                    <path d="M4 2h8v12H4z" />
-                    <path d="M6 5h4M6 8h4M6 11h2" />
-                    <path d="M2 5h2M2 8h2M2 11h2" />
-                  </svg>
-                </Button>
-              </>
-            );
-            const canShowDeployActions =
-              deployment?.kind === "host" || deployment?.kind === "docker";
-            if (canShowDeployActions) {
-              return (
-                <DeploymentServiceActionButtons
-                  leading={mysqlLogButtons}
-                  canManage={canManageDeployedService(deployment)}
-                  logBusy={serviceLogBusy}
-                  restartBusy={serviceRestartBusy}
-                  configBusy={configOpening}
-                  onViewLog={handleViewServiceLog}
-                  onRestart={handleRestartService}
-                  onOpenConfig={handleOpenMysqlConfig}
+          <div className="db-tables-panel-header-tags">
+            <span
+              className="db-tables-panel-header-tag db-tables-panel-header-tag--name"
+              title={connectionLabel}
+            >
+              {connectionLabel}
+            </span>
+            <span className="db-tables-panel-header-tag" title={connection.db_type}>
+              {connection.db_type}
+            </span>
+            <span
+              className="db-tables-panel-header-tag"
+              title={t("database.tablesPanel.headerHost")}
+            >
+              {headerHostLabel}
+            </span>
+            {connection.user?.trim() ? (
+              <span
+                className="db-tables-panel-header-tag"
+                title={t("database.connectionInfo.headerUser")}
+              >
+                {connection.user.trim()}
+              </span>
+            ) : null}
+            {isMysql ? (
+              <div className="db-connection-info-deploy-tags">
+                <MysqlDeploymentTags
+                  loading={deploymentLoading}
+                  deployment={deployment}
+                  connection={connection}
+                  sshConnections={sshConnections}
                 />
-              );
-            }
-            return <div className="db-connection-info-deploy-actions">{mysqlLogButtons}</div>;
-          })()}
+              </div>
+            ) : null}
+          </div>
+          <div className="db-tables-panel-header-actions">
+            {isMysql
+              ? (() => {
+                  const mysqlLogButtons = (
+                    <>
+                      <Button
+                        type="button"
+                        variant="icon"
+                        size="icon-xs"
+                        className="db-tables-panel-header-action-btn"
+                        title={t("database.contextMenu.slowQueryLog")}
+                        aria-label={t("database.contextMenu.slowQueryLog")}
+                        onClick={() =>
+                          useDbMysqlLogNavStore.getState().requestOpen(connection.id, "slow-query")
+                        }
+                      >
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                          <path d="M3 2.5h10v11H3z" />
+                          <path d="M5 6h6M5 8.5h4M5 11h5" />
+                          <path d="M11 2.5V1.5H5v1" />
+                        </svg>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="icon"
+                        size="icon-xs"
+                        className="db-tables-panel-header-action-btn"
+                        title={t("database.contextMenu.binlog")}
+                        aria-label={t("database.contextMenu.binlog")}
+                        onClick={() =>
+                          useDbMysqlLogNavStore.getState().requestOpen(connection.id, "binlog")
+                        }
+                      >
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                          <path d="M4 2h8v12H4z" />
+                          <path d="M6 5h4M6 8h4M6 11h2" />
+                          <path d="M2 5h2M2 8h2M2 11h2" />
+                        </svg>
+                      </Button>
+                    </>
+                  );
+                  const canShowDeployActions =
+                    deployment?.kind === "host" || deployment?.kind === "docker";
+                  if (canShowDeployActions) {
+                    return (
+                      <DeploymentServiceActionButtons
+                        leading={mysqlLogButtons}
+                        canManage={canManageDeployedService(deployment)}
+                        logBusy={serviceLogBusy}
+                        restartBusy={serviceRestartBusy}
+                        configBusy={configOpening}
+                        onViewLog={handleViewServiceLog}
+                        onRestart={handleRestartService}
+                        onOpenConfig={handleOpenMysqlConfig}
+                      />
+                    );
+                  }
+                  return (
+                    <div className="db-connection-info-deploy-actions">{mysqlLogButtons}</div>
+                  );
+                })()
+              : null}
+          </div>
         </div>
       ) : null}
       {capable ? (
@@ -1403,8 +1474,9 @@ export function DatabaseConnectionInfoPanel({
         {subTab === "databases" && capable ? (
           <div className="db-tables-panel-meta-actions">
             <Button
-              variant="default"
+              variant="ghost"
               size="xs"
+              className="db-tables-panel-meta-btn"
               onClick={() => setCreateDbOpen(true)}
             >
               {t("database.connectionInfo.databases.create")}
@@ -1477,6 +1549,13 @@ export function DatabaseConnectionInfoPanel({
           void refreshDatabases({ silent: false });
         }}
       />
+      {dbContextMenu ? (
+        <ContextMenu
+          items={dbContextMenuItems}
+          position={{ x: dbContextMenu.x, y: dbContextMenu.y }}
+          onClose={() => setDbContextMenu(null)}
+        />
+      ) : null}
     </>
   );
 }

@@ -21,6 +21,7 @@ import {
 } from "../lib/resourceTags";
 import { useSshHostStore } from "./sshHostStore";
 import { forceReleaseSshPoolSession } from "./sshPoolSessionStore";
+import { forgetSshMonitoring } from "./sshMonitoringLifecycle";
 
 /**
  * 连接状态层：后端 `omnipanel-store` 持久化的统一连接模型在前端的唯一缓存。
@@ -197,6 +198,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       if (res.status === "ok") {
         set((state) => ({ connections: state.connections.filter((c) => c.id !== id) }));
         if (conn?.kind === "ssh") {
+          forgetSshMonitoring(id);
           useSshHostStore.getState().clearHost(id);
           forceReleaseSshPoolSession(id);
         }

@@ -1,18 +1,23 @@
 import { useMemo } from "react";
-import { connectionToResource, useConnectionStore } from "../../stores/connectionStore";
-import { useSshHostStore } from "../../stores/sshHostStore";
-import { useSshStatsStore } from "../../stores/sshStatsStore";
-import type { HostSystemStats } from "../../stores/sshStatsStore";
+import type { EnvironmentTag } from "../../lib/resourceRegistry";
 import { MODULE_PATHS } from "../../lib/paths";
+import { connectionToResource, useConnectionStore } from "../../stores/connectionStore";
+import {
+  useSshHostStore,
+  type MonitorPoint,
+} from "../../stores/sshHostStore";
+import { useSshStatsStore, type HostSystemStats } from "../../stores/sshStatsStore";
 
 export type ActiveMonitoringHost = {
   resourceId: string;
   name: string;
   address: string;
   path: string;
+  environment: EnvironmentTag;
   stats: HostSystemStats | null;
-  /** 最近概览更新时间（若有） */
   updatedAt: number | null;
+  cpuSeries: MonitorPoint[];
+  processCount: number;
 };
 
 /** 筛出已开启系统监控的 SSH 主机，供首页「资源监控」tab 使用 */
@@ -30,14 +35,23 @@ export function useActiveMonitoringHosts(): ActiveMonitoringHost[] {
     for (const resourceId of enabledIds) {
       const conn = connections.find((c) => c.id === resourceId);
       const resource = conn ? connectionToResource(conn) : null;
-      const overview = hosts[resourceId]?.overview;
+      const snap = hosts[resourceId];
+      const overview = snap?.overview;
+      const stats = statsMap[resourceId] ?? overview?.stats ?? null;
+      const updatedAt =
+        overview?.updatedAt ??
+        (stats?.timestamp != null ? stats.timestamp * 1000 : null);
+
       items.push({
         resourceId,
-        name: resource?.name ?? overview?.stats?.hostName ?? resourceId,
+        name: resource?.name ?? stats?.hostName ?? resourceId,
         address: resource?.subtitle ?? "",
         path: resource?.modulePath ?? MODULE_PATHS.ssh,
-        stats: statsMap[resourceId] ?? overview?.stats ?? null,
-        updatedAt: overview?.updatedAt ?? null,
+        environment: resource?.environment ?? "unknown",
+        stats,
+        updatedAt,
+        cpuSeries: snap?.monitoring.cpuSeries ?? [],
+        processCount: overview?.processes.length ?? 0,
       });
     }
 

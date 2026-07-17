@@ -59,3 +59,32 @@ describe("buildApplySqlMySQL column reorder", () => {
     );
   });
 });
+
+describe("buildApplySqlMySQL create table", () => {
+  it("emits CREATE TABLE when baseline has empty table name", () => {
+    const id = field("a", "id");
+    id.type = "INT";
+    id.length = "";
+    id.nullable = false;
+    id.isPk = true;
+    id.isAutoIncrement = true;
+    const name = field("b", "name");
+    const baseline: TableDesignerModel = {
+      tableName: "",
+      comment: "",
+      fields: [field("x", "")],
+      indexes: [],
+    };
+    const next: TableDesignerModel = {
+      tableName: "users",
+      comment: "用户",
+      fields: [id, name],
+      indexes: [],
+    };
+    const stmts = buildApplySqlMySQL(baseline, next, "app");
+    expect(stmts[0]).toContain("CREATE TABLE `app`.`users`");
+    expect(stmts[0]).toContain("`id` INT NOT NULL AUTO_INCREMENT");
+    expect(stmts[0]).toContain("PRIMARY KEY (`id`)");
+    expect(stmts[0]).toContain("COMMENT='用户'");
+  });
+});

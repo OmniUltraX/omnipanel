@@ -1,5 +1,8 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { DockerContainerSummary } from "../../ipc/bindings";
+
+export type HomeDashboardTabId = "board" | "resource-monitor";
 
 export interface DashboardContainerState {
   /** 最近一次成功拉取的容器列表（去重后） */
@@ -13,6 +16,9 @@ export interface DashboardContainerState {
 }
 
 interface DashboardState extends DashboardContainerState {
+  /** 首页 segment tab：看板 | 资源监控（持久化） */
+  homeTabId: HomeDashboardTabId;
+  setHomeTabId: (tabId: HomeDashboardTabId) => void;
   /** 触发刷新的递增信号；HomeBoardView 订阅后重新拉数据 */
   refreshSignal: number;
   /** 调用即自增 refreshSignal，HomeBoardView 拉数据 */
@@ -34,20 +40,31 @@ const EMPTY: DashboardContainerState = {
   lastUpdatedAt: 0,
 };
 
-export const useDashboardStore = create<DashboardState>((set) => ({
-  ...EMPTY,
-  refreshSignal: 0,
-  triggerRefresh: () =>
-    set((state) => ({ refreshSignal: state.refreshSignal + 1 })),
-  setContainerSnapshot: ({ containers, loading, failureCount }) =>
-    set((prev) => ({
-      containers,
-      loading,
-      failureCount: prev.failureCount + failureCount,
-      lastUpdatedAt: Date.now(),
-    })),
-  clearFailure: () => set({ failureCount: 0 }),
-}));
+export const useDashboardStore = create<DashboardState>()(
+  persist(
+    (set) => ({
+      ...EMPTY,
+      homeTabId: "board",
+      setHomeTabId: (homeTabId) => set({ homeTabId }),
+      refreshSignal: 0,
+      triggerRefresh: () =>
+        set((state) => ({ refreshSignal: state.refreshSignal + 1 })),
+      setContainerSnapshot: ({ containers, loading, failureCount }) =>
+        set((prev) => ({
+          containers,
+          loading,
+          failureCount: prev.failureCount + failureCount,
+          lastUpdatedAt: Date.now(),
+        })),
+      clearFailure: () => set({ failureCount: 0 }),
+    }),
+    {
+      name: "omnipanel.dashboard.home-tab",
+      // 只持久化 tab；容器列表仍走内存缓存
+      partialize: (state) => ({ homeTabId: state.homeTabId }),
+    },
+  ),
+);
 
 /** 纯读容器快照（无订阅），给非组件上下文用 */
 export function getDashboardContainerSnapshot(): DashboardContainerState {

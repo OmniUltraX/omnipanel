@@ -48,6 +48,18 @@ export function createEmptyIndex(): TableDesignerIndexRow {
   };
 }
 
+/** 新建表初始模型：空表名 + 一行空白字段，便于直接编辑。 */
+export function createEmptyTableModel(
+  createField: () => TableDesignerFieldRow = createEmptyField,
+): TableDesignerModel {
+  return {
+    tableName: "",
+    comment: "",
+    fields: [createField()],
+    indexes: [],
+  };
+}
+
 export function fromSchemaGeneric(schema: DbTableSchema): TableDesignerModel {
   const pkNames = new Set(schema.columns.filter((col) => col.isPk).map((col) => col.name));
   return {

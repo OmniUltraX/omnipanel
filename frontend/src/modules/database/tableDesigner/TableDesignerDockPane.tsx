@@ -5,6 +5,8 @@ import { useActionStore } from "../../../stores/actionStore";
 import { introspectTable, type DbConnectionConfig } from "../api";
 import type { TableDesignerTabState } from "../workspace/dbWorkspaceState";
 import { makeQueryRunId } from "../sql/queryRun";
+import { createEmptyTableModel } from "./drivers/genericDriver";
+import { isNewTableBaseline } from "./applySql";
 import { resolveTableDesignerDriver } from "./resolveTableDesignerDriver";
 import { TableDesignerPanel } from "./TableDesignerPanel";
 import type { TableDesignerModel } from "./types";
@@ -16,6 +18,8 @@ interface TableDesignerDockPaneProps {
   persistedState?: TableDesignerTabState | null;
   onPersistState?: (state: TableDesignerTabState) => void;
   onSaved?: () => void;
+  /** 新建表保存成功后回写真实表名（用于更新 Tab） */
+  onTableCreated?: (tableName: string) => void;
 }
 
 function cloneModel(model: TableDesignerModel): TableDesignerModel {
@@ -35,6 +39,7 @@ export function TableDesignerDockPane({
   persistedState,
   onPersistState,
   onSaved,
+  onTableCreated,
 }: TableDesignerDockPaneProps) {
   const { t } = useI18n();
   const enqueueAction = useActionStore((s) => s.enqueueAction);
@@ -44,16 +49,26 @@ export function TableDesignerDockPane({
     () => resolveTableDesignerDriver({ db_type: dbType }),
     [dbType],
   );
+  const isCreating = !tableName.trim();
   const initialPersisted = isValidDesignerTabState(persistedState) ? persistedState : null;
-  const skipInitialLoadRef = useRef(Boolean(initialPersisted));
+  const initialCreateModel =
+    !initialPersisted && isCreating
+      ? createEmptyTableModel(() => driver.createEmptyField())
+      : null;
+  const skipInitialLoadRef = useRef(Boolean(initialPersisted) || Boolean(initialCreateModel));
+  const skipCreatePromoteRef = useRef(false);
   const onPersistStateRef = useRef(onPersistState);
   onPersistStateRef.current = onPersistState;
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
 
-  const [model, setModel] = useState<TableDesignerModel | null>(initialPersisted?.model ?? null);
-  const [baseline, setBaseline] = useState<TableDesignerModel | null>(initialPersisted?.baseline ?? null);
-  const [loading, setLoading] = useState(!initialPersisted);
+  const [model, setModel] = useState<TableDesignerModel | null>(
+    initialPersisted?.model ?? initialCreateModel,
+  );
+  const [baseline, setBaseline] = useState<TableDesignerModel | null>(
+    initialPersisted?.baseline ?? (initialCreateModel ? cloneModel(initialCreateModel) : null),
+  );
+  const [loading, setLoading] = useState(!initialPersisted && !initialCreateModel);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<{ kind: "success" | "error"; message: string } | null>(
@@ -74,6 +89,18 @@ export function TableDesignerDockPane({
       setError(t("database.tableDesigner.unsupportedEngine"));
       setModel(null);
       setBaseline(null);
+      return;
+    }
+
+    if (!tableName.trim()) {
+      const empty = createEmptyTableModel(() => driver.createEmptyField());
+      const emptyBaseline = cloneModel(empty);
+      setModel(empty);
+      setBaseline(emptyBaseline);
+      persistState(empty, emptyBaseline);
+      setLoading(false);
+      setError(null);
+      setSaveNotice(null);
       return;
     }
 
@@ -114,6 +141,11 @@ export function TableDesignerDockPane({
       skipInitialLoadRef.current = false;
       return;
     }
+    // 新建表保存成功后父组件回写 tableName：保留当前模型，勿立刻 introspect 冲掉
+    if (skipCreatePromoteRef.current) {
+      skipCreatePromoteRef.current = false;
+      return;
+    }
     return loadSchema();
   }, [connectionId, dbName, tableName, reloadToken, loadSchema]);
 
@@ -131,6 +163,8 @@ export function TableDesignerDockPane({
     () => (baseline && model ? driver.hasModelChanges(baseline, model) : false),
     [baseline, model, driver],
   );
+
+  const creating = Boolean(baseline && isNewTableBaseline(baseline));
 
   const handleSave = useCallback(async () => {
     if (!model || !baseline) return;
@@ -154,6 +188,7 @@ export function TableDesignerDockPane({
     setSaveNotice(null);
     const conn = connectionRef.current;
     const connForSchema = { ...conn, database: dbName };
+    const createdName = isNewTableBaseline(baseline) ? model.tableName.trim() : "";
 
     try {
       for (const sql of statements) {
@@ -174,7 +209,16 @@ export function TableDesignerDockPane({
       const nextBaseline = cloneModel(model);
       setBaseline(nextBaseline);
       persistState(model, nextBaseline);
-      setSaveNotice({ kind: "success", message: t("database.tableDesigner.saveSuccess") });
+      setSaveNotice({
+        kind: "success",
+        message: createdName
+          ? t("database.tableDesigner.createSuccess")
+          : t("database.tableDesigner.saveSuccess"),
+      });
+      if (createdName) {
+        skipCreatePromoteRef.current = true;
+        onTableCreated?.(createdName);
+      }
       onSaved?.();
     } catch (err) {
       setSaveNotice({
@@ -184,7 +228,7 @@ export function TableDesignerDockPane({
     } finally {
       setSaving(false);
     }
-  }, [baseline, dbName, driver, enqueueAction, model, onSaved, persistState, t]);
+  }, [baseline, dbName, driver, enqueueAction, model, onSaved, onTableCreated, persistState, t]);
 
   if (loading) {
     return <div className="db-table-designer-state">{t("common.loading")}</div>;
@@ -209,7 +253,7 @@ export function TableDesignerDockPane({
         setSaveNotice(null);
         persistState(next, baseline);
       }}
-      onReload={() => setReloadToken((token) => token + 1)}
+      onReload={creating ? undefined : () => setReloadToken((token) => token + 1)}
       reloading={loading}
       dirty={dirty}
       saving={saving}

@@ -11,6 +11,7 @@ import "./styles/modules/knowledge.css";
 import "./styles/modules/protocol.css";
 import "./styles/modules/server.css";
 import "./styles/modules/monitoring.css";
+import "./styles/modules/home-monitor.css";
 import "./styles/modules/workflow.css";
 import { initDesktopShell } from "./lib/desktopShell";
 import { initProductionDiagnostics } from "./lib/productionDiagnostics";

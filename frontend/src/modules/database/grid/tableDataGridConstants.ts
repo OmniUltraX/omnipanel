@@ -13,9 +13,9 @@ export const COLUMN_VIRTUALIZE_THRESHOLD = 24;
 export const COLUMN_VIRTUALIZE_OVERSCAN = 3;
 /**
  * 超过该行数才启用行虚拟化。
- * 分页常用 10/100 行：原生滚动更跟手；虚拟化会让整表随 scroll 重渲，反而卡。
+ * 默认分页常见 100 行：须低于 pageSize，否则整页全量 DOM 拖垮侧栏滚动。
  */
-export const ROW_VIRTUALIZE_THRESHOLD = 200;
+export const ROW_VIRTUALIZE_THRESHOLD = 40;
 export const ROW_VIRTUALIZE_OVERSCAN = 8;
 export const ROW_NUM_COL_ID = "__row_num__";
 export const TRANSPOSE_FIELD_COL = "__field__";
