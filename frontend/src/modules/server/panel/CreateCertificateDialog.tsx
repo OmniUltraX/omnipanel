@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
 import { TextInput } from "@/components/ui/form/TextInput";
@@ -6,6 +6,7 @@ import {
   createOnePanelClient,
   type OnePanelAcmeAccount,
   type OnePanelDnsAccount,
+  type OnePanelClient,
   type OnePanelSslProvider,
   type OnePanelWebsiteSslCreate,
   type OnePanelWebsiteSslUpdate,
@@ -18,6 +19,22 @@ type CreateMode = "apply" | "upload";
 
 const KEY_TYPES = ["P256", "P384", "2048", "3072", "4096"] as const;
 const PROVIDERS: OnePanelSslProvider[] = ["dnsAccount", "dnsManual", "http"];
+const SSL_SUCCESS_STATUSES = new Set(["success", "ready"]);
+const SSL_ERROR_STATUSES = new Set(["error", "applyError", "applyerror"]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function isSslApplySuccess(status: string): boolean {
+  return SSL_SUCCESS_STATUSES.has(status.trim().toLowerCase());
+}
+
+function isSslApplyError(status: string): boolean {
+  return SSL_ERROR_STATUSES.has(status.trim().toLowerCase());
+}
 
 type CreateCertificateDialogProps = {
   open: boolean;
@@ -89,9 +106,14 @@ export function CreateCertificateDialog({
   const [optionsLoading, setOptionsLoading] = useState(false);
 
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyLog, setApplyLog] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const abortApplyRef = useRef(false);
+  const logEndRef = useRef<HTMLPreElement | null>(null);
 
   const reset = useCallback(() => {
+    abortApplyRef.current = true;
     setMode("apply");
     setPrimaryDomain("");
     setOtherDomains("");
@@ -103,15 +125,76 @@ export function CreateCertificateDialog({
     setDescription("");
     setCertificate("");
     setPrivateKey("");
+    setApplyLog("");
+    setApplying(false);
     setError(null);
     setBusy(false);
   }, []);
 
   const handleClose = () => {
-    if (busy) return;
+    if (busy || applying) return;
     reset();
     onClose();
   };
+
+  useEffect(() => {
+    if (!applyLog || !logEndRef.current) return;
+    logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
+  }, [applyLog]);
+
+  /** 轮询 POST /files/read/ssl?operateNode=local，直到证书状态成功/失败。 */
+  const pollSslApplyLog = useCallback(
+    async (client: OnePanelClient, sslId: number) => {
+      abortApplyRef.current = false;
+      setApplying(true);
+      setApplyLog(t("server.create.certificate.applyLogWaiting"));
+
+      for (;;) {
+        if (abortApplyRef.current) {
+          throw new Error(t("server.create.certificate.applyCancelled"));
+        }
+
+        const [logResult, detail] = await Promise.all([
+          client.readSslLog({ id: sslId, latest: true }),
+          client.getSslById(sslId),
+        ]);
+
+        const content = (logResult.content || "").trim();
+        if (content) {
+          setApplyLog(content);
+        }
+
+        const status = String(detail.status ?? "").trim();
+        if (isSslApplySuccess(status)) {
+          return;
+        }
+        if (isSslApplyError(status)) {
+          const message =
+            typeof detail.message === "string" && detail.message.trim()
+              ? detail.message.trim()
+              : t("server.create.certificate.applyFailed");
+          throw new Error(message);
+        }
+
+        // 日志已结束但状态尚未落盘时再查一次详情
+        if (logResult.end) {
+          const again = await client.getSslById(sslId);
+          const againStatus = String(again.status ?? "").trim();
+          if (isSslApplySuccess(againStatus)) return;
+          if (isSslApplyError(againStatus)) {
+            const message =
+              typeof again.message === "string" && again.message.trim()
+                ? again.message.trim()
+                : t("server.create.certificate.applyFailed");
+            throw new Error(message);
+          }
+        }
+
+        await sleep(2000);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     if (!open || server.serviceType !== "1panel") return;
@@ -194,6 +277,7 @@ export function CreateCertificateDialog({
 
     setBusy(true);
     setError(null);
+    abortApplyRef.current = false;
     try {
       const client = createOnePanelClient(server.address, server.key);
 
@@ -220,7 +304,14 @@ export function CreateCertificateDialog({
         };
         await client.updateWebsiteSsl(body);
         showToast(t("server.certificates.editSuccess"));
-      } else if (mode === "upload") {
+        await refreshServer(server);
+        reset();
+        onClose();
+        onCreated?.();
+        return;
+      }
+
+      if (mode === "upload") {
         await client.uploadWebsiteSsl({
           type: "paste",
           certificate: certificate.trim(),
@@ -231,41 +322,57 @@ export function CreateCertificateDialog({
           description: description.trim(),
         });
         showToast(t("server.create.certificate.uploadSuccess"));
-      } else {
-        const body: OnePanelWebsiteSslCreate = {
-          primaryDomain: primaryDomain.trim(),
-          otherDomains: otherDomains.trim(),
-          provider: provider as OnePanelSslProvider,
-          acmeAccountId,
-          dnsAccountId: provider === "dnsAccount" ? dnsAccountId : 0,
-          autoRenew,
-          keyType,
-          description: description.trim(),
-          apply: provider !== "dnsManual",
-          pushDir: false,
-          dir: "",
-          disableCNAME: false,
-          skipDNS: false,
-          nameserver1: "",
-          nameserver2: "",
-          execShell: false,
-          shell: "",
-        };
-        await client.createWebsiteSsl(body);
-        showToast(
-          provider === "dnsManual"
-            ? t("server.create.certificate.applyManualSuccess")
-            : t("server.create.certificate.applySuccess"),
-        );
+        await refreshServer(server);
+        reset();
+        onClose();
+        onCreated?.();
+        return;
       }
 
+      const shouldApply = provider !== "dnsManual";
+      const body: OnePanelWebsiteSslCreate = {
+        primaryDomain: primaryDomain.trim(),
+        otherDomains: otherDomains.trim(),
+        provider: provider as OnePanelSslProvider,
+        acmeAccountId,
+        dnsAccountId: provider === "dnsAccount" ? dnsAccountId : 0,
+        autoRenew,
+        keyType,
+        description: description.trim(),
+        apply: shouldApply,
+        pushDir: false,
+        dir: "",
+        disableCNAME: false,
+        skipDNS: false,
+        nameserver1: "",
+        nameserver2: "",
+        execShell: false,
+        shell: "",
+      };
+      const created = await client.createWebsiteSsl(body);
+
+      if (!shouldApply) {
+        showToast(t("server.create.certificate.applyManualSuccess"));
+        await refreshServer(server);
+        reset();
+        onClose();
+        onCreated?.();
+        return;
+      }
+
+      // 申请中：底部展示 /files/read/ssl 日志，成功后再关弹窗
+      await pollSslApplyLog(client, created.id);
+      showToast(t("server.create.certificate.applySuccess"));
       await refreshServer(server);
       reset();
       onClose();
       onCreated?.();
     } catch (err) {
-      setError(formatCreateError(err));
+      if (!abortApplyRef.current) {
+        setError(formatCreateError(err));
+      }
     } finally {
+      setApplying(false);
       setBusy(false);
     }
   };
@@ -279,11 +386,15 @@ export function CreateCertificateDialog({
       }
       size="xl"
       clipboardAssist={false}
-      cancelDisabled={busy}
-      closeDisabled={busy}
+      cancelDisabled={busy || applying}
+      closeDisabled={busy || applying}
       primaryAction={{
-        label: busy ? t("common.saving") : t("common.confirm"),
-        disabled: busy || !canSubmit || optionsLoading,
+        label: applying
+          ? t("server.create.certificate.applying")
+          : busy
+            ? t("common.saving")
+            : t("common.confirm"),
+        disabled: busy || applying || !canSubmit || optionsLoading,
         onClick: () => void handleSubmit(),
       }}
       status={error ? { kind: "error", message: error } : null}
@@ -296,7 +407,7 @@ export function CreateCertificateDialog({
             role="tab"
             aria-selected={mode === "apply"}
             className={`server-create-split__nav-item${mode === "apply" ? " is-active" : ""}`}
-            disabled={busy}
+            disabled={busy || applying}
             onClick={() => setMode("apply")}
           >
             {t("server.create.certificate.modeApply")}
@@ -306,7 +417,7 @@ export function CreateCertificateDialog({
             role="tab"
             aria-selected={mode === "upload"}
             className={`server-create-split__nav-item${mode === "upload" ? " is-active" : ""}`}
-            disabled={busy}
+            disabled={busy || applying}
             onClick={() => setMode("upload")}
           >
             {t("server.create.certificate.modeUpload")}
@@ -322,7 +433,7 @@ export function CreateCertificateDialog({
                 value={primaryDomain}
                 onChange={setPrimaryDomain}
                 placeholder="example.com"
-                disabled={busy}
+                disabled={busy || applying}
               />
             </FormField>
             <FormField
@@ -334,7 +445,7 @@ export function CreateCertificateDialog({
                 value={otherDomains}
                 onChange={(event) => setOtherDomains(event.target.value)}
                 rows={3}
-                disabled={busy}
+                disabled={busy || applying}
                 placeholder={"www.example.com\napi.example.com"}
               />
             </FormField>
@@ -344,7 +455,7 @@ export function CreateCertificateDialog({
                 <select
                   className="input"
                   value={acmeAccountId}
-                  disabled={busy || acmeAccounts.length === 0}
+                  disabled={busy || applying || acmeAccounts.length === 0}
                   onChange={(e) => setAcmeAccountId(Number(e.target.value) || 0)}
                 >
                   {acmeAccounts.length === 0 ? (
@@ -371,7 +482,7 @@ export function CreateCertificateDialog({
                       role="tab"
                       aria-selected={provider === key}
                       className={`server-create-website-type${provider === key ? " is-active" : ""}`}
-                      disabled={busy}
+                      disabled={busy || applying}
                       onClick={() => setProvider(key)}
                     >
                       {t(
@@ -381,7 +492,7 @@ export function CreateCertificateDialog({
                   ))}
                 </div>
               ) : (
-                <TextInput value={provider} onChange={setProvider} disabled={busy} />
+                <TextInput value={provider} onChange={setProvider} disabled={busy || applying} />
               )}
             </FormField>
 
@@ -390,7 +501,7 @@ export function CreateCertificateDialog({
                 <select
                   className="input"
                   value={dnsAccountId}
-                  disabled={busy || dnsAccounts.length === 0}
+                  disabled={busy || applying || dnsAccounts.length === 0}
                   onChange={(e) => setDnsAccountId(Number(e.target.value) || 0)}
                 >
                   {dnsAccounts.length === 0 ? (
@@ -418,7 +529,7 @@ export function CreateCertificateDialog({
               <select
                 className="input"
                 value={keyType}
-                disabled={busy}
+                disabled={busy || applying}
                 onChange={(e) => setKeyType(e.target.value)}
               >
                 {KEY_TYPES.map((kt) => (
@@ -436,7 +547,7 @@ export function CreateCertificateDialog({
               <input
                 type="checkbox"
                 checked={autoRenew}
-                disabled={busy}
+                disabled={busy || applying}
                 onChange={(e) => setAutoRenew(e.target.checked)}
               />
               <span>{t("server.create.certificate.autoRenew")}</span>
@@ -447,7 +558,7 @@ export function CreateCertificateDialog({
                 value={description}
                 onChange={setDescription}
                 placeholder={t("server.create.certificate.descriptionPlaceholder")}
-                disabled={busy}
+                disabled={busy || applying}
               />
             </FormField>
           </>
@@ -458,7 +569,7 @@ export function CreateCertificateDialog({
                 value={description}
                 onChange={setDescription}
                 placeholder={t("server.create.certificate.descriptionPlaceholder")}
-                disabled={busy}
+                disabled={busy || applying}
               />
             </FormField>
             <FormField label={t("server.create.certificate.pem")}>
@@ -467,7 +578,7 @@ export function CreateCertificateDialog({
                 value={certificate}
                 onChange={(event) => setCertificate(event.target.value)}
                 rows={8}
-                disabled={busy}
+                disabled={busy || applying}
                 placeholder="-----BEGIN CERTIFICATE-----"
               />
             </FormField>
@@ -477,12 +588,23 @@ export function CreateCertificateDialog({
                 value={privateKey}
                 onChange={(event) => setPrivateKey(event.target.value)}
                 rows={8}
-                disabled={busy}
+                disabled={busy || applying}
                 placeholder="-----BEGIN PRIVATE KEY-----"
               />
             </FormField>
           </>
         )}
+
+        {applyLog || applying ? (
+          <div className="server-create-ssl-log">
+            <div className="server-create-ssl-log__title">
+              {t("server.create.certificate.applyLog")}
+            </div>
+            <pre ref={logEndRef} className="server-create-ssl-log__body">
+              {applyLog || t("server.create.certificate.applyLogWaiting")}
+            </pre>
+          </div>
+        ) : null}
       </div>
     </FormDialog>
   );

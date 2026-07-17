@@ -297,6 +297,229 @@ pub async fn request_bytes(
     })
 }
 
+/// 单文件上传阈值（与 1Panel 前端一致：≤10MB 走 /files/upload）。
+const UPLOAD_SINGLE_MAX: usize = 10 * 1024 * 1024;
+/// 分块上传块大小（与 1Panel 前端一致：5MB）。
+const UPLOAD_CHUNK_SIZE: usize = 5 * 1024 * 1024;
+
+fn multipart_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn build_multipart_body(
+    boundary: &str,
+    fields: &[(&str, Option<&str>, &[u8])],
+) -> Vec<u8> {
+    // fields: (name, filename_opt, value)
+    let mut body = Vec::with_capacity(fields.iter().map(|(_, _, v)| v.len() + 128).sum::<usize>() + 64);
+    for (name, filename, value) in fields {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        match filename {
+            Some(fname) => {
+                body.extend_from_slice(
+                    format!(
+                        "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\nContent-Type: application/octet-stream\r\n\r\n",
+                        multipart_escape(name),
+                        multipart_escape(fname),
+                    )
+                    .as_bytes(),
+                );
+            }
+            None => {
+                body.extend_from_slice(
+                    format!(
+                        "Content-Disposition: form-data; name=\"{}\"\r\n\r\n",
+                        multipart_escape(name),
+                    )
+                    .as_bytes(),
+                );
+            }
+        }
+        body.extend_from_slice(value);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    body
+}
+
+async fn send_multipart(
+    host: &str,
+    api_key: &str,
+    path: &str,
+    body: Vec<u8>,
+    boundary: &str,
+    timeout_secs: u64,
+) -> Result<(), OmniError> {
+    let base = normalize_base_url(host)?;
+    let timestamp = current_timestamp();
+    let token = build_token(api_key, timestamp);
+    let url_path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    let url = format!("{base}/api/v2{url_path}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
+
+    let resp = client
+        .post(&url)
+        .header("Accept", "application/json, text/plain, */*")
+        .header(
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header("1Panel-Token", token)
+        .header("1Panel-Timestamp", timestamp.to_string())
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "1Panel 上传失败").with_cause(e.to_string())
+        })?;
+
+    let status = resp.status();
+    let bytes = resp.bytes().await.unwrap_or_default();
+
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text));
+    }
+
+    if !status.is_success() {
+        return Err(
+            OmniError::new(ErrorCode::Connection, format!("1Panel 上传失败 ({status})"))
+                .with_cause(truncate_text(
+                    std::str::from_utf8(&bytes).unwrap_or(""),
+                    300,
+                )),
+        );
+    }
+
+    // 成功时也可能返回 JSON envelope，code != 200 视为失败
+    if let Ok(text) = std::str::from_utf8(&bytes) {
+        let trimmed = text.trim();
+        if trimmed.starts_with('{') {
+            if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+                if let Some(code) = value.get("code").and_then(|v| v.as_i64())
+                    && code != 200
+                {
+                    let message = value
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1Panel 上传失败");
+                    return Err(OmniError::new(ErrorCode::Connection, message));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn upload_file_single(
+    host: &str,
+    api_key: &str,
+    dir_path: &str,
+    filename: &str,
+    content: &[u8],
+    overwrite: bool,
+) -> Result<(), OmniError> {
+    let boundary = format!("----OmniPanelUpload{}", current_timestamp());
+    let overwrite_val = if overwrite { "True" } else { "False" };
+    let body = build_multipart_body(
+        &boundary,
+        &[
+            ("file", Some(filename), content),
+            ("path", None, dir_path.as_bytes()),
+            ("overwrite", None, overwrite_val.as_bytes()),
+        ],
+    );
+    send_multipart(host, api_key, "/files/upload", body, &boundary, 120).await
+}
+
+async fn upload_file_chunked(
+    host: &str,
+    api_key: &str,
+    dir_path: &str,
+    filename: &str,
+    content: &[u8],
+) -> Result<(), OmniError> {
+    let chunk_count = content.len().div_ceil(UPLOAD_CHUNK_SIZE).max(1);
+    for chunk_index in 0..chunk_count {
+        let start = chunk_index * UPLOAD_CHUNK_SIZE;
+        let end = (start + UPLOAD_CHUNK_SIZE).min(content.len());
+        let chunk = &content[start..end];
+        let boundary = format!(
+            "----OmniPanelChunk{}{}",
+            current_timestamp(),
+            chunk_index
+        );
+        let index_str = chunk_index.to_string();
+        let count_str = chunk_count.to_string();
+        let body = build_multipart_body(
+            &boundary,
+            &[
+                ("filename", None, filename.as_bytes()),
+                ("path", None, dir_path.as_bytes()),
+                ("chunk", Some(filename), chunk),
+                ("chunkIndex", None, index_str.as_bytes()),
+                ("chunkCount", None, count_str.as_bytes()),
+            ],
+        );
+        send_multipart(
+            host,
+            api_key,
+            "/files/chunkupload",
+            body,
+            &boundary,
+            180,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// POST /files/upload 或 /files/chunkupload — 上传文件到指定目录。
+/// `dir_path` 为目标目录；`filename` 为文件名；`content_base64` 为文件内容 Base64。
+pub async fn upload_file(
+    host: &str,
+    api_key: &str,
+    dir_path: &str,
+    filename: &str,
+    content_base64: &str,
+    overwrite: bool,
+) -> Result<(), OmniError> {
+    let dir = dir_path.trim();
+    let name = filename.trim();
+    if dir.is_empty() {
+        return Err(OmniError::invalid_input("上传目录不能为空"));
+    }
+    if name.is_empty() || name.contains('/') || name.contains('\\') {
+        return Err(OmniError::invalid_input("文件名无效"));
+    }
+
+    let content = STANDARD.decode(content_base64.trim()).map_err(|e| {
+        OmniError::invalid_input("文件内容不是合法 Base64").with_cause(e.to_string())
+    })?;
+
+    // 1Panel path 字段为目录（可带尾斜杠），与官网前端一致
+    let upload_dir = if dir.ends_with('/') {
+        dir.to_string()
+    } else {
+        format!("{dir}/")
+    };
+
+    if content.len() <= UPLOAD_SINGLE_MAX {
+        upload_file_single(host, api_key, &upload_dir, name, &content, overwrite).await
+    } else {
+        upload_file_chunked(host, api_key, &upload_dir, name, &content).await
+    }
+}
+
 /// 连通性测试（官方文档示例接口 POST /toolbox/device/base）。
 pub async fn test_connection(host: &str, api_key: &str) -> Result<Value, OmniError> {
     request(host, api_key, "POST", "/toolbox/device/base", None).await

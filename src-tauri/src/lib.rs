@@ -115,6 +115,7 @@ fn export_ipc_bindings() {
         commands::panel::panel_1panel_app_icon,
         commands::panel::panel_1panel_request_text,
         commands::panel::panel_1panel_request_bytes,
+        commands::panel::panel_1panel_upload_file,
         commands::panel::panel_bt_request,
         commands::panel::panel_bt_test_connection,
         commands::docker::docker_list_connections,
@@ -715,6 +716,7 @@ pub fn run() {
             commands::panel::panel_1panel_app_icon,
             commands::panel::panel_1panel_request_text,
             commands::panel::panel_1panel_request_bytes,
+            commands::panel::panel_1panel_upload_file,
             commands::panel::panel_bt_request,
             commands::panel::panel_bt_test_connection,
             // Docker（容器工作区）

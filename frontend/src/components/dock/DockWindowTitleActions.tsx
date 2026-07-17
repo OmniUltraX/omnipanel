@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { WinControls } from "../shell/WinControls";
+import { AiChromeButton } from "../shell/AiChromeButton";
 import type { DockWindowChromeActionsProps } from "./dockWindowChromeActions";
 
 export type { DockWindowChromeActionsProps, DockWindowChromeMode } from "./dockWindowChromeActions";
@@ -66,9 +67,13 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
       onDoubleClick={handleDoubleClick}
     >
       {showDrag ? <DockWindowDragSpacer /> : null}
-      {leftActions ? <div className="dock-window-chrome-left-actions">{leftActions}</div> : null}
+      {leftActions || showControls ? (
+        <div className="dock-window-chrome-left-actions">
+          {leftActions}
+          {showControls ? <AiChromeButton /> : null}
+        </div>
+      ) : null}
       {showControls ? <WinControls /> : null}
     </div>
   );
 }
-

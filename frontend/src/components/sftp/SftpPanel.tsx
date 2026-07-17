@@ -75,12 +75,17 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
   const [chmodValue, setChmodValue] = useState("");
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const sessionKeyRef = useRef(sessionKey);
   const pathEditSkipCommitRef = useRef(false);
   const loadSeqRef = useRef(0);
+  const dragDepthRef = useRef(0);
   const handledSftpNonceRef = useRef<number | null>(null);
   const pendingSftp = useSshDetailNavigationStore((s) => s.pendingSftp);
   sessionKeyRef.current = sessionKey;
+
+  const canUpload = Boolean(adapter?.writeBytes) || Boolean(resourceId);
 
   // 双击文件预览：仅预览非目录；目录走 navigateTo
   const [previewEntry, setPreviewEntry] = useState<SftpEntry | null>(null);
@@ -318,6 +323,95 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
+  const hasFileDrag = (dt: DataTransfer | null): boolean => {
+    if (!dt) return false;
+    if (dt.types.includes("Files")) return true;
+    return Array.from(dt.items ?? []).some((item) => item.kind === "file");
+  };
+
+  const uploadLocalFiles = async (files: FileList | File[]) => {
+    if (!sessionKey || !canUpload || uploading) return;
+    const list = Array.from(files).filter((file) => file && file.name);
+    if (list.length === 0) return;
+
+    setUploading(true);
+    setError(null);
+    setInfo(t("ssh.sftp.uploading", { count: list.length }));
+    let ok = 0;
+    let fail = 0;
+    let lastError: string | null = null;
+
+    for (const file of list) {
+      const remotePath = path === "/" ? `/${file.name}` : `${path}/${file.name}`;
+      try {
+        const buffer = await file.arrayBuffer();
+        const bytes = Array.from(new Uint8Array(buffer));
+        if (adapter?.writeBytes) {
+          await adapter.writeBytes(remotePath, bytes);
+        } else if (resourceId) {
+          const result = await commands.sftpUpload(resourceId, remotePath, bytes);
+          if (result.status !== "ok") {
+            throw new Error(result.error.message || "upload failed");
+          }
+        } else {
+          return;
+        }
+        ok += 1;
+      } catch (e) {
+        fail += 1;
+        lastError = fmtSftpError(e);
+      }
+    }
+
+    setUploading(false);
+    if (fail === 0) {
+      setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
+    } else if (ok === 0) {
+      setError(lastError || t("ssh.sftp.uploadFailed"));
+      setInfo(null);
+    } else {
+      setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
+      if (lastError) setError(lastError);
+    }
+    void loadDir(path);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!canUpload || uploading) return;
+    if (!hasFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canUpload || uploading) return;
+    if (!hasFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!canUpload || uploading) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    void uploadLocalFiles(files);
+  };
+
   const pathParts = path.split("/").filter(Boolean);
   const selectedEntry = entries.find((entry) => entry.name === selectedName) ?? null;
 
@@ -439,11 +533,25 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       {!sessionKey ? (
         <div className="sftp-empty">{adapter?.emptyMessage ?? t("ssh.empty.selectHost")}</div>
       ) : (
-        <div className="sftp-table-wrap">
+        <div
+          className={`sftp-table-wrap${dragOver ? " sftp-table-wrap--drag-over" : ""}${uploading ? " sftp-table-wrap--uploading" : ""}`}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          {dragOver ? (
+            <div className="sftp-drop-overlay" aria-hidden>
+              {t("ssh.sftp.dropHint")}
+            </div>
+          ) : null}
           {loading ? (
             <div className="sftp-empty">{t("ssh.sftp.loading")}</div>
           ) : entries.length === 0 ? (
-            <div className="sftp-empty">{t("ssh.sftp.emptyDir")}</div>
+            <div className="sftp-empty">
+              <div>{t("ssh.sftp.emptyDir")}</div>
+              {canUpload ? <div className="sftp-empty-hint">{t("ssh.sftp.dropHint")}</div> : null}
+            </div>
           ) : (
             <table className="sftp-table">
               <thead>

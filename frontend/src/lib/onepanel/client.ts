@@ -431,13 +431,24 @@ export class OnePanelClient {
       .filter((item) => item.id > 0);
   }
 
-  /** POST /websites/ssl — 申请/创建 ACME 证书。 */
-  async createWebsiteSsl(body: OnePanelWebsiteSslCreate): Promise<void> {
-    await this.request({
+  /** POST /websites/ssl — 申请/创建 ACME 证书，返回证书 id。 */
+  async createWebsiteSsl(
+    body: OnePanelWebsiteSslCreate,
+  ): Promise<{ id: number; status?: string; message?: string }> {
+    const data = await this.request<Record<string, unknown>>({
       method: "POST",
       path: "/websites/ssl",
       body,
     });
+    const id = Number(data?.id ?? 0);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new OnePanelApiError("创建证书未返回有效 id", 0);
+    }
+    return {
+      id,
+      status: typeof data?.status === "string" ? data.status : undefined,
+      message: typeof data?.message === "string" ? data.message : undefined,
+    };
   }
 
   /** POST /websites/ssl/update — 修改证书。 */
@@ -772,6 +783,63 @@ export class OnePanelClient {
       body: { path, expand: true },
     });
     return typeof data?.content === "string" ? data.content : "";
+  }
+
+  /**
+   * POST /files/upload 或 /files/chunkupload — 上传文件到目录。
+   * `path` 为目标目录；`contentBase64` 为文件内容。
+   */
+  async uploadFile(params: {
+    path: string;
+    filename: string;
+    contentBase64: string;
+    overwrite?: boolean;
+  }): Promise<void> {
+    if (this.useTauri && isTauriRuntime()) {
+      const result = await commands.panel1panelUploadFile(
+        this.baseUrl,
+        this.apiKey,
+        params.path,
+        params.filename,
+        params.contentBase64,
+        params.overwrite ?? true,
+      );
+      if (result.status === "error") {
+        throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+      }
+      return;
+    }
+
+    // 浏览器直连：仅小文件走单次 multipart（大文件请走 Tauri）
+    const binary = base64ToUint8Array(params.contentBase64);
+    const form = new FormData();
+    form.append("file", new Blob([binary]), params.filename);
+    form.append("path", params.path.endsWith("/") ? params.path : `${params.path}/`);
+    form.append("overwrite", params.overwrite === false ? "False" : "True");
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const res = await fetch(`${this.baseUrl}/api/v2/files/upload`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+      },
+      body: form,
+    });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      throw new OnePanelApiError(`1Panel 上传失败 (${res.status}): ${text || res.statusText}`, res.status, text);
+    }
+    if (text.trim().startsWith("{")) {
+      try {
+        const envelope = JSON.parse(text) as OnePanelApiEnvelope<unknown>;
+        if (envelope.code != null && envelope.code !== 200) {
+          throw new OnePanelApiError(envelope.message ?? `1Panel API 错误 (${envelope.code})`, envelope.code);
+        }
+      } catch (err) {
+        if (err instanceof OnePanelApiError) throw err;
+      }
+    }
   }
 
   /** GET /websites/ssl/website/:websiteId — 网站绑定的 SSL 证书。 */
