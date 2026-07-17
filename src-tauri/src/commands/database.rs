@@ -58,6 +58,28 @@ fn pool_fingerprint(connection: &DbConnectionConfig) -> String {
     )
 }
 
+/// MySQL 连接池按「主机凭据」复用，不按当前选中的 database 拆分。
+/// information_schema / `db.table` 查询会显式绑定库名；若把 database 打进 fingerprint，
+/// 结构同步源/目标同机不同库、或侧栏与工具箱并发 introspect 时会互相 close 对方仍在用的池。
+fn mysql_pool_fingerprint(connection: &DbConnectionConfig) -> String {
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        connection.db_type,
+        connection.host,
+        connection.port,
+        connection.user,
+        connection.password,
+        connection.ssl
+    )
+}
+
+/// 从缓存移除旧池时不要立刻 `close()`：其它任务可能仍持有同一 Pool 的 Arc，
+/// 提前 close 会让进行中的查询报 “attempted to acquire a connection on a closed pool”。
+/// 交给 Arc 自然 drop；空闲连接由 sqlx idle_timeout 回收即可。
+fn abandon_stale_pool<C: sqlx::Database>(pool: sqlx::Pool<C>) {
+    drop(pool);
+}
+
 /// `information_schema` 部分列在 MySQL 驱动下为 BLOB，需兼容解码为 `String`。
 fn mysql_row_string(row: &MySqlRow, index: usize) -> String {
     if let Ok(v) = row.try_get::<String, _>(index) {
@@ -742,7 +764,7 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
 
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let key = connection.id.clone();
-    let fingerprint = pool_fingerprint(connection);
+    let fingerprint = mysql_pool_fingerprint(connection);
 
     // Fast path: check cache
     {
@@ -777,7 +799,10 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
         }
     }
 
-    let opts = mysql_connect_options(&to_params(connection));
+    // 共享池不绑定具体 database，避免与 fingerprint（不含 database）语义不一致
+    let mut params = to_params(connection);
+    params.database.clear();
+    let opts = mysql_connect_options(&params);
     let pool = MySqlPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(30))
@@ -794,7 +819,7 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
         let stale = cache.mysql.remove(&key);
         drop(cache);
         if let Some((_, stale_pool)) = stale {
-            stale_pool.close().await;
+            abandon_stale_pool(stale_pool);
         }
         let mut cache = sqlx_pool_cache().lock().await;
         cache.mysql.insert(key, (fingerprint, pool.clone()));
@@ -862,7 +887,7 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
         let stale = cache.pg.remove(&key);
         drop(cache);
         if let Some((_, stale_pool)) = stale {
-            stale_pool.close().await;
+            abandon_stale_pool(stale_pool);
         }
         let mut cache = sqlx_pool_cache().lock().await;
         cache.pg.insert(key, (fingerprint, pool.clone()));
@@ -958,7 +983,7 @@ async fn pg_pool_for_db(connection: &DbConnectionConfig, db_name: &str) -> Resul
         let stale = cache.pg.remove(&key);
         drop(cache);
         if let Some((_, stale_pool)) = stale {
-            stale_pool.close().await;
+            abandon_stale_pool(stale_pool);
         }
         let mut cache = sqlx_pool_cache().lock().await;
         cache.pg.insert(key, (fingerprint, pool.clone()));
