@@ -10,11 +10,13 @@ import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
 import { isTablePreviewTab } from "../../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./DatabaseSlowQueryLogPanel";
+import { DatabaseBinlogPanel } from "./DatabaseBinlogPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import {
   isConnectionInfoTab,
   isDatabaseListTab,
   isSlowQueryLogTab,
+  isBinlogTab,
   isSqlWorkspaceTab,
   isTableDesignerTab,
   isRedisQueryTab,
@@ -133,6 +135,24 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                   logFilePath={tab.logFilePath}
                   deploymentKind={tab.deploymentKind}
                   containerId={tab.containerId}
+                  active={_isActive}
+                />
+              );
+            })()
+          ) : isBinlogTab(tab) ? (
+            (() => {
+              const connection = resolveConn(tab.connId);
+              if (!connection) return <SnapshotMissingFallback tabId={tabId} />;
+              return (
+                <DatabaseBinlogPanel
+                  connection={connection}
+                  sshConnectionId={tab.sshConnectionId}
+                  deploymentKind={tab.deploymentKind}
+                  containerId={tab.containerId}
+                  logBinBasename={tab.logBinBasename}
+                  binlogFormat={tab.binlogFormat}
+                  binlogRowImage={tab.binlogRowImage}
+                  flashbackCapable={tab.flashbackCapable}
                   active={_isActive}
                 />
               );

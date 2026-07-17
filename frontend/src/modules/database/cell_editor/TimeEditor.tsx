@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { TemporalInput } from "./TemporalInput";
 
 interface TimeEditorProps {
   value: string;
@@ -6,24 +6,14 @@ interface TimeEditorProps {
   autoFocus?: boolean;
 }
 
-/**
- * Time-only editor using native <input type="time">.
- * Value format: HH:MM (24-hour).
- */
 export function TimeEditor({ value, onChange, autoFocus = true }: TimeEditorProps) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (autoFocus) {
-      ref.current?.focus();
-    }
-  }, [autoFocus]);
   return (
-    <input
-      ref={ref}
+    <TemporalInput
       type="time"
       className="cell-editor-input cell-editor-input--time"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
+      autoFocus={autoFocus}
     />
   );
 }

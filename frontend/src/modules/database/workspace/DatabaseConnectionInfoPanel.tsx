@@ -42,8 +42,8 @@ import { DbPanelMetaRefreshButton } from "./DbPanelMetaRefreshButton";
 import { useDeploymentConfigEditor } from "./useDeploymentConfigEditor";
 import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
 import { CreateDatabaseDialog } from "./CreateDatabaseDialog";
+import { useDbMysqlLogNavStore } from "../stores/dbMysqlLogNavStore";
 
-import { buildMysqlCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
 import { ConnectionUsersTabPanel } from "./ConnectionUsersTabPanel";
 import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
@@ -254,7 +254,7 @@ function MysqlDeploymentTags({
     return ssh?.name?.trim() ?? "";
   }, [connection.host, deployment?.serverName, sshConnections]);
 
-  if (loading) {
+  if (loading && deployment == null) {
     return (
       <span className="db-mysql-deploy-tag db-mysql-deploy-tag--checking">
         {t("database.connectionInfo.deployment.detecting")}
@@ -266,12 +266,18 @@ function MysqlDeploymentTags({
   const locationTag = deployment?.locationTag?.trim();
   const containerName =
     deployment?.containerName?.trim() || (kind === "docker" ? locationTag : "");
+  const reason = deployment?.reason;
 
   return (
     <>
       <span className={`db-mysql-deploy-tag db-mysql-deploy-tag--${kind}`}>
         {t(`database.connectionInfo.deployment.kind.${kind}`)}
       </span>
+      {kind === "unknown" && reason ? (
+        <span className="db-mysql-deploy-tag db-mysql-deploy-tag--reason" title={reason}>
+          {t(`database.connectionInfo.deployment.reason.${reason}`)}
+        </span>
+      ) : null}
       {kind === "host" && locationTag ? (
         <DbDeploymentNavTag
           label={t("database.connectionInfo.deployment.hostLocation")}
@@ -476,7 +482,7 @@ export function DatabaseConnectionInfoPanel({
   }, [capable, connection, isPostgres]);
 
   const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
-    // 部署探测目前仅支持 MySQL；PG 跳过，CLI tab 走 direct / SSH 隧道模式
+    // 部署探测目前仅支持 MySQL；PG 跳过
     if (!isMysql) {
       setDeployment(null);
       setDeploymentLoading(false);
@@ -484,14 +490,15 @@ export function DatabaseConnectionInfoPanel({
     }
 
     const cached = readMysqlDeploymentCache(connection);
-    if (!options?.force && isMysqlDeploymentCacheUsable(cached)) {
+    // 非强制：有任何缓存结果（含 unknown）直接展示，避免 unknown 触发反复探测导致一直「检测中」
+    if (!options?.force && cached != null) {
       setDeployment(cached);
       setDeploymentLoading(false);
       return;
     }
 
-    // 已有可展示缓存时静默刷新，避免顶部「部署方式」反复转圈
-    if (!isMysqlDeploymentCacheUsable(cached)) {
+    // 仅在没有任何可展示结果时亮「检测中」；静默刷新保留旧标签
+    if (cached == null) {
       setDeploymentLoading(true);
     }
     try {
@@ -517,11 +524,9 @@ export function DatabaseConnectionInfoPanel({
         await refreshConnections(options);
       } else if (subTab === "status") {
         await refreshVariables(options);
-      } else if (subTab === "cli") {
-        await refreshDeployment({ force: true });
       }
     },
-    [refreshConnections, refreshDatabases, refreshDeployment, refreshVariables, subTab],
+    [refreshConnections, refreshDatabases, refreshVariables, subTab],
   );
 
   const handleRestartService = useCallback(() => {
@@ -637,23 +642,25 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [active, capable, subTab, connectionsResult, connectionsLoading, connectionsError, refreshConnections]);
 
-  /** CLI tab 激活时才探测部署（懒加载，避免默认 tab 卡顿） */
+  /** 面板激活时探测部署（顶部标签常驻）；已有结果（含 unknown）不重复，SSH 就绪由下方 effect 强制重试 */
   useEffect(() => {
-    if (!active || !capable || subTab !== "cli") {
+    if (!active || !isMysql) {
       return;
     }
-    if (isMysqlDeploymentCacheUsable(deployment)) {
+    if (deployment != null) {
       return;
     }
     void refreshDeployment();
-  }, [active, capable, subTab, deployment, refreshDeployment]);
+  }, [active, isMysql, deployment, refreshDeployment]);
 
-  /** SSH 列表或会话就绪后重试（仅 CLI tab 且 unknown / 缺 SSH 时） */
+  /** SSH 列表或会话就绪后重试（每类条件最多强制一次，避免探测失败时死循环） */
+  const deployRetryTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!active || !capable || subTab !== "cli" || deploymentLoading) {
+    if (!active || !isMysql || deploymentLoading) {
       return;
     }
     if (isMysqlDeploymentCacheUsable(deployment)) {
+      deployRetryTokenRef.current = null;
       return;
     }
     if (deployment?.reason !== "ssh_not_connected" && deployment?.reason !== "no_ssh") {
@@ -666,14 +673,19 @@ export function DatabaseConnectionInfoPanel({
     if (deployment?.reason === "ssh_not_connected" && !sshSessionActiveMap[ssh.id]) {
       return;
     }
+    const token = `${connection.id}:${deployment.reason}:${ssh.id}:${sshSessionActiveMap[ssh.id] ? "1" : "0"}`;
+    if (deployRetryTokenRef.current === token) {
+      return;
+    }
+    deployRetryTokenRef.current = token;
     void refreshDeployment({ force: true });
   }, [
     active,
-    capable,
-    subTab,
+    isMysql,
     deploymentLoading,
     deployment,
     connection.host,
+    connection.id,
     sshConnections,
     sshSessionActiveMap,
     refreshDeployment,
@@ -827,11 +839,6 @@ export function DatabaseConnectionInfoPanel({
     variablesSort.direction,
   ]);
 
-  const cliSections = useMemo(
-    () => buildMysqlCliSections(t, connection, deployment, sshConnections),
-    [connection, deployment, sshConnections, t],
-  );
-
   const tabLoading =
     subTab === "databases"
       ? databasesLoading
@@ -839,9 +846,7 @@ export function DatabaseConnectionInfoPanel({
         ? connectionsLoading
         : subTab === "status"
           ? variablesLoading
-          : subTab === "cli"
-            ? deploymentLoading
-            : false;
+          : false;
 
   const tabCount =
     subTab === "databases"
@@ -850,7 +855,7 @@ export function DatabaseConnectionInfoPanel({
         ? sortedProcessRows.length
         : subTab === "status"
           ? sortedVariableRows.length
-          : cliSections.length;
+          : 0;
 
   const toggleProcessSort = useCallback((column: ProcessSortColumn) => {
     setProcessSort((prev) => {
@@ -1043,7 +1048,7 @@ export function DatabaseConnectionInfoPanel({
       deploymentLoading={deploymentLoading}
       sshConnections={sshConnections}
       panelActive={active}
-      visible={subTab === "cli"}
+      visible={active && subTab === "cli"}
     />
   );
 
@@ -1196,7 +1201,8 @@ export function DatabaseConnectionInfoPanel({
 
   const renderPanelMainContent = () => (
     <>
-      {capable && active ? renderCliSession() : null}
+      {/* 保持挂载以保留命令行会话；仅用 visible/panelActive 控制展示与焦点 */}
+      {capable ? renderCliSession() : null}
       {subTab === "databases"
         ? renderDatabasesList()
         : subTab === "users"
@@ -1240,17 +1246,63 @@ export function DatabaseConnectionInfoPanel({
               sshConnections={sshConnections}
             />
           </div>
-          {deployment?.kind === "host" || deployment?.kind === "docker" ? (
-            <DeploymentServiceActionButtons
-              canManage={canManageDeployedService(deployment)}
-              logBusy={serviceLogBusy}
-              restartBusy={serviceRestartBusy}
-              configBusy={configOpening}
-              onViewLog={handleViewServiceLog}
-              onRestart={handleRestartService}
-              onOpenConfig={handleOpenMysqlConfig}
-            />
-          ) : null}
+          {(() => {
+            const mysqlLogButtons = (
+              <>
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon-xs"
+                  className="db-connection-info-deploy-action-btn"
+                  title={t("database.contextMenu.slowQueryLog")}
+                  aria-label={t("database.contextMenu.slowQueryLog")}
+                  onClick={() =>
+                    useDbMysqlLogNavStore.getState().requestOpen(connection.id, "slow-query")
+                  }
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                    <path d="M3 2.5h10v11H3z" />
+                    <path d="M5 6h6M5 8.5h4M5 11h5" />
+                    <path d="M11 2.5V1.5H5v1" />
+                  </svg>
+                </Button>
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon-xs"
+                  className="db-connection-info-deploy-action-btn"
+                  title={t("database.contextMenu.binlog")}
+                  aria-label={t("database.contextMenu.binlog")}
+                  onClick={() =>
+                    useDbMysqlLogNavStore.getState().requestOpen(connection.id, "binlog")
+                  }
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                    <path d="M4 2h8v12H4z" />
+                    <path d="M6 5h4M6 8h4M6 11h2" />
+                    <path d="M2 5h2M2 8h2M2 11h2" />
+                  </svg>
+                </Button>
+              </>
+            );
+            const canShowDeployActions =
+              deployment?.kind === "host" || deployment?.kind === "docker";
+            if (canShowDeployActions) {
+              return (
+                <DeploymentServiceActionButtons
+                  leading={mysqlLogButtons}
+                  canManage={canManageDeployedService(deployment)}
+                  logBusy={serviceLogBusy}
+                  restartBusy={serviceRestartBusy}
+                  configBusy={configOpening}
+                  onViewLog={handleViewServiceLog}
+                  onRestart={handleRestartService}
+                  onOpenConfig={handleOpenMysqlConfig}
+                />
+              );
+            }
+            return <div className="db-connection-info-deploy-actions">{mysqlLogButtons}</div>;
+          })()}
         </div>
       ) : null}
       {capable ? (
@@ -1365,7 +1417,7 @@ export function DatabaseConnectionInfoPanel({
           {tabLoading
             ? t("common.loading")
             : subTab === "cli"
-              ? t("database.connectionInfo.cli.sectionCount", { count: tabCount })
+              ? t("database.connectionInfo.cli.metaHint")
               : t("database.connectionInfo.count", { count: tabCount })}
         </span>
       </div>

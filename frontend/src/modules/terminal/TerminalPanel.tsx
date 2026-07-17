@@ -238,7 +238,7 @@ export function TerminalPanel() {
 
   useEffect(() => {
     if (!activeSessionId) return;
-    useTerminalHistoryStore.getState().restoreSession(activeSessionId);
+    void useTerminalHistoryStore.getState().restoreSession(activeSessionId);
   }, [activeSessionId]);
 
   const [ctxMenu, setCtxMenu] = useState<{
@@ -416,7 +416,7 @@ export function TerminalPanel() {
       focusSessionsPanel();
       setDockActiveId(tabId);
       setActiveTab(tabId);
-      useTerminalHistoryStore.getState().restoreSession(sessionId);
+      void useTerminalHistoryStore.getState().restoreSession(sessionId);
     },
     [focusSessionsPanel, openSessionTab, setActiveTab],
   );

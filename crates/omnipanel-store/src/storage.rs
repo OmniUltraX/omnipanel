@@ -394,6 +394,32 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE mcp_tools RENAME TO builtin_tools;
     ALTER TABLE mcp_tool_audit RENAME TO builtin_tool_audit;
     "#,
+    // v22 — 终端 Blocks 历史（SQLite checkpoint，替代 localStorage）
+    r#"
+    CREATE TABLE IF NOT EXISTS terminal_history_sessions (
+        session_id   TEXT PRIMARY KEY,
+        workspace_id TEXT,
+        updated_at   INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS terminal_history_blocks (
+        id           TEXT PRIMARY KEY,
+        session_id   TEXT NOT NULL REFERENCES terminal_history_sessions(session_id) ON DELETE CASCADE,
+        kind         TEXT NOT NULL DEFAULT 'shell',
+        command      TEXT NOT NULL DEFAULT '',
+        title        TEXT,
+        status       TEXT NOT NULL,
+        exit_code    INTEGER,
+        cwd          TEXT NOT NULL DEFAULT '',
+        timestamp    INTEGER NOT NULL,
+        completed_at INTEGER,
+        payload      TEXT NOT NULL DEFAULT '{}',
+        updated_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_term_hist_blocks_session_ts
+        ON terminal_history_blocks(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_term_hist_sessions_updated
+        ON terminal_history_sessions(updated_at);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

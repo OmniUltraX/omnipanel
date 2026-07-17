@@ -24,6 +24,8 @@ export type SftpPanelProps = {
   adapter?: SftpPanelAdapter;
   /** adapter 模式下的会话缓存键 */
   cacheKey?: string;
+  /** 首次打开 / adapter 模式下的起始目录 */
+  initialPath?: string;
 };
 
 const QUICK_PATHS = [
@@ -34,17 +36,18 @@ const QUICK_PATHS = [
   { label: "/tmp", path: "/tmp" },
 ];
 
-export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
+export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPanelProps) {
   const { t } = useI18n();
   const capabilities = resolveSftpCapabilities(adapter);
   const sessionKey = adapter ? (cacheKey ?? "sftp-adapter") : resourceId;
+  const startPath = initialPath?.trim() || "/";
   const [path, setPath] = useState(() => {
     if (sessionKey && !adapter) {
       const store = useSshDetailNavigationStore.getState();
       if (store.pendingSftp?.resourceId === sessionKey) return store.pendingSftp.path;
       if (store.sftpCaches[sessionKey]) return store.sftpCaches[sessionKey].path;
     }
-    return "/";
+    return startPath;
   });
   const [entries, setEntries] = useState<SftpEntry[]>(() => {
     if (sessionKey && !adapter) {
@@ -154,7 +157,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
     let disposed = false;
     const run = async () => {
       if (adapter) {
-        await loadDir("/");
+        await loadDir(startPath, { fromNavigation: true, originalPath: startPath });
         return;
       }
       const store = useSshDetailNavigationStore.getState();
@@ -178,7 +181,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
         return;
       }
 
-      await loadDir("/");
+      await loadDir(startPath);
     };
     void run();
     return () => {
@@ -186,7 +189,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey }: SftpPanelProps) {
       // 使进行中的 list 失效，避免 StrictMode/重挂载后永久卡在 loading
       loadSeqRef.current += 1;
     };
-  }, [adapter, sessionKey]);
+  }, [adapter, sessionKey, startPath]);
 
   useEffect(() => {
     if (adapter || !sessionKey || !pendingSftp) return;

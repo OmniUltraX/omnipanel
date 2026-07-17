@@ -90,13 +90,23 @@ export function buildDatabasePanelContentKeysByTab(params: {
       ].join(":");
       continue;
     }
+    if (tab.kind === "binlog") {
+      keys[tab.id] = [
+        connectionsFingerprint,
+        tab.connId,
+        tab.sshConnectionId,
+        tab.deploymentKind ?? "",
+        tab.containerId ?? "",
+        tab.logBinBasename ?? "",
+      ].join(":");
+      continue;
+    }
     if (tab.kind === "designer") {
       keys[tab.id] = [
         connectionsFingerprint,
         tab.connId,
         tab.dbName,
         tab.tableName,
-        params.tableDesignerStates[tab.id] ? "1" : "0",
       ].join(":");
       continue;
     }

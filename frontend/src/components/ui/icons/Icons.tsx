@@ -450,3 +450,19 @@ export function IconQuote({ size = 20, className }: IconProps) {
     </svg>
   );
 }
+
+export function IconPlay({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  );
+}
+
+export function IconStop({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="1" />
+    </svg>
+  );
+}

@@ -7,6 +7,7 @@ import {
   useState,
   memo,
   type ReactNode,
+  type MutableRefObject,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -30,7 +31,7 @@ import {
   formatInlineEditText,
   isSameCellValue,
   parseCellValue,
-  shouldUseInlineCellEdit,
+  resolveCellDoubleClickEditStrategy,
 } from "../cell_editor";
 import { TableDataGridFilterPopover } from "./TableDataGridOverlays";
 import { TableDataGridCellOverlay } from "./TableDataGridCellOverlay";
@@ -91,6 +92,8 @@ import {
   ROW_NUM_COL_ID,
   ROW_VIRTUALIZE_THRESHOLD,
   TRANSPOSE_FIELD_COL,
+  defaultDataColumnWidth,
+  GRID_EXTERNAL_INTERACTION_SELECTOR,
 } from "./tableDataGridConstants";
 import { buildColumnVirtualizationLayout } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
@@ -177,8 +180,20 @@ export type TableDataGridProps = {
   onTransposedChange?: (transposed: boolean) => void;
   /** 底部分页栏中间区域（如 SQL 结果统计、导出等） */
   footerExtra?: ReactNode;
+  /**
+   * 分页/工具 chrome 位置。
+   * - bottom：默认，底栏完整控件（SQL 结果等）
+   * - none：隐藏底栏（表预览由外层顶栏接管）
+   */
+  chromePlacement?: "bottom" | "none";
+  /** 外层顶栏调用网格内部动作（删除选中、列侧栏、复制 SQL） */
+  gridActionsRef?: MutableRefObject<TableDataGridActions | null>;
+  /** 选中行数量变化（供顶栏删除徽标） */
+  onSelectedRowCountChange?: (count: number) => void;
   /** 底栏值编辑器是否折叠（表预览模式） */
   cellEditorCollapsed?: boolean;
+  /** 为 true 时 Escape 不清除网格选中（详情面板展开等） */
+  reserveSelectionOnEscape?: boolean;
   /** 切换底栏值编辑器展开/折叠 */
   onCellEditorCollapsedChange?: () => void;
   /** 双击单元格且值编辑器展开时，请求聚焦底栏编辑器 */
@@ -218,6 +233,17 @@ export type TableDataGridProps = {
 
 export type TableDataGridClipboardFormat = DelimitedTextFormat;
 
+export type TableDataGridActions = {
+  deleteSelectedRows: () => void;
+  toggleColSidebar: () => void;
+  copyPreviewSql: () => void;
+  isColSidebarCollapsed: () => boolean;
+  hasInlineEdit: () => boolean;
+  cancelInlineEdit: () => void;
+  hasSelection: () => boolean;
+  clearSelection: () => void;
+};
+
 export const TableDataGrid = memo(function TableDataGrid({
   columns,
   rows,
@@ -247,7 +273,11 @@ export const TableDataGrid = memo(function TableDataGrid({
   transposed: transposedProp,
   onTransposedChange,
   footerExtra,
+  chromePlacement = "bottom",
+  gridActionsRef,
+  onSelectedRowCountChange,
   cellEditorCollapsed = false,
+  reserveSelectionOnEscape = false,
   onCellEditorCollapsedChange,
   onCellEditorFocusRequest,
   onRowPaste,
@@ -435,14 +465,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (wrap.contains(target)) return;
-      if (target instanceof Element) {
-        if (
-          target.closest(
-            ".db-data-table-cell-overlay, .db-query-filter-popover, .context-menu-panel, .detail-panel-subwindow, .drawer-overlay, .subwindow-overlay, .subwindow-panel, .db-cell-preview-subwindow, .db-cell-editor-panel, .db-table-preview-split .dock-panel-bottom, .db-table-preview-split .dock-handle, .redis-key-detail-split .dock-panel-bottom, .redis-key-detail-split .dock-handle",
-          )
-        ) {
-          return;
-        }
+      if (target instanceof Element && target.closest(GRID_EXTERNAL_INTERACTION_SELECTOR)) {
+        return;
       }
       if (
         pinnedPreviewRef.current &&
@@ -452,6 +476,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       ) {
         pinnedPreviewRef.current = false;
         setCellOverlay(null);
+        return;
       }
       clearGridSelection();
     };
@@ -575,6 +600,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     () => (cellOverlay?.mode === "preview" ? buildCellPreviewState(cellOverlay) : null),
     [cellOverlay],
   );
+  const cellPreviewOpenRef = useRef(false);
+  cellPreviewOpenRef.current = cellPreviewState != null;
+  const reserveSelectionOnEscapeRef = useRef(reserveSelectionOnEscape);
+  reserveSelectionOnEscapeRef.current = reserveSelectionOnEscape;
   const filterColumnNames = useMemo(() => getFilterColumnNames(filter), [filter]);
   const canFilter = enableFilter && Boolean(onFilterChange && columnMeta?.length);
 
@@ -946,7 +975,6 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   const usePanelCellEditor = Boolean(onCellEditorCollapsedChange && !cellEditorCollapsed);
-  const useGridInlineCellEditor = Boolean(onCellEditorCollapsedChange && cellEditorCollapsed);
 
   useEffect(() => {
     if (!onCellEditorCollapsedChange || cellEditorCollapsed) return;
@@ -989,23 +1017,39 @@ export const TableDataGrid = memo(function TableDataGrid({
       const colMeta = columnMetaMap?.[target.column];
       if (!colMeta) return;
 
+      const rowKey = resolvePreviewRowKey(target.row, pkCols);
+      const overrides = rowKey ? displayCellOverrides?.[rowKey] : undefined;
+      const raw =
+        overrides?.[target.column] !== undefined
+          ? overrides[target.column]
+          : target.row[target.column];
+
       if (usePanelCellEditor) {
         onCellEditorFocusRequest?.();
         return;
       }
 
-      if (useGridInlineCellEditor && !transposed && onCellCommit && opts?.anchor) {
-        startCellOverlayEdit(target, colMeta, opts.anchor);
-        return;
+      const strategy = resolveCellDoubleClickEditStrategy(colMeta.type, raw);
+
+      if (!transposed && opts?.anchor) {
+        if (strategy === "inline" && onCellCommit) {
+          startCellOverlayEdit(target, colMeta, opts.anchor);
+          return;
+        }
+        if (strategy === "preview") {
+          openCellPreview({
+            column: target.column,
+            rowIndex: target.rowIndex,
+            row: target.row,
+            value: raw,
+            columnType: colMeta.type,
+            anchor: opts.anchor,
+          });
+          return;
+        }
       }
 
-      if (!transposed && onCellCommit && opts?.anchor && shouldUseInlineCellEdit(colMeta.type)) {
-        startCellOverlayEdit(target, colMeta, opts.anchor);
-        return;
-      }
-
-      // 底栏折叠且无法内联编辑时（如 Redis 只读预览）：展开并聚焦底栏
-      if (onCellEditorCollapsedChange && onCellEditorFocusRequest) {
+      if (onCellEditorFocusRequest) {
         onCellEditorFocusRequest();
         return;
       }
@@ -1020,14 +1064,15 @@ export const TableDataGrid = memo(function TableDataGrid({
       rows,
       columnMetaMap,
       displayRows.length,
+      pkCols,
+      displayCellOverrides,
       onCellCommit,
       onCellEdit,
       onActiveCellChange,
-      onCellEditorCollapsedChange,
       onCellEditorFocusRequest,
       usePanelCellEditor,
-      useGridInlineCellEditor,
       startCellOverlayEdit,
+      openCellPreview,
     ],
   );
 
@@ -1125,7 +1170,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             );
           },
           minSize: isFieldCol ? 80 : COLUMN_MIN_WIDTH,
-          size: isFieldCol ? 108 : isRelationDisplayCol ? 140 : 120,
+          size: isFieldCol ? 108 : isRelationDisplayCol ? 140 : defaultDataColumnWidth(headerMeta?.type),
         };
       });
       if (!transposed) {
@@ -1285,7 +1330,9 @@ export const TableDataGrid = memo(function TableDataGrid({
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && (cellRangeRef.current || selectedRowsRef.current.size > 0)) {
+      if (event.key !== "Escape" || reserveSelectionOnEscapeRef.current) return;
+      if (cellPreviewOpenRef.current) return;
+      if (cellRangeRef.current || selectedRowsRef.current.size > 0) {
         clearGridSelection();
       }
     };
@@ -1358,6 +1405,41 @@ export const TableDataGrid = memo(function TableDataGrid({
     rowAnchorRef.current = null;
     cellAnchorRef.current = null;
   }, [onDeleteSelectedRows, selectedRowIndices, tableRows]);
+
+  useEffect(() => {
+    onSelectedRowCountChange?.(selectedRowIndices.length);
+  }, [selectedRowIndices.length, onSelectedRowCountChange]);
+
+  useEffect(() => {
+    if (!gridActionsRef) return;
+    gridActionsRef.current = {
+      deleteSelectedRows: handleDeleteSelectedRows,
+      toggleColSidebar: () => {
+        setColSidebarCollapsed((prev) => !prev);
+      },
+      copyPreviewSql: () => {
+        void handleCopyPreviewSql();
+      },
+      isColSidebarCollapsed: () => colSidebarCollapsed,
+      hasInlineEdit: () => cellOverlayRef.current?.mode === "edit",
+      cancelInlineEdit: () => cancelCellOverlayEdit(),
+      hasSelection: () =>
+        Boolean(cellRangeRef.current || selectedRowsRef.current.size > 0),
+      clearSelection: () => clearGridSelection(),
+    };
+    return () => {
+      if (gridActionsRef.current) {
+        gridActionsRef.current = null;
+      }
+    };
+  }, [
+    gridActionsRef,
+    handleDeleteSelectedRows,
+    handleCopyPreviewSql,
+    colSidebarCollapsed,
+    cancelCellOverlayEdit,
+    clearGridSelection,
+  ]);
 
   useEffect(() => {
     if (!onActiveCellChange) return;
@@ -2249,6 +2331,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     )}
     </div>
     </div>
+    {chromePlacement === "bottom" ? (
     <div className="db-pagination">
       <Button
         variant={!colSidebarCollapsed ? "default" : "ghost"}
@@ -2505,6 +2588,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         </Button>
       </div>
     </div>
+    ) : null}
     {filterOpen && filterAnchorRect && filterLockedField && columnMeta && onFilterChange && (
       <TableDataGridFilterPopover
         anchorRect={filterAnchorRect}

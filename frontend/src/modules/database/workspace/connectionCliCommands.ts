@@ -328,6 +328,19 @@ function buildPostgresDockerFlowSteps(
   return [buildDockerShellEnterCommand(container), formatPsqlCliInContainer(connection)];
 }
 
+function buildDirectTerminalMode(
+  t: TranslateFn,
+  launchSteps: string[],
+): CliTerminalModeOption {
+  return {
+    id: "direct",
+    title: t("database.connectionInfo.cli.direct"),
+    paneType: "local",
+    resourceId: "local-terminal",
+    launchSteps,
+  };
+}
+
 function listMysqlTerminalModes(
   t: TranslateFn,
   connection: DbConnectionConfig,
@@ -336,44 +349,33 @@ function listMysqlTerminalModes(
 ): CliTerminalModeOption[] {
   const kind = deployment?.kind ?? "unknown";
   const ssh = resolveSshConnection(deployment, sshConnections, connection.host);
+  // 与 Navicat 一致：默认用连接信息本机直连；SSH/Docker 仅作可选运维入口
+  const modes: CliTerminalModeOption[] = [
+    buildDirectTerminalMode(t, [formatMysqlCli(connection, connection.host)]),
+  ];
 
   if (kind === "docker") {
     const container = resolveDockerContainerName(deployment);
     if (container && ssh) {
-      return [
-        {
-          id: "docker-exec",
-          title: t("database.connectionInfo.cli.dockerFlow"),
-          paneType: "remote",
-          resourceId: ssh.id,
-          launchSteps: buildMysqlDockerFlowSteps(connection, container),
-        },
-      ];
-    }
-    return [];
-  }
-
-  if (kind === "host" && ssh) {
-    return [
-      {
-        id: "on-server",
-        title: t("database.connectionInfo.cli.hostFlow"),
+      modes.push({
+        id: "docker-exec",
+        title: t("database.connectionInfo.cli.dockerFlow"),
         paneType: "remote",
         resourceId: ssh.id,
-        launchSteps: [formatMysqlCli(connection, "127.0.0.1")],
-      },
-    ];
+        launchSteps: buildMysqlDockerFlowSteps(connection, container),
+      });
+    }
+  } else if (kind === "host" && ssh) {
+    modes.push({
+      id: "on-server",
+      title: t("database.connectionInfo.cli.hostFlow"),
+      paneType: "remote",
+      resourceId: ssh.id,
+      launchSteps: [formatMysqlCli(connection, "127.0.0.1")],
+    });
   }
 
-  return [
-    {
-      id: "direct",
-      title: t("database.connectionInfo.cli.direct"),
-      paneType: "local",
-      resourceId: "local-terminal",
-      launchSteps: [formatMysqlCli(connection, connection.host)],
-    },
-  ];
+  return modes;
 }
 
 function listRedisTerminalModes(
@@ -384,44 +386,32 @@ function listRedisTerminalModes(
 ): CliTerminalModeOption[] {
   const kind = deployment?.kind ?? "unknown";
   const ssh = resolveSshConnection(deployment, sshConnections, connection.host);
+  const modes: CliTerminalModeOption[] = [
+    buildDirectTerminalMode(t, [formatRedisCli(connection, connection.host)]),
+  ];
 
   if (kind === "docker") {
     const container = resolveDockerContainerName(deployment);
     if (container && ssh) {
-      return [
-        {
-          id: "docker-exec",
-          title: t("database.connectionInfo.cli.dockerFlow"),
-          paneType: "remote",
-          resourceId: ssh.id,
-          launchSteps: buildRedisDockerFlowSteps(connection, container),
-        },
-      ];
-    }
-    return [];
-  }
-
-  if (kind === "host" && ssh) {
-    return [
-      {
-        id: "on-server",
-        title: t("database.connectionInfo.cli.hostFlow"),
+      modes.push({
+        id: "docker-exec",
+        title: t("database.connectionInfo.cli.dockerFlow"),
         paneType: "remote",
         resourceId: ssh.id,
-        launchSteps: [formatRedisCli(connection, "127.0.0.1")],
-      },
-    ];
+        launchSteps: buildRedisDockerFlowSteps(connection, container),
+      });
+    }
+  } else if (kind === "host" && ssh) {
+    modes.push({
+      id: "on-server",
+      title: t("database.connectionInfo.cli.hostFlow"),
+      paneType: "remote",
+      resourceId: ssh.id,
+      launchSteps: [formatRedisCli(connection, "127.0.0.1")],
+    });
   }
 
-  return [
-    {
-      id: "direct",
-      title: t("database.connectionInfo.cli.direct"),
-      paneType: "local",
-      resourceId: "local-terminal",
-      launchSteps: [formatRedisCli(connection, connection.host)],
-    },
-  ];
+  return modes;
 }
 
 function listPostgresTerminalModes(
@@ -432,51 +422,39 @@ function listPostgresTerminalModes(
 ): CliTerminalModeOption[] {
   const kind = deployment?.kind ?? "unknown";
   const ssh = resolveSshConnection(deployment, sshConnections, connection.host);
+  const modes: CliTerminalModeOption[] = [
+    buildDirectTerminalMode(t, [formatPsqlCli(connection, connection.host)]),
+  ];
 
   if (kind === "docker") {
     const container = resolveDockerContainerName(deployment);
     if (container && ssh) {
-      return [
-        {
-          id: "docker-exec",
-          title: t("database.connectionInfo.cli.dockerFlow"),
-          paneType: "remote",
-          resourceId: ssh.id,
-          launchSteps: buildPostgresDockerFlowSteps(connection, container),
-        },
-      ];
-    }
-    return [];
-  }
-
-  if (kind === "host" && ssh) {
-    return [
-      {
-        id: "on-server",
-        title: t("database.connectionInfo.cli.hostFlow"),
+      modes.push({
+        id: "docker-exec",
+        title: t("database.connectionInfo.cli.dockerFlow"),
         paneType: "remote",
         resourceId: ssh.id,
-        launchSteps: [formatPsqlCli(connection, "127.0.0.1")],
-      },
-    ];
+        launchSteps: buildPostgresDockerFlowSteps(connection, container),
+      });
+    }
+  } else if (kind === "host" && ssh) {
+    modes.push({
+      id: "on-server",
+      title: t("database.connectionInfo.cli.hostFlow"),
+      paneType: "remote",
+      resourceId: ssh.id,
+      launchSteps: [formatPsqlCli(connection, "127.0.0.1")],
+    });
   }
 
-  return [
-    {
-      id: "direct",
-      title: t("database.connectionInfo.cli.direct"),
-      paneType: "local",
-      resourceId: "local-terminal",
-      launchSteps: [formatPsqlCli(connection, connection.host)],
-    },
-  ];
+  return modes;
 }
 
 export function resolveDefaultCliTerminalModeId(
   _deployment: { kind?: string } | null,
   modes: CliTerminalModeOption[],
 ): CliTerminalModeId {
-  if (modes.length === 0) {
+  if (modes.some((mode) => mode.id === "direct")) {
     return "direct";
   }
   return modes[0]?.id ?? "direct";
@@ -484,32 +462,31 @@ export function resolveDefaultCliTerminalModeId(
 
 export function describeCliTerminalFlow(
   t: TranslateFn,
-  deployment: { kind?: string } | null,
+  _deployment: { kind?: string } | null,
   mode: CliTerminalModeOption | null,
 ): CliTerminalFlowStep[] {
-  const kind = deployment?.kind ?? "unknown";
-  if (kind === "docker" && mode) {
+  if (!mode) {
+    return [];
+  }
+  if (mode.id === "docker-exec") {
     return [
       { label: t("database.connectionInfo.cli.stepSsh") },
       { label: t("database.connectionInfo.cli.stepEnterContainer"), command: mode.launchSteps[0] },
       { label: t("database.connectionInfo.cli.stepClient"), command: mode.launchSteps[1] },
     ];
   }
-  if (kind === "host" && mode) {
+  if (mode.id === "on-server") {
     return [
       { label: t("database.connectionInfo.cli.stepSsh") },
       { label: t("database.connectionInfo.cli.stepClient"), command: mode.launchSteps[0] },
     ];
   }
-  if (mode) {
-    return [
-      {
-        label: t("database.connectionInfo.cli.stepClientLocal"),
-        command: mode.launchSteps[0],
-      },
-    ];
-  }
-  return [];
+  return [
+    {
+      label: t("database.connectionInfo.cli.stepClientLocal"),
+      command: mode.launchSteps[0],
+    },
+  ];
 }
 
 export function formatCliTerminalStepsText(steps: string[]): string {

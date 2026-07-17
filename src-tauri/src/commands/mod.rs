@@ -34,6 +34,7 @@ pub mod ssh;
 pub mod system;
 pub mod task;
 pub mod terminal;
+pub mod terminal_history;
 pub mod updater;
 pub mod providers;
 pub mod skills;

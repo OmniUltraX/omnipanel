@@ -5,16 +5,23 @@ import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useServerPanelCacheStore } from "../../stores/serverPanelCacheStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
 import { ServerPanelSidebar } from "./panel/ServerPanelSidebar";
 import { ServerSidebarLinkageProvider } from "./panel/ServerSidebarLinkageContext";
 import { ServerDockPanel } from "./panel/ServerDockPanel";
-import type { ServerPanelDockOpenMode } from "./panel/serverPanelWorkspaceTabs";
+import { ServerWebsitesTab } from "./panel/tabs/ServerWebsitesTab";
+import { ServerCertificatesTab } from "./panel/tabs/ServerCertificatesTab";
+import { ServerCronjobsTab } from "./panel/tabs/ServerCronjobsTab";
+import {
+  isServerOverviewTab,
+  isServerResourceTab,
+  type ServerPanelDockOpenMode,
+} from "./panel/serverPanelWorkspaceTabs";
 import { makeServerTreeKey } from "./panel/serverResourceLabels";
 import type { ServerSidebarNavTarget } from "./panel/serverSidebarNav";
-import { connectionToServerEntry } from "./panel/panelConnection";
 import type { ServerEntry } from "./panel/serverConnection";
 import type { Connection } from "../../ipc/bindings";
 import {
@@ -29,17 +36,25 @@ export function ServerPanel() {
   const moduleSuspended = useModuleSuspended();
   const moduleLive = isActiveRoute && !moduleSuspended;
   const connections = useConnectionStore((s) => s.connections);
+  const connectionsLoaded = useConnectionStore((s) => s.loaded);
   const removeConn = useConnectionStore((s) => s.remove);
-
-  const panelServers = useMemo(
-    () => connections.filter((c) => c.kind === "panel").map(connectionToServerEntry),
-    [connections],
+  const panelServers = useServerPanelCacheStore((s) => s.panelServers);
+  const syncPanelServersFromConnections = useServerPanelCacheStore(
+    (s) => s.syncPanelServersFromConnections,
   );
+  const removeServerCache = useServerPanelCacheStore((s) => s.removeServer);
+
+  // 连接本地库就绪后，同步面板实例列表到模块缓存（不访问远端面板 API）
+  useEffect(() => {
+    if (!connectionsLoaded) return;
+    syncPanelServersFromConnections(connections);
+  }, [connections, connectionsLoaded, syncPanelServersFromConnections]);
 
   const dockTabs = useServerPanelDockStore((s) => s.tabs);
   const activeTabId = useServerPanelDockStore((s) => s.activeTabId);
   const dockLayout = useServerPanelDockStore((s) => s.dockLayout);
   const selectServer = useServerPanelDockStore((s) => s.selectServer);
+  const selectServerResource = useServerPanelDockStore((s) => s.selectServerResource);
   const closeTab = useServerPanelDockStore((s) => s.closeTab);
   const setActiveTabId = useServerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useServerPanelDockStore((s) => s.setDockLayout);
@@ -79,20 +94,39 @@ export function ServerPanel() {
     (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
       openDockTabNow({
         applyTabSync: () => {
+          if (target.detailTab) {
+            selectServerResource(target.serverId, target.detailTab, mode);
+            setNavTarget(target);
+            setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab));
+            return;
+          }
           selectServer(target.serverId, mode);
           setNavTarget(target);
-          if (target.itemId && target.detailTab) {
-            setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab, target.itemId));
-          } else if (target.detailTab) {
-            setActiveNavKey(makeServerTreeKey(target.serverId, target.detailTab));
-          } else {
-            setActiveNavKey(makeServerTreeKey(target.serverId));
-          }
+          setActiveNavKey(makeServerTreeKey(target.serverId));
         },
       });
     },
-    [selectServer],
+    [selectServer, selectServerResource],
   );
+
+  useEffect(() => {
+    const tab = dockTabs.find((item) => item.id === activeTabId);
+    if (!tab) {
+      setActiveNavKey(null);
+      return;
+    }
+    if (isServerResourceTab(tab)) {
+      setActiveNavKey(makeServerTreeKey(tab.serverId, tab.kind));
+      return;
+    }
+    setActiveNavKey((prev) => {
+      const serverKey = makeServerTreeKey(tab.serverId);
+      if (prev === serverKey || prev?.startsWith(`${serverKey}:`)) {
+        return prev;
+      }
+      return serverKey;
+    });
+  }, [activeTabId, dockTabs]);
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -129,10 +163,11 @@ export function ServerPanel() {
       if (!confirmed) return;
       for (const id of ids) {
         removeServerTabs(id);
+        removeServerCache(id);
         await removeConn(id);
       }
     },
-    [removeConn, removeServerTabs, t],
+    [removeConn, removeServerCache, removeServerTabs, t],
   );
 
   const moduleDockTabs = useMemo(
@@ -141,9 +176,17 @@ export function ServerPanel() {
         .map((tab) => {
           const server = serverById.get(tab.serverId);
           if (!server) return null;
+          const featureLabel =
+            tab.kind === "websites"
+              ? t("server.tabs.websites")
+              : tab.kind === "certificates"
+                ? t("server.tabs.certificates")
+                : tab.kind === "cronjobs"
+                  ? t("server.tabs.cronjobs")
+                  : t("server.tabs.panel");
           return {
             id: tab.id,
-            label: server.name,
+            label: `${featureLabel}@${server.name}`,
             panelType: "server-panel",
             closable: true,
             preview: tab.preview,
@@ -151,7 +194,7 @@ export function ServerPanel() {
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [dockTabs, serverById],
+    [dockTabs, serverById, t],
   );
 
   const renderServerPanel = useCallback(
@@ -164,14 +207,29 @@ export function ServerPanel() {
       if (!server) {
         return <div className="server-panel-tab-pane" aria-hidden />;
       }
+      const isActive = activeTabId === tabId;
+      if (isServerOverviewTab(tab)) {
+        return (
+          <div className="server-main">
+            <ServerDockPanel
+              server={server}
+              isActive={isActive}
+              moduleLive={moduleLive}
+              navTarget={navTarget?.serverId === server.id ? navTarget : null}
+            />
+          </div>
+        );
+      }
+      if (!moduleLive || !isActive) {
+        return <div className="server-panel-tab-pane" aria-hidden />;
+      }
       return (
-        <div className="server-main">
-          <ServerDockPanel
-            server={server}
-            isActive={activeTabId === tabId}
-            moduleLive={moduleLive}
-            navTarget={navTarget?.serverId === server.id ? navTarget : null}
-          />
+        <div className="server-main server-main--resource">
+          <div className="server-content">
+            {tab.kind === "websites" ? <ServerWebsitesTab server={server} /> : null}
+            {tab.kind === "certificates" ? <ServerCertificatesTab server={server} /> : null}
+            {tab.kind === "cronjobs" ? <ServerCronjobsTab server={server} /> : null}
+          </div>
         </div>
       );
     },

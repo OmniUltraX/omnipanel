@@ -6,7 +6,6 @@ import {
   dockerSidebarCategoryRefreshKey,
   dockerSidebarConnectionRefreshKey,
   EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY,
-  EMPTY_DOCKER_SIDEBAR_CONTAINERS,
   mergeDockerSidebarCategoryFetch,
   type DockerSidebarCacheEntry,
   type DockerSidebarRefreshScope,

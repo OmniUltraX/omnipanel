@@ -45,6 +45,8 @@ export interface SubWindowProps {
   windowChrome?: boolean;
   /** 是坦隝藝靮罩层，默认 false */
   noOverlay?: boolean;
+  /** windowChrome=false 时是否显示标题栏关闭按钮，默认 true */
+  showHeaderClose?: boolean;
   /** 自定义最尝化行为，丝传则使用内置最尝化（坳侧浮动条＀*/
   onMinimize?: () => void;
   /** 当杝供时，最大化按钮改为切杢到全屝工作区模弝（关闭弹窗并激洀tab＀*/
@@ -84,6 +86,7 @@ export function SubWindow({
   headerExtra,
   windowChrome = true,
   noOverlay = false,
+  showHeaderClose = true,
   onMinimize,
   onMaximizeToWorkspace,
 }: SubWindowProps) {
@@ -399,7 +402,7 @@ export function SubWindow({
                 onClose={onClose}
                 onMaximizeToWorkspace={onMaximizeToWorkspace}
               />
-            ) : (
+            ) : showHeaderClose ? (
               <Button
                 type="button"
                 variant="icon"
@@ -420,7 +423,7 @@ export function SubWindow({
                   <path d="M4 4l8 8M12 4l-8 8" />
                 </svg>
               </Button>
-            )}
+            ) : null}
           </div>
           <div className="subwindow-body">{children}</div>
           {windowChrome && visualState === "normal"
@@ -466,28 +469,28 @@ export function SubWindow({
                   onClose={onClose}
                   onMaximizeToWorkspace={onMaximizeToWorkspace}
                 />
-              ) : (
-                <Button
-                  type="button"
-                  variant="icon"
-                  className="subwindow-close"
-                  title={closeLabel}
-                  aria-label={closeLabel}
-                  onClick={onClose}
+            ) : showHeaderClose ? (
+              <Button
+                type="button"
+                variant="icon"
+                className="subwindow-close"
+                title={closeLabel}
+                aria-label={closeLabel}
+                onClick={onClose}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  width="14"
+                  height="14"
+                  aria-hidden
                 >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    width="14"
-                    height="14"
-                    aria-hidden
-                  >
-                    <path d="M4 4l8 8M12 4l-8 8" />
-                  </svg>
-                </Button>
-              )}
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </Button>
+            ) : null}
             </div>
             <div className="subwindow-body">{children}</div>
             {windowChrome && visualState === "normal"

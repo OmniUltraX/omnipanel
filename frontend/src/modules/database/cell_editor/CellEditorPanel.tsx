@@ -183,17 +183,9 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       [applyValue],
     );
 
-    const handleChange = useCallback(
-      (value: string) => {
-        setEditText(value);
-        if (!editorOpen) return;
-        if (!columnName && selectionCount <= 0) return;
-        const parsed = parseCellValue(editorKind, value);
-        onApply({ rawText: value, parsed });
-        baselineTextRef.current = value;
-      },
-      [columnName, editorKind, editorOpen, onApply, selectionCount],
-    );
+    const handleChange = useCallback((value: string) => {
+      setEditText(value);
+    }, []);
 
     const renderEditor = () => {
       if (richPreview && isNull && editText === "") {

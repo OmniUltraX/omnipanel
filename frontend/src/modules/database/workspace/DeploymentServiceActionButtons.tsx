@@ -1,6 +1,7 @@
 import { Button } from "../../../components/ui/primitives/Button";
 import { IconFile, IconRefresh, IconTerminal2 } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
+import type { ReactNode } from "react";
 
 interface DeploymentServiceActionButtonsProps {
   canManage: boolean;
@@ -11,6 +12,8 @@ interface DeploymentServiceActionButtonsProps {
   onRestart?: () => void;
   onOpenConfig?: () => void;
   configPath?: string;
+  /** 前置额外操作按钮（如慢日志 / 二进制日志） */
+  leading?: ReactNode;
 }
 
 export function DeploymentServiceActionButtons({
@@ -22,6 +25,7 @@ export function DeploymentServiceActionButtons({
   onRestart,
   onOpenConfig,
   configPath,
+  leading,
 }: DeploymentServiceActionButtonsProps) {
   const { t } = useI18n();
   const logLabel = t("database.connectionInfo.deployment.viewLog");
@@ -31,6 +35,7 @@ export function DeploymentServiceActionButtons({
 
   return (
     <div className="db-connection-info-deploy-actions">
+      {leading}
       <Button
         type="button"
         variant="icon"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { useModuleSuspended } from "@/lib/moduleVisibility";
 import { Button } from "@/components/ui/primitives/Button";
+import { IconRefresh } from "@/components/ui/Icons";
 import {
   Dialog,
   DialogContent,
@@ -241,8 +242,16 @@ export function ServerMonitorTab({ server, active = true }: Props) {
           <strong>{server.name}</strong>
           <span>{server.address}</span>
         </span>
-        <Button variant="ghost" size="sm" disabled={loading} onClick={() => void load()}>
-          {loading ? t("server.refreshing") : t("server.refresh")}
+        <Button
+          type="button"
+          variant="icon"
+          size="icon-xs"
+          disabled={loading}
+          title={loading ? t("server.refreshing") : t("server.refresh")}
+          aria-label={loading ? t("server.refreshing") : t("server.refresh")}
+          onClick={() => void load()}
+        >
+          <IconRefresh size={14} />
         </Button>
       </div>
 

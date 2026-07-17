@@ -164,3 +164,13 @@ export class OnePanelApiError extends Error {
     return this.status === 401;
   }
 }
+
+/** POST /files/search 返回的目录项。 */
+export interface OnePanelFileEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  isSymlink: boolean;
+  linkTarget: string | null;
+  size: number;
+}

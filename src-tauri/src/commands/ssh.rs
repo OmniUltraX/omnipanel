@@ -418,6 +418,108 @@ pub async fn sftp_chmod(
     Ok(())
 }
 
+/// 仅允许从白名单 URL 本机下载二进制并经 SFTP 安装到远端（用于 my2sql 等）。
+fn assert_allowed_binary_download_url(url: &str) -> Result<(), OmniError> {
+    let ok = url.starts_with("https://raw.githubusercontent.com/liuhr/my2sql/")
+        || url.starts_with("https://github.com/liuhr/my2sql/");
+    if ok {
+        Ok(())
+    } else {
+        Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "不允许从此 URL 下载远程安装包",
+        ))
+    }
+}
+
+/// 本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_download_install_binary(
+    state: State<'_, AppState>,
+    resource_id: String,
+    url: String,
+    remote_path: String,
+) -> Result<String, OmniError> {
+    assert_allowed_binary_download_url(&url)?;
+    let remote_path = remote_path.trim();
+    if remote_path.is_empty() || remote_path.contains('\0') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "远程安装路径无效"));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let client = crate::commands::proxy::build_http_client_for_url(
+        &url,
+        &proxy_config,
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(|e| OmniError::new(ErrorCode::Connection, format!("创建下载客户端失败: {e}")))?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Connection, format!("下载失败: {e}")))?;
+    if !response.status().is_success() {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("下载失败，HTTP {}", response.status()),
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, format!("读取下载内容失败: {e}")))?;
+    if bytes.len() < 1024 {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "下载内容过小，可能不是有效二进制",
+        ));
+    }
+
+    let session = pool_session(&state, &resource_id).await?;
+
+    let abs_path = if remote_path.starts_with("~/") || remote_path == "~" {
+        let home = session.exec_capture("printf %s \"$HOME\"").await?;
+        let home = home.stdout.trim();
+        if home.is_empty() {
+            return Err(OmniError::new(ErrorCode::Internal, "远端 HOME 为空"));
+        }
+        if remote_path == "~" {
+            home.to_string()
+        } else {
+            format!("{}/{}", home.trim_end_matches('/'), &remote_path[2..])
+        }
+    } else {
+        remote_path.to_string()
+    };
+
+    let parent = abs_path
+        .rsplit_once('/')
+        .map(|(p, _)| p)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(".");
+    let mkdir_cmd = format!("mkdir -p {}", shell_single_quote(parent));
+    session
+        .exec_capture(&mkdir_cmd)
+        .await?
+        .ok_or_err("创建远端目录失败")?;
+
+    session.sftp_upload(&abs_path, &bytes).await?;
+
+    let chmod_cmd = format!("chmod 755 {}", shell_single_quote(&abs_path));
+    session
+        .exec_capture(&chmod_cmd)
+        .await?
+        .ok_or_err("chmod 失败")?;
+
+    Ok(abs_path)
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 /// 同步导入时分组名（写入持久化存储，不在侧栏单独展示 config 条目）。
 const SSH_CONFIG_SYNC_GROUP: &str = "~/.ssh/config";
 

@@ -89,6 +89,8 @@ export function TableCellPreviewSubWindow({
       className="db-cell-preview-subwindow file-preview-subwindow"
       widthRatio={0.72}
       heightRatio={0.68}
+      windowChrome={false}
+      showHeaderClose={false}
       headerExtra={headerExtra}
     >
       {preview && content ? (

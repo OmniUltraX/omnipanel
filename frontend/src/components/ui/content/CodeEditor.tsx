@@ -12,6 +12,7 @@ import { json } from "@codemirror/lang-json";
 import { sql } from "@codemirror/lang-sql";
 import { yaml } from "@codemirror/lang-yaml";
 import { StreamLanguage } from "@codemirror/language";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
@@ -19,8 +20,18 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 
 /** MySQL .cnf / .ini 语法高亮（legacy properties 模式，支持 [section]、# 注释与 key= value） */
 const iniLanguage = StreamLanguage.define(properties);
+/** Nginx / OpenResty 配置语法高亮 */
+const nginxLanguage = StreamLanguage.define(nginx);
 
-export type CodeEditorLanguage = "text" | "sql" | "json" | "yaml" | "shell" | "dockerfile" | "ini";
+export type CodeEditorLanguage =
+  | "text"
+  | "sql"
+  | "json"
+  | "yaml"
+  | "shell"
+  | "dockerfile"
+  | "ini"
+  | "nginx";
 
 interface CodeEditorProps {
   value: string;
@@ -43,6 +54,8 @@ function languageExtension(language: CodeEditorLanguage): Extension {
       return yaml();
     case "ini":
       return iniLanguage;
+    case "nginx":
+      return nginxLanguage;
     default:
       return [];
   }
@@ -52,8 +65,11 @@ function languageFromFilePath(filePath: string | null | undefined): CodeEditorLa
   if (!filePath) return "text";
   if (filePath.endsWith(".sql")) return "sql";
   if (filePath.endsWith(".json")) return "json";
-  if (filePath.endsWith(".cnf") || filePath.endsWith(".ini") || filePath.endsWith(".conf")) {
+  if (filePath.endsWith(".cnf") || filePath.endsWith(".ini")) {
     return "ini";
+  }
+  if (filePath.endsWith(".conf") || /(^|[/\\])nginx\.conf$/i.test(filePath)) {
+    return "nginx";
   }
   if (filePath.endsWith(".yaml") || filePath.endsWith(".yml")) return "yaml";
   if (filePath.endsWith(".sh")) return "shell";

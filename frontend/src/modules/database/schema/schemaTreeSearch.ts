@@ -104,11 +104,16 @@ export function schemaTableObjectSearchMatchesUnderExpanded(
   expandedNodeIds: ReadonlySet<string>,
   connConfig: CachedConnection["config"],
   labels: Pick<SchemaSearchLabels, "fields" | "indexes">,
+  showTableSchemaChildren = false,
 ): boolean {
   if (schemaTableObjectMatchesSearch(query, tbl)) {
     return true;
   }
-  if (!expandedNodeIds.has(tableKey) || !connectionHasTableSchemaChildren(connConfig)) {
+  if (
+    !showTableSchemaChildren ||
+    !expandedNodeIds.has(tableKey) ||
+    !connectionHasTableSchemaChildren(connConfig)
+  ) {
     return false;
   }
   const colsFolderId = tableColumnsFolderId(tableKey);
@@ -145,6 +150,7 @@ export function schemaDatabaseSearchMatchesUnderExpanded(
   tableFilter: SchemaFilterState | undefined,
   labels: SchemaSearchLabels,
   routineTypeLabel: (routineType: string) => string,
+  showTableSchemaChildren = false,
 ): boolean {
   if (schemaSearchMatches(query, db.name)) {
     return true;
@@ -173,6 +179,7 @@ export function schemaDatabaseSearchMatchesUnderExpanded(
           expandedNodeIds,
           conn.config,
           labels,
+          showTableSchemaChildren,
         )
       ) {
         return true;
@@ -195,6 +202,7 @@ export function schemaDatabaseSearchMatchesUnderExpanded(
           expandedNodeIds,
           conn.config,
           labels,
+          showTableSchemaChildren,
         )
       ) {
         return true;
@@ -226,6 +234,7 @@ export function schemaConnectionSearchMatchesUnderExpanded(
   makeTableFilterKey: (connId: string, dbName: string) => string,
   labels: SchemaSearchLabels,
   routineTypeLabel: (routineType: string) => string,
+  showTableSchemaChildren = false,
 ): boolean {
   const connId = `conn:${conn.config.id}`;
   if (schemaSearchMatches(query, conn.config.name)) {
@@ -249,6 +258,7 @@ export function schemaConnectionSearchMatchesUnderExpanded(
         tableFilter,
         labels,
         routineTypeLabel,
+        showTableSchemaChildren,
       )
     ) {
       return true;

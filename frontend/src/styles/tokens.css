@@ -76,6 +76,13 @@
   --z-subwindow-overlay: 1200;
   --z-subwindow-popover: 1300;
   --z-dialog: 1400;
+
+  /* 原生 date/time 控件与日历图标跟随暗色主题 */
+  color-scheme: dark;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 /* Light theme */
@@ -111,4 +118,6 @@
   --warn-soft: rgba(255, 149, 0, 0.1);
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.1);
+
+  color-scheme: light;
 }

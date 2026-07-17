@@ -53,7 +53,6 @@ import {
   findTableByName,
   isSchemaCaseSensitive,
   tableNameExistsInSet,
-  isSchemaSyncSourceTableMissingInTarget,
   filterSchemaSyncExecutableTableNames,
   isSchemaSyncTableExecutable,
   resolveSchemaTableNameCase,

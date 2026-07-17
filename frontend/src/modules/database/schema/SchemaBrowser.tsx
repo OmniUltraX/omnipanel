@@ -149,9 +149,9 @@ function resolveSoleDatabaseObjectFolderId(
   dbName: string,
   db:
     | {
-        tables?: { length: number }[];
-        views?: { length: number }[];
-        routines?: { length: number }[];
+        tables?: { length: number } | null;
+        views?: { length: number } | null;
+        routines?: { length: number } | null;
       }
     | null
     | undefined,
@@ -691,6 +691,7 @@ export function SchemaBrowser({
 }: SchemaBrowserProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
+  const showTableSchemaChildren = useSettingsStore((s) => s.databaseSchemaTreeShowTableChildren);
   const useExternalConnections =
     connectionConfigs !== undefined && connectionsReady !== undefined;
   const [search, setSearch] = useState("");
@@ -984,9 +985,12 @@ export function SchemaBrowser({
 
       const targetIds = resolveSidebarTreeDeleteTargets(item.id, selectedIdsRef.current, {
         filter: (id) => {
-          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
+          const row = flatRowsRef.current.find(
+            (entry) => entry.kind === "node" && entry.item.id === id,
+          );
           return (
-            row?.item.type === item.type &&
+            row?.kind === "node" &&
+            row.item.type === item.type &&
             row.item.connId === item.connId &&
             isSchemaNodeDeletable(row.item.type)
           );
@@ -994,8 +998,10 @@ export function SchemaBrowser({
       });
       const targets = targetIds
         .map((id) => {
-          const row = flatRowsRef.current.find((entry) => entry.item.id === id);
-          return row?.item;
+          const row = flatRowsRef.current.find(
+            (entry) => entry.kind === "node" && entry.item.id === id,
+          );
+          return row?.kind === "node" ? row.item : undefined;
         })
         .filter((entry): entry is SchemaTreeItem => Boolean(entry));
 
@@ -1640,7 +1646,10 @@ export function SchemaBrowser({
 
     const tableParsed = parseTableNodeId(id);
     const viewParsed = parseViewNodeId(id);
-    if (tableParsed || viewParsed) {
+    if (
+      showTableSchemaChildren &&
+      (tableParsed || viewParsed)
+    ) {
       const parsed = tableParsed ?? viewParsed!;
       const conn = connectionsRef.current.find((item) => item.config.id === parsed.connId);
       if (conn && connectionHasTableSchemaChildren(conn.config)) {
@@ -1672,7 +1681,22 @@ export function SchemaBrowser({
         }
       }
     }
-  }, [schemaCacheReporter, schemaRefreshHooks, updateExpanded]);
+  }, [schemaCacheReporter, schemaRefreshHooks, showTableSchemaChildren, updateExpanded]);
+
+  /** 双击对象文件夹（表 / 视图 / 其他）：展开该层。 */
+  const expandObjectFolderOnActivate = useCallback(
+    (folderNodeId: string) => {
+      updateExpanded((prev) => {
+        if (prev.has(folderNodeId)) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.add(folderNodeId);
+        return next;
+      });
+    },
+    [updateExpanded],
+  );
 
   /** 双击库名：展开库节点；若二层只有一个对象文件夹则继续展开。 */
   const expandDatabaseOnActivate = useCallback(
@@ -1767,6 +1791,7 @@ export function SchemaBrowser({
         layoutFolders,
         connectionParents,
         deploymentServerByConnId,
+        showTableSchemaChildren,
       }),
     [
       t,
@@ -1782,6 +1807,7 @@ export function SchemaBrowser({
       layoutFolders,
       connectionParents,
       deploymentServerByConnId,
+      showTableSchemaChildren,
     ],
   );
 
@@ -2137,6 +2163,8 @@ export function SchemaBrowser({
         };
         onPreviewOpen = () => onSelectTable?.(tableSelection, "preview");
         onActivate = () => onSelectTable?.(tableSelection, "permanent");
+      } else if (row.labelClickKind === "object-folder") {
+        onActivate = () => expandObjectFolderOnActivate(row.item.id);
       }
 
       let onPinToggle: (() => void) | undefined;
@@ -2224,6 +2252,7 @@ export function SchemaBrowser({
       t,
       toggle,
       expandDatabaseOnActivate,
+      expandObjectFolderOnActivate,
       onSelectConnection,
       onSelectDatabase,
       onSelectTable,
@@ -2366,7 +2395,10 @@ export function SchemaBrowser({
             onKeyDown={handleTreeKeyDown}
             onContextMenu={handleContextLayoutRoot}
           >
-        <SidebarTreeSelectionProvider orderedKeys={selectableNodeIds}>
+        <SidebarTreeSelectionProvider
+          orderedKeys={selectableNodeIds}
+          onSelectedIdsChange={handleSelectedIdsChange}
+        >
         <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>

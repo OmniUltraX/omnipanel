@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  startTransition,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -24,8 +23,10 @@ import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
 import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoPanel";
 import { RedisConnectionInfoPanel } from "./workspace/RedisConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
+import { DatabaseBinlogPanel } from "./workspace/DatabaseBinlogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
+import { useDbMysqlLogNavStore } from "./stores/dbMysqlLogNavStore";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
 import { ConnectionDialog } from "./connection/ConnectionDialog";
 import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
@@ -89,7 +90,7 @@ import { isSameCellValue, shouldUseInlineCellEdit } from "./cell_editor";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redis/redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schema/schemaCacheMerge";
 import { snapshotToFilterStates } from "./schema/schemaFilters";
-import type { SchemaCacheConnectionEntry } from "./schema/schemaCache";
+import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/schemaCache";
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
@@ -128,10 +129,12 @@ import {
   findTabIdForDesigner,
   findTabIdForRedisQuery,
   findTabIdForSlowQueryLog,
+  findTabIdForBinlog,
   findPreviewDockTab,
   makeDesignerTabId,
   makeConnectionInfoTabId,
   makeSlowQueryLogTabId,
+  makeBinlogTabId,
   makeRedisQueryTabId,
   isModuleDockTab,
   isToolboxTab,
@@ -141,9 +144,14 @@ import {
   makeTableDesignerTabLabel,
   makeSqlTabLabel,
   makeTreeChartTabId,
+  makeTreeChartTabLabel,
+  makeDatabaseListTabLabel,
+  makeConnectionTabLabel,
+  makeConnectionScopedTabLabel,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
   type SlowQueryLogWorkspaceTab,
+  type BinlogWorkspaceTab,
   type DbWorkspaceTab,
   type RedisQueryWorkspaceTab,
   type SqlWorkspaceTab,
@@ -197,6 +205,11 @@ import {
   resolveSlowLogAvailabilitySync,
   type SlowLogAvailability,
 } from "./mysqlSlowQueryLog";
+import {
+  probeBinlogAvailability,
+  resolveBinlogAvailabilitySync,
+  type BinlogAvailability,
+} from "./mysqlBinlog";
 import type { RuleGroupType } from "react-querybuilder";
 import { patchDockTabFileMeta, patchDockTabPreviewMeta } from "../../components/dock/dockTabLiveMeta";
 import { DbWorkspaceProviders } from "../../contexts/DbWorkspaceContext";
@@ -364,6 +377,10 @@ export function DatabasePanel() {
     Record<string, SlowLogAvailability>
   >({});
   const slowLogProbeGenRef = useRef(0);
+  const [binlogAvailabilityByConnId, setBinlogAvailabilityByConnId] = useState<
+    Record<string, BinlogAvailability>
+  >({});
+  const binlogProbeGenRef = useRef(0);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
 
   const setActiveConnIdIfChanged = useCallback((connId: string | null) => {
@@ -511,23 +528,33 @@ export function DatabasePanel() {
       const tabId =
         findTabIdForSyncTask(workspaceTabsRef.current, task.id) ?? syncTaskDockTabId(task.id);
       const existing = workspaceTabsRef.current.find((item) => item.id === tabId);
+      const syncAction =
+        task.kind === "schemaSync"
+          ? t("database.workspace.tabAction.schemaSync")
+          : t("database.workspace.tabAction.dataSync");
       if (!existing) {
-        const tab = makeSyncTaskWorkspaceTab(task);
+        const tab = makeSyncTaskWorkspaceTab(task, syncAction);
         setWorkspaceTabs((prev) => (prev.some((item) => item.id === tab.id) ? prev : [...prev, tab]));
-      } else if (existing.label !== task.name || (existing as ToolboxWorkspaceTab).toolboxTab !== task.kind) {
-        setWorkspaceTabs((prev) =>
-          prev.map((item) =>
-            item.id === tabId
-              ? { ...item, label: task.name, toolboxTab: task.kind } as DbWorkspaceTab
-              : item,
-          ),
-        );
+      } else {
+        const nextLabel = makeSyncTaskWorkspaceTab(task, syncAction).label;
+        if (
+          existing.label !== nextLabel ||
+          (existing as ToolboxWorkspaceTab).toolboxTab !== task.kind
+        ) {
+          setWorkspaceTabs((prev) =>
+            prev.map((item) =>
+              item.id === tabId
+                ? { ...item, label: nextLabel, toolboxTab: task.kind } as DbWorkspaceTab
+                : item,
+            ),
+          );
+        }
       }
       activateWorkspaceTab(tabId);
       useDbSyncTaskStore.getState().setActiveTaskId(task.id);
       useDbSyncTaskStore.getState().requestLoad(task.id, runAfterLoad);
     },
-    [activateWorkspaceTab, setWorkspaceTabs],
+    [activateWorkspaceTab, setWorkspaceTabs, t],
   );
 
   const handleOpenSyncTask = useCallback(
@@ -561,12 +588,13 @@ export function DatabasePanel() {
 
   const promotePreviewTab = useCallback(
     (tabId: string) => {
-      // 去掉 flushSync：升格预览不再强制同步阻塞开 Tab 帧
-      startTransition(() => {
-        setWorkspaceTabs((prev) =>
-          prev.map((tab) => (tab.id === tabId ? { ...tab, preview: undefined } : tab)),
-        );
-      });
+      // 同步升格，避免双击时 startTransition 延迟导致又新建常驻 Tab
+      setWorkspaceTabs((prev) =>
+        prev.map((tab) => (tab.id === tabId ? { ...tab, preview: undefined } : tab)),
+      );
+      workspaceTabsRef.current = workspaceTabsRef.current.map((tab) =>
+        tab.id === tabId ? { ...tab, preview: undefined } : tab,
+      );
       patchDockTabPreviewMeta(tabId, false);
     },
     [setWorkspaceTabs],
@@ -941,6 +969,30 @@ export function DatabasePanel() {
     [t],
   );
 
+  const resolveBinlogDisabledReason = useCallback(
+    (availability: BinlogAvailability): string => {
+      switch (availability.reason) {
+        case "not_mysql":
+          return t("database.contextMenu.binlogDisabled.notMysql");
+        case "no_ssh":
+          return t("database.contextMenu.binlogDisabled.noSsh");
+        case "ssh_not_connected":
+          return t("database.contextMenu.binlogDisabled.sshNotConnected");
+        case "connection_disabled":
+          return t("database.contextMenu.binlogDisabled.connectionDisabled");
+        case "checking":
+          return t("database.contextMenu.binlogDisabled.checking");
+        case "binlog_off":
+          return t("database.contextMenu.binlogDisabled.binlogOff");
+        case "binlog_encrypted":
+          return t("database.contextMenu.binlogDisabled.binlogEncrypted");
+        default:
+          return t("database.contextMenu.binlogDisabled.probeFailed");
+      }
+    },
+    [t],
+  );
+
   useEffect(() => {
     const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
     if (mysqlConnections.length === 0) {
@@ -980,6 +1032,44 @@ export function DatabasePanel() {
     })();
   }, [connections, sshConnections, sshSessionActiveMap]);
 
+  useEffect(() => {
+    const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
+    if (mysqlConnections.length === 0) {
+      setBinlogAvailabilityByConnId({});
+      return;
+    }
+
+    const gen = ++binlogProbeGenRef.current;
+    const syncMap: Record<string, BinlogAvailability> = {};
+    for (const conn of mysqlConnections) {
+      syncMap[conn.id] = resolveBinlogAvailabilitySync(conn, sshConnections);
+    }
+    setBinlogAvailabilityByConnId(syncMap);
+
+    void (async () => {
+      for (const conn of mysqlConnections) {
+        const sync = syncMap[conn.id];
+        if (!sync || sync.reason !== "checking") {
+          continue;
+        }
+        if (!isConnectionEnabled(conn)) {
+          if (binlogProbeGenRef.current !== gen) return;
+          setBinlogAvailabilityByConnId((prev) => ({
+            ...prev,
+            [conn.id]: {
+              enabled: false,
+              reason: "connection_disabled",
+              sshConnectionId: sync.sshConnectionId,
+            },
+          }));
+          continue;
+        }
+        const result = await probeBinlogAvailability(conn, sshConnections);
+        if (binlogProbeGenRef.current !== gen) return;
+        setBinlogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
+      }
+    })();
+  }, [connections, sshConnections, sshSessionActiveMap]);
   useEffect(() => {
     const bootstrapWorkspace = () => {
       const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
@@ -1158,15 +1248,23 @@ export function DatabasePanel() {
           return tab;
         }
         const task = syncTasks.find((item) => item.id === tab.syncTaskId);
-        if (!task || (tab.label === task.name && tab.toolboxTab === task.kind)) {
+        if (!task) {
+          return tab;
+        }
+        const syncAction =
+          task.kind === "schemaSync"
+            ? t("database.workspace.tabAction.schemaSync")
+            : t("database.workspace.tabAction.dataSync");
+        const nextLabel = makeSyncTaskWorkspaceTab(task, syncAction).label;
+        if (tab.label === nextLabel && tab.toolboxTab === task.kind) {
           return tab;
         }
         changed = true;
-        return { ...tab, label: task.name, toolboxTab: task.kind };
+        return { ...tab, label: nextLabel, toolboxTab: task.kind };
       });
       return changed ? next : prev;
     });
-  }, [workspaceInitialized, syncTasks, setWorkspaceTabs]);
+  }, [workspaceInitialized, syncTasks, setWorkspaceTabs, t]);
 
   useEffect(() => {
     const flush = () => flushPersistWorkspaceSession();
@@ -2178,6 +2276,15 @@ export function DatabasePanel() {
         }
       }
 
+      if (tab.kind === "binlog") {
+        const existing = findTabIdForBinlog(workspaceTabsRef.current, tab.connId);
+        if (existing) {
+          activateWorkspaceTab(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
       if (tab.kind === "designer") {
         const existing = findTabIdForDesigner(
           workspaceTabsRef.current,
@@ -2730,7 +2837,8 @@ export function DatabasePanel() {
       hydrated: true,
     });
     useDbSchemaCacheStore.setState({
-      snapshot: cacheSnap,
+      // IPC Deserialize 与前端 SchemaCacheSnapshot 结构对齐，hydrate 同路用断言
+      snapshot: cacheSnap as SchemaCacheSnapshot,
       hydrated: true,
     });
   }, []);
@@ -2977,7 +3085,11 @@ export function DatabasePanel() {
       const tab: TableDesignerWorkspaceTab = {
         id: tabId,
         kind: "designer",
-        label: makeTableDesignerTabLabel(selection.dbName, selection.tableName),
+        label: makeTableDesignerTabLabel(
+          selection.tableName,
+          selection.dbName,
+          selection.connection.name,
+        ),
         connId: selection.connId,
         dbName: selection.dbName,
         tableName: selection.tableName,
@@ -2992,13 +3104,15 @@ export function DatabasePanel() {
     (selection: SchemaTableSelection) => {
       const { connId, dbName, tableName, connection } = selection;
       const sql = buildSelectAllFromTableSql(connection.db_type, tableName);
-      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const tabId = makeSqlTabId();
-      const sqlTabCount = moduleTabs.filter((item) => item.kind === "sql").length + 1;
       const tab: SqlWorkspaceTab = {
         id: tabId,
         kind: "sql",
-        label: makeSqlTabLabel(sqlTabCount),
+        label: makeSqlTabLabel({
+          table: tableName,
+          database: dbName,
+          connection: connection.name,
+        }),
       };
       setSqlTabStates((prev) => ({
         ...prev,
@@ -3032,7 +3146,10 @@ export function DatabasePanel() {
       const tab: SlowQueryLogWorkspaceTab = {
         id: tabId,
         kind: "slow-query",
-        label: t("database.slowQueryLog.tabLabel"),
+        label: makeConnectionScopedTabLabel(
+          t("database.workspace.tabAction.slowQuery"),
+          connection.name,
+        ),
         connId: connection.id,
         sshConnectionId: availability.sshConnectionId,
         logFilePath: availability.logFilePath,
@@ -3044,6 +3161,85 @@ export function DatabasePanel() {
     },
     [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
   );
+
+  const openBinlogTab = useCallback(
+    (connection: DbConnectionConfig, availability: BinlogAvailability) => {
+      if (!availability.enabled || !availability.sshConnectionId) {
+        return;
+      }
+      setActiveConnIdIfChanged(connection.id);
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForBinlog(moduleTabs, connection.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeBinlogTabId();
+      const tab: BinlogWorkspaceTab = {
+        id: tabId,
+        kind: "binlog",
+        label: makeConnectionScopedTabLabel(
+          t("database.workspace.tabAction.binlog"),
+          connection.name,
+        ),
+        connId: connection.id,
+        sshConnectionId: availability.sshConnectionId,
+        deploymentKind: availability.deploymentKind,
+        containerId: availability.containerId,
+        logBinBasename: availability.logBinBasename,
+        binlogFormat: availability.binlogFormat,
+        binlogRowImage: availability.binlogRowImage,
+        flashbackCapable: availability.flashbackCapable,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
+  );
+
+  useEffect(() => {
+    return useDbMysqlLogNavStore.subscribe((state, prev) => {
+      if (!state.pending || state.pending === prev.pending) {
+        return;
+      }
+      const req = useDbMysqlLogNavStore.getState().consume();
+      if (!req) return;
+      const connection = connections.find((c) => c.id === req.connId);
+      if (!connection || !isMysqlConnectionInfoCapable(connection)) {
+        showToast(t("database.contextMenu.binlogDisabled.notMysql"));
+        return;
+      }
+      if (req.kind === "slow-query") {
+        const availability =
+          slowLogAvailabilityByConnId[connection.id] ??
+          resolveSlowLogAvailabilitySync(connection, sshConnections);
+        if (!availability.enabled) {
+          showToast(resolveSlowLogDisabledReason(availability));
+          return;
+        }
+        openSlowQueryLogTab(connection, availability);
+        return;
+      }
+      const availability =
+        binlogAvailabilityByConnId[connection.id] ??
+        resolveBinlogAvailabilitySync(connection, sshConnections);
+      if (!availability.enabled) {
+        showToast(resolveBinlogDisabledReason(availability));
+        return;
+      }
+      openBinlogTab(connection, availability);
+    });
+  }, [
+    connections,
+    sshConnections,
+    slowLogAvailabilityByConnId,
+    binlogAvailabilityByConnId,
+    openSlowQueryLogTab,
+    openBinlogTab,
+    resolveSlowLogDisabledReason,
+    resolveBinlogDisabledReason,
+    t,
+  ]);
 
   const handleExportDatabase = useCallback(
     async (connection: DbConnectionConfig, databaseName: string) => {
@@ -3226,6 +3422,13 @@ export function DatabasePanel() {
           <path d="M11 2.5V1.5H5v1" />
         </svg>
       );
+      const binlogIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M4 2h8v12H4z" />
+          <path d="M6 5h4M6 8h4M6 11h2" />
+          <path d="M2 5h2M2 8h2M2 11h2" />
+        </svg>
+      );
 
       if (item.type === "database" && item.dbName && context.connection) {
         const connection = context.connection;
@@ -3313,6 +3516,23 @@ export function DatabasePanel() {
               openSlowQueryLogTab(connection, latest);
             },
           });
+          const binlogAvailability =
+            binlogAvailabilityByConnId[connection.id] ??
+            resolveBinlogAvailabilitySync(connection, sshConnections);
+          slowLogItems.push({
+            id: "binlog",
+            label: t("database.contextMenu.binlog"),
+            icon: binlogIcon,
+            disabled: !binlogAvailability.enabled,
+            disabledReason: !binlogAvailability.enabled
+              ? resolveBinlogDisabledReason(binlogAvailability)
+              : undefined,
+            onClick: () => {
+              const latest =
+                binlogAvailabilityByConnId[connection.id] ?? binlogAvailability;
+              openBinlogTab(connection, latest);
+            },
+          });
         }
         return [
           {
@@ -3369,8 +3589,11 @@ export function DatabasePanel() {
       handleExportDatabase,
       handleOpenImportDatabase,
       openSlowQueryLogTab,
+      openBinlogTab,
       resolveSlowLogDisabledReason,
+      resolveBinlogDisabledReason,
       slowLogAvailabilityByConnId,
+      binlogAvailabilityByConnId,
       sshConnections,
       t,
       toggleConnectionEnabled,
@@ -3407,7 +3630,8 @@ export function DatabasePanel() {
       setActiveConnIdIfChanged(selection.connId);
       void probeDbConnectionRuntime(selection.connection);
 
-      startTransition(() => {
+      // 勿包 startTransition：双击会先点出 preview 再 permanent，
+      // 异步调度下两条路径可能都看不到对方刚建的 Tab，从而各建一个。
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, tableName, connection } = selection;
 
@@ -3464,21 +3688,39 @@ export function DatabasePanel() {
       const tabTemplate: TablePreviewWorkspaceTab = {
         id: "",
         kind: "table",
-        label: makeTableTabLabel(dbName, tableName),
+        label: makeTableTabLabel(tableName, dbName, connection.name),
         connId,
         dbName,
         tableName,
       };
 
       if (mode === "permanent") {
-        if (previewTab && tabMatchesTableSelection(previewTab, connId, dbName, tableName)) {
-          promotePreviewTab(previewTab.id);
-          activateWorkspaceTab(previewTab.id);
+        // 含预览 Tab（findTabIdForTable 只查常驻）
+        const matchingPreview =
+          previewTab && tabMatchesTableSelection(previewTab, connId, dbName, tableName)
+            ? previewTab
+            : moduleTabs.find(
+                (tab) => tab.preview && tabMatchesTableSelection(tab, connId, dbName, tableName),
+              );
+        if (matchingPreview) {
+          promotePreviewTab(matchingPreview.id);
+          activateWorkspaceTab(matchingPreview.id);
           return;
         }
 
         const tabId = makeTableTabId();
-        setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId }]);
+        setWorkspaceTabs((prev) => {
+          // 兜底：去掉同表残留预览，避免竞态留下双 Tab
+          const withoutDupPreview = prev.filter(
+            (tab) =>
+              !(
+                tab.preview &&
+                isModuleDockTab(tab) &&
+                tabMatchesTableSelection(tab, connId, dbName, tableName)
+              ),
+          );
+          return [...withoutDupPreview, { ...tabTemplate, id: tabId }];
+        });
         activateWorkspaceTab(tabId);
         ensureTablePreview(tabId);
         return;
@@ -3498,9 +3740,13 @@ export function DatabasePanel() {
       const tabId = makeTableTabId();
       patchDockTabPreviewMeta(tabId, true);
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
+      // 同步更新 ref，便于紧随其后的双击 permanent 能看到预览 Tab
+      workspaceTabsRef.current = [
+        ...workspaceTabsRef.current,
+        { ...tabTemplate, id: tabId, preview: true },
+      ];
       activateWorkspaceTab(tabId);
       ensureTablePreview(tabId);
-      });
     },
     [
       activateExistingDockTab,
@@ -3601,14 +3847,14 @@ export function DatabasePanel() {
         ? {
             id: "",
             kind: "redis-query",
-            label: `DB ${dbName}`,
+            label: makeDatabaseListTabLabel(dbName, connection.name),
             connId,
             dbName,
           }
         : {
             id: "",
             kind: "database",
-            label: dbName,
+            label: makeDatabaseListTabLabel(dbName, connection.name),
             connId,
             dbName,
           };
@@ -3647,7 +3893,14 @@ export function DatabasePanel() {
       ]);
       activateWorkspaceTab(tabId);
     },
-    [activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab, setActiveConnIdIfChanged],
+    [
+      activateExistingDockTab,
+      activateWorkspaceTab,
+      promotePreviewTab,
+      replacePreviewDockTab,
+      setActiveConnIdIfChanged,
+      t,
+    ],
   );
 
   const openSqlFile = useCallback(
@@ -3662,10 +3915,18 @@ export function DatabasePanel() {
         return;
       }
       const tabId = makeSqlTabId();
+      const connName = file.connId
+        ? connections.find((item) => item.id === file.connId)?.name ?? file.connId
+        : "";
+      const fileAction = file.name.replace(/\.sql$/i, "") || t("database.workspace.tabAction.sql");
       const tab: SqlWorkspaceTab = {
         id: tabId,
         kind: "sql",
-        label: file.name.replace(/\.sql$/i, ""),
+        label: makeSqlTabLabel({
+          action: fileAction,
+          database: file.database,
+          connection: connName || null,
+        }),
         sqlFileId: file.id,
       };
       setSqlTabStates((prev) => ({
@@ -3680,7 +3941,7 @@ export function DatabasePanel() {
       setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
       syncSqlFileTabHeaderMeta(tabId, false);
     },
-    [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta],
+    [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta, connections, t],
   );
 
   const openTreeChartFile = useCallback(
@@ -3694,13 +3955,16 @@ export function DatabasePanel() {
       const tab: TreeChartWorkspaceTab = {
         id: tabId,
         kind: "tree-chart",
-        label: formatTreeChartFileLabel(file.name),
+        label: makeTreeChartTabLabel(
+          t("database.workspace.tabAction.treeChart"),
+          formatTreeChartFileLabel(file.name),
+        ),
         treeChartFileId: file.id,
       };
       setWorkspaceTabs((prev) => [...prev, tab]);
       activateWorkspaceTab(tabId);
     },
-    [activateWorkspaceTab, setWorkspaceTabs],
+    [activateWorkspaceTab, setWorkspaceTabs, t],
   );
 
   const openTreeChartTab = useCallback(async () => {
@@ -3921,7 +4185,7 @@ export function DatabasePanel() {
 
   // @ts-ignore
   const openRedisQueryTab = useCallback(
-    (connId: string, dbName: string | undefined, label: string, mode: SchemaDockOpenMode = "permanent") => {
+    (connId: string, dbName: string | undefined, _label: string, mode: SchemaDockOpenMode = "permanent") => {
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const existingTabId = findTabIdForRedisQuery(moduleTabs, connId, dbName);
       if (existingTabId) {
@@ -3929,11 +4193,14 @@ export function DatabasePanel() {
         return;
       }
 
+      const connName = connections.find((item) => item.id === connId)?.name ?? connId;
       const previewTab = findPreviewDockTab(moduleTabs);
       const tabTemplate: RedisQueryWorkspaceTab = {
         id: "",
         kind: "redis-query",
-        label,
+        label: dbName
+          ? makeDatabaseListTabLabel(dbName, connName)
+          : makeConnectionTabLabel(connName),
         connId,
         dbName,
       };
@@ -3970,7 +4237,14 @@ export function DatabasePanel() {
       setWorkspaceTabs((prev) => [...prev, { ...tabTemplate, id: tabId, preview: true }]);
       activateWorkspaceTab(tabId);
     },
-    [activateExistingDockTab, activateWorkspaceTab, promotePreviewTab, replacePreviewDockTab],
+    [
+      activateExistingDockTab,
+      activateWorkspaceTab,
+      promotePreviewTab,
+      replacePreviewDockTab,
+      connections,
+      t,
+    ],
   );
 
   const handleSelectConnection = useCallback(
@@ -4020,7 +4294,7 @@ export function DatabasePanel() {
         const tabTemplate: ConnectionInfoWorkspaceTab = {
           id: "",
           kind: "connection",
-          label: conn.name,
+          label: makeConnectionTabLabel(conn.name),
           connId,
         };
         const matchesSelection = (tab: DbWorkspaceTab) =>
@@ -4067,7 +4341,7 @@ export function DatabasePanel() {
       const tabTemplate: ConnectionInfoWorkspaceTab = {
         id: "",
         kind: "connection",
-        label: conn.name,
+        label: makeConnectionTabLabel(conn.name),
         connId,
       };
       const matchesSelection = (tab: DbWorkspaceTab) =>
@@ -4113,6 +4387,7 @@ export function DatabasePanel() {
       setWorkspaceTabs,
       updateSchemaExpanded,
       schemaCacheReporter,
+      t,
     ],
   );
   openConnectionInfoTabRef.current = handleSelectConnection;
@@ -4392,7 +4667,12 @@ export function DatabasePanel() {
           item.id === tabId
             ? {
                 ...item,
-                label: file.name.replace(/\.sql$/i, ""),
+                label: makeSqlTabLabel({
+                  action:
+                    file.name.replace(/\.sql$/i, "") || t("database.workspace.tabAction.sql"),
+                  database: state.database,
+                  connection: connection?.name ?? null,
+                }),
                 sqlFileId: file.id,
               }
             : item,
@@ -4619,6 +4899,17 @@ export function DatabasePanel() {
               preview,
             };
           }
+          if (tab.kind === "binlog") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database-binlog",
+              icon: "database" as const,
+              tooltip: t("database.binlog.tabTooltip", { name: tab.label }),
+              closable: true,
+              preview,
+            };
+          }
           if (tab.kind === "toolbox") {
             return {
               id: tab.id,
@@ -4766,6 +5057,28 @@ export function DatabasePanel() {
                   logFilePath={tab.logFilePath}
                   deploymentKind={tab.deploymentKind}
                   containerId={tab.containerId}
+                  active={tab.id === activeWorkspaceTabId}
+                />
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
+        );
+      }
+
+      if (tab.kind === "binlog") {
+        return (
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane db-workspace-pane--binlog">
+                <DatabaseBinlogPanel
+                  connection={connection}
+                  sshConnectionId={tab.sshConnectionId}
+                  deploymentKind={tab.deploymentKind}
+                  containerId={tab.containerId}
+                  logBinBasename={tab.logBinBasename}
+                  binlogFormat={tab.binlogFormat}
+                  binlogRowImage={tab.binlogRowImage}
+                  flashbackCapable={tab.flashbackCapable}
                   active={tab.id === activeWorkspaceTabId}
                 />
               </div>

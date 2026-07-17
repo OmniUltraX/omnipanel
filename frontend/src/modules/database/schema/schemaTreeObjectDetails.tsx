@@ -2,6 +2,7 @@ import type { MouseEvent as ReactMouseEvent, ReactElement } from "react";
 import { useI18n } from "../../../i18n";
 import type { DbConnectionConfig } from "../api";
 import { connectionHasTableSchemaChildren } from "../api";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import type { CachedTable } from "./schemaCacheMerge";
 import {
   buildColumnTreeItem,
@@ -91,7 +92,9 @@ export function SchemaTreeObjectDetails({
       ? makeViewNodeId(conn.config.id, dbName, tbl.name)
       : makeTableNodeId(conn.config.id, dbName, tbl.name);
   const tableExpanded = expandedNodeIds.has(tableKey);
-  const showTableSchemaChildren = connectionHasTableSchemaChildren(conn.config);
+  const showTableSchemaChildren =
+    useSettingsStore((s) => s.databaseSchemaTreeShowTableChildren) &&
+    connectionHasTableSchemaChildren(conn.config);
   const colsFolderId = tableColumnsFolderId(tableKey);
   const idxFolderId = tableIndexesFolderId(tableKey);
   const colsExpanded = expandedNodeIds.has(colsFolderId);
