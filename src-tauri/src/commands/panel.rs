@@ -70,6 +70,28 @@ pub async fn panel_1panel_request_text(
     crate::panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
 }
 
+/// 1Panel 二进制请求（证书 zip 等）。返回 Base64，避免 IPC 损坏。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_1panel_request_bytes(
+    host: String,
+    api_key: String,
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<crate::panel::onepanel::OnePanelBinaryPayload, OmniError> {
+    let body_val = match body {
+        Some(raw) if !raw.trim().is_empty() => {
+            Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
+                OmniError::invalid_input("请求体不是合法 JSON").with_cause(e.to_string())
+            })?)
+        }
+        _ => None,
+    };
+
+    crate::panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
+}
+
 /// 通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
 /// `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 #[tauri::command]

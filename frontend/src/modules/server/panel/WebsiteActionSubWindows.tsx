@@ -269,6 +269,76 @@ export function WebsiteLogsSubWindow({
   );
 }
 
+export function CertificateLogsSubWindow({
+  open,
+  server,
+  sslId,
+  title,
+  onClose,
+}: {
+  open: boolean;
+  server: ServerEntry;
+  sslId: number | null;
+  title: string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [text, setText] = useState("");
+
+  const refresh = async () => {
+    if (sslId == null || server.serviceType !== "1panel") return;
+    setLoading(true);
+    setError(null);
+    try {
+      const client = createOnePanelClient(server.address, server.key);
+      const result = await client.readSslLog({ id: sslId, latest: true });
+      setText(result.content);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setText("");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setText("");
+      setError(null);
+      return;
+    }
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随窗口打开刷新
+  }, [open, sslId, server]);
+
+  return (
+    <SubWindow
+      open={open}
+      title={title}
+      onClose={onClose}
+      widthRatio={0.82}
+      heightRatio={0.78}
+      className="server-website-subwindow server-website-subwindow--logs"
+    >
+      <LogViewer
+        className="server-website-logs"
+        text={text}
+        loading={loading}
+        error={error}
+        emptyText={t("server.certificates.logsEmpty")}
+        onClear={() => setText("")}
+        toolbar={
+          <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
+            {loading ? t("server.refreshing") : t("server.refresh")}
+          </Button>
+        }
+      />
+    </SubWindow>
+  );
+}
+
 export function WebsiteConfigSubWindow({
   open,
   server,

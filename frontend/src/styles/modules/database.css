@@ -1548,7 +1548,15 @@
         height: 100%;
         cursor: col-resize;
         z-index: 3;
+        /* 居中压在列缝上；末列单独处理，避免撑出横向滚动条 */
         transform: translateX(50%);
+    }
+
+    /* 末列手柄不向右探出，否则 overflow:auto 容器底部会出现多余横向滚动条 */
+    .db-tables-panel-grid thead th:last-child .db-tables-panel-grid__col-resize {
+        transform: none;
+        right: 0;
+        width: 8px;
     }
 
     .db-tables-panel-grid__col-resize:hover,

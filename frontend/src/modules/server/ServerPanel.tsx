@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useServerPanelCacheStore } from "../../stores/serverPanelCacheStore";
@@ -66,6 +67,12 @@ export function ServerPanel() {
   const [editPanelConnection, setEditPanelConnection] = useState<Connection | undefined>();
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
   const [navTarget, setNavTarget] = useState<ServerSidebarNavTarget | null>(null);
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+    index: number;
+  } | null>(null);
 
   const serverById = useMemo(() => {
     const map = new Map<string, ServerEntry>();
@@ -89,6 +96,12 @@ export function ServerPanel() {
       removeServerTabs(serverId);
     }
   }, [panelServers, removeServerTabs]);
+
+  useEffect(() => {
+    if (!isActiveRoute) {
+      setTabCtxMenu(null);
+    }
+  }, [isActiveRoute]);
 
   const handleNavigate = useCallback(
     (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
@@ -135,6 +148,14 @@ export function ServerPanel() {
       });
     },
     [closeTab],
+  );
+
+  const handleDockTabContextMenu = useCallback(
+    (event: ReactMouseEvent, tabId: string, index: number) => {
+      event.preventDefault();
+      setTabCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
   );
 
   const handleCreateServer = useCallback(() => {
@@ -195,6 +216,43 @@ export function ServerPanel() {
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
     [dockTabs, serverById, t],
+  );
+
+  const handleTabContextAction = useCallback(
+    (action: TabContextMenuAction) => {
+      if (!tabCtxMenu) return;
+      const { tabId } = tabCtxMenu;
+      const visibleTabs = moduleDockTabs;
+      const idx = visibleTabs.findIndex((tab) => tab.id === tabId);
+
+      if (action === "close") {
+        handleCloseTab(tabId);
+      } else if (action === "closeLeft") {
+        if (idx > 0) {
+          for (const tab of visibleTabs.slice(0, idx)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeRight") {
+        if (idx >= 0 && idx < visibleTabs.length - 1) {
+          for (const tab of visibleTabs.slice(idx + 1)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeOthers") {
+        if (idx >= 0) {
+          for (const tab of visibleTabs.filter((item) => item.id !== tabId)) {
+            handleCloseTab(tab.id);
+          }
+        }
+      } else if (action === "closeAll") {
+        for (const tab of visibleTabs) {
+          handleCloseTab(tab.id);
+        }
+      }
+      setTabCtxMenu(null);
+    },
+    [handleCloseTab, moduleDockTabs, tabCtxMenu],
   );
 
   const renderServerPanel = useCallback(
@@ -269,6 +327,7 @@ export function ServerPanel() {
             activeTabId={activeTabId ?? ""}
             onActiveTabChange={setActiveTabId}
             onCloseTab={handleCloseTab}
+            onTabContextMenu={handleDockTabContextMenu}
             enabled={isActiveRoute}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
@@ -282,6 +341,25 @@ export function ServerPanel() {
           />
         </ModuleWorkspaceLayout>
       </ServerSidebarLinkageProvider>
+
+      {isActiveRoute && tabCtxMenu
+        ? (() => {
+            const menuTabIndex = moduleDockTabs.findIndex((tab) => tab.id === tabCtxMenu.tabId);
+            return (
+              <ContextMenu
+                items={buildTabCloseMenuItems(
+                  t,
+                  moduleDockTabs.length,
+                  menuTabIndex >= 0 ? menuTabIndex : tabCtxMenu.index,
+                  handleTabContextAction,
+                )}
+                position={{ x: tabCtxMenu.x, y: tabCtxMenu.y }}
+                onClose={() => setTabCtxMenu(null)}
+              />
+            );
+          })()
+        : null}
+
       <ServerConnectionDialog
         open={showDialog}
         onClose={() => setShowDialog(false)}

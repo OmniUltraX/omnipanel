@@ -174,3 +174,200 @@ export interface OnePanelFileEntry {
   linkTarget: string | null;
   size: number;
 }
+
+/** 1Panel 网站类型（POST /websites）。 */
+export type OnePanelWebsiteType =
+  | "static"
+  | "runtime"
+  | "deployment"
+  | "proxy"
+  | "stream"
+  | "subsite";
+
+export interface OnePanelWebsiteDomain {
+  domain: string;
+  port?: number;
+  ssl?: boolean;
+}
+
+export interface OnePanelNginxUpstreamServer {
+  server: string;
+  weight?: number;
+  maxFails?: number;
+  failTimeout?: number;
+  failTimeoutUnit?: string;
+  maxConns?: number;
+  flag?: string;
+}
+
+/** POST /websites — 创建网站请求体（字段名对齐 1Panel 前端约定）。 */
+export interface OnePanelWebsiteCreate {
+  type: OnePanelWebsiteType;
+  alias: string;
+  webSiteGroupId: number;
+  remark?: string;
+  domains?: OnePanelWebsiteDomain[];
+  IPV6?: boolean;
+  enableSSL?: boolean;
+  websiteSSLID?: number;
+  appType?: "new" | "installed";
+  appInstallId?: number;
+  runtimeID?: number;
+  proxy?: string;
+  proxyType?: string;
+  port?: number;
+  parentWebsiteID?: number;
+  siteDir?: string;
+  streamPorts?: string;
+  udp?: boolean;
+  servers?: OnePanelNginxUpstreamServer[];
+  ftpUser?: string;
+  ftpPassword?: string;
+  taskID?: string;
+}
+
+/** POST /websites/update — 修改网站基本信息。 */
+export interface OnePanelWebsiteUpdate {
+  id: number;
+  primaryDomain: string;
+  remark?: string;
+  webSiteGroupID?: number;
+  expireDate?: string;
+  IPV6?: boolean;
+  favorite?: boolean;
+}
+
+/** POST /websites/ssl/update — 修改证书。 */
+export interface OnePanelWebsiteSslUpdate {
+  id: number;
+  primaryDomain: string;
+  provider: OnePanelSslProvider | string;
+  otherDomains?: string;
+  acmeAccountId?: number;
+  dnsAccountId?: number;
+  autoRenew?: boolean;
+  keyType?: string;
+  description?: string;
+  apply?: boolean;
+  pushDir?: boolean;
+  dir?: string;
+  disableCNAME?: boolean;
+  skipDNS?: boolean;
+  nameserver1?: string;
+  nameserver2?: string;
+  execShell?: boolean;
+  shell?: string;
+  pushNode?: boolean;
+  nodes?: string;
+}
+
+/** POST /groups/search 返回的分组。 */
+export interface OnePanelGroup {
+  id: number;
+  name: string;
+  type?: string;
+  isDefault?: boolean;
+}
+
+/** POST /runtimes/search 返回的运行环境。 */
+export interface OnePanelRuntime {
+  id: number;
+  name: string;
+  type?: string;
+  status?: string;
+  resource?: string;
+  version?: string;
+  port?: number;
+  appDetailID?: number;
+}
+
+/** SSL 申请验证方式（POST /websites/ssl）。 */
+export type OnePanelSslProvider = "dnsAccount" | "dnsManual" | "http";
+
+/** POST /websites/ssl — 申请/创建 ACME 证书。 */
+export interface OnePanelWebsiteSslCreate {
+  primaryDomain: string;
+  otherDomains?: string;
+  provider: OnePanelSslProvider;
+  acmeAccountId: number;
+  dnsAccountId?: number;
+  autoRenew?: boolean;
+  keyType?: string;
+  description?: string;
+  apply?: boolean;
+  pushDir?: boolean;
+  dir?: string;
+  disableCNAME?: boolean;
+  skipDNS?: boolean;
+  nameserver1?: string;
+  nameserver2?: string;
+  execShell?: boolean;
+  shell?: string;
+}
+
+/** POST /websites/ssl/upload — 上传/粘贴证书。 */
+export interface OnePanelWebsiteSslUpload {
+  type: "paste" | "local";
+  certificate?: string;
+  privateKey?: string;
+  certificatePath?: string;
+  privateKeyPath?: string;
+  description?: string;
+  sslID?: number;
+}
+
+export interface OnePanelAcmeAccount {
+  id: number;
+  email: string;
+  type?: string;
+  keyType?: string;
+}
+
+export interface OnePanelDnsAccount {
+  id: number;
+  name: string;
+  type?: string;
+}
+
+/** 计划任务类型（POST /cronjobs，首批）。 */
+export type OnePanelCronjobType = "shell" | "curl" | "clean" | "ntp";
+
+/** POST /cronjobs — 创建计划任务（dto.CronjobOperate 子集）。 */
+export interface OnePanelCronjobCreate {
+  name: string;
+  type: OnePanelCronjobType;
+  spec: string;
+  specCustom?: boolean;
+  groupID?: number;
+  executor?: string;
+  scriptMode?: string;
+  script?: string;
+  command?: string;
+  containerName?: string;
+  user?: string;
+  url?: string;
+  scriptID?: number;
+  appID?: string;
+  website?: string;
+  exclusionRules?: string;
+  dbType?: string;
+  dbName?: string;
+  isDir?: boolean;
+  sourceDir?: string;
+  sourceAccountIDs?: string;
+  downloadAccountID?: number;
+  retainCopies?: number;
+  retryTimes?: number;
+  timeout?: number;
+  ignoreErr?: boolean;
+  secret?: string;
+  alertCount?: number;
+  alertTitle?: string;
+  alertMethod?: string;
+  scopes?: string[];
+}
+
+/** POST /cronjobs/update — 修改计划任务（含 id）。 */
+export interface OnePanelCronjobUpdate extends OnePanelCronjobCreate {
+  id: number;
+}

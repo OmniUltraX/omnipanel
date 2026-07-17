@@ -14,6 +14,8 @@ import { yaml } from "@codemirror/lang-yaml";
 import { StreamLanguage } from "@codemirror/language";
 import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { python } from "@codemirror/legacy-modes/mode/python";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -22,6 +24,10 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 const iniLanguage = StreamLanguage.define(properties);
 /** Nginx / OpenResty 配置语法高亮 */
 const nginxLanguage = StreamLanguage.define(nginx);
+/** Shell 脚本语法高亮（bash / sh） */
+const shellLanguage = StreamLanguage.define(shell);
+/** Python 脚本语法高亮 */
+const pythonLanguage = StreamLanguage.define(python);
 
 export type CodeEditorLanguage =
   | "text"
@@ -29,6 +35,7 @@ export type CodeEditorLanguage =
   | "json"
   | "yaml"
   | "shell"
+  | "python"
   | "dockerfile"
   | "ini"
   | "nginx";
@@ -56,6 +63,10 @@ function languageExtension(language: CodeEditorLanguage): Extension {
       return iniLanguage;
     case "nginx":
       return nginxLanguage;
+    case "shell":
+      return shellLanguage;
+    case "python":
+      return pythonLanguage;
     default:
       return [];
   }
@@ -73,6 +84,7 @@ function languageFromFilePath(filePath: string | null | undefined): CodeEditorLa
   }
   if (filePath.endsWith(".yaml") || filePath.endsWith(".yml")) return "yaml";
   if (filePath.endsWith(".sh")) return "shell";
+  if (filePath.endsWith(".py")) return "python";
   return "dockerfile";
 }
 

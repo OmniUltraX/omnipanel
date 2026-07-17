@@ -11509,6 +11509,154 @@ a {
         line-height: 1.45;
     }
 
+    .server-create-code-editor {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md, 6px);
+        overflow: hidden;
+        background: var(--bg-deeper, var(--bg));
+    }
+
+    .server-create-code-editor .code-editor__host,
+    .server-create-code-editor .cm-editor {
+        height: 100%;
+    }
+
+    .server-create-code-editor .cm-scroller {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+        line-height: 1.45;
+    }
+
+    .server-create-website-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    /* 新建网站 / 证书 / 计划任务：左侧类型 + 右侧表单（覆盖 .modal-body 的 column） */
+    .modal-body.server-create-split {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 0;
+        /* 固定高度，切换类型时窗口不跳动；略增高以容纳更多字段与脚本编辑器 */
+        height: min(720px, calc(90vh - 140px));
+        min-height: min(720px, calc(90vh - 140px));
+        max-height: min(720px, calc(90vh - 140px));
+        overflow: hidden;
+    }
+
+    .server-create-split__nav {
+        width: 132px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0 12px 0 0;
+        margin-right: 16px;
+        border-right: 1px solid var(--border-color, #3a3a3a);
+        overflow-y: auto;
+        min-height: 0;
+    }
+
+    .server-create-split__nav-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        line-height: 1.35;
+        cursor: pointer;
+    }
+
+    .server-create-split__nav-item:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--fg, #fff) 6%, transparent);
+    }
+
+    .server-create-split__nav-item.is-active {
+        border-color: var(--accent, #3b82f6);
+        background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+    }
+
+    .server-create-split__nav-item:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .server-create-split__main {
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 2px;
+    }
+
+    .server-create-website-types {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .server-create-website-type {
+        border: 1px solid var(--border-color, #3a3a3a);
+        background: transparent;
+        color: inherit;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .server-create-website-type.is-active {
+        border-color: var(--accent, #3b82f6);
+        background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+    }
+
+    .server-create-website-domain-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px;
+        gap: 8px;
+        align-items: end;
+    }
+
+    .server-create-website-domain-row:has(> button) {
+        grid-template-columns: minmax(0, 1fr) 96px auto;
+    }
+
+    .server-create-website-domain-row > .form-field {
+        margin: 0;
+    }
+
+    .server-create-website-extra-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .server-create-website-proxy-row {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .server-create-website-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+    }
+
     .server-panels-workspace,
     .server-panel-sidebar {
         flex: 1;
@@ -14141,16 +14289,20 @@ a {
     }
 
     .form-dialog--md {
-        width: 520px;
+        width: 560px;
+        max-height: 88vh;
     }
 
     .form-dialog--lg {
-        width: 640px;
+        width: 760px;
+        max-width: 94vw;
+        max-height: 90vh;
     }
 
     .form-dialog--xl {
-        width: 800px;
-        max-width: 92vw;
+        width: 920px;
+        max-width: 96vw;
+        max-height: 92vh;
     }
 
     .modal-header {

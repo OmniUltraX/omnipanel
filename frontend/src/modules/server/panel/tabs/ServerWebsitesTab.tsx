@@ -6,11 +6,13 @@ import {
   IconFile,
   IconFolder,
   IconLink,
+  IconPencil,
   IconPlay,
   IconPlus,
   IconRefresh,
   IconSettings,
   IconStop,
+  IconTrash,
 } from "../../../../components/ui/Icons";
 import {
   DbTablesPanelGrid,
@@ -29,6 +31,7 @@ import {
   websiteCertificateDaysBadgeStyle,
   websiteCertificateInfo,
   websiteNumericId,
+  websiteRowGroup,
   websiteRowId,
   websiteRowLabel,
   websiteRowPath,
@@ -45,7 +48,9 @@ import {
   WebsiteInfoSubWindow,
   WebsiteLogsSubWindow,
 } from "../WebsiteActionSubWindows";
-import { CreateWebsiteDialog } from "../ServerResourceCreateDialogs";
+import { CreateWebsiteDialog, EditWebsiteDialog } from "../ServerResourceCreateDialogs";
+import { appConfirm } from "../../../../lib/appConfirm";
+import { showToast } from "../../../../stores/toastStore";
 
 interface Props {
   server: ServerEntry;
@@ -59,13 +64,14 @@ type WebsiteAction =
   | { kind: "config"; websiteId: number; title: string }
   | { kind: "cert"; websiteId: number | null; sslId: number | null; title: string };
 
-type WebsiteSortColumn = "domain" | "type" | "path" | "status" | "certificate";
+type WebsiteSortColumn = "domain" | "type" | "group" | "path" | "status" | "certificate";
 
 type WebsiteGridRow = {
   id: string;
   domain: string;
   url: string | null;
   type: string;
+  group: string;
   path: string;
   status: string;
   certDaysLeft: number | null;
@@ -117,10 +123,12 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
   const [action, setAction] = useState<WebsiteAction | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editWebsiteId, setEditWebsiteId] = useState<number | null>(null);
   const [sortColumn, setSortColumn] = useState<WebsiteSortColumn>("domain");
   const [sortDirection, setSortDirection] = useState<DbTablesPanelGridSortDirection>("asc");
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<number | null>(null);
 
   const isOnePanel = server.serviceType === "1panel";
 
@@ -149,6 +157,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           domain: websiteRowLabel(row),
           url,
           type: websiteRowType(row),
+          group: websiteRowGroup(row),
           path: websiteRowPath(row),
           status: websiteRowStatus(row),
           certDaysLeft: cert.daysLeft,
@@ -211,6 +220,34 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       }
     },
     [isOnePanel, refresh, server.address, server.key, statusBusyId],
+  );
+
+  const handleEditWebsite = useCallback((row: WebsiteGridRow) => {
+    if (row.websiteId == null) return;
+    setEditWebsiteId(row.websiteId);
+  }, []);
+
+  const handleDeleteWebsite = useCallback(
+    async (row: WebsiteGridRow) => {
+      if (!isOnePanel || row.websiteId == null || actionBusyId != null) return;
+      const confirmed = await appConfirm(
+        t("server.websites.deleteConfirm", { name: row.domain }),
+      );
+      if (!confirmed) return;
+      setActionBusyId(row.websiteId);
+      setStatusError(null);
+      try {
+        const client = createOnePanelClient(server.address, server.key);
+        await client.deleteWebsite(row.websiteId);
+        showToast(t("server.websites.deleteSuccess"));
+        await refresh();
+      } catch (err) {
+        setStatusError(formatWebsiteError(err));
+      } finally {
+        setActionBusyId(null);
+      }
+    },
+    [actionBusyId, isOnePanel, refresh, server.address, server.key, t],
   );
 
   const toggleSort = (columnId: string) => {
@@ -291,6 +328,17 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         ),
         getTitle: (row) => formatWebsiteType(row.type),
         getCopyValue: (row) => formatWebsiteType(row.type),
+      },
+      {
+        id: "group",
+        sortId: "group",
+        header: t("server.websites.columns.group"),
+        sortable: true,
+        defaultWidth: 110,
+        minWidth: 72,
+        render: (row) => <span className="text-muted">{row.group || "—"}</span>,
+        getTitle: (row) => row.group || undefined,
+        getCopyValue: (row) => row.group || undefined,
       },
       {
         id: "path",
@@ -428,11 +476,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         variant: "actionsSticky",
         copyable: false,
         resizable: false,
-        defaultWidth: 72,
-        minWidth: 72,
+        defaultWidth: 136,
+        minWidth: 120,
         render: (row) => {
-          const canOpenLogs = isOnePanel && row.websiteId != null;
-          const canOpenConfig = isOnePanel && row.websiteId != null;
+          const canAct = isOnePanel && row.websiteId != null;
+          const busy = actionBusyId === row.websiteId;
           return (
             <div
               className="db-tables-panel-grid__row-actions"
@@ -443,11 +491,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canOpenLogs}
-                title={canOpenLogs ? t("server.websites.logs") : t("server.websites.onePanelOnly")}
-                aria-label={canOpenLogs ? t("server.websites.logs") : t("server.websites.onePanelOnly")}
+                disabled={!canAct}
+                title={canAct ? t("server.websites.logs") : t("server.websites.onePanelOnly")}
+                aria-label={canAct ? t("server.websites.logs") : t("server.websites.onePanelOnly")}
                 onClick={() => {
-                  if (!canOpenLogs || row.websiteId == null) return;
+                  if (!canAct || row.websiteId == null) return;
                   setAction({
                     kind: "logs",
                     websiteId: row.websiteId,
@@ -462,15 +510,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canOpenConfig}
-                title={
-                  canOpenConfig ? t("server.websites.config") : t("server.websites.onePanelOnly")
-                }
-                aria-label={
-                  canOpenConfig ? t("server.websites.config") : t("server.websites.onePanelOnly")
-                }
+                disabled={!canAct}
+                title={canAct ? t("server.websites.config") : t("server.websites.onePanelOnly")}
+                aria-label={canAct ? t("server.websites.config") : t("server.websites.onePanelOnly")}
                 onClick={() => {
-                  if (!canOpenConfig || row.websiteId == null) return;
+                  if (!canAct || row.websiteId == null) return;
                   setAction({
                     kind: "config",
                     websiteId: row.websiteId,
@@ -480,12 +524,45 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
               >
                 <IconSettings size={14} />
               </Button>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="db-connection-info-deploy-action-btn"
+                disabled={!canAct || busy}
+                title={canAct ? t("server.websites.edit") : t("server.websites.onePanelOnly")}
+                aria-label={canAct ? t("server.websites.edit") : t("server.websites.onePanelOnly")}
+                onClick={() => handleEditWebsite(row)}
+              >
+                <IconPencil size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="db-tables-panel-grid__action-danger"
+                disabled={!canAct || busy || actionBusyId != null}
+                title={canAct ? t("server.websites.delete") : t("server.websites.onePanelOnly")}
+                aria-label={canAct ? t("server.websites.delete") : t("server.websites.onePanelOnly")}
+                onClick={() => void handleDeleteWebsite(row)}
+              >
+                <IconTrash size={14} />
+              </Button>
             </div>
           );
         },
       },
     ];
-  }, [formatWebsiteType, handleToggleStatus, isOnePanel, statusBusyId, t]);
+  }, [
+    actionBusyId,
+    formatWebsiteType,
+    handleDeleteWebsite,
+    handleEditWebsite,
+    handleToggleStatus,
+    isOnePanel,
+    statusBusyId,
+    t,
+  ]);
 
   const renderTable = () => {
     if (loading && gridRows.length === 0) {
@@ -508,7 +585,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         sortDirection={sortDirection}
         onSortColumn={toggleSort}
         selectedRowKey={selectedItemId ?? null}
-        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v1`}
+        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v3`}
       />
     );
   };
@@ -593,6 +670,13 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         server={server}
         onClose={() => setCreateOpen(false)}
         onCreated={() => void refresh()}
+      />
+      <EditWebsiteDialog
+        open={editWebsiteId != null}
+        server={server}
+        websiteId={editWebsiteId}
+        onClose={() => setEditWebsiteId(null)}
+        onUpdated={() => void refresh()}
       />
     </div>
   );
