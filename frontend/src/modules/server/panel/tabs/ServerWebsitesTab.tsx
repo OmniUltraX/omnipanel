@@ -520,28 +520,30 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           {t("server.tabs.websites")}
           <span className="badge badge-muted server-panel-tab-count">{gridRows.length}</span>
         </span>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          disabled={!isOnePanel || refreshing}
-          title={isOnePanel ? t("server.websites.create") : t("server.create.onePanelOnly")}
-          aria-label={isOnePanel ? t("server.websites.create") : t("server.create.onePanelOnly")}
-          onClick={() => setCreateOpen(true)}
-        >
-          <IconPlus size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          disabled={refreshing}
-          title={refreshing ? t("server.refreshing") : t("server.refresh")}
-          aria-label={refreshing ? t("server.refreshing") : t("server.refresh")}
-          onClick={handleRefresh}
-        >
-          <IconRefresh size={14} />
-        </Button>
+        <div className="server-panel-tab-actions">
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            disabled={refreshing}
+            title={refreshing ? t("server.refreshing") : t("server.refresh")}
+            aria-label={refreshing ? t("server.refreshing") : t("server.refresh")}
+            onClick={handleRefresh}
+          >
+            <IconRefresh size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            disabled={!isOnePanel || refreshing}
+            title={isOnePanel ? t("server.websites.create") : t("server.create.onePanelOnly")}
+            aria-label={isOnePanel ? t("server.websites.create") : t("server.create.onePanelOnly")}
+            onClick={() => setCreateOpen(true)}
+          >
+            <IconPlus size={14} />
+          </Button>
+        </div>
       </div>
       {(error && gridRows.length > 0) || (certificatesError && gridRows.length > 0) || statusError ? (
         <div className="db-tables-panel-error">{statusError ?? error ?? certificatesError}</div>

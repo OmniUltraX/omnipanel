@@ -11792,6 +11792,13 @@ a {
         margin-bottom: var(--sp-3);
     }
 
+    .server-panel-tab-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
     .server-panel-tab-title {
         font-size: 13px;
         font-weight: 600;

@@ -226,29 +226,31 @@ export function ServerCertificatesTab({ server }: Props) {
           {t("server.tabs.certificates")}
           <span className="badge badge-muted server-panel-tab-count">{gridRows.length}</span>
         </span>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          disabled={!isOnePanel || busy}
-          title={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
-          aria-label={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
-          onClick={() => setCreateOpen(true)}
-        >
-          <IconPlus size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="icon"
-          size="icon-xs"
-          className="db-tables-panel-meta-refresh-btn"
-          disabled={busy}
-          title={busy ? t("server.refreshing") : t("server.refresh")}
-          aria-label={busy ? t("server.refreshing") : t("server.refresh")}
-          onClick={() => void refresh()}
-        >
-          <IconRefresh size={14} />
-        </Button>
+        <div className="server-panel-tab-actions">
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            className="db-tables-panel-meta-refresh-btn"
+            disabled={busy}
+            title={busy ? t("server.refreshing") : t("server.refresh")}
+            aria-label={busy ? t("server.refreshing") : t("server.refresh")}
+            onClick={() => void refresh()}
+          >
+            <IconRefresh size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            disabled={!isOnePanel || busy}
+            title={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
+            aria-label={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
+            onClick={() => setCreateOpen(true)}
+          >
+            <IconPlus size={14} />
+          </Button>
+        </div>
       </div>
       {error && gridRows.length > 0 ? <div className="db-tables-panel-error">{error}</div> : null}
       <div className="db-tables-panel-grid-wrap server-websites-grid-wrap">{renderTable()}</div>
