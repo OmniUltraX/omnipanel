@@ -54,6 +54,10 @@ import {
 import { TopbarTabAddButton } from "../ui/TopbarTabAddButton";
 import type { TopbarAddMenuItem } from "../../stores/topbarStore";
 import type { TopbarTabDef } from "../../stores/topbarStore";
+import { useRecentTabs, type TabSource } from "../../stores/recentTabs";
+import { getDockviewInstanceByScope } from "../../lib/dockviewRegistry";
+import { MODULE_PATHS, DASHBOARD_PATH } from "../../lib/paths";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
 import { publishDockTabMeta } from "./dockTabLiveMeta";
 import type { DockHeaderIconKind } from "./DockHeaderIcon";
@@ -96,6 +100,70 @@ const TAB_BAR_INTERACTIVE_SELECTOR = [
 ].join(",");
 
 let lastDockMaximizeToggleAt = 0;
+
+/** dockScope → TabSource 映射（用于 recentTabs store） */
+function dockScopeToTabSource(scope: string | undefined): TabSource | null {
+  if (!scope) return null;
+  if (scope.startsWith("database")) return "database";
+  if (scope.startsWith("terminal")) return "terminal";
+  if (scope.startsWith("ssh")) return "ssh";
+  if (scope.startsWith("protocol")) return "protocol";
+  if (scope.startsWith("workspace-bottom-")) return "workspace-bottom";
+  if (scope.startsWith("workspace")) return "workspace-dock";
+  return null;
+}
+
+/** 根据 tab source 导航到对应模块路由（供 Ctrl+E 激活 tab 时先切路由） */
+function navigateToModuleForSource(source: TabSource): void {
+  const pathMap: Record<TabSource, string | null> = {
+    database: MODULE_PATHS.database,
+    terminal: MODULE_PATHS.terminal,
+    ssh: MODULE_PATHS.ssh,
+    protocol: MODULE_PATHS.protocol,
+    "workspace-dock": DASHBOARD_PATH,
+    "workspace-bottom": DASHBOARD_PATH,
+  };
+  const path = pathMap[source];
+  if (path) {
+    useWorkspaceStore.getState().setActivePath(path);
+    window.dispatchEvent(new CustomEvent("omnipanel-navigate", { detail: { path } }));
+  }
+}
+
+/** 在 onDidActivePanelChange 时记录最近激活的 tab（供 Ctrl+E 使用） */
+function recordActiveTabForRecent(
+  panel: { id: string; title?: string; api?: { setActive: () => void } },
+  tabs: { id: string; label: string }[],
+  dockScope: string | undefined,
+): void {
+  const source = dockScopeToTabSource(dockScope);
+  if (!source) return;
+  const tab = tabs.find((t) => t.id === panel.id);
+  const title = tab?.label ?? panel.title ?? panel.id;
+  const panelId = panel.id;
+  const scope = dockScope;
+  useRecentTabs.getState().recordActiveTab({
+    id: panelId,
+    source,
+    title,
+    activate: () => {
+      // 先导航到对应模块路由，再通过 dockviewRegistry 找到 dock 实例激活 panel
+      navigateToModuleForSource(source);
+      // 延迟一帧让路由切换 + dock 挂载完成后再 setActive
+      requestAnimationFrame(() => {
+        try {
+          if (scope) {
+            const instance = getDockviewInstanceByScope(scope);
+            const p = instance?.api?.getPanel?.(panelId);
+            p?.api?.setActive?.();
+          }
+        } catch {
+          // panel 或 dock 可能已销毁
+        }
+      });
+    },
+  });
+}
 
 async function toggleDockWindowMaximize(): Promise<void> {
   const now = Date.now();
@@ -1868,6 +1936,8 @@ export function DockableWorkspace({
         }
         if (panel) {
           onActiveTabChangeRef.current(panel.id);
+          // 记录最近激活的 tab（供 Ctrl+E 最近项目面板使用）
+          recordActiveTabForRecent(panel, tabsRef.current, dockScopeRef.current);
         }
         syncStatusBarActiveDockRef.current(panel?.id ?? null);
         // 用户切换 tab 后，强制 dockview 重新布局，确保 overlay 位置正确。

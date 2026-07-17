@@ -18,6 +18,7 @@ import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
 import { StatusBar } from "./components/shell/StatusBar";
 import { CommandPalette } from "./components/shell/CommandPalette";
+import { RecentItemsPanel } from "./components/shell/RecentItemsPanel";
 import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiDockView } from "./components/ai/AiDockView";
@@ -52,6 +53,7 @@ import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useWorkspaceWindowStore } from "./stores/workspaceWindowStore";
@@ -187,6 +189,7 @@ function AppShell() {
   useAiDrawerShortcut();
   useBottomWorkspaceShortcut();
   useSettingsShortcut();
+  useGlobalShortcuts();
   const { t } = useI18n();
 
   useEffect(() => {
@@ -668,6 +671,7 @@ function AppShell() {
       </div>
       {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}
       <CommandPalette />
+      <RecentItemsPanel />
       <NotificationDrawer />
       <WindowResize />
       <QuickInputHost />

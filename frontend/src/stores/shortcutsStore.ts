@@ -50,6 +50,8 @@ export interface ShortcutDef {
 /** 内置的快捷键定义。新增条目时同步加进两端 i18n。 */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "command-palette", category: "general", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
+  { id: "search-everywhere", category: "general", labelKey: "settings.keybindings.items.searchEverywhere", defaultKeys: ["Shift", "Shift"], nonRecordable: true },
+  { id: "recent-items", category: "general", labelKey: "settings.keybindings.items.recentItems", defaultKeys: ["Mod", "KeyE"] },
   { id: "open-settings", category: "general", labelKey: "settings.keybindings.items.openSettings", defaultKeys: ["Mod", ","] },
   { id: "close-tab", category: "tabs", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "W"] },
   { id: "switch-tab", category: "tabs", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"] },

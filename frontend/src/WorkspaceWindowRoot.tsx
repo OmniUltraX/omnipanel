@@ -21,12 +21,17 @@ import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
 import { initTabStateTransferListener } from "./lib/tabStateTransfer";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
+import { CommandPalette } from "./components/shell/CommandPalette";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
 import { useI18n } from "./i18n";
 import { LazyDatabasePanel } from "./routes/lazyModules";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 import { startTerminalHistorySync } from "./modules/terminal/terminalHistorySync";
+import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
+import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
+import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 
 interface WorkspaceWindowRootProps {
   workspaceId: string;
@@ -253,6 +258,11 @@ function WorkspaceWindowShell({
   ready: boolean;
 }) {
   useI18n();
+  // 工作区独立窗口也挂载全局快捷键（与主窗口一致）
+  useAiDrawerShortcut();
+  useBottomWorkspaceShortcut();
+  useSettingsShortcut();
+  useGlobalShortcuts();
 
   return (
     <div
@@ -264,6 +274,7 @@ function WorkspaceWindowShell({
           {ready ? <WorkspacePanel workspace={workspace} detached /> : null}
         </div>
       </div>
+      <CommandPalette />
     </div>
   );
 }
