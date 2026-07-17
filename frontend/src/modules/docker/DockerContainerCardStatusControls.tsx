@@ -42,7 +42,7 @@ export function DockerContainerCardStatusControls({
           type="button"
           variant="icon"
           size="icon-xs"
-          className="docker-container-card__lifecycle-btn"
+          className="docker-container-card__lifecycle-btn docker-container-card__lifecycle-btn--danger"
           title={t("docker.dockPanel.stopContainer")}
           aria-label={t("docker.dockPanel.stopContainer")}
           onClick={(event) => onAction("stop", event)}
@@ -53,7 +53,7 @@ export function DockerContainerCardStatusControls({
           type="button"
           variant="icon"
           size="icon-xs"
-          className="docker-container-card__lifecycle-btn"
+          className="docker-container-card__lifecycle-btn docker-container-card__lifecycle-btn--primary"
           title={t("docker.dockPanel.restartContainer")}
           aria-label={t("docker.dockPanel.restartContainer")}
           onClick={(event) => onAction("restart", event)}

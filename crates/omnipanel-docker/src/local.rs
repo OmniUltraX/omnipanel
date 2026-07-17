@@ -14,8 +14,8 @@ use bollard::query_parameters::{
     BuildImageOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
     ListImagesOptionsBuilder, ListNetworksOptionsBuilder, ListVolumesOptionsBuilder,
     LogsOptionsBuilder, PushImageOptionsBuilder, RemoveContainerOptionsBuilder,
-    RemoveImageOptionsBuilder, RemoveVolumeOptionsBuilder, StatsOptionsBuilder,
-    TagImageOptionsBuilder,
+    RemoveImageOptionsBuilder, RemoveVolumeOptionsBuilder, SearchImagesOptionsBuilder,
+    StatsOptionsBuilder, TagImageOptionsBuilder,
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
@@ -826,7 +826,52 @@ impl DockerAdapter for LocalDockerAdapter {
         term: &str,
         limit: u32,
     ) -> OmniResult<Vec<DockerImageSearchResult>> {
-        search_images_via_docker_cli(term, limit).await
+        let term = term.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = limit.max(1).min(100);
+        let daemon = self.read_daemon_config().await.ok();
+        let daemon_json = daemon.as_ref().map(|d| d.content.as_str()).unwrap_or("{}");
+
+        crate::image_search::search_images_prefer_mirrors(daemon_json, term, limit, || async {
+            let options = SearchImagesOptionsBuilder::default()
+                .term(term)
+                .limit(limit as i32)
+                .build();
+            // 无镜像站或镜像站失败时，再走 Engine API / CLI（可能访问 Docker Hub）
+            let fut = self.docker.search_images(options);
+            match tokio::time::timeout(std::time::Duration::from_secs(20), fut).await {
+                Ok(Ok(items)) => Ok(items
+                    .into_iter()
+                    .filter_map(|item| {
+                        let name = item.name?.trim().to_string();
+                        if name.is_empty() {
+                            return None;
+                        }
+                        Some(DockerImageSearchResult {
+                            name,
+                            description: item.description.unwrap_or_default(),
+                            star_count: item.star_count.unwrap_or(0),
+                            pull_count: 0,
+                            is_official: item.is_official.unwrap_or(false),
+                            is_automated: item.is_automated.unwrap_or(false),
+                        })
+                    })
+                    .take(limit as usize)
+                    .collect()),
+                Ok(Err(e)) => match search_images_via_docker_cli(term, limit).await {
+                    Ok(rows) => Ok(rows),
+                    Err(cli_err) => Err(OmniError::new(ErrorCode::Internal, "搜索镜像失败")
+                        .with_cause(format!("engine: {e}; cli: {cli_err}"))),
+                },
+                Err(_) => Err(OmniError::new(
+                    ErrorCode::Timeout,
+                    "搜索镜像超时，请检查 registry-mirrors 或 Docker Hub 可达性",
+                )),
+            }
+        })
+        .await
     }
 
     async fn pull_image(
@@ -2148,14 +2193,30 @@ pub(crate) fn first_ipv4_from_ipam(
     cfg.first().map(pick).unwrap_or((None, None))
 }
 
-/// 解析 `docker search --format '{{json .}}'` 逐行 JSON。
+/// 解析 `docker search --format '{{json .}}'` 输出（NDJSON 或 JSON 数组）。
 pub(crate) fn parse_docker_search_json_lines(
     stdout: &str,
     limit: u32,
 ) -> Vec<DockerImageSearchResult> {
     let limit = limit.max(1) as usize;
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    // 部分环境会输出单个 JSON 数组，而不是逐行对象
+    if trimmed.starts_with('[') {
+        if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(trimmed) {
+            return arr
+                .into_iter()
+                .filter_map(parse_docker_search_item)
+                .take(limit)
+                .collect();
+        }
+    }
+
     let mut out = Vec::new();
-    for line in stdout.lines() {
+    for line in trimmed.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -2163,44 +2224,68 @@ pub(crate) fn parse_docker_search_json_lines(
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        let name = v
-            .get("Name")
-            .or_else(|| v.get("name"))
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() {
-            continue;
-        }
-        out.push(DockerImageSearchResult {
-            name,
-            description: v
-                .get("Description")
-                .or_else(|| v.get("description"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
-            star_count: v
-                .get("StarCount")
-                .or_else(|| v.get("star_count"))
-                .and_then(|x| x.as_i64())
-                .unwrap_or(0),
-            is_official: v
-                .get("IsOfficial")
-                .or_else(|| v.get("is_official"))
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false),
-            is_automated: v
-                .get("IsAutomated")
-                .or_else(|| v.get("is_automated"))
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false),
-        });
-        if out.len() >= limit {
-            break;
+        if let Some(item) = parse_docker_search_item(v) {
+            out.push(item);
+            if out.len() >= limit {
+                break;
+            }
         }
     }
     out
+}
+
+fn parse_docker_search_item(v: serde_json::Value) -> Option<DockerImageSearchResult> {
+    let name = v
+        .get("Name")
+        .or_else(|| v.get("name"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        return None;
+    }
+    Some(DockerImageSearchResult {
+        name,
+        description: v
+            .get("Description")
+            .or_else(|| v.get("description"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        star_count: v
+            .get("StarCount")
+            .or_else(|| v.get("star_count"))
+            .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|n| n as i64)))
+            .unwrap_or(0),
+        pull_count: v
+            .get("PullCount")
+            .or_else(|| v.get("pull_count"))
+            .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|n| n as i64)))
+            .unwrap_or(0),
+        is_official: json_truthy(
+            v.get("IsOfficial")
+                .or_else(|| v.get("is_official")),
+        ),
+        is_automated: json_truthy(
+            v.get("IsAutomated")
+                .or_else(|| v.get("is_automated")),
+        ),
+    })
+}
+
+fn json_truthy(value: Option<&serde_json::Value>) -> bool {
+    let Some(v) = value else {
+        return false;
+    };
+    if let Some(b) = v.as_bool() {
+        return b;
+    }
+    if let Some(s) = v.as_str() {
+        let s = s.trim();
+        return s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("ok") || s == "[OK]";
+    }
+    false
 }
 
 /// 本地通过 `docker search --format '{{json .}}'` 搜索镜像。
@@ -2213,19 +2298,31 @@ async fn search_images_via_docker_cli(
         return Ok(Vec::new());
     }
     let limit = limit.max(1).min(100);
-    let output = tokio::process::Command::new("docker")
-        .args([
-            "search",
-            "--limit",
-            &limit.to_string(),
-            "--format",
-            "{{json .}}",
-            term,
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+    let mut cmd = tokio::process::Command::new("docker");
+    cmd.args([
+        "search",
+        "--limit",
+        &limit.to_string(),
+        "--format",
+        "{{json .}}",
+        term,
+    ])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+    // Windows GUI 宿主进程必须隐藏控制台窗口，否则 docker.exe 可能一直挂起
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output())
         .await
+        .map_err(|_| {
+            OmniError::new(
+                ErrorCode::Timeout,
+                "搜索镜像超时（30s），请检查网络或 Docker Hub 可达性",
+            )
+        })?
         .map_err(|e| {
             OmniError::new(ErrorCode::Internal, "搜索镜像失败").with_cause(e.to_string())
         })?;

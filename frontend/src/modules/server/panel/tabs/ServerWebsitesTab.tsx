@@ -538,9 +538,8 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
               </Button>
               <Button
                 type="button"
-                variant="icon"
+                variant="danger"
                 size="icon-xs"
-                className="db-tables-panel-grid__action-danger"
                 disabled={!canAct || busy || actionBusyId != null}
                 title={canAct ? t("server.websites.delete") : t("server.websites.onePanelOnly")}
                 aria-label={canAct ? t("server.websites.delete") : t("server.websites.onePanelOnly")}

@@ -7,6 +7,7 @@ import {
   runningContainerIds,
 } from "../dockerContainerStats";
 import { statsMapFromList } from "../dockerContainerStatsMatch";
+import { debugStats, warnStats } from "../dockerStatsDebug";
 
 export type UseDockerContainerStatsOptions = {
   /** 显式指定容器 ID；未设置则每次轮询用 `resolveContainerIds` 动态解析 */
@@ -164,6 +165,13 @@ export function useDockerContainerStats(
       pendingRefreshRef.current = false;
       const requestGen = ++requestGenRef.current;
       let nextPollMs = basePollMs;
+      const resolvedIdsBefore = resolveContainerIdsRef.current?.() ?? null;
+      debugStats("轮询触发", {
+        connectionId,
+        requestGen,
+        runningHint: resolvedIdsBefore?.length ?? "unknown",
+        pollMs: basePollMs,
+      });
       try {
         // 始终拉全量 stats，由前端 pickStats 做 ID/名称匹配（避免 scoped 请求与 docker 输出不一致）。
         const statsList = await fetchDockerContainerStats(connectionId, null);
@@ -179,6 +187,14 @@ export function useDockerContainerStats(
           nextPollMs = Math.max(basePollMs, DOCKER_STATS_POLL_MS_BUSY);
         }
 
+        debugStats("轮询成功", {
+          connectionId,
+          requestGen,
+          statsCount: next.size,
+          runningCount,
+          nextPollMs,
+        });
+
         if (!statsMapsEqual(statsByIdRef.current, next)) {
           statsByIdRef.current = next;
           // stats 更新降优先级，避免挤掉侧栏/概览卡片交互帧
@@ -189,6 +205,12 @@ export function useDockerContainerStats(
         setError(null);
       } catch (e) {
         if (cancelled || requestGen !== requestGenRef.current) return;
+        warnStats("轮询失败", {
+          connectionId,
+          requestGen,
+          runningHint: resolvedIdsBefore?.length ?? "unknown",
+          error: String(e),
+        });
         // 失败时保留已有缓存展示，仅记录错误
         setError(String(e));
       } finally {

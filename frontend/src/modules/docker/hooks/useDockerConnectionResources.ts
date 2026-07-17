@@ -105,14 +105,46 @@ export function refreshDockerConnectionSidebarCache(connectionId: string): void 
   void useDockerSidebarCacheStore.getState().refreshScope({ kind: "connection", connectionId });
 }
 
+export type DockerSidebarRefreshAllProgress = {
+  done: number;
+  total: number;
+  connectionId: string;
+  connectionName: string;
+};
+
+export type RefreshAllDockerSidebarCachesOptions = {
+  getConnectionName?: (connectionId: string) => string;
+  onStart?: (total: number) => void;
+  onConnectionDone?: (progress: DockerSidebarRefreshAllProgress) => void;
+  onComplete?: (total: number) => void;
+};
+
 /** 刷新当前列表中全部 Docker 连接的侧栏资源缓存。 */
-export function refreshAllDockerSidebarCaches(connectionIds: readonly string[]): Promise<void> {
+export async function refreshAllDockerSidebarCaches(
+  connectionIds: readonly string[],
+  options?: RefreshAllDockerSidebarCachesOptions,
+): Promise<void> {
+  const total = connectionIds.length;
+  if (total === 0) return;
+
+  options?.onStart?.(total);
   const store = useDockerSidebarCacheStore.getState();
-  return Promise.all(
-    connectionIds.map((connectionId) =>
-      store.refreshScope({ kind: "connection", connectionId }),
-    ),
-  ).then(() => undefined);
+  let done = 0;
+
+  await Promise.all(
+    connectionIds.map(async (connectionId) => {
+      await store.refreshScope({ kind: "connection", connectionId });
+      done += 1;
+      options?.onConnectionDone?.({
+        done,
+        total,
+        connectionId,
+        connectionName: options.getConnectionName?.(connectionId) ?? connectionId,
+      });
+    }),
+  );
+
+  options?.onComplete?.(total);
 }
 
 /** 判断某刷新 key 是否处于进行中。 */

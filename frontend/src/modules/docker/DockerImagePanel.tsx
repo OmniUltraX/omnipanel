@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useState } from "reac
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
+import { IconSearch } from "../../components/ui/icons/Icons";
 import { commands } from "../../ipc/bindings";
 import type {
   DockerConnectionInfo,
@@ -9,6 +10,8 @@ import type {
   DockerImageSummary,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { appConfirm } from "../../lib/appConfirm";
+import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
@@ -18,11 +21,11 @@ import {
   containersForImage,
   groupContainersByImageId,
 } from "./dockerImageContainers";
-import { DockerImagePullDialog } from "./DockerImagePullDialog";
+import { DockerImageSearchSubWindow } from "./subwindows/DockerImageSearchSubWindow";
 import { dockerContainerMatchesSearch, dockerImageMatchesSearch } from "./dockerTreeSearch";
 import { formatBytes } from "../../stores/sshStatsStore";
 import { containerRowLabel, imageRowLabel, imageRowSizeLabel } from "./dockerResourceLabels";
-import { DownloadIcon } from "./icons";
+import { TrashIcon } from "./icons";
 
 export interface DockerImagePanelProps {
   connection: DockerConnectionInfo;
@@ -121,7 +124,8 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
-  const [pullOpen, setPullOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<Record<string, boolean>>({});
 
   const refreshSidebarImages = useCallback(() => {
     void useDockerSidebarCacheStore
@@ -205,6 +209,45 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     return formatBytes(totalBytes);
   }, [sortedImages]);
 
+  const handleRemove = useCallback(
+    (image: DockerImageSummary) => {
+      const label = imageRowLabel(image);
+      const related = containersForImage(image, containerIndex);
+      const force = related.length > 0;
+      void (async () => {
+        const confirmed = await appConfirm(
+          force
+            ? t("docker.imagesPanel.removeConfirmInUse", {
+                name: label,
+                count: related.length,
+              })
+            : t("docker.imagesPanel.removeConfirm", { name: label }),
+          t("docker.imagesPanel.remove"),
+          { kind: "warning", confirmLabel: t("common.delete") },
+        );
+        if (!confirmed) return;
+        setPendingRemove((current) => ({ ...current, [image.id]: true }));
+        try {
+          await unwrapCommand(
+            commands.dockerRemoveImage(connection.connectionId, image.id, force),
+          );
+          showToast(t("docker.imagesPanel.removeSuccess", { name: label }));
+          await refresh();
+        } catch (err) {
+          showToast(`${t("docker.imagesPanel.removeFailed")}: ${String(err)}`);
+        } finally {
+          setPendingRemove((current) => {
+            if (!current[image.id]) return current;
+            const next = { ...current };
+            delete next[image.id];
+            return next;
+          });
+        }
+      })();
+    },
+    [connection.connectionId, containerIndex, refresh, t],
+  );
+
   const gridColumns = useMemo((): DbTablesPanelGridColumn<DockerImageSummary>[] => {
     return [
       {
@@ -264,8 +307,32 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
             ? t("docker.imagesPanel.danglingYes")
             : t("docker.imagesPanel.danglingNo"),
       },
+      {
+        id: "actions",
+        header: t("docker.imagesPanel.column.actions"),
+        variant: "actionsSticky",
+        copyable: false,
+        render: (image) => {
+          const pending = Boolean(pendingRemove[image.id]);
+          return (
+            <div className="docker-image-panel__actions" onClick={(event) => event.stopPropagation()}>
+              <Button
+                type="button"
+                variant="danger"
+                size="icon-xs"
+                title={t("docker.imagesPanel.remove")}
+                aria-label={t("docker.imagesPanel.remove")}
+                disabled={pending || loading}
+                onClick={() => handleRemove(image)}
+              >
+                <TrashIcon />
+              </Button>
+            </div>
+          );
+        },
+      },
     ];
-  }, [containerIndex, t]);
+  }, [containerIndex, handleRemove, loading, pendingRemove, t]);
 
   const renderTable = () => {
     if (loading && images.length === 0) {
@@ -304,11 +371,9 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
       placeholder={t("docker.imagesPanel.search")}
       enabled
     >
-      <div className="db-tables-panel-body">
-        <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
-      </div>
-      <div className="db-tables-panel-meta">
-        <div className="docker-image-panel__meta-left">
+      <div className="db-tables-panel-toolbar">
+        <div className="db-tables-panel-toolbar-left" />
+        <div className="db-tables-panel-toolbar-right">
           <Button
             type="button"
             variant="icon"
@@ -316,10 +381,18 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
             title={t("docker.imagesPanel.pull")}
             aria-label={t("docker.imagesPanel.pull")}
             disabled={loading}
-            onClick={() => setPullOpen(true)}
+            onClick={() => setSearchOpen(true)}
           >
-            <DownloadIcon size={14} />
+            <IconSearch size={14} />
           </Button>
+        </div>
+      </div>
+
+      <div className="db-tables-panel-body">
+        <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
+      </div>
+      <div className="db-tables-panel-meta">
+        <div className="docker-image-panel__meta-left">
           <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
           <span className="db-tables-panel-meta-text">
             {loading
@@ -334,10 +407,10 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         </div>
       </div>
 
-      <DockerImagePullDialog
-        open={pullOpen}
+      <DockerImageSearchSubWindow
+        open={searchOpen}
         connectionId={connection.connectionId}
-        onClose={() => setPullOpen(false)}
+        onClose={() => setSearchOpen(false)}
         onPulled={() => void refresh()}
       />
     </ScopedSearch>

@@ -221,9 +221,8 @@ export function ServerCronjobsTab({ server }: Props) {
               </Button>
               <Button
                 type="button"
-                variant="icon"
+                variant="danger"
                 size="icon-xs"
-                className="db-tables-panel-grid__action-danger"
                 disabled={!canAct || busy || actionBusyId != null}
                 title={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}
                 aria-label={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}

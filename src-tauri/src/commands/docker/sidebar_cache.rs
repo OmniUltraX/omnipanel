@@ -2,7 +2,8 @@
 //! 按连接持久化 containers/images/networks/volumes；前端只保留 UI 态。
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use omnipanel_docker::{
     DockerContainerSummary, DockerImageSummary, DockerNetworkSummary, DockerVolumeSummary,
@@ -11,6 +12,18 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_store::docker_sidebar_cache_path;
 use serde::{Deserialize, Serialize};
 use specta::Type;
+
+/// 串行化读写，避免前端并行 patch 时共用临时文件 rename 竞态（Windows 上常见 os error 2）。
+fn sidebar_cache_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn lock_sidebar_cache() -> OmniResult<MutexGuard<'static, ()>> {
+    sidebar_cache_lock()
+        .lock()
+        .map_err(|_| OmniError::new(ErrorCode::Internal, "Docker 侧栏缓存锁已损坏"))
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -53,8 +66,9 @@ fn default_version() -> u32 {
     1
 }
 
-fn map_io(err: std::io::Error) -> OmniError {
-    OmniError::new(ErrorCode::Io, "读写 Docker 侧栏缓存失败").with_cause(err.to_string())
+fn map_io(err: std::io::Error, path: &Path) -> OmniError {
+    OmniError::new(ErrorCode::Io, "读写 Docker 侧栏缓存失败")
+        .with_cause(format!("{} ({})", err, path.display()))
 }
 
 fn map_json(err: serde_json::Error) -> OmniError {
@@ -62,6 +76,7 @@ fn map_json(err: serde_json::Error) -> OmniError {
 }
 
 pub fn load_docker_sidebar_cache() -> OmniResult<DockerSidebarCacheSnapshot> {
+    let _guard = lock_sidebar_cache()?;
     let path = docker_sidebar_cache_path()?;
     load_docker_sidebar_cache_from(&path)
 }
@@ -70,7 +85,7 @@ fn load_docker_sidebar_cache_from(path: &Path) -> OmniResult<DockerSidebarCacheS
     if !path.is_file() {
         return Ok(DockerSidebarCacheSnapshot::default());
     }
-    let content = std::fs::read_to_string(path).map_err(map_io)?;
+    let content = std::fs::read_to_string(path).map_err(|e| map_io(e, path))?;
     if content.trim().is_empty() {
         return Ok(DockerSidebarCacheSnapshot::default());
     }
@@ -78,28 +93,43 @@ fn load_docker_sidebar_cache_from(path: &Path) -> OmniResult<DockerSidebarCacheS
     Ok(file.snapshot)
 }
 
+/// 先写临时文件再替换目标；Windows 的 `rename` 不能覆盖已存在文件。
+fn replace_file(tmp: &Path, path: &Path) -> std::io::Result<()> {
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    std::fs::rename(tmp, path)
+}
+
 fn save_docker_sidebar_cache_to(
     path: &Path,
     snapshot: &DockerSidebarCacheSnapshot,
 ) -> OmniResult<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(map_io)?;
+        std::fs::create_dir_all(parent).map_err(|e| map_io(e, parent))?;
     }
     let file = DockerSidebarCacheFile {
         version: 1,
         snapshot: snapshot.clone(),
     };
     let json = serde_json::to_string(&file).map_err(map_json)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(map_io)?;
-    std::fs::rename(&tmp, path).map_err(map_io)?;
-    Ok(())
+    // 唯一临时名，避免极端情况下残留/并发写互相踩踏
+    let tmp: PathBuf = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, json).map_err(|e| map_io(e, &tmp))?;
+    match replace_file(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(map_io(err, path))
+        }
+    }
 }
 
 pub fn patch_docker_sidebar_cache_connection(
     connection_id: &str,
     entry: DockerSidebarCacheEntry,
 ) -> OmniResult<()> {
+    let _guard = lock_sidebar_cache()?;
     let path = docker_sidebar_cache_path()?;
     let mut snapshot = load_docker_sidebar_cache_from(&path)?;
     snapshot
@@ -109,6 +139,7 @@ pub fn patch_docker_sidebar_cache_connection(
 }
 
 pub fn remove_docker_sidebar_cache_connection(connection_id: &str) -> OmniResult<()> {
+    let _guard = lock_sidebar_cache()?;
     let path = docker_sidebar_cache_path()?;
     let mut snapshot = load_docker_sidebar_cache_from(&path)?;
     if snapshot.connections.remove(connection_id).is_none() {

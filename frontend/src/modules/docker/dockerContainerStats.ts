@@ -1,6 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { debugStats, warnStats } from "./dockerStatsDebug";
 
 /** 默认 stats 轮询间隔（空闲） */
 export const DOCKER_STATS_POLL_MS = 5000;
@@ -43,9 +44,38 @@ export async function fetchDockerContainerStats(
   if (typeof listStats !== "function") {
     throw new Error("dockerListContainerStats 未绑定，请重启 tauri dev");
   }
-  return withTimeout(
-    unwrap(listStats(connectionId, containerIds)),
-    DOCKER_STATS_REQUEST_TIMEOUT_MS,
-    "dockerListContainerStats",
-  );
+  const scopeCount = containerIds?.length ?? null;
+  const startedAt = performance.now();
+  debugStats("IPC 开始", {
+    connectionId,
+    scope: scopeCount == null ? "all" : scopeCount,
+    timeoutMs: DOCKER_STATS_REQUEST_TIMEOUT_MS,
+  });
+  try {
+    const result = await withTimeout(
+      unwrap(listStats(connectionId, containerIds)),
+      DOCKER_STATS_REQUEST_TIMEOUT_MS,
+      "dockerListContainerStats",
+    );
+    debugStats("IPC 成功", {
+      connectionId,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      resultCount: result.length,
+    });
+    return result;
+  } catch (error) {
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    warnStats("IPC 失败/超时", {
+      connectionId,
+      scope: scopeCount == null ? "all" : scopeCount,
+      elapsedMs,
+      timeoutMs: DOCKER_STATS_REQUEST_TIMEOUT_MS,
+      error: String(error),
+      hint:
+        elapsedMs >= DOCKER_STATS_REQUEST_TIMEOUT_MS - 50
+          ? "前端超时；后端可能仍在执行（SSH 绑定连接常见原因：日志流/终端曾占满 exec 闸门，或远端 docker stats 过慢）"
+          : "非超时错误，见 error 字段",
+    });
+    throw error;
+  }
 }

@@ -170,12 +170,17 @@ function schedulePersistConnection(
     persistTimer = null;
     const ids = [...pendingPersistIds];
     pendingPersistIds.clear();
-    for (const id of ids) {
-      const entry = getEntry(id);
-      void unwrapCommand(commands.dockerPatchSidebarCache(id, toBackendEntry(entry))).catch(
-        () => {},
-      );
-    }
+    // 串行写盘，避免并发 patch 打满后端文件锁 / 触发 Windows rename 竞态
+    void (async () => {
+      for (const id of ids) {
+        const entry = getEntry(id);
+        try {
+          await unwrapCommand(commands.dockerPatchSidebarCache(id, toBackendEntry(entry)));
+        } catch {
+          // 持久化失败不阻断 UI；下次刷新会重试
+        }
+      }
+    })();
   }, PERSIST_DEBOUNCE_MS);
 }
 

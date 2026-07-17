@@ -422,6 +422,14 @@
         color: var(--muted);
     }
 
+    .docker-connection-info-header__tags {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
     .docker-resource-overview {
         flex-shrink: 0;
         padding: 12px 20px 14px;
@@ -731,6 +739,30 @@
         align-items: center;
         gap: 6px;
         min-width: 0;
+    }
+
+    .docker-container-table__name-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .docker-container-table__name-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .docker-container-table__copy-id {
+        flex-shrink: 0;
+        opacity: 0.55;
+    }
+
+    .docker-container-table__copy-id:hover:not(:disabled) {
+        opacity: 1;
     }
 
     .docker-container-table__status {
@@ -1718,8 +1750,24 @@
         color: var(--fg);
     }
 
+    .docker-container-card__lifecycle-btn--start {
+        color: var(--success);
+    }
+
     .docker-container-card__lifecycle-btn--start:hover:not(:disabled) {
         color: var(--success);
+    }
+
+    .docker-container-card__lifecycle-btn--primary {
+        color: var(--accent);
+    }
+
+    .docker-container-card__lifecycle-btn--primary:hover:not(:disabled) {
+        color: var(--accent);
+    }
+
+    .docker-container-card__lifecycle-btn--danger {
+        color: var(--danger);
     }
 
     .docker-container-card__lifecycle-btn--danger:hover:not(:disabled) {
@@ -3427,37 +3475,55 @@
     }
 
     .docker-network-panel__actions,
-    .docker-container-panel__actions {
+    .docker-container-panel__actions,
+    .docker-image-panel__actions {
         display: inline-flex;
         align-items: center;
         gap: 2px;
     }
 
-    .docker-image-pull-dialog {
+    .docker-image-search-subwindow-shell .subwindow-body {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .docker-image-search-subwindow {
         display: flex;
         flex-direction: column;
         gap: 12px;
         min-height: 0;
+        height: 100%;
+        padding: 12px;
+        box-sizing: border-box;
     }
 
-    .docker-image-pull-dialog__row {
+    .docker-image-search-subwindow__toolbar {
         display: flex;
         align-items: center;
         gap: 8px;
+        flex-shrink: 0;
     }
 
-    .docker-image-pull-dialog__row .input-field,
-    .docker-image-pull-dialog__row .text-input-wrap,
-    .docker-image-pull-dialog__row > :first-child {
+    .docker-image-search-subwindow__toolbar .input-field,
+    .docker-image-search-subwindow__toolbar .text-input-wrap,
+    .docker-image-search-subwindow__toolbar > :first-child {
         flex: 1;
         min-width: 0;
     }
 
-    .docker-image-pull-dialog__results {
+    .docker-image-search-subwindow__error {
+        flex-shrink: 0;
+        font-size: 12px;
+        color: var(--danger, #ff3b30);
+    }
+
+    .docker-image-search-subwindow__results {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        max-height: 320px;
+        flex: 1;
+        min-height: 0;
         overflow: auto;
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
@@ -3465,14 +3531,42 @@
         background: var(--bg-deeper);
     }
 
-    .docker-image-pull-dialog__empty {
-        padding: 16px 8px;
+    .docker-image-search-subwindow__empty {
+        padding: 24px 8px;
         text-align: center;
         font-size: 12px;
         color: var(--muted);
     }
 
-    .docker-image-pull-dialog__item {
+    .docker-image-search-subwindow__loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex: 1;
+        min-height: 120px;
+        padding: 24px 8px;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .docker-image-search-subwindow__spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: docker-image-search-spin 0.8s linear infinite;
+    }
+
+    @keyframes docker-image-search-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .docker-image-search-subwindow__item {
         display: flex;
         align-items: center;
         gap: 10px;
@@ -3481,12 +3575,31 @@
         border: 1px solid transparent;
     }
 
-    .docker-image-pull-dialog__item:hover {
+    .docker-image-search-subwindow__item:hover {
         background: color-mix(in srgb, var(--accent) 8%, transparent);
         border-color: var(--border);
     }
 
-    .docker-image-pull-dialog__item-main {
+    .docker-image-search-subwindow__icon {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: var(--surface, var(--bg-elevated, transparent));
+        color: var(--muted);
+    }
+
+    .docker-image-search-subwindow__icon--official {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    .docker-image-search-subwindow__item-main {
         flex: 1;
         min-width: 0;
         display: flex;
@@ -3494,7 +3607,7 @@
         gap: 2px;
     }
 
-    .docker-image-pull-dialog__name {
+    .docker-image-search-subwindow__name {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -3506,16 +3619,31 @@
         white-space: nowrap;
     }
 
-    .docker-image-pull-dialog__badge {
+    .docker-image-search-subwindow__badge {
         font-size: 10px;
         font-weight: 500;
     }
 
-    .docker-image-pull-dialog__desc {
+    .docker-image-search-subwindow__desc {
         font-size: 11px;
         color: var(--muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .docker-image-search-subwindow__meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 2px;
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    .docker-image-search-subwindow__stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
     }
 }

@@ -1,12 +1,18 @@
-import { useMemo, type MouseEvent } from "react";
+import { Fragment, useCallback, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import {
-  DbTablesPanelGrid,
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../database/workspace/DbTablesPanelGrid";
 import { Button } from "../../components/ui/Button";
+import { IconChevronDown, IconCopy } from "../../components/ui/Icons";
+import {
+  useResizableTableColumns,
+  type ResizableColumnDef,
+} from "../../components/ui/table/useResizableTableColumns";
 import { useI18n } from "../../i18n";
 import type { DockerContainerSummary } from "../../ipc/bindings";
+import { showToast } from "../../stores/toastStore";
+import { resolveComposeProjectName } from "./dockerComposeGroups";
 import {
   displayValue,
   formatDockerNetworks,
@@ -19,8 +25,30 @@ import {
   type DockerContainerLifecycleAction,
 } from "./dockerContainerLifecycle";
 import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
-import { DirectoryIcon, LogsIcon, ParamsIcon } from "./icons";
+import { ComposeStackIcon, DirectoryIcon, LogsIcon, ParamsIcon } from "./icons";
 import type { DockerContainerSubWindowKind } from "./DockerDockPanel";
+
+async function writeToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
 
 export type DockerContainerTableSortColumn =
   | "name"
@@ -47,7 +75,8 @@ function TableMetricCell({
   value: number | null | undefined;
   running: boolean;
 }) {
-  if (!running) {
+  // 未运行，或尚未拉到 stats：显示占位，避免把「无数据」误显示成 0%
+  if (!running || value == null || Number.isNaN(value)) {
     return <span className="docker-container-table__metric-idle">—</span>;
   }
   const percent = clampPercent(value);
@@ -83,6 +112,75 @@ function normalizeContainerKey(containerId: string): string {
   return containerId.trim().toLowerCase();
 }
 
+/** 按 Compose 项目分组；组内顺序沿用外部已排序的 items。 */
+function partitionComposeItems(items: DockerContainerGridItem[]): {
+  composeGroups: Array<{ project: string; items: DockerContainerGridItem[] }>;
+  standalone: DockerContainerGridItem[];
+} {
+  const groupMap = new Map<string, DockerContainerGridItem[]>();
+  const standalone: DockerContainerGridItem[] = [];
+  for (const item of items) {
+    const project = resolveComposeProjectName(item.container);
+    if (!project) {
+      standalone.push(item);
+      continue;
+    }
+    const bucket = groupMap.get(project);
+    if (bucket) bucket.push(item);
+    else groupMap.set(project, [item]);
+  }
+  const composeGroups = [...groupMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }))
+    .map(([project, groupItems]) => ({ project, items: groupItems }));
+  return { composeGroups, standalone };
+}
+
+function headerCellClassName(
+  column: DbTablesPanelGridColumn<DockerContainerGridItem>,
+  sortColumnId: string,
+  sortDirection: DbTablesPanelGridSortDirection,
+): string {
+  const sortId = column.sortId ?? column.id;
+  const classes: string[] = [];
+  if (column.nameCell) classes.push("db-tables-panel-grid__name-col");
+  if (column.variant === "actions" || column.variant === "actionsSticky") {
+    classes.push("db-tables-panel-grid__actions-col");
+  }
+  if (column.variant === "actionsSticky") {
+    classes.push("db-tables-panel-grid__actions-col--sticky");
+  }
+  if (column.sortable) {
+    if (sortColumnId === sortId) {
+      classes.push(
+        sortDirection === "asc"
+          ? "db-tables-panel-grid__sortable db-tables-panel-grid__sort-asc"
+          : "db-tables-panel-grid__sortable db-tables-panel-grid__sort-desc",
+      );
+    } else {
+      classes.push("db-tables-panel-grid__sortable");
+    }
+  }
+  return classes.filter(Boolean).join(" ");
+}
+
+function bodyCellClassName(
+  column: DbTablesPanelGridColumn<DockerContainerGridItem>,
+  nested: boolean,
+): string | undefined {
+  const classes: string[] = [];
+  if (column.nameCell) {
+    classes.push("db-tables-panel-grid__name");
+    if (nested) classes.push("docker-container-panel__nested-name");
+  }
+  if (column.variant === "actions" || column.variant === "actionsSticky") {
+    classes.push("db-tables-panel-grid__actions-col");
+  }
+  if (column.variant === "actionsSticky") {
+    classes.push("db-tables-panel-grid__actions-col--sticky");
+  }
+  return classes.length > 0 ? classes.join(" ") : undefined;
+}
+
 export function DockerContainerListTable({
   items,
   pendingActions,
@@ -93,6 +191,8 @@ export function DockerContainerListTable({
   onLifecycleAction,
 }: DockerContainerListTableProps) {
   const { t } = useI18n();
+  /** 折叠中的 Compose 项目名；未列出则默认展开 */
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
 
   const columns = useMemo((): DbTablesPanelGridColumn<DockerContainerGridItem>[] => {
     return [
@@ -102,11 +202,38 @@ export function DockerContainerListTable({
         header: t("docker.dockPanel.column.name"),
         sortable: true,
         nameCell: true,
-        defaultWidth: 160,
-        minWidth: 96,
-        render: (item) => item.container.name || item.container.shortId || item.container.id.slice(0, 12),
+        copyable: false,
+        defaultWidth: 180,
+        minWidth: 120,
+        render: (item) => {
+          const name =
+            item.container.name || item.container.shortId || item.container.id.slice(0, 12);
+          const containerId = item.container.id;
+          return (
+            <div className="docker-container-table__name-cell">
+              <span className="docker-container-table__name-text" title={name}>
+                {name}
+              </span>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="docker-container-table__copy-id"
+                title={t("docker.dockPanel.copyContainerId")}
+                aria-label={t("docker.dockPanel.copyContainerId")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void writeToClipboard(containerId).then((ok) => {
+                    if (ok) showToast(t("common.copied"));
+                  });
+                }}
+              >
+                <IconCopy size={12} />
+              </Button>
+            </div>
+          );
+        },
         getTitle: (item) => item.container.name || item.container.id,
-        getCopyValue: (item) => item.container.name || item.container.id,
       },
       {
         id: "status",
@@ -169,9 +296,15 @@ export function DockerContainerListTable({
         defaultWidth: 96,
         minWidth: 72,
         render: (item) => (
-          <TableMetricCell value={item.stats?.cpuPercent} running={item.container.running} />
+          <TableMetricCell
+            value={item.stats == null ? null : item.stats.cpuPercent}
+            running={item.container.running}
+          />
         ),
-        getTitle: (item) => formatPercent(item.stats?.cpuPercent, item.container.running),
+        getTitle: (item) =>
+          item.stats == null
+            ? "—"
+            : formatPercent(item.stats.cpuPercent, item.container.running),
       },
       {
         id: "memory",
@@ -182,9 +315,15 @@ export function DockerContainerListTable({
         defaultWidth: 96,
         minWidth: 72,
         render: (item) => (
-          <TableMetricCell value={item.stats?.memoryPercent} running={item.container.running} />
+          <TableMetricCell
+            value={item.stats == null ? null : item.stats.memoryPercent}
+            running={item.container.running}
+          />
         ),
-        getTitle: (item) => formatPercent(item.stats?.memoryPercent, item.container.running),
+        getTitle: (item) =>
+          item.stats == null
+            ? "—"
+            : formatPercent(item.stats.memoryPercent, item.container.running),
       },
       {
         id: "ports",
@@ -269,22 +408,181 @@ export function DockerContainerListTable({
     ];
   }, [onLifecycleAction, onOpenAction, pendingActions, t]);
 
+  const { composeGroups, standalone } = useMemo(() => partitionComposeItems(items), [items]);
+  const hasComposeGroups = composeGroups.length > 0;
+
+  const resizeColumnDefs = useMemo((): ResizableColumnDef[] => {
+    return columns.map((column) => {
+      const action = column.variant === "actions" || column.variant === "actionsSticky";
+      return {
+        id: column.id,
+        defaultWidth: column.defaultWidth ?? (action ? 96 : 120),
+        minWidth: column.minWidth ?? (action ? 48 : 64),
+        resizable: column.resizable ?? !action,
+      };
+    });
+  }, [columns]);
+
+  const { tableRef, getColumnStyle, startColumnResize, isColumnResizable } = useResizableTableColumns(
+    resizeColumnDefs,
+    {
+      storageKey: "omnipanel.docker.containers.column-widths.v1",
+      constrainMaxWidth: false,
+    },
+  );
+
+  const toggleProject = useCallback((project: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(project)) next.delete(project);
+      else next.add(project);
+      return next;
+    });
+  }, []);
+
+  const renderContainerRow = (item: DockerContainerGridItem, nested: boolean): ReactNode => (
+    <tr
+      key={item.container.id}
+      className={[
+        nested ? "docker-container-panel__nested-row" : "",
+        item.container.running
+          ? "docker-container-table__row--running"
+          : "docker-container-table__row--stopped",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {columns.map((column, columnIndex) => (
+        <td
+          key={column.id}
+          data-col-id={column.id}
+          className={bodyCellClassName(column, nested)}
+          style={getColumnStyle(column.id)}
+          title={column.getTitle?.(item)}
+        >
+          {column.render(item, columnIndex)}
+        </td>
+      ))}
+    </tr>
+  );
+
   return (
     <div className="docker-container-table-wrap">
-      <DbTablesPanelGrid
-        variant="variables"
-        className="docker-container-table"
-        columns={columns}
-        rows={items}
-        rowKey={(item) => item.container.id}
-        sortColumnId={sortColumnId}
-        sortDirection={sortDirection}
-        onSortColumn={onSortColumn}
-        columnResizeStorageKey="omnipanel.docker.overview-containers.column-widths.v2"
-        rowClassName={(item) =>
-          item.container.running ? "docker-container-table__row--running" : "docker-container-table__row--stopped"
-        }
-      />
+      <div className="db-tables-panel-grid-host" tabIndex={-1}>
+        <table
+          ref={tableRef}
+          className="db-tables-panel-grid db-tables-panel-grid--variables db-tables-panel-grid--resizable docker-container-table"
+        >
+          <thead>
+            <tr>
+              {columns.map((column) => {
+                const sortId = column.sortId ?? column.id;
+                const sortable = Boolean(column.sortable);
+                const resizable = isColumnResizable(column.id);
+                return (
+                  <th
+                    key={column.id}
+                    data-col-id={column.id}
+                    className={headerCellClassName(column, sortColumnId, sortDirection)}
+                    style={getColumnStyle(column.id)}
+                    onClick={sortable ? () => onSortColumn(sortId) : undefined}
+                    aria-sort={
+                      sortable && sortColumnId === sortId
+                        ? sortDirection === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                  >
+                    {sortable ? (
+                      <span className="db-tables-panel-grid__th-label">
+                        {column.header}
+                        {sortColumnId === sortId ? (
+                          <span className="db-tables-panel-grid__sort-mark" aria-hidden>
+                            {sortDirection === "asc" ? "↑" : "↓"}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      column.header
+                    )}
+                    {resizable ? (
+                      <div
+                        className="db-tables-panel-grid__col-resize"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          startColumnResize(column.id, event.clientX);
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : null}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {composeGroups.map((group) => {
+              const expanded = !collapsedProjects.has(group.project);
+              const runningCount = group.items.filter((item) => item.container.running).length;
+              return (
+                <Fragment key={`compose:${group.project}`}>
+                  <tr
+                    className="docker-container-panel__group-row"
+                    onClick={() => toggleProject(group.project)}
+                  >
+                    <td colSpan={columns.length}>
+                      <button
+                        type="button"
+                        className="docker-container-panel__group-toggle"
+                        aria-expanded={expanded}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleProject(group.project);
+                        }}
+                      >
+                        <IconChevronDown
+                          size={14}
+                          className={`docker-container-panel__group-chevron${
+                            expanded ? "" : " docker-container-panel__group-chevron--collapsed"
+                          }`}
+                        />
+                        <ComposeStackIcon size={14} />
+                        <span className="docker-container-panel__group-title">{group.project}</span>
+                        <span className="docker-container-panel__group-meta">
+                          {t("docker.containersPanel.composeCount", {
+                            count: group.items.length,
+                            running: runningCount,
+                          })}
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded ? group.items.map((item) => renderContainerRow(item, true)) : null}
+                </Fragment>
+              );
+            })}
+
+            {hasComposeGroups && standalone.length > 0 ? (
+              <tr className="docker-container-panel__group-row docker-container-panel__group-row--standalone">
+                <td colSpan={columns.length}>
+                  <span className="docker-container-panel__group-toggle docker-container-panel__group-toggle--static">
+                    <span className="docker-container-panel__group-title">
+                      {t("docker.containersPanel.standalone")}
+                    </span>
+                    <span className="docker-container-panel__group-meta">
+                      {t("docker.containersPanel.count", { count: standalone.length })}
+                    </span>
+                  </span>
+                </td>
+              </tr>
+            ) : null}
+
+            {standalone.map((item) => renderContainerRow(item, hasComposeGroups))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

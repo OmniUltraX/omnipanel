@@ -468,9 +468,8 @@ export function ServerCertificatesTab({ server }: Props) {
               </Button>
               <Button
                 type="button"
-                variant="icon"
+                variant="danger"
                 size="icon-xs"
-                className="db-tables-panel-grid__action-danger"
                 disabled={!canAct || busy || actionBusyId != null}
                 title={canAct ? t("server.certificates.delete") : t("server.create.onePanelOnly")}
                 aria-label={

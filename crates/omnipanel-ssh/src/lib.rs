@@ -44,7 +44,7 @@ use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, ssh_key};
 use russh::{Channel, ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{Semaphore, mpsc};
 
 /// SSH 认证方式。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -334,8 +334,6 @@ impl StreamChunk {
 pub struct SshStreamHandle {
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
-    /// 流式 exec 持有 channel 期间占用槽位，任务结束才释放。
-    _exec_permit: OwnedSemaphorePermit,
 }
 
 impl SshStreamHandle {
@@ -374,8 +372,6 @@ pub struct SshPtySession {
     tx: mpsc::UnboundedSender<PtyMsg>,
     stop: Arc<AtomicBool>,
     _task: Option<tokio::task::JoinHandle<()>>,
-    /// PTY 长连接占用槽位直至 close。
-    _exec_permit: OwnedSemaphorePermit,
 }
 
 impl SshPtySession {
@@ -850,7 +846,9 @@ impl SshSession {
 
     /// 在独立 exec channel 上以流式方式运行命令，stdout/stderr 实时写入 `tx`。
     /// 返回 [`SshStreamHandle`]，调用方 `stop()` 即可中止远端命令。
-    /// 与 `exec_capture` 互不影响：远端 SSH 上可同时存在多个 exec channel。
+    ///
+    /// `exec_gate` 仅串行化 channel 打开；通道建立后立即释放，避免日志流 / 长命令
+    /// 阻塞同会话上的 `docker stats` 等短命令（否则前端会 45s 超时）。
     pub async fn exec_stream(
         &self,
         command: &str,
@@ -872,6 +870,8 @@ impl SshSession {
                 OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
             );
         }
+        // 通道已打开：释放闸门，允许多个已建立 channel 并存
+        drop(exec_permit);
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
@@ -883,13 +883,14 @@ impl SshSession {
         Ok(SshStreamHandle {
             stop,
             _task: Some(task),
-            _exec_permit: exec_permit,
         })
     }
 
     /// 在独立 exec channel 上以 PTY 模式运行命令，返回 [`SshPtySession`] 用于交互式终端。
     /// 适用于 `docker exec -it <id> /bin/sh` 这类需要 TTY 的场景。
     /// 命令输出以 `StreamChunk` 形式经 `tx` 推送。
+    ///
+    /// 与 [`Self::exec_stream`] 相同：仅在打开 channel 期间占用 `exec_gate`。
     pub async fn exec_pty(
         &self,
         command: &str,
@@ -905,7 +906,7 @@ impl SshSession {
         .map_err(|_| {
             OmniError::new(
                 ErrorCode::Ssh,
-                "等待 SSH exec 资源超时，请关闭其他容器终端后重试",
+                "等待 SSH exec 资源超时，请稍后重试",
             )
         })?
         .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
@@ -926,6 +927,7 @@ impl SshSession {
                 OmniError::new(ErrorCode::Ssh, "发起 PTY exec 命令失败").with_cause(e.to_string())
             );
         }
+        drop(exec_permit);
 
         let (pty_tx, pty_rx) = mpsc::unbounded_channel::<PtyMsg>();
         let stop = Arc::new(AtomicBool::new(false));
@@ -938,7 +940,6 @@ impl SshSession {
             tx: pty_tx,
             stop,
             _task: Some(task),
-            _exec_permit: exec_permit,
         })
     }
 
