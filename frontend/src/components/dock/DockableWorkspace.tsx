@@ -1829,7 +1829,10 @@ export function DockableWorkspace({
         // dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，但
         // onDidActivePanelChange 是同步的。onActiveTabChange → setActiveSideTab
         // 会触发 React re-render，其 microtask 可能在 onDidLayoutChange 之前执行。
-        // 必须同步更新 lastWrittenLayoutRef 防误 fromJSON；写 store/persist 改 debounce。
+        // 必须同步更新 lastWrittenLayoutRef，并同步 onSavedLayoutChange 写回父级 ref/state；
+        // 若只靠 debounce persist，父组件重渲染时 savedLayout 仍是切 tab 前的旧对象，
+        // savedLayout effect 会误 fromJSON → 面板弹回旧 tab（终端侧栏表现为切到「文件」
+        // 却回到「监控」并触发监控刷新）。
         if (!isSyncingRef.current && layoutLoadedRef.current && panel) {
           try {
             const raw = api.toJSON();
@@ -1837,6 +1840,8 @@ export function DockableWorkspace({
             const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
             lastWrittenLayoutRef.current = next;
             lastWrittenFromActiveRef.current = true;
+            pendingLayoutPersistRef.current = next;
+            onSavedLayoutChangeRef.current(next);
             scheduleLayoutPersist(next, { preserveLastWritten: true });
           } catch {
             // 过渡期间 toJSON 可能抛错，忽略
@@ -1850,9 +1855,16 @@ export function DockableWorkspace({
             }
             pendingProgrammaticActiveRef.current = null;
             isProgrammaticActiveRef.current = false;
+            syncStatusBarActiveDockRef.current(panel?.id ?? null);
+            return;
           }
-          syncStatusBarActiveDockRef.current(panel?.id ?? null);
-          return;
+          // 程序化 setActive 窗口内出现了非目标 panel：视为用户点击抢先，清旗标后放行
+          if (programmaticActiveTimerRef.current) {
+            clearTimeout(programmaticActiveTimerRef.current);
+            programmaticActiveTimerRef.current = null;
+          }
+          pendingProgrammaticActiveRef.current = null;
+          isProgrammaticActiveRef.current = false;
         }
         if (panel) {
           onActiveTabChangeRef.current(panel.id);

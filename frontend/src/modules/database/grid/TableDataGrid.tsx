@@ -23,7 +23,7 @@ import { Button } from "../../../components/ui/Button";
 import { WarnAlert } from "../../../components/ui/overlay/WarnAlert";
 import { useI18n } from "../../../i18n";
 import { type DbColumnMeta, type DbConnectionConfig } from "../api";
-import { resolvePreviewRowKey, type SortState } from "../workspace/dbWorkspaceState";
+import { resolvePreviewRowChangeKind, resolvePreviewRowKey, type PreviewRowChangeKind, type SortState } from "../workspace/dbWorkspaceState";
 import { getFilterColumnNames, buildTablePreviewSql, buildTablePreviewSqlWithRelations } from "./tablePreviewFilter";
 import { showToast } from "../../../stores/toastStore";
 import {
@@ -86,6 +86,16 @@ import {
   extractRowValuesFromIndex,
 } from "./tableDataGridClipboard";
 import {
+  buildColumnNamesText,
+  buildInsertSql,
+  buildRowsJson,
+  buildUpdateSql,
+  compareCellValues,
+  formatCellCopyText,
+  resolveCopyColumns,
+} from "./tableDataGridCopySql";
+import { buildTableDataGridContextMenuItems } from "./tableDataGridContextMenu";
+import {
   COLUMN_MIN_WIDTH,
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
@@ -106,11 +116,14 @@ import {
 import {
   collectSelectedRowIndices,
   collectSelectedCellTargets,
+  clearDragSelectionPaint,
+  isCellSelected,
   isEditableTextTarget,
   isFullRowSelection,
   isFullWidthRowRange,
   isHeaderInColumnSelection,
   normalizeRange,
+  paintDragSelection,
   resolvePasteBounds,
   resolveSingleSelectedCell,
   selectionTargetKey,
@@ -132,6 +145,8 @@ import {
 import type { TableDataGridActiveCell } from "./tableDataGridTypes";
 export type { TableDataGridActiveCell } from "./tableDataGridTypes";
 
+const EMPTY_DELETED_ROW_KEYS = new Set<string>();
+
 export type TableDataGridProps = {
   columns: string[];
   rows: Record<string, unknown>[];
@@ -150,6 +165,8 @@ export type TableDataGridProps = {
   onCellSetNull?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   /** 已修改的行 key 集合（来自父组件脏数据状态），用于高亮 */
   dirtyRowKeys?: Set<string>;
+  /** 待删除行的原始 row key（不含 __delete__: 前缀） */
+  deletedRowKeys?: Set<string>;
   /** 单元覆盖：行 key -> 列名 -> 覆盖值；优先于 rows 展示 */
   cellOverrides?: Record<string, Record<string, unknown>>;
   /** 显示行列转换切换按钮（表数据预览） */
@@ -198,6 +215,8 @@ export type TableDataGridProps = {
   onCellEditorCollapsedChange?: () => void;
   /** 双击单元格且值编辑器展开时，请求聚焦底栏编辑器 */
   onCellEditorFocusRequest?: () => void;
+  /** 点击/拖选行号选中行时回调（用于切换到记录面板等） */
+  onRowBandSelect?: () => void;
   /** 粘贴为新行（表预览编辑模式） */
   onRowPaste?: (payload: { values: Record<string, unknown> }) => void;
   /** 删除选中的行（表预览编辑模式） */
@@ -229,6 +248,10 @@ export type TableDataGridProps = {
   statusBarInfoPanelId?: string;
   /** 状态栏 InfoBar 展示内容（如表名、行数） */
   statusBarInfo?: ReactNode;
+  /** 打开导出菜单（表预览顶栏同源） */
+  onExportMenu?: (clientX: number, clientY: number) => void;
+  /** 打开行详情（记录面板） */
+  onOpenRowDetail?: () => void;
 };
 
 export type TableDataGridClipboardFormat = DelimitedTextFormat;
@@ -257,6 +280,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   onCellCommit,
   onCellSetNull,
   dirtyRowKeys,
+  deletedRowKeys,
   cellOverrides,
   enableTranspose = false,
   toolbar,
@@ -280,6 +304,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   reserveSelectionOnEscape = false,
   onCellEditorCollapsedChange,
   onCellEditorFocusRequest,
+  onRowBandSelect,
   onRowPaste,
   onDeleteSelectedRows,
   onSelectedCellsChange,
@@ -296,6 +321,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   statusBarActionPanelId,
   statusBarInfoPanelId,
   statusBarInfo,
+  onExportMenu,
+  onOpenRowDetail,
 }: TableDataGridProps) {
   const { t } = useI18n();
   const [clipboardFormat, setClipboardFormat] = useState<DelimitedTextFormat>("csv");
@@ -416,6 +443,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const rowAnchorRef = useRef<number | null>(null);
   const cellAnchorRef = useRef<CellPos | null>(null);
   const cellDragRef = useRef<{ active: boolean; start: CellPos } | null>(null);
+  const rowDragRef = useRef<{ active: boolean; startRow: number; maxCol: number } | null>(null);
   const pendingDragRangeRef = useRef<CellRange | null>(null);
   const dragSelectionRafRef = useRef<number | null>(null);
   const bodyActionsRef = useRef<TableDataGridBodyActions | null>(null);
@@ -448,14 +476,28 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   const clearGridSelection = useCallback(() => {
-    if (!cellRangeRef.current && selectedRowsRef.current.size === 0) return;
+    if (
+      !cellRangeRef.current &&
+      selectedRowsRef.current.size === 0 &&
+      !cellDragRef.current &&
+      !rowDragRef.current
+    ) {
+      return;
+    }
     setCellRange(null);
     setSelectedRows(new Set());
     rowAnchorRef.current = null;
     cellAnchorRef.current = null;
     cellDragRef.current = null;
+    rowDragRef.current = null;
+    pendingDragRangeRef.current = null;
     activeCellNotifyKeyRef.current = undefined;
     selectedCellsNotifyKeyRef.current = undefined;
+    const wrap = wrapRef.current;
+    if (wrap) {
+      clearDragSelectionPaint(wrap);
+      wrap.classList.remove("db-data-table-wrap--cell-dragging");
+    }
   }, []);
 
   useEffect(() => {
@@ -862,6 +904,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const handleColumnSortClick = useCallback(
     (columnId: string) => {
       if (!enableSort || !onSortChange) return;
+      setPageSort(null);
       let next: SortState | null;
       if (!sort || sort.column !== columnId) {
         next = { column: columnId, direction: "asc" };
@@ -894,9 +937,17 @@ export const TableDataGrid = memo(function TableDataGrid({
   }, [transposed, rowsWithRelationDisplay, columnMeta, dirtyRowKeys, cellOverrides]);
 
   const displayColumns = transposed ? transposedData!.columns : visibleColumns;
-  const displayRows = transposed ? transposedData!.rows : rowsWithRelationDisplay;
+  const displayRowsBase = transposed ? transposedData!.rows : rowsWithRelationDisplay;
   const displayDirtyRowKeys = transposed ? transposedDirty!.dirtyRowKeys : dirtyRowKeys;
   const displayCellOverrides = transposed ? transposedDirty!.cellOverrides : cellOverrides;
+  const [pageSort, setPageSort] = useState<{ column: string; desc: boolean } | null>(null);
+
+  const displayRows = useMemo(() => {
+    if (!pageSort || transposed) return displayRowsBase;
+    const col = pageSort.column;
+    const sorted = [...displayRowsBase].sort((a, b) => compareCellValues(a[col], b[col]));
+    return pageSort.desc ? sorted.reverse() : sorted;
+  }, [displayRowsBase, pageSort, transposed]);
 
   useLayoutEffect(() => {
     if (loading || !hoverResetPendingRef.current) return;
@@ -1228,41 +1279,83 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   useEffect(() => {
+    const scrollWrapWhileDragging = (wrap: HTMLElement, clientX: number, clientY: number) => {
+      const rect = wrap.getBoundingClientRect();
+      const edge = 32;
+      let dx = 0;
+      let dy = 0;
+      if (clientY < rect.top + edge) {
+        dy = -Math.ceil((edge - (clientY - rect.top)) * 0.7);
+      } else if (clientY > rect.bottom - edge) {
+        dy = Math.ceil((edge - (rect.bottom - clientY)) * 0.7);
+      }
+      if (clientX < rect.left + edge) {
+        dx = -Math.ceil((edge - (clientX - rect.left)) * 0.7);
+      } else if (clientX > rect.right - edge) {
+        dx = Math.ceil((edge - (rect.right - clientX)) * 0.7);
+      }
+      if (dx !== 0 || dy !== 0) {
+        wrap.scrollBy(dx, dy);
+      }
+    };
+
+    const flushDragSelectionPaint = () => {
+      const wrap = wrapRef.current;
+      const pending = pendingDragRangeRef.current;
+      if (!wrap || !pending) return;
+      cellRangeRef.current = pending;
+      paintDragSelection(wrap, pending);
+    };
+
     const onMouseMove = (event: MouseEvent) => {
       const wrap = wrapRef.current;
       if (!wrap) return;
 
-      const cellDrag = cellDragRef.current;
-      if (cellDrag?.active) {
+      const rowDrag = rowDragRef.current;
+      if (rowDrag?.active) {
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
         const el = document.elementFromPoint(event.clientX, event.clientY);
-        const td = el?.closest("td");
-        if (!td) return;
-        const tr = td.closest("tr");
-        if (!tr) return;
-        const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
-        const colIndex = Number((td as HTMLElement).dataset.colIndex);
-        if (Number.isNaN(rowIndex) || Number.isNaN(colIndex)) return;
-        pendingDragRangeRef.current = {
-          start: cellDrag.start,
-          end: { row: rowIndex, col: colIndex },
-        };
+        const tr = el?.closest("tr");
+        if (tr instanceof HTMLTableRowElement) {
+          const rowIndex = Number(tr.dataset.rowIndex);
+          if (!Number.isNaN(rowIndex)) {
+            pendingDragRangeRef.current = {
+              start: { row: rowDrag.startRow, col: 0 },
+              end: { row: rowIndex, col: rowDrag.maxCol },
+            };
+          }
+        }
         if (dragSelectionRafRef.current == null) {
           dragSelectionRafRef.current = requestAnimationFrame(() => {
             dragSelectionRafRef.current = null;
-            const pending = pendingDragRangeRef.current;
-            if (!pending) return;
-            setCellRange((prev) => {
-              if (
-                prev &&
-                prev.start.row === pending.start.row &&
-                prev.start.col === pending.start.col &&
-                prev.end.row === pending.end.row &&
-                prev.end.col === pending.end.col
-              ) {
-                return prev;
-              }
-              return pending;
-            });
+            flushDragSelectionPaint();
+          });
+        }
+        return;
+      }
+
+      const cellDrag = cellDragRef.current;
+      if (cellDrag?.active) {
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
+        const el = document.elementFromPoint(event.clientX, event.clientY);
+        const td = el?.closest("td");
+        if (td) {
+          const tr = td.closest("tr");
+          if (tr) {
+            const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
+            const colIndex = Number((td as HTMLElement).dataset.colIndex);
+            if (!Number.isNaN(rowIndex) && !Number.isNaN(colIndex)) {
+              pendingDragRangeRef.current = {
+                start: cellDrag.start,
+                end: { row: rowIndex, col: colIndex },
+              };
+            }
+          }
+        }
+        if (dragSelectionRafRef.current == null) {
+          dragSelectionRafRef.current = requestAnimationFrame(() => {
+            dragSelectionRafRef.current = null;
+            flushDragSelectionPaint();
           });
         }
         return;
@@ -1294,16 +1387,42 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
     };
 
+    const onScrollDuringDrag = () => {
+      if (!cellDragRef.current?.active && !rowDragRef.current?.active) return;
+      if (dragSelectionRafRef.current == null) {
+        dragSelectionRafRef.current = requestAnimationFrame(() => {
+          dragSelectionRafRef.current = null;
+          flushDragSelectionPaint();
+        });
+      }
+    };
+
     const endResize = () => {
       const wrap = wrapRef.current;
+      const wasCellDrag = Boolean(cellDragRef.current?.active);
+      const wasRowDrag = Boolean(rowDragRef.current?.active);
+      const pendingDragRange = pendingDragRangeRef.current;
 
       if (cellDragRef.current) {
         cellDragRef.current = null;
+      }
+      if (rowDragRef.current) {
+        rowDragRef.current = null;
       }
       pendingDragRangeRef.current = null;
       if (dragSelectionRafRef.current != null) {
         cancelAnimationFrame(dragSelectionRafRef.current);
         dragSelectionRafRef.current = null;
+      }
+      if (wrap) {
+        clearDragSelectionPaint(wrap);
+        wrap.classList.remove("db-data-table-wrap--cell-dragging");
+      }
+
+      // 拖选过程只刷 DOM；抬起时一次性提交 React 选区
+      if ((wasCellDrag || wasRowDrag) && pendingDragRange) {
+        cellRangeRef.current = pendingDragRange;
+        setCellRange(pendingDragRange);
       }
 
       const drag = dragRef.current;
@@ -1332,6 +1451,20 @@ export const TableDataGrid = memo(function TableDataGrid({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || reserveSelectionOnEscapeRef.current) return;
       if (cellPreviewOpenRef.current) return;
+      if (cellDragRef.current?.active || rowDragRef.current?.active) {
+        cellDragRef.current = null;
+        rowDragRef.current = null;
+        pendingDragRangeRef.current = null;
+        if (dragSelectionRafRef.current != null) {
+          cancelAnimationFrame(dragSelectionRafRef.current);
+          dragSelectionRafRef.current = null;
+        }
+        const wrap = wrapRef.current;
+        if (wrap) {
+          clearDragSelectionPaint(wrap);
+          wrap.classList.remove("db-data-table-wrap--cell-dragging");
+        }
+      }
       if (cellRangeRef.current || selectedRowsRef.current.size > 0) {
         clearGridSelection();
       }
@@ -1339,10 +1472,13 @@ export const TableDataGrid = memo(function TableDataGrid({
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", endResize);
     window.addEventListener("keydown", onKeyDown);
+    const wrap = wrapRef.current;
+    wrap?.addEventListener("scroll", onScrollDuringDrag, { passive: true });
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", endResize);
       window.removeEventListener("keydown", onKeyDown);
+      wrap?.removeEventListener("scroll", onScrollDuringDrag);
     };
   }, [clearGridSelection]);
 
@@ -1813,10 +1949,13 @@ export const TableDataGrid = memo(function TableDataGrid({
         const minRow = Math.min(anchor, rowIndex);
         const maxRow = Math.max(anchor, rowIndex);
         setSelectedRows(new Set());
+        cellDragRef.current = null;
+        rowDragRef.current = null;
         setCellRange({
           start: { row: minRow, col: 0 },
           end: { row: maxRow, col: maxCol },
         });
+        onRowBandSelect?.();
         return;
       }
 
@@ -1833,20 +1972,30 @@ export const TableDataGrid = memo(function TableDataGrid({
         }
         setSelectedRows(next);
         setCellRange(null);
+        cellDragRef.current = null;
+        rowDragRef.current = null;
         rowAnchorRef.current = rowIndex;
         cellAnchorRef.current = null;
+        onRowBandSelect?.();
         return;
       }
 
+      // 普通按下：开始行拖选（上下拖动多选整行）
       setSelectedRows(new Set());
+      cellDragRef.current = null;
       rowAnchorRef.current = rowIndex;
       cellAnchorRef.current = { row: rowIndex, col: 0 };
-      setCellRange({
+      const range = {
         start: { row: rowIndex, col: 0 },
         end: { row: rowIndex, col: maxCol },
-      });
+      };
+      rowDragRef.current = { active: true, startRow: rowIndex, maxCol };
+      pendingDragRangeRef.current = range;
+      wrapRef.current?.classList.add("db-data-table-wrap--cell-dragging");
+      setCellRange(range);
+      onRowBandSelect?.();
     },
-    [leafColumnCount],
+    [leafColumnCount, onRowBandSelect],
   );
 
   const columnSizedIds = useMemo(
@@ -1870,6 +2019,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       sortColumn: sort?.column ?? null,
       sortDirection: sort?.direction ?? null,
       hasCellEdit: Boolean(onCellEdit || onCellCommit),
+      enableValuePanelAffordance: Boolean(onCellEditorFocusRequest),
+      valuePanelAffordanceTitle: t("database.cellEditor.openValuePanel"),
       lastColumnId,
       fillDelta,
       leafColumnCount,
@@ -1886,6 +2037,8 @@ export const TableDataGrid = memo(function TableDataGrid({
     sort,
     onCellEdit,
     onCellCommit,
+    onCellEditorFocusRequest,
+    t,
     lastColumnId,
     fillDelta,
     leafColumnCount,
@@ -1981,15 +2134,36 @@ export const TableDataGrid = memo(function TableDataGrid({
       event.preventDefault();
       event.stopPropagation();
       setSelectedRows(new Set());
+      rowDragRef.current = null;
       cellDragRef.current = { active: true, start: { row: ctx.rowIndex, col: ctx.colIndex } };
       cellAnchorRef.current = { row: ctx.rowIndex, col: ctx.colIndex };
       rowAnchorRef.current = ctx.rowIndex;
-      setCellRange({
+      const anchorRange = {
         start: { row: ctx.rowIndex, col: ctx.colIndex },
         end: { row: ctx.rowIndex, col: ctx.colIndex },
-      });
+      };
+      pendingDragRangeRef.current = anchorRange;
+      wrapRef.current?.classList.add("db-data-table-wrap--cell-dragging");
+      setCellRange(anchorRange);
     },
     [transposed, rows],
+  );
+
+  useEffect(() => {
+    if (transposed) setPageSort(null);
+  }, [transposed]);
+
+  const writeClipboardText = useCallback(
+    async (text: string) => {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(t("database.results.contextMenu.copied"));
+      } catch {
+        /* clipboard unavailable */
+      }
+    },
+    [t],
   );
 
   const handleDataCellDoubleClick = useCallback(
@@ -2004,6 +2178,22 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const handleDataCellContextMenu = useCallback(
     (ctx: GridBodyCellInteractionContext, event: ReactMouseEvent) => {
+      const leafCount = table.getAllLeafColumns().length;
+      const alreadySelected = isCellSelected(
+        ctx.rowIndex,
+        ctx.colIndex,
+        cellRangeRef.current,
+        selectedRowsRef.current,
+        leafCount,
+      );
+      if (!alreadySelected) {
+        const anchor = { row: ctx.rowIndex, col: ctx.colIndex };
+        cellAnchorRef.current = anchor;
+        rowAnchorRef.current = ctx.rowIndex;
+        setSelectedRows(new Set());
+        setCellRange({ start: anchor, end: anchor });
+      }
+
       let previewColumn = ctx.columnId;
       let menuRowIndex = ctx.rowIndex;
       let menuRow = ctx.row;
@@ -2022,11 +2212,15 @@ export const TableDataGrid = memo(function TableDataGrid({
             menuRow = mapped.originalRow;
           }
         }
+      } else if (ctx.columnId === ROW_NUM_COL_ID) {
+        previewColumn = effectiveColumns[0] ?? ctx.columnId;
+        menuValue = ctx.rowIndex;
       }
       cellMenuOpenRef.current({
         x: event.clientX,
         y: event.clientY,
         rowIndex: menuRowIndex,
+        colIndex: ctx.colIndex,
         column: previewColumn,
         row: menuRow,
         value: menuValue,
@@ -2034,7 +2228,337 @@ export const TableDataGrid = memo(function TableDataGrid({
         rowActionsEnabled,
       });
     },
-    [transposed, rows, columnMetaMap],
+    [transposed, rows, columnMetaMap, table, effectiveColumns],
+  );
+
+  const buildCellContextMenuItems = useCallback(
+    (menu: TableDataGridCellMenuState) => {
+      const leafCols = table.getAllLeafColumns();
+      const leafCount = leafCols.length;
+      const currentRange = cellRangeRef.current;
+      const currentExtraRows = selectedRowsRef.current;
+      const selectedIndices = collectSelectedRowIndices(currentRange, currentExtraRows, leafCount);
+      let targetRowIndices: number[];
+      if (!transposed && selectedIndices.includes(menu.rowIndex)) {
+        targetRowIndices = selectedIndices;
+      } else if (!transposed && currentRange) {
+        const n = normalizeRange(currentRange);
+        if (menu.rowIndex >= n.minRow && menu.rowIndex <= n.maxRow && n.maxRow > n.minRow) {
+          targetRowIndices = Array.from({ length: n.maxRow - n.minRow + 1 }, (_, i) => n.minRow + i);
+        } else {
+          targetRowIndices = [menu.rowIndex];
+        }
+      } else {
+        targetRowIndices = [menu.rowIndex];
+      }
+      const rowCount = Math.max(1, targetRowIndices.length);
+      const canSortColumn =
+        Boolean(menu.column) &&
+        menu.column !== ROW_NUM_COL_ID &&
+        !isRelationDisplayColumn(menu.column) &&
+        menu.rowActionsEnabled !== false;
+
+      const collectRowValues = (): Record<string, unknown>[] => {
+        const out: Record<string, unknown>[] = [];
+        for (const idx of targetRowIndices) {
+          const values = extractRowValuesFromIndex(
+            idx,
+            tableRows,
+            effectiveColumns,
+            pkCols,
+            displayCellOverrides,
+          );
+          if (values) out.push(values);
+        }
+        return out;
+      };
+
+      const copyText = (text: string) => {
+        void writeClipboardText(text);
+      };
+
+      const setNullDisabled = (() => {
+        if (!onCellSetNull || menu.rowActionsEnabled === false) return true;
+        const col = columnMeta?.find((item) => item.name === menu.column);
+        if (!col || col.isPk) return true;
+        const rowKey = resolvePreviewRowKey(menu.row, pkCols);
+        const overrideValue = rowKey ? cellOverrides?.[rowKey]?.[menu.column] : undefined;
+        const currentValue = overrideValue !== undefined ? overrideValue : menu.row[menu.column];
+        return currentValue == null;
+      })();
+
+      return buildTableDataGridContextMenuItems(
+        {
+          sortDbAsc: t("database.results.contextMenu.sortDbAsc"),
+          sortDbDesc: t("database.results.contextMenu.sortDbDesc"),
+          sortPageAsc: t("database.results.contextMenu.sortPageAsc"),
+          sortPageDesc: t("database.results.contextMenu.sortPageDesc"),
+          filter: t("database.results.contextMenu.filter"),
+          filterColumn: t("database.results.contextMenu.filterColumn"),
+          filterClear: t("database.results.contextMenu.filterClear"),
+          cellDetail: t("database.results.contextMenu.cellDetail"),
+          columnDetail: t("database.results.contextMenu.columnDetail"),
+          rowDetail: t("database.results.contextMenu.rowDetail"),
+          copy: t("database.results.contextMenu.copy"),
+          copyCell: t("database.results.contextMenu.copyCell"),
+          copyRowsJson: t("database.results.contextMenu.copyRowsJson", { count: rowCount }),
+          copyInsertMerged: t("database.results.contextMenu.copyInsertMerged", { count: rowCount }),
+          copyInsertPerRow: t("database.results.contextMenu.copyInsertPerRow", { count: rowCount }),
+          copyInsertNoPkMerged: t("database.results.contextMenu.copyInsertNoPkMerged", {
+            count: rowCount,
+          }),
+          copyInsertNoPkPerRow: t("database.results.contextMenu.copyInsertNoPkPerRow", {
+            count: rowCount,
+          }),
+          copyUpdate: t("database.results.contextMenu.copyUpdate", { count: rowCount }),
+          copyAllTsv: t("database.results.contextMenu.copyAllTsv"),
+          copyAllColumnNames: t("database.results.contextMenu.copyAllColumnNames"),
+          setNull: t("database.cellEditor.setNull"),
+          batchEdit: t("database.results.contextMenu.batchEdit"),
+          transpose: t("database.results.contextMenu.transpose"),
+          selection: t("database.results.contextMenu.selection"),
+          selectRow: t("database.results.contextMenu.selectRow"),
+          selectColumn: t("database.results.contextMenu.selectColumn"),
+          selectAll: t("database.results.contextMenu.selectAll"),
+          clearSelection: t("database.results.contextMenu.clearSelection"),
+          cloneRows: t("database.results.contextMenu.cloneRows", { count: rowCount }),
+          deleteRows: t("database.results.contextMenu.deleteRows", { count: rowCount }),
+          export: t("database.results.contextMenu.export"),
+        },
+        {
+          canSortDb: Boolean(enableSort && onSortChange && canSortColumn && !transposed),
+          canSortPage: Boolean(canSortColumn && !transposed),
+          canFilter: Boolean(canFilter && canSortColumn && !transposed),
+          canSetNull: Boolean(onCellSetNull),
+          setNullDisabled,
+          canBatchEdit: Boolean(onCellEditorFocusRequest),
+          canTranspose: Boolean(enableTranspose),
+          canClone: Boolean(onRowPaste && !transposed),
+          canDelete: Boolean(onDeleteSelectedRows && !transposed),
+          canExport: Boolean(onExportMenu),
+          canCopySql: Boolean(tableName && !transposed),
+          hasSelection: Boolean(currentRange || currentExtraRows.size > 0),
+          selectedRowCount: rowCount,
+          rowActionsEnabled: menu.rowActionsEnabled !== false && !transposed,
+          onSortDbAsc: () => {
+            setPageSort(null);
+            onSortChange?.({ column: menu.column, direction: "asc" });
+          },
+          onSortDbDesc: () => {
+            setPageSort(null);
+            onSortChange?.({ column: menu.column, direction: "desc" });
+          },
+          onSortPageAsc: () => setPageSort({ column: menu.column, desc: false }),
+          onSortPageDesc: () => setPageSort({ column: menu.column, desc: true }),
+          onFilterColumn: () => {
+            const th = wrapRef.current?.querySelector<HTMLElement>(
+              `th[data-col-id="${CSS.escape(menu.column)}"]`,
+            );
+            if (th) openFilterPopover(th, menu.column);
+          },
+          onFilterClear: () => onFilterChange?.(null),
+          onCellDetail: () => {
+            openCellPreview({
+              column: menu.column,
+              rowIndex: menu.rowIndex,
+              row: menu.row,
+              value: menu.value,
+              columnType: menu.columnType,
+              anchor: { left: menu.x, top: menu.y, width: 240, height: 28 },
+            });
+          },
+          onColumnDetail: () => {
+            setColSidebarCollapsed(false);
+            setNavigatedColumnId(menu.column);
+            pendingColumnFocusRef.current = menu.column;
+          },
+          onRowDetail: () => {
+            const maxCol = Math.max(0, leafCount - 1);
+            setSelectedRows(new Set());
+            setCellRange({
+              start: { row: menu.rowIndex, col: 0 },
+              end: { row: menu.rowIndex, col: maxCol },
+            });
+            onOpenRowDetail?.();
+            onRowBandSelect?.();
+          },
+          onCopyCell: () => {
+            if (currentRange) {
+              copyText(
+                buildCellRangeClipboardText(currentRange, leafCols, tableRows, {
+                  pkCols,
+                  transposed,
+                  displayCellOverrides,
+                  format: clipboardFormatRef.current,
+                }),
+              );
+              return;
+            }
+            copyText(formatCellCopyText(menu.value));
+          },
+          onCopyRowsJson: () => copyText(buildRowsJson(collectRowValues())),
+          onCopyInsertMerged: () => {
+            if (!tableName) return;
+            copyText(
+              buildInsertSql({
+                dbType,
+                tableName,
+                columns: resolveCopyColumns(effectiveColumns, columnMeta, false),
+                rows: collectRowValues(),
+                mode: "merged",
+              }),
+            );
+          },
+          onCopyInsertPerRow: () => {
+            if (!tableName) return;
+            copyText(
+              buildInsertSql({
+                dbType,
+                tableName,
+                columns: resolveCopyColumns(effectiveColumns, columnMeta, false),
+                rows: collectRowValues(),
+                mode: "perRow",
+              }),
+            );
+          },
+          onCopyInsertNoPkMerged: () => {
+            if (!tableName) return;
+            copyText(
+              buildInsertSql({
+                dbType,
+                tableName,
+                columns: resolveCopyColumns(effectiveColumns, columnMeta, true),
+                rows: collectRowValues(),
+                mode: "merged",
+              }),
+            );
+          },
+          onCopyInsertNoPkPerRow: () => {
+            if (!tableName) return;
+            copyText(
+              buildInsertSql({
+                dbType,
+                tableName,
+                columns: resolveCopyColumns(effectiveColumns, columnMeta, true),
+                rows: collectRowValues(),
+                mode: "perRow",
+              }),
+            );
+          },
+          onCopyUpdate: () => {
+            if (!tableName || pkCols.length === 0) return;
+            copyText(
+              buildUpdateSql({
+                dbType,
+                tableName,
+                columns: effectiveColumns,
+                rows: collectRowValues(),
+                pkCols,
+              }),
+            );
+          },
+          onCopyAllTsv: () => {
+            const allRows = new Set(tableRows.map((_, i) => i));
+            copyText(
+              buildSelectedRowsClipboardText(allRows, leafCols, tableRows, {
+                pkCols,
+                transposed,
+                displayCellOverrides,
+                format: "tsv",
+              }),
+            );
+          },
+          onCopyAllColumnNames: () => copyText(buildColumnNamesText(effectiveColumns)),
+          onSetNull: () => {
+            onCellSetNull?.({
+              rowIndex: menu.rowIndex,
+              column: menu.column,
+              row: menu.row,
+            });
+          },
+          onBatchEdit: () => onCellEditorFocusRequest?.(),
+          onTranspose: () => setTransposed((prev) => !prev),
+          onSelectRow: () => {
+            const maxCol = Math.max(0, leafCount - 1);
+            setSelectedRows(new Set());
+            setCellRange({
+              start: { row: menu.rowIndex, col: 0 },
+              end: { row: menu.rowIndex, col: maxCol },
+            });
+          },
+          onSelectColumn: () => {
+            const maxRow = Math.max(0, tableRows.length - 1);
+            setSelectedRows(new Set());
+            setCellRange({
+              start: { row: 0, col: menu.colIndex },
+              end: { row: maxRow, col: menu.colIndex },
+            });
+          },
+          onSelectAll: () => {
+            const maxRow = Math.max(0, tableRows.length - 1);
+            const maxCol = Math.max(0, leafCount - 1);
+            setSelectedRows(new Set());
+            setCellRange({
+              start: { row: 0, col: 0 },
+              end: { row: maxRow, col: maxCol },
+            });
+          },
+          onClearSelection: () => clearGridSelection(),
+          onCloneRows: () => {
+            if (!onRowPaste) return;
+            for (const values of collectRowValues()) {
+              onRowPaste({ values });
+            }
+          },
+          onDeleteRows: () => {
+            if (!onDeleteSelectedRows) return;
+            const payload = targetRowIndices
+              .map((index) => {
+                const tableRow = tableRows[index];
+                if (!tableRow) return null;
+                return { rowIndex: tableRow.index, row: tableRow.original };
+              })
+              .filter(
+                (item): item is { rowIndex: number; row: Record<string, unknown> } => item != null,
+              );
+            if (payload.length === 0) return;
+            onDeleteSelectedRows(payload);
+            clearGridSelection();
+          },
+          onExport: () => onExportMenu?.(menu.x, menu.y),
+        },
+      );
+    },
+    [
+      table,
+      transposed,
+      tableRows,
+      effectiveColumns,
+      pkCols,
+      displayCellOverrides,
+      writeClipboardText,
+      onCellSetNull,
+      columnMeta,
+      cellOverrides,
+      t,
+      enableSort,
+      onSortChange,
+      canFilter,
+      openFilterPopover,
+      onFilterChange,
+      openCellPreview,
+      onOpenRowDetail,
+      onRowBandSelect,
+      onCellEditorFocusRequest,
+      enableTranspose,
+      setTransposed,
+      onRowPaste,
+      onDeleteSelectedRows,
+      onExportMenu,
+      tableName,
+      dbType,
+      clearGridSelection,
+    ],
   );
 
   bodyActionsRef.current = {
@@ -2043,6 +2567,18 @@ export const TableDataGrid = memo(function TableDataGrid({
     handleDataCellMouseDown,
     handleDataCellDoubleClick,
     handleDataCellContextMenu,
+    handleOpenValuePanel: onCellEditorFocusRequest
+      ? (ctx) => {
+          setSelectedRows(new Set());
+          cellDragRef.current = null;
+          rowDragRef.current = null;
+          const anchor = { row: ctx.rowIndex, col: ctx.colIndex };
+          cellAnchorRef.current = anchor;
+          rowAnchorRef.current = ctx.rowIndex;
+          setCellRange({ start: anchor, end: anchor });
+          onCellEditorFocusRequest();
+        }
+      : undefined,
   };
 
   const buildGridBodyRowProps = useCallback(
@@ -2052,8 +2588,14 @@ export const TableDataGrid = memo(function TableDataGrid({
       const rowKey = transposed
         ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
         : resolvePreviewRowKey(row.original, pkCols);
+      const rowChangeKind: PreviewRowChangeKind = transposed
+        ? rowKey && displayDirtyRowKeys?.has(rowKey)
+          ? "update"
+          : "none"
+        : resolvePreviewRowChangeKind(rowKey, deletedRowKeys ?? EMPTY_DELETED_ROW_KEYS, displayDirtyRowKeys);
       return {
-        rowDirty: rowKey ? (displayDirtyRowKeys?.has(rowKey) ?? false) : false,
+        rowDirty: rowChangeKind !== "none",
+        rowChangeKind,
         overrideForRow: rowKey ? displayCellOverrides?.[rowKey] : undefined,
         rowHeight: rowHeights[row.index],
         cellRange,
@@ -2066,6 +2608,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       transposed,
       pkCols,
       displayDirtyRowKeys,
+      deletedRowKeys,
       displayCellOverrides,
       rowHeights,
       cellRange,
@@ -2323,10 +2866,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     {!allColumnsHidden && (
       <TableDataGridCellContextMenu
         menuOpenRef={cellMenuOpenRef}
-        onPreview={openCellPreview}
-        onCellSetNull={onCellSetNull}
-        columnMeta={columnMeta}
-        cellOverrides={cellOverrides}
+        buildItems={buildCellContextMenuItems}
       />
     )}
     </div>

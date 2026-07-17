@@ -149,9 +149,14 @@ export function useDashboardData(): DashboardData {
       await Promise.all(
         sshConnections.map(async (connection) => {
           if (useSshStatsStore.getState().statsMap[connection.id]) return;
-          const res = await commands.sshPoolFetchStats(connection.id);
-          if (!cancelled && res.status === "ok") {
-            useSshStatsStore.getState().setStats([res.data]);
+          try {
+            const res = await commands.sshPoolFetchStats(connection.id);
+            if (!cancelled && res.status === "ok") {
+              useSshStatsStore.getState().setStats([res.data]);
+            }
+            // notFound / 未入池：首页预拉失败属预期，不刷控制台
+          } catch {
+            // ignore
           }
         }),
       );

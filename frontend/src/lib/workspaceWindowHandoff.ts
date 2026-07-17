@@ -335,11 +335,22 @@ async function applyTabStatesHandoff(
   if (!tabStates) return;
   const payloads = Object.values(tabStates);
   if (payloads.length === 0) return;
-  await Promise.all(payloads.map((p) => applyTabStatePayload(p)));
+  // 串行 + 让帧：避免多会话同时 loadSession/replaceSessionBlocks 卡住开窗动画
+  for (const payload of payloads) {
+    await applyTabStatePayload(payload);
+    await new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(resolve, 0);
+      }
+    });
+  }
 }
 
 /**
  * 独立窗口启动：从 handoff 水合主题、工作区列表、dock 与终端。
+ * handoff 缺失（刷新）时仍从 dock + SQLite 恢复终端时间线。
  */
 export async function hydrateWorkspaceWindowFromHandoff(workspaceId: string): Promise<void> {
   const handoff = await readHandoffFromFile(workspaceId, "open");
@@ -348,7 +359,36 @@ export async function hydrateWorkspaceWindowFromHandoff(workspaceId: string): Pr
   applyDockHandoff(workspaceId, handoff?.dock);
   hydrateTerminalsFromHandoff(workspaceId, handoff);
   await applyTabStatesHandoff(handoff?.tabStates);
+  // handoff 已清或仅含 running 时，其余块从共享 SQLite 冷灌入
+  await restoreTerminalHistoryFromSqlite(workspaceId);
   await clearHandoffFile(workspaceId);
+}
+
+/** 按工作区 dock 中的终端 session，从 SQLite 恢复 Blocks（已有 live 块则跳过） */
+async function restoreTerminalHistoryFromSqlite(workspaceId: string): Promise<void> {
+  const dockTabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
+  const terminalIds = collectTerminalIdsFromDockTabs(dockTabs);
+  const sessionIds = [
+    ...new Set(
+      terminalIds.map((id) => {
+        const tab = useTerminalStore.getState().tabs.find((t) => t.id === id);
+        return tab?.sessionId ?? id;
+      }),
+    ),
+  ].filter(Boolean);
+  if (sessionIds.length === 0) return;
+
+  const { bootstrapTerminalHistory } = await import("../modules/terminal/terminalHistorySync");
+  bootstrapTerminalHistory(sessionIds);
+  // bootstrap 内部异步；对当前活跃会话再显式 await，减少首屏空白
+  const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
+  const active =
+    useTerminalStore.getState().activeSessionId ??
+    useTerminalStore.getState().activeTabId ??
+    sessionIds[0];
+  if (active && sessionIds.includes(active)) {
+    await useTerminalHistoryStore.getState().restoreSession(active);
+  }
 }
 
 /** @deprecated 使用 hydrateWorkspaceWindowFromHandoff */
@@ -388,6 +428,7 @@ export async function applyWorkspaceWindowReturnHandoff(
     dockReady = true;
     // tab 运行时状态（历史等）异步恢复，不阻塞 UI
     await applyTabStatesHandoff(handoff?.tabStates);
+    await restoreTerminalHistoryFromSqlite(workspaceId);
     await clearHandoffFile(workspaceId);
   } catch (err) {
     console.error(`[handoff] applyWorkspaceWindowReturnHandoff(${workspaceId}) failed:`, err);

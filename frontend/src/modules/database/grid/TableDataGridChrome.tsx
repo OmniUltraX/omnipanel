@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type MutableRefObject,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { TextInput } from "../../../components/ui/TextInput";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
@@ -13,13 +12,13 @@ import { columnTypeTagClassName } from "./columnTypeTag";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import type { DbColumnMeta } from "../api";
-import type { CellOverlayAnchor } from "./tableCellPreview";
-import { resolvePreviewRowKey } from "../workspace/dbWorkspaceState";
 
 export type TableDataGridCellMenuState = {
   x: number;
   y: number;
   rowIndex: number;
+  /** 网格 leaf 列下标（含行号列） */
+  colIndex: number;
   column: string;
   row: Record<string, unknown>;
   value: unknown;
@@ -211,27 +210,11 @@ export function ColumnHeaderLabel({
 
 export function TableDataGridCellContextMenu({
   menuOpenRef,
-  onPreview,
-  onCellSetNull,
-  columnMeta,
-  cellOverrides,
+  buildItems,
 }: {
   menuOpenRef: MutableRefObject<(state: TableDataGridCellMenuState) => void>;
-  onPreview: (
-    info: {
-      column: string;
-      rowIndex: number;
-      row: Record<string, unknown>;
-      value: unknown;
-      columnType?: string;
-      anchor: CellOverlayAnchor;
-    },
-  ) => void;
-  onCellSetNull?: (info: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
-  columnMeta?: DbColumnMeta[];
-  cellOverrides?: Record<string, Record<string, unknown>>;
+  buildItems: (menu: TableDataGridCellMenuState) => ContextMenuItem[];
 }) {
-  const { t } = useI18n();
   const [menu, setMenu] = useState<TableDataGridCellMenuState | null>(null);
 
   useEffect(() => {
@@ -241,63 +224,7 @@ export function TableDataGridCellContextMenu({
     };
   }, [menuOpenRef]);
 
-  const handlePreview = useCallback(() => {
-    if (!menu) return;
-    onPreview({
-      column: menu.column,
-      rowIndex: menu.rowIndex,
-      row: menu.row,
-      value: menu.value,
-      columnType: menu.columnType,
-      anchor: {
-        left: menu.x,
-        top: menu.y,
-        width: 240,
-        height: 28,
-      },
-    });
-    setMenu(null);
-  }, [menu, onPreview]);
-
-  const handleSetNull = useCallback(() => {
-    if (!menu || !onCellSetNull) return;
-    onCellSetNull({
-      rowIndex: menu.rowIndex,
-      column: menu.column,
-      row: menu.row,
-    });
-    setMenu(null);
-  }, [menu, onCellSetNull]);
-
-  const setNullDisabled = useMemo(() => {
-    if (!menu || !onCellSetNull) return true;
-    const col = columnMeta?.find((item) => item.name === menu.column);
-    if (!col || col.isPk) return true;
-    const pkCols = (columnMeta ?? []).filter((item) => item.isPk);
-    const rowKey = resolvePreviewRowKey(menu.row, pkCols);
-    const overrideValue = rowKey ? cellOverrides?.[rowKey]?.[menu.column] : undefined;
-    const currentValue = overrideValue !== undefined ? overrideValue : menu.row[menu.column];
-    return currentValue == null;
-  }, [menu, onCellSetNull, columnMeta, cellOverrides]);
-
-  const items = useMemo(() => {
-    const list: ContextMenuItem[] = [
-      {
-        id: "preview",
-        label: t("database.results.cellPreviewContextMenu"),
-        onClick: handlePreview,
-      },
-    ];
-    if (onCellSetNull && menu && menu.rowActionsEnabled !== false) {
-      list.push({
-        id: "set-null",
-        label: t("database.cellEditor.setNull"),
-        disabled: setNullDisabled,
-        onClick: handleSetNull,
-      });
-    }
-    return list;
-  }, [t, handlePreview, handleSetNull, onCellSetNull, setNullDisabled, menu]);
+  const items = useMemo(() => (menu ? buildItems(menu) : []), [menu, buildItems]);
 
   if (!menu) return null;
 

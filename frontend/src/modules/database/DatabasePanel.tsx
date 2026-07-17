@@ -43,7 +43,6 @@ import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedS
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
@@ -372,15 +371,12 @@ export function DatabasePanel() {
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
-  const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
   const [slowLogAvailabilityByConnId, setSlowLogAvailabilityByConnId] = useState<
     Record<string, SlowLogAvailability>
   >({});
-  const slowLogProbeGenRef = useRef(0);
   const [binlogAvailabilityByConnId, setBinlogAvailabilityByConnId] = useState<
     Record<string, BinlogAvailability>
   >({});
-  const binlogProbeGenRef = useRef(0);
   const [activeConnId, setActiveConnId] = useState<string | null>(null);
 
   const setActiveConnIdIfChanged = useCallback((connId: string | null) => {
@@ -396,7 +392,9 @@ export function DatabasePanel() {
   const removeTabWorkspaceData = useDbWorkspaceTabStore((state) => state.removeTabWorkspaceData);
 
   const workspaceTabsRef = useRef<DbWorkspaceTab[]>([]);
-  const openConnectionInfoTabRef = useRef<(connId: string, mode?: SchemaDockOpenMode) => void>(() => {});
+  const openConnectionInfoTabRef = useRef<
+    (connId: string, mode?: SchemaDockOpenMode, options?: { expandTree?: boolean }) => void
+  >(() => {});
   const [workspaceTabs, setWorkspaceTabsState] = useState<DbWorkspaceTab[]>([]);
   const setWorkspaceTabs = useCallback(
     (update: DbWorkspaceTab[] | ((prev: DbWorkspaceTab[]) => DbWorkspaceTab[])) => {
@@ -993,6 +991,33 @@ export function DatabasePanel() {
     [t],
   );
 
+  /** 按需探测慢日志（进入模块不再批量连库/SSH） */
+  const ensureSlowLogAvailability = useCallback(
+    async (connection: DbConnectionConfig): Promise<SlowLogAvailability> => {
+      const cached = slowLogAvailabilityByConnId[connection.id];
+      if (cached && cached.reason !== "checking") {
+        return cached;
+      }
+      const result = await probeSlowLogAvailability(connection, sshConnections);
+      setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [connection.id]: result }));
+      return result;
+    },
+    [slowLogAvailabilityByConnId, sshConnections],
+  );
+
+  const ensureBinlogAvailability = useCallback(
+    async (connection: DbConnectionConfig): Promise<BinlogAvailability> => {
+      const cached = binlogAvailabilityByConnId[connection.id];
+      if (cached && cached.reason !== "checking") {
+        return cached;
+      }
+      const result = await probeBinlogAvailability(connection, sshConnections);
+      setBinlogAvailabilityByConnId((prev) => ({ ...prev, [connection.id]: result }));
+      return result;
+    },
+    [binlogAvailabilityByConnId, sshConnections],
+  );
+
   useEffect(() => {
     const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
     if (mysqlConnections.length === 0) {
@@ -1000,37 +1025,28 @@ export function DatabasePanel() {
       return;
     }
 
-    const gen = ++slowLogProbeGenRef.current;
+    // 仅同步推断（是否匹配 SSH），不主动连库/连 SSH；真正探测在打开菜单或点击时按需进行
     const syncMap: Record<string, SlowLogAvailability> = {};
     for (const conn of mysqlConnections) {
+      if (!isConnectionEnabled(conn)) {
+        syncMap[conn.id] = { enabled: false, reason: "connection_disabled" };
+        continue;
+      }
       syncMap[conn.id] = resolveSlowLogAvailabilitySync(conn, sshConnections);
     }
-    setSlowLogAvailabilityByConnId(syncMap);
-
-    void (async () => {
-      for (const conn of mysqlConnections) {
-        const sync = syncMap[conn.id];
-        if (!sync || sync.reason !== "checking") {
-          continue;
+    setSlowLogAvailabilityByConnId((prev) => {
+      const next = { ...syncMap };
+      // 保留已异步探测成功的结果，避免被 sync 覆盖回 checking
+      for (const [id, prevAvail] of Object.entries(prev)) {
+        if (prevAvail.enabled || (prevAvail.reason && prevAvail.reason !== "checking")) {
+          if (next[id]?.reason === "checking" || next[id] == null) {
+            next[id] = prevAvail;
+          }
         }
-        if (!isConnectionEnabled(conn)) {
-          if (slowLogProbeGenRef.current !== gen) return;
-          setSlowLogAvailabilityByConnId((prev) => ({
-            ...prev,
-            [conn.id]: {
-              enabled: false,
-              reason: "connection_disabled",
-              sshConnectionId: sync.sshConnectionId,
-            },
-          }));
-          continue;
-        }
-        const result = await probeSlowLogAvailability(conn, sshConnections);
-        if (slowLogProbeGenRef.current !== gen) return;
-        setSlowLogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
       }
-    })();
-  }, [connections, sshConnections, sshSessionActiveMap]);
+      return next;
+    });
+  }, [connections, sshConnections]);
 
   useEffect(() => {
     const mysqlConnections = connections.filter(isMysqlConnectionInfoCapable);
@@ -1039,37 +1055,26 @@ export function DatabasePanel() {
       return;
     }
 
-    const gen = ++binlogProbeGenRef.current;
     const syncMap: Record<string, BinlogAvailability> = {};
     for (const conn of mysqlConnections) {
+      if (!isConnectionEnabled(conn)) {
+        syncMap[conn.id] = { enabled: false, reason: "connection_disabled" };
+        continue;
+      }
       syncMap[conn.id] = resolveBinlogAvailabilitySync(conn, sshConnections);
     }
-    setBinlogAvailabilityByConnId(syncMap);
-
-    void (async () => {
-      for (const conn of mysqlConnections) {
-        const sync = syncMap[conn.id];
-        if (!sync || sync.reason !== "checking") {
-          continue;
+    setBinlogAvailabilityByConnId((prev) => {
+      const next = { ...syncMap };
+      for (const [id, prevAvail] of Object.entries(prev)) {
+        if (prevAvail.enabled || (prevAvail.reason && prevAvail.reason !== "checking")) {
+          if (next[id]?.reason === "checking" || next[id] == null) {
+            next[id] = prevAvail;
+          }
         }
-        if (!isConnectionEnabled(conn)) {
-          if (binlogProbeGenRef.current !== gen) return;
-          setBinlogAvailabilityByConnId((prev) => ({
-            ...prev,
-            [conn.id]: {
-              enabled: false,
-              reason: "connection_disabled",
-              sshConnectionId: sync.sshConnectionId,
-            },
-          }));
-          continue;
-        }
-        const result = await probeBinlogAvailability(conn, sshConnections);
-        if (binlogProbeGenRef.current !== gen) return;
-        setBinlogAvailabilityByConnId((prev) => ({ ...prev, [conn.id]: result }));
       }
-    })();
-  }, [connections, sshConnections, sshSessionActiveMap]);
+      return next;
+    });
+  }, [connections, sshConnections]);
   useEffect(() => {
     const bootstrapWorkspace = () => {
       const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
@@ -1127,15 +1132,15 @@ export function DatabasePanel() {
     return useDbWorkspaceSessionStore.persist.onFinishHydration(bootstrapWorkspace);
   }, []);
 
-  // 工作区就绪后：仅对 Tab 引用的连接做真实连通探测（本地缓存不标绿点）
+  // 工作区就绪后：仅对 Tab 引用的连接做真实连通探测（失败静默，不刷控制台）
   useEffect(() => {
     if (!workspaceInitialized || connectionsLoading) {
       return;
     }
     void warmPrioritySchemaConnections(schemaCacheReporter, {
       workspaceTabs: workspaceTabsRef.current,
-    }).catch((err) => {
-      schemaCacheReporter.onError?.(String(err));
+    }).catch(() => {
+      // probe 已 quiet；避免进入模块就上报 IPC 错误
     });
     // 只在会话初始化后跑一次；之后靠打开连接/库/表时 probe
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional once after workspace init
@@ -1904,6 +1909,15 @@ export function DatabasePanel() {
       delete next[tabId];
       return next;
     });
+    useDbWorkspaceTabStore.getState().clearTabDirtyHistory(tabId);
+  }, []);
+
+  const undoTabDirty = useCallback((tabId: string) => {
+    useDbWorkspaceTabStore.getState().undoTabDirty(tabId);
+  }, []);
+
+  const redoTabDirty = useCallback((tabId: string) => {
+    useDbWorkspaceTabStore.getState().redoTabDirty(tabId);
   }, []);
 
   const refreshTabPreviewNow = useCallback(
@@ -3210,30 +3224,29 @@ export function DatabasePanel() {
         return;
       }
       if (req.kind === "slow-query") {
-        const availability =
-          slowLogAvailabilityByConnId[connection.id] ??
-          resolveSlowLogAvailabilitySync(connection, sshConnections);
+        void (async () => {
+          const availability = await ensureSlowLogAvailability(connection);
+          if (!availability.enabled) {
+            showToast(resolveSlowLogDisabledReason(availability));
+            return;
+          }
+          openSlowQueryLogTab(connection, availability);
+        })();
+        return;
+      }
+      void (async () => {
+        const availability = await ensureBinlogAvailability(connection);
         if (!availability.enabled) {
-          showToast(resolveSlowLogDisabledReason(availability));
+          showToast(resolveBinlogDisabledReason(availability));
           return;
         }
-        openSlowQueryLogTab(connection, availability);
-        return;
-      }
-      const availability =
-        binlogAvailabilityByConnId[connection.id] ??
-        resolveBinlogAvailabilitySync(connection, sshConnections);
-      if (!availability.enabled) {
-        showToast(resolveBinlogDisabledReason(availability));
-        return;
-      }
-      openBinlogTab(connection, availability);
+        openBinlogTab(connection, availability);
+      })();
     });
   }, [
     connections,
-    sshConnections,
-    slowLogAvailabilityByConnId,
-    binlogAvailabilityByConnId,
+    ensureSlowLogAvailability,
+    ensureBinlogAvailability,
     openSlowQueryLogTab,
     openBinlogTab,
     resolveSlowLogDisabledReason,
@@ -3499,38 +3512,42 @@ export function DatabasePanel() {
         const connEnabled = isConnectionEnabled(connection);
         const slowLogItems: ContextMenuItem[] = [];
         if (isMysqlConnectionInfoCapable(connection)) {
-          const availability =
-            slowLogAvailabilityByConnId[connection.id] ??
-            resolveSlowLogAvailabilitySync(connection, sshConnections);
           slowLogItems.push({
             id: "slow-query-log",
             label: t("database.contextMenu.slowQueryLog"),
             icon: slowLogIcon,
-            disabled: !availability.enabled,
-            disabledReason: !availability.enabled
-              ? resolveSlowLogDisabledReason(availability)
+            disabled: !connEnabled,
+            disabledReason: !connEnabled
+              ? t("database.contextMenu.slowQueryLogDisabled.connectionDisabled")
               : undefined,
             onClick: () => {
-              const latest =
-                slowLogAvailabilityByConnId[connection.id] ?? availability;
-              openSlowQueryLogTab(connection, latest);
+              void (async () => {
+                const latest = await ensureSlowLogAvailability(connection);
+                if (!latest.enabled) {
+                  showToast(resolveSlowLogDisabledReason(latest));
+                  return;
+                }
+                openSlowQueryLogTab(connection, latest);
+              })();
             },
           });
-          const binlogAvailability =
-            binlogAvailabilityByConnId[connection.id] ??
-            resolveBinlogAvailabilitySync(connection, sshConnections);
           slowLogItems.push({
             id: "binlog",
             label: t("database.contextMenu.binlog"),
             icon: binlogIcon,
-            disabled: !binlogAvailability.enabled,
-            disabledReason: !binlogAvailability.enabled
-              ? resolveBinlogDisabledReason(binlogAvailability)
+            disabled: !connEnabled,
+            disabledReason: !connEnabled
+              ? t("database.contextMenu.binlogDisabled.connectionDisabled")
               : undefined,
             onClick: () => {
-              const latest =
-                binlogAvailabilityByConnId[connection.id] ?? binlogAvailability;
-              openBinlogTab(connection, latest);
+              void (async () => {
+                const latest = await ensureBinlogAvailability(connection);
+                if (!latest.enabled) {
+                  showToast(resolveBinlogDisabledReason(latest));
+                  return;
+                }
+                openBinlogTab(connection, latest);
+              })();
             },
           });
         }
@@ -3590,11 +3607,10 @@ export function DatabasePanel() {
       handleOpenImportDatabase,
       openSlowQueryLogTab,
       openBinlogTab,
+      ensureSlowLogAvailability,
+      ensureBinlogAvailability,
       resolveSlowLogDisabledReason,
       resolveBinlogDisabledReason,
-      slowLogAvailabilityByConnId,
-      binlogAvailabilityByConnId,
-      sshConnections,
       t,
       toggleConnectionEnabled,
     ],
@@ -4248,21 +4264,31 @@ export function DatabasePanel() {
   );
 
   const handleSelectConnection = useCallback(
-    (connId: string, mode: SchemaDockOpenMode = "permanent") => {
+    (
+      connId: string,
+      mode: SchemaDockOpenMode = "permanent",
+      options?: { expandTree?: boolean },
+    ) => {
       // 联动定位必须同步更新，不能包在 startTransition 里（否则侧栏会等低优先级任务）
       setActiveConnIdIfChanged(connId);
       const conn = connections.find((item) => item.id === connId);
       if (!conn) return;
 
-      updateSchemaExpanded((prev) => {
-        const next = new Set(prev);
-        next.add(connectionNodeId(connId));
-        return next;
-      });
+      // 单击 preview 不展开树（秒开预览）；常驻打开默认展开，双击收起传 expandTree:false
+      const shouldExpandTree =
+        options?.expandTree ?? mode !== "preview";
+      if (shouldExpandTree) {
+        updateSchemaExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(connectionNodeId(connId));
+          return next;
+        });
+      }
 
       if (isConnectionEnabled(conn)) {
+        // 连通探测只更新状态点，不拉库表
         void probeDbConnectionRuntime(conn);
-        // 无 Schema 缓存时后台异步浅刷库名，不堵 UI
+        // Schema：仅无有效缓存时浅加载；有缓存不刷新（留给专门刷新按钮）
         const entry = useDbSchemaCacheStore.getState().snapshot.connections?.[connId];
         const refreshing = Boolean(
           useDbSchemaCacheStore.getState().refreshingConnectionIds[connId],
@@ -4740,6 +4766,9 @@ export function DatabasePanel() {
         setTabMode: (id: string, mode: "data" | "sql") =>
           useDbWorkspaceTabStore.getState().setTabMode(id, mode),
         commitTabDirty,
+        rollbackTabDirty,
+        undoTabDirty,
+        redoTabDirty,
         openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
           setExportMenu({ x, y, tabId, sessionId }),
         sqlConnections,
@@ -4782,6 +4811,9 @@ export function DatabasePanel() {
     handleDesignTable,
     openTableQuery,
     commitTabDirty,
+    rollbackTabDirty,
+    undoTabDirty,
+    redoTabDirty,
     sqlConnections,
     groupConnections,
     databasesByConnId,

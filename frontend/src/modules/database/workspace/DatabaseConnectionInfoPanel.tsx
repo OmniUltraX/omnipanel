@@ -417,7 +417,8 @@ export function DatabaseConnectionInfoPanel({
     }
     setDatabasesError(null);
     try {
-      const result = await listDatabasesWithStats(connection);
+      // 自动拉取失败只展示在面板内，不刷全局 IPC 控制台
+      const result = await listDatabasesWithStats(connection, { quiet: true });
       setDatabasesList(result);
     } catch (e) {
       setDatabasesError(typeof e === "string" ? e : JSON.stringify(e));

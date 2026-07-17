@@ -10,6 +10,8 @@ export interface TablePreviewTopBarProps {
   totalPages: number;
   dirtyCount: number;
   isCommitting: boolean;
+  canUndoDirty: boolean;
+  canRedoDirty: boolean;
   canInsertRow: boolean;
   canDeleteRow: boolean;
   hasSelectedRows: boolean;
@@ -24,6 +26,9 @@ export interface TablePreviewTopBarProps {
   onRefresh: () => void;
   onInsertRow: () => void;
   onDeleteSelectedRows: () => void;
+  onUndoAll: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
   onCommit: () => void;
   onExport: (clientX: number, clientY: number) => void;
   onTransposeToggle: () => void;
@@ -72,6 +77,56 @@ function IconDownload() {
   );
 }
 
+function IconUndoAll() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <path d="M4.5 3.5 2.5 5.5 4.5 7.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 5.5h6.2a4.3 4.3 0 1 1 0 8.6H5" strokeLinecap="round" />
+      <path d="M9.5 3.5 13 7M13 3.5 9.5 7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconUndo() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <path d="M5 3.5 2.5 6 5 8.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 6h6.5a4 4 0 1 1 0 8H7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconRedo() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <path d="M11 3.5 13.5 6 11 8.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.5 6H7a4 4 0 1 0 0 8h2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 设计表：表格网格 */
+function IconDesignTable() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M2 6h12M2 9.5h12M6.5 6v7.5M10.5 6v7.5" />
+    </svg>
+  );
+}
+
+/** 新建查询：SQL 文档 + 加号 */
+function IconNewQuery() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <path d="M4 2.5h5.5L12.5 5.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
+      <path d="M9 2.5V5.5h3" strokeLinejoin="round" />
+      <path d="M5.5 9h2M5.5 11.5h4" strokeLinecap="round" />
+      <path d="M12.5 9.5v3M11 11h3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function TablePreviewTopBar({
   loading,
   page,
@@ -80,6 +135,8 @@ export function TablePreviewTopBar({
   totalPages,
   dirtyCount,
   isCommitting,
+  canUndoDirty,
+  canRedoDirty,
   canInsertRow,
   canDeleteRow,
   hasSelectedRows,
@@ -94,6 +151,9 @@ export function TablePreviewTopBar({
   onRefresh,
   onInsertRow,
   onDeleteSelectedRows,
+  onUndoAll,
+  onUndo,
+  onRedo,
   onCommit,
   onExport,
   onTransposeToggle,
@@ -108,6 +168,7 @@ export function TablePreviewTopBar({
   const { t } = useI18n();
   const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
+  const canDiscard = dirtyCount > 0 && !isCommitting;
 
   return (
     <div className="db-table-topbar">
@@ -212,6 +273,38 @@ export function TablePreviewTopBar({
             ) : null}
           </span>
         ) : null}
+        <span className="db-table-topbar-undo-group" role="group" aria-label={t("database.results.undoGroup")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={!canDiscard}
+            title={t("database.results.undoAll")}
+            aria-label={t("database.results.undoAll")}
+            onClick={onUndoAll}
+          >
+            <IconUndoAll />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={!canUndoDirty || isCommitting}
+            title={t("database.results.undo")}
+            aria-label={t("database.results.undo")}
+            onClick={onUndo}
+          >
+            <IconUndo />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={!canRedoDirty || isCommitting}
+            title={t("database.results.redo")}
+            aria-label={t("database.results.redo")}
+            onClick={onRedo}
+          >
+            <IconRedo />
+          </Button>
+        </span>
         <span className="db-toolbar-icon-button-wrap">
           <Button
             variant={dirtyCount > 0 ? "primary" : "ghost"}
@@ -229,17 +322,6 @@ export function TablePreviewTopBar({
             </span>
           ) : null}
         </span>
-        {canExport ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title={t("database.results.exportCsv")}
-            aria-label={t("database.results.exportCsv")}
-            onClick={(e) => onExport(e.clientX, e.clientY)}
-          >
-            <IconDownload />
-          </Button>
-        ) : null}
       </div>
 
       <div className="db-table-topbar-group db-table-topbar-group--end">
@@ -301,10 +383,7 @@ export function TablePreviewTopBar({
             aria-label={t("database.contextMenu.designTable")}
             onClick={onOpenTableDesign}
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
-              <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-              <path d="M5 8h6M8 5v6" />
-            </svg>
+            <IconDesignTable />
           </Button>
         ) : null}
         {onCreateTableQuery ? (
@@ -316,10 +395,18 @@ export function TablePreviewTopBar({
             aria-label={t("database.workspace.newQuery")}
             onClick={onCreateTableQuery}
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
-              <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
-              <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <IconNewQuery />
+          </Button>
+        ) : null}
+        {canExport ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t("database.results.exportCsv")}
+            aria-label={t("database.results.exportCsv")}
+            onClick={(e) => onExport(e.clientX, e.clientY)}
+          >
+            <IconDownload />
           </Button>
         ) : null}
         <Button

@@ -16,11 +16,14 @@ import { type CellEditorPanelHandle } from "../cell_editor";
 import { detectCellEditorKind, parseCellValue } from "../cell_editor/types";
 import { useI18n } from "../../../i18n";
 import {
-  NEW_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
   DELETED_ROW_KEY_PREFIX,
   isDeletedRowDirtyKey,
+  isNewRowDirtyKey,
+  matchesPreviewChangeRowFilter,
+  resolvePreviewRowChangeKind,
   resolvePreviewRowKey,
+  type PreviewChangeRowFilter,
   type SortState,
   type TableColumnRelationConfig,
 } from "./dbWorkspaceState";
@@ -72,6 +75,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
   const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
   const [copySqlHint, setCopySqlHint] = useState(false);
+  const [changeRowFilter, setChangeRowFilter] = useState<PreviewChangeRowFilter>("all");
   const copySqlHintTimerRef = useRef<number | null>(null);
 
   const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
@@ -82,6 +86,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     tableColumnMeta: colMeta,
     tabDirtyRows: tabDirtyRowsForTab,
     isCommitting,
+    canUndoDirty,
+    canRedoDirty,
   } = useDbTabWorkspaceSliceOrMirror(tab.id);
 
   const canRefresh = tab.connId && tab.dbName && tab.tableName;
@@ -132,11 +138,30 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     return keys;
   }, [tabDirtyRowsForTab]);
 
+  /** 展示用脏行 key：删除标记映射为原始行 key，便于网格高亮匹配 */
+  const previewDirtyRowKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const key of Object.keys(tabDirtyRowsForTab)) {
+      if (isDeletedRowDirtyKey(key)) {
+        keys.add(key.slice(DELETED_ROW_KEY_PREFIX.length));
+      } else {
+        keys.add(key);
+      }
+    }
+    return keys;
+  }, [tabDirtyRowsForTab]);
+  const previewCellOverrides = tabDirtyRowsForTab;
+
+  const pendingInsertCount = useMemo(
+    () => Object.keys(tabDirtyRowsForTab).filter(isNewRowDirtyKey).length,
+    [tabDirtyRowsForTab],
+  );
+
   const previewDisplayRows = useMemo(() => {
     if (!preview?.data || !colMeta) return preview?.data?.rows ?? [];
     const dirty = tabDirtyRowsForTab;
     const pendingRows = Object.entries(dirty)
-      .filter(([key]) => key.startsWith(NEW_ROW_KEY_PREFIX))
+      .filter(([key]) => isNewRowDirtyKey(key))
       .map(([key, changes]) => {
         const row: Record<string, unknown> = { [PENDING_INSERT_ROW_KEY]: key };
         for (const column of colMeta) {
@@ -144,12 +169,23 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         }
         return row;
       });
-    const existingRows = preview.data.rows.filter((row) => {
+    // 待删除行保留展示，用红色高亮；不再从列表中隐藏
+    const merged = [...preview.data.rows, ...pendingRows];
+    if (changeRowFilter === "all") return merged;
+    return merged.filter((row) => {
       const rowKey = resolvePreviewRowKey(row, pkCols);
-      return !deletedRowKeys.has(rowKey);
+      const kind = resolvePreviewRowChangeKind(rowKey, deletedRowKeys, previewDirtyRowKeys);
+      return matchesPreviewChangeRowFilter(kind, changeRowFilter);
     });
-    return [...existingRows, ...pendingRows];
-  }, [preview?.data, colMeta, tabDirtyRowsForTab, pkCols, deletedRowKeys]);
+  }, [
+    preview?.data,
+    colMeta,
+    tabDirtyRowsForTab,
+    pkCols,
+    deletedRowKeys,
+    previewDirtyRowKeys,
+    changeRowFilter,
+  ]);
 
   const previewColumns = useMemo(() => {
     const fromData = preview?.data?.columns ?? [];
@@ -158,12 +194,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     }
     return colMeta?.map((col) => col.name) ?? [];
   }, [preview?.data?.columns, colMeta]);
-
-  const previewDirtyRowKeys = useMemo(
-    () => new Set(Object.keys(tabDirtyRowsForTab)),
-    [tabDirtyRowsForTab],
-  );
-  const previewCellOverrides = tabDirtyRowsForTab;
 
   const canExport = Boolean(preview?.data && previewConnection);
 
@@ -372,6 +402,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     cellEditorRef.current?.focusEditor();
   }, [detailCollapsed]);
 
+  const handleRowBandSelect = useCallback(() => {
+    if (!detailCollapsed) {
+      setDetailTab("record");
+    }
+  }, [detailCollapsed]);
+
   const handleDetailPanelResize = useCallback(() => {
     const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
     setDetailCollapsed(collapsed);
@@ -416,6 +452,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const handlePositionChange = useCallback(
     (position: DatabaseTableDetailPosition) => {
+      // 只改形态，保持当前展开/收起；DockLayout 会因 key 重挂，下面 effect 再同步
       setDatabaseSettings({ databaseTableDetailPosition: position });
     },
     [setDatabaseSettings],
@@ -449,12 +486,23 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
-  // 详情面板默认收起（切换右/底布局 remount 后同样收起）
+  const splitDirection = detailPosition === "right" ? "horizontal" : "vertical";
+  const detailDefaultSize = "32%";
+  const detailMinSize = detailPosition === "right" ? 240 : 180;
+
+  // 切换右/底时不要 remount 网格（否则会丢单元格选中）；只同步详情面板展开态与默认尺寸
   useLayoutEffect(() => {
     if (!showPreviewGrid) return;
-    detailPanelRef.current?.collapse();
-    setDetailCollapsed(true);
-  }, [detailPosition, showPreviewGrid]);
+    const handle = detailPanelRef.current;
+    if (!handle) return;
+    if (detailCollapsed) {
+      handle.collapse();
+    } else {
+      handle.expand();
+      handle.resize(detailDefaultSize);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/出网格时同步，保留当前 collapsed
+  }, [detailPosition, showPreviewGrid, detailDefaultSize]);
 
   const previewSql = useMemo(() => {
     if (!previewConnection || !tab.tableName || !preview) return "";
@@ -545,6 +593,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
       selectionCount={editorSelectionCount}
       editorOpen={!detailCollapsed}
+      rowIndex={activeCell?.rowIndex ?? null}
+      valueColumnMeta={editorSelectionCount > 1 ? null : (activeColumnMeta ?? null)}
+      dbType={previewConnection?.db_type}
       onValueApply={handlePreviewCellApply}
       onValueSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
     />
@@ -554,7 +605,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     <TableDataGrid
       columns={previewColumns}
       rows={previewDisplayRows}
-      totalRows={preview.totalRows + (previewDisplayRows.length - preview.data.rows.length)}
+      totalRows={preview.totalRows + pendingInsertCount}
       page={preview.page}
       pageSize={preview.pageSize}
       loading={preview.loading}
@@ -576,6 +627,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onRowPaste={canInsertRow ? handlePreviewRowPaste : undefined}
       onDeleteSelectedRows={canDeleteRow ? handlePreviewRowsDelete : undefined}
       dirtyRowKeys={previewDirtyRowKeys}
+      deletedRowKeys={deletedRowKeys}
       cellOverrides={previewCellOverrides}
       onPageChange={handlePreviewPageChange}
       dbType={previewConnection?.db_type}
@@ -587,6 +639,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       cellEditorCollapsed={detailCollapsed}
       reserveSelectionOnEscape
       onCellEditorFocusRequest={handleCellEditorFocusRequest}
+      onRowBandSelect={handleRowBandSelect}
       relationTables={relationTables}
       relationConnection={previewConnection ?? undefined}
       relationDatabase={tab.dbName ?? undefined}
@@ -594,13 +647,18 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onColumnRelationsChange={handleColumnRelationsChange}
       statusBarActionPanelId={tab.id}
       statusBarInfo={statusBarInfo}
+      onExportMenu={
+        canExport ? (x, y) => ws.openExportMenu(x, y, tab.id) : undefined
+      }
+      onOpenRowDetail={() => {
+        setDetailTab("record");
+        if (detailCollapsed) {
+          detailPanelRef.current?.expand();
+          setDetailCollapsed(false);
+        }
+      }}
     />
   ) : null;
-
-  const splitDirection = detailPosition === "right" ? "horizontal" : "vertical";
-  const detailDefaultSize =
-    detailPosition === "right" ? "250px" : "260px";
-  const detailMinSize = detailPosition === "right" ? 200 : 160;
 
   return (
     <div className="db-workspace-pane db-workspace-pane--data">
@@ -621,10 +679,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             loading={preview.loading}
             page={preview.page}
             pageSize={preview.pageSize}
-            totalRows={preview.totalRows + (previewDisplayRows.length - preview.data!.rows.length)}
+            totalRows={preview.totalRows + pendingInsertCount}
             totalPages={totalPages}
             dirtyCount={dirtyCount}
             isCommitting={isCommitting}
+            canUndoDirty={canUndoDirty}
+            canRedoDirty={canRedoDirty}
             canInsertRow={canInsertRow}
             canDeleteRow={canDeleteRow}
             hasSelectedRows={selectedRowCount > 0}
@@ -639,6 +699,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             onRefresh={() => ws.requestTabAction({ kind: "refresh", tabId: tab.id })}
             onInsertRow={() => ws.handleRowNew(tab.id)}
             onDeleteSelectedRows={() => gridActionsRef.current?.deleteSelectedRows()}
+            onUndoAll={() => ws.rollbackTabDirty(tab.id)}
+            onUndo={() => ws.undoTabDirty(tab.id)}
+            onRedo={() => ws.redoTabDirty(tab.id)}
             onCommit={() => {
               ws.commitTabDirty(tab.id).catch(() => {});
             }}
@@ -662,12 +725,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             sort={preview.sort}
             onFilterChange={handlePreviewFilterChange}
             onSortChange={handlePreviewSortChange}
-            activeDetailTab={detailTab}
-            onDetailTabChange={setDetailTab}
             enableFilter={enableFilter}
+            changeRowFilter={changeRowFilter}
+            onChangeRowFilterChange={setChangeRowFilter}
           />
           <DockLayout
-            key={detailPosition}
             direction={splitDirection}
             className={`db-table-preview-split db-table-preview-split--${detailPosition}`}
           >

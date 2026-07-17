@@ -3,6 +3,7 @@ import { commands } from "../../ipc/bindings";
 import type { Connection } from "../../ipc/bindings";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { useSshConnectionStore } from "../../stores/sshConnectionStore";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { forceReleaseSshPoolSession } from "../../stores/sshPoolSessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import type { DbConnectionConfig } from "./api";
@@ -252,6 +253,14 @@ export async function ensureSshReady(sshConnectionId: string): Promise<boolean> 
     }
   } catch {
     // 回退终端连接
+  }
+
+  // 资源未注册到 SSH 池时不要尝试 sshConnectConnection（会再次 notFound）
+  const known = useConnectionStore
+    .getState()
+    .connections.some((c) => c.kind === "ssh" && c.id === sshConnectionId);
+  if (!known) {
+    return false;
   }
 
   try {

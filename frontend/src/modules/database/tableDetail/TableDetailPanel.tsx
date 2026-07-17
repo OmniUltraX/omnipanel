@@ -30,6 +30,9 @@ export interface TableDetailPanelProps {
   currentValue: unknown;
   selectionCount: number;
   editorOpen: boolean;
+  rowIndex?: number | null;
+  valueColumnMeta?: DbColumnMeta | null;
+  dbType?: string;
   onValueApply: (payload: { rawText: string; parsed: unknown }) => void;
   onValueSetNull?: () => void;
   headerExtra?: ReactNode;
@@ -55,6 +58,9 @@ export function TableDetailPanel({
   currentValue,
   selectionCount,
   editorOpen,
+  rowIndex = null,
+  valueColumnMeta = null,
+  dbType,
   onValueApply,
   onValueSetNull,
   headerExtra,
@@ -140,6 +146,9 @@ export function TableDetailPanel({
             currentValue={currentValue}
             selectionCount={selectionCount}
             editorOpen={editorOpen}
+            rowIndex={rowIndex}
+            columnMeta={valueColumnMeta}
+            dbType={dbType}
             onApply={onValueApply}
             onSetNull={onValueSetNull}
           />

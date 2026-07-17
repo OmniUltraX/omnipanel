@@ -8,11 +8,27 @@ import {
 import type { DbWorkspaceTab, TablePreviewWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 
 type TabDirtyRows = Record<string, Record<string, Record<string, unknown>>>;
+type DirtyRows = Record<string, Record<string, unknown>>;
+type DirtyHistoryBucket = { past: DirtyRows[]; future: DirtyRows[] };
 
 type RecordUpdater<T> = T | ((prev: T) => T);
 
+const MAX_DIRTY_HISTORY = 40;
+
 function applyUpdater<T>(prev: T, updater: RecordUpdater<T>): T {
   return typeof updater === "function" ? (updater as (value: T) => T)(prev) : updater;
+}
+
+function cloneDirtyRows(rows: DirtyRows | undefined): DirtyRows {
+  if (!rows || Object.keys(rows).length === 0) return {};
+  return structuredClone(rows);
+}
+
+function dirtyRowsEqual(a: DirtyRows | undefined, b: DirtyRows | undefined): boolean {
+  const left = a ?? EMPTY_TAB_DIRTY_ROWS;
+  const right = b ?? EMPTY_TAB_DIRTY_ROWS;
+  if (left === right) return true;
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export interface DbTabWorkspaceSlice {
@@ -22,6 +38,8 @@ export interface DbTabWorkspaceSlice {
   tabMode: "data" | "sql";
   tabDirtyRows: Record<string, Record<string, unknown>>;
   isCommitting: boolean;
+  canUndoDirty: boolean;
+  canRedoDirty: boolean;
 }
 
 interface DbWorkspaceTabState {
@@ -30,6 +48,7 @@ interface DbWorkspaceTabState {
   tableColumnMeta: Record<string, DbColumnMeta[]>;
   tabModes: Record<string, "data" | "sql">;
   tabDirtyRows: TabDirtyRows;
+  tabDirtyHistory: Record<string, DirtyHistoryBucket>;
   committingTabs: Set<string>;
 
   resetTabWorkspace: () => void;
@@ -40,6 +59,9 @@ interface DbWorkspaceTabState {
   setTabModes: (updater: RecordUpdater<Record<string, "data" | "sql">>) => void;
   setTabMode: (tabId: string, mode: "data" | "sql") => void;
   setTabDirtyRows: (updater: RecordUpdater<TabDirtyRows>) => void;
+  undoTabDirty: (tabId: string) => boolean;
+  redoTabDirty: (tabId: string) => boolean;
+  clearTabDirtyHistory: (tabId: string) => void;
   setCommittingTabs: (updater: RecordUpdater<Set<string>>) => void;
 }
 
@@ -50,12 +72,13 @@ function emptyCommittingTabs(): Set<string> {
 /** 无脏行时的稳定空对象，避免 selector 每次返回新 {} 触发无限重渲染。 */
 export const EMPTY_TAB_DIRTY_ROWS: Record<string, Record<string, unknown>> = {};
 
-export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
+export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set, get) => ({
   sqlTabStates: {},
   tablePreviews: {},
   tableColumnMeta: {},
   tabModes: {},
   tabDirtyRows: {},
+  tabDirtyHistory: {},
   committingTabs: emptyCommittingTabs(),
 
   resetTabWorkspace: () =>
@@ -65,6 +88,7 @@ export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
       tableColumnMeta: {},
       tabModes: {},
       tabDirtyRows: {},
+      tabDirtyHistory: {},
       committingTabs: emptyCommittingTabs(),
     }),
 
@@ -80,6 +104,8 @@ export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
       delete nextModes[tabId];
       const nextDirty = { ...state.tabDirtyRows };
       delete nextDirty[tabId];
+      const nextHistory = { ...state.tabDirtyHistory };
+      delete nextHistory[tabId];
       const nextCommitting = new Set(state.committingTabs);
       nextCommitting.delete(tabId);
       return {
@@ -88,6 +114,7 @@ export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
         tableColumnMeta: nextColMeta,
         tabModes: nextModes,
         tabDirtyRows: nextDirty,
+        tabDirtyHistory: nextHistory,
         committingTabs: nextCommitting,
       };
     }),
@@ -110,7 +137,84 @@ export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
     })),
 
   setTabDirtyRows: (updater) =>
-    set((state) => ({ tabDirtyRows: applyUpdater(state.tabDirtyRows, updater) })),
+    set((state) => {
+      const nextAll = applyUpdater(state.tabDirtyRows, updater);
+      let history = state.tabDirtyHistory;
+      let historyChanged = false;
+      const tabIds = new Set([...Object.keys(state.tabDirtyRows), ...Object.keys(nextAll)]);
+      for (const tabId of tabIds) {
+        if (dirtyRowsEqual(state.tabDirtyRows[tabId], nextAll[tabId])) continue;
+        historyChanged = true;
+        const entry = history[tabId] ?? { past: [], future: [] };
+        history = {
+          ...history,
+          [tabId]: {
+            past: [...entry.past, cloneDirtyRows(state.tabDirtyRows[tabId])].slice(-MAX_DIRTY_HISTORY),
+            future: [],
+          },
+        };
+      }
+      return historyChanged
+        ? { tabDirtyRows: nextAll, tabDirtyHistory: history }
+        : { tabDirtyRows: nextAll };
+    }),
+
+  undoTabDirty: (tabId) => {
+    const state = get();
+    const entry = state.tabDirtyHistory[tabId];
+    if (!entry?.past.length) return false;
+    const past = [...entry.past];
+    const snapshot = past.pop()!;
+    const current = cloneDirtyRows(state.tabDirtyRows[tabId]);
+    const nextDirty = { ...state.tabDirtyRows };
+    if (Object.keys(snapshot).length === 0) {
+      delete nextDirty[tabId];
+    } else {
+      nextDirty[tabId] = snapshot;
+    }
+    set({
+      tabDirtyRows: nextDirty,
+      tabDirtyHistory: {
+        ...state.tabDirtyHistory,
+        [tabId]: { past, future: [current, ...entry.future] },
+      },
+    });
+    return true;
+  },
+
+  redoTabDirty: (tabId) => {
+    const state = get();
+    const entry = state.tabDirtyHistory[tabId];
+    if (!entry?.future.length) return false;
+    const future = [...entry.future];
+    const snapshot = future.shift()!;
+    const current = cloneDirtyRows(state.tabDirtyRows[tabId]);
+    const nextDirty = { ...state.tabDirtyRows };
+    if (Object.keys(snapshot).length === 0) {
+      delete nextDirty[tabId];
+    } else {
+      nextDirty[tabId] = snapshot;
+    }
+    set({
+      tabDirtyRows: nextDirty,
+      tabDirtyHistory: {
+        ...state.tabDirtyHistory,
+        [tabId]: {
+          past: [...entry.past, current].slice(-MAX_DIRTY_HISTORY),
+          future,
+        },
+      },
+    });
+    return true;
+  },
+
+  clearTabDirtyHistory: (tabId) =>
+    set((state) => {
+      if (!(tabId in state.tabDirtyHistory)) return state;
+      const next = { ...state.tabDirtyHistory };
+      delete next[tabId];
+      return { tabDirtyHistory: next };
+    }),
 
   setCommittingTabs: (updater) =>
     set((state) => ({ committingTabs: applyUpdater(state.committingTabs, updater) })),
@@ -119,14 +223,19 @@ export const useDbWorkspaceTabStore = create<DbWorkspaceTabState>((set) => ({
 /** 按 tabId 订阅工作区切片，避免其它 Tab 数据变更触发 reconcile。 */
 export function useDbTabWorkspaceSlice(tabId: string): DbTabWorkspaceSlice {
   return useDbWorkspaceTabStore(
-    useShallow((state) => ({
-      sqlTabState: state.sqlTabStates[tabId],
-      tablePreview: state.tablePreviews[tabId],
-      tableColumnMeta: state.tableColumnMeta[tabId],
-      tabMode: state.tabModes[tabId] ?? "sql",
-      tabDirtyRows: state.tabDirtyRows[tabId] ?? EMPTY_TAB_DIRTY_ROWS,
-      isCommitting: state.committingTabs.has(tabId),
-    })),
+    useShallow((state) => {
+      const history = state.tabDirtyHistory[tabId];
+      return {
+        sqlTabState: state.sqlTabStates[tabId],
+        tablePreview: state.tablePreviews[tabId],
+        tableColumnMeta: state.tableColumnMeta[tabId],
+        tabMode: state.tabModes[tabId] ?? "sql",
+        tabDirtyRows: state.tabDirtyRows[tabId] ?? EMPTY_TAB_DIRTY_ROWS,
+        isCommitting: state.committingTabs.has(tabId),
+        canUndoDirty: (history?.past.length ?? 0) > 0,
+        canRedoDirty: (history?.future.length ?? 0) > 0,
+      };
+    }),
   );
 }
 

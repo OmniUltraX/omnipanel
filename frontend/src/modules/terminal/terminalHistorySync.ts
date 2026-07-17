@@ -107,6 +107,66 @@ async function flushSession(sessionId: string): Promise<void> {
   }
 }
 
+function cancelScheduledFlush(sessionId: string): void {
+  const timer = sessionFlushTimers.get(sessionId);
+  if (timer) clearTimeout(timer);
+  sessionFlushTimers.delete(sessionId);
+  sessionFlushDelay.delete(sessionId);
+}
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+const lastForceFlushAt = new Map<string, number>();
+const FORCE_FLUSH_DEDUP_MS = 2_000;
+
+/**
+ * 跨窗口转移前强制落盘：取消防抖，把可持久化块一次性 upsert。
+ * 写盘前让出一帧，减轻拖拽/关窗时的主线程卡顿。
+ * 短时间内重复调用且无脏块则跳过，避免 handoff 批量二次写。
+ */
+export async function flushSessionNow(sessionId: string): Promise<void> {
+  if (!shouldPersistTerminalHistory() || !sessionId) {
+    dirtyBlockIds.delete(sessionId);
+    return;
+  }
+  cancelScheduledFlush(sessionId);
+
+  const dirty = dirtyBlockIds.get(sessionId);
+  const lastAt = lastForceFlushAt.get(sessionId) ?? 0;
+  if (!dirty?.size && Date.now() - lastAt < FORCE_FLUSH_DEDUP_MS) {
+    return;
+  }
+
+  const blocks = useBlocksStore.getState().getBlocks(sessionId);
+  const toWrite = blocks.filter(
+    (b) => b.command.trim().length > 0 || b.kind === "ai",
+  );
+  dirtyBlockIds.delete(sessionId);
+  if (toWrite.length === 0) {
+    lastForceFlushAt.set(sessionId, Date.now());
+    return;
+  }
+
+  await yieldToUi();
+  try {
+    await terminalHistoryRepo.upsertBlocks(sessionId, toWrite);
+    useTerminalHistoryStore.getState().cacheSessionBlocks(sessionId, blocks);
+    noteRestoredSessionBlocks(sessionId, blocks);
+    lastForceFlushAt.set(sessionId, Date.now());
+  } catch (err) {
+    for (const b of toWrite) markDirty(sessionId, b.id);
+    console.warn("[terminal-history] 强制 flush 失败", err);
+  }
+}
+
 function reconcileSession(sessionId: string, blocks: TerminalBlock[]): void {
   const prevMap = knownBlocks.get(sessionId) ?? new Map<string, string>();
   const nextMap = new Map<string, string>();

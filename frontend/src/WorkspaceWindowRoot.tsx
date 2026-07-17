@@ -26,6 +26,7 @@ import { relayoutDockviewInstances } from "./lib/dockviewRegistry";
 import { useI18n } from "./i18n";
 import { LazyDatabasePanel } from "./routes/lazyModules";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
+import { startTerminalHistorySync } from "./modules/terminal/terminalHistorySync";
 
 interface WorkspaceWindowRootProps {
   workspaceId: string;
@@ -147,6 +148,11 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
       cleanup = fn;
     });
     return () => cleanup?.();
+  }, []);
+
+  // 与主窗一致：订阅 blocks → SQLite 脏块落盘（独立窗缺此订阅会导致历史只读不写）
+  useEffect(() => {
+    return startTerminalHistorySync();
   }, []);
 
   useEffect(() => {

@@ -656,7 +656,11 @@ export interface SchemaBrowserProps {
   activeConnId?: string | null;
   onCreateConnection?: () => void;
   onImportNavicat?: () => void;
-  onSelectConnection?: (connId: string, mode?: SchemaDockOpenMode) => void;
+  onSelectConnection?: (
+    connId: string,
+    mode?: SchemaDockOpenMode,
+    options?: { expandTree?: boolean },
+  ) => void;
   onSelectTable?: (selection: SchemaTableSelection, mode?: SchemaDockOpenMode) => void;
   onSelectDatabase?: (selection: SchemaDatabaseSelection, mode?: SchemaDockOpenMode) => void;
   buildSchemaContextMenuItems?: (
@@ -1683,33 +1687,44 @@ export function SchemaBrowser({
     }
   }, [schemaCacheReporter, schemaRefreshHooks, showTableSchemaChildren, updateExpanded]);
 
-  /** 双击对象文件夹（表 / 视图 / 其他）：展开该层。 */
+  /** 双击对象文件夹（表 / 视图 / 其他）：已展开则收起，否则展开。 */
   const expandObjectFolderOnActivate = useCallback(
     (folderNodeId: string) => {
       updateExpanded((prev) => {
-        if (prev.has(folderNodeId)) {
-          return prev;
-        }
         const next = new Set(prev);
-        next.add(folderNodeId);
+        if (next.has(folderNodeId)) {
+          next.delete(folderNodeId);
+        } else {
+          next.add(folderNodeId);
+        }
         return next;
       });
     },
     [updateExpanded],
   );
 
-  /** 双击库名：展开库节点；若二层只有一个对象文件夹则继续展开。 */
+  /** 双击库名：已展开则收起；未展开则展开，若二层只有一个对象文件夹则继续展开。 */
   const expandDatabaseOnActivate = useCallback(
     (connId: string, dbName: string, dbNodeId: string) => {
       void (async () => {
         const expanded = useDbSchemaTreeExpandedStore.getState().expandedNodeIds;
-        if (!expanded.has(dbNodeId)) {
+        if (expanded.has(dbNodeId)) {
           updateExpanded((prev) => {
+            if (!prev.has(dbNodeId)) {
+              return prev;
+            }
             const next = new Set(prev);
-            next.add(dbNodeId);
+            next.delete(dbNodeId);
             return next;
           });
+          return;
         }
+
+        updateExpanded((prev) => {
+          const next = new Set(prev);
+          next.add(dbNodeId);
+          return next;
+        });
 
         const conn = connectionsRef.current.find((item) => item.config.id === connId);
         if (!conn || !isConnectionEnabled(conn.config)) {
@@ -2111,7 +2126,26 @@ export function SchemaBrowser({
       let onActivate: (() => void) | undefined;
       if (row.labelClickKind === "connection" && row.labelClickConnId) {
         onPreviewOpen = () => onSelectConnection?.(row.labelClickConnId!, "preview");
-        onActivate = () => onSelectConnection?.(row.labelClickConnId!, "permanent");
+        onActivate = () => {
+          // preview 单击不展开；双击常驻才切换展开。Schema 仅无缓存时由 handleSelectConnection 加载。
+          const nodeId = row.item.id;
+          const wasExpanded = useDbSchemaTreeExpandedStore
+            .getState()
+            .expandedNodeIds.has(nodeId);
+          if (wasExpanded) {
+            onSelectConnection?.(row.labelClickConnId!, "permanent", { expandTree: false });
+            updateExpanded((prev) => {
+              if (!prev.has(nodeId)) {
+                return prev;
+              }
+              const next = new Set(prev);
+              next.delete(nodeId);
+              return next;
+            });
+          } else {
+            onSelectConnection?.(row.labelClickConnId!, "permanent");
+          }
+        };
       } else if (
         row.labelClickKind === "database" &&
         row.labelClickConnId &&
@@ -2251,6 +2285,7 @@ export function SchemaBrowser({
     [
       t,
       toggle,
+      updateExpanded,
       expandDatabaseOnActivate,
       expandObjectFolderOnActivate,
       onSelectConnection,

@@ -345,21 +345,34 @@ export async function initWorkspaceWindowLifecycle(
   try {
     unlistenClose = await getCurrentWindow().onCloseRequested(
       async (event: CloseRequestedEvent) => {
-        // 检查是否有未保存数据（退出前确认；托盘隐藏也会先询问）
+        // 先拦截：需要异步写 handoff，不能让系统直接销毁
+        event.preventDefault();
+
         const hasUnsavedData = await checkUnsavedData(workspaceId);
         if (hasUnsavedData) {
           const confirmed = await confirmClose(workspaceId);
-          if (!confirmed) {
-            event.preventDefault();
-            return;
-          }
+          if (!confirmed) return;
         }
 
-        const { handleWindowCloseRequested } = await import("./windowCloseBehavior");
-        const handled = await handleWindowCloseRequested(event, "workspace");
-        if (handled) return;
+        // 工作区独立窗：收回主窗（handoff），不弹「托盘 / 退出应用」
+        try {
+          await writeWorkspaceWindowCloseHandoff(workspaceId);
+          await emit(WORKSPACE_WINDOW_CLOSED_EVENT, {
+            workspaceId,
+          } satisfies WorkspaceWindowEventPayload);
+        } catch (e) {
+          console.error("[workspaceWindow] 关闭前 handoff 失败", e);
+        }
 
-        // 用户取消关闭：保持窗口
+        try {
+          await getCurrentWindow().destroy();
+        } catch {
+          try {
+            await getCurrentWindow().close();
+          } catch (e) {
+            console.error("[workspaceWindow] 销毁独立窗口失败", e);
+          }
+        }
       },
     );
   } catch {

@@ -128,6 +128,37 @@ export function isDeletedRowDirtyKey(key: string): boolean {
   return key.startsWith(DELETED_ROW_KEY_PREFIX);
 }
 
+export function isNewRowDirtyKey(key: string): boolean {
+  return key.startsWith(NEW_ROW_KEY_PREFIX);
+}
+
+/** 表预览行未提交变更种类 */
+export type PreviewRowChangeKind = "none" | "update" | "insert" | "delete";
+
+/** 表预览「变更项」筛选 */
+export type PreviewChangeRowFilter = "all" | "changed" | "update" | "insert" | "delete";
+
+export function resolvePreviewRowChangeKind(
+  rowKey: string,
+  deletedRowKeys: ReadonlySet<string>,
+  dirtyRowKeys?: ReadonlySet<string>,
+): PreviewRowChangeKind {
+  if (!rowKey) return "none";
+  if (isNewRowDirtyKey(rowKey)) return "insert";
+  if (deletedRowKeys.has(rowKey)) return "delete";
+  if (dirtyRowKeys?.has(rowKey)) return "update";
+  return "none";
+}
+
+export function matchesPreviewChangeRowFilter(
+  kind: PreviewRowChangeKind,
+  filter: PreviewChangeRowFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "changed") return kind !== "none";
+  return kind === filter;
+}
+
 export function resolvePreviewRowKey(
   row: Record<string, unknown>,
   pkCols: { name: string }[],

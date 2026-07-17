@@ -33,10 +33,10 @@ export function useTreeClickDelay({
   const onRowClick = useCallback(
     (event: TreeRowMouseEvent) => {
       if (shouldIgnoreClick?.(event.target)) return;
+      if (!onClick) return;
 
-      if (!enabled || !onClick) return;
-
-      if (onDoubleClick && delayMs > 0) {
+      // 同时有单击/双击时延迟单击，避免 dblclick 序列里的 click 抢先执行
+      if (enabled && onDoubleClick && delayMs > 0) {
         if (timerRef.current !== null) {
           window.clearTimeout(timerRef.current);
         }

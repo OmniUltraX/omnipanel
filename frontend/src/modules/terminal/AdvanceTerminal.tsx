@@ -10,7 +10,6 @@ import {
 import {
   DockableWorkspace,
   type DockableTab,
-  type SerializedDockview,
 } from "@/components/dock";
 import { LocalFilePanel } from "@/components/files";
 import { SftpPanel } from "@/components/sftp";
@@ -111,10 +110,9 @@ export function AdvanceTerminal({
   const sideWidthRef = useRef(SIDE_DEFAULT_EXPANDED_PX);
   sideWidthRef.current = sideWidth;
 
-  const sideLayoutRef = useRef<SerializedDockview | null>(null);
-  const handleSideLayoutChange = useCallback((layout: SerializedDockview | null) => {
-    sideLayoutRef.current = layout;
-  }, []);
+  // 侧栏不回灌 savedLayout：切 tab 时父重渲染若带上旧 layout 会触发误 fromJSON。
+  // dock 首次展开后常挂载，布局由 dockview 自身保持即可。
+  const handleSideLayoutChange = useCallback(() => {}, []);
 
   // dockview onActiveTabChange：用户点击不同 tab 时触发。
   // 程序化 setActive 期间的伪事件已由 DockableWorkspace 的 runProgrammaticActive
@@ -410,7 +408,7 @@ export function AdvanceTerminal({
               onActiveTabChange={handleSideTabChange}
               onTabClick={handleSideTabClick}
               onCloseTab={() => {}}
-              savedLayout={sideLayoutRef.current}
+              savedLayout={null}
               onSavedLayoutChange={handleSideLayoutChange}
               renderPanel={renderSidePanel}
               enableTabGroups={false}

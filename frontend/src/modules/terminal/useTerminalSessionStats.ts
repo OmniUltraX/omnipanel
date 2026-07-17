@@ -36,6 +36,8 @@ export function useTerminalSessionStats(
       if (resourceId !== LOCAL_TERMINAL_RESOURCE_ID && result.data.osInfo?.trim()) {
         void persistResourceTag(resourceId, RESOURCE_TAG_KEYS.os, result.data.osInfo);
       }
+    }).catch(() => {
+      // 终端未真正连上 / 资源未入池：静默
     });
 
     return () => {

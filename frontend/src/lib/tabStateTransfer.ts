@@ -1,6 +1,7 @@
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isTauriRuntime } from "./isTauriRuntime";
+import type { TerminalBlock } from "../stores/blocksStore";
 
 const TAB_STATE_TRANSFER_EVENT = "omnipanel:tab-state-transfer";
 
@@ -17,11 +18,16 @@ export interface TabStatePayload {
   sessionId?: string;
   /** 数据库 tabId（目标窗口 store 中的 key，仅 module=database 时有值） */
   dbTabId?: string;
-  /** 终端历史 blocks（已序列化，marker=null） */
+  /**
+   * @deprecated SQLite 共享后不再发送；仅兼容旧 handoff JSON。
+   * 目标窗优先 `loadSession(sessionId)`。
+   */
   terminalHistory?: unknown[];
-  /** shell 命令历史 */
+  /** shell 命令历史（仍在分窗 localStorage，需显式传递） */
   shellHistory?: { commands: string[]; syncedAt: number };
-  /** 内存中的 blocks（已序列化，marker=null） */
+  /**
+   * 仅传 `status === "running"` 的 live 块；已完成块由目标窗从 SQLite 加载。
+   */
   blocks?: unknown[];
   /** DB SQL tab 状态 */
   dbSqlTabState?: unknown;
@@ -35,36 +41,64 @@ export interface TabStatePayload {
   dbTabDirtyRows?: Record<string, Record<string, unknown>>;
 }
 
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+/** 同一 handoff/批量收集周期内避免对同一 session 重复 force flush */
+const flushedSessionsThisTick = new Set<string>();
+let flushTickScheduled = false;
+
+function beginFlushDedupeWindow(): void {
+  if (flushTickScheduled) return;
+  flushTickScheduled = true;
+  queueMicrotask(() => {
+    flushedSessionsThisTick.clear();
+    flushTickScheduled = false;
+  });
+}
+
+async function ensureSessionFlushed(sessionId: string): Promise<void> {
+  beginFlushDedupeWindow();
+  if (flushedSessionsThisTick.has(sessionId)) return;
+  flushedSessionsThisTick.add(sessionId);
+  const { flushSessionNow } = await import("../modules/terminal/terminalHistorySync");
+  await flushSessionNow(sessionId);
+}
+
+function serializeRunningBlock(block: TerminalBlock): Record<string, unknown> {
+  return {
+    ...block,
+    marker: null,
+    liveOutput: undefined,
+  };
+}
+
 /**
- * 收集终端 tab 的运行时状态并返回可序列化的 payload 片段。
- * 使用动态 import 避免循环依赖。
+ * 收集终端 tab 跨窗状态：先 flush 到共享 SQLite，再只带 shell 历史 + running 块。
  */
 async function collectTerminalState(
   sessionId: string,
-): Promise<Pick<TabStatePayload, "terminalHistory" | "shellHistory" | "blocks">> {
-  const result: Pick<TabStatePayload, "terminalHistory" | "shellHistory" | "blocks"> = {};
+  options?: { skipFlush?: boolean },
+): Promise<Pick<TabStatePayload, "shellHistory" | "blocks">> {
+  const result: Pick<TabStatePayload, "shellHistory" | "blocks"> = {};
 
-  // 终端历史（内存缓存；若空则从 SQLite 拉取）
-  try {
-    const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
-    let history = useTerminalHistoryStore.getState().bySession[sessionId];
-    if (!history?.length) {
-      const { terminalHistoryRepo } = await import("../modules/terminal/terminalHistoryRepo");
-      history = await terminalHistoryRepo.loadSession(sessionId);
-      if (history.length > 0) {
-        useTerminalHistoryStore.setState((state) => ({
-          bySession: { ...state.bySession, [sessionId]: history! },
-        }));
-      }
+  if (!options?.skipFlush) {
+    try {
+      await ensureSessionFlushed(sessionId);
+    } catch {
+      /* flush 失败仍继续传 running，避免拖拽完全失败 */
     }
-    if (history && history.length > 0) {
-      result.terminalHistory = history;
-    }
-  } catch {
-    /* ignore */
   }
 
-  // shell 命令历史
+  await yieldToUi();
+
   try {
     const { useSessionShellHistoryStore } = await import(
       "../modules/terminal/commandBar/sessionShellHistoryStore"
@@ -77,16 +111,12 @@ async function collectTerminalState(
     /* ignore */
   }
 
-  // 内存 blocks（marker 置 null，liveOutput 不可序列化需移除）
   try {
     const { useBlocksStore } = await import("../stores/blocksStore");
-    const blocks = useBlocksStore.getState().blocks[sessionId];
-    if (blocks && blocks.length > 0) {
-      result.blocks = blocks.map((b) => ({
-        ...b,
-        marker: null,
-        liveOutput: undefined,
-      }));
+    const blocks = useBlocksStore.getState().blocks[sessionId] ?? [];
+    const running = blocks.filter((b) => b.status === "running");
+    if (running.length > 0) {
+      result.blocks = running.map(serializeRunningBlock);
     }
   } catch {
     /* ignore */
@@ -138,11 +168,8 @@ async function collectDatabaseState(
 /**
  * 收集 tab 运行时状态。
  *
- * - terminal：通过 `sessionId` 关联终端历史 / shell 历史 / blocks
+ * - terminal：flush → SQLite；payload 仅 shellHistory + running blocks
  * - database：通过 `panelId`（源窗口 store key）关联数据库 tab 状态
- *
- * 注意：`dbTabId` 是目标窗口 store 中的 key（可能带 `workspace-bottom-{wsId}:` 前缀），
- * 与源窗口的 `panelId` 不同。收集时使用 `panelId`，应用时使用 `dbTabId`。
  */
 async function collectTabState(
   panelId: string,
@@ -161,12 +188,6 @@ async function collectTabState(
 /**
  * 在 tab 跨窗口转移时，收集源窗口中该 tab 关联的所有 store 状态切片，
  * 通过 Tauri `emitTo` 发送到目标窗口。
- *
- * @param targetLabel 目标窗口 label
- * @param panelId 源 dockview 中的 panelId（也是源 store 中的 key）
- * @param module 模块类型
- * @param sessionId 终端 sessionId（terminal 模块）
- * @param dbTabId 目标窗口 store 中的 key（database 模块，可能带前缀）
  */
 export async function sendTabStateTransfer(
   targetLabel: string,
@@ -189,32 +210,32 @@ export async function sendTabStateTransfer(
   await emitTo(targetLabel, TAB_STATE_TRANSFER_EVENT, payload).catch(() => {});
 }
 
+function mergeRunningOverlay(
+  base: TerminalBlock[],
+  runningRaw: unknown[],
+): TerminalBlock[] {
+  const byId = new Map(base.map((b) => [b.id, b]));
+  for (const raw of runningRaw) {
+    if (!raw || typeof raw !== "object") continue;
+    const block = raw as TerminalBlock;
+    if (!block.id) continue;
+    byId.set(block.id, {
+      ...block,
+      marker: null,
+      liveOutput: undefined,
+    });
+  }
+  return [...byId.values()].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+}
+
 /**
- * 注入终端状态到目标窗口的 store。
+ * 目标窗：从共享 SQLite 冷灌入，再用 payload 中的 running 块覆盖。
+ * 旧 handoff 若带 terminalHistory 且库为空，则作兼容回退。
  */
 async function applyTerminalState(
   sessionId: string,
   payload: TabStatePayload,
 ): Promise<void> {
-  if (payload.terminalHistory) {
-    try {
-      const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
-      const history = payload.terminalHistory as import("../stores/terminalHistoryStore").PersistedTerminalBlock[];
-      useTerminalHistoryStore.setState((state) => ({
-        bySession: {
-          ...state.bySession,
-          [sessionId]: history,
-        },
-      }));
-      const { persistedBlockToRecord, terminalHistoryRepo } = await import(
-        "../modules/terminal/terminalHistoryRepo"
-      );
-      const records = history.map((b) => persistedBlockToRecord(sessionId, b));
-      await terminalHistoryRepo.upsertRecords(sessionId, records).catch(() => undefined);
-    } catch {
-      /* ignore */
-    }
-  }
   if (payload.shellHistory) {
     try {
       const { useSessionShellHistoryStore } = await import(
@@ -230,19 +251,67 @@ async function applyTerminalState(
       /* ignore */
     }
   }
-  if (payload.blocks) {
-    try {
-      const { useBlocksStore } = await import("../stores/blocksStore");
-      useBlocksStore.setState((state) => ({
-        blocks: {
-          ...state.blocks,
-          [sessionId]: payload.blocks as never,
-        },
-      }));
-    } catch {
-      /* ignore */
+
+  const { useBlocksStore, syncBlockCounterFromIds } = await import("../stores/blocksStore");
+  const store = useBlocksStore.getState();
+  if (store.getBlocks(sessionId).length > 0) {
+    // 目标窗已有 live 时间线：只合并 running，避免冲掉进行中会话
+    if (payload.blocks?.length) {
+      const current = store.getBlocks(sessionId);
+      const merged = mergeRunningOverlay(current, payload.blocks);
+      const { noteRestoredSessionBlocks } = await import(
+        "../modules/terminal/terminalHistorySync"
+      );
+      noteRestoredSessionBlocks(sessionId, merged);
+      store.replaceSessionBlocks(sessionId, merged);
+      syncBlockCounterFromIds(merged);
     }
+    return;
   }
+
+  await yieldToUi();
+
+  let restored: TerminalBlock[] = [];
+  try {
+    const { terminalHistoryRepo } = await import("../modules/terminal/terminalHistoryRepo");
+    const { normalizeRestoredTerminalBlock } = await import(
+      "../modules/terminal/terminalBlockRestore"
+    );
+    const { useTerminalHistoryStore } = await import("../stores/terminalHistoryStore");
+    const persisted = await terminalHistoryRepo.loadSession(sessionId);
+    if (persisted.length > 0) {
+      useTerminalHistoryStore.setState((state) => ({
+        bySession: { ...state.bySession, [sessionId]: persisted },
+      }));
+      restored = persisted.map(normalizeRestoredTerminalBlock);
+    } else if (payload.terminalHistory?.length) {
+      // 兼容旧 handoff：库空时回退到 payload，并后台写入 SQLite
+      const legacy = payload.terminalHistory as import("../stores/terminalHistoryStore").PersistedTerminalBlock[];
+      restored = legacy.map(normalizeRestoredTerminalBlock);
+      useTerminalHistoryStore.setState((state) => ({
+        bySession: { ...state.bySession, [sessionId]: legacy },
+      }));
+      void import("../modules/terminal/terminalHistoryRepo").then(({ persistedBlockToRecord, terminalHistoryRepo: repo }) => {
+        const records = legacy.map((b) => persistedBlockToRecord(sessionId, b));
+        void repo.upsertRecords(sessionId, records).catch(() => undefined);
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (payload.blocks?.length) {
+    restored = mergeRunningOverlay(restored, payload.blocks);
+  }
+
+  if (restored.length === 0) return;
+
+  await yieldToUi();
+
+  const { noteRestoredSessionBlocks } = await import("../modules/terminal/terminalHistorySync");
+  noteRestoredSessionBlocks(sessionId, restored);
+  store.replaceSessionBlocks(sessionId, restored);
+  syncBlockCounterFromIds(restored);
 }
 
 /**
@@ -295,15 +364,16 @@ export async function initTabStateTransferListener(): Promise<() => void> {
 
   const unlisten: UnlistenFn = await listen<TabStatePayload>(
     TAB_STATE_TRANSFER_EVENT,
-    async (event) => {
+    (event) => {
       const payload = event.payload;
       if (!payload) return;
       if (payload.targetLabel !== getCurrentWebviewWindow().label) return;
 
+      // 不 await：避免事件回调串行阻塞；内部自行 yield + 异步灌入
       if (payload.module === "terminal" && payload.sessionId) {
-        await applyTerminalState(payload.sessionId, payload);
+        void applyTerminalState(payload.sessionId, payload);
       } else if (payload.module === "database" && payload.dbTabId) {
-        await applyDatabaseState(payload.dbTabId, payload);
+        void applyDatabaseState(payload.dbTabId, payload);
       }
     },
   );
@@ -313,7 +383,6 @@ export async function initTabStateTransferListener(): Promise<() => void> {
 
 /**
  * 应用单个 tab 状态 payload（handoff 水合时使用）。
- * 根据模块类型分发到 applyTerminalState / applyDatabaseState。
  */
 export async function applyTabStatePayload(payload: TabStatePayload): Promise<void> {
   if (payload.module === "terminal" && payload.sessionId) {
@@ -325,11 +394,7 @@ export async function applyTabStatePayload(payload: TabStatePayload): Promise<vo
 
 /**
  * 窗口关闭时收集所有 tab 状态，写入 handoff JSON。
- * 遍历 workspaceBottomDockStore 中的所有 tabs，对每个 terminal/database tab 收集状态。
- * 返回 { panelId: payload } 映射，由 handoff 逻辑序列化。
- *
- * 各 tab 的状态收集互不依赖（写入不同 sessionId / dbTabId），使用 Promise.all 并行
- * 收集，避免 N 个 tab × 3~4 次动态 import 串行 await 导致的秒级延迟。
+ * 终端侧先 flush 再只序列化轻量字段，避免 handoff 文件膨胀。
  */
 export async function collectAllTabStatesForHandoff(
   workspaceId: string,
@@ -342,67 +407,80 @@ export async function collectAllTabStatesForHandoff(
     );
     const tabs = useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
 
-    const entries = await Promise.all(
-      tabs.map(async (tab): Promise<[string, TabStatePayload] | null> => {
-        const panelId = tab.id;
+    // 先并行解析 sessionId，再串行 flush（让出 UI），最后并行收集轻量 payload
+    type TerminalTabJob = { panelId: string; sessionId: string };
+    type DatabaseTabJob = { panelId: string; collectKey: string };
+    const terminalJobs: TerminalTabJob[] = [];
+    const databaseJobs: DatabaseTabJob[] = [];
+
+    for (const tab of tabs) {
+      const panelId = tab.id;
+      if (tab.kind === "payload" && tab.payload) {
+        if (tab.payload.module === "terminal") {
+          terminalJobs.push({ panelId, sessionId: tab.payload.id });
+        } else if (tab.payload.module === "database") {
+          databaseJobs.push({ panelId, collectKey: panelId });
+        }
+        continue;
+      }
+      if (tab.kind === "mirrored" && tab.originScope) {
+        if (tab.originScope === "terminal" && tab.originPanelId) {
+          try {
+            const { useTerminalStore } = await import("../stores/terminalStore");
+            const sessionId =
+              useTerminalStore.getState().tabs.find((t) => t.id === tab.originPanelId)
+                ?.sessionId ?? tab.originPanelId;
+            terminalJobs.push({ panelId, sessionId });
+          } catch {
+            /* skip */
+          }
+        } else if (tab.originScope === "database" && tab.originPanelId) {
+          databaseJobs.push({ panelId, collectKey: tab.originPanelId });
+        }
+      }
+    }
+
+    // 串行 flush + 每步让出一帧，避免关窗时主线程长时间占用
+    const uniqueSessions = [...new Set(terminalJobs.map((j) => j.sessionId))];
+    for (const sessionId of uniqueSessions) {
+      try {
+        await ensureSessionFlushed(sessionId);
+      } catch {
+        /* ignore */
+      }
+      await yieldToUi();
+    }
+
+    const result: Record<string, TabStatePayload> = {};
+
+    await Promise.all(
+      terminalJobs.map(async ({ panelId, sessionId }) => {
         const payload: TabStatePayload = {
           sourceLabel: currentLabel,
           targetLabel: "",
           panelId,
-          module: "terminal", // placeholder, overwritten below
+          module: "terminal",
+          sessionId,
         };
-
-        // Payload tabs（带 snapshot）
-        if (tab.kind === "payload" && tab.payload) {
-          const snapshot = tab.payload;
-          if (snapshot.module === "terminal") {
-            payload.module = "terminal";
-            const sessionId = snapshot.id;
-            payload.sessionId = sessionId;
-            Object.assign(payload, await collectTerminalState(sessionId));
-            return [panelId, payload];
-          }
-          if (snapshot.module === "database") {
-            payload.module = "database";
-            payload.dbTabId = panelId;
-            Object.assign(payload, await collectDatabaseState(panelId));
-            return [panelId, payload];
-          }
-          return null;
-        }
-
-        // Mirrored tabs（从模块 dock 镜像）
-        if (tab.kind === "mirrored" && tab.originScope) {
-          if (tab.originScope === "terminal" && tab.originPanelId) {
-            payload.module = "terminal";
-            try {
-              const { useTerminalStore } = await import("../stores/terminalStore");
-              const sessionId =
-                useTerminalStore.getState().tabs.find(
-                  (t) => t.id === tab.originPanelId,
-                )?.sessionId ?? tab.originPanelId;
-              payload.sessionId = sessionId;
-              Object.assign(payload, await collectTerminalState(sessionId));
-              return [panelId, payload];
-            } catch {
-              return null;
-            }
-          }
-          if (tab.originScope === "database" && tab.originPanelId) {
-            payload.module = "database";
-            payload.dbTabId = panelId;
-            Object.assign(payload, await collectDatabaseState(tab.originPanelId));
-            return [panelId, payload];
-          }
-        }
-        return null;
+        Object.assign(payload, await collectTerminalState(sessionId, { skipFlush: true }));
+        result[panelId] = payload;
       }),
     );
 
-    const result: Record<string, TabStatePayload> = {};
-    for (const entry of entries) {
-      if (entry) result[entry[0]] = entry[1];
-    }
+    await Promise.all(
+      databaseJobs.map(async ({ panelId, collectKey }) => {
+        const payload: TabStatePayload = {
+          sourceLabel: currentLabel,
+          targetLabel: "",
+          panelId,
+          module: "database",
+          dbTabId: panelId,
+        };
+        Object.assign(payload, await collectDatabaseState(collectKey));
+        result[panelId] = payload;
+      }),
+    );
+
     return result;
   } catch {
     return {};

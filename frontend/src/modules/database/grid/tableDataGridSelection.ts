@@ -51,24 +51,57 @@ export function selectionAffectsRow(
   return rowIndex >= r.minRow && rowIndex <= r.maxRow;
 }
 
-/** 该行上各单元格的选中态是否与上一帧相同 */
+/** 该行上各单元格的选中态是否与上一帧相同（O(1)，不按列扫描） */
 export function rowSelectionStateEqual(
   rowIndex: number,
   prevRange: CellRange | null,
   prevExtraRows: ReadonlySet<number>,
   nextRange: CellRange | null,
   nextExtraRows: ReadonlySet<number>,
-  leafColumnCount: number,
+  _leafColumnCount: number,
 ): boolean {
-  for (let col = 0; col < leafColumnCount; col += 1) {
-    if (
-      isCellSelected(rowIndex, col, prevRange, prevExtraRows, leafColumnCount) !==
-      isCellSelected(rowIndex, col, nextRange, nextExtraRows, leafColumnCount)
-    ) {
-      return false;
+  const prevExtra = prevExtraRows.has(rowIndex);
+  const nextExtra = nextExtraRows.has(rowIndex);
+  if (prevExtra !== nextExtra) return false;
+  if (prevExtra && nextExtra) return true;
+
+  const prevNorm = prevRange ? normalizeRange(prevRange) : null;
+  const nextNorm = nextRange ? normalizeRange(nextRange) : null;
+  const prevHit =
+    prevNorm != null && rowIndex >= prevNorm.minRow && rowIndex <= prevNorm.maxRow;
+  const nextHit =
+    nextNorm != null && rowIndex >= nextNorm.minRow && rowIndex <= nextNorm.maxRow;
+  if (!prevHit && !nextHit) return true;
+  if (prevHit !== nextHit) return false;
+  return prevNorm!.minCol === nextNorm!.minCol && prevNorm!.maxCol === nextNorm!.maxCol;
+}
+
+export function clearDragSelectionPaint(root: ParentNode): void {
+  root.querySelectorAll(".db-data-table-cell--drag-selected").forEach((el) => {
+    el.classList.remove("db-data-table-cell--drag-selected");
+  });
+}
+
+/** 拖选过程中直接刷 DOM，避免每帧 React 重渲 */
+export function paintDragSelection(root: ParentNode, range: CellRange): void {
+  clearDragSelectionPaint(root);
+  const { minRow, maxRow, minCol, maxCol } = normalizeRange(range);
+  for (let row = minRow; row <= maxRow; row += 1) {
+    const tr = root.querySelector(`tr[data-row-index="${row}"]`);
+    if (!(tr instanceof HTMLTableRowElement)) continue;
+    for (const node of tr.querySelectorAll("td[data-col-index]")) {
+      if (!(node instanceof HTMLTableCellElement)) continue;
+      if (
+        node.classList.contains("db-data-table-cell--field") ||
+        node.classList.contains("db-data-table-spacer-col")
+      ) {
+        continue;
+      }
+      const col = Number(node.dataset.colIndex);
+      if (Number.isNaN(col) || col < minCol || col > maxCol) continue;
+      node.classList.add("db-data-table-cell--drag-selected");
     }
   }
-  return true;
 }
 
 export function isHeaderInColumnSelection(

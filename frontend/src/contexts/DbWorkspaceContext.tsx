@@ -123,6 +123,8 @@ export function useDbTabWorkspaceSliceOrMirror(tabId: string): DbTabWorkspaceSli
       tabMode: mirrorTabData.tabModes[tabId] ?? "sql",
       tabDirtyRows: mirrorTabData.tabDirtyRows[tabId] ?? EMPTY_TAB_DIRTY_ROWS,
       isCommitting: mirrorTabData.committingTabs.has(tabId),
+      canUndoDirty: false,
+      canRedoDirty: false,
     };
   }, [mirrorTabData, tabId]);
 

@@ -9,9 +9,20 @@ export function isNearRowBottom(target: HTMLElement, clientY: number): boolean {
   return clientY >= rect.bottom - ROW_RESIZE_ZONE_PX;
 }
 
-/** 仅最左侧（行号 / 转置字段列区域）可开始拖行高 */
+/** 仅最左侧（行号 / 转置字段列区域）可开始拖行高；优先用 sticky 首列，避免横向滚动后热区错位 */
 export function isInRowResizeHandle(target: HTMLElement, clientX: number, clientY: number): boolean {
-  const rect = target.getBoundingClientRect();
+  const stickyCell =
+    target.querySelector<HTMLElement>("td.db-data-table-cell--rownum") ??
+    target.querySelector<HTMLElement>("td.db-data-table-cell--field") ??
+    null;
+  const rect = (stickyCell ?? target).getBoundingClientRect();
+  if (stickyCell) {
+    return (
+      clientY >= rect.bottom - ROW_RESIZE_ZONE_PX &&
+      clientX >= rect.left &&
+      clientX <= rect.right
+    );
+  }
   return (
     clientY >= rect.bottom - ROW_RESIZE_ZONE_PX &&
     clientX >= rect.left &&

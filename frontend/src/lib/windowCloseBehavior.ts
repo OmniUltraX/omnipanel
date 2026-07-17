@@ -49,14 +49,21 @@ export async function resolveCloseAction(): Promise<"tray" | "quit" | null> {
 
 /**
  * 处理当前窗口的 CloseRequested。
- * 调用方应先 `event.preventDefault()`，本函数负责托盘隐藏或退出应用。
- * 返回 `true` 表示已处理（隐藏/退出）；`false` 表示用户取消。
+ * - main：按设置托盘隐藏或退出应用
+ * - workspace：不处理（由工作区生命周期自行 handoff 后关窗）
+ * 返回 `true` 表示已处理（隐藏/退出）；`false` 表示未处理或用户取消。
  */
 export async function handleWindowCloseRequested(
   event: CloseRequestedEvent,
-  _role: WindowCloseRole,
+  role: WindowCloseRole,
 ): Promise<boolean> {
   if (!isTauriRuntime()) return false;
+
+  // 工作区独立窗关闭 ≠ 退出应用 / 进托盘
+  if (role === "workspace") {
+    return false;
+  }
+
   event.preventDefault();
 
   const action = await resolveCloseAction();

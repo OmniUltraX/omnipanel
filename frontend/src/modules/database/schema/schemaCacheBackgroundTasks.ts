@@ -98,35 +98,13 @@ export async function probeDbConnectionRuntime(connection: DbConnectionConfig): 
   runtime.markConnecting([connection.id]);
 
   try {
-    await testConnection(connection);
+    await testConnection(connection, { quiet: true });
     runtime.markOnline([connection.id]);
     return true;
   } catch {
     runtime.markOffline([connection.id]);
     return false;
   }
-}
-
-function markConnectionsRefreshing(connIds: string[], taskId: string) {
-  for (const connId of connIds) {
-    refreshingConnectionIds.add(connId);
-  }
-  // 一次 setState，避免 N 次刷新标记打爆侧栏
-  useDbSchemaCacheStore.setState((state) => {
-    const next = { ...state.refreshingConnectionIds };
-    for (const id of connIds) {
-      next[id] = true;
-    }
-    return { refreshingConnectionIds: next };
-  });
-  connectionIdsByTaskId.set(taskId, [...connIds]);
-  originalConnectionIdsByTaskId.set(taskId, [...connIds]);
-  taskConnectionsDoneCount.set(taskId, 0);
-  if (connIds.length > 1) {
-    pendingEntriesByTaskId.set(taskId, new Map());
-  }
-  // 全量刷新不把全部连接标成 connecting（黄点风暴）；仅工具栏 refreshing 指示
-  notifyRefreshStateChange();
 }
 
 function unmarkTaskRefreshing(taskId: string, options?: { failed?: boolean; cancelled?: boolean }) {
@@ -332,24 +310,98 @@ export function initSchemaCacheBackgroundTasks() {
   }
 }
 
-/** 提交 Schema 缓存刷新后台任务，立即返回 taskId。 */
+function claimConnectionsForRefresh(connIds: string[]): string[] {
+  const claimed: string[] = [];
+  for (const connId of connIds) {
+    if (refreshingConnectionIds.has(connId)) {
+      continue;
+    }
+    refreshingConnectionIds.add(connId);
+    claimed.push(connId);
+  }
+  if (claimed.length === 0) {
+    return claimed;
+  }
+  useDbSchemaCacheStore.setState((state) => {
+    const next = { ...state.refreshingConnectionIds };
+    for (const id of claimed) {
+      next[id] = true;
+    }
+    return { refreshingConnectionIds: next };
+  });
+  notifyRefreshStateChange();
+  return claimed;
+}
+
+function releaseClaimedConnections(connIds: string[]) {
+  if (connIds.length === 0) {
+    return;
+  }
+  for (const connId of connIds) {
+    refreshingConnectionIds.delete(connId);
+  }
+  useDbSchemaCacheStore.setState((state) => {
+    const next = { ...state.refreshingConnectionIds };
+    for (const connId of connIds) {
+      delete next[connId];
+    }
+    return { refreshingConnectionIds: next };
+  });
+  notifyRefreshStateChange();
+}
+
+function bindRefreshTaskBookkeeping(taskId: string, connIds: string[]) {
+  connectionIdsByTaskId.set(taskId, [...connIds]);
+  originalConnectionIdsByTaskId.set(taskId, [...connIds]);
+  taskConnectionsDoneCount.set(taskId, 0);
+  if (connIds.length > 1) {
+    pendingEntriesByTaskId.set(taskId, new Map());
+  }
+}
+
+/** 提交 Schema 缓存刷新后台任务，立即返回 taskId。同一连接并发提交会合并为一次。 */
 export async function submitSchemaCacheRefresh(
   connectionIds?: string[],
   reporter?: SchemaCacheRefreshReporter,
 ): Promise<string> {
-  const targetIds = await resolveTargetConnectionIds(connectionIds);
-  if (targetIds.length === 0) {
+  // 指定连接：在任何 await 之前同步占坑，避免双击连点并行起多个「刷新 Schema」任务
+  if (connectionIds && connectionIds.length > 0) {
+    const claimed = claimConnectionsForRefresh(connectionIds);
+    if (claimed.length === 0) {
+      return "";
+    }
+
+    try {
+      reporter?.onStart?.({ connectionCount: claimed.length });
+      const taskId = await submitDbSchemaCacheRefresh(claimed);
+      bindRefreshTaskBookkeeping(taskId, claimed);
+      if (reporter) {
+        reporterByTaskId.set(taskId, reporter);
+      }
+      return taskId;
+    } catch (err) {
+      releaseClaimedConnections(claimed);
+      throw err;
+    }
+  }
+
+  const resolvedIds = await resolveTargetConnectionIds(undefined);
+  const claimed = claimConnectionsForRefresh(resolvedIds);
+  if (claimed.length === 0) {
     return "";
   }
 
-  reporter?.onStart?.({ connectionCount: targetIds.length });
-
-  const taskId = await submitDbSchemaCacheRefresh(
-    connectionIds && connectionIds.length > 0 ? connectionIds : null,
-  );
-  markConnectionsRefreshing(targetIds, taskId);
-  if (reporter) {
-    reporterByTaskId.set(taskId, reporter);
+  try {
+    reporter?.onStart?.({ connectionCount: claimed.length });
+    // 只刷本次占坑成功的连接，避免与已在跑的单连接任务重复
+    const taskId = await submitDbSchemaCacheRefresh(claimed);
+    bindRefreshTaskBookkeeping(taskId, claimed);
+    if (reporter) {
+      reporterByTaskId.set(taskId, reporter);
+    }
+    return taskId;
+  } catch (err) {
+    releaseClaimedConnections(claimed);
+    throw err;
   }
-  return taskId;
 }

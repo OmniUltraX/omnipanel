@@ -28,6 +28,7 @@ import {
   rowSelectionStateEqual,
   type CellRange,
 } from "./tableDataGridSelection";
+import type { PreviewRowChangeKind } from "../workspace/dbWorkspaceState";
 
 export type GridBodyCellInteractionContext = {
   rowIndex: number;
@@ -50,6 +51,8 @@ export type TableDataGridBodyActions = {
     anchor: CellOverlayAnchor,
   ) => void;
   handleDataCellContextMenu: (ctx: GridBodyCellInteractionContext, event: ReactMouseEvent) => void;
+  /** 选中单元格并打开值面板（详情图标单击） */
+  handleOpenValuePanel?: (ctx: GridBodyCellInteractionContext) => void;
 };
 
 type GridBodyCellProps = {
@@ -59,6 +62,7 @@ type GridBodyCellProps = {
   isFieldCol: boolean;
   isSelected: boolean;
   isDirty: boolean;
+  dirtyKind: PreviewRowChangeKind;
   canEdit: boolean;
   fieldSortClass: string;
   fieldFiltered: boolean;
@@ -71,7 +75,16 @@ type GridBodyCellProps = {
   cell: Cell<Record<string, unknown>, unknown>;
   isRelationHighlight: boolean;
   isRelationDisplayCol: boolean;
+  showValuePanelAffordance: boolean;
+  valuePanelAffordanceTitle: string;
 };
+
+function dirtyCellClass(isDirty: boolean, dirtyKind: PreviewRowChangeKind): string {
+  if (!isDirty) return "";
+  if (dirtyKind === "insert") return " db-data-table-cell--dirty db-data-table-cell--dirty-insert";
+  if (dirtyKind === "delete") return " db-data-table-cell--dirty db-data-table-cell--dirty-delete";
+  return " db-data-table-cell--dirty";
+}
 
 const GridBodyCell = memo(
   function GridBodyCell({
@@ -81,6 +94,7 @@ const GridBodyCell = memo(
     isFieldCol,
     isSelected,
     isDirty,
+    dirtyKind,
     canEdit,
     fieldSortClass,
     fieldFiltered,
@@ -93,6 +107,8 @@ const GridBodyCell = memo(
     cell,
     isRelationHighlight,
     isRelationDisplayCol,
+    showValuePanelAffordance,
+    valuePanelAffordanceTitle,
   }: GridBodyCellProps) {
     const relationClass = isRelationDisplayCol
       ? " db-data-table-cell--relation-display"
@@ -104,15 +120,36 @@ const GridBodyCell = memo(
         data-col-id={columnId}
         data-col-index={colIndex}
         style={buildColumnCellStyle(columnId, baseSize, lastColumnId, fillDelta)}
-        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${isDirty ? " db-data-table-cell--dirty" : ""}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}${relationClass}`}
+        className={`db-data-table-cell${isCustomHeight ? " db-data-table-cell--custom-h" : ""}${columnSized ? " db-data-table-cell--sized" : ""}${canEdit ? " db-cell--editable" : ""}${dirtyCellClass(isDirty, dirtyKind)}${isRowNum ? " db-data-table-cell--rownum" : ""}${isFieldCol ? " db-data-table-cell--field db-data-table-cell--row-select" : ""}${fieldFiltered ? " db-data-table-cell--filtered" : ""}${fieldSortClass}${isSelected ? " db-data-table-cell--selected" : ""}${relationClass}${showValuePanelAffordance ? " db-data-table-cell--has-value-btn" : ""}`}
       >
         {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        {showValuePanelAffordance ? (
+          <button
+            type="button"
+            className="db-data-table-cell-value-btn"
+            tabIndex={-1}
+            title={valuePanelAffordanceTitle}
+            aria-label={valuePanelAffordanceTitle}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden>
+              <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M8 7.25v3.5M8 5.35h.01"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        ) : null}
       </td>
     );
   },
   (prev, next) =>
     prev.isSelected === next.isSelected &&
     prev.isDirty === next.isDirty &&
+    prev.dirtyKind === next.dirtyKind &&
     prev.canEdit === next.canEdit &&
     prev.fieldSortClass === next.fieldSortClass &&
     prev.fieldFiltered === next.fieldFiltered &&
@@ -127,6 +164,8 @@ const GridBodyCell = memo(
     prev.isFieldCol === next.isFieldCol &&
     prev.isRelationHighlight === next.isRelationHighlight &&
     prev.isRelationDisplayCol === next.isRelationDisplayCol &&
+    prev.showValuePanelAffordance === next.showValuePanelAffordance &&
+    prev.valuePanelAffordanceTitle === next.valuePanelAffordanceTitle &&
     prev.cell === next.cell,
 );
 
@@ -149,6 +188,8 @@ export type GridBodyStaticConfig = {
   sortColumn: string | null;
   sortDirection: "asc" | "desc" | null;
   hasCellEdit: boolean;
+  enableValuePanelAffordance: boolean;
+  valuePanelAffordanceTitle: string;
   lastColumnId: string;
   fillDelta: number;
   leafColumnCount: number;
@@ -160,6 +201,7 @@ export type GridBodyStaticConfig = {
 export type GridBodyRowProps = {
   row: Row<Record<string, unknown>>;
   rowDirty: boolean;
+  rowChangeKind: PreviewRowChangeKind;
   overrideForRow: Record<string, unknown> | undefined;
   rowHeight: number | undefined;
   cellRange: CellRange | null;
@@ -174,6 +216,7 @@ function renderBodyCell(
   staticConfig: GridBodyStaticConfig,
   overrideForRow: Record<string, unknown> | undefined,
   rowDirty: boolean,
+  rowChangeKind: PreviewRowChangeKind,
   cellRange: CellRange | null,
   selectedRows: ReadonlySet<number>,
   transposedFieldName: string,
@@ -191,6 +234,8 @@ function renderBodyCell(
     sortColumn,
     sortDirection,
     hasCellEdit,
+    enableValuePanelAffordance,
+    valuePanelAffordanceTitle,
     lastColumnId,
     fillDelta,
     leafColumnCount,
@@ -211,7 +256,11 @@ function renderBodyCell(
         : columnMetaMap?.[cell.column.id];
   const canEdit = !isRowSelector && hasCellEdit && Boolean(colMeta);
   const overrideValue = isRowSelector ? undefined : overrideForRow?.[cell.column.id];
-  const cellDirty = !isRowSelector && overrideValue !== undefined && rowDirty;
+  const cellDirty =
+    !isRowSelector &&
+    (rowChangeKind === "insert" ||
+      rowChangeKind === "delete" ||
+      (overrideValue !== undefined && rowDirty));
   const fieldSortActive = isFieldCol && enableSort && sortColumn === fieldName;
   const fieldSortClass = fieldSortActive
     ? sortDirection === "asc"
@@ -225,11 +274,13 @@ function renderBodyCell(
     !isRowSelector && relationHighlightColumnIds.has(cell.column.id);
   const isRelationDisplayCol =
     !isRowSelector && !transposed && isRelationDisplayColumn(cell.column.id);
+  const showValuePanelAffordance =
+    enableValuePanelAffordance && !isRowSelector && !isRelationDisplayCol;
   const baseSize = cell.column.getSize();
   const columnSized = columnSizedIds.has(cell.column.id);
   const cellContentKey = isRowSelector
     ? ""
-    : `${overrideValue ?? cell.getValue()}:${cellDirty}:${canEdit}`;
+    : `${overrideValue ?? cell.getValue()}:${cellDirty}:${rowChangeKind}:${canEdit}`;
 
   return (
     <GridBodyCell
@@ -240,6 +291,7 @@ function renderBodyCell(
       isFieldCol={isFieldCol}
       isSelected={isSelected}
       isDirty={cellDirty}
+      dirtyKind={rowChangeKind}
       canEdit={canEdit}
       fieldSortClass={fieldSortClass}
       fieldFiltered={fieldFiltered}
@@ -252,6 +304,8 @@ function renderBodyCell(
       cell={cell}
       isRelationHighlight={isRelationHighlight}
       isRelationDisplayCol={isRelationDisplayCol}
+      showValuePanelAffordance={showValuePanelAffordance}
+      valuePanelAffordanceTitle={valuePanelAffordanceTitle}
     />
   );
 }
@@ -260,6 +314,7 @@ const GridBodyRow = memo(
   function GridBodyRow({
     row,
     rowDirty,
+    rowChangeKind,
     overrideForRow,
     rowHeight,
     cellRange,
@@ -272,11 +327,19 @@ const GridBodyRow = memo(
       ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
       : "";
     const cells = row.getVisibleCells();
+    const changeClass =
+      rowChangeKind === "insert"
+        ? " db-data-table-row--dirty db-data-table-row--dirty-insert"
+        : rowChangeKind === "delete"
+          ? " db-data-table-row--dirty db-data-table-row--dirty-delete"
+          : rowDirty
+            ? " db-data-table-row--dirty db-data-table-row--dirty-update"
+            : "";
 
     return (
       <tr
         data-row-index={row.index}
-        className={`db-data-table-row${Math.floor(row.index / 2) % 2 === 1 ? " db-data-table-row--striped" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${rowDirty ? " db-data-table-row--dirty" : ""}`}
+        className={`db-data-table-row${Math.floor(row.index / 2) % 2 === 1 ? " db-data-table-row--striped" : ""}${isCustomHeight ? " db-data-table-row--custom-h" : ""}${changeClass}`}
         style={isCustomHeight ? { height: rowHeight } : undefined}
       >
         {columnLayout.enabled ? (
@@ -289,6 +352,7 @@ const GridBodyRow = memo(
                 staticConfig,
                 overrideForRow,
                 rowDirty,
+                rowChangeKind,
                 cellRange,
                 selectedRows,
                 transposedFieldName,
@@ -306,6 +370,7 @@ const GridBodyRow = memo(
                 staticConfig,
                 overrideForRow,
                 rowDirty,
+                rowChangeKind,
                 cellRange,
                 selectedRows,
                 transposedFieldName,
@@ -325,6 +390,7 @@ const GridBodyRow = memo(
               staticConfig,
               overrideForRow,
               rowDirty,
+              rowChangeKind,
               cellRange,
               selectedRows,
               transposedFieldName,
@@ -338,6 +404,7 @@ const GridBodyRow = memo(
   (prev, next) => {
     if (prev.row !== next.row) return false;
     if (prev.rowDirty !== next.rowDirty) return false;
+    if (prev.rowChangeKind !== next.rowChangeKind) return false;
     if (prev.overrideForRow !== next.overrideForRow) return false;
     if (prev.rowHeight !== next.rowHeight) return false;
     if (prev.staticConfig !== next.staticConfig) return false;
@@ -364,6 +431,31 @@ function resolveCellFromTarget(target: EventTarget | null) {
   return { td, tr, rowIndex, colIndex };
 }
 
+function handleValuePanelAffordanceMouseDown(
+  event: ReactMouseEvent<HTMLTableSectionElement>,
+  bodyActionsRef: MutableRefObject<TableDataGridBodyActions | null>,
+  resolveCellContext: (
+    rowIndex: number,
+    colIndex: number,
+  ) => GridBodyCellInteractionContext | null,
+): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  if (!target.closest(".db-data-table-cell-value-btn")) return false;
+  const actions = bodyActionsRef.current;
+  if (!actions?.handleOpenValuePanel) return false;
+  const resolved = resolveCellFromTarget(target);
+  if (!resolved) return false;
+  const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
+  if (!ctx || ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL) {
+    return false;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  actions.handleOpenValuePanel(ctx);
+  return true;
+}
+
 export type TableDataGridBodyProps = {
   tableRows: Row<Record<string, unknown>>[];
   buildRowProps: (rowIndex: number) => Omit<GridBodyRowProps, "row"> | null;
@@ -385,6 +477,10 @@ export function TableDataGridBody({
       const actions = bodyActionsRef.current;
       if (!actions || event.button !== 0) return;
 
+      if (handleValuePanelAffordanceMouseDown(event, bodyActionsRef, resolveCellContext)) {
+        return;
+      }
+
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) {
         const tr = event.target instanceof Element ? event.target.closest("tr") : null;
@@ -405,7 +501,7 @@ export function TableDataGridBody({
         ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL;
 
       if (isRowSelector) {
-        if (isNearRowBottom(tr, event.clientY)) {
+        if (isNearRowBottom(resolved.td, event.clientY)) {
           event.preventDefault();
           event.stopPropagation();
           actions.beginRowResize(rowIndex, event.clientY);
@@ -446,7 +542,7 @@ export function TableDataGridBody({
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) return;
       const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
-      if (!ctx || ctx.columnId === ROW_NUM_COL_ID) return;
+      if (!ctx) return;
       event.preventDefault();
       event.stopPropagation();
       actions.handleDataCellContextMenu(ctx, event);
@@ -542,6 +638,10 @@ export const TableDataGridVirtualBody = forwardRef<
       const actions = bodyActionsRef.current;
       if (!actions || event.button !== 0) return;
 
+      if (handleValuePanelAffordanceMouseDown(event, bodyActionsRef, resolveCellContext)) {
+        return;
+      }
+
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) {
         const tr = event.target instanceof Element ? event.target.closest("tr") : null;
@@ -562,7 +662,7 @@ export const TableDataGridVirtualBody = forwardRef<
         ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL;
 
       if (isRowSelector) {
-        if (isNearRowBottom(tr, event.clientY)) {
+        if (isNearRowBottom(resolved.td, event.clientY)) {
           event.preventDefault();
           event.stopPropagation();
           actions.beginRowResize(rowIndex, event.clientY);
@@ -603,7 +703,7 @@ export const TableDataGridVirtualBody = forwardRef<
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) return;
       const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
-      if (!ctx || ctx.columnId === ROW_NUM_COL_ID) return;
+      if (!ctx) return;
       event.preventDefault();
       event.stopPropagation();
       actions.handleDataCellContextMenu(ctx, event);

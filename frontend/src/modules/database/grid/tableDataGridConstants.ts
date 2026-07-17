@@ -2,7 +2,7 @@ import { detectCellEditorKind } from "../cell_editor/types";
 
 export const MIN_ROW_HEIGHT = 28;
 export const DEFAULT_ROW_HEIGHT = 32;
-export const ROW_RESIZE_ZONE_PX = 6;
+export const ROW_RESIZE_ZONE_PX = 2;
 export const COLUMN_MIN_WIDTH = 52;
 /** 普通数据列默认宽度 */
 export const DEFAULT_DATA_COLUMN_WIDTH = 120;

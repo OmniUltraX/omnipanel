@@ -405,18 +405,28 @@ export async function deleteConnection(id: string): Promise<void> {
   await unwrapCommand(commands.dbDeleteConnection(id));
 }
 
-export async function testConnection(connection: DbConnectionConfig): Promise<string> {
-  return unwrapCommand(commands.dbTestConnection(ipcConn(connection)));
+export async function testConnection(
+  connection: DbConnectionConfig,
+  options?: { quiet?: boolean },
+): Promise<string> {
+  return unwrapCommand(commands.dbTestConnection(ipcConn(connection)), {
+    quiet: options?.quiet,
+  });
 }
 
-export async function listDatabases(connection: DbConnectionConfig): Promise<string[]> {
-  return unwrapCommand(commands.dbListDatabases(ipcConn(connection)));
+export async function listDatabases(connection: DbConnectionConfig, options?: { quiet?: boolean }): Promise<string[]> {
+  return unwrapCommand(commands.dbListDatabases(ipcConn(connection)), {
+    quiet: options?.quiet,
+  });
 }
 
 export async function listDatabasesWithStats(
   connection: DbConnectionConfig,
+  options?: { quiet?: boolean },
 ): Promise<DbDatabaseMeta[]> {
-  return unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)));
+  return unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)), {
+    quiet: options?.quiet,
+  });
 }
 
 export interface CreateDatabaseArgs {
