@@ -371,9 +371,11 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
       placeholder={t("docker.imagesPanel.search")}
       enabled
     >
-      <div className="db-tables-panel-toolbar">
-        <div className="db-tables-panel-toolbar-left" />
-        <div className="db-tables-panel-toolbar-right">
+      <div className="db-tables-panel-body">
+        <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
+      </div>
+      <div className="db-tables-panel-meta">
+        <div className="docker-image-panel__meta-left">
           <Button
             type="button"
             variant="icon"
@@ -385,14 +387,6 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
           >
             <IconSearch size={14} />
           </Button>
-        </div>
-      </div>
-
-      <div className="db-tables-panel-body">
-        <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
-      </div>
-      <div className="db-tables-panel-meta">
-        <div className="docker-image-panel__meta-left">
           <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
           <span className="db-tables-panel-meta-text">
             {loading
