@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
+import type { DockHeaderIconKind } from "../../components/dock/DockHeaderIcon";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
@@ -205,10 +206,19 @@ export function ServerPanel() {
                 : tab.kind === "cronjobs"
                   ? t("server.tabs.cronjobs")
                   : t("server.tabs.panel");
+          const icon: DockHeaderIconKind =
+            tab.kind === "websites"
+              ? "websites"
+              : tab.kind === "certificates"
+                ? "certificates"
+                : tab.kind === "cronjobs"
+                  ? "cronjobs"
+                  : "server";
           return {
             id: tab.id,
             label: `${featureLabel}@${server.name}`,
             panelType: "server-panel",
+            icon,
             closable: true,
             preview: tab.preview,
             tooltip: server.address,

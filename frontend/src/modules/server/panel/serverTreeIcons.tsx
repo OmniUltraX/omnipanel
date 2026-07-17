@@ -8,7 +8,13 @@ const iconProps = {
   "aria-hidden": true,
 } as const;
 
-export type ServerTreeIconKind = "server" | "websites" | "certificates" | "cronjobs" | "website";
+export type ServerTreeIconKind =
+  | "server"
+  | "apps"
+  | "websites"
+  | "certificates"
+  | "cronjobs"
+  | "website";
 
 export function ServerTreeIcon({ kind }: { kind: ServerTreeIconKind }) {
   switch (kind) {
@@ -19,6 +25,15 @@ export function ServerTreeIcon({ kind }: { kind: ServerTreeIconKind }) {
           <rect x="2" y="14" width="20" height="8" rx="2" />
           <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
           <circle cx="6" cy="18" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "apps":
+      return (
+        <svg {...iconProps}>
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
         </svg>
       );
     case "websites":

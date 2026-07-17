@@ -14,6 +14,12 @@ import {
   type OnePanelInstalledApp,
   type OnePanelInstalledSearchParams,
   type OnePanelInstalledSearchResult,
+  type OnePanelApp,
+  type OnePanelAppDetail,
+  type OnePanelAppInstallCreate,
+  type OnePanelAppSearchParams,
+  type OnePanelAppSearchResult,
+  type OnePanelAppTag,
   type OnePanelMonitorData,
   type OnePanelProcess,
   type OnePanelRequestOptions,
@@ -892,6 +898,97 @@ export class OnePanelClient {
     return URL.createObjectURL(blob);
   }
 
+  /** POST /apps/sync/remote — 从远程同步应用商店数据。 */
+  async syncAppsRemote(): Promise<void> {
+    await this.request<unknown>({
+      method: "POST",
+      path: "/apps/sync/remote",
+    });
+  }
+
+  /** POST /apps/search — 应用市场列表。 */
+  async searchApps(params: OnePanelAppSearchParams = {}): Promise<OnePanelAppSearchResult> {
+    const body = {
+      page: params.page ?? 1,
+      pageSize: params.pageSize ?? 64,
+      name: params.name ?? "",
+      type: params.type ?? "",
+      recommend: params.recommend ?? false,
+      resource: params.resource ?? "",
+      tags: params.tags ?? [],
+    };
+    const data = await this.request<
+      OnePanelAppSearchResult | { items?: OnePanelApp[]; total?: number }
+    >({
+      method: "POST",
+      path: "/apps/search",
+      body,
+    });
+    if (data && typeof data === "object" && "items" in data) {
+      const items = (data.items ?? []).map(normalizeAppItem);
+      return {
+        items,
+        total: data.total ?? items.length,
+      };
+    }
+    return { items: [], total: 0 };
+  }
+
+  /** GET /apps/:key — 应用详情（含 versions）。 */
+  async getApp(appKey: string): Promise<OnePanelApp> {
+    const key = appKey.trim();
+    if (!key) {
+      throw new OnePanelApiError("应用 key 不能为空", 0);
+    }
+    const data = await this.request<OnePanelApp>({
+      method: "GET",
+      path: `/apps/${encodeURIComponent(key)}`,
+    });
+    return normalizeAppItem(data);
+  }
+
+  /** GET /apps/detail/:appId/:version/:type — 版本级详情（含 appDetailId）。 */
+  async getAppDetail(
+    appId: number,
+    version: string,
+    appType: string,
+  ): Promise<OnePanelAppDetail> {
+    const ver = version.trim();
+    const typ = appType.trim() || "runtime";
+    if (!Number.isFinite(appId) || appId <= 0 || !ver) {
+      throw new OnePanelApiError("应用详情参数无效", 0);
+    }
+    const data = await this.request<OnePanelAppDetail>({
+      method: "GET",
+      path: `/apps/detail/${appId}/${encodeURIComponent(ver)}/${encodeURIComponent(typ)}`,
+    });
+    return data;
+  }
+
+  /** POST /apps/install — 安装应用（MVP 使用默认参数）。 */
+  async installApp(payload: OnePanelAppInstallCreate): Promise<void> {
+    if (!Number.isFinite(payload.appDetailId) || payload.appDetailId <= 0) {
+      throw new OnePanelApiError("appDetailId 无效", 0);
+    }
+    const name = payload.name.trim();
+    if (!name) {
+      throw new OnePanelApiError("应用实例名不能为空", 0);
+    }
+    await this.request<unknown>({
+      method: "POST",
+      path: "/apps/install",
+      body: {
+        appDetailId: payload.appDetailId,
+        name,
+        params: payload.params ?? {},
+        advanced: payload.advanced ?? false,
+        allowPort: payload.allowPort ?? true,
+        pullImage: payload.pullImage ?? true,
+        hostMode: payload.hostMode ?? false,
+      },
+    });
+  }
+
   /** POST /apps/installed/search — 已安装应用列表。 */
   async searchInstalledApps(
     params: OnePanelInstalledSearchParams = {},
@@ -923,6 +1020,54 @@ export class OnePanelClient {
     }
     return { items: [], total: 0 };
   }
+}
+
+/** 兼容 dart OpenAPI 的 xname / 常规 name 字段。 */
+function normalizeAppTag(raw: unknown): OnePanelAppTag | null {
+  if (typeof raw === "string") {
+    const label = raw.trim();
+    if (!label) return null;
+    return { key: label, name: label };
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const name =
+    (typeof item.name === "string" && item.name.trim()) ||
+    (typeof item.xname === "string" && item.xname.trim()) ||
+    "";
+  const key = typeof item.key === "string" ? item.key.trim() : "";
+  if (!name && !key) return null;
+  const id = typeof item.id === "number" ? item.id : Number(item.id);
+  return {
+    id: Number.isFinite(id) ? id : undefined,
+    key: key || undefined,
+    name: name || key,
+    sort: typeof item.sort === "number" ? item.sort : undefined,
+  };
+}
+
+function normalizeAppItem(raw: OnePanelApp | Record<string, unknown>): OnePanelApp {
+  const item = raw as Record<string, unknown>;
+  const name =
+    (typeof item.name === "string" && item.name) ||
+    (typeof item.xname === "string" && item.xname) ||
+    "";
+  const key = typeof item.key === "string" ? item.key : "";
+  const id = typeof item.id === "number" ? item.id : Number(item.id) || 0;
+  const tags = Array.isArray(item.tags)
+    ? item.tags.map(normalizeAppTag).filter((tag): tag is OnePanelAppTag => tag != null)
+    : undefined;
+  return {
+    ...(item as unknown as OnePanelApp),
+    id,
+    name,
+    key,
+    tags,
+    versions: Array.isArray(item.versions)
+      ? item.versions.filter((v): v is string => typeof v === "string")
+      : undefined,
+    installed: Boolean(item.installed),
+  };
 }
 
 /** 从服务器连接配置创建客户端。 */

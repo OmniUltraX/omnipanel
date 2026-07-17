@@ -4,11 +4,13 @@ import { usePersistedModuleTab } from "@/hooks/usePersistedModuleTab";
 import { ServerMonitorTab } from "@/components/server";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerDetailTab, ServerSidebarNavTarget } from "./serverSidebarNav";
+import { ServerTreeIcon } from "./serverTreeIcons";
+import { ServerAppsTab } from "./tabs/ServerAppsTab";
 import { ServerWebsitesTab } from "./tabs/ServerWebsitesTab";
 import { ServerCertificatesTab } from "./tabs/ServerCertificatesTab";
 import { ServerCronjobsTab } from "./tabs/ServerCronjobsTab";
 
-const DETAIL_TABS = ["websites", "certificates", "cronjobs"] as const satisfies readonly ServerDetailTab[];
+const DETAIL_TABS = ["apps", "websites", "certificates", "cronjobs"] as const satisfies readonly ServerDetailTab[];
 
 interface ServerDockPanelProps {
   server: ServerEntry;
@@ -28,7 +30,7 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
 
   const [detailTab, setDetailTab] = usePersistedModuleTab(
     `server-panel-detail-${server.id}`,
-    "websites",
+    "apps",
     DETAIL_TABS,
   );
 
@@ -55,13 +57,17 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
               className={`server-dock-panel__tab${detailTab === tab ? " is-active" : ""}`}
               onClick={() => setDetailTab(tab)}
             >
-              {t(`server.tabs.${tab}`)}
+              <span className="server-dock-panel__tab-icon" aria-hidden>
+                <ServerTreeIcon kind={tab} />
+              </span>
+              <span className="server-dock-panel__tab-label">{t(`server.tabs.${tab}`)}</span>
             </button>
           ))}
         </div>
         <div className="server-dock-panel__tab-body">
           {detailActive ? (
             <div className="server-content">
+              {detailTab === "apps" ? <ServerAppsTab server={server} /> : null}
               {detailTab === "websites" ? (
                 <ServerWebsitesTab server={server} selectedItemId={selectedItemId} />
               ) : null}

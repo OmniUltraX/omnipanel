@@ -142,6 +142,71 @@ export interface OnePanelInstalledSearchResult {
   total: number;
 }
 
+/** POST /apps/search 请求体。 */
+export interface OnePanelAppSearchParams {
+  page?: number;
+  pageSize?: number;
+  name?: string;
+  type?: string;
+  recommend?: boolean;
+  resource?: string;
+  tags?: string[];
+}
+
+/** 应用市场标签。 */
+export interface OnePanelAppTag {
+  id?: number;
+  key?: string;
+  name?: string;
+  sort?: number;
+}
+
+/** POST /apps/search 单条（AppItem / AppDTO）。 */
+export interface OnePanelApp {
+  id: number;
+  name: string;
+  key: string;
+  type?: string;
+  icon?: string;
+  description?: string;
+  shortDescZh?: string;
+  shortDescEn?: string;
+  status?: string;
+  resource?: string;
+  installed?: boolean;
+  limit?: number;
+  versions?: string[];
+  tags?: OnePanelAppTag[];
+}
+
+export interface OnePanelAppSearchResult {
+  items: OnePanelApp[];
+  total: number;
+}
+
+/** GET /apps/detail/:appId/:version/:type */
+export interface OnePanelAppDetail {
+  id: number;
+  appId?: number;
+  version?: string;
+  status?: string;
+  params?: unknown;
+  dockerCompose?: string;
+  hostMode?: boolean;
+  lastVersion?: string;
+}
+
+/** POST /apps/install 请求体（MVP：默认参数）。 */
+export interface OnePanelAppInstallCreate {
+  appDetailId: number;
+  name: string;
+  params?: Record<string, unknown>;
+  advanced?: boolean;
+  allowPort?: boolean;
+  pullImage?: boolean;
+  hostMode?: boolean;
+}
+
 export interface OnePanelRequestOptions {
   method?: string;
   path: string;

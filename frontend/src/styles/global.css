@@ -11783,6 +11783,25 @@ a {
         cursor: pointer;
         border-bottom: 2px solid transparent;
         margin-bottom: -1px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .server-dock-panel__tab-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        opacity: 0.85;
+    }
+
+    .server-dock-panel__tab.is-active .server-dock-panel__tab-icon {
+        opacity: 1;
+    }
+
+    .server-dock-panel__tab-label {
+        min-width: 0;
     }
 
     .server-dock-panel__tab:hover {
@@ -12100,11 +12119,58 @@ a {
     .server-apps-toolbar {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: var(--sp-2);
         padding: 0 var(--sp-6);
         margin-top: var(--sp-4);
         margin-bottom: var(--sp-2);
         flex-shrink: 0;
+    }
+
+    .server-apps-toolbar__left {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .server-apps-toolbar__right {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-3);
+        margin-left: auto;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+
+    .server-app-market__search {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        max-width: 320px;
+        flex: 1;
+    }
+
+    .server-app-market__installed-filter {
+        flex-shrink: 0;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .server-app-market__search .input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .server-app-card__footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--sp-2);
+        margin-top: auto;
+        padding-top: var(--sp-1);
     }
 
     .server-apps-title {
@@ -12259,12 +12325,15 @@ a {
     .server-app-card__tags {
         display: flex;
         flex-wrap: wrap;
-        gap: var(--sp-1);
+        gap: 6px;
+        min-width: 0;
     }
 
-    .server-app-card__tag {
-        font-size: 10px;
-        font-weight: 600;
+    .server-app-card__tags .tag {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .server-app-card__message {

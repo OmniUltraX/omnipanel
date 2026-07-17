@@ -1,11 +1,14 @@
 import type { ServerPanelDockOpenMode } from "./serverPanelWorkspaceTabs";
 
-/** 侧栏导航 / 详情 Tab：网站、证书、计划任务 */
-export type ServerDetailTab = "websites" | "certificates" | "cronjobs";
+/** 详情区全部 Tab（含应用市场） */
+export type ServerDetailTab = "apps" | "websites" | "certificates" | "cronjobs";
+
+/** 侧栏可导航的资源分类（不含应用市场，应用市场仅在面板内 Tab） */
+export type ServerSidebarResourceTab = Exclude<ServerDetailTab, "apps">;
 
 export type ServerSidebarNavTarget = {
   serverId: string;
-  detailTab?: ServerDetailTab;
+  detailTab?: ServerSidebarResourceTab;
   itemId?: string;
 };
 
