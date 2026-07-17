@@ -45,6 +45,8 @@ export type GridBodyCellInteractionContext = {
 export type TableDataGridBodyActions = {
   beginRowResize: (rowIndex: number, clientY: number) => void;
   handleRowBandSelect: (rowIndex: number, event: ReactMouseEvent) => void;
+  /** 双击行号/字段列：选中整行并打开记录面板 */
+  handleRowBandDoubleClick?: (rowIndex: number) => void;
   handleDataCellMouseDown: (ctx: GridBodyCellInteractionContext, event: ReactMouseEvent) => void;
   handleDataCellDoubleClick: (
     ctx: GridBodyCellInteractionContext,
@@ -527,7 +529,18 @@ export function TableDataGridBody({
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) return;
       const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
-      if (!ctx || !ctx.canEdit) return;
+      if (!ctx) return;
+      const isRowSelector =
+        ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL;
+      if (isRowSelector) {
+        if (actions.handleRowBandDoubleClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          actions.handleRowBandDoubleClick(resolved.rowIndex);
+        }
+        return;
+      }
+      if (!ctx.canEdit) return;
       event.preventDefault();
       event.stopPropagation();
       actions.handleDataCellDoubleClick(ctx, getCellOverlayAnchor(resolved.td));
@@ -688,7 +701,18 @@ export const TableDataGridVirtualBody = forwardRef<
       const resolved = resolveCellFromTarget(event.target);
       if (!resolved) return;
       const ctx = resolveCellContext(resolved.rowIndex, resolved.colIndex);
-      if (!ctx || !ctx.canEdit) return;
+      if (!ctx) return;
+      const isRowSelector =
+        ctx.columnId === ROW_NUM_COL_ID || ctx.columnId === TRANSPOSE_FIELD_COL;
+      if (isRowSelector) {
+        if (actions.handleRowBandDoubleClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          actions.handleRowBandDoubleClick(resolved.rowIndex);
+        }
+        return;
+      }
+      if (!ctx.canEdit) return;
       event.preventDefault();
       event.stopPropagation();
       actions.handleDataCellDoubleClick(ctx, getCellOverlayAnchor(resolved.td));

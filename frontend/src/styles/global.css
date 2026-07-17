@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "./fonts.css";
 @import "./tokens.css";
 
@@ -5428,6 +5428,26 @@ a {
     height: 1px;
     background: var(--border);
     margin: var(--sp-2) 0;
+}
+
+/* 全局 icon 按钮 hover 统一线框形式（accent-soft 背景 + accent 混合边框 + accent 文字）。
+   放在 unlayered 区域，优先级高于 @layer utilities，无需 !important。
+   仅覆盖 ghost/outline/icon 这类「轻量」variant 的 icon 尺寸按钮；
+   default/primary/destructive 等实心按钮保持各自填充语义。 */
+button[data-slot="button"][data-size^="icon"] {
+    border: 1px solid transparent;
+}
+button[data-slot="button"][data-variant="ghost"][data-size^="icon"]:hover:not(:disabled),
+button[data-slot="button"][data-variant="outline"][data-size^="icon"]:hover:not(:disabled),
+button[data-slot="button"][data-variant="icon"][data-size^="icon"]:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    color: var(--accent);
+}
+button[data-slot="button"][data-variant="ghost"][data-size^="icon"]:active:not(:disabled),
+button[data-slot="button"][data-variant="outline"][data-size^="icon"]:active:not(:disabled),
+button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* 鈹€鈹€鈹€ Component Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */

@@ -111,6 +111,14 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     canRedoDirty,
   } = useDbTabWorkspaceSliceOrMirror(tab.id);
 
+  /** 转置模式下预览面板默认位置与正常相反：right↔bottom，使横向布局下详情面板落在更自然的方位 */
+  const transposed = preview?.transposed ?? false;
+  const effectiveDetailPosition: DatabaseTableDetailPosition = transposed
+    ? detailPosition === "right"
+      ? "bottom"
+      : "right"
+    : detailPosition;
+
   const canRefresh = tab.connId && tab.dbName && tab.tableName;
 
   const statusBarInfo = useMemo(() => {
@@ -414,14 +422,14 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     if (handle.isCollapsed()) {
       // expand() 无记忆尺寸时会落到 minSize，必须再 resize 到已存 px
       handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
       setDetailCollapsed(false);
     } else {
       cellEditorRef.current?.commitIfDirty();
       handle.collapse();
       setDetailCollapsed(true);
     }
-  }, [detailPosition]);
+  }, [effectiveDetailPosition]);
 
   const expandDetailPanel = useCallback(() => {
     const handle = detailPanelRef.current;
@@ -431,10 +439,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     }
     if (handle.isCollapsed()) {
       handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
     }
     setDetailCollapsed(false);
-  }, [detailPosition]);
+  }, [effectiveDetailPosition]);
 
   const handleCellEditorFocusRequest = useCallback(() => {
     setDetailTab("value");
@@ -454,13 +462,13 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     (panelSize: PanelSize) => {
       const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
       setDetailCollapsed(collapsed);
-      const minPx = DETAIL_MIN_SIZE_PX[detailPosition];
+      const minPx = DETAIL_MIN_SIZE_PX[effectiveDetailPosition];
       // 折叠过程中 inPixels≈0，勿覆盖用户尺寸
       if (!collapsed && panelSize.inPixels >= minPx) {
-        detailSizePxByPositionRef.current[detailPosition] = Math.round(panelSize.inPixels);
+        detailSizePxByPositionRef.current[effectiveDetailPosition] = Math.round(panelSize.inPixels);
       }
     },
-    [detailPosition],
+    [effectiveDetailPosition],
   );
 
   useEffect(() => {
@@ -503,10 +511,15 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const handlePositionChange = useCallback(
     (position: DatabaseTableDetailPosition) => {
-      // 只改形态，保持当前展开/收起；DockLayout 会因 key 重挂，下面 effect 再同步
-      setDatabaseSettings({ databaseTableDetailPosition: position });
+      // position 是视觉（effective）位置；转置模式下写回 store 需反向，使转置回去后恢复原方位
+      const storePosition: DatabaseTableDetailPosition = transposed
+        ? position === "right"
+          ? "bottom"
+          : "right"
+        : position;
+      setDatabaseSettings({ databaseTableDetailPosition: storePosition });
     },
-    [setDatabaseSettings],
+    [setDatabaseSettings, transposed],
   );
 
   const handleCreateTableQuery = useCallback(() => {
@@ -537,9 +550,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
-  const splitDirection = detailPosition === "right" ? "horizontal" : "vertical";
-  const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[detailPosition]);
-  const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[detailPosition]);
+  const splitDirection = effectiveDetailPosition === "right" ? "horizontal" : "vertical";
+  const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[effectiveDetailPosition]);
+  const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[effectiveDetailPosition]);
 
   // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px
   useLayoutEffect(() => {
@@ -550,10 +563,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       handle.collapse();
     } else {
       handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[detailPosition]));
+      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
-  }, [detailPosition, showPreviewGrid, active]);
+  }, [effectiveDetailPosition, showPreviewGrid, active]);
 
   const previewSql = useMemo(() => {
     if (!previewConnection || !tab.tableName || !preview) return "";
@@ -627,7 +640,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     <TableDetailPanel
       activeTab={detailTab}
       onActiveTabChange={setDetailTab}
-      position={detailPosition}
+      position={effectiveDetailPosition}
       onPositionChange={handlePositionChange}
       collapsed={detailCollapsed}
       onToggleCollapsed={handleDetailCollapsedChange}
@@ -780,7 +793,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
           />
           <DockLayout
             direction={splitDirection}
-            className={`db-table-preview-split db-table-preview-split--${detailPosition}`}
+            className={`db-table-preview-split db-table-preview-split--${effectiveDetailPosition}`}
           >
             <DockPanel minSize="160px">
               <div className="results-area db-sql-results">{previewGrid}</div>
@@ -795,7 +808,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
               panelRef={detailPanelRef}
               onResize={handleDetailPanelResize}
               className={
-                detailPosition === "right" ? "dock-panel-right" : "dock-panel-bottom"
+                effectiveDetailPosition === "right" ? "dock-panel-right" : "dock-panel-bottom"
               }
             >
               {detailPanel}
