@@ -279,7 +279,6 @@ export function CreateWebsiteDialog({
   );
 
   const canSubmit = useMemo(() => {
-    if (!alias.trim()) return false;
     if (type === "stream") {
       return (
         streamPorts.trim().length > 0 &&
@@ -294,7 +293,6 @@ export function CreateWebsiteDialog({
     if (enableSsl && !sslId) return false;
     return true;
   }, [
-    alias,
     type,
     streamPorts,
     upstreams,
@@ -309,7 +307,12 @@ export function CreateWebsiteDialog({
   ]);
 
   const handleSubmit = async () => {
-    const siteAlias = (alias.trim() || aliasFromDomain(domain)).trim();
+    // 别名非必填：优先用用户输入，否则由主域名推导；stream 无域名时用端口生成
+    const siteAlias = (
+      alias.trim() ||
+      aliasFromDomain(domain) ||
+      (type === "stream" ? aliasFromDomain(`stream-${streamPorts}`) : "")
+    ).trim();
     if (!siteAlias) {
       setError(t("server.create.website.required"));
       return;

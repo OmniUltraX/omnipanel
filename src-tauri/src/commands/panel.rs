@@ -92,6 +92,29 @@ pub async fn panel_1panel_request_bytes(
     crate::panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
 }
 
+/// 1Panel 文件上传（multipart：/files/upload 或分块 /files/chunkupload）。
+/// `content_base64` 为文件内容 Base64；`path` 为目标目录。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_1panel_upload_file(
+    host: String,
+    api_key: String,
+    path: String,
+    filename: String,
+    content_base64: String,
+    overwrite: Option<bool>,
+) -> Result<(), OmniError> {
+    crate::panel::onepanel::upload_file(
+        &host,
+        &api_key,
+        &path,
+        &filename,
+        &content_base64,
+        overwrite.unwrap_or(true),
+    )
+    .await
+}
+
 /// 通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
 /// `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 #[tauri::command]

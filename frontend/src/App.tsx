@@ -46,6 +46,7 @@ import {
 } from "./lib/moduleWarmup";
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
+import { UserCenterWindow } from "./components/user/UserCenterWindow";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
@@ -676,6 +677,7 @@ function AppShell() {
       <ToastHost />
       <CrossWindowDragVisualLayer />
       <SettingsWindow />
+      <UserCenterWindow />
       <SubWindowMinimizedStack />
       {pendingRiskActionId && pendingRiskAction && riskResult && (
         <DangerConfirmDialog

@@ -1,8 +1,8 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { startTransition, useRef } from "react";
 import type { ReactNode } from "react";
-import { useAiStore } from "../../stores/aiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
+import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { AppLogo } from "../ui/layout/AppLogo";
@@ -117,9 +117,10 @@ export function Sidebar() {
   const logoTitle = isBottomFullscreen
     ? t("shell.workspacePopover.home")
     : t("shell.workspacePanel.fullscreen");
-  const drawerOpen = useAiStore((s) => s.drawerOpen);
+  const userCenterOpen = useUserCenterUiStore((s) => s.open);
   const settingsOpen = useSettingsUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
+  const toggleUserCenter = useUserCenterUiStore((s) => s.toggleUserCenter);
   useAppModuleStore((s) => s.modules);
   const hoverWarmCancelRef = useRef<(() => void) | null>(null);
 
@@ -192,15 +193,13 @@ export function Sidebar() {
 
       <button
         type="button"
-        className={`sidebar-item${drawerOpen ? " active" : ""}`}
-        title={t("shell.nav.ai")}
-        onClick={() => useAiStore.getState().toggleDrawer()}
+        className={`sidebar-item${userCenterOpen ? " active" : ""}`}
+        title={t("shell.nav.userCenter")}
+        onClick={() => toggleUserCenter()}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
-          <circle cx="18" cy="14" r="0.5" fill="currentColor" />
-          <circle cx="6" cy="14" r="0.5" fill="currentColor" />
-          <path d="M12 17v4M8 21h8" />
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
         </svg>
       </button>
 
