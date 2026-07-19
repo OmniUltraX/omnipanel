@@ -40,9 +40,13 @@ interface SqlEditorProps {
   openMode?: SqlEditorOpenMode;
   /** 连接 db_type，驱动语法高亮与格式化方言。 */
   dbType?: string;
-  /** Cmd/Ctrl+Enter：执行光标所在的一条 SQL（由调用方传入已提取的语句）。 */
+  /** 执行光标所在的一条 SQL（由调用方传入已提取的语句）。快捷键 run-current-sql。 */
   onRun?: (sqlAtCursor: string) => void;
-  /** Cmd/Ctrl+S：保存查询文件（阻止浏览器默认保存页行为）。 */
+  /** 执行选中的 SQL（无选中时由调用方决定行为，通常回退到 onRun）。快捷键 run-selected-sql。 */
+  onRunSelected?: (selectedSql: string) => void;
+  /** 执行全部 SQL。快捷键 run-all-sql。 */
+  onRunAll?: () => void;
+  /** 保存查询文件（阻止浏览器默认保存页行为）。快捷键 save-sql-file。 */
   onSave?: () => void;
   /** 光标 offset 变化（供无焦点时 ⌘+Enter 使用）。 */
   onCursorOffsetChange?: (offset: number) => void;
@@ -101,6 +105,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     openMode = "query",
     dbType,
     onRun,
+    onRunSelected,
+    onRunAll,
     onSave,
     onCursorOffsetChange,
     schemas = [],
@@ -119,6 +125,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
+  const onRunSelectedRef = useRef(onRunSelected);
+  const onRunAllRef = useRef(onRunAll);
   const onSaveRef = useRef(onSave);
   const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
   const readOnlyRef = useRef(readOnly);
@@ -132,6 +140,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
 
   onChangeRef.current = onChange;
   onRunRef.current = onRun;
+  onRunSelectedRef.current = onRunSelected;
+  onRunAllRef.current = onRunAll;
   onSaveRef.current = onSave;
   onCursorOffsetChangeRef.current = onCursorOffsetChange;
   readOnlyRef.current = readOnly;
@@ -314,12 +324,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     });
   }, [sqlEditorFontFamily, sqlEditorFontSize, sqlEditorLineHeight]);
 
+  // run-current-sql：Ctrl+Enter / Ctrl+Shift+R（执行光标所在语句）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing) return;
-      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || e.shiftKey || e.altKey) {
-        return;
-      }
+      if (!matchesShortcut(e, getShortcutKeys("run-current-sql"))) return;
       if (!isSqlEditorFocused()) return;
       const view = viewRef.current;
       if (!view?.hasFocus || readOnlyRef.current) return;
@@ -333,12 +342,58 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+  // run-selected-sql：Ctrl+Shift+Enter / Ctrl+Shift+R（执行选中；无选中时回退到光标所在语句）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing) return;
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) {
-        return;
+      if (!matchesShortcut(e, getShortcutKeys("run-selected-sql"))) return;
+      if (!isSqlEditorFocused()) return;
+      const view = viewRef.current;
+      if (!view?.hasFocus || readOnlyRef.current) return;
+      const { from, to, head } = view.state.selection.main;
+      const hasSelection = from !== to;
+      e.preventDefault();
+      e.stopPropagation();
+      if (hasSelection) {
+        const runSelected = onRunSelectedRef.current;
+        if (!runSelected) return;
+        const selected = view.state.sliceDoc(from, to);
+        runSelected(selected);
+      } else {
+        // 无选中：回退到运行光标所在语句
+        const run = onRunRef.current;
+        if (!run) return;
+        const text = view.state.doc.toString();
+        run(resolveSqlToRun(text, { from, to, head }));
       }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  // run-all-sql：Ctrl+Shift+Alt+Enter（执行全部）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!matchesShortcut(e, getShortcutKeys("run-all-sql"))) return;
+      if (!isSqlEditorFocused()) return;
+      const view = viewRef.current;
+      if (!view?.hasFocus || readOnlyRef.current) return;
+      const runAll = onRunAllRef.current;
+      if (!runAll) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runAll();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  // save-sql-file：Ctrl+S（保存查询文件）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (!matchesShortcut(e, getShortcutKeys("save-sql-file"))) return;
       if (!isSqlEditorFocused()) return;
       const view = viewRef.current;
       if (!view?.hasFocus || readOnlyRef.current) return;

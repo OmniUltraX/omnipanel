@@ -6,51 +6,63 @@ import {
   findShortcutConflict,
   formatShortcut,
   useShortcutsStore,
-  type KeyToken,
+  type KeyBinding,
 } from "../../stores/shortcutsStore";
 
 interface ShortcutRecorderProps {
   id: string;
-  /** 当前生效的按键（用于默认显示） */
-  value: KeyToken[];
+  /** 当前生效的所有绑定（多绑定） */
+  value: KeyBinding[];
   /** 是否禁用录制（nonRecordable 条目） */
   disabled?: boolean;
 }
 
 type RecordState =
   | { mode: "idle" }
-  | { mode: "recording" }
-  | { mode: "conflict"; candidate: KeyToken[]; conflictLabel: string };
+  | { mode: "recording"; editingIndex: number | null }
+  | { mode: "conflict"; candidate: KeyBinding; conflictLabel: string; editingIndex: number | null };
 
 /**
- * 单个快捷键的录制控件：
- * 1. 默认显示当前按键（kbd 形式）
- * 2. 点击「更改」进入录制模式：捕获下一次按键组合
- * 3. 录制时若与其它已配置快捷键冲突，进入冲突态要求确认
- * 4. Esc / 「取消」退出录制
+ * 多绑定快捷键录制控件：
+ * 1. 显示当前所有绑定（kbd 列表），每个绑定可单独更改/删除
+ * 2. "添加绑定"按钮：录制一个新的绑定
+ * 3. 点击某个绑定的"更改"：替换该位置的绑定
+ * 4. 录制时若与其它快捷键冲突，进入冲突态要求确认
+ * 5. Esc / "取消"退出录制
  */
 export function ShortcutRecorder({ id, value, disabled }: ShortcutRecorderProps) {
   const { t } = useI18n();
   const setShortcut = useShortcutsStore((s) => s.setShortcut);
+  const addBinding = useShortcutsStore((s) => s.addBinding);
+  const removeBinding = useShortcutsStore((s) => s.removeBinding);
   const resetShortcut = useShortcutsStore((s) => s.resetShortcut);
   const isCustomized = useShortcutsStore((s) => id in s.overrides);
 
   const [state, setState] = useState<RecordState>({ mode: "idle" });
-  // 用来在录制期临时屏蔽 document 上的其它快捷键监听（如 AI 切换）
   const releaseRef = useRef<(() => void) | null>(null);
 
+  // 写入一个新绑定：editingIndex=null 表示添加，否则表示替换指定位置
+  const commitBinding = (binding: KeyBinding, editingIndex: number | null) => {
+    if (editingIndex === null) {
+      addBinding(id, binding);
+    } else {
+      // 替换指定位置：构造新数组
+      const next = value.map((b, i) => (i === editingIndex ? binding : b));
+      setShortcut(id, next);
+    }
+  };
+
   useEffect(() => {
-    if (state.mode !== "recording") return;
+    if (state.mode !== "recording" && state.mode !== "conflict") return;
+    const editingIndex = state.editingIndex;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      // Esc 取消
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         setState({ mode: "idle" });
         return;
       }
-      // 单独的修饰键按下不录入
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
         e.preventDefault();
         e.stopPropagation();
@@ -67,9 +79,10 @@ export function ShortcutRecorder({ id, value, disabled }: ShortcutRecorderProps)
           mode: "conflict",
           candidate: tokens,
           conflictLabel: t(`settings.keybindings.items.${conflict.id}`),
+          editingIndex,
         });
       } else {
-        setShortcut(id, tokens);
+        commitBinding(tokens, editingIndex);
         setState({ mode: "idle" });
       }
     };
@@ -81,78 +94,152 @@ export function ShortcutRecorder({ id, value, disabled }: ShortcutRecorderProps)
       releaseRef.current?.();
       releaseRef.current = null;
     };
-  }, [state.mode, id, setShortcut, t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, id, t]);
 
   if (disabled) {
     return (
       <div className="keybind keybind-readonly">
-        <kbd>{formatShortcut(value)}</kbd>
+        <kbd>{formatShortcut(value[0] ?? [])}</kbd>
       </div>
     );
   }
 
-  if (state.mode === "recording") {
-    return (
-      <div className="keybind keybind-recording">
-        <span className="keybind-prompt">{t("settings.keybindings.recorder.pressCombo")}</span>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setState({ mode: "idle" })}
-        >
-          {t("settings.keybindings.recorder.cancel")}
-        </Button>
-      </div>
-    );
-  }
-
-  if (state.mode === "conflict") {
-    return (
-      <div className="keybind keybind-conflict">
-        <span className="keybind-conflict-msg">
-          {t("settings.keybindings.recorder.conflict", {
-            shortcut: formatShortcut(state.candidate),
-            other: state.conflictLabel,
-          })}
-        </span>
-        <Button
-          variant="primary"
-          size="xs"
-          onClick={() => {
-            setShortcut(id, state.candidate);
-            setState({ mode: "idle" });
-          }}
-        >
-          {t("settings.keybindings.recorder.replace")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setState({ mode: "idle" })}
-        >
-          {t("settings.keybindings.recorder.cancel")}
-        </Button>
-      </div>
-    );
-  }
+  const isRecording = state.mode === "recording" || state.mode === "conflict";
+  const recordingIndex = isRecording ? state.editingIndex : null;
 
   return (
-    <div className="keybind">
-      {value.map((k, i) => (
-        <span key={i}>
-          {i > 0 && " + "}
-          <kbd>{k}</kbd>
-        </span>
-      ))}
-      <Button
-        variant="ghost"
-        size="xs"
-        className="keybind-edit-btn"
-        onClick={() => setState({ mode: "recording" })}
-      >
-        {t("settings.keybindings.recorder.change")}
-      </Button>
-      {isCustomized && (
+    <div className="keybind keybind-multi">
+      {/* 已有绑定列表 */}
+      {value.map((binding, i) => {
+        const isThisRecording = isRecording && recordingIndex === i;
+        if (isThisRecording && state.mode === "recording") {
+          return (
+            <div key={i} className="keybind keybind-recording">
+              <span className="keybind-prompt">
+                {t("settings.keybindings.recorder.pressCombo")}
+              </span>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setState({ mode: "idle" })}
+              >
+                {t("settings.keybindings.recorder.cancel")}
+              </Button>
+            </div>
+          );
+        }
+        if (isThisRecording && state.mode === "conflict") {
+          return (
+            <div key={i} className="keybind keybind-conflict">
+              <span className="keybind-conflict-msg">
+                {t("settings.keybindings.recorder.conflict", {
+                  shortcut: formatShortcut(state.candidate),
+                  other: state.conflictLabel,
+                })}
+              </span>
+              <Button
+                variant="primary"
+                size="xs"
+                onClick={() => {
+                  commitBinding(state.candidate, recordingIndex);
+                  setState({ mode: "idle" });
+                }}
+              >
+                {t("settings.keybindings.recorder.replace")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setState({ mode: "idle" })}
+              >
+                {t("settings.keybindings.recorder.cancel")}
+              </Button>
+            </div>
+          );
+        }
+        return (
+          <div key={i} className="keybind-binding">
+            <kbd>{formatShortcut(binding)}</kbd>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="keybind-edit-btn"
+              onClick={() => setState({ mode: "recording", editingIndex: i })}
+            >
+              {t("settings.keybindings.recorder.change")}
+            </Button>
+            {value.length > 1 && (
+              <Button
+                variant="ghost"
+                size="xs"
+                title={t("settings.keybindings.recorder.removeBinding")}
+                onClick={() => removeBinding(id, i)}
+              >
+                ×
+              </Button>
+            )}
+          </div>
+        );
+      })}
+
+      {/* 录制新绑定时显示的提示行（editingIndex === null） */}
+      {isRecording && recordingIndex === null && state.mode === "recording" && (
+        <div className="keybind keybind-recording">
+          <span className="keybind-prompt">
+            {t("settings.keybindings.recorder.pressCombo")}
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setState({ mode: "idle" })}
+          >
+            {t("settings.keybindings.recorder.cancel")}
+          </Button>
+        </div>
+      )}
+      {isRecording && recordingIndex === null && state.mode === "conflict" && (
+        <div className="keybind keybind-conflict">
+          <span className="keybind-conflict-msg">
+            {t("settings.keybindings.recorder.conflict", {
+              shortcut: formatShortcut(state.candidate),
+              other: state.conflictLabel,
+            })}
+          </span>
+          <Button
+            variant="primary"
+            size="xs"
+            onClick={() => {
+              commitBinding(state.candidate, null);
+              setState({ mode: "idle" });
+            }}
+          >
+            {t("settings.keybindings.recorder.replace")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setState({ mode: "idle" })}
+          >
+            {t("settings.keybindings.recorder.cancel")}
+          </Button>
+        </div>
+      )}
+
+      {/* 添加新绑定按钮（非录制态显示） */}
+      {!isRecording && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="keybind-add-btn"
+          onClick={() => setState({ mode: "recording", editingIndex: null })}
+        >
+          {t("settings.keybindings.recorder.addBinding")}
+        </Button>
+      )}
+
+      {/* 重置为默认 */}
+      {isCustomized && !isRecording && (
         <Button
           variant="ghost"
           size="xs"

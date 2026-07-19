@@ -262,6 +262,19 @@ export function TerminalPanel() {
     }
   }, [isActiveRoute, tabs, activeTabId, setActiveTab, isSshMode, dockActiveId]);
 
+  // 监听全局 rename-tab 事件（来自 useGlobalShortcuts 的 F2 快捷键）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ tabId: string }>).detail;
+      if (!detail?.tabId) return;
+      const tab = useTerminalStore.getState().tabs.find((t) => t.id === detail.tabId);
+      if (!tab) return;
+      setRenameTarget({ tabId: tab.id, currentTitle: tab.title });
+    };
+    window.addEventListener("omnipanel-terminal-rename-tab", handler);
+    return () => window.removeEventListener("omnipanel-terminal-rename-tab", handler);
+  }, []);
+
   useLayoutEffect(() => {
     const enteredSsh = isSshMode && !sshModePrevRef.current;
     const leftSsh = !isSshMode && sshModePrevRef.current;

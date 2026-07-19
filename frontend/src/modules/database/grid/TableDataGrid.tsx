@@ -1093,17 +1093,6 @@ export const TableDataGrid = memo(function TableDataGrid({
           column: mapped.fieldColumn,
           row: mapped.originalRow,
         };
-
-        const displayColIndex = opts?.displayColIndex;
-        if (displayColIndex != null && displayColIndex >= 0) {
-          const maxRow = displayRows.length - 1;
-          if (maxRow >= 0) {
-            setCellRange({
-              start: { row: 0, col: displayColIndex },
-              end: { row: maxRow, col: displayColIndex },
-            });
-          }
-        }
       }
 
       const colMeta = columnMetaMap?.[target.column];
@@ -1123,7 +1112,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       const strategy = resolveCellDoubleClickEditStrategy(colMeta.type, raw);
 
-      if (!transposed && opts?.anchor) {
+      if (opts?.anchor) {
         if (strategy === "inline" && onCellCommit) {
           startCellOverlayEdit(target, colMeta, opts.anchor);
           return;
@@ -1155,7 +1144,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       transposed,
       rows,
       columnMetaMap,
-      displayRows.length,
       pkCols,
       displayCellOverrides,
       onCellCommit,
@@ -1980,6 +1968,19 @@ export const TableDataGrid = memo(function TableDataGrid({
     [leafColumns, tableRows.length],
   );
 
+  /** 转置模式下双击顶部列头（__row__N，显示行号）：选中该列并弹出记录面板 */
+  const handleTransposeRowHeaderDoubleClick = useCallback(
+    (colId: string, event: ReactMouseEvent) => {
+      if (!transposed || !colId.startsWith("__row__")) return;
+      // 避免与列宽重置（resize handle 的 onDoubleClick）冲突
+      if (event.target instanceof Element && event.target.closest(".db-col-resize-handle")) return;
+      handleColumnSelect(colId);
+      onOpenRowDetail?.();
+      onRowBandSelect?.();
+    },
+    [transposed, handleColumnSelect, onOpenRowDetail, onRowBandSelect],
+  );
+
   const handleRowBandSelect = useCallback(
     (rowIndex: number, event: ReactMouseEvent) => {
       const maxCol = leafColumnCount - 1;
@@ -2039,6 +2040,25 @@ export const TableDataGrid = memo(function TableDataGrid({
       onRowBandSelect?.();
     },
     [leafColumnCount, onRowBandSelect],
+  );
+
+  const handleRowBandDoubleClick = useCallback(
+    (rowIndex: number) => {
+      const maxCol = leafColumnCount - 1;
+      if (maxCol < 0) return;
+      setSelectedRows(new Set());
+      cellDragRef.current = null;
+      rowDragRef.current = null;
+      rowAnchorRef.current = rowIndex;
+      cellAnchorRef.current = { row: rowIndex, col: 0 };
+      setCellRange({
+        start: { row: rowIndex, col: 0 },
+        end: { row: rowIndex, col: maxCol },
+      });
+      onOpenRowDetail?.();
+      onRowBandSelect?.();
+    },
+    [leafColumnCount, onOpenRowDetail, onRowBandSelect],
   );
 
   const columnSizedIds = useMemo(
@@ -2258,10 +2278,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     (ctx: GridBodyCellInteractionContext, anchor: CellOverlayAnchor) => {
       handleCellEdit(
         { rowIndex: ctx.rowIndex, column: ctx.columnId, row: ctx.row },
-        transposed ? { displayColIndex: ctx.colIndex, anchor } : { anchor },
+        { anchor },
       );
     },
-    [handleCellEdit, transposed],
+    [handleCellEdit],
   );
 
   const handleDataCellContextMenu = useCallback(
@@ -2652,6 +2672,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   bodyActionsRef.current = {
     beginRowResize,
     handleRowBandSelect,
+    handleRowBandDoubleClick,
     handleDataCellMouseDown,
     handleDataCellDoubleClick,
     handleDataCellContextMenu,
@@ -2882,6 +2903,7 @@ export const TableDataGrid = memo(function TableDataGrid({
                       ? handleSelectAll
                       : () => handleColumnSelect(colId)
                   }
+                  onDoubleClick={(e) => handleTransposeRowHeaderDoubleClick(colId, e)}
                   title={headerTitle}
                 >
                   {header.isPlaceholder ? null : (

@@ -44,7 +44,7 @@ export function TableDetailPanel({
   position,
   onPositionChange,
   collapsed: _collapsed,
-  onToggleCollapsed: _onToggleCollapsed,
+  onToggleCollapsed,
   columns,
   columnMeta,
   activeRow,
@@ -123,6 +123,17 @@ export function TableDetailPanel({
                   <path d="M10 2.5v11" />
                 </>
               )}
+            </svg>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t("common.close")}
+            aria-label={t("common.close")}
+            onClick={onToggleCollapsed}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
             </svg>
           </Button>
         </div>

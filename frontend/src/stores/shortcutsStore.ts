@@ -9,7 +9,10 @@ import { isMacOS, modKeyLabel } from "../lib/platform";
  */
 export type KeyToken = "Mod" | "Shift" | "Alt" | string;
 
-/** 快捷键在设置页中的模块分类 */
+/** 一组按键组合（修饰键 + 单一主键） */
+export type KeyBinding = KeyToken[];
+
+/** 设置页中的模块分类 */
 export type ShortcutCategory =
   | "general"
   | "tabs"
@@ -39,8 +42,10 @@ export interface ShortcutDef {
   labelKey: string;
   /** i18n 描述 key（可选） */
   descKey?: string;
-  /** 默认按键组合 */
-  defaultKeys: KeyToken[];
+  /** 默认主绑定（向后兼容；第一个绑定） */
+  defaultKeys: KeyBinding;
+  /** 默认备用绑定列表（可多个；满足"一个操作绑定多个快捷键"需求） */
+  defaultAltKeys?: KeyBinding[];
   /**
    * 该条目是否支持录制（如 "1-9" 这种占位表达无法用单一组合表示，标记为只读）
    */
@@ -49,31 +54,70 @@ export interface ShortcutDef {
 
 /** 内置的快捷键定义。新增条目时同步加进两端 i18n。 */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
+  // ─── general ────────────────────────────────────────────────────
   { id: "command-palette", category: "general", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
+  { id: "search-everywhere", category: "general", labelKey: "settings.keybindings.items.searchEverywhere", defaultKeys: ["Shift", "Shift"], nonRecordable: true },
+  { id: "recent-items", category: "general", labelKey: "settings.keybindings.items.recentItems", defaultKeys: ["Mod", "KeyE"] },
   { id: "open-settings", category: "general", labelKey: "settings.keybindings.items.openSettings", defaultKeys: ["Mod", ","] },
+
+  // ─── tabs ──────────────────────────────────────────────────────
   { id: "close-tab", category: "tabs", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "W"] },
-  { id: "switch-tab", category: "tabs", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"] },
+  { id: "switch-tab", category: "tabs", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"], defaultAltKeys: [["Mod", "PageDown"]] },
+  { id: "switch-tab-prev", category: "tabs", labelKey: "settings.keybindings.items.switchTabPrev", defaultKeys: ["Mod", "Shift", "Tab"], defaultAltKeys: [["Mod", "PageUp"]] },
   { id: "switch-nth-tab", category: "tabs", labelKey: "settings.keybindings.items.switchNthTab", defaultKeys: ["Mod", "1-9"], nonRecordable: true },
+  { id: "rename-tab", category: "tabs", labelKey: "settings.keybindings.items.renameTab", defaultKeys: ["F2"] },
+
+  // ─── terminal ──────────────────────────────────────────────────
   { id: "new-terminal", category: "terminal", labelKey: "settings.keybindings.items.newTerminal", defaultKeys: ["Mod", "T"] },
-  { id: "split-vertical", category: "terminal", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "\\"] },
-  { id: "split-horizontal", category: "terminal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "\\"] },
+  { id: "split-vertical", category: "terminal", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "Backslash"] },
+  { id: "split-horizontal", category: "terminal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "Backslash"] },
   { id: "search-terminal", category: "terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "F"] },
+  { id: "clear-terminal", category: "terminal", labelKey: "settings.keybindings.items.clearTerminal", defaultKeys: ["Mod", "KeyL"], defaultAltKeys: [["Mod", "Shift", "KeyK"]] },
+  { id: "copy-terminal", category: "terminal", labelKey: "settings.keybindings.items.copyTerminal", defaultKeys: ["Mod", "Shift", "KeyC"] },
+  { id: "paste-terminal", category: "terminal", labelKey: "settings.keybindings.items.pasteTerminal", defaultKeys: ["Mod", "Shift", "KeyV"] },
+  { id: "scroll-terminal-top", category: "terminal", labelKey: "settings.keybindings.items.scrollTerminalTop", defaultKeys: ["Mod", "Home"] },
+  { id: "scroll-terminal-bottom", category: "terminal", labelKey: "settings.keybindings.items.scrollTerminalBottom", defaultKeys: ["Mod", "End"] },
   { id: "new-ssh", category: "ssh", labelKey: "settings.keybindings.items.newSsh", defaultKeys: ["Mod", "N"] },
-  { id: "toggle-ai", category: "ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Alt", "`"] },
+
+  // ─── ai / workspace ────────────────────────────────────────────
+  { id: "toggle-ai", category: "ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Alt", "Backquote"] },
   { id: "toggle-bottom-workspace", category: "workspace", labelKey: "settings.keybindings.items.toggleBottomWorkspace", defaultKeys: ["Alt", "KeyW"] },
+
+  // ─── sqlEditor ─────────────────────────────────────────────────
+  { id: "run-current-sql", category: "sqlEditor", labelKey: "settings.keybindings.items.runCurrentSql", defaultKeys: ["Mod", "Enter"], defaultAltKeys: [["Mod", "Shift", "KeyR"]] },
+  { id: "run-selected-sql", category: "sqlEditor", labelKey: "settings.keybindings.items.runSelectedSql", defaultKeys: ["Mod", "Shift", "Enter"], defaultAltKeys: [["Mod", "Shift", "KeyR"]] },
+  { id: "run-all-sql", category: "sqlEditor", labelKey: "settings.keybindings.items.runAllSql", defaultKeys: ["Mod", "Shift", "Alt", "Enter"] },
+  { id: "save-sql-file", category: "sqlEditor", labelKey: "settings.keybindings.items.saveSqlFile", defaultKeys: ["Mod", "KeyS"] },
+  { id: "new-query", category: "sqlEditor", labelKey: "settings.keybindings.items.newQuery", defaultKeys: ["Mod", "Shift", "KeyN"] },
   { id: "format-sql", category: "sqlEditor", labelKey: "settings.keybindings.items.formatSql", defaultKeys: ["Alt", "KeyF"] },
   { id: "format-sql-statement", category: "sqlEditor", labelKey: "settings.keybindings.items.formatSqlStatement", defaultKeys: ["Alt", "Shift", "KeyF"] },
+  { id: "switch-connection", category: "sqlEditor", labelKey: "settings.keybindings.items.switchConnection", defaultKeys: ["Mod", "Shift", "KeyC"] },
+  { id: "switch-database", category: "sqlEditor", labelKey: "settings.keybindings.items.switchDatabase", defaultKeys: ["Mod", "Shift", "KeyD"] },
 ];
 
 const SHORTCUT_DEFS_BY_ID: Record<string, ShortcutDef> = Object.fromEntries(
   SHORTCUT_DEFS.map((d) => [d.id, d])
 );
 
+/** 取得某个快捷键定义的所有默认绑定（主 + 备用） */
+function getDefaultBindings(def: ShortcutDef): KeyBinding[] {
+  const all: KeyBinding[] = [def.defaultKeys];
+  if (def.defaultAltKeys) all.push(...def.defaultAltKeys);
+  return all;
+}
+
 interface ShortcutsState {
-  /** 用户自定义覆盖：id → 按键组合 */
-  overrides: Record<string, KeyToken[]>;
-  setShortcut: (id: string, keys: KeyToken[]) => void;
+  /** 用户自定义覆盖：id → 绑定列表（包含主+备，覆盖默认） */
+  overrides: Record<string, KeyBinding[]>;
+  /** 设置整个快捷键的绑定列表（替换所有绑定） */
+  setShortcut: (id: string, bindings: KeyBinding[]) => void;
+  /** 添加一个绑定到现有列表（去重） */
+  addBinding: (id: string, keys: KeyBinding) => void;
+  /** 移除指定索引的绑定 */
+  removeBinding: (id: string, index: number) => void;
+  /** 重置为默认 */
   resetShortcut: (id: string) => void;
+  /** 重置全部 */
   resetAll: () => void;
 }
 
@@ -81,21 +125,54 @@ export const useShortcutsStore = create<ShortcutsState>()(
   persist(
     (set) => ({
       overrides: {},
-      setShortcut: (id, keys) =>
+      setShortcut: (id, bindings) =>
         set((s) => {
           if (SHORTCUT_DEFS_BY_ID[id]?.nonRecordable) return s;
           const def = SHORTCUT_DEFS_BY_ID[id];
+          if (!def) return s;
+          const defaults = getDefaultBindings(def);
           const sameAsDefault =
-            def &&
-            def.defaultKeys.length === keys.length &&
-            def.defaultKeys.every((k, i) => k === keys[i]);
+            bindings.length === defaults.length &&
+            bindings.every((b, i) => sameKeys(b, defaults[i]));
           const next = { ...s.overrides };
           if (sameAsDefault) {
             delete next[id];
           } else {
-            next[id] = keys;
+            next[id] = bindings;
           }
           return { overrides: next };
+        }),
+      addBinding: (id, keys) =>
+        set((s) => {
+          if (SHORTCUT_DEFS_BY_ID[id]?.nonRecordable) return s;
+          const def = SHORTCUT_DEFS_BY_ID[id];
+          if (!def) return s;
+          const current = s.overrides[id] ?? getDefaultBindings(def);
+          // 去重
+          if (current.some((b) => sameKeys(b, keys))) return s;
+          const next = { ...s.overrides, [id]: [...current, keys] };
+          return { overrides: next };
+        }),
+      removeBinding: (id, index) =>
+        set((s) => {
+          const def = SHORTCUT_DEFS_BY_ID[id];
+          if (!def) return s;
+          const current = s.overrides[id] ?? getDefaultBindings(def);
+          if (index < 0 || index >= current.length) return s;
+          // 至少保留一个绑定
+          if (current.length <= 1) return s;
+          const next = current.filter((_, i) => i !== index);
+          const defaults = getDefaultBindings(def);
+          const sameAsDefault =
+            next.length === defaults.length &&
+            next.every((b, i) => sameKeys(b, defaults[i]));
+          const newOverrides = { ...s.overrides };
+          if (sameAsDefault) {
+            delete newOverrides[id];
+          } else {
+            newOverrides[id] = next;
+          }
+          return { overrides: newOverrides };
         }),
       resetShortcut: (id) =>
         set((s) => {
@@ -108,18 +185,40 @@ export const useShortcutsStore = create<ShortcutsState>()(
     }),
     {
       name: "omnipanel-shortcuts",
-      version: 1,
+      version: 2,
       partialize: (s) => ({ overrides: s.overrides }),
+      migrate: (persistedState, fromVersion) => {
+        const persisted = persistedState as {
+          overrides?: Record<string, KeyToken[] | KeyBinding[]>;
+        };
+        if (!persisted) return persistedState as ShortcutsState;
+        // v1 → v2：把每个 override 从 KeyToken[] 升级为 KeyBinding[]（包一层 []）
+        if (fromVersion < 2 && persisted.overrides) {
+          const migrated: Record<string, KeyBinding[]> = {};
+          for (const [id, val] of Object.entries(persisted.overrides)) {
+            if (!val) continue;
+            if (Array.isArray(val) && val.length > 0 && Array.isArray(val[0])) {
+              // 已经是 KeyBinding[] 形态
+              migrated[id] = val as KeyBinding[];
+            } else {
+              // 旧形态 KeyToken[] → 包一层
+              migrated[id] = [val as KeyToken[]];
+            }
+          }
+          persisted.overrides = migrated;
+        }
+        return persisted as ShortcutsState;
+      },
     }
   )
 );
 
-/** 取得某个快捷键当前实际生效的按键组合（覆盖值或默认值） */
-export function getShortcutKeys(id: string): KeyToken[] {
+/** 取得某个快捷键当前实际生效的所有绑定（覆盖值或默认值） */
+export function getShortcutKeys(id: string): KeyBinding[] {
   const def = SHORTCUT_DEFS_BY_ID[id];
   if (!def) return [];
   const override = useShortcutsStore.getState().overrides[id];
-  return override ?? def.defaultKeys;
+  return override ?? getDefaultBindings(def);
 }
 
 /** 与默认组合对比，判断是否被用户修改过 */
@@ -166,16 +265,25 @@ export function prettyKey(token: string): string {
       return "-";
     case "Equal":
       return "=";
+    case "Home":
+      return "Home";
+    case "End":
+      return "End";
+    case "PageUp":
+      return "PageUp";
+    case "PageDown":
+      return "PageDown";
     default:
       if (token.length === 1) return token.toUpperCase();
       if (/^Key[A-Z]$/.test(token)) return token.slice(3);
       if (/^Digit\d$/.test(token)) return token.slice(5);
+      if (/^F\d{1,2}$/.test(token)) return token;
       return token;
   }
 }
 
-/** 把 KeyToken[] 渲染为人类可读字符串（macOS 使用符号） */
-export function formatShortcut(keys: KeyToken[]): string {
+/** 把单个 KeyBinding 渲染为人类可读字符串 */
+export function formatShortcut(keys: KeyBinding): string {
   return keys
     .map((k) => {
       if (k === "Mod") return modKeyLabel();
@@ -185,8 +293,13 @@ export function formatShortcut(keys: KeyToken[]): string {
     .join(isMacOS() ? "" : "+");
 }
 
-/** 把 KeyToken[] 拆为修饰键集合 + 主按键字符串 */
-export function splitModifiers(keys: KeyToken[]): {
+/** 把多个绑定渲染为可读字符串（用 " / " 分隔，如 "Ctrl+Enter / Ctrl+Shift+R"） */
+export function formatShortcutList(keysList: KeyBinding[]): string {
+  return keysList.map(formatShortcut).join(" / ");
+}
+
+/** 把 KeyBinding 拆为修饰键集合 + 主按键字符串 */
+export function splitModifiers(keys: KeyBinding): {
   mods: ("Mod" | "Shift" | "Alt")[];
   main: string | null;
 } {
@@ -203,12 +316,18 @@ export function splitModifiers(keys: KeyToken[]): {
 }
 
 /**
- * 判断一个 KeyboardEvent 是否匹配指定的 KeyToken[]。
- * 用于实际的全局快捷键触发（如 AI 抽屉切换、命令面板等）。
+ * 判断一个 KeyboardEvent 是否匹配指定的任意一个绑定。
+ * keys 为 KeyBinding[]（多绑定），匹配其中任意一个即返回 true。
  */
-export function matchesShortcut(e: KeyboardEvent, keys: KeyToken[]): boolean {
+export function matchesShortcut(e: KeyboardEvent, keys: KeyBinding[]): boolean {
   if (e.type !== "keydown") return false;
-  const { mods, main } = splitModifiers(keys);
+  if (!keys || keys.length === 0) return false;
+  return keys.some((binding) => matchesSingleBinding(e, binding));
+}
+
+/** 单个绑定匹配 */
+function matchesSingleBinding(e: KeyboardEvent, binding: KeyBinding): boolean {
+  const { mods, main } = splitModifiers(binding);
   if (!main) return false;
   if (mods.includes("Mod") !== isModKeyOn(e)) return false;
   if (mods.includes("Shift") !== e.shiftKey) return false;
@@ -216,7 +335,7 @@ export function matchesShortcut(e: KeyboardEvent, keys: KeyToken[]): boolean {
   return mainKeyMatches(e, main);
 }
 
-/** 平台相关的 Mod 键（与 lib/platform.isModKeyPressed 一致；不依赖 navigator） */
+/** 平台相关的 Mod 键 */
 function isModKeyOn(e: KeyboardEvent): boolean {
   return isMacOS() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
 }
@@ -235,12 +354,11 @@ function mainKeyMatches(e: KeyboardEvent, main: string): boolean {
 }
 
 /**
- * 从 KeyboardEvent 反推出规范化 KeyToken[]（仅修饰键 + 单一主键）。
+ * 从 KeyboardEvent 反推出规范化 KeyBinding（仅修饰键 + 单一主键）。
  * 用于 ShortcutRecorder 在用户按键时记录。
  */
-export function eventToKeyTokens(e: KeyboardEvent): KeyToken[] | null {
+export function eventToKeyTokens(e: KeyboardEvent): KeyBinding | null {
   if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
-    // 修饰键被按下时忽略单独的修饰键按下事件
     if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return null;
   }
 
@@ -261,26 +379,24 @@ function codeToKeyToken(e: KeyboardEvent): string | null {
     if (e.key.length === 1) return e.key;
     return null;
   }
-  // 兼容默认键：Backquote、Backslash、Comma、Digit1..9、KeyA..KeyZ 等直接保留
   return e.code;
 }
 
-/** 已被其它快捷键占用的 KeyToken[] 集合（用于冲突检测） */
+/** 已被其它快捷键占用的 KeyBinding 集合（用于冲突检测） */
 export function findShortcutConflict(
-  candidate: KeyToken[],
+  candidate: KeyBinding,
   excludeId?: string
 ): ShortcutDef | null {
   for (const def of SHORTCUT_DEFS) {
     if (def.nonRecordable) continue;
     if (excludeId && def.id === excludeId) continue;
-    if (sameKeys(def.defaultKeys, candidate)) return def;
-    const override = useShortcutsStore.getState().overrides[def.id];
-    if (override && sameKeys(override, candidate)) return def;
+    const all = getShortcutKeys(def.id);
+    if (all.some((b) => sameKeys(b, candidate))) return def;
   }
   return null;
 }
 
-function sameKeys(a: KeyToken[], b: KeyToken[]): boolean {
+function sameKeys(a: KeyBinding, b: KeyBinding): boolean {
   if (a.length !== b.length) return false;
   return a.every((k, i) => k === b[i]);
 }
