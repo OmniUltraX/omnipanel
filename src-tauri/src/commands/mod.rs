@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod ai_chat;
+pub mod auth;
 pub mod bg_task;
 pub mod agents;
 #[allow(dead_code)]

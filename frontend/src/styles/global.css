@@ -7233,6 +7233,26 @@ a {
         gap: var(--sp-1);
     }
 
+    .statusbar-user {
+        cursor: pointer;
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .statusbar-user:hover {
+        color: var(--fg);
+    }
+
+    .statusbar-sep {
+        width: 1px;
+        height: 12px;
+        background: var(--border);
+        flex-shrink: 0;
+    }
+
+
     .statusbar-dot {
         width: 6px;
         height: 6px;
@@ -17974,17 +17994,175 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 
 /* User Center */
 .user-center-subwindow .subwindow-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     padding: 0;
-    overflow: auto;
 }
 
 .user-center-panel {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.user-center-login {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-6);
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.user-center-login__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-3);
+    width: min(100%, 320px);
+    text-align: center;
+}
+
+.user-center-login__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.user-center-login__desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--meta);
+    line-height: 1.5;
+}
+
+.user-center-login__qr-wrap {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin-top: var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: #fff;
+    overflow: hidden;
+}
+
+.user-center-login__qr {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.user-center-login__qr-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: var(--muted);
+    background: var(--surface);
+}
+
+.user-center-login__qr-mask {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.user-center-login__status {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+    min-height: 1.45em;
+}
+
+.user-center-login__status.is-warn {
+    color: var(--warning, #c47a1a);
+}
+
+.user-center-openid {
+    margin: var(--sp-2) 0 0;
+    font-size: 11px;
+    color: var(--meta);
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.user-center-nav {
+    width: 168px;
+    flex-shrink: 0;
+    background: var(--bg-deeper);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: var(--sp-3) 0;
+    border-right: 1px solid var(--border);
+}
+
+.user-center-nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: var(--sp-2) var(--sp-4);
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s, color 0.12s;
+}
+
+.user-center-nav-item:hover {
+    background: var(--surface);
+    color: var(--fg);
+}
+
+.user-center-nav-item.active {
+    background: var(--surface);
+    color: var(--fg);
+}
+
+.user-center-nav-item svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.user-center-main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+}
+
+.user-center-content {
     display: flex;
     flex-direction: column;
     gap: var(--sp-5);
     padding: var(--sp-5);
     min-height: 100%;
     box-sizing: border-box;
+}
+
+.user-center-content--empty {
+    align-items: center;
+    justify-content: center;
 }
 
 .user-center-section__title {
@@ -18085,4 +18263,105 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     padding-top: var(--sp-2);
     display: flex;
     justify-content: flex-end;
+    gap: var(--sp-2);
 }
+
+.user-center-devices__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-3);
+}
+
+.user-center-devices__hint,
+.user-center-devices__error {
+    margin: 0;
+    color: var(--muted);
+}
+
+.user-center-devices__error {
+    color: var(--danger);
+}
+
+.user-center-devices__actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+}
+
+.user-center-device-list {
+    list-style: none;
+    margin: var(--sp-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+
+.user-center-device-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+}
+
+.user-center-device-item.is-current {
+    border-color: var(--accent, var(--border));
+}
+
+.user-center-device-item__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-sm);
+    background: var(--bg);
+    color: var(--fg-2);
+    flex-shrink: 0;
+}
+
+.user-center-device-item__body {
+    min-width: 0;
+    flex: 1;
+}
+
+.user-center-device-item__title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+}
+
+.user-center-device-item__name {
+    font-size: 13px;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-center-device-item__badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--fg-2);
+    border: 1px solid var(--border);
+}
+
+.user-center-device-item__meta {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 11px;
+    color: var(--muted);
+}
+

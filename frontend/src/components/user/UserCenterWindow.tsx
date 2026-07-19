@@ -14,7 +14,7 @@ export function UserCenterWindow() {
       title={t("userCenter.title")}
       onClose={closeUserCenter}
       className="user-center-subwindow"
-      widthRatio={0.42}
+      widthRatio={0.5}
       heightRatio={0.72}
     >
       <UserCenterPanel />

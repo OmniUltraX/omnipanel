@@ -371,6 +371,12 @@ fn export_ipc_bindings() {
         commands::web_search::web_search_jina_key_configured,
         commands::web_search::web_search_test_backend,
         commands::web_search::web_search_test_fetch,
+        // Auth (WeChat QR login)
+        commands::auth::auth_device_identity,
+        commands::auth::auth_list_devices,
+        commands::auth::auth_login_qrcode,
+        commands::auth::auth_login_wait,
+        commands::auth::auth_login_cancel_wait,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -965,6 +971,12 @@ pub fn run() {
         commands::web_search::web_search_jina_key_configured,
         commands::web_search::web_search_test_backend,
         commands::web_search::web_search_test_fetch,
+            // Auth (WeChat QR login)
+            commands::auth::auth_device_identity,
+            commands::auth::auth_list_devices,
+            commands::auth::auth_login_qrcode,
+            commands::auth::auth_login_wait,
+            commands::auth::auth_login_cancel_wait,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,
