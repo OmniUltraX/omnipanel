@@ -2,6 +2,38 @@ export const zhCN = {
   app: {
     tagline: "AI 原生的个人工程工作台",
     banner: "终端 · SSH · 数据库 · 容器 · 协议 · 工作流",
+    login: {
+      title: "登录 OmniPanel",
+      desc: "选择一种方式登录后继续",
+      checking: "正在检查登录状态…",
+      methodsLabel: "登录方式",
+      comingSoon: "该登录方式即将推出",
+      methods: {
+        wechat: "微信",
+        github: "GitHub",
+        email: "邮箱",
+        phone: "手机号",
+      },
+      github: {
+        desc: "使用 GitHub 账号快速登录",
+        action: "使用 GitHub 登录",
+      },
+      email: {
+        label: "邮箱",
+        placeholder: "name@example.com",
+        password: "密码",
+        passwordPlaceholder: "输入密码",
+        action: "登录",
+      },
+      phone: {
+        label: "手机号",
+        placeholder: "请输入手机号",
+        code: "验证码",
+        codePlaceholder: "6 位验证码",
+        sendCode: "获取验证码",
+        action: "登录",
+      },
+    },
     splash: {
       loading: "OmniPanel 正在启动",
       logsPending: "等待启动任务…",

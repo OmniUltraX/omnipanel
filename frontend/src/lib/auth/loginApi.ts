@@ -62,8 +62,10 @@ export async function waitForLogin(
   options?.signal?.addEventListener("abort", onAbort);
 
   try {
+    // 取消等待是预期路径（切 Tab / 刷新二维码 / 卸载），勿打 console.error
     const data = await unwrapCommand(
       commands.authLoginWait(loginId, options?.expireInSec ?? null),
+      { quiet: true },
     );
     return {
       token: data.token,
@@ -74,9 +76,30 @@ export async function waitForLogin(
       throw new DOMException("Aborted", "AbortError");
     }
     const message = error instanceof Error ? error.message : formatIpcError(error as never);
+    const code =
+      error instanceof Error ? ((error as Error & { code?: string }).code ?? null) : null;
+
+    // 主动取消
     if (message.includes("已取消")) {
       throw new DOMException("Aborted", "AbortError");
     }
+
+    // 流被对端/代理断开：可刷新二维码恢复，不当作硬错误刷屏
+    if (
+      code === "timeout" ||
+      message.includes("已断开") ||
+      message.includes("已结束") ||
+      message.includes("decoding response body") ||
+      message.includes("读取登录等待流失败")
+    ) {
+      throw Object.assign(new Error(message), { code: "timeout", name: "LoginWaitDisconnected" });
+    }
+
+    console.error("[auth] login wait failed:", {
+      loginId,
+      message,
+      code,
+    });
     throw error instanceof Error ? error : new Error(message);
   } finally {
     options?.signal?.removeEventListener("abort", onAbort);

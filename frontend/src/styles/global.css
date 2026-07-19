@@ -15792,6 +15792,316 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
     color: var(--accent);
 }
 
+/* Startup login gate */
+.login-page {
+    position: fixed;
+    inset: 0;
+    z-index: 99990;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-deeper);
+    overflow: auto;
+    padding: 24px 16px;
+    box-sizing: border-box;
+}
+
+.login-page__chrome {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    z-index: 3;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    pointer-events: none;
+}
+
+.login-page__chrome-drag {
+    flex: 1;
+    min-width: 0;
+    pointer-events: auto;
+    -webkit-app-region: drag;
+}
+
+.login-page__win-controls {
+    margin-left: 0;
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
+}
+
+
+.login-page__content {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-4);
+    flex-shrink: 0;
+}
+
+.login-page__brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.login-page__logo {
+    margin-bottom: 4px;
+}
+
+.login-page__title {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+}
+
+.login-page__tagline {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 280px;
+}
+
+.login-page__card {
+    width: 100%;
+    height: 520px;
+    padding: var(--sp-4);
+    border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    border-radius: var(--r-md, 10px);
+    background: color-mix(in oklch, var(--surface) 42%, transparent);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: 0 12px 40px color-mix(in oklch, #000 28%, transparent);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.login-page__card-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+    flex-shrink: 0;
+}
+
+.login-page__card-desc {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+
+.login-page__body {
+    margin-top: var(--sp-3);
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* 纵向放不下时：品牌在左、登录面板在右 */
+@media (max-height: 760px) and (min-width: 780px) {
+    .login-page {
+        align-items: center;
+        justify-content: center;
+        padding: 20px 28px;
+    }
+
+    .login-page__content {
+        width: min(880px, 100%);
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(28px, 5vw, 56px);
+    }
+
+    .login-page__brand {
+        flex: 1 1 0;
+        align-items: center;
+        text-align: center;
+        max-width: 320px;
+        gap: 10px;
+    }
+
+    .login-page__logo {
+        margin-bottom: 0;
+    }
+
+    .login-page__title {
+        font-size: 36px;
+    }
+
+    .login-page__tagline {
+        font-size: 14px;
+        max-width: none;
+        line-height: 1.5;
+    }
+
+    .login-page__card {
+        flex: 0 0 400px;
+        width: 400px;
+        height: 520px;
+        overflow: hidden;
+    }
+
+    .login-page__body {
+        min-height: 0;
+    }
+}
+
+/* 高度极矮但宽度不够左右排：缩小间距并允许滚动 */
+@media (max-height: 700px) and (max-width: 779px) {
+    .login-page__content {
+        gap: var(--sp-3);
+    }
+
+    .login-page__title {
+        font-size: 24px;
+    }
+
+    .login-page__body {
+        min-height: 0;
+    }
+
+    .login-page__card {
+        padding: var(--sp-3);
+        height: 480px;
+    }
+}
+
+
+.login-page__methods {
+    margin-top: auto;
+    padding-top: var(--sp-3);
+    border-top: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-shrink: 0;
+}
+
+.login-page__methods-label {
+    margin: 0;
+    font-size: 11px;
+    color: var(--meta);
+}
+
+.login-page__method-icons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+}
+
+.login-page__method-btn {
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--fg-2);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s;
+}
+
+.login-page__method-btn img {
+    display: block;
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.login-page__method-btn:hover {
+    background: var(--surface-hover);
+    border-color: color-mix(in oklch, var(--border) 60%, var(--fg) 40%);
+}
+
+.login-page__method-btn.is-active {
+    background: var(--surface);
+    border-color: var(--fg-2);
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--fg) 12%, transparent);
+}
+
+.login-page__panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+}
+
+.login-page__panel-desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.login-page__form {
+    gap: var(--sp-3);
+}
+
+.login-page__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.login-page__field-label {
+    font-size: 12px;
+    color: var(--fg-2);
+}
+
+.login-page__code-row {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: stretch;
+}
+
+.login-page__code-row > :first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.login-page__oauth-btn,
+.login-page__submit {
+    width: 100%;
+}
+
+.login-page__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--warn, var(--muted));
+    text-align: center;
+}
+
+.user-center-login--embedded {
+    min-height: 0;
+    padding: 0;
+}
+
+.user-center-login--embedded .user-center-login__card {
+    border: none;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+}
+
 @keyframes splash-grid-drift {
     from {
         transform: perspective(600px) rotateX(58deg) translateY(18%) translateX(0);

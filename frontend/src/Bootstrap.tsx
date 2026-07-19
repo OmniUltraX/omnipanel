@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "./components/shell/SplashScreen";
+import { LoginPage } from "./components/user/LoginPage";
 import { useI18n } from "./i18n";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { commands } from "./ipc/bindings";
@@ -17,11 +18,12 @@ import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
+import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
 
 const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
 
-type BootPhase = "splash" | "exit" | "app";
+type BootPhase = "wait-auth" | "login" | "splash" | "exit" | "app";
 
 function removeHtmlBootSplash() {
   dismissHtmlBootSplash();
@@ -35,7 +37,9 @@ function wait(ms: number) {
 
 export function Bootstrap() {
   const { t } = useI18n();
-  const [phase, setPhase] = useState<BootPhase>("splash");
+  const isLoggedIn = useAuthStore(selectIsLoggedIn);
+  const [authReady, setAuthReady] = useState(() => useAuthStore.persist.hasHydrated());
+  const [phase, setPhase] = useState<BootPhase>("wait-auth");
   const [AppComponent, setAppComponent] = useState<ComponentType | null>(null);
   const [bootStep, setBootStep] = useState(0);
   const [bootLog, setBootLog] = useState<string | null>(null);
@@ -47,6 +51,27 @@ export function Bootstrap() {
   }, []);
 
   useEffect(() => {
+    if (useAuthStore.persist.hasHydrated()) {
+      setAuthReady(true);
+      return;
+    }
+    return useAuthStore.persist.onFinishHydration(() => {
+      setAuthReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
+    if (isLoggedIn) {
+      setPhase((prev) => (prev === "wait-auth" || prev === "login" ? "splash" : prev));
+      return;
+    }
+    setPhase((prev) => (prev === "wait-auth" ? "login" : prev));
+  }, [authReady, isLoggedIn]);
+
+  useEffect(() => {
+    if (phase !== "splash") return;
+
     let cancelled = false;
 
     async function boot() {
@@ -129,13 +154,13 @@ export function Bootstrap() {
           await wait(remain);
         }
 
+        // 未完成加载前可被 Strict Mode cleanup 取消；一旦开始退场就必须落到 app，
+        // 否则会停在 splash--exit（透明）造成空白页。
         if (cancelled) return;
 
         setAppComponent(() => App);
         setPhase("exit");
         await wait(EXIT_ANIM_MS);
-
-        if (cancelled) return;
         setPhase("app");
       } catch (err) {
         if (!cancelled) {
@@ -148,7 +173,9 @@ export function Bootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+    // 仅在进入 splash 时启动；t 变化不应打断/重跑启动流程
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once per splash entry
+  }, [phase]);
 
   if (phase === "app" && AppComponent) {
     return <AppComponent />;
@@ -176,6 +203,20 @@ export function Bootstrap() {
           详细堆栈请查看 DevTools 控制台（右键 → 检查 / F12）。
         </div>
       </div>
+    );
+  }
+
+  if (phase === "login") {
+    return <LoginPage />;
+  }
+
+  if (phase === "wait-auth") {
+    return (
+      <SplashScreen
+        step={0}
+        totalSteps={4}
+        log={t("app.login.checking")}
+      />
     );
   }
 

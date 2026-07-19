@@ -11,7 +11,12 @@ import { useUserProfileStore } from "../../stores/userProfileStore";
 
 type LoginUiStatus = "loading" | "ready" | "expired" | "error";
 
-export function WechatLoginPanel() {
+interface WechatLoginPanelProps {
+  /** 启动登录页等外层已有标题时隐藏内部标题区 */
+  hideHeader?: boolean;
+}
+
+export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) {
   const { t } = useI18n();
   const setSession = useAuthStore((s) => s.setSession);
 
@@ -74,6 +79,16 @@ export function WechatLoginPanel() {
       } catch (error) {
         if (fetchAbort.signal.aborted) return;
         if (error instanceof DOMException && error.name === "AbortError") return;
+        // SSE 断开 / 超时：进入可刷新状态，而不是红字硬错误
+        if (
+          error instanceof Error &&
+          (error.name === "LoginWaitDisconnected" ||
+            (error as Error & { code?: string }).code === "timeout")
+        ) {
+          setStatus("expired");
+          setErrorMessage(null);
+          return;
+        }
         setStatus((prev) => (prev === "expired" ? prev : "error"));
         setErrorMessage(error instanceof Error ? error.message : String(error));
       }
@@ -95,10 +110,14 @@ export function WechatLoginPanel() {
           : errorMessage || t("userCenter.login.error");
 
   return (
-    <div className="user-center-login">
+    <div className={`user-center-login${hideHeader ? " user-center-login--embedded" : ""}`}>
       <div className="user-center-login__card">
-        <h3 className="user-center-login__title">{t("userCenter.login.title")}</h3>
-        <p className="user-center-login__desc">{t("userCenter.login.desc")}</p>
+        {!hideHeader ? (
+          <>
+            <h3 className="user-center-login__title">{t("userCenter.login.title")}</h3>
+            <p className="user-center-login__desc">{t("userCenter.login.desc")}</p>
+          </>
+        ) : null}
 
         <div className="user-center-login__qr-wrap">
           {status === "ready" && qrcode?.qrcode_url ? (

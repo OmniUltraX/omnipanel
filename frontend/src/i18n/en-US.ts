@@ -4,6 +4,38 @@ export const enUS: TranslationDict = {
   app: {
     tagline: "Your AI-native engineering workstation",
     banner: "Terminal · SSH · Database · Docker · Protocol · Workflow",
+    login: {
+      title: "Sign in to OmniPanel",
+      desc: "Choose a sign-in method to continue",
+      checking: "Checking sign-in status…",
+      methodsLabel: "Sign-in methods",
+      comingSoon: "This sign-in method is coming soon",
+      methods: {
+        wechat: "WeChat",
+        github: "GitHub",
+        email: "Email",
+        phone: "Phone",
+      },
+      github: {
+        desc: "Sign in quickly with your GitHub account",
+        action: "Continue with GitHub",
+      },
+      email: {
+        label: "Email",
+        placeholder: "name@example.com",
+        password: "Password",
+        passwordPlaceholder: "Enter password",
+        action: "Sign in",
+      },
+      phone: {
+        label: "Phone",
+        placeholder: "Enter phone number",
+        code: "Verification code",
+        codePlaceholder: "6-digit code",
+        sendCode: "Send code",
+        action: "Sign in",
+      },
+    },
     splash: {
       loading: "Starting OmniPanel",
       logsPending: "Waiting for startup tasks…",

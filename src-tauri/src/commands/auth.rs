@@ -413,13 +413,30 @@ pub async fn auth_login_cancel_wait(login_id: String) -> Result<(), OmniError> {
     Ok(())
 }
 
+fn is_benign_sse_disconnect(cause: &str) -> bool {
+    let lower = cause.to_ascii_lowercase();
+    lower.contains("decoding response body")
+        || lower.contains("connection reset")
+        || lower.contains("connection closed")
+        || lower.contains("broken pipe")
+        || lower.contains("unexpected eof")
+        || lower.contains("error sending request")
+}
+
 async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLoginSuccess, OmniError> {
     let resp = client
         .get(url)
         .header(reqwest::header::ACCEPT, "text/event-stream")
         .send()
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "连接登录等待通道失败").with_cause(e.to_string()))?;
+        .map_err(|e| {
+            let cause = e.to_string();
+            if is_benign_sse_disconnect(&cause) {
+                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码").with_cause(cause)
+            } else {
+                OmniError::new(ErrorCode::Connection, "连接登录等待通道失败").with_cause(cause)
+            }
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -438,7 +455,13 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
 
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "读取登录等待流失败").with_cause(e.to_string())
+            let cause = e.to_string();
+            // 取消/代理中断/服务端提前关流时常见，按可恢复断开处理
+            if is_benign_sse_disconnect(&cause) {
+                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码").with_cause(cause)
+            } else {
+                OmniError::new(ErrorCode::Io, "读取登录等待流失败").with_cause(cause)
+            }
         })?;
         buffer.push_str(&String::from_utf8_lossy(&bytes));
 
@@ -470,6 +493,17 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
                     let openid = payload.openid.unwrap_or_default();
                     return Ok(AuthLoginSuccess { token, openid });
                 }
+                // timeout / fail / ping 等事件：继续等或在 fail 时退出
+                if name == "timeout" || name == "fail" {
+                    return Err(OmniError::new(
+                        ErrorCode::Timeout,
+                        if data.is_empty() {
+                            "登录等待已结束，请刷新二维码".to_string()
+                        } else {
+                            data
+                        },
+                    ));
+                }
                 continue;
             }
 
@@ -483,7 +517,7 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
 
     Err(OmniError::new(
         ErrorCode::Timeout,
-        "登录等待已结束，未收到成功事件",
+        "登录等待已结束，请刷新二维码",
     ))
 }
 
