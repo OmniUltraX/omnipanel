@@ -19576,6 +19576,12 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     flex: 1;
 }
 
+.user-center-device-item__delete {
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--danger, var(--fg-2));
+}
+
 .user-center-device-item__title-row {
     display: flex;
     align-items: center;

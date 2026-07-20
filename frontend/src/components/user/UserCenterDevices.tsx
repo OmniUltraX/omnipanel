@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import {
+  deleteDevice,
   fetchDeviceIdentity,
   fetchDevices,
   isAuthSessionError,
   type AuthDevice,
 } from "../../lib/auth/loginApi";
+import { appConfirm } from "../../lib/appConfirm";
 import { useAuthStore } from "../../stores/authStore";
+import { useUserProfileStore } from "../../stores/userProfileStore";
+import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { IconMonitor } from "../ui/icons/Icons";
@@ -40,6 +44,7 @@ export function UserCenterDevices() {
   const { t, locale } = useI18n();
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
+  const clearProfile = useUserProfileStore((s) => s.clearProfile);
 
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState<AuthDevice[]>([]);
@@ -47,6 +52,7 @@ export function UserCenterDevices() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     setRefreshKey((key) => key + 1);
@@ -90,6 +96,46 @@ export function UserCenterDevices() {
 
     return () => abort.abort();
   }, [token, refreshKey, t]);
+
+  const handleDelete = useCallback(
+    async (device: AuthDevice) => {
+      if (!token || !device.deviceId || deletingId) return;
+      const isCurrent = Boolean(localDeviceId && device.deviceId === localDeviceId);
+      const name = device.deviceName.trim() || device.deviceId || t("userCenter.devices.unnamed");
+      const confirmed = await appConfirm(
+        isCurrent
+          ? t("userCenter.devices.deleteCurrentConfirm", { name })
+          : t("userCenter.devices.deleteConfirm", { name }),
+        t("userCenter.devices.deleteTitle"),
+        { kind: "warning", confirmLabel: t("userCenter.devices.delete") },
+      );
+      if (!confirmed) return;
+
+      setDeletingId(device.deviceId);
+      try {
+        await deleteDevice(token, device.deviceId);
+        setDevices((prev) => prev.filter((item) => item.deviceId !== device.deviceId));
+        showToast(t("userCenter.devices.deleteSuccess"));
+        if (isCurrent) {
+          clearProfile();
+          logout();
+        }
+      } catch (error) {
+        if (isAuthSessionError(error)) {
+          clearProfile();
+          logout();
+          showToast(t("userCenter.devices.sessionExpired"));
+        } else {
+          showToast(
+            error instanceof Error ? error.message : t("userCenter.devices.deleteFailed"),
+          );
+        }
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [clearProfile, deletingId, localDeviceId, logout, t, token],
+  );
 
   if (loading) {
     return (
@@ -155,6 +201,7 @@ export function UserCenterDevices() {
           {devices.map((device) => {
             const isCurrent = Boolean(localDeviceId && device.deviceId === localDeviceId);
             const name = device.deviceName.trim() || device.deviceId || t("userCenter.devices.unnamed");
+            const busy = deletingId === device.deviceId;
             return (
               <li
                 key={device.id || device.deviceId || `${device.ip}-${device.lastLoginAt}`}
@@ -181,6 +228,16 @@ export function UserCenterDevices() {
                     </span>
                   </div>
                 </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="user-center-device-item__delete"
+                  disabled={Boolean(deletingId)}
+                  onClick={() => void handleDelete(device)}
+                >
+                  {busy ? t("userCenter.devices.deleting") : t("userCenter.devices.delete")}
+                </Button>
               </li>
             );
           })}

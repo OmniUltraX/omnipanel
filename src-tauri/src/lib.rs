@@ -397,6 +397,7 @@ fn export_ipc_bindings() {
         // Auth (WeChat QR login)
         commands::auth::auth_device_identity,
         commands::auth::auth_list_devices,
+        commands::auth::auth_delete_device,
         commands::auth::auth_get_me,
         commands::auth::auth_update_profile,
         commands::auth::auth_login_qrcode,
@@ -1055,6 +1056,7 @@ fn build_and_run_tauri() {
             // Auth (WeChat QR login)
             commands::auth::auth_device_identity,
             commands::auth::auth_list_devices,
+            commands::auth::auth_delete_device,
             commands::auth::auth_get_me,
             commands::auth::auth_update_profile,
             commands::auth::auth_login_qrcode,

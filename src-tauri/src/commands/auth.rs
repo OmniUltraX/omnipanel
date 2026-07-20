@@ -329,6 +329,69 @@ pub async fn auth_list_devices(
         .collect())
 }
 
+/// 删除已授权设备（DELETE /api/devices/{device_id}）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_delete_device(
+    state: State<'_, AppState>,
+    token: String,
+    device_id: String,
+) -> Result<(), OmniError> {
+    let token = token.trim().to_string();
+    let device_id = device_id.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if device_id.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "device_id 不能为空"));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url(&format!("/api/devices/{}", urlencoding_encode(&device_id)));
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = client
+        .delete(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "删除设备失败").with_cause(e.to_string())
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取删除设备响应失败").with_cause(e.to_string())
+    })?;
+
+    if status.as_u16() == 401 {
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+    }
+
+    if !status.is_success() {
+        let msg = serde_json::from_str::<ApiErrorBody>(&body)
+            .ok()
+            .and_then(|b| b.error)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("删除设备失败 (HTTP {status})"));
+        return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
+    }
+
+    // 成功体形如 { "status": "deleted", "device_id": "xxx" }；兼容空响应
+    if !body.trim().is_empty() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(error) = value.get("error").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+            {
+                return Err(OmniError::new(ErrorCode::Internal, error.to_string()));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
     AuthUserProfile {
         id: parsed.id.unwrap_or(0),

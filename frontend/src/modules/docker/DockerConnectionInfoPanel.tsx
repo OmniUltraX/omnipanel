@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/Button";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
+import { appPrompt } from "../../lib/appPrompt";
 import { commands, type DockerConnectionInfo, type DockerProbe } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
@@ -31,6 +32,9 @@ export type ConnectionInfoSubTab =
   | "images"
   | "networks"
   | "volumes";
+
+/** 二次确认后仍须在输入框原样输入该词，才真正执行重启 */
+const RESTART_CONFIRM_TOKEN = "RESTART";
 
 const DETAIL_TABS: readonly ConnectionInfoSubTab[] = [
   "containers",
@@ -134,12 +138,39 @@ export function DockerConnectionInfoPanel({
   const handleRestartDocker = useCallback(() => {
     if (!canRestart || restartBusy) return;
     void (async () => {
-      const confirmed = await appConfirm(
-        t("docker.connectionPanel.restartConfirm"),
-        t("docker.connectionPanel.restartDocker"),
-        { kind: "warning", confirmLabel: t("docker.connectionPanel.restartDocker") },
+      const target = connection.name || connection.hostLabel || connection.connectionId;
+
+      const firstOk = await appConfirm(
+        t("docker.connectionPanel.restartConfirmMessage", { target }),
+        t("docker.connectionPanel.restartConfirmTitle"),
+        {
+          confirmLabel: t("docker.connectionPanel.restartConfirmContinue"),
+        },
       );
-      if (!confirmed) return;
+      if (!firstOk) return;
+
+      const secondOk = await appConfirm(
+        t("docker.connectionPanel.restartConfirmMessage2", { target }),
+        t("docker.connectionPanel.restartConfirmTitle2"),
+        {
+          confirmLabel: t("docker.connectionPanel.restartConfirmContinue2"),
+        },
+      );
+      if (!secondOk) return;
+
+      const typed = await appPrompt(
+        t("docker.connectionPanel.restartTypePrompt", {
+          token: RESTART_CONFIRM_TOKEN,
+          target,
+        }),
+        "",
+        t("docker.connectionPanel.restartTypeTitle"),
+      );
+      if (typed == null) return;
+      if (typed.trim() !== RESTART_CONFIRM_TOKEN) {
+        showToast(t("docker.connectionPanel.restartTypeMismatch"));
+        return;
+      }
 
       setRestartBusy(true);
       try {
@@ -147,14 +178,25 @@ export function DockerConnectionInfoPanel({
         showToast(t("docker.connectionPanel.restartSuccess"));
         await refreshProbe();
       } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
         showToast(
-          `${t("docker.connectionPanel.restartFailed")}: ${e instanceof Error ? e.message : String(e)}`,
+          detail
+            ? `${t("docker.connectionPanel.restartFailed")}: ${detail}`
+            : t("docker.connectionPanel.restartFailed"),
         );
       } finally {
         setRestartBusy(false);
       }
     })();
-  }, [canRestart, connection.connectionId, refreshProbe, restartBusy, t]);
+  }, [
+    canRestart,
+    connection.connectionId,
+    connection.hostLabel,
+    connection.name,
+    refreshProbe,
+    restartBusy,
+    t,
+  ]);
 
   return (
     <div className="docker-connection-info-panel">
