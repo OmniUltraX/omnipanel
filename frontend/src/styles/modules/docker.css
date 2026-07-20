@@ -643,11 +643,44 @@
     .docker-daemon-config-tab__title {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 6px;
         min-width: 0;
         font-size: 13px;
         font-weight: 600;
         color: var(--fg);
+    }
+
+    .docker-daemon-config-tab__modes {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border-radius: var(--r-md);
+        background: var(--surface-2, var(--surface));
+        border: 1px solid var(--border);
+        width: fit-content;
+    }
+
+    .docker-daemon-config-tab__mode {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 5px 12px;
+        border-radius: calc(var(--r-md) - 2px);
+        cursor: pointer;
+        line-height: 1.2;
+    }
+
+    .docker-daemon-config-tab__mode:hover {
+        color: var(--fg);
+    }
+
+    .docker-daemon-config-tab__mode.active {
+        background: var(--bg);
+        color: var(--fg);
+        box-shadow: 0 0 0 1px var(--border);
     }
 
     .docker-daemon-config-tab__path {
@@ -657,6 +690,126 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .docker-daemon-config-tab__form {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 4px 2px 12px;
+    }
+
+    .docker-daemon-config-tab__form .form-field--horizontal {
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .docker-daemon-config-tab__form .form-field--horizontal .form-label-row {
+        flex: 0 0 120px;
+        width: 120px;
+        padding-top: 6px;
+    }
+
+    .docker-daemon-config-tab__form-error {
+        color: var(--danger);
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: var(--r-md);
+        border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+        background: color-mix(in srgb, var(--danger) 8%, transparent);
+    }
+
+    .docker-daemon-config-tab__textarea {
+        width: 100%;
+        min-height: 72px;
+        resize: vertical;
+        box-sizing: border-box;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 12px;
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        line-height: 1.45;
+        padding: 8px 10px;
+    }
+
+    .docker-daemon-config-tab__textarea--single {
+        min-height: 40px;
+        resize: vertical;
+    }
+
+    .docker-daemon-config-tab__textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .docker-daemon-config-tab__textarea:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .docker-daemon-config-tab__log-rotation {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+    }
+
+    .docker-daemon-config-tab__log-opts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        width: 100%;
+    }
+
+    .docker-daemon-config-tab__inline-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .docker-daemon-config-tab__inline-field input {
+        width: 88px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 12px;
+        padding: 5px 8px;
+    }
+
+    .docker-daemon-config-tab__inline-field input:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .docker-daemon-config-tab__radios {
+        display: inline-flex;
+        align-items: center;
+        gap: 16px;
+        min-height: 28px;
+    }
+
+    .docker-daemon-config-tab__radio {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--fg);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .docker-daemon-config-tab__radio input {
+        margin: 0;
+        accent-color: var(--accent);
     }
 
     .docker-daemon-config-tab__editor {

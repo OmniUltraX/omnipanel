@@ -116,6 +116,11 @@ export async function fetchDevices(token: string): Promise<AuthDevice[]> {
   return unwrapCommand(commands.authListDevices(token));
 }
 
+/** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}）。 */
+export async function deleteDevice(token: string, deviceId: string): Promise<void> {
+  await unwrapCommand(commands.authDeleteDevice(token, deviceId));
+}
+
 export interface AuthUserProfile {
   id: number;
   openid: string;
